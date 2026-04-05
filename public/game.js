@@ -1,0 +1,3346 @@
+// ═══════════════════════════════════════════════════════════════
+// CALIGO - 클라이언트 (game.js)
+// ═══════════════════════════════════════════════════════════════
+
+const socket = io();
+
+// ── 게임 상태 ─────────────────────────────────────────────────
+const S = {
+  playerIdx: null,
+  myName: null,
+  opponentName: null,
+  roomId: null,
+  phase: 'lobby',
+
+  // 서버에서 받은 캐릭터 데이터
+  characters: null,
+
+  // 드래프트 (단계별)
+  draftStep: 1,            // 현재 단계 (1,2,3)
+  draftSelected: {},       // { 1: type, 2: type, 3: type }
+  draftPicked: [],         // 이미 확정된 타입 목록
+
+  // HP 분배
+  myDraft: null,
+  hpValues: [4, 3, 3],
+  hasTwins: false,
+  twinTierHp: 0,
+
+  // 게임
+  myPieces: [],
+  oppPieces: [],
+  isMyTurn: false,
+  turnNumber: 1,
+  sp: [1, 1],
+  instantSp: [0, 0],
+  boardBounds: { min: 0, max: 4 },
+  boardObjects: [],
+
+  // 액션 상태
+  action: null,           // null | 'move' | 'attack' | 'skill_target'
+  selectedPiece: null,    // piece index
+  targetSelectMode: false, // shadowAssassin/witch 타겟 선택
+  skillTargetData: null,  // 스킬 대상 선택 데이터
+
+  // 공격/피격 기록
+  attackLog: [],
+};
+
+// ── 화면 전환 ─────────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById(id);
+  if (target) target.classList.add('active');
+  S.phase = id.replace('screen-', '');
+}
+
+// ── 로비 ──────────────────────────────────────────────────────
+document.getElementById('btn-join').addEventListener('click', () => {
+  const name   = document.getElementById('input-name').value.trim();
+  const roomId = document.getElementById('input-room').value.trim();
+  if (!name || !roomId) { showError('lobby-error', '닉네임과 방 코드를 입력하세요.'); return; }
+  S.myName = name;
+  S.roomId = roomId;
+  socket.emit('join_room', { roomId, playerName: name });
+});
+
+document.getElementById('btn-ai').addEventListener('click', () => {
+  const name = document.getElementById('input-name').value.trim();
+  if (!name) { showError('lobby-error', '닉네임을 입력하세요.'); return; }
+  S.myName = name;
+  S.opponentName = 'AI 🤖';
+  socket.emit('join_ai', { playerName: name });
+});
+
+document.getElementById('input-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('input-room').focus();
+});
+document.getElementById('input-room').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-join').click();
+});
+
+// ── 관전하기 버튼 ──
+document.getElementById('btn-spectate').addEventListener('click', () => {
+  const modal = document.getElementById('spectate-modal');
+  modal.classList.remove('hidden');
+  document.getElementById('spectate-room-list').innerHTML = '<p class="muted">방 목록을 불러오는 중...</p>';
+  socket.emit('list_rooms');
+});
+document.getElementById('spectate-modal-close').addEventListener('click', () => {
+  document.getElementById('spectate-modal').classList.add('hidden');
+});
+
+socket.on('room_list', (list) => {
+  const container = document.getElementById('spectate-room-list');
+  if (!list || list.length === 0) {
+    container.innerHTML = '<p class="muted">현재 진행 중인 방이 없습니다.</p>';
+    return;
+  }
+  const phaseNames = { draft: '드래프트', hp_distribution: 'HP 분배', reveal: '캐릭터 공개', placement: '배치', game: '전투 중' };
+  container.innerHTML = list.map(r => `
+    <div class="spectate-room-item" data-room="${r.roomId}">
+      <div class="spectate-room-players">${escapeHtmlGlobal(r.p0Name)} <span class="spectate-vs">vs</span> ${escapeHtmlGlobal(r.p1Name)}</div>
+      <div class="spectate-room-meta">
+        <span class="spectate-phase">${phaseNames[r.phase] || r.phase}</span>
+        ${r.turnNumber > 0 ? `<span class="spectate-turn">턴 ${r.turnNumber}</span>` : ''}
+        <span class="spectate-viewers">👁 ${r.spectators}</span>
+      </div>
+    </div>
+  `).join('');
+  container.querySelectorAll('.spectate-room-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const roomId = el.dataset.room;
+      let name = document.getElementById('input-name').value.trim();
+      if (!name) name = '관전자' + Math.floor(Math.random() * 1000);
+      S.myName = name;
+      S.roomId = roomId;
+      document.getElementById('spectate-modal').classList.add('hidden');
+      socket.emit('join_room', { roomId, playerName: name });
+    });
+  });
+});
+
+function escapeHtmlGlobal(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 소켓 이벤트 핸들러 ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+socket.on('joined', ({ idx, roomId, characters }) => {
+  S.playerIdx = idx;
+  S.characters = characters;
+  document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
+  showScreen('screen-waiting');
+});
+
+socket.on('waiting', () => showScreen('screen-waiting'));
+
+// ── 관전자 모드 ──
+socket.on('spectator_joined', ({ roomId, phase, gameState, p0Name, p1Name }) => {
+  S.isSpectator = true;
+  S.playerIdx = -1;
+  S.specP0Name = p0Name;
+  S.specP1Name = p1Name;
+  // 관전자 전용 채팅 표시
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) chatInput.placeholder = '관전자 채팅 (관전자끼리만 보입니다)';
+  if ((phase === 'game' || phase === 'placement' || phase === 'reveal') && gameState) {
+    // 게임 화면 보이기 전에 보드 초기화
+    buildBoard('game-board', () => {});
+    renderSpectatorGame(gameState);
+    showScreen('screen-game');
+  } else {
+    // 게임 시작 전이면 대기 화면
+    document.getElementById('waiting-title').textContent = `👁 관전 모드 — ${p0Name} vs ${p1Name}`;
+    document.getElementById('waiting-sub').textContent = phase === 'waiting' ? '게임이 아직 시작되지 않았습니다. 잠시 기다려주세요...' :
+      '게임이 진행 중입니다. 전투가 시작되면 관전이 가능합니다.';
+    document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
+    showScreen('screen-waiting');
+  }
+});
+
+socket.on('spectator_update', (gameState) => {
+  if (!S.isSpectator) return;
+  // 보드가 비어있으면 먼저 빌드
+  const board = document.getElementById('game-board');
+  if (board && !board.querySelector('.cell')) {
+    buildBoard('game-board', () => {});
+  }
+  renderSpectatorGame(gameState);
+  if (!document.getElementById('screen-game').classList.contains('active')) {
+    showScreen('screen-game');
+  }
+});
+
+// ── 관전자 전투 로그 ──
+socket.on('spectator_log', ({ msg, type }) => {
+  if (!S.isSpectator) return;
+  addLog(msg, type || 'system');
+  if (type === 'skill' || type === 'hit') {
+    showSkillToast(msg, type === 'hit');
+  }
+});
+
+socket.on('opponent_joined', ({ opponentName }) => {
+  S.opponentName = opponentName;
+});
+
+socket.on('phase_change', ({ phase }) => {
+  if (phase === 'draft') {
+    S.draftStep = 1;
+    S.draftSelected = {};
+    S.draftPicked = [];
+    buildDraftStepUI();
+    showScreen('screen-draft');
+  }
+});
+
+// ── 드래프트 확정 ──
+socket.on('draft_ok', ({ t1, t2, t3 }) => {
+  S.myDraft = { t1, t2, t3 };
+});
+
+// ── HP 분배 페이즈 ──
+socket.on('hp_phase', ({ draft, hasTwins }) => {
+  S.myDraft = draft;
+  S.hasTwins = !!hasTwins;
+  buildHpUI();
+  showScreen('screen-hp');
+});
+
+socket.on('hp_ok', () => {
+  // 대기
+});
+
+socket.on('twin_split_needed', ({ twinTierHp }) => {
+  S.twinTierHp = twinTierHp;
+  showTwinSplit(twinTierHp);
+});
+
+// ── 캐릭터 공개 ──
+socket.on('reveal_phase', ({ yourPieces, oppPieces }) => {
+  S.myPieces = yourPieces;
+  S.oppPieces = oppPieces;
+  buildRevealUI(yourPieces, oppPieces);
+  showScreen('screen-reveal');
+});
+
+// ── 배치 ──
+socket.on('placement_phase', ({ pieces }) => {
+  S.myPieces = pieces;
+  buildPlacementUI();
+  showScreen('screen-placement');
+});
+
+socket.on('placed_ok', ({ pieceIdx, col, row }) => {
+  S.myPieces[pieceIdx].col = col;
+  S.myPieces[pieceIdx].row = row;
+  updatePlacementUI();
+});
+
+// ── 게임 시작 ──
+socket.on('game_start', (data) => {
+  S.myPieces = data.yourPieces || [];
+  S.oppPieces = data.oppPieces || [];
+  S.turnNumber = data.turnNumber;
+  S.isMyTurn = data.isYourTurn;
+  S.sp = data.sp || [1, 1];
+  S.instantSp = data.instantSp || [0, 0];
+  S.boardBounds = data.boardBounds || { min: 0, max: 4 };
+  S.boardObjects = data.boardObjects || [];
+  S.attackLog = [];
+  S.action = null;
+  S.selectedPiece = null;
+
+  buildGameUI();
+  showScreen('screen-game');
+  refreshGameView();
+  showActionBar(S.isMyTurn);
+  updateSPBar();
+  addLog(`게임 시작! ${S.isMyTurn ? '먼저 시작합니다.' : '상대방이 먼저 시작합니다.'}`, 'system');
+});
+
+// ── 내 턴 ──
+socket.on('your_turn', (data) => {
+  S.isMyTurn = true;
+  S.turnNumber = data.turnNumber;
+  S.myPieces = data.yourPieces || S.myPieces;
+  S.oppPieces = data.oppPieces || S.oppPieces;
+  S.sp = data.sp || S.sp;
+  S.instantSp = data.instantSp || S.instantSp;
+  S.boardBounds = data.boardBounds || S.boardBounds;
+  S.boardObjects = data.boardObjects || S.boardObjects;
+  S.action = null;
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  S.actionDone = false;
+  S.moveDone = false;
+  S.skillsUsedThisTurn = [];
+  S.actionUsedSkillReplace = false;
+
+  refreshGameView();
+  showActionBar(true);
+  updateSPBar();
+  addLog(`[턴 ${data.turnNumber}] 내 차례`, 'system');
+});
+
+// ── 상대 턴 ──
+socket.on('opp_turn', (data) => {
+  S.isMyTurn = false;
+  S.turnNumber = data.turnNumber;
+  S.oppPieces = data.oppPieces || S.oppPieces;
+  S.sp = data.sp || S.sp;
+  S.instantSp = data.instantSp || S.instantSp;
+  S.boardBounds = data.boardBounds || S.boardBounds;
+  S.boardObjects = data.boardObjects || S.boardObjects;
+  S.action = null;
+  S.selectedPiece = null;
+
+  refreshGameView();
+  showActionBar(false);
+  updateSPBar();
+  addLog(`[턴 ${data.turnNumber}] 상대방 차례`, 'system');
+});
+
+// ── 이동 결과 ──
+socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twinMovePending }) => {
+  S.myPieces = yourPieces;
+  if (boardObjects) S.boardObjects = boardObjects;
+  const pc = yourPieces[pieceIdx];
+  addLog(`🚶 ${pc.name} 이동: (${prev.col+1},${prev.row+1}) → (${col+1},${row+1})`, 'move');
+
+  if (twinMovePending) {
+    // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
+    S.action = 'move';
+    S.selectedPiece = null;
+    S.twinMovePending = true;
+    renderGameBoard();
+    renderMyPieces();
+    const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
+    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}도 이동시키세요!`;
+    showActionBar(true);
+  } else {
+    S.action = null;
+    S.selectedPiece = null;
+    S.twinMovePending = false;
+    S.moveDone = true;
+    S.actionDone = true;
+    renderGameBoard();
+    renderMyPieces();
+    showActionBar(true);
+  }
+});
+
+socket.on('opp_moved', ({ msg }) => {
+  addLog(`🚶 ${msg}`, 'move');
+});
+
+// ── 공격 결과 ──
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPieces }) => {
+  if (oppPieces) { S.oppPieces = oppPieces; }
+  if (yourPieces) { S.myPieces = yourPieces; }
+  const pc = S.myPieces[pieceIdx];
+
+  for (const c of cellResults) {
+    S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
+  }
+
+  if (!anyHit) {
+    addLog(`⚔ ${pc.name} 공격 — 빗나감!`, 'miss');
+  } else {
+    for (const h of cellResults.filter(c => c.hit)) {
+      const info = h.destroyed
+        ? ` 💀 ${h.revealedName||'적'}(${h.revealedIcon||'?'}) 격파! (${h.damage} 피해)`
+        : ` 명중! (${h.damage} 피해)`;
+      addLog(`⚔ ${pc.name} (${h.col+1},${h.row+1}) →${info}`, 'hit');
+    }
+  }
+
+  S.action = null;
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  S.actionDone = true;
+
+  // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
+  if (pc && pc.dualBladeAttacksLeft > 0) {
+    addLog(`⚔ 쌍검무: 추가 공격 가능! (남은 공격: ${pc.dualBladeAttacksLeft})`, 'info');
+  }
+
+  renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+  showActionBar(true);
+});
+
+// ── 피격 ──
+socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
+  S.myPieces = yourPieces;
+  if (hitPieces.length === 0) {
+    addLog(`🛡 상대방 공격 — 빗나감`, 'miss');
+  } else {
+    for (const h of hitPieces) {
+      addLog(`🛡 (${h.col+1},${h.row+1}) 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
+    }
+  }
+  renderGameBoard();
+  renderMyPieces();
+});
+
+// ── SP 업데이트 ──
+socket.on('sp_update', ({ sp, instantSp }) => {
+  S.sp = sp;
+  if (instantSp) S.instantSp = instantSp;
+  updateSPBar();
+});
+
+// ── 보드 축소 경고 ──
+socket.on('board_shrink_warning', ({ turnsRemaining }) => {
+  const el = document.getElementById('shrink-warning');
+  el.classList.remove('hidden');
+  el.textContent = `⚠ 보드 축소까지 ${turnsRemaining}턴! (턴 50에 외곽 파괴)`;
+});
+
+// ── 보드 축소 실행 ──
+socket.on('board_shrink', ({ bounds, eliminated }) => {
+  S.boardBounds = bounds;
+  addLog(`🔥 보드 축소! 5×5 → 3×3`, 'shrink');
+  if (eliminated && eliminated.length > 0) {
+    for (const e of eliminated) {
+      addLog(`  💀 ${e.icon} ${e.name} 파괴됨!`, 'shrink');
+    }
+  }
+  document.getElementById('shrink-warning').classList.add('hidden');
+  renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+});
+
+// ── 스킬 결과 ──
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed }) => {
+  if (yourPieces) S.myPieces = yourPieces;
+  if (oppPieces) S.oppPieces = oppPieces;
+  if (sp) { S.sp = sp; }
+  if (instantSp) { S.instantSp = instantSp; }
+  if (sp || instantSp) { updateSPBar(); }
+  if (boardObjects) S.boardObjects = boardObjects;
+  if (actionDone !== undefined) S.actionDone = actionDone;
+  if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
+  if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
+  addLog(`✦ ${msg}`, 'skill');
+  showSkillToast(`✦ 내 스킬: ${msg}`);
+  renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+  if (S.isMyTurn) showActionBar(true);
+});
+
+// ── 상태 업데이트 (상대의 스킬 사용 시) ──
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed }) => {
+  if (yourPieces) S.myPieces = yourPieces;
+  if (oppPieces) S.oppPieces = oppPieces;
+  if (sp) { S.sp = sp; }
+  if (instantSp) { S.instantSp = instantSp; }
+  if (sp || instantSp) { updateSPBar(); }
+  if (boardObjects) S.boardObjects = boardObjects;
+  if (skillUsed) {
+    const toastMsg = `🚨 [상대] ${skillUsed.icon} ${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
+    showSkillToast(toastMsg, true);
+    addLog(toastMsg, 'skill-enemy');
+  } else {
+    showSkillToast(`🚨 [상대] 스킬 사용!`, true);
+    addLog(`🚨 [상대] 스킬을 사용했습니다.`, 'skill-enemy');
+  }
+  renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+});
+
+// ── 정찰 결과 ──
+socket.on('scout_result', ({ axis, value, targetName }) => {
+  const label = axis === 'row' ? `가로행 ${value+1}` : `세로열 ${value+1}`;
+  addLog(`🔭 정찰: ${targetName}은(는) ${label}에 있다!`, 'skill');
+});
+
+// ── 쥐 소환 ──
+socket.on('rats_spawned', ({ rats, owner }) => {
+  const who = owner === S.playerIdx ? '아군' : '상대';
+  addLog(`🐀 ${who} 쥐 ${rats.length}마리 소환!`, 'skill');
+  renderGameBoard();
+});
+
+// ── 드래곤 소환 ──
+socket.on('dragon_spawned', ({ dragon, owner }) => {
+  const who = owner === S.playerIdx ? '아군' : '상대';
+  addLog(`🐲 ${who} 드래곤 소환! (${dragon.col+1},${dragon.row+1})`, 'skill');
+});
+
+// ── 함정 발동 ──
+socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
+  addLog(`🪤 (${col+1},${row+1}) 함정 발동! ${pieceInfo.icon}${pieceInfo.name}에게 ${damage} 피해`, 'hit');
+  renderGameBoard();
+});
+
+// ── 폭탄 폭발 ──
+socket.on('bomb_detonated', ({ col, row, hits }) => {
+  addLog(`💣 (${col+1},${row+1}) 폭탄 폭발!`, 'hit');
+  for (const h of hits) {
+    addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
+  }
+  renderGameBoard();
+  renderMyPieces();
+});
+
+// ── 게임 오버 ──
+socket.on('game_over', ({ win, opponentName, winnerName, loserName, spectator }) => {
+  showScreen('screen-gameover');
+  if (spectator || S.isSpectator) {
+    document.getElementById('gameover-icon').textContent = '👁';
+    document.getElementById('gameover-title').textContent = '게임 종료';
+    document.getElementById('gameover-title').style.color = 'var(--accent)';
+    document.getElementById('gameover-sub').textContent = `${winnerName || '?'}이(가) ${loserName || '?'}에게 승리했습니다!`;
+  } else {
+    document.getElementById('gameover-icon').textContent = win ? '🏆' : '💀';
+    document.getElementById('gameover-title').textContent = win ? '승리!' : '패배...';
+    document.getElementById('gameover-title').style.color = win ? 'var(--accent)' : 'var(--danger)';
+    document.getElementById('gameover-sub').textContent = win
+      ? `${opponentName}의 모든 말을 제거했습니다!`
+      : `${opponentName}에게 패배했습니다.`;
+  }
+});
+
+socket.on('disconnected', ({ msg }) => {
+  addLog(msg, 'system');
+  showScreen('screen-gameover');
+  document.getElementById('gameover-icon').textContent = '🔌';
+  document.getElementById('gameover-title').textContent = '연결 끊김';
+  document.getElementById('gameover-title').style.color = 'var(--muted)';
+  document.getElementById('gameover-sub').textContent = msg;
+});
+
+socket.on('err', ({ msg }) => {
+  showError('placement-error', msg);
+  showError('hp-error', msg);
+  showError('draft-error', msg);
+  addLog(`⚠ ${msg}`, 'system');
+});
+
+socket.on('wait_msg', ({ msg }) => {
+  document.getElementById('waiting-title').textContent = msg;
+  document.getElementById('waiting-sub').textContent = '';
+  showScreen('screen-waiting');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 드래프트 UI (단계별) ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const TIER_INFO = {
+  1: { label: '1티어', desc: '정찰과 견제 - 10명 중 1명을 선택하세요' },
+  2: { label: '2티어', desc: '전략적 전투 - 10명 중 1명을 선택하세요' },
+  3: { label: '3티어', desc: '핵심 전력 - 10명 중 1명을 선택하세요' },
+};
+
+/* ── 캐릭터 상세 설명 ── */
+const CHAR_DETAILS = {
+  // ── 1티어 ──
+  archer: {
+    blocks: [
+      { head: '스킬 [정비] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '공격 범위의 대각선 방향을 영구적으로 좌우 반전시킵니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+  },
+  spearman: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '세로줄 전체를 관통하는 공격 범위를 가집니다.',
+  },
+  cavalry: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '가로줄 전체를 관통하는 공격 범위를 가집니다.',
+  },
+  watchman: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '자기 주변 8칸 전부를 공격합니다. 공격력 0.5로 위력은 낮지만, 빈틈 없이 사방을 감시해 접근하는 적을 견제합니다.',
+  },
+  twins: {
+    blocks: [
+      { head: '스킬 [분신] SP 2 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+    ],
+    body: '형과 동생 두 유닛이 한 세트로, 각각 독립적으로 이동·공격합니다. 스킬 사용 시 한쪽을 다른 쪽의 칸으로 합류시켜 업어옵니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
+  },
+  scout: {
+    blocks: [
+      { head: '스킬 [정찰] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+    ],
+    body: '상대방 말 1개의 행 또는 열 좌표를 랜덤으로 공개합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+  },
+  manhunter: {
+    blocks: [
+      { head: '스킬 [덫 설치] SP 2 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+    ],
+    body: '현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 1 피해를 입힙니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
+  },
+  messenger: {
+    blocks: [
+      { head: '스킬 [질주] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '이동을 2회 실행할 수 있습니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다. 공격력 0.5로 전투력은 낮지만, 빠른 기동력으로 위치 선점이나 도주에 활용됩니다.',
+  },
+  gunpowder: {
+    blocks: [
+      { head: '스킬 [시한폭탄 설치] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '주변 8칸 중 한 곳에 폭탄을 설치합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 개 설치가 가능합니다.' },
+      { head: '스킬 [기폭] SP 0 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa', desc: '설치한 폭탄을 모두 동시에 폭발시켜 해당 칸의 모든 적에게 1 피해를 줍니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다. 화약상이 사망하면 자동으로 발동됩니다.' },
+    ],
+  },
+  herbalist: {
+    blocks: [
+      { head: '스킬 [약초학] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+    ],
+    body: '자신 주변 3×3 범위 내 아군의 체력을 +1 회복합니다 (자기 자신 제외). 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+  },
+  // ── 2티어 ──
+  general: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '자기 자신을 포함한 십자 5칸을 공격합니다.',
+  },
+  knight: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '자기 자신을 포함한 X대각선 5칸을 공격합니다.',
+  },
+  shadowAssassin: {
+    blocks: [
+      { head: '스킬 [그림자 숨기] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 다음 턴까지 공격과 상태 이상에 완전 면역이 됩니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+  },
+  wizard: {
+    blocks: [
+      { head: '패시브 [인스턴트 매직]', color: '#f59e0b' },
+    ],
+    body: '마법사는 피격 당할 때마다 1회용 SP를 제공합니다. 이 SP는 사용하면 사라집니다. 맞을수록 아군의 스킬 사용 기회가 늘어납니다.',
+  },
+  armoredWarrior: {
+    blocks: [
+      { head: '패시브 [아이언 스킨]', color: '#f59e0b' },
+    ],
+    body: '받는 피해가 항상 0.5 씩 감소해 생존력이 뛰어납니다. 다만 상태 이상으로 받는 피해는 감소되지 않습니다.',
+  },
+  witch: {
+    blocks: [
+      { head: '스킬 [저주] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없습니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
+  },
+  dualBlade: {
+    blocks: [
+      { head: '스킬 [쌍검무] SP 2 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 이번 턴 2회 공격할 수 있습니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+  },
+  ratMerchant: {
+    blocks: [
+      { head: '스킬 [역병의 자손들] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 보드 위 랜덤 4곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+  },
+  weaponSmith: {
+    blocks: [
+      { head: '스킬 [정비] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 가로에서 세로로, 혹은 세로에서 가로로 영구적으로 공격 방향을 전환합니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+  },
+  bodyguard: {
+    blocks: [
+      { head: '패시브 [충성] SP 2', color: '#f59e0b' },
+    ],
+    body: '자신의 다른 왕실 태그 아군이 받을 공격 피해를 1로 줄이고, 그 피해를 자신이 대신 받습니다. 왕실 유닛의 방패 역할입니다. 왕실 유닛이 받게 될 상태 이상 또한 호위 무사가 대신 받습니다.',
+  },
+  // ── 3티어 ──
+  prince: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '자기 자신을 포함한 좌우 3칸을 공격합니다. 범위가 좁으므로 정확한 위치 운용이 생존의 핵심입니다.',
+  },
+  princess: {
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+    ],
+    body: '자기 자신을 포함한 상하 3칸을 공격합니다. 범위가 좁으므로 정확한 위치 운용이 생존의 핵심입니다.',
+  },
+  king: {
+    blocks: [
+      { head: '스킬 [절대복종 반지] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 적 말 하나의 이름을 선언하고 위치를 지정하면, 해당 적을 강제로 이동시킵니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+  },
+  dragonTamer: {
+    blocks: [
+      { head: '스킬 [드래곤 소환] SP 5 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. 이 스킬은 행동을 소비하지 않지만, 게임 중 1회만 소환 가능합니다.',
+  },
+  monk: {
+    blocks: [
+      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 +2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
+      { head: '패시브 [가호]', color: '#f59e0b', desc: '악인 태그 적을 공격할 때 피해가 3으로 증가하고, 악인에게 피격 시 피해가 0.5로 감소합니다.' },
+    ],
+  },
+  slaughterHero: {
+    blocks: [
+      { head: '패시브 [배반자]', color: '#f59e0b' },
+    ],
+    body: '공격 시 범위 내 아군에게도 0.5 피해를 입힙니다. 아군 배치에 각별히 주의해야 합니다. 리스크 대비 리턴이 극단적인 양날의 검입니다.',
+  },
+  commander: {
+    blocks: [
+      { head: '패시브 [사기증진]', color: '#f59e0b' },
+    ],
+    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 +1 버프합니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
+  },
+  sulfurCauldron: {
+    blocks: [
+      { head: '스킬 [유황범람] SP 4 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+    ],
+    body: '스킬 사용 시 현재 보드의 테두리 전체에 피해 3의 대규모 공격을 가합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 테두리에 몰린 적들을 한꺼번에 쓸어버리는 맵 병기입니다.',
+  },
+  torturer: {
+    blocks: [
+      { head: '패시브 [표식]', color: '#f59e0b', desc: '공격이 적중하면 대상에 표식을 부여합니다. 표식 상태의 적은 위치가 항상 공유됩니다.' },
+      { head: '스킬 [악몽] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '표식이 찍힌 모든 적에게 피해 1을 줍니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다. 여러 적을 표식으로 마킹한 뒤 일괄 타격하는 지속 딜러입니다.' },
+    ],
+  },
+  count: {
+    blocks: [
+      { head: '패시브 [폭정]', color: '#f59e0b' },
+    ],
+    body: '상대 1티어 유닛에게 받는 피해가 0.5 감소합니다. 상대의 저티어 견제에 강한 내성을 가집니다. 후반으로 갈수록 빛나는 내구형 딜러입니다.',
+  },
+};
+
+/* ── 슬라이드 인덱스 ── */
+let slideIndex = 0;
+
+function buildDraftStepUI() {
+  const step = S.draftStep;
+  const info = TIER_INFO[step];
+  document.getElementById('draft-title').textContent = `${info.label} 선택`;
+  document.getElementById('draft-sub').textContent = info.desc;
+
+  // 스텝 인디케이터 업데이트 (클릭 가능)
+  const steps = document.querySelectorAll('#draft-step-indicator .step');
+  steps.forEach((el, i) => {
+    const tierNum = i + 1;
+    el.className = 'step clickable';
+    if (S.draftSelected[tierNum]) el.classList.add('done');
+    if (tierNum === step) el.classList.add('active');
+    // 클릭 이벤트 (매번 새로 바인딩하기 위해 clone)
+    const newEl = el.cloneNode(true);
+    newEl.addEventListener('click', () => {
+      S.draftStep = tierNum;
+      buildDraftStepUI();
+    });
+    el.parentNode.replaceChild(newEl, el);
+  });
+
+  const chars = S.characters[step];
+  if (!chars) return;
+
+  // 아이콘 인덱스 생성
+  const iconIndex = document.getElementById('draft-icon-index');
+  if (iconIndex) {
+    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
+    iconIndex.innerHTML = '';
+    chars.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'icon-index-btn';
+      btn.title = c.name;
+      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
+      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.addEventListener('click', () => goToSlide(i));
+      iconIndex.appendChild(btn);
+    });
+  }
+
+  // 미리보기 보드 생성
+  buildBoard('draft-preview-board', () => {});
+
+  // 페이저 도트 생성
+  const pager = document.getElementById('slide-pager');
+  pager.innerHTML = '';
+  chars.forEach((_, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'slide-dot';
+    dot.addEventListener('click', () => goToSlide(i));
+    pager.appendChild(dot);
+  });
+
+  // 이전 선택이 있으면 해당 슬라이드로, 아니면 첫 슬라이드
+  const prevSelected = S.draftSelected[step];
+  if (prevSelected) {
+    const idx = chars.findIndex(c => c.type === prevSelected);
+    slideIndex = idx >= 0 ? idx : 0;
+  } else {
+    slideIndex = 0;
+  }
+  renderSlide();
+  updateDraftConfirmBtn();
+}
+
+function renderSlide() {
+  const step = S.draftStep;
+  const chars = S.characters[step];
+  if (!chars || !chars.length) return;
+  const c = chars[slideIndex];
+
+  // 아이콘 & 이름
+  document.getElementById('slide-icon').textContent = c.icon;
+  const tagHtml = c.tag
+    ? ` <span class="tag-badge ${c.tag}">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
+    : '';
+  document.getElementById('slide-name').innerHTML = c.name + tagHtml;
+  // 미니 공격 범위 그리드를 desc 영역에 표시
+  const miniGrid = buildMiniRangeGrid(c.type, {});
+  document.getElementById('slide-desc').innerHTML =
+    `<div style="display:flex;align-items:center;gap:10px;justify-content:center">` +
+    `<div>${miniGrid}</div>` +
+    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc}</span></div>`;
+
+  // 스탯
+  document.getElementById('slide-atk').innerHTML =
+    `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
+
+  // 상세 설명 블록
+  const detail = CHAR_DETAILS[c.type];
+  const blocksEl = document.getElementById('slide-detail-blocks');
+  const bodyEl = document.getElementById('slide-detail-body');
+  if (detail) {
+    const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    if (hasPerBlockDesc) {
+      // 각 블록 아래에 개별 설명 표시 (스킬+패시브 분리)
+      blocksEl.innerHTML = detail.blocks.map(b =>
+        `<div style="margin-bottom:10px">` +
+        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>` +
+        (b.desc ? `<div class="slide-detail-body" style="margin-top:6px">${b.desc}</div>` : '') +
+        `</div>`
+      ).join('');
+      bodyEl.textContent = '';
+    } else {
+      // 블록 헤더만 나열 + 하단에 통합 설명
+      blocksEl.innerHTML = detail.blocks.map(b =>
+        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>`
+      ).join('');
+      bodyEl.textContent = detail.body || '';
+    }
+  } else {
+    blocksEl.innerHTML = '';
+    bodyEl.textContent = '';
+  }
+
+  // 공격 범위 미리보기
+  updateDraftPreview(c);
+
+  // 페이저 도트 업데이트
+  document.querySelectorAll('#slide-pager .slide-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === slideIndex);
+  });
+
+  // 아이콘 인덱스 활성 상태 업데이트
+  document.querySelectorAll('.icon-index-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === slideIndex);
+  });
+
+  // 현재 티어에 이 캐릭터를 선택 상태로 설정
+  S.draftSelected[step] = c.type;
+  updateDraftConfirmBtn();
+
+  // 스텝 인디케이터 done 상태 갱신
+  document.querySelectorAll('#draft-step-indicator .step').forEach((el, i) => {
+    const tierNum = i + 1;
+    el.classList.toggle('done', !!S.draftSelected[tierNum]);
+  });
+
+  // 슬라이드 진입 애니메이션
+  const content = document.querySelector('.slide-content');
+  content.style.animation = 'none';
+  content.offsetHeight; // reflow
+  content.style.animation = '';
+}
+
+function goToSlide(idx) {
+  const chars = S.characters[S.draftStep];
+  if (!chars) return;
+  slideIndex = ((idx % chars.length) + chars.length) % chars.length;
+  renderSlide();
+}
+
+document.getElementById('btn-slide-prev').addEventListener('click', () => goToSlide(slideIndex - 1));
+document.getElementById('btn-slide-next').addEventListener('click', () => goToSlide(slideIndex + 1));
+
+// 키보드 좌우 화살표로도 슬라이드 이동
+document.addEventListener('keydown', (e) => {
+  const draft = document.getElementById('screen-draft');
+  if (!draft || !draft.classList.contains('active')) return;
+  if (e.key === 'ArrowLeft') goToSlide(slideIndex - 1);
+  if (e.key === 'ArrowRight') goToSlide(slideIndex + 1);
+});
+
+function updateDraftPreview(charData) {
+  const board = document.getElementById('draft-preview-board');
+  if (!board) return;
+
+  // 쌍둥이: 형(1,2)과 동생(3,2) 따로 배치
+  if (charData.isTwin) {
+    const elderCol = 1, elderRow = 2;
+    const youngerCol = 3, youngerRow = 2;
+    const rangeE = getAttackCells('twins_elder', elderCol, elderRow);
+    const rangeY = getAttackCells('twins_younger', youngerCol, youngerRow);
+
+    board.querySelectorAll('.cell').forEach(cell => {
+      const col = parseInt(cell.dataset.col);
+      const row = parseInt(cell.dataset.row);
+      cell.className = 'cell';
+      cell.innerHTML = '';
+
+      // 형 위치
+      if (col === elderCol && row === elderRow) {
+        cell.innerHTML = `<span style="font-size:1rem">👦</span>`;
+        cell.classList.add('has-piece');
+      }
+      // 동생 위치
+      if (col === youngerCol && row === youngerRow) {
+        cell.innerHTML = `<span style="font-size:1rem">👦</span>`;
+        cell.classList.add('has-piece');
+      }
+
+      const inE = rangeE.some(c => c.col === col && c.row === row);
+      const inY = rangeY.some(c => c.col === col && c.row === row);
+
+      if (inE && inY) {
+        cell.classList.add('attack-range'); // 겹치는 범위
+      } else if (inE) {
+        cell.classList.add('attack-range'); // 형 범위 (금색)
+      } else if (inY) {
+        cell.classList.add('skill-range');  // 동생 범위 (보라)
+      }
+    });
+
+    document.getElementById('draft-preview-info').textContent =
+      `금색=형(가로 3칸) · 보라=동생(세로 3칸)`;
+    return;
+  }
+
+  // 일반 캐릭터: 중앙 배치
+  const centerCol = 2, centerRow = 2;
+  let previewType = charData.type;
+  const range = getAttackCells(previewType, centerCol, centerRow);
+
+  board.querySelectorAll('.cell').forEach(cell => {
+    const col = parseInt(cell.dataset.col);
+    const row = parseInt(cell.dataset.row);
+    cell.className = 'cell';
+    cell.innerHTML = '';
+
+    if (col === centerCol && row === centerRow) {
+      cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
+      cell.classList.add('has-piece');
+    }
+
+    if (range.some(c => c.col === col && c.row === row)) {
+      cell.classList.add('attack-range');
+    }
+  });
+
+  document.getElementById('draft-preview-info').textContent =
+    `ATK ${charData.atk} · ${charData.desc}`;
+}
+
+function updateDraftConfirmBtn() {
+  const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+  const btn = document.getElementById('btn-draft-confirm');
+  const count = [1,2,3].filter(t => S.draftSelected[t]).length;
+
+  if (allSelected) {
+    btn.disabled = false;
+    btn.textContent = '최종 확정';
+  } else {
+    btn.disabled = true;
+    btn.textContent = `선택 확정 (${count}/3)`;
+  }
+}
+
+document.getElementById('btn-draft-confirm').addEventListener('click', () => {
+  const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+  if (!allSelected) return;
+
+  S.draftPicked = [S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]];
+
+  // 서버로 전송
+  socket.emit('select_pieces', {
+    t1: S.draftSelected[1],
+    t2: S.draftSelected[2],
+    t3: S.draftSelected[3],
+  });
+  document.getElementById('btn-draft-confirm').disabled = true;
+  document.getElementById('draft-title').textContent = '선택 완료!';
+  document.getElementById('draft-sub').textContent = '상대방의 선택을 기다리는 중...';
+  document.querySelector('.slide-viewer').innerHTML = '<div class="spinner"></div>';
+  document.getElementById('slide-pager').innerHTML = '';
+});
+
+// ── 랜덤 선택 ──
+document.getElementById('btn-draft-random').addEventListener('click', () => {
+  if (!S.characters) return;
+  const t1 = S.characters[1][Math.floor(Math.random() * S.characters[1].length)];
+  const t2 = S.characters[2][Math.floor(Math.random() * S.characters[2].length)];
+  const t3 = S.characters[3][Math.floor(Math.random() * S.characters[3].length)];
+  S._randomPick = { t1: t1.type, t2: t2.type, t3: t3.type };
+
+  const modal = document.getElementById('random-confirm-modal');
+  document.getElementById('random-confirm-body').innerHTML = `
+    <p style="margin-bottom:14px;color:var(--muted)">다음 캐릭터가 랜덤으로 선택되었습니다.<br><strong style="color:#f87171">확정 후에는 변경할 수 없습니다!</strong></p>
+    <div class="random-pick-list">
+      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> <span class="muted">— ${t1.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> <span class="muted">— ${t2.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> <span class="muted">— ${t3.desc}</span></div>
+    </div>
+  `;
+  modal.classList.remove('hidden');
+});
+
+document.getElementById('random-confirm-ok').addEventListener('click', () => {
+  const pick = S._randomPick;
+  if (!pick) return;
+  document.getElementById('random-confirm-modal').classList.add('hidden');
+
+  S.draftSelected = { 1: pick.t1, 2: pick.t2, 3: pick.t3 };
+  S.draftPicked = [pick.t1, pick.t2, pick.t3];
+
+  socket.emit('select_pieces', { t1: pick.t1, t2: pick.t2, t3: pick.t3 });
+  document.getElementById('btn-draft-confirm').disabled = true;
+  document.getElementById('draft-title').textContent = '선택 완료! (랜덤)';
+  document.getElementById('draft-sub').textContent = '상대방의 선택을 기다리는 중...';
+  document.querySelector('.slide-viewer').innerHTML = '<div class="spinner"></div>';
+  document.getElementById('slide-pager').innerHTML = '';
+});
+
+document.getElementById('random-confirm-cancel').addEventListener('click', () => {
+  document.getElementById('random-confirm-modal').classList.add('hidden');
+  S._randomPick = null;
+});
+
+// ── 추천 조합 ──
+const RECOMMENDED_COMBOS = [
+  {
+    style: '⚔️ 공격형 (올인 화력)',
+    desc: '강력한 화력으로 적을 빠르게 제압하는 스타일',
+    picks: [
+      { tier: 1, type: 'archer', reason: '대각선 전체 공격으로 넓은 범위 커버' },
+      { tier: 2, type: 'dualBlade', reason: '쌍검무로 한 턴에 2회 공격 가능' },
+      { tier: 3, type: 'slaughterHero', reason: '3×3 전체 9칸 공격, 최대 범위' },
+    ]
+  },
+  {
+    style: '🛡️ 방어형 (안정 운영)',
+    desc: '높은 생존력과 지원으로 오래 버티며 이기는 스타일',
+    picks: [
+      { tier: 1, type: 'herbalist', reason: '아군 힐링으로 팀 생존력 UP' },
+      { tier: 2, type: 'armoredWarrior', reason: '철갑 패시브로 피해 1 감소' },
+      { tier: 3, type: 'monk', reason: '신성으로 아군 회복 + 상태이상 제거' },
+    ]
+  },
+  {
+    style: '🎯 저격형 (원거리 컨트롤)',
+    desc: '가로+세로 긴 사거리로 안전하게 저격하는 스타일',
+    picks: [
+      { tier: 1, type: 'spearman', reason: '세로줄 전체 관통 공격' },
+      { tier: 2, type: 'weaponSmith', reason: '가로↔세로 전환으로 유연한 사격 라인' },
+      { tier: 3, type: 'prince', reason: '좌우 3칸 강력한 가로 공격' },
+    ]
+  },
+  {
+    style: '🗡️ 암살형 (기습 & 트릭)',
+    desc: '기습과 교란으로 상대를 혼란에 빠뜨리는 스타일',
+    picks: [
+      { tier: 1, type: 'manhunter', reason: '덫 설치로 이동 경로 봉쇄' },
+      { tier: 2, type: 'shadowAssassin', reason: '그림자 숨기로 생존 + 선택 공격' },
+      { tier: 3, type: 'torturer', reason: '표식 + 악몽 콤보로 지속 피해' },
+    ]
+  },
+  {
+    style: '✨ 스킬형 (SP 풀가동)',
+    desc: 'SP를 적극 활용해 스킬로 전장을 지배하는 스타일',
+    picks: [
+      { tier: 1, type: 'gunpowder', reason: '폭탄 설치 + 기폭 2개 스킬, SP 활용 극대화' },
+      { tier: 2, type: 'wizard', reason: '피격 시 SP+1 획득 패시브로 스킬 자원 빠르게 확보' },
+      { tier: 3, type: 'dragonTamer', reason: 'SP 5 투자로 드래곤 소환, 판세 뒤집기' },
+    ]
+  },
+  {
+    style: '👑 왕실형 (시너지 특화)',
+    desc: 'royal 태그 유닛끼리의 시너지를 활용하는 스타일',
+    picks: [
+      { tier: 1, type: 'cavalry', reason: '가로줄 전체 공격, 왕실 태그' },
+      { tier: 2, type: 'bodyguard', reason: '충성 패시브로 왕실 아군 보호' },
+      { tier: 3, type: 'commander', reason: '사기증진 패시브로 인접 아군 공격력 +1 버프' },
+    ]
+  },
+];
+
+document.getElementById('btn-draft-recommend').addEventListener('click', () => {
+  const modal = document.getElementById('recommend-modal');
+  const body = document.getElementById('recommend-body');
+  body.innerHTML = RECOMMENDED_COMBOS.map((combo, ci) => {
+    const findChar = (type) => {
+      for (const tier of [1,2,3]) {
+        const c = (S.characters || {})[tier]?.find(ch => ch.type === type);
+        if (c) return c;
+      }
+      return null;
+    };
+    return `
+      <div class="recommend-combo">
+        <div class="recommend-header">
+          <strong>${combo.style}</strong>
+          <span class="recommend-desc">${combo.desc}</span>
+        </div>
+        <div class="recommend-picks">
+          ${combo.picks.map(p => {
+            const c = findChar(p.type);
+            return c ? `<div class="recommend-pick">
+              <span class="recommend-pick-tier">${p.tier}티어</span>
+              <span class="recommend-pick-icon">${c.icon}</span>
+              <strong>${c.name}</strong>
+              <span class="recommend-pick-reason">${p.reason}</span>
+            </div>` : '';
+          }).join('')}
+        </div>
+        <button class="btn btn-small btn-primary recommend-apply-btn" data-combo="${ci}">이 조합 적용</button>
+      </div>
+    `;
+  }).join('');
+
+  // "이 조합 적용" 버튼
+  body.querySelectorAll('.recommend-apply-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const combo = RECOMMENDED_COMBOS[parseInt(btn.dataset.combo)];
+      combo.picks.forEach(p => {
+        S.draftSelected[p.tier] = p.type;
+      });
+      S.draftStep = 1;
+      buildDraftStepUI();
+      modal.classList.add('hidden');
+    });
+  });
+
+  modal.classList.remove('hidden');
+});
+
+document.getElementById('recommend-close').addEventListener('click', () => {
+  document.getElementById('recommend-modal').classList.add('hidden');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── HP 분배 UI ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildHpUI() {
+  const draft = S.myDraft;
+  S.hpValues = [4, 3, 3];
+  const types = [draft.t1, draft.t2, draft.t3];
+  const tierLabels = ['1티어', '2티어', '3티어'];
+  const container = document.getElementById('hp-pieces');
+  container.innerHTML = '';
+  const rows = document.createElement('div');
+  rows.className = 'hp-piece-rows';
+
+  for (let i = 0; i < 3; i++) {
+    const charData = findChar(types[i]);
+    if (!charData) continue;
+    const row = document.createElement('div');
+    row.className = 'hp-piece-row';
+    const tagHtml = charData.tag
+      ? `<span class="tag-badge ${charData.tag}">${charData.tag === 'royal' ? '왕실' : '악인'}</span>`
+      : '';
+    row.innerHTML = `
+      <span class="char-icon">${charData.icon}</span>
+      <div class="hp-piece-label">
+        <strong>${charData.name}${tagHtml}</strong>
+        <span>${tierLabels[i]} · ${charData.desc}</span>
+      </div>
+      <div class="hp-input-group">
+        <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
+        <span class="hp-value" id="hp-val-${i}">${S.hpValues[i]}</span>
+        <button class="hp-btn" data-i="${i}" data-delta="1">+</button>
+      </div>`;
+    rows.appendChild(row);
+  }
+  container.appendChild(rows);
+
+  container.querySelectorAll('.hp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.i);
+      const delta = parseInt(btn.dataset.delta);
+      adjustHp(idx, delta);
+    });
+  });
+
+  // 쌍둥이 패널 숨기기
+  document.getElementById('hp-twin-split').classList.add('hidden');
+  updateHpUI();
+}
+
+function adjustHp(idx, delta) {
+  const next = S.hpValues[idx] + delta;
+  const total = S.hpValues.reduce((a, b) => a + b, 0);
+  if (next < 1 || next > 8) return;
+  if (delta > 0 && total >= 10) return;
+  // 쌍둥이: 1티어 최소 2
+  if (S.hasTwins && idx === 0 && next < 2) return;
+  S.hpValues[idx] = next;
+  updateHpUI();
+}
+
+function updateHpUI() {
+  for (let i = 0; i < 3; i++) {
+    const el = document.getElementById(`hp-val-${i}`);
+    if (el) el.textContent = S.hpValues[i];
+  }
+  const total = S.hpValues.reduce((a, b) => a + b, 0);
+  document.getElementById('hp-remaining').textContent = 10 - total;
+  document.getElementById('btn-hp-confirm').disabled = total !== 10;
+}
+
+function showTwinSplit(twinTierHp) {
+  const panel = document.getElementById('hp-twin-split');
+  panel.classList.remove('hidden');
+  const controls = document.getElementById('hp-twin-controls');
+
+  let elderHp = Math.ceil(twinTierHp / 2);
+  let youngerHp = twinTierHp - elderHp;
+
+  function render() {
+    controls.innerHTML = `
+      <div class="hp-twin-unit">
+        <strong>👬 형</strong>
+        <div class="hp-input-group" style="justify-content:center">
+          <button class="hp-btn twin-btn" data-who="elder" data-delta="-1">−</button>
+          <span class="hp-value">${elderHp}</span>
+          <button class="hp-btn twin-btn" data-who="elder" data-delta="1">+</button>
+        </div>
+      </div>
+      <span style="font-size:1.2rem;color:var(--muted)">+</span>
+      <div class="hp-twin-unit">
+        <strong>👬 동생</strong>
+        <div class="hp-input-group" style="justify-content:center">
+          <button class="hp-btn twin-btn" data-who="younger" data-delta="-1">−</button>
+          <span class="hp-value">${youngerHp}</span>
+          <button class="hp-btn twin-btn" data-who="younger" data-delta="1">+</button>
+        </div>
+      </div>`;
+
+    controls.querySelectorAll('.twin-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const delta = parseInt(btn.dataset.delta);
+        if (btn.dataset.who === 'elder') {
+          const next = elderHp + delta;
+          if (next < 1 || next >= twinTierHp) return;
+          elderHp = next;
+          youngerHp = twinTierHp - elderHp;
+        } else {
+          const next = youngerHp + delta;
+          if (next < 1 || next >= twinTierHp) return;
+          youngerHp = next;
+          elderHp = twinTierHp - youngerHp;
+        }
+        render();
+      });
+    });
+  }
+
+  render();
+
+  // HP 확인 버튼을 쌍둥이 분배 전송으로 변경
+  const btn = document.getElementById('btn-hp-confirm');
+  btn.disabled = false;
+  btn.textContent = '쌍둥이 분배 확정';
+  btn.onclick = () => {
+    socket.emit('distribute_hp', { twinSplit: [elderHp, youngerHp] });
+    btn.disabled = true;
+    btn.onclick = null;
+  };
+}
+
+document.getElementById('btn-hp-confirm').addEventListener('click', () => {
+  socket.emit('distribute_hp', { hps: S.hpValues });
+  document.getElementById('btn-hp-confirm').disabled = true;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 캐릭터 공개 UI ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildRevealUI(myPieces, oppPieces) {
+  document.getElementById('reveal-my-name').textContent = S.myName || '나';
+  document.getElementById('reveal-opp-name').textContent = S.opponentName || '상대방';
+
+  const myContainer = document.getElementById('reveal-my-pieces');
+  const oppContainer = document.getElementById('reveal-opp-pieces');
+  myContainer.innerHTML = '';
+  oppContainer.innerHTML = '';
+
+  for (const pc of myPieces) {
+    myContainer.appendChild(createRevealCard(pc));
+  }
+  for (const pc of oppPieces) {
+    oppContainer.appendChild(createRevealCard(pc));
+  }
+}
+
+function createRevealCard(pc) {
+  const card = document.createElement('div');
+  card.className = 'reveal-piece-card';
+  card.style.position = 'relative';
+  const tagHtml = pc.tag
+    ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
+    : '';
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+  card.innerHTML = `
+    <span class="char-icon" style="font-size:1.6rem">${pc.icon}</span>
+    <div class="piece-info">
+      <strong>${pc.name}${tagHtml}</strong>
+      <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}/${pc.maxHp}</span>
+    </div>`;
+  const tooltip = buildPieceTooltip(pc, 'right');
+  card.appendChild(tooltip);
+  return card;
+}
+
+function getSkillDescForPiece(pc) {
+  if (!S.characters) return '';
+  const baseType = (pc.type === 'twins_elder' || pc.type === 'twins_younger') ? 'twins' : pc.type;
+  for (const tier of [1, 2, 3]) {
+    const chars = S.characters[tier];
+    if (!chars) continue;
+    const ch = chars.find(c => c.type === baseType);
+    if (ch && ch.skills && ch.skills.length > 0) return ch.skills[0].desc;
+  }
+  return '';
+}
+
+document.getElementById('btn-reveal-confirm').addEventListener('click', () => {
+  socket.emit('confirm_reveal');
+  document.getElementById('btn-reveal-confirm').disabled = true;
+  document.getElementById('btn-reveal-confirm').textContent = '대기 중...';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 배치 UI ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+let placementSelected = null;
+
+function buildPlacementUI() {
+  placementSelected = null;
+  buildBoard('placement-board', handlePlacementCellClick);
+  buildPlacementOppPanel();
+  updatePlacementUI();
+}
+
+function buildPlacementOppPanel() {
+  const container = document.getElementById('placement-opp-pieces');
+  if (!container || !S.oppPieces || S.oppPieces.length === 0) return;
+  container.innerHTML = '';
+  for (const pc of S.oppPieces) {
+    const card = document.createElement('div');
+    card.className = 'placement-opp-card';
+    const tagHtml = pc.tag
+      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
+      : '';
+    const skillDesc = getSkillDescForPiece(pc);
+    const skillHtml = pc.hasSkill
+      ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP) — ${skillDesc}</span>`
+      : '';
+    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
+    const passiveHtml = pc.passiveName
+      ? `<span class="passive-line">패시브: ${passiveDesc}</span>`
+      : '';
+    card.style.position = 'relative';
+    card.innerHTML = `
+      <span class="char-icon">${pc.icon}</span>
+      <div class="opp-info">
+        <strong>${pc.name}${tagHtml}</strong>
+        <span>T${pc.tier} · ATK ${pc.atk}</span>
+      </div>`;
+
+    // 호버 팝업 (그리드 + 스킬 상세)
+    const tooltip = buildPieceTooltip(pc, 'left');
+    card.appendChild(tooltip);
+
+    container.appendChild(card);
+  }
+}
+
+function updatePlacementUI() {
+  const list = document.getElementById('placement-piece-list');
+  list.innerHTML = '';
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const pc = S.myPieces[i];
+    const placed = pc.col >= 0;
+    const card = document.createElement('div');
+    card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${placementSelected === i ? 'selected' : ''}`;
+
+    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+    const tagHtml = pc.tag ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>` : '';
+
+    // 스킬 정보
+    let skillHtml = '';
+    if (pc.skills && pc.skills.length > 1) {
+      for (const sk of pc.skills) {
+        const skTag = getSkillTypeTag(sk);
+        skillHtml += `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${sk.name} (${sk.cost}SP)</span> ${skTag}</div>`;
+        skillHtml += `<div class="placement-skill-desc">${sk.desc}</div>`;
+      }
+    } else if (pc.hasSkill) {
+      const tag = getSkillTypeTagFromChar(pc);
+      const skillDesc = getSkillDescForPiece(pc);
+      skillHtml = `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${pc.skillName} (${pc.skillCost}SP)</span> ${tag}</div>`;
+      skillHtml += `<div class="placement-skill-desc">${skillDesc}</div>`;
+    }
+
+    // 패시브 정보
+    let passiveHtml = '';
+    if (pc.passiveName) {
+      const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
+      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${passiveDesc}</span></div>`;
+    }
+
+    card.innerHTML = `
+      <div class="placement-card-header">
+        <span class="piece-icon">${pc.icon}</span>
+        <div class="piece-info">
+          <strong>${pc.name} ${tagHtml}</strong>
+          <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
+          ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ (${pc.col+1},${pc.row+1})</span>` : ''}
+        </div>
+      </div>
+      <div class="placement-card-detail">
+        <div class="placement-grid-section">
+          <div class="placement-grid-label">공격 범위</div>
+          ${grid}
+        </div>
+        <div class="placement-info-section">
+          ${skillHtml || '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>'}
+          ${passiveHtml}
+        </div>
+      </div>`;
+    card.addEventListener('click', () => {
+      placementSelected = i;
+      updatePlacementUI();
+      updatePlacementBoard();
+    });
+    list.appendChild(card);
+  }
+
+  const allPlaced = S.myPieces.every(p => p.col >= 0);
+  document.getElementById('btn-placement-confirm').disabled = !allPlaced;
+  updatePlacementBoard();
+}
+
+function updatePlacementBoard() {
+  const board = document.getElementById('placement-board');
+  if (!board) return;
+
+  // 배치된 모든 말의 공격 범위 통합 계산
+  const atkSet = new Set();
+  for (const pc of S.myPieces) {
+    if (pc.col >= 0) {
+      const cells = getAttackCells(pc.type, pc.col, pc.row, { toggleState: pc.toggleState });
+      for (const c of cells) atkSet.add(`${c.col},${c.row}`);
+    }
+  }
+
+  board.querySelectorAll('.cell').forEach(cell => {
+    const col = parseInt(cell.dataset.col);
+    const row = parseInt(cell.dataset.row);
+    cell.className = 'cell';
+    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+
+    // 공격 범위 표시 (배치된 모든 말)
+    if (atkSet.has(`${col},${row}`)) {
+      cell.classList.add('attack-range');
+    }
+
+    const pc = S.myPieces.find(p => p.col === col && p.row === row);
+    if (pc) {
+      cell.innerHTML += `<div class="piece-marker"><span class="p-icon">${pc.icon}</span></div>`;
+      cell.classList.add('has-piece');
+      const idx = S.myPieces.indexOf(pc);
+      if (idx === placementSelected) cell.classList.add('selected-piece');
+    }
+  });
+}
+
+function handlePlacementCellClick(col, row) {
+  if (placementSelected === null) return;
+  socket.emit('place_piece', { pieceIdx: placementSelected, col, row });
+}
+
+document.getElementById('btn-placement-confirm').addEventListener('click', () => {
+  socket.emit('confirm_placement');
+  document.getElementById('btn-placement-confirm').disabled = true;
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 게임 UI ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildGameUI() {
+  buildBoard('game-board', handleGameCellClick);
+}
+
+function refreshGameView() {
+  updateTurnBanner();
+  renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+}
+
+function updateTurnBanner() {
+  const banner = document.getElementById('turn-banner');
+  if (!banner) return;
+  banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
+  banner.textContent = S.isMyTurn
+    ? `⚔ 내 턴 (턴 ${S.turnNumber})`
+    : `🕐 상대방 턴 (턴 ${S.turnNumber})`;
+}
+
+function updateSPBar() {
+  const mySP = S.sp[S.playerIdx] || 0;
+  const oppSP = S.sp[1 - S.playerIdx] || 0;
+  const myInstant = (S.instantSp && S.instantSp[S.playerIdx]) || 0;
+  const oppInstant = (S.instantSp && S.instantSp[1 - S.playerIdx]) || 0;
+  const total = mySP + oppSP || 1;
+
+  const myInstantStr = myInstant > 0 ? ` (+${myInstant}✨)` : '';
+  const oppInstantStr = oppInstant > 0 ? ` (+${oppInstant}✨)` : '';
+  document.getElementById('sp-my-label').textContent = `내 SP: ${mySP}${myInstantStr}`;
+  document.getElementById('sp-opp-label').textContent = `상대 SP: ${oppSP}${oppInstantStr}`;
+  document.getElementById('sp-my-fill').style.width = `${(mySP / total) * 100}%`;
+  document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
+
+  // SP 카운트다운 표시
+  const spCountdown = document.getElementById('sp-countdown');
+  if (spCountdown && S.turnNumber) {
+    const turnsUntilSP = 10 - (S.turnNumber % 10);
+    const displayTurns = turnsUntilSP === 10 ? 10 : turnsUntilSP;
+    if (mySP >= 5 && oppSP >= 5) {
+      spCountdown.textContent = 'SP 최대';
+      spCountdown.style.color = 'var(--accent)';
+    } else {
+      spCountdown.textContent = `다음 SP 지급까지 ${displayTurns}턴`;
+      spCountdown.style.color = 'var(--text-dim)';
+    }
+  }
+}
+
+function showActionBar(enabled) {
+  const bar = document.getElementById('action-bar');
+  if (!bar) return;
+  bar.classList.remove('hidden');
+  bar.style.display = 'flex';
+
+  const btnMove = document.getElementById('btn-move');
+  const btnAttack = document.getElementById('btn-attack');
+  const btnSkill = document.getElementById('btn-skill');
+  const btnEnd = document.getElementById('btn-end-turn');
+
+  if (!enabled) {
+    // 상대 턴 — 모두 비활성화
+    btnMove.disabled = true;
+    btnAttack.disabled = true;
+    btnSkill.disabled = true;
+    btnEnd.disabled = true;
+    btnMove.classList.remove('action-dimmed');
+    btnAttack.classList.remove('action-dimmed');
+    btnSkill.classList.remove('action-dimmed');
+  } else {
+    // 내 턴 — 상황에 따라 비활성화/흐림
+    const alivePieces = S.myPieces ? S.myPieces.filter(p => p.alive) : [];
+    const hasAlive = alivePieces.length > 0;
+
+    // ── 이동 가능 여부 ──
+    // actionDone이면 이동 불가 (이미 이동 또는 공격함)
+    // 단, 전령 질주 활성 시 추가 이동 가능
+    const hasSprintMove = alivePieces.some(p => p.messengerSprintActive && p.messengerMovesLeft > 0);
+    const canMove = hasAlive && (!S.actionDone || hasSprintMove) && !S.actionUsedSkillReplace;
+    btnMove.disabled = !canMove;
+    btnMove.classList.toggle('action-dimmed', !canMove);
+
+    // ── 공격 가능 여부 ──
+    // actionDone이면 공격 불가 (이미 이동 또는 공격함)
+    // 단, 쌍검무 추가 공격이 남아있으면 가능
+    const hasDualBlade = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
+    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !S.actionUsedSkillReplace;
+    btnAttack.disabled = !canAttack;
+    btnAttack.classList.toggle('action-dimmed', !canAttack);
+
+    // ── 스킬 가능 여부 ──
+    // 스킬 보유 말이 살아있어야 함
+    // + 사용 가능한 스킬이 하나라도 남아있는지 확인
+    const mySp = (S.sp[S.playerIdx] || 0) + (S.instantSp[S.playerIdx] || 0);
+    let hasUsableSkill = false;
+    for (const p of alivePieces) {
+      if (!p.hasSkill && (!p.skills || p.skills.length === 0)) continue;
+      const skills = p.skills && p.skills.length > 0 ? p.skills : (p.hasSkill ? [{ id: p.skillId, cost: p.skillCost, replacesAction: p.skillReplacesAction, oncePerTurn: false }] : []);
+      for (const sk of skills) {
+        // SP 체크
+        if ((sk.cost || 0) > mySp) continue;
+        // 행동소비형인데 이미 행동했으면 불가
+        if (sk.replacesAction && S.actionDone) continue;
+        // 턴당 1회인데 이미 사용했으면 불가
+        if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${p.index}:${sk.id}`)) continue;
+        hasUsableSkill = true;
+        break;
+      }
+      if (hasUsableSkill) break;
+    }
+    btnSkill.disabled = !hasUsableSkill;
+    btnSkill.classList.toggle('action-dimmed', !hasUsableSkill);
+
+    // 턴 종료: 항상 가능
+    btnEnd.disabled = false;
+
+    // ── 자동 턴 종료 힌트 ──
+    if (!canMove && !canAttack && !hasUsableSkill) {
+      // 할 수 있는 행동이 아무것도 없으면 힌트 표시
+      const hint = document.getElementById('action-hint');
+      if (hint) hint.textContent = '더 이상 할 수 있는 행동이 없습니다. 턴을 종료하세요.';
+      return; // 아래 힌트 설정 건너뛰기
+    }
+  }
+  document.getElementById('btn-cancel').classList.add('hidden');
+
+  const hint = document.getElementById('action-hint');
+  if (hint) hint.textContent = enabled ? '행동을 선택하세요 (이동/공격/스킬/턴종료)' : '상대방의 턴입니다...';
+}
+
+// ── 게임 보드 렌더링 ──────────────────────────────────────────
+function renderGameBoard() {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const bounds = S.boardBounds;
+
+  board.querySelectorAll('.cell').forEach(cell => {
+    const col = parseInt(cell.dataset.col);
+    const row = parseInt(cell.dataset.row);
+    cell.className = 'cell';
+    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+
+    // 파괴된 셀
+    if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) {
+      cell.classList.add('destroyed');
+      return;
+    }
+
+    // 내 말
+    const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+    if (pc) {
+      const statusIcons = getStatusIcons(pc);
+      cell.innerHTML += `
+        <div class="piece-marker">
+          <span class="p-icon">${pc.icon}</span>
+          <span class="p-hp">${pc.hp}/${pc.maxHp}</span>
+        </div>`;
+      if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
+      cell.classList.add('has-piece');
+      const idx = S.myPieces.indexOf(pc);
+      if (idx === S.selectedPiece) cell.classList.add('selected-piece');
+    }
+
+    // 표식 상태인 적 — 위치 공개
+    const markedOpp = S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
+    if (markedOpp && !pc) {
+      cell.innerHTML += `
+        <div class="piece-marker opp-marked">
+          <span class="p-icon">${markedOpp.icon}</span>
+          <span class="p-hp" style="color:#e05252">${markedOpp.hp}/${markedOpp.maxHp}</span>
+        </div>`;
+      cell.innerHTML += `<span class="cell-mark">🎯</span>`;
+      cell.classList.add('has-piece');
+    }
+
+    // 보드 오브젝트 (내 것만 보임)
+    if (S.boardObjects) {
+      for (const obj of S.boardObjects) {
+        if (obj.col === col && obj.row === row) {
+          if (obj.type === 'trap') {
+            cell.classList.add('has-trap');
+            cell.innerHTML += '<span style="position:absolute;bottom:1px;right:2px;font-size:0.5rem">🪤</span>';
+          }
+          if (obj.type === 'bomb') cell.innerHTML += '<span style="position:absolute;top:1px;right:2px;font-size:0.5rem">💣</span>';
+          if (obj.type === 'rat') {
+            const isMyRat = obj.owner === S.playerIdx;
+            const ratColor = isMyRat ? 'color:#52b788' : 'color:#e05252';
+            const ratPos = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
+            cell.innerHTML += `<span style="position:absolute;${ratPos};font-size:0.5rem;${ratColor}">${isMyRat ? '🐀' : '🐁'}</span>`;
+          }
+        }
+      }
+    }
+
+    // 지휘관/약초전문가 영역 표시 (초록색)
+    for (const myPc of S.myPieces) {
+      if (!myPc.alive) continue;
+      if (myPc.type === 'commander') {
+        // 지휘관: 십자 인접 4칸 버프 영역
+        const adjCells = [[0,-1],[0,1],[-1,0],[1,0]];
+        if (adjCells.some(([dc, dr]) => myPc.col + dc === col && myPc.row + dr === row)) {
+          cell.classList.add('support-range');
+        }
+      }
+      if (myPc.type === 'herbalist') {
+        // 약초전문가: 주변 3x3 힐 영역 (자기 제외)
+        const dc = Math.abs(myPc.col - col), dr = Math.abs(myPc.row - row);
+        if (dc <= 1 && dr <= 1 && !(dc === 0 && dr === 0)) {
+          cell.classList.add('support-range');
+        }
+      }
+    }
+
+    // 공격/피격 기록
+    const atk = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+    if (atk && !pc) {
+      cell.classList.add(atk.hit ? 'hit-mark' : 'miss-mark');
+      cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
+    }
+
+    // 이동 범위
+    if (S.action === 'move' && S.selectedPiece !== null) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc && isCrossAdjacent(selPc.col, selPc.row, col, row) &&
+          col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+        cell.classList.add('move-range');
+      }
+    }
+
+    // 공격 범위
+    if (S.action === 'attack' && S.selectedPiece !== null && !S.targetSelectMode) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc) {
+        const extra = { toggleState: selPc.toggleState };
+        let range = getAttackCells(selPc.type, selPc.col, selPc.row, extra);
+        // ★ 쌍둥이: 다른 쪽의 공격 범위도 합산 표시
+        if (selPc.subUnit) {
+          const otherSub = selPc.subUnit === 'elder' ? 'younger' : 'elder';
+          const otherTwin = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
+          if (otherTwin) {
+            const twinRange = getAttackCells(otherTwin.type, otherTwin.col, otherTwin.row, extra);
+            for (const tc of twinRange) {
+              if (!range.some(c => c.col === tc.col && c.row === tc.row)) range.push(tc);
+            }
+          }
+        }
+        if (range.some(c => c.col === col && c.row === row)) {
+          cell.classList.add('attack-range');
+        }
+      }
+    }
+
+    // 대상 선택 모드 (shadowAssassin, witch)
+    if (S.targetSelectMode && S.selectedPiece !== null) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+        cell.classList.add('assassin-target');
+      }
+    }
+
+    // 스킬 대상 선택 모드
+    if (S.action === 'skill_target') {
+      if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+        cell.classList.add('skill-range');
+      }
+    }
+  });
+}
+
+function getStatusIcons(pc) {
+  if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
+  const icons = [];
+  for (const e of pc.statusEffects) {
+    if (e.type === 'curse') icons.push('☠');
+    if (e.type === 'shadow') icons.push('👻');
+    if (e.type === 'mark') icons.push('🎯');
+  }
+  return icons.join('');
+}
+
+// ── 내 말 정보 패널 ──────────────────────────────────────────
+function renderMyPieces() {
+  const container = document.getElementById('my-pieces-info');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const pc = S.myPieces[i];
+    const card = document.createElement('div');
+    const isActive = S.selectedPiece === i;
+    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
+    const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+    const barClass = hpPct <= 25 ? 'low' : '';
+
+    const tagHtml = pc.tag
+      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
+      : '';
+    const statusHtml = renderStatusBadges(pc);
+    const skillHtml = pc.hasSkill
+      ? `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${pc.skillName} (${pc.skillCost}SP)</div>`
+      : '';
+    const passiveHtml = pc.passiveName
+      ? `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${pc.passiveName}</div>`
+      : '';
+
+    card.style.position = 'relative';
+    card.innerHTML = `
+      <div class="my-piece-header">
+        <span class="p-icon">${pc.icon}</span>
+        <strong>${pc.name}</strong>
+        <span class="tier-badge">${pc.tier}T</span>
+        ${tagHtml}
+      </div>
+      <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
+        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
+        <span class="my-piece-pos">${pc.alive ? `(${pc.col+1},${pc.row+1})` : '💀 격파'}</span>
+      </div>
+      ${skillHtml}${passiveHtml}${statusHtml}`;
+
+    // 호버 시 공격범위 팝업
+    if (pc.alive) {
+      const tooltip = buildPieceTooltip(pc, 'right');
+      card.appendChild(tooltip);
+    }
+
+    card.addEventListener('click', () => {
+      if (!S.isMyTurn || !pc.alive) return;
+      S.selectedPiece = i;
+      renderGameBoard();
+      renderMyPieces();
+    });
+
+    container.appendChild(card);
+  }
+}
+
+function renderStatusBadges(pc) {
+  if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
+  let html = '<div class="status-badges">';
+  for (const e of pc.statusEffects) {
+    const labels = { curse: '☠ 저주', shadow: '👻 그림자', mark: '🎯 표식' };
+    const cls = e.type;
+    html += `<span class="status-badge ${cls}">${labels[e.type] || e.type}</span>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// ── 상대 말 정보 ─────────────────────────────────────────────
+function renderOppPieces() {
+  const container = document.getElementById('opp-pieces-info');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!S.oppPieces) return;
+
+  for (const pc of S.oppPieces) {
+    const card = document.createElement('div');
+    card.className = `opp-piece-card ${pc.alive ? '' : 'dead'}`;
+    card.style.position = 'relative';
+    const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+    const barClass = hpPct <= 25 ? 'low' : '';
+    const tagHtml = pc.tag
+      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
+      : '';
+    const statusHtml = renderStatusBadges(pc);
+
+    card.innerHTML = `
+      <span class="p-icon">${pc.icon}</span>
+      <div class="opp-info">
+        <strong>${pc.name}${tagHtml}</strong>
+        <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
+        ${statusHtml}
+        <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.68rem">
+          ${pc.alive ? '생존' : '💀'}
+        </span>
+      </div>`;
+
+    // 호버 팝업 (그리드 포함)
+    if (pc.alive) {
+      const tooltip = buildPieceTooltip(pc, 'left');
+      card.appendChild(tooltip);
+    }
+
+    container.appendChild(card);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 미니 공격범위 그리드 생성 ──────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildMiniRangeGrid(type, extra) {
+  // 5x5 미니 그리드, 중앙(2,2)을 기준으로 공격범위 계산
+  const fakeExtra = { ...(extra || {}), toggleState: extra?.toggleState };
+  let cells;
+  if (type === 'twins') {
+    // 쌍둥이: 형(가로3칸) + 동생(세로3칸) 합산 = 십자 5칸
+    const elderCells = getAttackCells('twins_elder', 2, 2, fakeExtra);
+    const youngerCells = getAttackCells('twins_younger', 2, 2, fakeExtra);
+    cells = [...elderCells, ...youngerCells];
+  } else {
+    cells = getAttackCells(type, 2, 2, fakeExtra);
+  }
+  const atkSet = new Set(cells.map(c => `${c.col},${c.row}`));
+
+  let html = '<div class="mini-range-grid">';
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      const isCenter = (c === 2 && r === 2);
+      const isAtk = atkSet.has(`${c},${r}`);
+      const cls = isCenter ? 'mini-cell center' : isAtk ? 'mini-cell atk' : 'mini-cell';
+      html += `<div class="${cls}"></div>`;
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function getSkillTypeTag(skill) {
+  if (!skill) return '';
+  if (skill.replacesAction) return '<span class="skill-tag tag-action">행동소비형</span>';
+  if (skill.oncePerTurn) return '<span class="skill-tag tag-once">자유시전·1회</span>';
+  return '<span class="skill-tag tag-free">자유시전형</span>';
+}
+
+function getSkillTypeTagFromChar(pc) {
+  // 서버 CHARACTERS에서 스킬 정보 가져오기
+  if (!S.characters || !pc.hasSkill) return '';
+  const baseType = (pc.type === 'twins_elder' || pc.type === 'twins_younger') ? 'twins' : pc.type;
+  for (const tier of [1, 2, 3]) {
+    const chars = S.characters[tier];
+    if (!chars) continue;
+    const ch = chars.find(c => c.type === baseType);
+    if (ch && ch.skills && ch.skills.length > 0) {
+      return getSkillTypeTag(ch.skills[0]);
+    }
+  }
+  return '';
+}
+
+function buildPieceTooltip(pc, side) {
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+
+  // 다중 스킬 지원
+  let skillHtml = '';
+  if (pc.skills && pc.skills.length > 1) {
+    for (const sk of pc.skills) {
+      const skTag = getSkillTypeTag(sk);
+      skillHtml += `<div class="tooltip-line skill-color">스킬: ${sk.name} (${sk.cost}SP) ${skTag}</div>`;
+      skillHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${sk.desc}</div>`;
+    }
+  } else if (pc.hasSkill) {
+    const tag = getSkillTypeTagFromChar(pc);
+    const skillDesc = getSkillDescForPiece(pc);
+    skillHtml = `<div class="tooltip-line skill-color">스킬: ${pc.skillName} (${pc.skillCost}SP) ${tag}</div>`;
+    skillHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${skillDesc}</div>`;
+  } else {
+    skillHtml = '<div class="tooltip-line" style="color:var(--muted)">스킬 없음</div>';
+  }
+
+  // 패시브
+  let passiveHtml = '';
+  if (pc.passiveName) {
+    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
+    passiveHtml = `<div class="tooltip-line passive-color">패시브: ${passiveDesc}</div>`;
+  }
+
+  const tooltip = document.createElement('div');
+  tooltip.className = `piece-tooltip tooltip-${side}`;
+  tooltip.innerHTML = `
+    <div class="tooltip-title">${pc.icon} ${pc.name} (T${pc.tier})</div>
+    <div class="tooltip-section">
+      <div class="tooltip-label">공격 범위</div>
+      ${grid}
+      <div class="tooltip-desc">ATK ${pc.atk}</div>
+    </div>
+    ${skillHtml}
+    ${passiveHtml}`;
+  return tooltip;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 액션 버튼 ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function resetAction() {
+  S.action = null;
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  S.skillTargetData = null;
+  document.getElementById('btn-cancel').classList.add('hidden');
+  const hint = document.getElementById('action-hint');
+  if (hint) hint.textContent = '행동을 선택하세요 (이동/공격/스킬/턴종료)';
+  renderGameBoard();
+  renderMyPieces();
+}
+
+// 이동 버튼
+document.getElementById('btn-move').addEventListener('click', () => {
+  if (!S.isMyTurn) return;
+  S.action = 'move';
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  document.getElementById('btn-cancel').classList.remove('hidden');
+  document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+  renderGameBoard();
+});
+
+// 공격 버튼
+document.getElementById('btn-attack').addEventListener('click', () => {
+  if (!S.isMyTurn) return;
+  S.action = 'attack';
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  document.getElementById('btn-cancel').classList.remove('hidden');
+  document.getElementById('action-hint').textContent = '공격할 말을 클릭하세요.';
+  renderGameBoard();
+});
+
+// 스킬 버튼
+document.getElementById('btn-skill').addEventListener('click', () => {
+  if (!S.isMyTurn) return;
+  openSkillModal();
+});
+
+// 턴 종료 버튼
+document.getElementById('btn-end-turn').addEventListener('click', () => {
+  if (!S.isMyTurn) return;
+  socket.emit('end_turn');
+  S.isMyTurn = false;
+  showActionBar(false);
+});
+
+// 취소 버튼
+document.getElementById('btn-cancel').addEventListener('click', resetAction);
+
+// ═══════════════════════════════════════════════════════════════
+// ── 스킬 모달 ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function openSkillModal() {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  body.innerHTML = '';
+
+  const mySP = S.sp[S.playerIdx] || 0;
+  const myInstant = (S.instantSp && S.instantSp[S.playerIdx]) || 0;
+  const totalSP = mySP + myInstant;
+  let hasAnySkill = false;
+
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const pc = S.myPieces[i];
+    if (!pc.alive || !pc.hasSkill) continue;
+    hasAnySkill = true;
+
+    // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
+    const skillList = pc.skills && pc.skills.length > 1 ? pc.skills : null;
+
+    if (skillList) {
+      // 다중 스킬: 각 스킬을 별도 옵션으로 표시
+      for (const sk of skillList) {
+        const canAfford = totalSP >= sk.cost;
+        const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
+
+        // 기폭의 경우 폭탄이 없으면 비활성화
+        let extraDisabled = false;
+        let extraNote = '';
+        if (sk.id === 'detonate') {
+          const bombs = (S.boardObjects || []).filter(o => o.type === 'bomb');
+          if (bombs.length === 0) {
+            extraDisabled = true;
+            extraNote = ' (설치된 폭탄 없음)';
+          } else {
+            extraNote = ` (폭탄 ${bombs.length}개)`;
+          }
+        }
+
+        const opt = document.createElement('div');
+        opt.className = 'skill-option';
+        opt.style.opacity = (canAfford && !extraDisabled) ? '1' : '0.4';
+        const skTag = getSkillTypeTag(sk);
+        opt.innerHTML = `
+          <div class="skill-name">${pc.icon} ${pc.name} — ${sk.name} ${skTag}</div>
+          <div class="skill-cost">SP 비용: ${sk.cost} (보유: ${mySP}${instantLabel})${extraNote}</div>
+          <div class="skill-desc">${sk.desc}</div>`;
+
+        if (canAfford && !extraDisabled) {
+          const skillId = sk.id;
+          const pieceIdx = i;
+          opt.addEventListener('click', () => {
+            modal.classList.add('hidden');
+            handleSkillUse(pieceIdx, pc, skillId);
+          });
+        }
+        body.appendChild(opt);
+      }
+    } else {
+      // 단일 스킬
+      const canAfford = totalSP >= pc.skillCost;
+      const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
+      const opt = document.createElement('div');
+      opt.className = 'skill-option';
+      opt.style.opacity = canAfford ? '1' : '0.4';
+      const singleTag = getSkillTypeTagFromChar(pc);
+      opt.innerHTML = `
+        <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
+        <div class="skill-cost">SP 비용: ${pc.skillCost} (보유: ${mySP}${instantLabel})</div>
+        <div class="skill-desc">${getSkillDesc(pc)}</div>`;
+
+      if (canAfford) {
+        opt.addEventListener('click', () => {
+          modal.classList.add('hidden');
+          handleSkillUse(i, pc);
+        });
+      }
+      body.appendChild(opt);
+    }
+  }
+
+  if (!hasAnySkill) {
+    body.innerHTML = '<p class="muted" style="text-align:center;padding:20px">사용 가능한 스킬이 없습니다.</p>';
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function getSkillDesc(pc) {
+  // 서버 데이터에서 스킬 설명 가져오기
+  if (!S.characters) return '';
+  const baseType = (pc.type === 'twins_elder' || pc.type === 'twins_younger') ? 'twins' : pc.type;
+  for (const tier of [1, 2, 3]) {
+    const chars = S.characters[tier];
+    if (!chars) continue;
+    const ch = chars.find(c => c.type === baseType);
+    if (ch && ch.skills && ch.skills.length > 0) {
+      return ch.skills[0].desc;
+    }
+  }
+  return '';
+}
+
+function handleSkillUse(pieceIdx, pc, overrideSkillId) {
+  const skillId = overrideSkillId || pc.skillId;
+  const type = pc.type;
+
+  // 파라미터가 필요한 스킬들
+  if (type === 'gunpowder' && skillId === 'bomb') {
+    // 시한폭탄 설치: 위치 선택 필요
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'bomb', type: 'bomb_place' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요 (자신 또는 인접 8칸)`;
+    renderGameBoard();
+    return;
+  }
+
+  if (type === 'gunpowder' && skillId === 'detonate') {
+    // 기폭: 즉시 실행
+    socket.emit('use_skill', { pieceIdx, skillId: 'detonate', params: {} });
+    return;
+  }
+
+  if (type === 'witch') {
+    // 마녀: 적 캐릭터 선택 모달
+    showWitchCurseUI(pieceIdx);
+    return;
+  }
+
+  if (type === 'dragonTamer') {
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId, type: 'dragon_place' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `🐉 드래곤 소환 위치를 선택하세요`;
+    renderGameBoard();
+    return;
+  }
+
+  if (type === 'king') {
+    // 국왕 스킬: 적 말 이름 + 위치 선택
+    showKingSkillUI(pieceIdx);
+    return;
+  }
+
+  if (type === 'monk') {
+    // 수도승: 아군 선택
+    showMonkSkillUI(pieceIdx);
+    return;
+  }
+
+  if (type === 'twins_elder' || type === 'twins_younger') {
+    // 쌍둥이: 합류 방향 선택
+    showTwinsSkillUI(pieceIdx, pc);
+    return;
+  }
+
+  // 파라미터 불필요 스킬 → 바로 전송
+  socket.emit('use_skill', { pieceIdx, skillId, params: {} });
+}
+
+function showKingSkillUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '절대복종 반지 — 대상 선택';
+  body.innerHTML = '';
+
+  for (const opc of S.oppPieces) {
+    if (!opc.alive) continue;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${opc.icon} ${opc.name}</div>
+      <div class="skill-desc">이 적을 선택 후 강제 이동할 위치를 지정합니다</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      S.action = 'skill_target';
+      S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type };
+      document.getElementById('btn-cancel').classList.remove('hidden');
+      document.getElementById('action-hint').textContent = `♛ ${opc.name}을(를) 이동시킬 위치를 클릭하세요`;
+      renderGameBoard();
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
+
+function showWitchCurseUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '저주 — 대상 선택';
+  body.innerHTML = '';
+
+  for (let i = 0; i < S.oppPieces.length; i++) {
+    const opc = S.oppPieces[i];
+    if (!opc.alive) continue;
+    // 이미 저주 상태이거나 HP ≤ 1이면 비활성화
+    const alreadyCursed = opc.statusEffects && opc.statusEffects.some(e => e.type === 'curse');
+    const tooLowHp = opc.hp <= 1;
+    const disabled = alreadyCursed || tooLowHp;
+    const reason = alreadyCursed ? '이미 저주 상태' : tooLowHp ? 'HP 1 이하 — 저주 불가' : '';
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.style.opacity = disabled ? '0.4' : '1';
+    opt.innerHTML = `<div class="skill-name">${opc.icon} ${opc.name}</div>
+      <div class="skill-desc">${disabled ? reason : '턴당 0.5 피해 + 스킬 봉인'}</div>`;
+    if (!disabled) {
+      opt.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        socket.emit('use_skill', { pieceIdx, skillId: 'curse', params: { targetPieceIdx: i } });
+      });
+    }
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
+
+function showMonkSkillUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '신성 — 치유 대상 선택';
+  body.innerHTML = '';
+
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const apc = S.myPieces[i];
+    if (!apc.alive || i === pieceIdx) continue;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${apc.icon} ${apc.name}</div>
+      <div class="skill-desc">HP ${apc.hp}/${apc.maxHp} — 치유 +2, 상태이상 제거</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'divine', params: { targetPieceIdx: i } });
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
+
+function showTwinsSkillUI(pieceIdx, pc) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '분신 — 합류 방향';
+  body.innerHTML = '';
+
+  const isElder = pc.subUnit === 'elder';
+  const options = [
+    { target: isElder ? 'younger' : 'elder', label: isElder ? '형 → 동생에게 이동' : '동생 → 형에게 이동' },
+  ];
+
+  for (const o of options) {
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">👬 ${o.label}</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'brothers', params: { target: o.target } });
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
+
+document.getElementById('skill-modal-close').addEventListener('click', () => {
+  document.getElementById('skill-modal').classList.add('hidden');
+  document.getElementById('skill-modal-title').textContent = '스킬 선택';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 게임 보드 셀 클릭 핸들러 ───────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function handleGameCellClick(col, row) {
+  if (!S.isMyTurn) return;
+  const bounds = S.boardBounds;
+  if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+
+  // ── 스킬 대상 선택 모드 ──
+  if (S.action === 'skill_target' && S.skillTargetData) {
+    const data = S.skillTargetData;
+    if (data.type === 'bomb_place') {
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
+    } else if (data.type === 'dragon_place') {
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
+    } else if (data.type === 'king_move') {
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { targetName: data.targetName, col, row } });
+    }
+    resetAction();
+    return;
+  }
+
+  // ── 이동 ──
+  if (S.action === 'move') {
+    if (S.selectedPiece === null) {
+      // 말 선택
+      const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+      if (pc) {
+        S.selectedPiece = S.myPieces.indexOf(pc);
+        document.getElementById('action-hint').textContent = `${pc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        renderGameBoard();
+        renderMyPieces();
+      }
+    } else {
+      const selPc = S.myPieces[S.selectedPiece];
+      // 같은 말 클릭 → 해제
+      if (col === selPc.col && row === selPc.row) {
+        S.selectedPiece = null;
+        document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+        renderGameBoard();
+        renderMyPieces();
+        return;
+      }
+      // 다른 내 말 → 선택 변경
+      const otherPc = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
+      if (otherPc) {
+        S.selectedPiece = S.myPieces.indexOf(otherPc);
+        document.getElementById('action-hint').textContent = `${otherPc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        renderGameBoard();
+        renderMyPieces();
+        return;
+      }
+      // 이동 범위 체크
+      if (!isCrossAdjacent(selPc.col, selPc.row, col, row)) {
+        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다!';
+        return;
+      }
+      socket.emit('move_piece', { pieceIdx: S.selectedPiece, col, row });
+      S.action = null;
+      S.selectedPiece = null;
+    }
+    return;
+  }
+
+  // ── 공격 ──
+  if (S.action === 'attack') {
+    if (S.selectedPiece === null) {
+      // 말 선택
+      const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+      if (pc) {
+        S.selectedPiece = S.myPieces.indexOf(pc);
+        // 타겟 선택이 필요한 캐릭터
+        if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
+          S.targetSelectMode = true;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name}: 공격할 칸을 선택하세요.`;
+        } else {
+          S.targetSelectMode = false;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} — 공격 범위 표시 중. 말을 다시 클릭하면 공격!`;
+        }
+        renderGameBoard();
+        renderMyPieces();
+      }
+    } else if (S.targetSelectMode) {
+      // shadowAssassin / witch 대상 선택
+      socket.emit('attack', { pieceIdx: S.selectedPiece, tCol: col, tRow: row });
+      S.action = null;
+      S.selectedPiece = null;
+      S.targetSelectMode = false;
+    } else {
+      const selPc = S.myPieces[S.selectedPiece];
+      // 다른 내 말 클릭 → 선택 변경
+      const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
+      if (clickedOther) {
+        S.selectedPiece = S.myPieces.indexOf(clickedOther);
+        if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
+          S.targetSelectMode = true;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name}: 공격할 칸을 선택하세요.`;
+        } else {
+          S.targetSelectMode = false;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} — 공격 범위 표시 중. 말을 다시 클릭하면 공격!`;
+        }
+        renderGameBoard();
+        renderMyPieces();
+        return;
+      }
+      // 같은 말 또는 범위 내 클릭 → 공격 확정
+      socket.emit('attack', { pieceIdx: S.selectedPiece });
+      S.action = null;
+      S.selectedPiece = null;
+    }
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 보드 생성 헬퍼 ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildBoard(containerId, clickHandler) {
+  const board = document.getElementById(containerId);
+  if (!board) return;
+  board.innerHTML = '';
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.col = col;
+      cell.dataset.row = row;
+      cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+      cell.addEventListener('click', () => clickHandler(col, row));
+      board.appendChild(cell);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 공격 범위 계산 (클라이언트용, 30캐릭터) ─────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function getAttackCells(type, col, row, extra) {
+  extra = extra || {};
+  const cells = [];
+  const bMin = (S.boardBounds && S.boardBounds.min) || 0;
+  const bMax = (S.boardBounds && S.boardBounds.max) || 4;
+  const push = (c, r) => { if (c >= bMin && c <= bMax && r >= bMin && r <= bMax) cells.push({ col: c, row: r }); };
+
+  switch (type) {
+    // ── TIER 1 ──
+    case 'archer': {
+      if (extra.toggleState === 'right') {
+        const d = col - row;
+        for (let c = bMin; c <= bMax; c++) { const r = c - d; if (r >= bMin && r <= bMax) push(c, r); }
+      } else {
+        const d = col + row;
+        for (let c = bMin; c <= bMax; c++) { const r = d - c; if (r >= bMin && r <= bMax) push(c, r); }
+      }
+      break;
+    }
+    case 'spearman':
+      for (let r = bMin; r <= bMax; r++) push(col, r);
+      break;
+    case 'cavalry':
+      for (let c = bMin; c <= bMax; c++) push(c, row);
+      break;
+    case 'watchman':
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
+      break;
+    case 'twins_elder':
+      push(col, row); push(col-1, row); push(col+1, row);
+      break;
+    case 'twins_younger':
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'scout':
+      push(col, row); push(col-1, row); push(col+1, row);
+      break;
+    case 'manhunter':
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'messenger':
+      push(col, row);
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+    case 'gunpowder':
+      push(col, row-1); push(col, row-2); push(col, row+1); push(col, row+2);
+      break;
+    case 'herbalist':
+      push(col-1, row); push(col-2, row); push(col+1, row); push(col+2, row);
+      break;
+
+    // ── TIER 2 ──
+    case 'general':
+      push(col, row);
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+      break;
+    case 'knight':
+      push(col, row);
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+    case 'shadowAssassin':
+      if (extra.tCol !== undefined) push(extra.tCol, extra.tRow);
+      else {
+        // 미니 그리드용: 자신 포함 주변 9칸 모두 표시
+        push(col, row);
+        for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
+      }
+      break;
+    case 'wizard':
+      push(col, row-2); push(col, row+2); push(col-2, row); push(col+2, row);
+      break;
+    case 'armoredWarrior':
+      push(col, row); push(col-1, row+1); push(col, row+1); push(col+1, row+1);
+      break;
+    case 'witch':
+      if (extra.tCol !== undefined) push(extra.tCol, extra.tRow);
+      break;
+    case 'dualBlade':
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+    case 'ratMerchant':
+      push(col, row);
+      // 자기 쥐 위치만 공격 범위에 포함
+      if (S.boardObjects) {
+        for (const obj of S.boardObjects) {
+          if (obj.type === 'rat' && obj.owner === S.playerIdx) push(obj.col, obj.row);
+        }
+      }
+      break;
+    case 'weaponSmith':
+      if (extra.toggleState === 'vertical') {
+        push(col, row); push(col, row-1); push(col, row+1);
+      } else {
+        push(col, row); push(col-1, row); push(col+1, row);
+      }
+      break;
+    case 'bodyguard':
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+      break;
+
+    // ── TIER 3 ──
+    case 'prince':
+      push(col, row); push(col-1, row); push(col+1, row);
+      break;
+    case 'princess':
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'king':
+      push(col, row);
+      break;
+    case 'dragonTamer':
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+    case 'dragon':
+      push(col, row);
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+      break;
+    case 'monk':
+      push(col, row-1); push(col, row+1);
+      break;
+    case 'slaughterHero':
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) push(col+dc, row+dr);
+      break;
+    case 'commander':
+      push(col-1, row); push(col+1, row);
+      break;
+    case 'sulfurCauldron':
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
+      break;
+    case 'torturer':
+      push(col, row); push(col, row+1);
+      break;
+    case 'count':
+      push(col, row);
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+  }
+  return cells;
+}
+
+function isCrossAdjacent(c1, r1, c2, r2) {
+  const dc = Math.abs(c1 - c2), dr = Math.abs(r1 - r2);
+  return (dc === 1 && dr === 0) || (dc === 0 && dr === 1);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 유틸리티 ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function addLog(msg, type = 'system') {
+  const log = document.getElementById('game-log');
+  if (!log) return;
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${type}`;
+  entry.innerHTML = `<span class="turn-num">T${S.turnNumber}</span> ${msg}`;
+  log.prepend(entry);
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = msg; setTimeout(() => { if (el) el.textContent = ''; }, 3000); }
+}
+
+function findChar(type) {
+  if (!S.characters) return null;
+  for (const tier of [1, 2, 3]) {
+    const chars = S.characters[tier];
+    if (!chars) continue;
+    const found = chars.find(c => c.type === type);
+    if (found) return found;
+  }
+  return null;
+}
+
+function getPassiveLabel(passiveId) {
+  const map = {
+    instantMagic: '인스턴트매직 — 피격마다 1회용 SP+1 획득 (영향력 그래프 미포함)',
+    ironSkin: '아이언스킨 — 받는 피해 -0.5',
+    grace: '가호 — 악인 공격 시 피해=3, 악인에게 피격 시 피해=0.5',
+    betrayer: '배반자 — 3×3 공격 시 아군도 0.5 피해',
+    wrath: '사기증진 — 인접 아군 공격력 +1',
+    markPassive: '표식 — 공격 적중 시 대상에 표식 부여',
+    tyranny: '폭정 — 1티어에게 받는 피해 -0.5',
+    loyalty: '충성 — 왕실 아군 피해를 1로 줄이고 대신 받음',
+  };
+  return map[passiveId] || passiveId;
+}
+
+// ── 관전자 렌더링 ─────────────────────────────────────────
+function renderSpectatorGame(gs) {
+  S.turnNumber = gs.turnNumber;
+  S.sp = gs.sp;
+  S.instantSp = gs.instantSp;
+  S.boardBounds = gs.boardBounds;
+
+  // SP 바 업데이트
+  const mySP = gs.sp[0] || 0, oppSP = gs.sp[1] || 0;
+  const total = mySP + oppSP || 1;
+  document.getElementById('sp-my-label').textContent = `${gs.p0Name}: ${mySP} SP`;
+  document.getElementById('sp-opp-label').textContent = `${gs.p1Name}: ${oppSP} SP`;
+  document.getElementById('sp-my-fill').style.width = `${(mySP / total) * 100}%`;
+  document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
+  const spCountdown = document.getElementById('sp-countdown');
+  if (spCountdown && gs.turnNumber) {
+    const turnsUntilSP = 10 - (gs.turnNumber % 10);
+    spCountdown.textContent = `다음 SP 지급까지 ${turnsUntilSP === 10 ? 10 : turnsUntilSP}턴`;
+  }
+
+  // 턴 배너
+  const banner = document.getElementById('turn-banner');
+  const curName = gs.currentPlayerIdx === 0 ? gs.p0Name : gs.p1Name;
+  banner.innerHTML = `👁 관전 중 — 턴 ${gs.turnNumber} · <strong>${curName}</strong>의 차례`;
+
+  // 액션바 숨기기
+  const bar = document.getElementById('action-bar');
+  if (bar) bar.classList.add('hidden');
+  const hint = document.getElementById('action-hint');
+  if (hint) hint.textContent = '';
+
+  // 보드 렌더링 — 양쪽 모두 표시
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  // 셀이 없으면 보드 빌드
+  if (!board.querySelector('.cell')) {
+    buildBoard('game-board', () => {});
+  }
+
+  document.querySelectorAll('#game-board .cell').forEach(cell => {
+    const col = parseInt(cell.dataset.col), row = parseInt(cell.dataset.row);
+    cell.className = 'cell';
+    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+    const bounds = gs.boardBounds;
+    if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) {
+      cell.classList.add('destroyed'); return;
+    }
+    // P0 말 (파란색)
+    const p0 = (gs.p0Pieces || []).find(p => p.col === col && p.row === row && p.alive);
+    if (p0) {
+      const hpPct0 = Math.round((p0.hp / p0.maxHp) * 100);
+      cell.innerHTML += `<div class="spec-piece p0">
+        <span class="p-icon">${p0.icon}</span>
+        <div class="spec-hp-bar"><div class="spec-hp-fill p0-fill" style="width:${hpPct0}%"></div></div>
+      </div>`;
+      cell.classList.add('has-piece');
+    }
+    // P1 말 (빨간색)
+    const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
+    if (p1) {
+      const hpPct1 = Math.round((p1.hp / p1.maxHp) * 100);
+      cell.innerHTML += `<div class="spec-piece p1">
+        <span class="p-icon">${p1.icon}</span>
+        <div class="spec-hp-bar"><div class="spec-hp-fill p1-fill" style="width:${hpPct1}%"></div></div>
+      </div>`;
+      cell.classList.add('has-piece');
+    }
+    // 보드 오브젝트
+    if (gs.boardObjects) {
+      for (const obj of gs.boardObjects) {
+        if (obj.col === col && obj.row === row) {
+          if (obj.type === 'trap') cell.innerHTML += '<span style="position:absolute;bottom:1px;right:2px;font-size:0.5rem">🪤</span>';
+          if (obj.type === 'bomb') cell.innerHTML += '<span style="position:absolute;top:1px;right:2px;font-size:0.5rem">💣</span>';
+          if (obj.type === 'rat') cell.innerHTML += '<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>';
+        }
+      }
+    }
+  });
+
+  // 좌측: P0 말 정보
+  const leftPanel = document.getElementById('my-pieces-info');
+  if (leftPanel) {
+    document.querySelector('.left-panel h3').textContent = gs.p0Name;
+    leftPanel.innerHTML = '';
+    for (const pc of (gs.p0Pieces || [])) {
+      const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+      const div = document.createElement('div');
+      div.className = `my-piece-card ${pc.alive ? '' : 'dead'}`;
+      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+        <div><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
+        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
+        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+      leftPanel.appendChild(div);
+    }
+  }
+
+  // 우측: P1 말 정보
+  const rightPanel = document.getElementById('opp-pieces-info');
+  if (rightPanel) {
+    document.querySelector('.right-panel h3').textContent = gs.p1Name;
+    const sub = document.querySelector('.right-panel p');
+    if (sub) sub.textContent = '';
+    rightPanel.innerHTML = '';
+    for (const pc of (gs.p1Pieces || [])) {
+      const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+      const div = document.createElement('div');
+      div.className = `opp-piece-card ${pc.alive ? '' : 'dead'}`;
+      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+        <div class="opp-info"><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
+        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
+        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+      rightPanel.appendChild(div);
+    }
+  }
+}
+
+// ── 스킬 사용 토스트 알림 ─────────────────────────────────
+function showSkillToast(msg, isEnemy = false) {
+  let toast = document.getElementById('skill-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'skill-toast';
+    toast.style.cssText = `
+      position:fixed; top:60px; left:50%; transform:translateX(-50%);
+      color:#fff; padding:12px 28px;
+      border-radius:8px; font-size:0.95rem; font-weight:600;
+      z-index:2000; pointer-events:none; opacity:0; transition:opacity 0.3s;
+      box-shadow:0 4px 20px rgba(0,0,0,0.4);
+    `;
+    document.body.appendChild(toast);
+  }
+  toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(124,58,237,0.92)';
+  toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 채팅 ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+(function initChat() {
+  const widget = document.getElementById('chat-widget');
+  const toggle = document.getElementById('chat-toggle');
+  const closeBtn = document.getElementById('chat-close');
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+  const msgBox = document.getElementById('chat-messages');
+  const badge = document.getElementById('chat-badge');
+  let unread = 0;
+
+  function isOpen() { return !widget.classList.contains('chat-collapsed'); }
+
+  toggle.addEventListener('click', () => {
+    if (isOpen()) {
+      widget.classList.add('chat-collapsed');
+    } else {
+      widget.classList.remove('chat-collapsed');
+      unread = 0;
+      badge.classList.add('hidden');
+      msgBox.scrollTop = msgBox.scrollHeight;
+      input.focus();
+    }
+  });
+
+  closeBtn.addEventListener('click', () => {
+    widget.classList.add('chat-collapsed');
+  });
+
+  function sendMsg() {
+    const text = input.value.trim();
+    if (!text) return;
+    socket.emit('chat_msg', { text });
+    input.value = '';
+    input.focus();
+  }
+
+  sendBtn.addEventListener('click', sendMsg);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendMsg(); }
+  });
+
+  socket.on('chat_msg', ({ sender, text, pIdx }) => {
+    const isSelf = (S.isSpectator && pIdx === -1 && sender.includes(document.getElementById('input-name').value)) ||
+                   (!S.isSpectator && pIdx === S.playerIdx);
+    const isSpec = pIdx === -1;
+    const div = document.createElement('div');
+    div.className = `chat-msg ${isSelf ? 'mine' : isSpec ? 'spec' : 'opp'}`;
+    div.innerHTML = `<span class="chat-sender">${escapeHtml(sender)}</span>${escapeHtml(text)}`;
+    msgBox.appendChild(div);
+    msgBox.scrollTop = msgBox.scrollHeight;
+
+    if (!isSelf && !isOpen()) {
+      unread++;
+      badge.textContent = unread > 9 ? '9+' : unread;
+      badge.classList.remove('hidden');
+    }
+  });
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// ── 튜토리얼 ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+let tutStep = 0;
+
+const TUTORIAL_STEPS = [
+  // 0: 인트로
+  () => `
+    <div class="tut-title">📖 CALIGO 튜토리얼</div>
+    <div class="tut-subtitle">게임의 기초와 원리를 하나씩 배워봅시다!</div>
+    <div class="tut-section">
+      <div class="tut-section-title">🎯 게임 목표</div>
+      <div class="tut-text">
+        CALIGO는 <strong>1대1 전략 보드게임</strong>입니다.<br>
+        5×5 격자판 위에서 각자 <strong>3개의 말</strong>을 조종하며,<br>
+        <strong>상대의 말을 모두 처치</strong>하면 승리합니다!
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">⚡ 핵심 특징</div>
+      <div class="tut-text">
+        • 상대 말의 위치가 <strong>보이지 않습니다</strong> — 추리와 예측이 핵심!<br>
+        • 각 말은 고유한 <strong>공격 범위, 스킬, 패시브</strong>를 가집니다<br>
+        • 30종의 캐릭터 중 3개를 골라 나만의 전략을 세우세요
+      </div>
+    </div>
+    <div class="tut-highlight">💡 이 튜토리얼은 약 2분이면 완료됩니다. 화살표를 눌러 진행하세요!</div>
+  `,
+
+  // 1: 보드와 턴
+  () => `
+    <div class="tut-title">🗺️ 보드와 턴</div>
+    <div class="tut-subtitle">5×5 격자판에서 번갈아 행동합니다</div>
+    <div class="tut-section">
+      <div class="tut-section-title">격자판</div>
+      <div class="tut-text">게임은 <strong>5×5 보드</strong> 위에서 진행됩니다. 각 칸에 좌표가 표시됩니다.</div>
+      <div class="tut-board-demo">
+        ${Array.from({length:25}, (_,i) => {
+          const c = i % 5, r = Math.floor(i / 5);
+          return `<div class="tut-cell"><span style="font-size:0.5rem;color:var(--muted)">${c+1},${r+1}</span></div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">⏱ 턴 구조</div>
+      <div class="tut-text">
+        매 턴마다 <strong>하나의 행동</strong>을 선택합니다:<br><br>
+        🦶 <strong>이동</strong> — 말을 인접한 칸으로 옮기기<br>
+        ⚔️ <strong>공격</strong> — 공격 범위 내 적에게 피해 주기<br>
+        ✨ <strong>스킬</strong> — SP를 소비해 특수 능력 사용<br>
+        ⏭ <strong>턴 넘기기</strong> — 아무 행동도 하지 않기
+      </div>
+    </div>
+    <div class="tut-highlight">💡 일부 스킬은 행동을 소비하지 않아 스킬 + 이동/공격 조합이 가능합니다!</div>
+  `,
+
+  // 2: 이동
+  () => `
+    <div class="tut-title">🦶 이동</div>
+    <div class="tut-subtitle">십자 방향으로 1칸씩 이동합니다</div>
+    <div class="tut-section">
+      <div class="tut-text">말은 <strong>상하좌우 인접 1칸</strong>으로만 이동할 수 있습니다. 대각선 이동은 불가합니다.</div>
+      <div class="tut-board-demo">
+        ${Array.from({length:25}, (_,i) => {
+          const c = i % 5, r = Math.floor(i / 5);
+          const isCenter = c === 2 && r === 2;
+          const isMove = (c === 2 && (r === 1 || r === 3)) || (r === 2 && (c === 1 || c === 3));
+          return `<div class="tut-cell ${isCenter ? 'tut-piece' : isMove ? 'tut-move' : ''}">${isCenter ? '🏹' : isMove ? '→' : ''}</div>`;
+        }).join('')}
+      </div>
+      <div class="tut-text" style="text-align:center;margin-top:6px">
+        <span style="color:var(--sp-mine)">■</span> 내 말 &nbsp;
+        <span style="color:var(--success)">■</span> 이동 가능 칸
+      </div>
+    </div>
+    <div class="tut-highlight">💡 이동으로 적의 공격 범위를 피하거나, 유리한 위치를 선점하세요!</div>
+  `,
+
+  // 3: 공격 범위
+  () => `
+    <div class="tut-title">⚔️ 공격</div>
+    <div class="tut-subtitle">각 말마다 고유한 공격 범위가 있습니다</div>
+    <div class="tut-section">
+      <div class="tut-text">공격 시 말의 <strong>공격 범위 내 모든 칸</strong>에 동시에 피해를 줍니다. 적이 있는 칸에 명중하면 HP가 깎입니다.</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">공격 범위 예시</div>
+      <div class="tut-grid-row">
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🔱</span>
+          <div class="tut-char-name">창병</div>
+          <div class="tut-char-sub">세로줄 전체</div>
+          ${buildMiniRangeGrid('spearman', {})}
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🐎</span>
+          <div class="tut-char-name">기마병</div>
+          <div class="tut-char-sub">가로줄 전체</div>
+          ${buildMiniRangeGrid('cavalry', {})}
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🎖</span>
+          <div class="tut-char-name">장군</div>
+          <div class="tut-char-sub">자신 포함 십자 5칸</div>
+          ${buildMiniRangeGrid('general', {})}
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🗡</span>
+          <div class="tut-char-name">그림자 암살자</div>
+          <div class="tut-char-sub">주변 9칸 중 1칸 선택</div>
+          ${buildMiniRangeGrid('shadowAssassin', {})}
+        </div>
+      </div>
+    </div>
+    <div class="tut-highlight">
+      💡 <span style="color:#e2a84b">■</span> 금색 = 공격 범위 &nbsp;
+      <span style="color:#648cff">■</span> 파란색 = 내 말 위치<br>
+      상대 위치를 모르므로, 넓은 범위 공격은 명중 확률이 높습니다!
+    </div>
+  `,
+
+  // 4: HP와 ATK
+  () => `
+    <div class="tut-title">❤️ HP와 ATK</div>
+    <div class="tut-subtitle">체력과 공격력의 이해</div>
+    <div class="tut-section">
+      <div class="tut-section-title">❤️ HP (체력)</div>
+      <div class="tut-text">
+        게임 시작 시 총 <strong>10 HP</strong>를 3개의 말에 자유롭게 배분합니다 (최소 1, 최대 8).<br>
+        HP가 0이 되면 그 말은 <strong>탈락</strong>합니다.
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">⚔️ ATK (공격력)</div>
+      <div class="tut-text">
+        공격이 명중하면 <strong>ATK만큼 피해</strong>를 줍니다.<br><br>
+        • <strong>1티어:</strong> ATK 0.5 ~ 1 (견제·정찰용)<br>
+        • <strong>2티어:</strong> ATK 1 ~ 2 (주력 전투 유닛)<br>
+        • <strong>3티어:</strong> ATK 1 ~ 3 (강력하지만 고유한 제약)
+      </div>
+    </div>
+    <div class="tut-highlight">💡 HP 배분이 핵심 전략! 핵심 유닛에 HP를 몰아줄지, 균등하게 분산할지 선택하세요.</div>
+  `,
+
+  // 5: 티어 시스템
+  () => `
+    <div class="tut-title">🏆 티어 시스템</div>
+    <div class="tut-subtitle">1티어 · 2티어 · 3티어에서 각 1명씩 선택합니다</div>
+    <div class="tut-section">
+      <div class="tut-section-title">🥉 1티어 — 정찰과 견제</div>
+      <div class="tut-text">넓은 범위나 유틸리티 스킬이 특징. 공격력은 낮지만 정보 수집과 견제에 특화.</div>
+      <div class="tut-grid-row">
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🏹</span>
+          <div class="tut-char-name">궁수</div>
+          <div class="tut-char-sub">대각선 전체 관통</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🔭</span>
+          <div class="tut-char-name">척후병</div>
+          <div class="tut-char-sub">적 위치 정찰 스킬</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">💣</span>
+          <div class="tut-char-name">화약상</div>
+          <div class="tut-char-sub">폭탄 설치 + 기폭</div>
+        </div>
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">🥈 2티어 — 전략적 전투</div>
+      <div class="tut-text">강력한 스킬과 적절한 전투력. 팀의 핵심 전력.</div>
+      <div class="tut-grid-row">
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🗡</span>
+          <div class="tut-char-name">그림자 암살자</div>
+          <div class="tut-char-sub">은신 + 타겟 공격</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">⚔</span>
+          <div class="tut-char-name">양손 검객</div>
+          <div class="tut-char-sub">쌍검무로 2회 공격</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🧹</span>
+          <div class="tut-char-name">마녀</div>
+          <div class="tut-char-sub">저주로 지속 피해</div>
+        </div>
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">🥇 3티어 — 핵심 전력</div>
+      <div class="tut-text">극강의 능력치와 독보적인 스킬. 하지만 제약도 큽니다.</div>
+      <div class="tut-grid-row">
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🐉</span>
+          <div class="tut-char-name">드래곤 조련사</div>
+          <div class="tut-char-sub">드래곤 유닛 소환</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🙏</span>
+          <div class="tut-char-name">수도승</div>
+          <div class="tut-char-sub">힐링 + 정화 + 가호</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🪓</span>
+          <div class="tut-char-name">학살 영웅</div>
+          <div class="tut-char-sub">3×3 범위 ATK 2</div>
+        </div>
+      </div>
+    </div>
+  `,
+
+  // 6: 스킬 시스템
+  () => `
+    <div class="tut-title">✨ 스킬 시스템</div>
+    <div class="tut-subtitle">SP를 소비해 특수 능력을 사용합니다</div>
+    <div class="tut-section">
+      <div class="tut-section-title">💎 SP (스킬 포인트)</div>
+      <div class="tut-text">
+        • 양 팀이 <strong>공유하는 SP 풀</strong>에서 소비합니다<br>
+        • 시작 시 각자 <strong>1 SP</strong> 보유<br>
+        • 최대 <strong>5 SP</strong>까지 보유 가능
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">📅 SP 추가 지급</div>
+      <div class="tut-text">
+        <strong>10턴마다</strong> 양 팀 모두에게 <strong>+1 SP</strong>가 지급됩니다.<br>
+        게임 중 화면 상단에 <strong>"다음 SP 지급까지 X턴"</strong>이 표시됩니다.
+      </div>
+      <div style="margin:10px 0; text-align:center">
+        <table style="margin:0 auto;border-collapse:collapse;font-size:0.78rem">
+          <tr style="color:var(--accent)">
+            <th style="padding:4px 12px;border-bottom:1px solid var(--border)">턴</th>
+            <th style="padding:4px 12px;border-bottom:1px solid var(--border)">이벤트</th>
+            <th style="padding:4px 12px;border-bottom:1px solid var(--border)">누적 SP</th>
+          </tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">1턴</td><td style="padding:4px 12px">게임 시작</td><td style="padding:4px 12px">각 1</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">10턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 2</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">20턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 3</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">30턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 4</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">40턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 5 (최대)</td></tr>
+        </table>
+      </div>
+      <div class="tut-text" style="color:var(--muted);font-size:0.75rem">
+        ※ 마법사의 패시브 <strong>인스턴트 매직</strong>으로 얻는 SP는 별도의 1회용 SP입니다.
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">🏷️ 스킬 유형 — 3가지</div>
+      <div class="tut-text" style="margin-bottom:10px">스킬은 세 가지 유형으로 분류됩니다:</div>
+      <div style="margin-bottom:10px">
+        <span class="tut-tag-demo tut-tag-action">행동소비형</span><br>
+        <span class="tut-text">사용하면 그 턴의 <strong>행동을 소비</strong>합니다. 이동이나 공격 불가.</span><br>
+        <span class="tut-text" style="color:var(--muted)">예: 쌍둥이·분신, 마녀·저주, 인간사냥꾼·덫 설치</span>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="tut-tag-demo tut-tag-once">자유시전·1회</span><br>
+        <span class="tut-text">행동을 소비하지 않지만, <strong>턴당 1회</strong>만 사용 가능.</span><br>
+        <span class="tut-text" style="color:var(--muted)">예: 궁수·정비, 양손검객·쌍검무, 전령·질주</span>
+      </div>
+      <div>
+        <span class="tut-tag-demo tut-tag-free">자유시전형</span><br>
+        <span class="tut-text">행동 소비 없이 <strong>SP만 있으면 무제한</strong> 사용 가능.</span><br>
+        <span class="tut-text" style="color:var(--muted)">예: 척후병·정찰, 약초전문가·약초학, 국왕·절대복종 반지</span>
+      </div>
+    </div>
+    <div class="tut-highlight">💡 자유시전 스킬은 이동/공격과 함께 사용 가능해서 한 턴에 여러 행동이 가능합니다!</div>
+  `,
+
+  // 7: 패시브
+  () => `
+    <div class="tut-title">🛡️ 패시브 능력</div>
+    <div class="tut-subtitle">SP 소비 없이 자동으로 발동되는 고유 능력</div>
+    <div class="tut-section">
+      <div class="tut-text">일부 캐릭터는 <strong>패시브</strong>를 보유합니다. 별도 조작 없이 조건만 맞으면 자동 발동됩니다.</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title" style="color:#f59e0b">⭐ 패시브 예시</div>
+      <div class="tut-grid-row">
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🛡</span>
+          <div class="tut-char-name">갑주무사</div>
+          <div class="tut-char-sub" style="color:#f59e0b">아이언 스킨</div>
+          <div class="tut-char-sub">받는 피해 -0.5</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">📋</span>
+          <div class="tut-char-name">지휘관</div>
+          <div class="tut-char-sub" style="color:#f59e0b">사기증진</div>
+          <div class="tut-char-sub">인접 아군 ATK +1</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">🧙</span>
+          <div class="tut-char-name">마법사</div>
+          <div class="tut-char-sub" style="color:#f59e0b">인스턴트 매직</div>
+          <div class="tut-char-sub">피격 시 1회용 SP 제공</div>
+        </div>
+        <div class="tut-char-card">
+          <span class="tut-char-icon">⛓</span>
+          <div class="tut-char-name">고문 기술자</div>
+          <div class="tut-char-sub" style="color:#f59e0b">표식</div>
+          <div class="tut-char-sub">공격 적중 시 위치 공개</div>
+        </div>
+      </div>
+    </div>
+    <div class="tut-highlight">💡 패시브는 보이지 않는 곳에서 큰 차이를 만듭니다. 캐릭터 선택 시 패시브도 꼭 확인하세요!</div>
+  `,
+
+  // 8: 태그 시스템
+  () => `
+    <div class="tut-title">🏰 태그 시스템</div>
+    <div class="tut-subtitle">왕실과 악인 — 태그 간 시너지가 존재합니다</div>
+    <div class="tut-section">
+      <div class="tut-section-title"><span class="tag-badge royal" style="font-size:0.8rem">왕실</span> 왕실 태그</div>
+      <div class="tut-text">
+        왕실 유닛끼리 시너지가 있습니다.<br>
+        • <strong>호위 무사</strong>는 왕실 아군이 받을 피해를 대신 받습니다<br>
+        • <strong>창병, 기마병, 장군, 기사</strong> 등 정통 무력 계열
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title"><span class="tag-badge villain" style="font-size:0.8rem">악인</span> 악인 태그</div>
+      <div class="tut-text">
+        트리키한 스킬과 상태 이상 특화.<br>
+        • <strong>수도승의 가호</strong> — 악인에게 피해 3, 악인에게 피격 시 0.5<br>
+        • <strong>마녀, 쥐 장수, 그림자 암살자</strong> 등 변칙 계열
+      </div>
+    </div>
+    <div class="tut-highlight">💡 수도승 vs 악인은 치명적! 태그 조합을 고려해 전략을 짜세요.</div>
+  `,
+
+  // 9: 게임 흐름
+  () => `
+    <div class="tut-title">🎮 게임 흐름</div>
+    <div class="tut-subtitle">드래프트부터 승리까지의 전체 과정</div>
+    <div class="tut-section">
+      <div class="tut-section-title">1️⃣ 캐릭터 드래프트</div>
+      <div class="tut-text">1티어 · 2티어 · 3티어에서 <strong>각 1명씩 총 3명</strong>을 선택합니다.</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">2️⃣ HP 배분</div>
+      <div class="tut-text">총 <strong>10 HP</strong>를 3개의 말에 자유롭게 분배합니다 (최소 1, 최대 8).</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">3️⃣ 캐릭터 공개</div>
+      <div class="tut-text">서로 어떤 캐릭터를 골랐는지 <strong>공개</strong>합니다. 하지만 위치는 비밀!</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">4️⃣ 말 배치</div>
+      <div class="tut-text"><strong>5×5 보드에 3개의 말을 비밀리에 배치</strong>합니다. 상대는 어디에 놓았는지 모릅니다.</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">5️⃣ 전투</div>
+      <div class="tut-text">번갈아 턴을 진행하며 <strong>이동, 공격, 스킬</strong>을 사용합니다. 상대 말을 전멸시키면 승리!</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title" style="color:var(--danger)">⚠️ 보드 축소 이벤트</div>
+      <div class="tut-text">
+        장기전을 방지하기 위해, 일정 턴이 지나면 <strong>보드가 축소</strong>됩니다.
+      </div>
+      <div style="margin:10px 0; text-align:center">
+        <table style="margin:0 auto;border-collapse:collapse;font-size:0.78rem">
+          <tr style="color:var(--danger)">
+            <th style="padding:4px 14px;border-bottom:1px solid var(--border)">턴</th>
+            <th style="padding:4px 14px;border-bottom:1px solid var(--border)">이벤트</th>
+          </tr>
+          <tr><td style="padding:4px 14px;color:var(--text-dim)">40턴</td><td style="padding:4px 14px">⚠️ <strong>경고 표시</strong> — "10턴 후 보드가 축소됩니다!"</td></tr>
+          <tr><td style="padding:4px 14px;color:var(--text-dim)">50턴</td><td style="padding:4px 14px">💥 <strong>테두리 파괴</strong> — 5×5 → 3×3으로 축소</td></tr>
+        </table>
+      </div>
+      <div class="tut-text" style="display:flex;gap:16px;justify-content:center;align-items:center;margin:10px 0">
+        <div style="text-align:center">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px">50턴 이전</div>
+          <div class="tut-board-demo" style="width:120px">
+            ${Array.from({length:25}, (_,i) => {
+              const c = i % 5, r = Math.floor(i / 5);
+              const isEdge = c === 0 || c === 4 || r === 0 || r === 4;
+              return `<div class="tut-cell" style="${isEdge ? 'background:rgba(220,80,80,0.15);border-color:rgba(220,80,80,0.3)' : ''}">${isEdge ? '⚠' : ''}</div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div style="font-size:1.2rem;color:var(--danger)">→</div>
+        <div style="text-align:center">
+          <div style="font-size:0.7rem;color:var(--muted);margin-bottom:4px">50턴 이후</div>
+          <div class="tut-board-demo" style="width:120px">
+            ${Array.from({length:25}, (_,i) => {
+              const c = i % 5, r = Math.floor(i / 5);
+              const isEdge = c === 0 || c === 4 || r === 0 || r === 4;
+              const isInner = c >= 1 && c <= 3 && r >= 1 && r <= 3;
+              return `<div class="tut-cell" style="${isEdge ? 'background:rgba(220,80,80,0.3);border-color:transparent;opacity:0.3' : ''}"></div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="tut-text" style="color:var(--danger);font-size:0.78rem;text-align:center">
+        💀 축소 시 테두리에 있던 말은 <strong>즉사</strong>합니다! 미리 안쪽으로 대피하세요.
+      </div>
+    </div>
+  `,
+
+  // 10: 실전 팁 + 마무리
+  () => `
+    <div class="tut-title">🎓 실전 팁</div>
+    <div class="tut-subtitle">승리를 위한 핵심 전략들</div>
+    <div class="tut-section">
+      <div class="tut-section-title">🧠 추리하기</div>
+      <div class="tut-text">
+        공격의 명중/빗나감 결과로 적 위치를 <strong>추리</strong>하세요.<br>
+        척후병의 정찰, 고문 기술자의 표식 등으로 정보를 수집하면 유리합니다.
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">📐 배치 전략</div>
+      <div class="tut-text">
+        • 공격 범위가 <strong>겹치는 위치</strong>에 배치하면 효율적<br>
+        • 지휘관·약초전문가 등 <strong>서포터는 아군 가까이</strong> 배치<br>
+        • 너무 모이면 범위 공격에 한꺼번에 당할 수 있으니 주의
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">⚡ SP 관리</div>
+      <div class="tut-text">
+        SP는 양 팀 <strong>공유 자원</strong>입니다. 아낄수록 나중에 강력한 스킬을 쓸 수 있지만,<br>
+        타이밍을 놓치면 의미가 없습니다. <strong>적절한 순간에 과감하게!</strong>
+      </div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">🎯 시너지 조합</div>
+      <div class="tut-text">
+        • <strong>고문 기술자 + 넓은 범위 공격</strong> → 표식으로 위치 파악 후 집중 공격<br>
+        • <strong>지휘관 + 근접 딜러</strong> → ATK 버프로 화력 극대화<br>
+        • <strong>약초전문가 + 탱커</strong> → 지속 회복으로 전선 유지
+      </div>
+    </div>
+    <div class="tut-highlight" style="text-align:center;font-size:1rem">
+      🎮 준비가 되셨나요?<br>
+      <strong>AI 연습 모드</strong>로 직접 체험해보세요!
+    </div>
+  `,
+];
+
+function openTutorial() {
+  tutStep = 0;
+  showScreen('screen-tutorial');
+  renderTutorial();
+}
+
+function renderTutorial() {
+  const content = document.getElementById('tutorial-content');
+  content.innerHTML = TUTORIAL_STEPS[tutStep]();
+  // re-trigger animation
+  content.style.animation = 'none';
+  content.offsetHeight;
+  content.style.animation = '';
+
+  // progress dots
+  const prog = document.getElementById('tutorial-progress');
+  prog.innerHTML = TUTORIAL_STEPS.map((_, i) =>
+    `<div class="tut-dot ${i < tutStep ? 'done' : ''} ${i === tutStep ? 'active' : ''}"></div>`
+  ).join('');
+
+  // step label
+  document.getElementById('tutorial-step-label').textContent = `${tutStep + 1} / ${TUTORIAL_STEPS.length}`;
+
+  // nav buttons
+  document.getElementById('btn-tut-prev').style.visibility = tutStep === 0 ? 'hidden' : 'visible';
+  const nextBtn = document.getElementById('btn-tut-next');
+  if (tutStep === TUTORIAL_STEPS.length - 1) {
+    nextBtn.textContent = '🎮 게임 시작!';
+    nextBtn.className = 'btn btn-secondary';
+  } else {
+    nextBtn.textContent = '다음 →';
+    nextBtn.className = 'btn btn-primary';
+  }
+}
+
+document.getElementById('btn-tutorial').addEventListener('click', openTutorial);
+document.getElementById('btn-tutorial-back').addEventListener('click', () => showScreen('screen-lobby'));
+document.getElementById('btn-tut-prev').addEventListener('click', () => {
+  if (tutStep > 0) { tutStep--; renderTutorial(); }
+});
+document.getElementById('btn-tut-next').addEventListener('click', () => {
+  if (tutStep < TUTORIAL_STEPS.length - 1) {
+    tutStep++;
+    renderTutorial();
+  } else {
+    // 마지막 페이지 → 로비로 돌아가기
+    showScreen('screen-lobby');
+  }
+});

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CALIGO - 칼리고</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── 로비 ── -->
+<div id="screen-lobby" class="screen active">
+  <div class="lobby-box">
+    <h1 class="game-title">CALIGO</h1>
+    <p class="game-sub">칼리고 · 1vs1 전략 보드게임</p>
+    <div class="form-group">
+      <label>닉네임</label>
+      <input id="input-name" type="text" placeholder="이름을 입력하세요" maxlength="12">
+    </div>
+    <div class="form-group">
+      <label>방 코드</label>
+      <input id="input-room" type="text" placeholder="방 코드 입력 (예: room123)" maxlength="20">
+    </div>
+    <button id="btn-join" class="btn btn-primary btn-large">입장하기</button>
+    <div class="divider"><span>또는</span></div>
+    <button id="btn-ai" class="btn btn-secondary btn-large">AI 연습 모드</button>
+    <button id="btn-tutorial" class="btn btn-tutorial btn-large">📖 튜토리얼</button>
+    <button id="btn-spectate" class="btn btn-spectate btn-small">👁 관전하기</button>
+    <p id="lobby-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- ── 튜토리얼 ── -->
+<div id="screen-tutorial" class="screen">
+  <div class="tutorial-container">
+    <div class="tutorial-header">
+      <button id="btn-tutorial-back" class="btn btn-small">✕ 나가기</button>
+      <div id="tutorial-progress" class="tutorial-progress"></div>
+    </div>
+    <div id="tutorial-content" class="tutorial-content"></div>
+    <div class="tutorial-nav">
+      <button id="btn-tut-prev" class="btn btn-secondary">← 이전</button>
+      <span id="tutorial-step-label" class="tutorial-step-label"></span>
+      <button id="btn-tut-next" class="btn btn-primary">다음 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 대기 ── -->
+<div id="screen-waiting" class="screen">
+  <div class="center-box">
+    <div class="spinner"></div>
+    <h2 id="waiting-title">상대방을 기다리는 중...</h2>
+    <p id="waiting-sub" class="muted">같은 방 코드를 상대에게 공유하세요</p>
+    <p id="waiting-room-code" class="room-code-display"></p>
+  </div>
+</div>
+
+<!-- ── 드래프트 (단계별) ── -->
+<div id="screen-draft" class="screen">
+  <div class="draft-container">
+    <h2 id="draft-title">1티어 선택</h2>
+    <p id="draft-sub" class="muted">정찰과 견제 - 10명 중 1명을 선택하세요</p>
+    <div id="draft-step-indicator" class="step-indicator">
+      <span class="step active">1티어</span>
+      <span class="step-arrow">→</span>
+      <span class="step">2티어</span>
+      <span class="step-arrow">→</span>
+      <span class="step">3티어</span>
+    </div>
+
+    <!-- 슬라이드형 캐릭터 뷰어 + 아이콘 인덱스 -->
+    <div class="draft-viewer-wrap">
+    <div id="draft-icon-index" class="draft-icon-index"></div>
+    <div class="slide-viewer">
+      <button id="btn-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
+      <div class="slide-content">
+        <div class="slide-hero">
+          <span id="slide-icon" class="slide-icon"></span>
+          <div class="slide-hero-info">
+            <div id="slide-name" class="slide-name"></div>
+            <div id="slide-desc" class="slide-desc"></div>
+          </div>
+        </div>
+        <div class="slide-stats">
+          <div id="slide-atk" class="slide-stat"></div>
+          <div id="slide-detail-blocks"></div>
+          <div id="slide-detail-body" class="slide-detail-body"></div>
+        </div>
+        <div class="slide-preview-area">
+          <h4>공격 범위 미리보기</h4>
+          <div id="draft-preview-board" class="board preview-board"></div>
+          <div id="draft-preview-info" class="draft-preview-info"></div>
+        </div>
+      </div>
+      <button id="btn-slide-next" class="slide-arrow slide-arrow-right">›</button>
+    </div>
+    </div><!-- /draft-viewer-wrap -->
+
+    <div class="slide-pager" id="slide-pager"></div>
+    <div class="draft-btn-row">
+      <button id="btn-draft-confirm" class="btn btn-primary" disabled>선택 확정</button>
+      <button id="btn-draft-random" class="btn btn-random">🎲 랜덤 선택</button>
+      <button id="btn-draft-recommend" class="btn btn-recommend">💡 추천 조합</button>
+    </div>
+    <p id="draft-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- ── HP 분배 ── -->
+<div id="screen-hp" class="screen">
+  <div class="hp-container">
+    <h2>HP 분배 페이즈</h2>
+    <p class="muted">총 <strong>10 HP</strong>를 말에 분배하세요 (각 최소 1, 최대 8)</p>
+    <div id="hp-pieces"></div>
+    <div id="hp-twin-split" class="hp-twin-split hidden">
+      <h3>쌍둥이 HP 분배</h3>
+      <p class="muted">쌍둥이 강도의 HP를 형과 동생에게 분배하세요 (각 최소 1)</p>
+      <div id="hp-twin-controls"></div>
+    </div>
+    <div class="hp-total-bar">
+      남은 HP: <span id="hp-remaining">10</span> / 10
+    </div>
+    <button id="btn-hp-confirm" class="btn btn-primary" disabled>확정</button>
+    <p id="hp-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- ── 캐릭터 공개 ── -->
+<div id="screen-reveal" class="screen">
+  <div class="reveal-container">
+    <h2>캐릭터 공개</h2>
+    <p class="muted">서로의 캐릭터 선택이 공개됩니다!</p>
+    <div class="reveal-layout">
+      <div class="reveal-side">
+        <h3 id="reveal-my-name">나</h3>
+        <div id="reveal-my-pieces" class="reveal-pieces"></div>
+      </div>
+      <div class="reveal-vs">VS</div>
+      <div class="reveal-side">
+        <h3 id="reveal-opp-name">상대방</h3>
+        <div id="reveal-opp-pieces" class="reveal-pieces"></div>
+      </div>
+    </div>
+    <button id="btn-reveal-confirm" class="btn btn-primary btn-large">배치 단계로</button>
+  </div>
+</div>
+
+<!-- ── 배치 ── -->
+<div id="screen-placement" class="screen">
+  <div class="placement-container">
+    <h2>말 배치 페이즈</h2>
+    <p class="muted">말을 선택 후 보드에서 위치를 클릭하세요 (겹치기 불가)</p>
+    <div class="placement-layout">
+      <div>
+        <div id="placement-piece-list" class="piece-list"></div>
+        <button id="btn-placement-confirm" class="btn btn-primary" disabled>배치 확정</button>
+        <p id="placement-error" class="error-msg"></p>
+      </div>
+      <div id="placement-board" class="board"></div>
+      <div id="placement-opp-info" class="placement-opp-panel">
+        <h4>상대방 캐릭터</h4>
+        <div id="placement-opp-pieces"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 게임 ── -->
+<div id="screen-game" class="screen">
+  <!-- SP 영향력 그래프 (상단) -->
+  <div class="sp-bar-container">
+    <span id="sp-my-label" class="sp-label sp-mine">내 SP: 1</span>
+    <div class="sp-bar">
+      <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
+      <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
+    </div>
+    <span id="sp-opp-label" class="sp-label sp-opp">상대 SP: 1</span>
+  </div>
+  <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
+
+  <!-- 보드 축소 경고 -->
+  <div id="shrink-warning" class="shrink-warning hidden"></div>
+
+  <div class="game-layout">
+    <!-- 왼쪽: 내 말 정보 -->
+    <div class="side-panel left-panel">
+      <h3>내 말</h3>
+      <div id="my-pieces-info"></div>
+    </div>
+
+    <!-- 중앙: 보드 + 컨트롤 -->
+    <div class="center-panel">
+      <div class="turn-banner" id="turn-banner">...</div>
+      <div id="game-board" class="board"></div>
+      <div id="action-bar" class="action-bar hidden">
+        <button id="btn-move" class="btn btn-secondary">이동</button>
+        <button id="btn-attack" class="btn btn-danger">공격</button>
+        <button id="btn-skill" class="btn btn-skill">스킬</button>
+        <button id="btn-end-turn" class="btn btn-warning">턴 종료</button>
+        <button id="btn-cancel" class="btn btn-muted hidden">취소</button>
+      </div>
+      <div id="action-hint" class="action-hint"></div>
+    </div>
+
+    <!-- 오른쪽: 상대 말 + 로그 -->
+    <div class="side-panel right-panel">
+      <h3>상대방 말</h3>
+      <p style="font-size:0.7rem;color:var(--muted);margin:0 0 8px">위치 비공개 · 스탯 공개</p>
+      <div id="opp-pieces-info"></div>
+      <h3 style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">전투 로그</h3>
+      <div id="game-log" class="game-log"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 채팅 ── -->
+<div id="chat-widget" class="chat-widget chat-collapsed">
+  <button id="chat-toggle" class="chat-toggle-btn">💬 <span id="chat-badge" class="chat-badge hidden">0</span></button>
+  <div class="chat-panel">
+    <div class="chat-header">
+      <span>💬 채팅</span>
+      <button id="chat-close" class="chat-close-btn">✕</button>
+    </div>
+    <div id="chat-messages" class="chat-messages"></div>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" placeholder="메시지 입력..." maxlength="200" autocomplete="off">
+      <button id="chat-send" class="btn btn-primary" style="padding:8px 12px;font-size:0.8rem">전송</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 랜덤 확인 모달 ── -->
+<div id="random-confirm-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>🎲 랜덤 선택</h3>
+    <div id="random-confirm-body"></div>
+    <div class="modal-btn-row">
+      <button id="random-confirm-ok" class="btn btn-primary">확정하기</button>
+      <button id="random-confirm-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 추천 조합 모달 ── -->
+<div id="recommend-modal" class="modal hidden">
+  <div class="modal-content modal-wide">
+    <h3>💡 초보자 추천 조합</h3>
+    <div id="recommend-body"></div>
+    <button id="recommend-close" class="btn btn-muted">닫기</button>
+  </div>
+</div>
+
+<!-- ── 관전 방 목록 모달 ── -->
+<div id="spectate-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>👁 관전 가능한 방</h3>
+    <div id="spectate-room-list" class="spectate-room-list">
+      <p class="muted">로딩 중...</p>
+    </div>
+    <button id="spectate-modal-close" class="btn btn-muted">닫기</button>
+  </div>
+</div>
+
+<!-- ── 스킬 선택 모달 ── -->
+<div id="skill-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3 id="skill-modal-title">스킬 선택</h3>
+    <div id="skill-modal-body"></div>
+    <button id="skill-modal-close" class="btn btn-muted">닫기</button>
+  </div>
+</div>
+
+<!-- ── 게임 오버 ── -->
+<div id="screen-gameover" class="screen">
+  <div class="center-box">
+    <div id="gameover-icon" class="gameover-icon"></div>
+    <h1 id="gameover-title"></h1>
+    <p id="gameover-sub" class="muted"></p>
+    <button id="btn-replay" class="btn btn-primary btn-large" onclick="location.reload()">다시 시작</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
