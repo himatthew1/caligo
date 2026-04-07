@@ -8,6 +8,15 @@
 </head>
 <body>
 
+<!-- ── 아날로그 타이머 ── -->
+<div id="timer-clock" class="timer-clock hidden">
+  <svg viewBox="0 0 100 100" class="timer-svg">
+    <circle cx="50" cy="50" r="45" class="timer-track"/>
+    <circle cx="50" cy="50" r="45" id="timer-arc" class="timer-arc"/>
+  </svg>
+  <span id="timer-text" class="timer-clock-text">90</span>
+</div>
+
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
@@ -58,52 +67,73 @@
 
 <!-- ── 드래프트 (단계별) ── -->
 <div id="screen-draft" class="screen">
-  <div class="draft-container">
-    <h2 id="draft-title">1티어 선택</h2>
-    <p id="draft-sub" class="muted">정찰과 견제 - 10명 중 1명을 선택하세요</p>
-    <div id="draft-step-indicator" class="step-indicator">
-      <span class="step active">1티어</span>
-      <span class="step-arrow">→</span>
-      <span class="step">2티어</span>
-      <span class="step-arrow">→</span>
-      <span class="step">3티어</span>
-    </div>
+  <div class="draft-layout">
+    <!-- 왼쪽: 캐릭터 뷰어 -->
+    <div class="draft-main">
+      <h2 id="draft-title">1티어 선택</h2>
+      <p id="draft-sub" class="muted">정찰과 견제 - 10명 중 1명을 선택하세요</p>
+      <div id="draft-step-indicator" class="step-indicator">
+        <span class="step active">1티어</span>
+        <span class="step-arrow">→</span>
+        <span class="step">2티어</span>
+        <span class="step-arrow">→</span>
+        <span class="step">3티어</span>
+      </div>
 
-    <!-- 슬라이드형 캐릭터 뷰어 + 아이콘 인덱스 -->
-    <div class="draft-viewer-wrap">
-    <div id="draft-icon-index" class="draft-icon-index"></div>
-    <div class="slide-viewer">
-      <button id="btn-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
-      <div class="slide-content">
-        <div class="slide-hero">
-          <span id="slide-icon" class="slide-icon"></span>
-          <div class="slide-hero-info">
-            <div id="slide-name" class="slide-name"></div>
-            <div id="slide-desc" class="slide-desc"></div>
+      <div class="draft-viewer-wrap">
+      <div id="draft-icon-index" class="draft-icon-index"></div>
+      <div class="slide-viewer">
+        <button id="btn-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
+        <div class="slide-content">
+          <div class="slide-hero">
+            <span id="slide-icon" class="slide-icon"></span>
+            <div class="slide-hero-info">
+              <div id="slide-name" class="slide-name"></div>
+              <div id="slide-desc" class="slide-desc"></div>
+            </div>
+          </div>
+          <div class="slide-stats">
+            <div id="slide-atk" class="slide-stat"></div>
+            <div id="slide-detail-blocks"></div>
+            <div id="slide-detail-body" class="slide-detail-body"></div>
+          </div>
+          <div class="slide-preview-area">
+            <h4>공격 범위 미리보기</h4>
+            <div id="draft-preview-board" class="board preview-board"></div>
+            <div id="draft-preview-info" class="draft-preview-info"></div>
           </div>
         </div>
-        <div class="slide-stats">
-          <div id="slide-atk" class="slide-stat"></div>
-          <div id="slide-detail-blocks"></div>
-          <div id="slide-detail-body" class="slide-detail-body"></div>
-        </div>
-        <div class="slide-preview-area">
-          <h4>공격 범위 미리보기</h4>
-          <div id="draft-preview-board" class="board preview-board"></div>
-          <div id="draft-preview-info" class="draft-preview-info"></div>
+        <button id="btn-slide-next" class="slide-arrow slide-arrow-right">›</button>
+      </div>
+      </div>
+
+      <div class="slide-pager" id="slide-pager"></div>
+      <p id="draft-error" class="error-msg"></p>
+    </div>
+
+    <!-- 오른쪽: 선택 슬롯 + 버튼 -->
+    <div class="draft-sidebar">
+      <h3 class="sidebar-title">내 조합</h3>
+      <div id="draft-slot-1" class="draft-slot empty" data-tier="1">
+        <span class="slot-tier">1티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="draft-slot-2" class="draft-slot empty" data-tier="2">
+        <span class="slot-tier">2티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="draft-slot-3" class="draft-slot empty" data-tier="3">
+        <span class="slot-tier">3티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div class="draft-sidebar-btns">
+        <button id="btn-draft-confirm" class="btn btn-primary" disabled>선택 확정 (0/3)</button>
+        <div class="draft-sub-btns">
+          <button id="btn-draft-random" class="btn btn-random-sm">🎲 랜덤</button>
+          <button id="btn-draft-recommend" class="btn btn-recommend-sm">💡 추천</button>
         </div>
       </div>
-      <button id="btn-slide-next" class="slide-arrow slide-arrow-right">›</button>
     </div>
-    </div><!-- /draft-viewer-wrap -->
-
-    <div class="slide-pager" id="slide-pager"></div>
-    <div class="draft-btn-row">
-      <button id="btn-draft-confirm" class="btn btn-primary" disabled>선택 확정</button>
-      <button id="btn-draft-random" class="btn btn-random">🎲 랜덤 선택</button>
-      <button id="btn-draft-recommend" class="btn btn-recommend">💡 추천 조합</button>
-    </div>
-    <p id="draft-error" class="error-msg"></p>
   </div>
 </div>
 
@@ -199,6 +229,7 @@
         <button id="btn-skill" class="btn btn-skill">스킬</button>
         <button id="btn-end-turn" class="btn btn-warning">턴 종료</button>
         <button id="btn-cancel" class="btn btn-muted hidden">취소</button>
+        <button id="btn-surrender" class="btn btn-surrender" disabled>🏳 기권</button>
       </div>
       <div id="action-hint" class="action-hint"></div>
     </div>
@@ -226,6 +257,30 @@
     <div class="chat-input-row">
       <input id="chat-input" type="text" placeholder="메시지 입력..." maxlength="200" autocomplete="off">
       <button id="chat-send" class="btn btn-primary" style="padding:8px 12px;font-size:0.8rem">전송</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 기권 확인 모달 ── -->
+<div id="surrender-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>🏳 기권하시겠습니까?</h3>
+    <p style="color:var(--text-dim); margin:12px 0;">기권하면 패배 처리됩니다.</p>
+    <div class="modal-btn-row">
+      <button id="surrender-confirm" class="btn btn-danger">기권하기</button>
+      <button id="surrender-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 턴 종료 확인 모달 ── -->
+<div id="endturn-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>⚠ 턴 종료</h3>
+    <p style="color:var(--text-dim); margin:12px 0;">행동을 하지 않았습니다. 그래도 턴을 종료하시겠습니까?</p>
+    <div class="modal-btn-row">
+      <button id="endturn-confirm" class="btn btn-warning">턴 종료</button>
+      <button id="endturn-cancel" class="btn btn-muted">취소</button>
     </div>
   </div>
 </div>

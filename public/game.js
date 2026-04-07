@@ -4,6 +4,11 @@
 
 const socket = io();
 
+// ── 좌표 변환 헬퍼 (세로=A~E, 가로=1~5) ──
+const ROW_LABELS = ['A','B','C','D','E'];
+function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
+function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
+
 // ── 게임 상태 ─────────────────────────────────────────────────
 const S = {
   playerIdx: null,
@@ -44,7 +49,58 @@ const S = {
 
   // 공격/피격 기록
   attackLog: [],
+
+  // 추리 토큰 (클라이언트 전용) — { pieceKey, icon, name, col, row }
+  deductionTokens: [],
 };
+
+// ── 타이머 ───────────────────────────────────────────────────
+let timerInterval = null;
+let timerDeadline = null;
+
+function startClientTimer(seconds) {
+  stopClientTimer();
+  timerDeadline = Date.now() + seconds * 1000;
+  const clock = document.getElementById('timer-clock');
+  const arc = document.getElementById('timer-arc');
+  const text = document.getElementById('timer-text');
+  clock.classList.remove('hidden');
+  const total = seconds * 1000;
+  const circumference = 283; // 2 * π * 45
+
+  function tick() {
+    const remaining = Math.max(0, timerDeadline - Date.now());
+    const secs = Math.ceil(remaining / 1000);
+    const ratio = remaining / total;
+    arc.style.strokeDashoffset = circumference * (1 - ratio);
+    text.textContent = secs;
+    const urgent = secs <= 10;
+    arc.classList.toggle('urgent', urgent);
+    text.classList.toggle('urgent', urgent);
+    if (remaining <= 0) stopClientTimer();
+  }
+  tick();
+  timerInterval = setInterval(tick, 250);
+}
+
+function stopClientTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  const clock = document.getElementById('timer-clock');
+  if (clock) clock.classList.add('hidden');
+}
+
+socket.on('timer_start', ({ seconds }) => {
+  startClientTimer(seconds);
+});
+
+socket.on('turn_timeout', () => {
+  addLog('⏰ 시간 초과! 턴이 넘어갑니다.', 'system');
+  showSkillToast('⏰ 시간 초과!');
+});
+
+socket.on('placement_timeout', () => {
+  showSkillToast('⏰ 시간 초과! 미배치 말이 랜덤 배치됩니다.');
+});
 
 // ── 화면 전환 ─────────────────────────────────────────────────
 function showScreen(id) {
@@ -140,24 +196,42 @@ socket.on('joined', ({ idx, roomId, characters }) => {
 socket.on('waiting', () => showScreen('screen-waiting'));
 
 // ── 관전자 모드 ──
-socket.on('spectator_joined', ({ roomId, phase, gameState, p0Name, p1Name }) => {
+socket.on('spectator_joined', ({ roomId, phase, gameState, draftState, hpState, placementState, characters, p0Name, p1Name }) => {
   S.isSpectator = true;
   S.playerIdx = -1;
   S.specP0Name = p0Name;
   S.specP1Name = p1Name;
+  if (characters) S.specCharacters = characters;
   // 관전자 전용 채팅 표시
   const chatInput = document.getElementById('chat-input');
   if (chatInput) chatInput.placeholder = '관전자 채팅 (관전자끼리만 보입니다)';
-  if ((phase === 'game' || phase === 'placement' || phase === 'reveal') && gameState) {
-    // 게임 화면 보이기 전에 보드 초기화
+
+  if (phase === 'game' && gameState) {
     buildBoard('game-board', () => {});
     renderSpectatorGame(gameState);
     showScreen('screen-game');
+  } else if (phase === 'draft' && draftState) {
+    S.specDraft = { ...draftState, p0Browse: {}, p1Browse: {} };
+    renderSpectatorDraft();
+    showScreen('screen-draft');
+  } else if (phase === 'hp_distribution' && hpState) {
+    S.specDraft = draftState;
+    S.specHp = { ...hpState, p0Hps: null, p1Hps: null, p0Draft: draftState?.p0 || null, p1Draft: draftState?.p1 || null };
+    renderSpectatorHp();
+    showScreen('screen-hp');
+  } else if (phase === 'reveal' && hpState) {
+    S.specReveal = { p0Pieces: hpState.p0Pieces, p1Pieces: hpState.p1Pieces, p0Name, p1Name };
+    renderSpectatorReveal();
+    showScreen('screen-reveal');
+  } else if (phase === 'placement' && placementState) {
+    S.specPlacement = placementState;
+    S.boardBounds = placementState.boardBounds;
+    renderSpectatorPlacement();
+    showScreen('screen-placement');
   } else {
-    // 게임 시작 전이면 대기 화면
     document.getElementById('waiting-title').textContent = `👁 관전 모드 — ${p0Name} vs ${p1Name}`;
     document.getElementById('waiting-sub').textContent = phase === 'waiting' ? '게임이 아직 시작되지 않았습니다. 잠시 기다려주세요...' :
-      '게임이 진행 중입니다. 전투가 시작되면 관전이 가능합니다.';
+      '게임이 진행 중입니다. 잠시 기다려주세요...';
     document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
     showScreen('screen-waiting');
   }
@@ -177,12 +251,98 @@ socket.on('spectator_update', (gameState) => {
 });
 
 // ── 관전자 전투 로그 ──
-socket.on('spectator_log', ({ msg, type }) => {
+socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   if (!S.isSpectator) return;
   addLog(msg, type || 'system');
-  if (type === 'skill' || type === 'hit') {
-    showSkillToast(msg, type === 'hit');
+  if (type === 'skill' || type === 'hit' || type === 'passive') {
+    showSkillToast(msg, false, playerIdx);
   }
+});
+
+// ── 관전자: 페이즈 전환 알림 ──
+socket.on('spectator_phase', ({ phase, p0Name, p1Name, characters, p0Draft, p1Draft }) => {
+  if (!S.isSpectator) return;
+  S.specP0Name = p0Name;
+  S.specP1Name = p1Name;
+  if (characters) S.specCharacters = characters;
+  if (phase === 'draft') {
+    S.specDraft = { p0: null, p1: null, draftDone: [false, false] };
+    renderSpectatorDraft();
+    showScreen('screen-draft');
+  } else if (phase === 'hp') {
+    S.specDraft = { p0: p0Draft, p1: p1Draft };
+    S.specHp = {
+      p0Pieces: [], p1Pieces: [], hpDone: [false, false],
+      p0Hps: [4, 3, 3], p1Hps: [4, 3, 3],
+      p0Draft: p0Draft, p1Draft: p1Draft,
+    };
+    renderSpectatorHp();
+    showScreen('screen-hp');
+  }
+});
+
+// ── 관전자: 드래프트 실시간 브라우징 ──
+socket.on('spectator_draft_browse', ({ playerIdx, playerName, step, type, selected }) => {
+  if (!S.isSpectator) return;
+  if (!S.specDraft) S.specDraft = { p0: null, p1: null, draftDone: [false, false], p0Browse: {}, p1Browse: {} };
+  const key = playerIdx === 0 ? 'p0Browse' : 'p1Browse';
+  S.specDraft[key] = selected || {};
+  renderSpectatorDraft();
+});
+
+// ── 관전자: 드래프트 최종 확정 ──
+socket.on('spectator_draft_update', ({ playerIdx, playerName, draft, draftDone }) => {
+  if (!S.isSpectator) return;
+  if (!S.specDraft) S.specDraft = { p0: null, p1: null, draftDone: [false, false], p0Browse: {}, p1Browse: {} };
+  if (playerIdx === 0) { S.specDraft.p0 = draft; S.specDraft.p0Browse = { 1: draft.t1, 2: draft.t2, 3: draft.t3 }; }
+  else { S.specDraft.p1 = draft; S.specDraft.p1Browse = { 1: draft.t1, 2: draft.t2, 3: draft.t3 }; }
+  S.specDraft.draftDone = draftDone;
+  renderSpectatorDraft();
+});
+
+// ── 관전자: HP 실시간 조정 ──
+socket.on('spectator_hp_browse', ({ playerIdx, playerName, draft, hps }) => {
+  if (!S.isSpectator) return;
+  if (!S.specHp) S.specHp = { p0Pieces: [], p1Pieces: [], hpDone: [false, false], p0Hps: null, p1Hps: null, p0Draft: null, p1Draft: null };
+  const key = playerIdx === 0 ? 'p0' : 'p1';
+  S.specHp[key + 'Hps'] = hps;
+  S.specHp[key + 'Draft'] = draft;
+  renderSpectatorHp();
+});
+
+// ── 관전자: HP 최종 확정 ──
+socket.on('spectator_hp_update', ({ playerIdx, playerName, pieces, hpDone }) => {
+  if (!S.isSpectator) return;
+  if (!S.specHp) S.specHp = { p0Pieces: [], p1Pieces: [], hpDone: [false, false], p0Hps: null, p1Hps: null, p0Draft: null, p1Draft: null };
+  if (playerIdx === 0) S.specHp.p0Pieces = pieces;
+  else S.specHp.p1Pieces = pieces;
+  S.specHp.hpDone = hpDone;
+  renderSpectatorHp();
+});
+
+// ── 관전자: 공개 페이즈 ──
+socket.on('spectator_reveal', ({ p0Pieces, p1Pieces, p0Name, p1Name }) => {
+  if (!S.isSpectator) return;
+  S.specReveal = { p0Pieces, p1Pieces, p0Name, p1Name };
+  renderSpectatorReveal();
+  showScreen('screen-reveal');
+});
+
+// ── 관전자: 배치 페이즈 시작 ──
+socket.on('spectator_placement_start', ({ p0Pieces, p1Pieces, boardBounds }) => {
+  if (!S.isSpectator) return;
+  S.specPlacement = { p0Pieces, p1Pieces, boardBounds };
+  S.boardBounds = boardBounds;
+  renderSpectatorPlacement();
+  showScreen('screen-placement');
+});
+
+// ── 관전자: 배치 업데이트 ──
+socket.on('spectator_placement_update', ({ p0Pieces, p1Pieces, boardBounds }) => {
+  if (!S.isSpectator) return;
+  S.specPlacement = { p0Pieces, p1Pieces, boardBounds };
+  S.boardBounds = boardBounds;
+  renderSpectatorPlacement();
 });
 
 socket.on('opponent_joined', ({ opponentName }) => {
@@ -200,8 +360,9 @@ socket.on('phase_change', ({ phase }) => {
 });
 
 // ── 드래프트 확정 ──
-socket.on('draft_ok', ({ t1, t2, t3 }) => {
+socket.on('draft_ok', ({ t1, t2, t3, timeout }) => {
   S.myDraft = { t1, t2, t3 };
+  if (timeout) showSkillToast('⏰ 시간 초과! 캐릭터가 랜덤 선택되었습니다.');
 });
 
 // ── HP 분배 페이즈 ──
@@ -212,8 +373,8 @@ socket.on('hp_phase', ({ draft, hasTwins }) => {
   showScreen('screen-hp');
 });
 
-socket.on('hp_ok', () => {
-  // 대기
+socket.on('hp_ok', ({ timeout }) => {
+  if (timeout) showSkillToast('⏰ 시간 초과! HP가 랜덤 분배되었습니다.');
 });
 
 socket.on('twin_split_needed', ({ twinTierHp }) => {
@@ -311,7 +472,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
   const pc = yourPieces[pieceIdx];
-  addLog(`🚶 ${pc.name} 이동: (${prev.col+1},${prev.row+1}) → (${col+1},${row+1})`, 'move');
+  addLog(`🚶 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
 
   if (twinMovePending) {
     // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
@@ -356,7 +517,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       const info = h.destroyed
         ? ` 💀 ${h.revealedName||'적'}(${h.revealedIcon||'?'}) 격파! (${h.damage} 피해)`
         : ` 명중! (${h.damage} 피해)`;
-      addLog(`⚔ ${pc.name} (${h.col+1},${h.row+1}) →${info}`, 'hit');
+      addLog(`⚔ ${pc.name} ${coord(h.col,h.row)} →${info}`, 'hit');
     }
   }
 
@@ -383,7 +544,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     addLog(`🛡 상대방 공격 — 빗나감`, 'miss');
   } else {
     for (const h of hitPieces) {
-      addLog(`🛡 (${h.col+1},${h.row+1}) 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
+      addLog(`🛡 ${coord(h.col,h.row)} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
     }
   }
   renderGameBoard();
@@ -430,8 +591,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
-  addLog(`✦ ${msg}`, 'skill');
-  showSkillToast(`✦ 내 스킬: ${msg}`);
+  if (msg) {
+    addLog(`✦ ${msg}`, 'skill');
+    showSkillToast(`✦ ${msg}`);
+  }
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
@@ -446,13 +609,16 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   if (instantSp) { S.instantSp = instantSp; }
   if (sp || instantSp) { updateSPBar(); }
   if (boardObjects) S.boardObjects = boardObjects;
-  if (skillUsed) {
-    const toastMsg = `🚨 [상대] ${skillUsed.icon} ${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
+  if (msg) {
+    showSkillToast(msg, true);
+    addLog(msg, 'skill-enemy');
+  } else if (skillUsed) {
+    const toastMsg = `🚨 상대 ${skillUsed.icon}${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
     showSkillToast(toastMsg, true);
     addLog(toastMsg, 'skill-enemy');
   } else {
-    showSkillToast(`🚨 [상대] 스킬 사용!`, true);
-    addLog(`🚨 [상대] 스킬을 사용했습니다.`, 'skill-enemy');
+    showSkillToast(`🚨 상대가 스킬을 사용했습니다.`, true);
+    addLog(`🚨 상대가 스킬을 사용했습니다.`, 'skill-enemy');
   }
   renderGameBoard();
   renderMyPieces();
@@ -461,32 +627,46 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
 // ── 정찰 결과 ──
 socket.on('scout_result', ({ axis, value, targetName }) => {
-  const label = axis === 'row' ? `가로행 ${value+1}` : `세로열 ${value+1}`;
+  const label = axis === 'row' ? `${ROW_LABELS[value] || value}행` : `${value+1}열`;
   addLog(`🔭 정찰: ${targetName}은(는) ${label}에 있다!`, 'skill');
+  showSkillToast(`🔭 정찰: ${targetName}은(는) ${label}에 있다!`);
 });
 
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner }) => {
-  const who = owner === S.playerIdx ? '아군' : '상대';
-  addLog(`🐀 ${who} 쥐 ${rats.length}마리 소환!`, 'skill');
+  if (owner === S.playerIdx) {
+    addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
+    showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
+  } else {
+    addLog(`🐀 상대 쥐 장수가 쥐를 소환했습니다! 해당 보드를 공격하는 것으로 쥐를 제거할 수 있습니다.`, 'skill');
+    showSkillToast(`🐀 상대 쥐 장수가 쥐를 소환했습니다!`);
+  }
   renderGameBoard();
 });
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
-  const who = owner === S.playerIdx ? '아군' : '상대';
-  addLog(`🐲 ${who} 드래곤 소환! (${dragon.col+1},${dragon.row+1})`, 'skill');
+  if (owner === S.playerIdx) {
+    addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 배치!`, 'skill');
+    showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 배치!`);
+  } else {
+    addLog(`🐉 상대가 드래곤을 소환했습니다!`, 'skill');
+    showSkillToast(`🐉 상대가 드래곤을 소환했습니다!`);
+  }
 });
 
 // ── 함정 발동 ──
 socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
-  addLog(`🪤 (${col+1},${row+1}) 함정 발동! ${pieceInfo.icon}${pieceInfo.name}에게 ${damage} 피해`, 'hit');
+  const msg = `🪤 ${pieceInfo.icon}${pieceInfo.name}이(가) 인간 사냥꾼의 덫에 걸렸습니다! ${damage} 피해`;
+  addLog(msg, 'hit');
+  showSkillToast(msg);
   renderGameBoard();
 });
 
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
-  addLog(`💣 (${col+1},${row+1}) 폭탄 폭발!`, 'hit');
+  addLog(`💣 ${coord(col,row)} 폭탄 폭발!`, 'hit');
+  showSkillToast(`💣 ${coord(col,row)} 폭탄 폭발!`);
   for (const h of hits) {
     addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
   }
@@ -494,25 +674,105 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   renderMyPieces();
 });
 
+// ── 패시브 알림 ──
+socket.on('passive_alert', ({ type, msg }) => {
+  addLog(msg, 'skill');
+  showSkillToast(msg);
+});
+
 // ── 게임 오버 ──
-socket.on('game_over', ({ win, opponentName, winnerName, loserName, spectator }) => {
+socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
+  stopClientTimer();
   showScreen('screen-gameover');
-  if (spectator || S.isSpectator) {
+  const r = reason || {};
+  const victims = (r.victims || []).join(', ');
+  const killer = r.killer || '';
+
+  // Helper: build victim string (e.g. "궁수, 장군, 기사")
+  function victimStr(vs) {
+    const arr = vs || [];
+    if (arr.length === 0) return '';
+    if (arr.length === 1) return arr[0];
+    if (arr.length === 2) return `${arr[0]}와(과) ${arr[1]}`;
+    return arr.join(', ');
+  }
+
+  // ── 무승부 (보드 축소 양측 전멸) ──
+  if (draw) {
+    document.getElementById('gameover-icon').textContent = '🤝';
+    document.getElementById('gameover-title').textContent = '무승부';
+    document.getElementById('gameover-title').style.color = 'var(--muted)';
+    document.getElementById('gameover-sub').textContent = '보드 축소로 양측 모든 말이 전멸해 무승부입니다.';
+    return;
+  }
+
+  const isSpec = spectator || S.isSpectator;
+  const W = winnerName || opponentName || '?';
+  const L = loserName || opponentName || '?';
+  const vs = victimStr(r.victims);
+
+  if (isSpec) {
+    // ── 관전자 메시지 ──
     document.getElementById('gameover-icon').textContent = '👁';
     document.getElementById('gameover-title').textContent = '게임 종료';
     document.getElementById('gameover-title').style.color = 'var(--accent)';
-    document.getElementById('gameover-sub').textContent = `${winnerName || '?'}이(가) ${loserName || '?'}에게 승리했습니다!`;
+    let sub = '';
+    switch (r.type) {
+      case 'surrender': sub = `${L}가 기권하여 ${W}가 승리했습니다!`; break;
+      case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}가 승리했습니다!`; break;
+      case 'trap': sub = `${L}의 ${vs}이(가) 인간 사냥꾼의 덫에 걸려 ${W}가 승리했습니다!`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
+      case 'sulfur': sub = `유황범람으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
+      case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 ${L}의 ${vs}이(가) 쓰러져 ${W}가 승리했습니다!`; break;
+      case 'attack': sub = killer
+        ? `${W}의 ${killer}가 ${L}의 ${vs}을(를) 처치해 승리했습니다!`
+        : `${W}가 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+      default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
+    }
+    document.getElementById('gameover-sub').textContent = sub;
+  } else if (win) {
+    // ── 승리 메시지 ──
+    document.getElementById('gameover-icon').textContent = '🏆';
+    document.getElementById('gameover-title').textContent = '승리!';
+    document.getElementById('gameover-title').style.color = 'var(--accent)';
+    let sub = '';
+    switch (r.type) {
+      case 'surrender': sub = `${opponentName}이(가) 기권했습니다!`; break;
+      case 'shrink': sub = `상대가 보드 축소를 피하지 못해 승리했습니다!`; break;
+      case 'trap': sub = `상대가 인간 사냥꾼의 덫에 걸려 승리했습니다!`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 상대의 모든 말을 제거해 승리했습니다!`; break;
+      case 'sulfur': sub = `유황범람으로 상대의 모든 말을 제거해 승리했습니다!`; break;
+      case 'nightmare': sub = `고문 기술자의 악몽으로 상대의 모든 말을 제거해 승리했습니다!`; break;
+      case 'attack': sub = killer
+        ? `${killer}의 공격으로 상대의 모든 말을 제거해 승리했습니다!`
+        : `상대의 모든 말을 제거해 승리했습니다!`; break;
+      default: sub = `${opponentName}의 모든 말을 제거했습니다!`;
+    }
+    document.getElementById('gameover-sub').textContent = sub;
   } else {
-    document.getElementById('gameover-icon').textContent = win ? '🏆' : '💀';
-    document.getElementById('gameover-title').textContent = win ? '승리!' : '패배...';
-    document.getElementById('gameover-title').style.color = win ? 'var(--accent)' : 'var(--danger)';
-    document.getElementById('gameover-sub').textContent = win
-      ? `${opponentName}의 모든 말을 제거했습니다!`
-      : `${opponentName}에게 패배했습니다.`;
+    // ── 패배 메시지 ──
+    document.getElementById('gameover-icon').textContent = r.type === 'surrender' ? '🏳' : '💀';
+    document.getElementById('gameover-title').textContent = r.type === 'surrender' ? '기권' : '패배...';
+    document.getElementById('gameover-title').style.color = 'var(--danger)';
+    let sub = '';
+    switch (r.type) {
+      case 'surrender': sub = `기권하여 패배했습니다.`; break;
+      case 'shrink': sub = `보드 축소를 피하지 못해 패배하였습니다.`; break;
+      case 'trap': sub = `${vs}이(가) 인간 사냥꾼의 덫에 걸려 패배하였습니다.`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
+      case 'sulfur': sub = `유황범람으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
+      case 'nightmare': sub = `고문 기술자의 악몽으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
+      case 'attack': sub = killer
+        ? `${killer}의 공격으로 ${vs}이(가) 쓰러져 패배하였습니다.`
+        : `${opponentName}에게 패배했습니다.`; break;
+      default: sub = `${opponentName}에게 패배했습니다.`;
+    }
+    document.getElementById('gameover-sub').textContent = sub;
   }
 });
 
 socket.on('disconnected', ({ msg }) => {
+  stopClientTimer();
   addLog(msg, 'system');
   showScreen('screen-gameover');
   document.getElementById('gameover-icon').textContent = '🔌';
@@ -691,7 +951,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [드래곤 소환] SP 5 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. 이 스킬은 행동을 소비하지 않지만, 게임 중 1회만 소환 가능합니다.',
+    body: '스킬 사용 시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. (보드 위 최대 1마리까지 소환 가능) 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
   },
   monk: {
     blocks: [
@@ -866,6 +1126,8 @@ function renderSlide() {
   // 현재 티어에 이 캐릭터를 선택 상태로 설정
   S.draftSelected[step] = c.type;
   updateDraftConfirmBtn();
+  // 관전자에게 실시간 브라우징 전송
+  socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
 
   // 스텝 인디케이터 done 상태 갱신
   document.querySelectorAll('#draft-step-indicator .step').forEach((el, i) => {
@@ -980,6 +1242,95 @@ function updateDraftConfirmBtn() {
     btn.disabled = true;
     btn.textContent = `선택 확정 (${count}/3)`;
   }
+  renderDraftSlots();
+}
+
+function charDataToPieceLike(c) {
+  return {
+    type: c.type, name: c.name, icon: c.icon, tier: c.tier, atk: c.atk,
+    tag: c.tag, desc: c.desc,
+    skills: c.skills || [],
+    hasSkill: c.skills && c.skills.length > 0,
+    skillName: c.skills?.[0]?.name || '',
+    skillCost: c.skills?.[0]?.cost || 0,
+    passiveName: c.passives?.[0] ? getPassiveLabel(c.passives[0]) : '',
+    passives: c.passives || [],
+  };
+}
+
+function renderDraftSlots() {
+  for (let tier = 1; tier <= 3; tier++) {
+    const slot = document.getElementById(`draft-slot-${tier}`);
+    if (!slot) continue;
+    const selectedType = S.draftSelected[tier];
+    const chars = S.characters?.[tier];
+    const c = chars?.find(ch => ch.type === selectedType);
+
+    // 기존 툴팁 제거
+    const oldTip = slot.querySelector('.piece-tooltip');
+    if (oldTip) oldTip.remove();
+
+    if (c) {
+      slot.className = 'draft-slot filled';
+      const tagHtml = c.tag
+        ? `<span class="tag-badge ${c.tag}" style="font-size:0.6rem">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
+        : '';
+      slot.innerHTML = `
+        <span class="slot-tier">${tier}티어</span>
+        <span class="slot-icon">${c.icon}</span>
+        <div class="slot-info">
+          <span class="slot-name">${c.name} ${tagHtml}</span>
+          <span class="slot-stats">ATK ${c.atk} · ${c.desc}</span>
+        </div>
+        <span class="slot-remove" title="선택 해제">✕</span>`;
+
+      // 호버 팝업
+      const pieceLike = charDataToPieceLike(c);
+      const tooltip = buildPieceTooltip(pieceLike, 'left');
+      slot.appendChild(tooltip);
+
+      // 슬롯 클릭 → 해당 티어로 이동
+      slot.onclick = (e) => {
+        if (e.target.classList.contains('slot-remove')) {
+          S.draftSelected[tier] = null;
+          S.draftStep = tier;
+          buildDraftStepUI();
+          socket.emit('draft_browse', { step: tier, type: null, selected: { ...S.draftSelected } });
+          return;
+        }
+        S.draftStep = tier;
+        buildDraftStepUI();
+      };
+
+      // 현재 보고 있는 티어 강조
+      if (tier === S.draftStep) {
+        slot.style.borderColor = 'var(--accent)';
+        slot.style.boxShadow = '0 0 8px rgba(226,168,75,0.2)';
+      } else {
+        slot.style.borderColor = 'var(--success)';
+        slot.style.boxShadow = 'none';
+      }
+    } else {
+      slot.className = 'draft-slot empty';
+      slot.innerHTML = `
+        <span class="slot-tier">${tier}티어</span>
+        <span class="slot-empty-text">미선택</span>`;
+      slot.onclick = () => {
+        S.draftStep = tier;
+        buildDraftStepUI();
+      };
+      // 현재 보고 있는 티어 강조
+      if (tier === S.draftStep) {
+        slot.style.borderColor = 'var(--accent)';
+        slot.style.borderStyle = 'solid';
+        slot.style.opacity = '0.8';
+      } else {
+        slot.style.borderColor = '';
+        slot.style.borderStyle = '';
+        slot.style.opacity = '';
+      }
+    }
+  }
 }
 
 document.getElementById('btn-draft-confirm').addEventListener('click', () => {
@@ -997,11 +1348,14 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   document.getElementById('btn-draft-confirm').disabled = true;
   document.getElementById('draft-title').textContent = '선택 완료!';
   document.getElementById('draft-sub').textContent = '상대방의 선택을 기다리는 중...';
-  document.querySelector('.slide-viewer').innerHTML = '<div class="spinner"></div>';
+  document.querySelector('.draft-main .slide-viewer').innerHTML = '<div class="spinner"></div>';
   document.getElementById('slide-pager').innerHTML = '';
+  // 사이드바 버튼 비활성화
+  document.getElementById('btn-draft-random').disabled = true;
+  document.getElementById('btn-draft-recommend').disabled = true;
 });
 
-// ── 랜덤 선택 ──
+// ── 랜덤 선택 (슬롯 채우기) ──
 document.getElementById('btn-draft-random').addEventListener('click', () => {
   if (!S.characters) return;
   const t1 = S.characters[1][Math.floor(Math.random() * S.characters[1].length)];
@@ -1011,7 +1365,7 @@ document.getElementById('btn-draft-random').addEventListener('click', () => {
 
   const modal = document.getElementById('random-confirm-modal');
   document.getElementById('random-confirm-body').innerHTML = `
-    <p style="margin-bottom:14px;color:var(--muted)">다음 캐릭터가 랜덤으로 선택되었습니다.<br><strong style="color:#f87171">확정 후에는 변경할 수 없습니다!</strong></p>
+    <p style="margin-bottom:14px;color:var(--muted)">캐릭터를 랜덤 선택합니다.</p>
     <div class="random-pick-list">
       <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> <span class="muted">— ${t1.desc}</span></div>
       <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> <span class="muted">— ${t2.desc}</span></div>
@@ -1025,16 +1379,10 @@ document.getElementById('random-confirm-ok').addEventListener('click', () => {
   const pick = S._randomPick;
   if (!pick) return;
   document.getElementById('random-confirm-modal').classList.add('hidden');
-
+  // 슬롯만 채우기 (확정은 별도)
   S.draftSelected = { 1: pick.t1, 2: pick.t2, 3: pick.t3 };
-  S.draftPicked = [pick.t1, pick.t2, pick.t3];
-
-  socket.emit('select_pieces', { t1: pick.t1, t2: pick.t2, t3: pick.t3 });
-  document.getElementById('btn-draft-confirm').disabled = true;
-  document.getElementById('draft-title').textContent = '선택 완료! (랜덤)';
-  document.getElementById('draft-sub').textContent = '상대방의 선택을 기다리는 중...';
-  document.querySelector('.slide-viewer').innerHTML = '<div class="spinner"></div>';
-  document.getElementById('slide-pager').innerHTML = '';
+  showSkillToast('🎲 슬롯이 랜덤으로 채워졌습니다!');
+  buildDraftStepUI();
 });
 
 document.getElementById('random-confirm-cancel').addEventListener('click', () => {
@@ -1212,6 +1560,8 @@ function adjustHp(idx, delta) {
   if (S.hasTwins && idx === 0 && next < 2) return;
   S.hpValues[idx] = next;
   updateHpUI();
+  // 관전자에게 실시간 HP 조정 전송
+  socket.emit('hp_browse', { hps: [...S.hpValues] });
 }
 
 function updateHpUI() {
@@ -1330,10 +1680,11 @@ function createRevealCard(pc) {
 }
 
 function getSkillDescForPiece(pc) {
-  if (!S.characters) return '';
+  const charData = S.characters || S.specCharacters;
+  if (!charData) return '';
   const baseType = (pc.type === 'twins_elder' || pc.type === 'twins_younger') ? 'twins' : pc.type;
   for (const tier of [1, 2, 3]) {
-    const chars = S.characters[tier];
+    const chars = charData[tier];
     if (!chars) continue;
     const ch = chars.find(c => c.type === baseType);
     if (ch && ch.skills && ch.skills.length > 0) return ch.skills[0].desc;
@@ -1434,7 +1785,7 @@ function updatePlacementUI() {
         <div class="piece-info">
           <strong>${pc.name} ${tagHtml}</strong>
           <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
-          ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ (${pc.col+1},${pc.row+1})</span>` : ''}
+          ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
         </div>
       </div>
       <div class="placement-card-detail">
@@ -1477,7 +1828,7 @@ function updatePlacementBoard() {
     const col = parseInt(cell.dataset.col);
     const row = parseInt(cell.dataset.row);
     cell.className = 'cell';
-    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+    cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
 
     // 공격 범위 표시 (배치된 모든 말)
     if (atkSet.has(`${col},${row}`)) {
@@ -1568,12 +1919,15 @@ function showActionBar(enabled) {
   const btnSkill = document.getElementById('btn-skill');
   const btnEnd = document.getElementById('btn-end-turn');
 
+  const btnSurrender = document.getElementById('btn-surrender');
+
   if (!enabled) {
     // 상대 턴 — 모두 비활성화
     btnMove.disabled = true;
     btnAttack.disabled = true;
     btnSkill.disabled = true;
     btnEnd.disabled = true;
+    btnSurrender.disabled = true;
     btnMove.classList.remove('action-dimmed');
     btnAttack.classList.remove('action-dimmed');
     btnSkill.classList.remove('action-dimmed');
@@ -1623,6 +1977,8 @@ function showActionBar(enabled) {
 
     // 턴 종료: 항상 가능
     btnEnd.disabled = false;
+    // 기권: 내 턴에만 가능
+    btnSurrender.disabled = false;
 
     // ── 자동 턴 종료 힌트 ──
     if (!canMove && !canAttack && !hasUsableSkill) {
@@ -1648,7 +2004,7 @@ function renderGameBoard() {
     const col = parseInt(cell.dataset.col);
     const row = parseInt(cell.dataset.row);
     cell.className = 'cell';
-    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+    cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
 
     // 파괴된 셀
     if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) {
@@ -1774,6 +2130,52 @@ function renderGameBoard() {
         cell.classList.add('skill-range');
       }
     }
+
+    // ── 추리 토큰 렌더링 ──
+    const token = S.deductionTokens.find(t => t.col === col && t.row === row);
+    if (token) {
+      const tokenEl = document.createElement('span');
+      tokenEl.className = 'deduction-token';
+      tokenEl.textContent = token.icon;
+      tokenEl.title = `추리: ${token.name}`;
+      tokenEl.draggable = true;
+      tokenEl.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        e.dataTransfer.setData('text/plain', JSON.stringify({
+          pieceKey: token.pieceKey,
+          icon: token.icon,
+          name: token.name,
+          fromBoard: true,
+          fromCol: col,
+          fromRow: row
+        }));
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      // 우클릭 제거
+      tokenEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== token.pieceKey);
+        renderGameBoard();
+        renderOppPieces();
+      });
+      cell.appendChild(tokenEl);
+    }
+
+    // ── 셀 드롭 수신 ──
+    cell.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+    cell.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+      try {
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        // 기존 토큰 제거 (같은 말)
+        S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== data.pieceKey);
+        // 새 위치에 배치
+        S.deductionTokens.push({ pieceKey: data.pieceKey, icon: data.icon, name: data.name, col, row });
+        renderGameBoard();
+        renderOppPieces();
+      } catch (err) { /* ignore */ }
+    });
   });
 }
 
@@ -1823,7 +2225,7 @@ function renderMyPieces() {
       <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
-        <span class="my-piece-pos">${pc.alive ? `(${pc.col+1},${pc.row+1})` : '💀 격파'}</span>
+        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
       </div>
       ${skillHtml}${passiveHtml}${statusHtml}`;
 
@@ -1863,10 +2265,39 @@ function renderOppPieces() {
   container.innerHTML = '';
   if (!S.oppPieces) return;
 
-  for (const pc of S.oppPieces) {
+  // 추리 토큰 정리: 사망한 말의 토큰 제거
+  const aliveKeys = new Set(S.oppPieces.filter(p => p.alive).map(p => `${p.type}:${p.subUnit || ''}`));
+  S.deductionTokens = S.deductionTokens.filter(t => aliveKeys.has(t.pieceKey));
+
+  for (let pi = 0; pi < S.oppPieces.length; pi++) {
+    const pc = S.oppPieces[pi];
     const card = document.createElement('div');
     card.className = `opp-piece-card ${pc.alive ? '' : 'dead'}`;
     card.style.position = 'relative';
+
+    // ── 추리 토큰 드래그 시작 ──
+    if (pc.alive) {
+      card.draggable = true;
+      card.dataset.pieceKey = `${pc.type}:${pc.subUnit || ''}`;
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({
+          pieceKey: card.dataset.pieceKey,
+          icon: pc.icon,
+          name: pc.name,
+          fromBoard: false
+        }));
+        e.dataTransfer.effectAllowed = 'move';
+        // 커스텀 드래그 이미지: 작은 아이콘만 표시
+        const ghost = document.createElement('div');
+        ghost.className = 'drag-ghost';
+        ghost.textContent = pc.icon;
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 14, 14);
+        requestAnimationFrame(() => ghost.remove());
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend', () => card.classList.remove('dragging'));
+    }
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     const barClass = hpPct <= 25 ? 'low' : '';
     const tagHtml = pc.tag
@@ -1874,10 +2305,16 @@ function renderOppPieces() {
       : '';
     const statusHtml = renderStatusBadges(pc);
 
+    const pieceKey = `${pc.type}:${pc.subUnit || ''}`;
+    const placedToken = S.deductionTokens.find(t => t.pieceKey === pieceKey);
+    const placedBadge = placedToken
+      ? `<span class="deduction-badge" title="추리 토큰: ${coord(placedToken.col, placedToken.row)}">📌${coord(placedToken.col, placedToken.row)}</span>`
+      : '';
+
     card.innerHTML = `
       <span class="p-icon">${pc.icon}</span>
       <div class="opp-info">
-        <strong>${pc.name}${tagHtml}</strong>
+        <strong>${pc.name}${tagHtml}${placedBadge}</strong>
         <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
         ${statusHtml}
@@ -1893,6 +2330,14 @@ function renderOppPieces() {
     }
 
     container.appendChild(card);
+  }
+
+  // 추리 토큰 안내 (한 번만)
+  if (!container.querySelector('.deduction-hint')) {
+    const hint = document.createElement('div');
+    hint.className = 'deduction-hint';
+    hint.textContent = '📌 상대 말 프로필을 보드로 드래그해 추리 토큰을 생성해보세요! (우클릭으로 제거)';
+    container.appendChild(hint);
   }
 }
 
@@ -1936,10 +2381,11 @@ function getSkillTypeTag(skill) {
 
 function getSkillTypeTagFromChar(pc) {
   // 서버 CHARACTERS에서 스킬 정보 가져오기
-  if (!S.characters || !pc.hasSkill) return '';
+  const charData = S.characters || S.specCharacters;
+  if (!charData || !pc.hasSkill) return '';
   const baseType = (pc.type === 'twins_elder' || pc.type === 'twins_younger') ? 'twins' : pc.type;
   for (const tier of [1, 2, 3]) {
-    const chars = S.characters[tier];
+    const chars = charData[tier];
     if (!chars) continue;
     const ch = chars.find(c => c.type === baseType);
     if (ch && ch.skills && ch.skills.length > 0) {
@@ -2034,12 +2480,40 @@ document.getElementById('btn-skill').addEventListener('click', () => {
   openSkillModal();
 });
 
-// 턴 종료 버튼
+// 턴 종료 버튼 (행동 없이 누르면 확인 모달)
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!S.isMyTurn) return;
+  if (!S.moveDone && !S.actionDone) {
+    document.getElementById('endturn-modal').classList.remove('hidden');
+    return;
+  }
   socket.emit('end_turn');
   S.isMyTurn = false;
   showActionBar(false);
+});
+document.getElementById('endturn-confirm').addEventListener('click', () => {
+  document.getElementById('endturn-modal').classList.add('hidden');
+  socket.emit('end_turn');
+  S.isMyTurn = false;
+  showActionBar(false);
+});
+document.getElementById('endturn-cancel').addEventListener('click', () => {
+  document.getElementById('endturn-modal').classList.add('hidden');
+});
+
+// 기권 버튼
+document.getElementById('btn-surrender').addEventListener('click', () => {
+  if (!S.isMyTurn) return;
+  document.getElementById('surrender-modal').classList.remove('hidden');
+});
+document.getElementById('surrender-confirm').addEventListener('click', () => {
+  document.getElementById('surrender-modal').classList.add('hidden');
+  socket.emit('surrender');
+  S.isMyTurn = false;
+  showActionBar(false);
+});
+document.getElementById('surrender-cancel').addEventListener('click', () => {
+  document.getElementById('surrender-modal').classList.add('hidden');
 });
 
 // 취소 버튼
@@ -2073,9 +2547,19 @@ function openSkillModal() {
         const canAfford = totalSP >= sk.cost;
         const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
 
-        // 기폭의 경우 폭탄이 없으면 비활성화
+        // 행동소비형인데 이미 행동했으면 비활성화
         let extraDisabled = false;
         let extraNote = '';
+        if (sk.replacesAction && S.actionDone) {
+          extraDisabled = true;
+          extraNote = ' (행동 이미 소비됨)';
+        }
+        // 턴당 1회인데 이미 사용했으면 비활성화
+        if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${sk.id}`)) {
+          extraDisabled = true;
+          extraNote = ' (이번 턴 사용 완료)';
+        }
+        // 기폭의 경우 폭탄이 없으면 비활성화
         if (sk.id === 'detonate') {
           const bombs = (S.boardObjects || []).filter(o => o.type === 'bomb');
           if (bombs.length === 0) {
@@ -2109,16 +2593,26 @@ function openSkillModal() {
       // 단일 스킬
       const canAfford = totalSP >= pc.skillCost;
       const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
+      let singleDisabled = false;
+      let singleNote = '';
+      if (pc.skillReplacesAction && S.actionDone) {
+        singleDisabled = true;
+        singleNote = ' (행동 이미 소비됨)';
+      }
+      if (pc.skillOncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`)) {
+        singleDisabled = true;
+        singleNote = ' (이번 턴 사용 완료)';
+      }
       const opt = document.createElement('div');
       opt.className = 'skill-option';
-      opt.style.opacity = canAfford ? '1' : '0.4';
+      opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
       const singleTag = getSkillTypeTagFromChar(pc);
       opt.innerHTML = `
         <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
-        <div class="skill-cost">SP 비용: ${pc.skillCost} (보유: ${mySP}${instantLabel})</div>
+        <div class="skill-cost">SP 비용: ${pc.skillCost} (보유: ${mySP}${instantLabel})${singleNote}</div>
         <div class="skill-desc">${getSkillDesc(pc)}</div>`;
 
-      if (canAfford) {
+      if (canAfford && !singleDisabled) {
         opt.addEventListener('click', () => {
           modal.classList.add('hidden');
           handleSkillUse(i, pc);
@@ -2443,7 +2937,7 @@ function buildBoard(containerId, clickHandler) {
       cell.className = 'cell';
       cell.dataset.col = col;
       cell.dataset.row = row;
-      cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+      cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
       cell.addEventListener('click', () => clickHandler(col, row));
       board.appendChild(cell);
     }
@@ -2619,9 +3113,10 @@ function showError(id, msg) {
 }
 
 function findChar(type) {
-  if (!S.characters) return null;
+  const charData = S.characters || S.specCharacters;
+  if (!charData) return null;
   for (const tier of [1, 2, 3]) {
-    const chars = S.characters[tier];
+    const chars = charData[tier];
     if (!chars) continue;
     const found = chars.find(c => c.type === type);
     if (found) return found;
@@ -2641,6 +3136,331 @@ function getPassiveLabel(passiveId) {
     loyalty: '충성 — 왕실 아군 피해를 1로 줄이고 대신 받음',
   };
   return map[passiveId] || passiveId;
+}
+
+// ── 관전자: 드래프트 UI ──────────────────────────────────────
+function renderSpectatorDraft() {
+  const chars = S.specCharacters || {};
+  const draft = S.specDraft || {};
+  const container = document.querySelector('.draft-layout');
+  if (!container) return;
+
+  const mainEl = document.querySelector('.draft-main');
+  const sideEl = document.querySelector('.draft-sidebar');
+  if (!mainEl || !sideEl) return;
+
+  // 대칭 레이아웃으로 양쪽 패널 동일 크기
+  container.style.display = 'flex';
+  container.style.gap = '20px';
+  container.style.alignItems = 'flex-start';
+  container.style.justifyContent = 'center';
+
+  mainEl.style.flex = '1';
+  mainEl.style.maxWidth = '400px';
+  mainEl.style.width = '0';
+  mainEl.innerHTML = `
+    <div class="spec-draft-panel">
+      <h3 style="color:#60a5fa">${S.specP0Name} ${draft.draftDone?.[0] ? '✅' : '⏳'}</h3>
+      <div class="spec-draft-slots" id="spec-draft-p0"></div>
+    </div>`;
+
+  sideEl.style.flex = '1';
+  sideEl.style.maxWidth = '400px';
+  sideEl.style.width = '0';
+  sideEl.style.minWidth = '0';
+  sideEl.innerHTML = `
+    <div class="spec-draft-panel">
+      <h3 style="color:#f87171">${S.specP1Name} ${draft.draftDone?.[1] ? '✅' : '⏳'}</h3>
+      <div class="spec-draft-slots" id="spec-draft-p1"></div>
+    </div>`;
+
+  for (const [pIdx, key] of [[0, 'p0'], [1, 'p1']]) {
+    const slotsEl = document.getElementById(`spec-draft-${key}`);
+    if (!slotsEl) continue;
+    // 실시간 브라우징 데이터 우선, 확정 데이터 폴백
+    const browse = draft[key + 'Browse'] || {};
+    const confirmed = draft[key]; // { t1, t2, t3 } or null
+    const isDone = draft.draftDone?.[pIdx];
+
+    for (let tier = 1; tier <= 3; tier++) {
+      const slot = document.createElement('div');
+      // 브라우징 중이면 실시간 선택, 확정이면 확정 데이터
+      const typeKey = isDone && confirmed ? confirmed[`t${tier}`] : (browse[tier] || browse[String(tier)] || null);
+      const charList = chars[tier] || [];
+      const c = typeKey ? charList.find(ch => ch.type === typeKey) : null;
+      if (c) {
+        slot.className = `draft-slot filled ${isDone ? 'confirmed' : 'browsing'}`;
+        const tagHtml = c.tag ? `<span class="tag-badge ${c.tag}" style="font-size:0.6rem">${c.tag === 'royal' ? '왕실' : '악인'}</span>` : '';
+        slot.innerHTML = `<span class="slot-tier">${tier}티어</span>
+          <span class="slot-icon">${c.icon}</span>
+          <div class="slot-info"><span class="slot-name">${c.name} ${tagHtml}</span>
+          <span class="slot-stats">ATK ${c.atk} · ${c.desc}</span></div>`;
+        if (isDone) slot.innerHTML += '<span class="slot-confirmed-badge">확정</span>';
+        slot.style.position = 'relative';
+        const pieceLike = charDataToPieceLike(c);
+        slot.appendChild(buildPieceTooltip(pieceLike, pIdx === 0 ? 'right' : 'left'));
+      } else {
+        slot.className = 'draft-slot empty';
+        slot.innerHTML = `<span class="slot-tier">${tier}티어</span><span class="slot-empty-text">미선택</span>`;
+      }
+      slotsEl.appendChild(slot);
+    }
+  }
+}
+
+// ── 관전자: HP 분배 UI ──────────────────────────────────────
+function renderSpectatorHp() {
+  const hp = S.specHp || {};
+  const chars = S.specCharacters || {};
+  const container = document.querySelector('.hp-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <h2>👁 관전 중 — HP 분배</h2>
+    <p class="muted">${S.specP0Name} vs ${S.specP1Name} · 총 10 HP를 3명에게 분배</p>
+    <div class="spec-hp-layout">
+      <div class="spec-hp-side">
+        <h3 style="color:#60a5fa">${S.specP0Name} ${hp.hpDone?.[0] ? '✅ 확정' : '⏳ 분배 중'}</h3>
+        <div id="spec-hp-p0" class="spec-hp-pieces"></div>
+      </div>
+      <div class="spec-hp-side">
+        <h3 style="color:#f87171">${S.specP1Name} ${hp.hpDone?.[1] ? '✅ 확정' : '⏳ 분배 중'}</h3>
+        <div id="spec-hp-p1" class="spec-hp-pieces"></div>
+      </div>
+    </div>`;
+
+  for (const [pIdx, key] of [[0, 'p0'], [1, 'p1']]) {
+    const el = document.getElementById(`spec-hp-${key}`);
+    if (!el) continue;
+    const isDone = hp.hpDone?.[pIdx];
+    const pieces = hp[key + 'Pieces'] || [];
+    const browseHps = hp[key + 'Hps'];
+    const draft = hp[key + 'Draft'] || S.specDraft?.[key === 'p0' ? 'p0' : 'p1'];
+
+    // 확정된 경우: 확정 피스 데이터 표시
+    if (isDone && pieces.length > 0) {
+      for (const pc of pieces) {
+        const div = document.createElement('div');
+        div.className = 'spec-hp-piece confirmed';
+        div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+          <strong>${pc.name}</strong> <span class="muted">T${pc.tier}</span>
+          <span style="color:var(--success);font-weight:600">HP ${pc.hp}/${pc.maxHp}</span>
+          <span class="slot-confirmed-badge">확정</span>`;
+        div.style.position = 'relative';
+        div.appendChild(buildPieceTooltip(pc, key === 'p0' ? 'right' : 'left'));
+        el.appendChild(div);
+      }
+    }
+    // 브라우징 중: 실시간 HP 값 표시
+    else if (browseHps && draft) {
+      const types = [draft.t1, draft.t2, draft.t3];
+      const tierLabels = ['1티어', '2티어', '3티어'];
+      const total = browseHps.reduce((a, b) => a + b, 0);
+      for (let i = 0; i < types.length; i++) {
+        const charData = findCharInData(chars, types[i]);
+        if (!charData) continue;
+        const div = document.createElement('div');
+        div.className = 'spec-hp-piece';
+        div.innerHTML = `<span class="p-icon">${charData.icon}</span>
+          <strong>${charData.name}</strong> <span class="muted">${tierLabels[i]}</span>
+          <span style="color:var(--accent);font-weight:600;font-size:1rem">HP ${browseHps[i]}</span>`;
+        div.style.position = 'relative';
+        const pieceLike = charDataToPieceLike(charData);
+        div.appendChild(buildPieceTooltip(pieceLike, key === 'p0' ? 'right' : 'left'));
+        el.appendChild(div);
+      }
+      const remaining = document.createElement('div');
+      remaining.className = 'spec-hp-remaining';
+      remaining.innerHTML = `남은 HP: <strong>${10 - total}</strong> / 10`;
+      el.appendChild(remaining);
+    }
+    // 아직 데이터 없음
+    else if (draft) {
+      const types = [draft.t1, draft.t2, draft.t3];
+      for (let i = 0; i < types.length; i++) {
+        const charData = findCharInData(chars, types[i]);
+        if (!charData) continue;
+        const div = document.createElement('div');
+        div.className = 'spec-hp-piece';
+        div.innerHTML = `<span class="p-icon">${charData.icon}</span>
+          <strong>${charData.name}</strong> <span class="muted">HP ?</span>`;
+        el.appendChild(div);
+      }
+    } else {
+      el.innerHTML = '<p class="muted">대기 중...</p>';
+    }
+  }
+}
+
+function findCharInData(chars, type) {
+  if (!type) return null;
+  for (const tier of [1, 2, 3]) {
+    const list = chars[tier];
+    if (!list) continue;
+    const found = list.find(c => c.type === type);
+    if (found) return found;
+  }
+  return null;
+}
+
+// ── 관전자: 공개 페이즈 UI ──────────────────────────────────
+function renderSpectatorReveal() {
+  const rev = S.specReveal || {};
+  const myNameEl = document.getElementById('reveal-my-name');
+  const oppNameEl = document.getElementById('reveal-opp-name');
+  const myPcsEl = document.getElementById('reveal-my-pieces');
+  const oppPcsEl = document.getElementById('reveal-opp-pieces');
+  const btn = document.getElementById('btn-reveal-confirm');
+  if (myNameEl) myNameEl.textContent = rev.p0Name || S.specP0Name;
+  if (oppNameEl) oppNameEl.textContent = rev.p1Name || S.specP1Name;
+  if (btn) btn.style.display = 'none'; // 관전자는 버튼 숨기기
+
+  // 플레이어와 동일한 카드 UI + 툴팁 사용
+  for (const [el, pieces] of [[myPcsEl, rev.p0Pieces || []], [oppPcsEl, rev.p1Pieces || []]]) {
+    if (!el) continue;
+    el.innerHTML = '';
+    for (const pc of pieces) {
+      el.appendChild(createRevealCard(pc));
+    }
+  }
+}
+
+// ── 관전자: 배치 페이즈 UI (색상별 공격범위) ─────────────────
+function getAttackCellsWithBounds(type, col, row, bounds, extra) {
+  extra = extra || {};
+  const cells = [];
+  const bMin = bounds.min, bMax = bounds.max;
+  const push = (c, r) => { if (c >= bMin && c <= bMax && r >= bMin && r <= bMax) cells.push({ col: c, row: r }); };
+  switch (type) {
+    case 'archer': {
+      if (extra.toggleState === 'right') { const d = col - row; for (let c = bMin; c <= bMax; c++) { const r = c - d; if (r >= bMin && r <= bMax) push(c, r); } }
+      else { const d = col + row; for (let c = bMin; c <= bMax; c++) { const r = d - c; if (r >= bMin && r <= bMax) push(c, r); } } break; }
+    case 'spearman': for (let r = bMin; r <= bMax; r++) push(col, r); break;
+    case 'cavalry': for (let c = bMin; c <= bMax; c++) push(c, row); break;
+    case 'watchman': for (let dc=-1;dc<=1;dc++) for(let dr=-1;dr<=1;dr++) if(dc||dr) push(col+dc,row+dr); break;
+    case 'twins_elder': push(col,row);push(col-1,row);push(col+1,row); break;
+    case 'twins_younger': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'scout': push(col,row);push(col-1,row);push(col+1,row); break;
+    case 'manhunter': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'messenger': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'gunpowder': push(col,row-1);push(col,row-2);push(col,row+1);push(col,row+2); break;
+    case 'herbalist': push(col-1,row);push(col-2,row);push(col+1,row);push(col+2,row); break;
+    case 'general': push(col,row); for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
+    case 'knight': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'shadowAssassin': push(col,row); for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
+    case 'wizard': push(col,row-2);push(col,row+2);push(col-2,row);push(col+2,row); break;
+    case 'armoredWarrior': push(col,row);push(col-1,row+1);push(col,row+1);push(col+1,row+1); break;
+    case 'witch': push(col,row); break;
+    case 'dualBlade': for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'ratMerchant': push(col,row); break;
+    case 'weaponSmith':
+      if(extra.toggleState==='vertical'){push(col,row);push(col,row-1);push(col,row+1);}
+      else{push(col,row);push(col-1,row);push(col+1,row);} break;
+    case 'bodyguard': for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
+    case 'prince': push(col,row);push(col-1,row);push(col+1,row); break;
+    case 'princess': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'king': push(col,row); break;
+    case 'dragonTamer': for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'monk': push(col,row-1);push(col,row+1); break;
+    case 'slaughterHero': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)push(col+dc,row+dr); break;
+    case 'commander': push(col-1,row);push(col+1,row); break;
+    case 'sulfurCauldron': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
+    case 'torturer': push(col,row);push(col,row+1); break;
+    case 'count': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+  }
+  return cells;
+}
+
+function renderSpectatorPlacement() {
+  const pl = S.specPlacement;
+  if (!pl) return;
+  const bounds = pl.boardBounds;
+  const container = document.querySelector('.placement-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <h2>👁 관전 중 — 말 배치</h2>
+    <p class="muted">${S.specP0Name} vs ${S.specP1Name} · 실시간 배치 현황</p>
+    <div class="placement-layout" style="justify-content:center">
+      <div class="spec-placement-side" id="spec-pl-left">
+        <h4 style="color:#60a5fa">${S.specP0Name}</h4>
+        <div id="spec-pl-p0-list"></div>
+      </div>
+      <div id="spec-placement-board" class="board"></div>
+      <div class="spec-placement-side" id="spec-pl-right">
+        <h4 style="color:#f87171">${S.specP1Name}</h4>
+        <div id="spec-pl-p1-list"></div>
+      </div>
+    </div>`;
+
+  // 보드 빌드
+  const board = document.getElementById('spec-placement-board');
+  board.innerHTML = '';
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.col = c;
+      cell.dataset.row = r;
+      cell.innerHTML = `<span class="coord-label">${coord(c, r)}</span>`;
+      if (c < bounds.min || c > bounds.max || r < bounds.min || r > bounds.max) {
+        cell.classList.add('destroyed');
+      }
+      board.appendChild(cell);
+    }
+  }
+
+  // 공격 범위 계산
+  const p0Range = new Set();
+  const p1Range = new Set();
+  for (const pc of (pl.p0Pieces || [])) {
+    if (pc.col >= 0 && pc.row >= 0 && pc.alive) {
+      const cells = getAttackCellsWithBounds(pc.type, pc.col, pc.row, bounds, { toggleState: pc.toggleState });
+      cells.forEach(c => p0Range.add(`${c.col},${c.row}`));
+    }
+  }
+  for (const pc of (pl.p1Pieces || [])) {
+    if (pc.col >= 0 && pc.row >= 0 && pc.alive) {
+      const cells = getAttackCellsWithBounds(pc.type, pc.col, pc.row, bounds, { toggleState: pc.toggleState });
+      cells.forEach(c => p1Range.add(`${c.col},${c.row}`));
+    }
+  }
+
+  // 범위 색칠 + 말 배치
+  document.querySelectorAll('#spec-placement-board .cell').forEach(cell => {
+    const c = parseInt(cell.dataset.col), r = parseInt(cell.dataset.row);
+    if (cell.classList.contains('destroyed')) return;
+    const key = `${c},${r}`;
+    const inP0 = p0Range.has(key);
+    const inP1 = p1Range.has(key);
+    if (inP0 && inP1) cell.classList.add('range-both');
+    else if (inP0) cell.classList.add('range-p0');
+    else if (inP1) cell.classList.add('range-p1');
+
+    // 말 표시
+    const p0pc = (pl.p0Pieces || []).find(p => p.col === c && p.row === r && p.alive);
+    if (p0pc) cell.innerHTML += `<div class="spec-piece p0"><span class="p-icon">${p0pc.icon}</span></div>`;
+    const p1pc = (pl.p1Pieces || []).find(p => p.col === c && p.row === r && p.alive);
+    if (p1pc) cell.innerHTML += `<div class="spec-piece p1"><span class="p-icon">${p1pc.icon}</span></div>`;
+  });
+
+  // 양쪽 말 목록
+  for (const [key, pieces] of [['p0', pl.p0Pieces || []], ['p1', pl.p1Pieces || []]]) {
+    const list = document.getElementById(`spec-pl-${key}-list`);
+    if (!list) continue;
+    list.innerHTML = '';
+    for (const pc of pieces) {
+      const placed = pc.col >= 0 && pc.row >= 0;
+      const div = document.createElement('div');
+      div.className = `my-piece-card ${placed ? '' : 'unplaced'}`;
+      div.style.position = 'relative';
+      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+        <div><strong>${pc.name}</strong> <span class="muted">T${pc.tier}</span>
+        <br><span style="font-size:0.72rem">${placed ? coord(pc.col, pc.row) : '미배치'}</span></div>`;
+      div.appendChild(buildPieceTooltip(pc, key === 'p0' ? 'right' : 'left'));
+      list.appendChild(div);
+    }
+  }
 }
 
 // ── 관전자 렌더링 ─────────────────────────────────────────
@@ -2682,19 +3502,47 @@ function renderSpectatorGame(gs) {
     buildBoard('game-board', () => {});
   }
 
+  // 관전자 게임 상태 저장 (클릭용)
+  S.specGameState = gs;
+  S.specSelectedPiece = S.specSelectedPiece || null;
+
+  // 선택된 말의 공격범위 계산
+  let specRange = null;
+  let specRangeOwner = null;
+  if (S.specSelectedPiece) {
+    const sp = S.specSelectedPiece;
+    const allPieces = [...(gs.p0Pieces || []), ...(gs.p1Pieces || [])];
+    const found = allPieces.find(p => p.type === sp.type && p.col === sp.col && p.row === sp.row && p.alive);
+    if (found) {
+      specRange = new Set();
+      const cells = getAttackCellsWithBounds(found.type, found.col, found.row, gs.boardBounds, { toggleState: found.toggleState });
+      cells.forEach(c => specRange.add(`${c.col},${c.row}`));
+      specRangeOwner = sp.owner; // 'p0' or 'p1'
+    } else {
+      S.specSelectedPiece = null;
+    }
+  }
+
   document.querySelectorAll('#game-board .cell').forEach(cell => {
     const col = parseInt(cell.dataset.col), row = parseInt(cell.dataset.row);
     cell.className = 'cell';
-    cell.innerHTML = `<span class="coord-label">${col+1},${row+1}</span>`;
+    cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
     const bounds = gs.boardBounds;
     if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) {
       cell.classList.add('destroyed'); return;
     }
+
+    // 관전자 선택 공격범위 표시
+    if (specRange && specRange.has(`${col},${row}`)) {
+      cell.classList.add(specRangeOwner === 'p0' ? 'range-p0' : 'range-p1');
+    }
+
     // P0 말 (파란색)
     const p0 = (gs.p0Pieces || []).find(p => p.col === col && p.row === row && p.alive);
     if (p0) {
       const hpPct0 = Math.round((p0.hp / p0.maxHp) * 100);
-      cell.innerHTML += `<div class="spec-piece p0">
+      const isSelected = S.specSelectedPiece && S.specSelectedPiece.type === p0.type && S.specSelectedPiece.col === col && S.specSelectedPiece.row === row;
+      cell.innerHTML += `<div class="spec-piece p0 ${isSelected ? 'spec-selected' : ''}" data-spec-click="p0" data-type="${p0.type}" data-col="${col}" data-row="${row}">
         <span class="p-icon">${p0.icon}</span>
         <div class="spec-hp-bar"><div class="spec-hp-fill p0-fill" style="width:${hpPct0}%"></div></div>
       </div>`;
@@ -2704,7 +3552,8 @@ function renderSpectatorGame(gs) {
     const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
     if (p1) {
       const hpPct1 = Math.round((p1.hp / p1.maxHp) * 100);
-      cell.innerHTML += `<div class="spec-piece p1">
+      const isSelected = S.specSelectedPiece && S.specSelectedPiece.type === p1.type && S.specSelectedPiece.col === col && S.specSelectedPiece.row === row;
+      cell.innerHTML += `<div class="spec-piece p1 ${isSelected ? 'spec-selected' : ''}" data-spec-click="p1" data-type="${p1.type}" data-col="${col}" data-row="${row}">
         <span class="p-icon">${p1.icon}</span>
         <div class="spec-hp-bar"><div class="spec-hp-fill p1-fill" style="width:${hpPct1}%"></div></div>
       </div>`;
@@ -2722,6 +3571,35 @@ function renderSpectatorGame(gs) {
     }
   });
 
+  // 관전자 말 클릭 이벤트
+  document.querySelectorAll('#game-board [data-spec-click]').forEach(el => {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const owner = el.dataset.specClick;
+      const type = el.dataset.type;
+      const col = parseInt(el.dataset.col);
+      const row = parseInt(el.dataset.row);
+      // 토글: 같은 말 재클릭 시 해제
+      if (S.specSelectedPiece && S.specSelectedPiece.type === type && S.specSelectedPiece.col === col && S.specSelectedPiece.row === row) {
+        S.specSelectedPiece = null;
+      } else {
+        S.specSelectedPiece = { type, col, row, owner };
+      }
+      renderSpectatorGame(S.specGameState);
+    });
+  });
+
+  // 빈 셀 클릭 시 선택 해제
+  document.querySelectorAll('#game-board .cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      if (S.specSelectedPiece) {
+        S.specSelectedPiece = null;
+        renderSpectatorGame(S.specGameState);
+      }
+    });
+  });
+
   // 좌측: P0 말 정보
   const leftPanel = document.getElementById('my-pieces-info');
   if (leftPanel) {
@@ -2731,10 +3609,12 @@ function renderSpectatorGame(gs) {
       const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
       const div = document.createElement('div');
       div.className = `my-piece-card ${pc.alive ? '' : 'dead'}`;
+      div.style.position = 'relative';
       div.innerHTML = `<span class="p-icon">${pc.icon}</span>
         <div><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'right'));
       leftPanel.appendChild(div);
     }
   }
@@ -2750,17 +3630,19 @@ function renderSpectatorGame(gs) {
       const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
       const div = document.createElement('div');
       div.className = `opp-piece-card ${pc.alive ? '' : 'dead'}`;
+      div.style.position = 'relative';
       div.innerHTML = `<span class="p-icon">${pc.icon}</span>
         <div class="opp-info"><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'left'));
       rightPanel.appendChild(div);
     }
   }
 }
 
 // ── 스킬 사용 토스트 알림 ─────────────────────────────────
-function showSkillToast(msg, isEnemy = false) {
+function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
   let toast = document.getElementById('skill-toast');
   if (!toast) {
     toast = document.createElement('div');
@@ -2774,8 +3656,15 @@ function showSkillToast(msg, isEnemy = false) {
     `;
     document.body.appendChild(toast);
   }
-  toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(124,58,237,0.92)';
-  toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
+  // 관전자: playerIdx 기반 색상 (P0=파랑, P1=빨강)
+  if (S.isSpectator && specPlayerIdx !== undefined) {
+    const isP1 = specPlayerIdx === 1;
+    toast.style.background = isP1 ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
+    toast.style.border = isP1 ? '1px solid #ff6b6b' : '1px solid #93c5fd';
+  } else {
+    toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(124,58,237,0.92)';
+    toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
+  }
   toast.textContent = msg;
   toast.style.opacity = '1';
   clearTimeout(toast._timer);
@@ -2827,13 +3716,33 @@ function showSkillToast(msg, isEnemy = false) {
     if (e.key === 'Enter') { e.preventDefault(); sendMsg(); }
   });
 
-  socket.on('chat_msg', ({ sender, text, pIdx }) => {
-    const isSelf = (S.isSpectator && pIdx === -1 && sender.includes(document.getElementById('input-name').value)) ||
+  socket.on('chat_msg', ({ sender, text, pIdx, color, isSpectator: senderIsSpec }) => {
+    const myName = document.getElementById('input-name').value;
+    const isSelf = (S.isSpectator && pIdx === -1 && sender === myName) ||
                    (!S.isSpectator && pIdx === S.playerIdx);
-    const isSpec = pIdx === -1;
     const div = document.createElement('div');
-    div.className = `chat-msg ${isSelf ? 'mine' : isSpec ? 'spec' : 'opp'}`;
-    div.innerHTML = `<span class="chat-sender">${escapeHtml(sender)}</span>${escapeHtml(text)}`;
+    div.className = `chat-msg ${isSelf ? 'mine' : 'other'}`;
+
+    const senderLabel = senderIsSpec ? `${escapeHtml(sender)} (관전자)` : escapeHtml(sender);
+    const senderColor = isSelf ? '#ffffff' : (color || '#aaa');
+    if (!isSelf && color) {
+      // 타인 메시지: 해당 유저 컬러 테마로 말풍선+텍스트 통일
+      const colorMap = {
+        '#ef4444': { bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)' },
+        '#f97316': { bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.3)' },
+        '#eab308': { bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.3)' },
+        '#22c55e': { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.3)' },
+        '#3b82f6': { bg: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.3)' },
+        '#a855f7': { bg: 'rgba(168,85,247,0.12)', border: 'rgba(168,85,247,0.3)' },
+      };
+      const cm = colorMap[color];
+      if (cm) {
+        div.style.background = cm.bg;
+        div.style.borderColor = cm.border;
+        div.style.color = color;
+      }
+    }
+    div.innerHTML = `<span class="chat-sender" style="color:${senderColor}">${senderLabel}</span>${escapeHtml(text)}`;
     msgBox.appendChild(div);
     msgBox.scrollTop = msgBox.scrollHeight;
 
