@@ -1330,3 +1330,273 @@ body {
 .cell.range-p0 { background: rgba(96,165,250,0.2) !important; }
 .cell.range-p1 { background: rgba(248,113,113,0.2) !important; }
 .cell.range-both { background: rgba(167,139,250,0.3) !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ── 모바일 반응형 ──────────────────────────────────────────────
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 600px: 드래프트/배치 전환 ── */
+@media (max-width: 600px) {
+  /* 드래프트 슬라이드 뷰어 */
+  .slide-content {
+    min-width: 0; width: 100%;
+    padding: 16px 14px;
+  }
+  .slide-arrow { width: 36px; height: 36px; font-size: 1.3rem; }
+  .slide-viewer { gap: 6px; }
+  .slide-hero { gap: 10px; }
+  .slide-icon { font-size: 2.2rem; }
+  .slide-name { font-size: 1rem; }
+  .slide-desc { font-size: 0.75rem; }
+  .draft-layout { padding: 16px 10px !important; }
+  .step-indicator { gap: 6px; }
+  .step-indicator .step { padding: 3px 10px; font-size: 0.72rem; }
+  .step-indicator .step-arrow { font-size: 0.7rem; }
+  .draft-icon-index { gap: 2px; padding: 4px 6px; }
+  .icon-index-btn { width: 30px; height: 30px; }
+  .icon-index-emoji { font-size: 0.95rem; }
+  .preview-board {
+    grid-template-columns: repeat(5, 28px) !important;
+    grid-template-rows: repeat(5, 28px) !important;
+  }
+  .preview-board .cell { width: 28px !important; height: 28px !important; }
+
+  /* 배치 화면 */
+  .placement-layout { flex-direction: column; align-items: center; }
+  .placement-opp-panel { max-width: 100%; min-width: 0; width: 100%; }
+  .piece-list { min-width: 0; width: 100%; }
+  .placement-container { padding: 16px 10px; }
+
+  /* HP 분배 */
+  .hp-container { padding: 20px 14px; }
+  .hp-container h2 { font-size: 1.3rem; }
+
+  /* 공개 */
+  .reveal-container { padding: 20px 14px; }
+  .reveal-container h2 { font-size: 1.3rem; }
+  .reveal-layout { gap: 12px; margin: 16px 0; }
+  .reveal-vs { font-size: 1.4rem; }
+  .reveal-side { min-width: 0; width: 100%; }
+}
+
+/* ── 480px: 메인 모바일 대응 ── */
+@media (max-width: 480px) {
+  /* ── 로비 ── */
+  .lobby-box {
+    width: calc(100vw - 32px); max-width: 380px;
+    padding: 32px 20px;
+  }
+  .game-title { font-size: 1.8rem; }
+  .game-sub { margin-bottom: 20px; }
+  .btn-large { padding: 12px 20px; font-size: 0.9rem; }
+
+  /* ── 드래프트 ── */
+  .draft-main h2 { font-size: 1.2rem; }
+  .draft-main .muted { font-size: 0.72rem; }
+  .slide-content { padding: 12px 10px; }
+  .slide-arrow { width: 32px; height: 32px; font-size: 1.1rem; }
+  .slide-stats { padding: 8px 10px; }
+  .slide-detail-body { font-size: 0.72rem; }
+  .draft-sidebar {
+    width: 100% !important; max-width: none !important;
+    flex-shrink: 1 !important;
+  }
+  .draft-slot { min-height: 54px; padding: 8px; }
+  .draft-slot .slot-icon { font-size: 1.1rem; }
+  .draft-slot .slot-info .slot-name { font-size: 0.78rem; }
+  .draft-slot .slot-info .slot-stats { font-size: 0.62rem; }
+  .preview-board {
+    grid-template-columns: repeat(5, 24px) !important;
+    grid-template-rows: repeat(5, 24px) !important;
+  }
+  .preview-board .cell { width: 24px !important; height: 24px !important; font-size: 0.5rem; }
+  .draft-container { padding: 16px 10px; }
+
+  /* ── HP 분배 ── */
+  .hp-container { padding: 16px 10px; }
+  .hp-container h2 { font-size: 1.2rem; }
+  .hp-piece-row { gap: 10px; }
+  .hp-piece-row .char-icon { font-size: 1.4rem; }
+  .hp-btn { width: 40px; height: 40px; font-size: 1rem; }
+  .hp-value { font-size: 1.2rem; }
+
+  /* ── 공개 ── */
+  .reveal-container { padding: 16px 10px; }
+  .reveal-container h2 { font-size: 1.2rem; }
+  .reveal-vs { font-size: 1.2rem; padding: 6px 0; }
+  .reveal-piece-card { padding: 10px; }
+  .reveal-piece-card .char-icon { font-size: 1.3rem; }
+  .reveal-piece-card .piece-info strong { font-size: 0.8rem; }
+  .reveal-piece-card .piece-info span { font-size: 0.65rem; }
+
+  /* ── 배치 ── */
+  .placement-container { padding: 12px 8px; }
+  .placement-container h2 { font-size: 1.2rem; margin-bottom: 4px; }
+  .board {
+    grid-template-columns: repeat(5, 42px);
+    grid-template-rows: repeat(5, 42px);
+    gap: 3px; padding: 6px;
+  }
+  .cell { width: 42px; height: 42px; font-size: 0.55rem; }
+  .piece-card { padding: 8px; gap: 8px; }
+  .piece-card .piece-icon { font-size: 1.3rem; }
+  .piece-info strong { font-size: 0.8rem; }
+  .piece-info span { font-size: 0.68rem; }
+  .placement-detail-card { min-width: 0 !important; width: 100%; }
+  .placement-opp-panel { padding: 10px; min-width: 0; max-width: 100%; }
+  .placement-opp-card { padding: 8px; }
+
+  /* ── 게임 화면 ── */
+  .game-layout {
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 8px;
+    gap: 10px;
+  }
+  .side-panel {
+    width: 100%; max-width: 100%;
+    flex-shrink: 1;
+  }
+  /* 패널 순서: 턴배너+보드+액션 먼저, 내말, 상대+로그 */
+  .center-panel { order: 1; }
+  .left-panel   { order: 2; }
+  .right-panel  { order: 3; }
+
+  .center-panel { gap: 8px; }
+  .turn-banner { font-size: 0.82rem; padding: 8px 12px; }
+
+  /* 보드 fluid */
+  .board {
+    grid-template-columns: repeat(5, 1fr) !important;
+    grid-template-rows: repeat(5, 1fr) !important;
+    width: calc(100vw - 32px) !important;
+    max-width: 300px;
+  }
+  .cell {
+    width: auto !important; height: auto !important;
+    aspect-ratio: 1;
+  }
+  .piece-marker .p-icon { font-size: 1rem; }
+  .piece-marker .p-hp { font-size: 0.5rem; }
+  .coord-label { font-size: 0.45rem; }
+
+  /* 액션 바 */
+  .action-bar {
+    gap: 6px; width: 100%;
+    flex-wrap: wrap; justify-content: center;
+  }
+  .action-bar .btn {
+    flex: 1 1 auto; min-width: 55px;
+    min-height: 40px;
+    font-size: 0.75rem; padding: 8px 6px;
+  }
+  .btn-surrender { flex-basis: 100%; }
+  .action-hint { font-size: 0.72rem; }
+
+  /* SP 바 */
+  .sp-bar-container { padding: 6px 10px; gap: 8px; }
+  .sp-label { font-size: 0.68rem; min-width: 55px; }
+  .sp-bar { height: 16px; }
+  .sp-countdown { font-size: 0.65rem; }
+
+  /* 내 말 패널 - 컴팩트 */
+  .my-piece-card { padding: 8px; margin-bottom: 6px; }
+  .my-piece-header .p-icon { font-size: 1.1rem; }
+  .my-piece-header strong { font-size: 0.8rem; }
+  .my-piece-header .tier-badge { font-size: 0.58rem; }
+  .my-piece-pos { font-size: 0.65rem; }
+
+  /* 상대 말 + 로그 */
+  .opp-piece-card { padding: 8px; }
+  .opp-piece-card .p-icon { font-size: 1rem; }
+  .game-log { max-height: 150px; }
+  .log-entry { font-size: 0.68rem; }
+
+  /* 타이머 */
+  .timer-clock { width: 48px; height: 48px; top: 8px; right: 8px; }
+  .timer-clock-text { font-size: 0.78rem; }
+
+  /* 게임 오버 */
+  .gameover-icon { font-size: 3rem; margin-bottom: 12px; }
+  #gameover-title { font-size: 2rem; }
+  #screen-gameover .center-box { padding: 32px 20px; }
+
+  /* 모달 */
+  .modal-content { padding: 16px; border-radius: 10px; }
+  .modal-content h3 { font-size: 1rem; }
+  .modal-wide { max-width: calc(100vw - 24px); }
+  .modal-btn-row { gap: 8px; }
+
+  /* 채팅 */
+  .chat-widget { bottom: 8px; right: 8px; }
+  .chat-toggle-btn { width: 44px; height: 44px; font-size: 1rem; }
+
+  /* 보드 축소 경고 */
+  .shrink-warning { font-size: 0.75rem; padding: 6px 10px; margin: 0 8px; }
+
+  /* 관전자 UI */
+  .spec-hp-layout { flex-direction: column; }
+  .spec-hp-side { max-width: 100%; }
+  .spec-draft-panel { padding: 8px; }
+  .spec-placement-side { min-width: 0; max-width: 100%; }
+  .spec-piece .p-icon { font-size: 0.9rem; }
+
+  /* 추리 토큰 */
+  .deduction-token { width: 24px; height: 24px; font-size: 0.75rem; }
+
+  /* 튜토리얼 */
+  .tutorial-container { padding: 12px 10px; }
+}
+
+/* ── 360px: 초소형 화면 ── */
+@media (max-width: 360px) {
+  .lobby-box { padding: 24px 16px; }
+  .game-title { font-size: 1.5rem; }
+  .btn-large { padding: 10px 16px; font-size: 0.85rem; }
+
+  .slide-content { padding: 10px 8px; }
+  .slide-icon { font-size: 1.8rem; }
+  .slide-name { font-size: 0.9rem; }
+  .slide-arrow { width: 28px; height: 28px; font-size: 1rem; }
+  .icon-index-btn { width: 26px; height: 26px; }
+  .icon-index-emoji { font-size: 0.82rem; }
+  .preview-board {
+    grid-template-columns: repeat(5, 20px) !important;
+    grid-template-rows: repeat(5, 20px) !important;
+  }
+  .preview-board .cell { width: 20px !important; height: 20px !important; }
+
+  .hp-container { padding: 12px 8px; }
+  .hp-btn { width: 44px; height: 44px; font-size: 1.1rem; }
+  .reveal-container { padding: 12px 8px; }
+
+  .board { max-width: 240px !important; }
+  .action-bar .btn { font-size: 0.7rem; padding: 6px 4px; min-height: 38px; }
+
+  .timer-clock { width: 40px; height: 40px; }
+  .timer-clock-text { font-size: 0.68rem; }
+
+  .gameover-icon { font-size: 2.5rem; }
+  #gameover-title { font-size: 1.6rem; }
+  #screen-gameover .center-box { padding: 24px 16px; }
+
+  .my-piece-card { padding: 6px; }
+  .my-piece-header .p-icon { font-size: 1rem; }
+  .my-piece-header strong { font-size: 0.75rem; }
+}
+
+/* ── 터치 디바이스 ── */
+@media (pointer: coarse) {
+  /* 호버 툴팁 비활성 (터치에서 무의미) */
+  .my-piece-card:hover .piece-tooltip,
+  .opp-piece-card:hover .piece-tooltip,
+  .placement-opp-card:hover .piece-tooltip,
+  .draft-slot:hover .piece-tooltip,
+  .reveal-piece-card:hover .piece-tooltip,
+  .spec-hp-piece:hover .piece-tooltip { display: none !important; }
+
+  /* 터치 친화적 최소 크기 */
+  .hp-btn { min-width: 40px; min-height: 40px; }
+  .action-bar .btn { min-height: 44px; }
+  .slide-arrow { min-width: 36px; min-height: 36px; }
+}
