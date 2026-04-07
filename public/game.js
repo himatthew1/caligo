@@ -3727,18 +3727,14 @@ function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
     const senderColor = isSelf ? '#ffffff' : (color || '#aaa');
     if (!isSelf && color) {
       // 타인 메시지: 해당 유저 컬러 테마로 말풍선+텍스트 통일
-      const colorMap = {
-        '#ef4444': { bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)' },
-        '#f97316': { bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.3)' },
-        '#eab308': { bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.3)' },
-        '#22c55e': { bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.3)' },
-        '#3b82f6': { bg: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.3)' },
-        '#a855f7': { bg: 'rgba(168,85,247,0.12)', border: 'rgba(168,85,247,0.3)' },
-      };
-      const cm = colorMap[color];
-      if (cm) {
-        div.style.background = cm.bg;
-        div.style.borderColor = cm.border;
+      // hex → rgb 변환 후 rgba 생성
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      if (!isNaN(r)) {
+        div.style.background = `rgba(${r},${g},${b},0.12)`;
+        div.style.borderColor = `rgba(${r},${g},${b},0.3)`;
         div.style.color = color;
       }
     }
