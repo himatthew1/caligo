@@ -660,6 +660,7 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
   const msg = `🪤 ${pieceInfo.icon}${pieceInfo.name}이(가) 인간 사냥꾼의 덫에 걸렸습니다! ${damage} 피해`;
   addLog(msg, 'hit');
   showSkillToast(msg);
+  S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
   renderGameBoard();
 });
 
@@ -669,6 +670,10 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   showSkillToast(`💣 ${coord(col,row)} 폭탄 폭발!`);
   for (const h of hits) {
     addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
+    S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
+  }
+  if (hits.length === 0) {
+    S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
   }
   renderGameBoard();
   renderMyPieces();
@@ -914,7 +919,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [역병의 자손들] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 보드 위 랜덤 4곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용 시 보드 위 랜덤 3곳에 쥐를 소환합니다 (이미 쥐가 있는 곳에는 중복 소환 불가). 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
   },
   weaponSmith: {
     blocks: [
@@ -963,7 +968,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '패시브 [배반자]', color: '#f59e0b' },
     ],
-    body: '공격 시 범위 내 아군에게도 0.5 피해를 입힙니다. 아군 배치에 각별히 주의해야 합니다. 리스크 대비 리턴이 극단적인 양날의 검입니다.',
+    body: '공격 시 범위 내 아군에게도 1 피해를 입힙니다. 아군 배치에 각별히 주의해야 합니다. 리스크 대비 리턴이 극단적인 양날의 검입니다.',
   },
   commander: {
     blocks: [
@@ -973,9 +978,9 @@ const CHAR_DETAILS = {
   },
   sulfurCauldron: {
     blocks: [
-      { head: '스킬 [유황범람] SP 4 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+      { head: '스킬 [유황범람] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 현재 보드의 테두리 전체에 피해 3의 대규모 공격을 가합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 테두리에 몰린 적들을 한꺼번에 쓸어버리는 맵 병기입니다.',
+    body: '스킬 사용 시 현재 보드의 테두리 전체에 피해 2의 대규모 공격을 가합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 테두리에 몰린 적들을 한꺼번에 쓸어버리는 맵 병기입니다.',
   },
   torturer: {
     blocks: [
@@ -987,7 +992,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '패시브 [폭정]', color: '#f59e0b' },
     ],
-    body: '상대 1티어 유닛에게 받는 피해가 0.5 감소합니다. 상대의 저티어 견제에 강한 내성을 가집니다. 후반으로 갈수록 빛나는 내구형 딜러입니다.',
+    body: '상대 1~2티어 유닛에게 받는 피해가 0.5 감소합니다. 상대의 저티어 견제에 강한 내성을 가집니다. 후반으로 갈수록 빛나는 내구형 딜러입니다.',
   },
 };
 
@@ -1653,14 +1658,14 @@ function buildRevealUI(myPieces, oppPieces) {
   oppContainer.innerHTML = '';
 
   for (const pc of myPieces) {
-    myContainer.appendChild(createRevealCard(pc));
+    myContainer.appendChild(createRevealCard(pc, 'left'));
   }
   for (const pc of oppPieces) {
-    oppContainer.appendChild(createRevealCard(pc));
+    oppContainer.appendChild(createRevealCard(pc, 'right'));
   }
 }
 
-function createRevealCard(pc) {
+function createRevealCard(pc, tooltipSide) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
@@ -1674,7 +1679,7 @@ function createRevealCard(pc) {
       <strong>${pc.name}${tagHtml}</strong>
       <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}/${pc.maxHp}</span>
     </div>`;
-  const tooltip = buildPieceTooltip(pc, 'right');
+  const tooltip = buildPieceTooltip(pc, tooltipSide || 'right');
   card.appendChild(tooltip);
   return card;
 }
@@ -1877,6 +1882,19 @@ function updateTurnBanner() {
   banner.textContent = S.isMyTurn
     ? `⚔ 내 턴 (턴 ${S.turnNumber})`
     : `🕐 상대방 턴 (턴 ${S.turnNumber})`;
+
+  // 현재 턴 플레이어 패널 강조
+  const leftPanel = document.querySelector('.left-panel');
+  const rightPanel = document.querySelector('.right-panel');
+  if (leftPanel) leftPanel.classList.toggle('turn-active', S.isMyTurn);
+  if (rightPanel) rightPanel.classList.toggle('turn-active', !S.isMyTurn);
+
+  // 타이머 색상 변경
+  const timerClock = document.querySelector('.timer-clock');
+  if (timerClock) {
+    timerClock.classList.toggle('my-turn-timer', S.isMyTurn);
+    timerClock.classList.toggle('opp-turn-timer', !S.isMyTurn);
+  }
 }
 
 function updateSPBar() {
@@ -1896,14 +1914,19 @@ function updateSPBar() {
   // SP 카운트다운 표시
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && S.turnNumber) {
-    const turnsUntilSP = 10 - (S.turnNumber % 10);
-    const displayTurns = turnsUntilSP === 10 ? 10 : turnsUntilSP;
-    if (mySP >= 5 && oppSP >= 5) {
-      spCountdown.textContent = 'SP 최대';
-      spCountdown.style.color = 'var(--accent)';
+    if (S.turnNumber >= 50) {
+      spCountdown.textContent = 'SP 지급 중단 (50턴 초과)';
+      spCountdown.style.color = 'var(--danger)';
     } else {
-      spCountdown.textContent = `다음 SP 지급까지 ${displayTurns}턴`;
-      spCountdown.style.color = 'var(--text-dim)';
+      const turnsUntilSP = 10 - (S.turnNumber % 10);
+      const displayTurns = turnsUntilSP === 10 ? 10 : turnsUntilSP;
+      if (mySP >= 10 && oppSP >= 10) {
+        spCountdown.textContent = 'SP 최대';
+        spCountdown.style.color = 'var(--accent)';
+      } else {
+        spCountdown.textContent = `다음 SP 지급까지 ${displayTurns}턴`;
+        spCountdown.style.color = 'var(--text-dim)';
+      }
     }
   }
 }
@@ -2125,10 +2148,22 @@ function renderGameBoard() {
     }
 
     // 스킬 대상 선택 모드
-    if (S.action === 'skill_target') {
-      if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
-        cell.classList.add('skill-range');
+    if (S.action === 'skill_target' && S.skillTargetData) {
+      const std = S.skillTargetData;
+      let inSkillRange = false;
+      if (std.type === 'bomb_place') {
+        // 화약상: 자신 + 인접 8칸만 표시
+        const src = S.myPieces[std.pieceIdx];
+        if (src && Math.abs(col - src.col) <= 1 && Math.abs(row - src.row) <= 1 &&
+            col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+          inSkillRange = true;
+        }
+      } else {
+        if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+          inSkillRange = true;
+        }
       }
+      if (inSkillRange) cell.classList.add('skill-range');
     }
 
     // ── 추리 토큰 렌더링 ──
@@ -2214,6 +2249,25 @@ function renderMyPieces() {
       ? `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${pc.passiveName}</div>`
       : '';
 
+    // 궁수/무기상 방향 표시
+    let directionHtml = '';
+    if (pc.alive && pc.type === 'archer') {
+      const dir = pc.toggleState === 'right' ? '우측 대각선' : '좌측 대각선';
+      directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+    }
+    if (pc.alive && pc.type === 'weaponSmith') {
+      const dir = pc.toggleState === 'vertical' ? '세로' : '가로';
+      directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+    }
+
+    // 지휘관 사기증진 버프 체크
+    const commanderBuff = pc.alive && pc.type !== 'commander' && S.myPieces.some(
+      p => p.alive && p.type === 'commander' &&
+      Math.abs(p.col - pc.col) <= 1 && Math.abs(p.row - pc.row) <= 1
+    );
+    const atkDisplay = commanderBuff ? `${pc.atk}<span style="color:#22c55e">+1</span>` : `${pc.atk}`;
+    const moraleHtml = commanderBuff ? '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>' : '';
+
     card.style.position = 'relative';
     card.innerHTML = `
       <div class="my-piece-header">
@@ -2224,14 +2278,14 @@ function renderMyPieces() {
       </div>
       <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
-        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
+        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${atkDisplay}</span>
         <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
       </div>
-      ${skillHtml}${passiveHtml}${statusHtml}`;
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
 
-    // 호버 시 공격범위 팝업
+    // 호버 시 공격범위 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
-      const tooltip = buildPieceTooltip(pc, 'right');
+      const tooltip = buildPieceTooltip(pc, 'left');
       card.appendChild(tooltip);
     }
 
@@ -2323,9 +2377,9 @@ function renderOppPieces() {
         </span>
       </div>`;
 
-    // 호버 팝업 (그리드 포함)
+    // 호버 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
-      const tooltip = buildPieceTooltip(pc, 'left');
+      const tooltip = buildPieceTooltip(pc, 'right');
       card.appendChild(tooltip);
     }
 
@@ -2602,6 +2656,11 @@ function openSkillModal() {
       if (pc.skillOncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`)) {
         singleDisabled = true;
         singleNote = ' (이번 턴 사용 완료)';
+      }
+      // 고문기술자: 표식 적이 없으면 악몽 비활성화
+      if (pc.type === 'torturer') {
+        const hasMarked = (S.oppPieces || []).some(p => p.alive && p.statusEffects && p.statusEffects.some(e => e.type === 'mark'));
+        if (!hasMarked) { singleDisabled = true; singleNote = ' (표식 대상 없음)'; }
       }
       const opt = document.createElement('div');
       opt.className = 'skill-option';
@@ -3129,10 +3188,10 @@ function getPassiveLabel(passiveId) {
     instantMagic: '인스턴트매직 — 피격마다 1회용 SP+1 획득 (영향력 그래프 미포함)',
     ironSkin: '아이언스킨 — 받는 피해 -0.5',
     grace: '가호 — 악인 공격 시 피해=3, 악인에게 피격 시 피해=0.5',
-    betrayer: '배반자 — 3×3 공격 시 아군도 0.5 피해',
+    betrayer: '배반자 — 3×3 공격 시 아군도 1 피해',
     wrath: '사기증진 — 인접 아군 공격력 +1',
     markPassive: '표식 — 공격 적중 시 대상에 표식 부여',
-    tyranny: '폭정 — 1티어에게 받는 피해 -0.5',
+    tyranny: '폭정 — 1~2티어에게 받는 피해 -0.5',
     loyalty: '충성 — 왕실 아군 피해를 1로 줄이고 대신 받음',
   };
   return map[passiveId] || passiveId;
@@ -3149,28 +3208,23 @@ function renderSpectatorDraft() {
   const sideEl = document.querySelector('.draft-sidebar');
   if (!mainEl || !sideEl) return;
 
-  // 대칭 레이아웃으로 양쪽 패널 동일 크기
+  // 대칭 레이아웃으로 양쪽 패널 완전 동일 크기
   container.style.display = 'flex';
   container.style.gap = '20px';
-  container.style.alignItems = 'flex-start';
+  container.style.alignItems = 'stretch';
   container.style.justifyContent = 'center';
 
-  mainEl.style.flex = '1';
-  mainEl.style.maxWidth = '400px';
-  mainEl.style.width = '0';
+  mainEl.style.cssText = 'flex:1; max-width:400px; min-width:0; width:0;';
   mainEl.innerHTML = `
     <div class="spec-draft-panel">
-      <h3 style="color:#60a5fa">${S.specP0Name} ${draft.draftDone?.[0] ? '✅' : '⏳'}</h3>
+      <h3 style="color:#60a5fa;text-align:center">${S.specP0Name} ${draft.draftDone?.[0] ? '✅' : '⏳'}</h3>
       <div class="spec-draft-slots" id="spec-draft-p0"></div>
     </div>`;
 
-  sideEl.style.flex = '1';
-  sideEl.style.maxWidth = '400px';
-  sideEl.style.width = '0';
-  sideEl.style.minWidth = '0';
+  sideEl.style.cssText = 'flex:1; max-width:400px; min-width:0; width:0;';
   sideEl.innerHTML = `
     <div class="spec-draft-panel">
-      <h3 style="color:#f87171">${S.specP1Name} ${draft.draftDone?.[1] ? '✅' : '⏳'}</h3>
+      <h3 style="color:#f87171;text-align:center">${S.specP1Name} ${draft.draftDone?.[1] ? '✅' : '⏳'}</h3>
       <div class="spec-draft-slots" id="spec-draft-p1"></div>
     </div>`;
 
@@ -3316,11 +3370,11 @@ function renderSpectatorReveal() {
   if (btn) btn.style.display = 'none'; // 관전자는 버튼 숨기기
 
   // 플레이어와 동일한 카드 UI + 툴팁 사용
-  for (const [el, pieces] of [[myPcsEl, rev.p0Pieces || []], [oppPcsEl, rev.p1Pieces || []]]) {
+  for (const [el, pieces, side] of [[myPcsEl, rev.p0Pieces || [], 'left'], [oppPcsEl, rev.p1Pieces || [], 'right']]) {
     if (!el) continue;
     el.innerHTML = '';
     for (const pc of pieces) {
-      el.appendChild(createRevealCard(pc));
+      el.appendChild(createRevealCard(pc, side));
     }
   }
 }
@@ -3479,8 +3533,13 @@ function renderSpectatorGame(gs) {
   document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && gs.turnNumber) {
-    const turnsUntilSP = 10 - (gs.turnNumber % 10);
-    spCountdown.textContent = `다음 SP 지급까지 ${turnsUntilSP === 10 ? 10 : turnsUntilSP}턴`;
+    if (gs.turnNumber >= 50) {
+      spCountdown.textContent = 'SP 지급 중단 (50턴 초과)';
+      spCountdown.style.color = 'var(--danger)';
+    } else {
+      const turnsUntilSP = 10 - (gs.turnNumber % 10);
+      spCountdown.textContent = `다음 SP 지급까지 ${turnsUntilSP === 10 ? 10 : turnsUntilSP}턴`;
+    }
   }
 
   // 턴 배너
@@ -3614,7 +3673,7 @@ function renderSpectatorGame(gs) {
         <div><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
-      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'right'));
+      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'left'));
       leftPanel.appendChild(div);
     }
   }
@@ -3635,7 +3694,7 @@ function renderSpectatorGame(gs) {
         <div class="opp-info"><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
-      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'left'));
+      if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'right'));
       rightPanel.appendChild(div);
     }
   }
@@ -3796,7 +3855,7 @@ const TUTORIAL_STEPS = [
       <div class="tut-board-demo">
         ${Array.from({length:25}, (_,i) => {
           const c = i % 5, r = Math.floor(i / 5);
-          return `<div class="tut-cell"><span style="font-size:0.5rem;color:var(--muted)">${c+1},${r+1}</span></div>`;
+          return `<div class="tut-cell"><span style="font-size:0.5rem;color:var(--muted)">${ROW_LABELS[r]}${c+1}</span></div>`;
         }).join('')}
       </div>
     </div>
@@ -3979,7 +4038,7 @@ const TUTORIAL_STEPS = [
       <div class="tut-text">
         • 양 팀이 <strong>공유하는 SP 풀</strong>에서 소비합니다<br>
         • 시작 시 각자 <strong>1 SP</strong> 보유<br>
-        • 최대 <strong>5 SP</strong>까지 보유 가능
+        • 최대 <strong>10 SP</strong>까지 보유 가능 (풀 한도 10)
       </div>
     </div>
     <div class="tut-section">
@@ -3999,7 +4058,8 @@ const TUTORIAL_STEPS = [
           <tr><td style="padding:4px 12px;color:var(--text-dim)">10턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 2</td></tr>
           <tr><td style="padding:4px 12px;color:var(--text-dim)">20턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 3</td></tr>
           <tr><td style="padding:4px 12px;color:var(--text-dim)">30턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 4</td></tr>
-          <tr><td style="padding:4px 12px;color:var(--text-dim)">40턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 5 (최대)</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">40턴</td><td style="padding:4px 12px;color:var(--success)">+1 SP 지급</td><td style="padding:4px 12px">각 5</td></tr>
+          <tr><td style="padding:4px 12px;color:var(--text-dim)">50턴</td><td style="padding:4px 12px;color:var(--danger)">SP 지급 중단</td><td style="padding:4px 12px">최대 각 10</td></tr>
         </table>
       </div>
       <div class="tut-text" style="color:var(--muted);font-size:0.75rem">

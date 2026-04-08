@@ -52,8 +52,8 @@ const CHARACTERS = {
       skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에 저주(턴당 0.5피해+스킬봉인)'}] },
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸(col±1,row±1)',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 2회 공격'}] },
-    { type:'ratMerchant', name:'쥐 장수', tier:2, atk:2, icon:'🐀', tag:'villain', desc:'제자리 + 쥐 위치',
-      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'랜덤 4곳에 쥐 소환'}] },
+    { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리 + 쥐 위치',
+      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'랜덤 3곳에 쥐 소환 (중복 불가)'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'자신 포함 가로3칸(토글)',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로↔세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:2, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
@@ -69,12 +69,12 @@ const CHARACTERS = {
     { type:'monk', name:'수도승', tier:3, atk:1, icon:'🙏', tag:null, desc:'상하 각1칸(자기제외)',
       skills:[{id:'divine', name:'신성', cost:4, replacesAction:false, desc:'아군 1명 체력+2, 상태이상 제거(자신제외)'}],
       passives:['grace'] },
-    { type:'slaughterHero', name:'학살 영웅', tier:3, atk:2, icon:'🪓', tag:'villain', desc:'3x3 전체 9칸',
+    { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'🪓', tag:'villain', desc:'3x3 전체 9칸',
       skills:[], passives:['betrayer'] },
     { type:'commander', name:'지휘관', tier:3, atk:2, icon:'📋', tag:'royal', desc:'좌우 각1칸(자기제외)',
       skills:[], passives:['wrath'] },
-    { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:1, icon:'🔥', tag:'royal', desc:'주변 8칸(자기제외)',
-      skills:[{id:'sulfurRiver', name:'유황범람', cost:4, replacesAction:true, desc:'현재 보드 테두리 전체 공격, 피해3'}] },
+    { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸(자기제외)',
+      skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'현재 보드 테두리 전체 공격, 피해2'}] },
     { type:'torturer', name:'고문 기술자', tier:3, atk:2, icon:'⛓', tag:'villain', desc:'자신 + 바로 아래(2칸)',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 피해1'}],
       passives:['markPassive'] },
@@ -294,7 +294,7 @@ function createRoom(id) {
     revealDone:    [false, false],
     placementDone: [false, false],
     isAI: false,
-    // SP system: shared pool, starts 1 each (total 2), +1 each per 10 turns, max 10 total (5 each max)
+    // SP system: starts 1 each, +1 each per 10 turns, per-player max 10, pool max 10, stop after turn 50
     sp: [1, 1],
     // Instant SP: one-time-use SP from wizard passive (not part of influence graph)
     instantSp: [0, 0],
@@ -783,14 +783,14 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     emitToSpectators(room, 'spectator_log', { msg: `🙏 ${defName}의 수도승 가호 발동! 악인의 공격 피해 0.5로 감소`, type: 'passive', playerIdx: 1 - attackerIdx });
   }
 
-  // Step 7: Count hit by tier 1 => -0.5
-  if (defenderPiece.type === 'count' && attackerPiece.tier === 1) {
+  // Step 7: Count hit by tier 1 or 2 => -0.5
+  if (defenderPiece.type === 'count' && (attackerPiece.tier === 1 || attackerPiece.tier === 2)) {
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
-      emitToBoth(room, 'passive_alert', { type: 'count', msg: `🧛 백작의 패시브! 1티어 공격 피해 0.5 감소!` });
+      emitToBoth(room, 'passive_alert', { type: 'count', msg: `🧛 백작의 패시브! ${attackerPiece.tier}티어 공격 피해 0.5 감소!` });
       const defName = room.players[1 - attackerIdx].name;
-      emitToSpectators(room, 'spectator_log', { msg: `🧛 ${defName}의 백작 패시브 발동! 1티어 공격 피해 0.5 감소`, type: 'passive', playerIdx: 1 - attackerIdx });
+      emitToSpectators(room, 'spectator_log', { msg: `🧛 ${defName}의 백작 패시브 발동! ${attackerPiece.tier}티어 공격 피해 0.5 감소`, type: 'passive', playerIdx: 1 - attackerIdx });
     }
   }
 
@@ -947,9 +947,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
     for (const cell of atkCells) {
       for (const allyPiece of attacker.pieces) {
         if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
-          allyPiece.hp = Math.max(0, allyPiece.hp - 0.5);
-          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', msg: `⚔ 학살영웅의 광역 공격에 아군 ${allyPiece.name}이(가) 휘말렸습니다! (0.5 피해)` });
-          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${attacker.name}의 학살영웅 광역에 아군 ${allyPiece.name} 휘말림! (0.5 피해)`, type: 'passive', playerIdx: attackerIdx });
+          allyPiece.hp = Math.max(0, allyPiece.hp - 1);
+          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', msg: `⚔ 학살영웅의 광역 공격에 아군 ${allyPiece.name}이(가) 휘말렸습니다! (1 피해)` });
+          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${attacker.name}의 학살영웅 광역에 아군 ${allyPiece.name} 휘말림! (1 피해)`, type: 'passive', playerIdx: attackerIdx });
           if (allyPiece.hp <= 0) {
             handleDeath(room, allyPiece, attackerIdx);
           }
@@ -976,8 +976,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
 
 function checkWin(room, defenderIdx) {
   const defender = room.players[defenderIdx];
-  // All non-dragon original pieces must be dead
-  return defender.pieces.filter(p => !p.isDragon).every(p => !p.alive);
+  // 드래곤 포함 모든 유닛이 죽어야 패배 (드래곤 살아있으면 패배 불가)
+  return defender.pieces.every(p => !p.alive);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -995,7 +995,7 @@ function spendSP(room, playerIdx, amount) {
   // Then consume regular SP (transfers to opponent)
   if (remaining > 0) {
     room.sp[playerIdx] -= remaining;
-    room.sp[1 - playerIdx] = Math.min(room.sp[1 - playerIdx] + remaining, 5);
+    room.sp[1 - playerIdx] = Math.min(room.sp[1 - playerIdx] + remaining, 10);
   }
   emitSPUpdate(room);
   return true;
@@ -1020,7 +1020,7 @@ function buildSpectatorSkillMsg(playerName, piece, result) {
   // "🏹 정비: ..." → "🏹 {이름}의 궁수가 정비를 사용! ..."
   const patterns = [
     { prefix: '🏹 정비:', rewrite: (m) => `🏹 ${playerName}의 궁수가 정비를 사용! ${m.replace('🏹 정비: ', '')}` },
-    { prefix: '👬 분신:', rewrite: (m) => `👬 ${playerName}의 쌍둥이가 분신을 사용! ${m.replace('👬 분신: ', '')}` },
+    { prefix: '👬 분신:', rewrite: (m) => `👬 ${playerName}의 ${m.replace('👬 분신: ', '')}` },
     { prefix: '🪤 덫 설치:', rewrite: (m) => `🪤 ${playerName}의 인간 사냥꾼이 덫을 설치!` },
     { prefix: '📯 질주:', rewrite: (m) => `📯 ${playerName}의 전령이 질주를 사용! 이번 턴 2회 이동` },
     { prefix: '💥 기폭:', rewrite: (m) => `💥 ${playerName}의 화약상이 기폭! ${m.replace('💥 기폭: ', '')}` },
@@ -1032,7 +1032,7 @@ function buildSpectatorSkillMsg(playerName, piece, result) {
     { prefix: '⚒ 정비:', rewrite: (m) => `⚒ ${playerName}의 무기상이 정비를 사용! ${m.replace('⚒ 정비: ', '')}` },
     { prefix: '♛ 절대복종 반지:', rewrite: (m) => `♛ ${playerName}의 국왕이 절대복종 반지를 사용! ${m.replace('♛ 절대복종 반지: ', '')}` },
     { prefix: '🙏 신성:', rewrite: (m) => `🙏 ${playerName}의 수도승이 신성을 사용! ${m.replace('🙏 신성: ', '')}` },
-    { prefix: '🔥 유황범람:', rewrite: (m) => `🔥 ${playerName}의 유황이 끓는 솥이 유황범람을 사용! 보드 테두리 전체 공격 (피해 3)` },
+    { prefix: '🔥 유황범람:', rewrite: (m) => `🔥 ${playerName}의 유황이 끓는 솥이 유황범람을 사용! 보드 테두리 전체 공격 (피해 2)` },
     { prefix: '⛓ 악몽:', rewrite: (m) => `⛓ ${playerName}의 고문 기술자가 악몽을 사용! ${m.replace('⛓ 악몽: ', '')}` },
   ];
   for (const p of patterns) {
@@ -1119,6 +1119,9 @@ function processTurnStart(room) {
         if (!sourceWitch || p.hp <= 1) {
           // 마녀 사망 또는 대상 HP ≤ 1이면 저주 해제
           p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
+          const reason = !sourceWitch ? '마녀 사망' : 'HP 1 도달';
+          emitToBoth(room, 'passive_alert', { type: 'curse_removed', msg: `☠ ${p.name}의 저주가 해제되었습니다! (${reason})` });
+          emitToSpectators(room, 'spectator_log', { msg: `☠ ${p.name}의 저주 해제 (${reason})`, type: 'passive', playerIdx: idx });
         } else {
           p.hp = Math.max(0, p.hp - 0.5);
           if (p.hp <= 0) {
@@ -1129,10 +1132,19 @@ function processTurnStart(room) {
     }
   }
 
-  // SP gain every 10 turns (turns 10,20,30,40 -> +1 each, total grows by 2)
-  if (room.turnNumber > 0 && room.turnNumber % 10 === 0) {
-    room.sp[0] = Math.min(room.sp[0] + 1, 5);
-    room.sp[1] = Math.min(room.sp[1] + 1, 5);
+  // SP gain every 10 turns (+1 each), per-player max 10, pool max 10, stop after turn 50
+  if (room.turnNumber > 0 && room.turnNumber % 10 === 0 && room.turnNumber <= 50) {
+    const poolTotal = room.sp[0] + room.sp[1];
+    if (poolTotal < 10) {
+      room.sp[0] = Math.min(room.sp[0] + 1, 10);
+      room.sp[1] = Math.min(room.sp[1] + 1, 10);
+      // Pool limit 10 체크: 초과분 잘라내기
+      const newTotal = room.sp[0] + room.sp[1];
+      if (newTotal > 10) {
+        const excess = newTotal - 10;
+        room.sp[1] = Math.max(0, room.sp[1] - excess);
+      }
+    }
     emitSPUpdate(room);
   }
 
@@ -1357,8 +1369,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      result.msg = `👬 분신: ${mover.name}(${mover.subUnit === 'elder' ? '형' : '동생'})이(가) 합류했습니다.`;
-      result.oppMsg = `👬 상대 쌍둥이가 분신을 사용했습니다.`;
+      const moverLabel = mover.subUnit === 'elder' ? '형' : '동생';
+      const targetLabel = target.subUnit === 'elder' ? '형' : '동생';
+      result.msg = `👬 분신: 쌍둥이 ${moverLabel}이(가) 쌍둥이 ${targetLabel}에게 합류했습니다!`;
+      result.oppMsg = `👬 상대의 쌍둥이 ${moverLabel}이(가) 분신을 사용해 쌍둥이 ${targetLabel}을(를) 합류시켰습니다!`;
       break;
     }
 
@@ -1424,8 +1438,6 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (!inBounds(tc, tr, bounds)) return { ok: false, msg: '보드 밖입니다.' };
       room.boardObjects[playerIdx].push({ type: 'bomb', col: tc, row: tr, owner: playerIdx });
       spendSP(room, playerIdx, cost);
-      player.actionUsedSkillReplace = true;
-      player.actionDone = true;
       result.msg = `💣 폭탄 설치: ${coord(tc,tr)}에 폭탄을 설치했습니다.`;
       result.oppMsg = `💣 상대가 폭탄을 설치했습니다.`;
       break;
@@ -1493,14 +1505,17 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── RAT MERCHANT: 역병의 자손들 (summon 4 rats) ──
+    // ── RAT MERCHANT: 역병의 자손들 (summon 3 rats) ──
     case 'ratMerchant': {
-      // 보드 전체에서 랜덤 4곳 (말 있는 곳도 OK, 중복만 방지)
+      // 보드 전체에서 랜덤 3곳 (이미 쥐가 있는 곳 제외)
+      const existingRats = room.rats[playerIdx];
       const allCells = [];
       for (let c = bounds.min; c <= bounds.max; c++)
-        for (let r = bounds.min; r <= bounds.max; r++)
-          allCells.push({ col: c, row: r });
-      const numRats = Math.min(4, allCells.length);
+        for (let r = bounds.min; r <= bounds.max; r++) {
+          if (!existingRats.some(er => er.col === c && er.row === r))
+            allCells.push({ col: c, row: r });
+        }
+      const numRats = Math.min(3, allCells.length);
       const newRats = [];
       for (let i = 0; i < numRats; i++) {
         const ri = Math.floor(Math.random() * allCells.length);
@@ -1615,7 +1630,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── SULFUR CAULDRON: 유황의 강 (border attack, dmg 3) ──
     case 'sulfurCauldron': {
       const borderCells = getBorderCells(bounds);
-      const hits = processAttack(room, playerIdx, { ...piece, atk: 3, type: 'sulfurCauldron' }, borderCells, 3);
+      const hits = processAttack(room, playerIdx, { ...piece, atk: 2, type: 'sulfurCauldron' }, borderCells, 2);
       const sulfurKilled = hits.filter(h => h.destroyed);
       if (sulfurKilled.length > 0) {
         setKillInfo(room, 'sulfur', null, sulfurKilled.map(k => ({ name: k.revealedName })));
@@ -1623,7 +1638,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      result.msg = `🔥 유황범람: 보드 테두리 전체 공격! (피해 3)`;
+      result.msg = `🔥 유황범람: 보드 테두리 전체 공격! (피해 2)`;
       result.oppMsg = `🔥 상대가 유황범람을 사용했습니다!`;
       result.data.hits = hits;
       result.data.borderCells = borderCells;
@@ -1633,6 +1648,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── TORTURER: 악몽 (damage all marked enemies) ──
     case 'torturer': {
       const enemies = room.players[1 - playerIdx].pieces.filter(p => p.alive);
+      const hasMarked = enemies.some(p => p.statusEffects.some(e => e.type === 'mark'));
+      if (!hasMarked) return { ok: false, msg: '표식 상태의 적이 없어 악몽을 사용할 수 없습니다.' };
       const marked = enemies.filter(p => p.statusEffects.some(e => e.type === 'mark'));
       const hits = [];
       for (const m of marked) {
@@ -1872,6 +1889,42 @@ function aiRecordHit(brain, piece) {
   brain.hitMemory[piece.type] = { col: piece.col, row: piece.row, turn: brain.turnCount };
 }
 
+// AI 스킬 사용 후 플레이어+관전자에게 알림
+function aiNotifySkill(room, pieceIdx, result) {
+  if (!result || !result.ok) return;
+  const piece = room.players[1].pieces[pieceIdx];
+  // 플레이어에게 status_update
+  const human = room.players[0];
+  if (human.socketId !== 'AI') {
+    io.to(human.socketId).emit('status_update', {
+      oppPieces: oppPieceSummary(room.players[1].pieces),
+      yourPieces: pieceSummary(human.pieces),
+      sp: room.sp,
+      instantSp: room.instantSp,
+      boardObjects: boardObjectsSummary(room, 0),
+      msg: result.oppMsg || null,
+      skillUsed: {
+        icon: piece.icon,
+        name: piece.name,
+        skillName: piece.skillName || '',
+      },
+    });
+  }
+  // 관전자에게 로그
+  if (!result.skipLog && result.msg) {
+    const specMsg = buildSpectatorSkillMsg('AI', piece, result);
+    emitToSpectators(room, 'spectator_log', { msg: specMsg, type: 'skill', playerIdx: 1 });
+  }
+  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+}
+
+// AI executeSkill wrapper — 실행 후 알림
+function aiExecSkill(room, pidx, skillId, params) {
+  const result = executeSkill(room, 1, pidx, skillId, params || {});
+  aiNotifySkill(room, pidx, result);
+  return result;
+}
+
 // AI 스킬 사용 판단 (free skills — 행동 전에 사용)
 function aiUsePreSkills(room) {
   const aiPlayer = room.players[1];
@@ -1888,7 +1941,7 @@ function aiUsePreSkills(room) {
         const mem = brain.hitMemory[piece.type];
         const recentlyHit = mem && brain.turnCount - mem.turn <= 2;
         if (!piece.statusEffects.some(e => e.type === 'shadow') && (recentlyHit || piece.hp <= piece.maxHp * 0.5)) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1907,7 +1960,7 @@ function aiUsePreSkills(room) {
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
         if (altScore > curScore * 1.3) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1915,14 +1968,14 @@ function aiUsePreSkills(room) {
       case 'messenger': {
         const mem = brain.hitMemory[piece.type];
         if (mem && brain.turnCount - mem.turn <= 1) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
       // 척후병: 정찰 사용
       case 'scout': {
         if (brain.mode === 'scan' && Math.random() < 0.6) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1933,14 +1986,14 @@ function aiUsePreSkills(room) {
           Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1
         );
         if (nearbyInjured.length >= 1) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
       // 쥐장수: 쥐가 적으면 소환
       case 'ratMerchant': {
         if (room.rats[1].length < 2) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1948,14 +2001,14 @@ function aiUsePreSkills(room) {
       case 'torturer': {
         const marked = room.players[0].pieces.filter(p => p.alive && p.statusEffects.some(e => e.type === 'mark'));
         if (marked.length >= 1) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
       // 양손검객: 공격 예정이면 쌍검무 활성화 (공격 전에 사용)
       case 'dualBlade': {
         if (Math.random() < 0.7) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1964,7 +2017,7 @@ function aiUsePreSkills(room) {
         const injured = alivePieces.filter(a => a !== piece && a.hp < a.maxHp).sort((a, b) => a.hp - b.hp);
         if (injured.length > 0 && injured[0].hp <= injured[0].maxHp * 0.5) {
           const targetIdx = aiPlayer.pieces.indexOf(injured[0]);
-          executeSkill(room, 1, pidx, piece.skillId, { targetPieceIdx: targetIdx });
+          aiExecSkill(room, pidx, );
         }
         break;
       }
@@ -1984,7 +2037,7 @@ function aiUsePreSkills(room) {
             }
           if (emptyCells.length > 0) {
             const pos = randomPick(emptyCells);
-            executeSkill(room, 1, pidx, piece.skillId, { col: pos.col, row: pos.row });
+            aiExecSkill(room, pidx, );
           }
         }
         break;
@@ -2069,7 +2122,7 @@ function aiTakeTurn(room) {
       if (piece.type === 'manhunter') {
         // 확률적 상으로 덫 설치
         if (Math.random() < 0.4) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
           endTurn(room);
           return;
@@ -2078,14 +2131,21 @@ function aiTakeTurn(room) {
       if (piece.type === 'gunpowder') {
         // 기존 폭탄이 있으면 기폭 우선 고려 (SP 0)
         const existingBombs = room.boardObjects[1].filter(o => o.type === 'bomb');
-        if (existingBombs.length > 0 && Math.random() < 0.5) {
-          executeSkill(room, 1, pidx, 'detonate', {});
-          // 기폭은 replacesAction이 아니므로 actionDone 안 함
-        } else if (Math.random() < 0.3) {
-          // 확률이 높은 위치에 폭탄 설치
-          const bt = aiBestTargetCell(brain, piece, room);
-          if (Math.abs(bt.col - piece.col) <= 1 && Math.abs(bt.row - piece.row) <= 1) {
-            executeSkill(room, 1, pidx, 'bomb', { col: bt.col, row: bt.row });
+        if (existingBombs.length > 0 && Math.random() < 0.6) {
+          aiExecSkill(room, pidx, );
+        } else if (Math.random() < 0.5 && (room.sp[1] + room.instantSp[1]) >= 2) {
+          // 인접 8칸 중 확률이 가장 높은 위치에 폭탄 설치
+          let bestBombCell = null, bestBombScore = -1;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const nc = piece.col + dc, nr = piece.row + dr;
+              if (!inBounds(nc, nr, bounds)) continue;
+              const score = brain.probMap[nr]?.[nc] || 0;
+              if (score > bestBombScore) { bestBombScore = score; bestBombCell = { col: nc, row: nr }; }
+            }
+          }
+          if (bestBombCell && bestBombScore > 3) {
+            aiExecSkill(room, pidx, );
             aiPlayer.actionDone = true;
             endTurn(room);
             return;
@@ -2100,7 +2160,7 @@ function aiTakeTurn(room) {
           enemies.sort((a, b) => (b.hasSkill ? 1 : 0) - (a.hasSkill ? 1 : 0) || b.hp - a.hp);
           const target = enemies[0];
           const tIdx = room.players[0].pieces.indexOf(target);
-          executeSkill(room, 1, pidx, 'curse', { targetPieceIdx: tIdx });
+          aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
           endTurn(room);
           return;
@@ -2112,7 +2172,7 @@ function aiTakeTurn(room) {
         let borderScore = 0;
         for (const c of borderCells) borderScore += brain.probMap[c.row]?.[c.col] || 0;
         if (borderScore > 20) {
-          executeSkill(room, 1, pidx, piece.skillId, {});
+          aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
           endTurn(room);
           return;
@@ -2812,12 +2872,28 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: idx });
     }
 
-    // AI 피격 기억
+    // AI 피격 기억 + 공격자 위치 추론
     if (room.isAI && 1 - idx === 1 && room.aiBrain) {
       for (const h of hitResults) {
         const hitPiece = defender.pieces.find(p => p.col === h.col && p.row === h.row && p.alive);
         if (hitPiece) {
           aiRecordHit(room.aiBrain, hitPiece);
+        }
+      }
+      // 공격 범위 셀로부터 공격자 위치 추론: 공격 셀들의 중심 근처에 적이 있을 가능성 높음
+      if (atkCells.length > 0) {
+        const avgCol = atkCells.reduce((s, c) => s + c.col, 0) / atkCells.length;
+        const avgRow = atkCells.reduce((s, c) => s + c.row, 0) / atkCells.length;
+        // 공격 범위 셀 근처 확률 대폭 증가
+        for (const c of atkCells) {
+          if (c.row >= 0 && c.row < 5 && c.col >= 0 && c.col < 5) {
+            room.aiBrain.probMap[c.row][c.col] = Math.max(room.aiBrain.probMap[c.row][c.col], 7);
+          }
+        }
+        // 중심점 근처는 더 높은 확률
+        const cr = Math.round(avgRow), cc = Math.round(avgCol);
+        if (cr >= 0 && cr < 5 && cc >= 0 && cc < 5) {
+          room.aiBrain.probMap[cr][cc] = Math.max(room.aiBrain.probMap[cr][cc], 9);
         }
       }
     }

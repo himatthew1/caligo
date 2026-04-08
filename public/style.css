@@ -61,6 +61,14 @@
 }
 .timer-clock-text.urgent { color: var(--danger); }
 
+/* 턴 플레이어별 타이머 색상 */
+.timer-clock.my-turn-timer .timer-arc:not(.urgent) { stroke: #3b82f6; }
+.timer-clock.my-turn-timer .timer-track { fill: rgba(59,130,246,0.08); }
+.timer-clock.my-turn-timer .timer-clock-text:not(.urgent) { color: #3b82f6; }
+.timer-clock.opp-turn-timer .timer-arc:not(.urgent) { stroke: #ef4444; }
+.timer-clock.opp-turn-timer .timer-track { fill: rgba(239,68,68,0.08); }
+.timer-clock.opp-turn-timer .timer-clock-text:not(.urgent) { color: #ef4444; }
+
 body {
   font-family: 'Segoe UI', system-ui, sans-serif;
   background: var(--bg);
@@ -715,6 +723,7 @@ body {
 .cell.miss-mark    { background: var(--miss); }
 .cell.assassin-target { background: rgba(220,80,80,0.3); border-color: var(--danger); }
 .cell.skill-range  { background: rgba(124,58,237,0.2); border-color: rgba(124,58,237,0.5); }
+.cell.explosion-trace { background: rgba(255,100,0,0.12); border-color: rgba(255,100,0,0.25); }
 
 /* 파괴된 셀 (보드 축소) */
 .cell.destroyed {
@@ -835,6 +844,18 @@ body {
 .my-piece-card:hover { border-color: #4a4a7a; }
 .my-piece-card.active-piece { border-color: var(--accent); }
 .my-piece-card.dead { opacity: 0.4; }
+
+/* 현재 턴 플레이어 강조 */
+.left-panel.turn-active .my-piece-card:not(.dead) {
+  background: rgba(59,130,246,0.10);
+  border-color: rgba(59,130,246,0.4);
+  transform: scale(1.02);
+}
+.right-panel.turn-active .opp-piece-card:not(.dead) {
+  background: rgba(239,68,68,0.10);
+  border-color: rgba(239,68,68,0.4);
+  transform: scale(1.02);
+}
 .my-piece-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .my-piece-header .p-icon { font-size: 1.4rem; }
 .my-piece-header strong { font-size: 0.9rem; }
@@ -1306,20 +1327,22 @@ body {
   display: flex; gap: 24px; justify-content: center; margin-top: 16px;
 }
 .spec-hp-side {
-  flex: 1; max-width: 320px;
+  flex: 1; max-width: 420px; min-width: 280px;
   background: rgba(255,255,255,0.03);
   border-radius: 10px; border: 1px solid var(--border);
   padding: 14px;
 }
-.spec-hp-side h3 { margin: 0 0 10px; font-size: 1rem; }
+.spec-hp-side h3 { margin: 0 0 10px; font-size: 1rem; text-align: center; }
 .spec-hp-pieces { display: flex; flex-direction: column; gap: 6px; }
 .spec-hp-piece {
   display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px; border-radius: 6px;
+  padding: 8px 10px; border-radius: 6px;
   background: rgba(255,255,255,0.04);
   position: relative;
+  white-space: nowrap;
 }
-.spec-hp-piece .p-icon { font-size: 1.2rem; }
+.spec-hp-piece .p-icon { font-size: 1.2rem; flex-shrink: 0; }
+.spec-hp-piece strong { white-space: nowrap; }
 
 .spec-placement-side {
   min-width: 140px; max-width: 180px;
