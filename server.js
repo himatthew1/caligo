@@ -326,18 +326,20 @@ function assignChatColor(room, socketId) {
   return color;
 }
 
-// ── 타이머 시스템 (30초) ─────────────────────────────────────
+// ── 타이머 시스템 ─────────────────────────────────────
 const TIMER_SECONDS = 90;
+const DRAFT_TIMER_SECONDS = 150;
 
 function startTimer(room, phase, callback) {
   clearTimer(room);
-  room.timerDeadline = Date.now() + TIMER_SECONDS * 1000;
-  emitToBothAndSpectators(room, 'timer_start', { seconds: TIMER_SECONDS, phase });
+  const sec = (phase === 'draft') ? DRAFT_TIMER_SECONDS : TIMER_SECONDS;
+  room.timerDeadline = Date.now() + sec * 1000;
+  emitToBothAndSpectators(room, 'timer_start', { seconds: sec, phase });
   room.timer = setTimeout(() => {
     room.timer = null;
     room.timerDeadline = null;
     if (room.phase !== 'ended') callback();
-  }, TIMER_SECONDS * 1000);
+  }, sec * 1000);
 }
 
 function clearTimer(room) {
