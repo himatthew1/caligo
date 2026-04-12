@@ -24,6 +24,7 @@ const S = {
   draftStep: 1,            // 현재 단계 (1,2,3)
   draftSelected: {},       // { 1: type, 2: type, 3: type }
   draftPicked: [],         // 이미 확정된 타입 목록
+  deckBuilderMode: false,  // 덱 빌더 모드 여부
 
   // HP 분배
   myDraft: null,
@@ -110,22 +111,99 @@ function showScreen(id) {
   S.phase = id.replace('screen-', '');
 }
 
+// ── 덱 저장/로드 (localStorage) ──────────────────────────────
+const DECK_STORAGE_KEY = 'caligo_my_deck';
+function loadDeck() {
+  try {
+    const raw = localStorage.getItem(DECK_STORAGE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (d && typeof d === 'object') return { t1: d.t1 || null, t2: d.t2 || null, t3: d.t3 || null };
+  } catch (e) {}
+  return null;
+}
+function saveDeck(t1, t2, t3) {
+  localStorage.setItem(DECK_STORAGE_KEY, JSON.stringify({ t1: t1 || null, t2: t2 || null, t3: t3 || null }));
+}
+function isDeckEmpty() {
+  const d = loadDeck();
+  return !d || (!d.t1 && !d.t2 && !d.t3);
+}
+
+// ── 덱 빌더 ─────────────────────────────────────────────────
+function openDeckBuilder() {
+  S.deckBuilderMode = true;
+  S.draftStep = 1;
+  S.draftPicked = [];
+  const deck = loadDeck();
+  if (deck) {
+    S.draftSelected = {};
+    if (deck.t1 && S.characters[1]?.find(c => c.type === deck.t1)) S.draftSelected[1] = deck.t1;
+    if (deck.t2 && S.characters[2]?.find(c => c.type === deck.t2)) S.draftSelected[2] = deck.t2;
+    if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
+  } else {
+    S.draftSelected = {};
+  }
+  document.getElementById('btn-deck-back').classList.remove('hidden');
+  document.getElementById('btn-draft-random').disabled = false;
+  document.getElementById('btn-draft-recommend').disabled = false;
+  buildDraftStepUI();
+  showScreen('screen-draft');
+}
+
+document.getElementById('btn-deck').addEventListener('click', () => {
+  if (S.characters) {
+    openDeckBuilder();
+  } else {
+    socket.emit('request_characters');
+    socket.once('characters_data', ({ characters }) => {
+      S.characters = characters;
+      openDeckBuilder();
+    });
+  }
+});
+
+document.getElementById('btn-deck-back').addEventListener('click', () => {
+  S.deckBuilderMode = false;
+  document.getElementById('btn-deck-back').classList.add('hidden');
+  showScreen('screen-lobby');
+});
+
 // ── 로비 ──────────────────────────────────────────────────────
+let pendingJoinAction = null;
+
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showError('lobby-error', '닉네임과 방 코드를 입력하세요.'); return; }
-  S.myName = name;
-  S.roomId = roomId;
-  socket.emit('join_room', { roomId, playerName: name });
+  const doJoin = () => { S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name }); };
+  if (isDeckEmpty()) {
+    pendingJoinAction = doJoin;
+    document.getElementById('deck-empty-modal').classList.remove('hidden');
+    return;
+  }
+  doJoin();
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showError('lobby-error', '닉네임을 입력하세요.'); return; }
-  S.myName = name;
-  S.opponentName = 'AI 🤖';
-  socket.emit('join_ai', { playerName: name });
+  const doJoin = () => { S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name }); };
+  if (isDeckEmpty()) {
+    pendingJoinAction = doJoin;
+    document.getElementById('deck-empty-modal').classList.remove('hidden');
+    return;
+  }
+  doJoin();
+});
+
+document.getElementById('deck-empty-confirm').addEventListener('click', () => {
+  document.getElementById('deck-empty-modal').classList.add('hidden');
+  if (pendingJoinAction) { pendingJoinAction(); pendingJoinAction = null; }
+});
+document.getElementById('deck-empty-cancel').addEventListener('click', () => {
+  document.getElementById('deck-empty-modal').classList.add('hidden');
+  pendingJoinAction = null;
 });
 
 document.getElementById('input-name').addEventListener('keydown', e => {
@@ -351,18 +429,33 @@ socket.on('opponent_joined', ({ opponentName }) => {
 
 socket.on('phase_change', ({ phase }) => {
   if (phase === 'draft') {
+    S.deckBuilderMode = false;
+    document.getElementById('btn-deck-back').classList.add('hidden');
     S.draftStep = 1;
-    S.draftSelected = {};
     S.draftPicked = [];
+    // 저장된 덱에서 프리필
+    const deck = loadDeck();
+    if (deck && S.characters) {
+      S.draftSelected = {};
+      if (deck.t1 && S.characters[1]?.find(c => c.type === deck.t1)) S.draftSelected[1] = deck.t1;
+      if (deck.t2 && S.characters[2]?.find(c => c.type === deck.t2)) S.draftSelected[2] = deck.t2;
+      if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
+    } else {
+      S.draftSelected = {};
+    }
     buildDraftStepUI();
     showScreen('screen-draft');
+    // 프리필된 덱이 있으면 관전자에게도 알림
+    if (deck && (deck.t1 || deck.t2 || deck.t3)) {
+      socket.emit('draft_browse', { step: S.draftStep, type: S.draftSelected[S.draftStep], selected: { ...S.draftSelected } });
+    }
   }
 });
 
 // ── 드래프트 확정 ──
-socket.on('draft_ok', ({ t1, t2, t3, timeout }) => {
+socket.on('draft_ok', ({ t1, t2, t3, timeout, timeoutMsg }) => {
   S.myDraft = { t1, t2, t3 };
-  if (timeout) showSkillToast('⏰ 시간 초과! 캐릭터가 랜덤 선택되었습니다.');
+  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과! 캐릭터가 랜덤 선택되었습니다.'}`);
 });
 
 // ── HP 분배 페이즈 ──
@@ -1240,7 +1333,10 @@ function updateDraftConfirmBtn() {
   const btn = document.getElementById('btn-draft-confirm');
   const count = [1,2,3].filter(t => S.draftSelected[t]).length;
 
-  if (allSelected) {
+  if (S.deckBuilderMode) {
+    btn.disabled = false;
+    btn.textContent = allSelected ? '덱 저장' : `덱 저장 (${count}/3)`;
+  } else if (allSelected) {
     btn.disabled = false;
     btn.textContent = '최종 확정';
   } else {
@@ -1340,6 +1436,17 @@ function renderDraftSlots() {
 
 document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+
+  // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
+  if (S.deckBuilderMode) {
+    saveDeck(S.draftSelected[1] || null, S.draftSelected[2] || null, S.draftSelected[3] || null);
+    showSkillToast('덱이 저장되었습니다!');
+    S.deckBuilderMode = false;
+    document.getElementById('btn-deck-back').classList.add('hidden');
+    showScreen('screen-lobby');
+    return;
+  }
+
   if (!allSelected) return;
 
   S.draftPicked = [S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]];

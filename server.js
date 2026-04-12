@@ -366,13 +366,23 @@ function draftTimeout(room) {
   if (room.phase !== 'draft') return;
   for (let i = 0; i < 2; i++) {
     if (!room.draftDone[i] && room.players[i].socketId !== 'AI') {
-      const t1 = randomPick(CHARACTERS[1]).type;
-      const t2 = randomPick(CHARACTERS[2]).type;
-      const t3 = randomPick(CHARACTERS[3]).type;
+      const browse = room.players[i]._browseDraft || {};
+      const had1 = browse[1] || null;
+      const had2 = browse[2] || null;
+      const had3 = browse[3] || null;
+      const t1 = had1 || randomPick(CHARACTERS[1]).type;
+      const t2 = had2 || randomPick(CHARACTERS[2]).type;
+      const t3 = had3 || randomPick(CHARACTERS[3]).type;
       room.players[i].draft = { t1, t2, t3 };
       room.draftDone[i] = true;
       const sock = io.sockets.sockets.get(room.players[i].socketId);
-      if (sock) sock.emit('draft_ok', { t1, t2, t3, timeout: true });
+      if (sock) {
+        const allFilled = had1 && had2 && had3;
+        const timeoutMsg = allFilled
+          ? '시간초과로 자동 확정 됐습니다.'
+          : '시간초과로 빈 슬롯이 랜덤으로 선택됐습니다.';
+        sock.emit('draft_ok', { t1, t2, t3, timeout: true, timeoutMsg });
+      }
     }
   }
   if (room.draftDone.every(d => d)) {
@@ -2305,6 +2315,11 @@ function aiExecuteAttack(room, action) {
 
 io.on('connection', (socket) => {
 
+  // ── 캐릭터 데이터 요청 (덱빌더용) ──
+  socket.on('request_characters', () => {
+    socket.emit('characters_data', { characters: CHARACTERS });
+  });
+
   // ── 방 입장 ──
   socket.on('join_room', ({ roomId, playerName }) => {
     if (rooms[roomId] && rooms[roomId].phase === 'ended') {
@@ -2425,6 +2440,8 @@ io.on('connection', (socket) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'draft') return;
     const idx = socket.data.idx;
+    // 부분 선택 저장 (스마트 타임아웃용)
+    if (selected) room.players[idx]._browseDraft = selected;
     emitToSpectators(room, 'spectator_draft_browse', {
       playerIdx: idx,
       playerName: room.players[idx].name,

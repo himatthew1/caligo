@@ -35,6 +35,7 @@
     <button id="btn-ai" class="btn btn-secondary btn-large">AI 연습 모드</button>
     <button id="btn-tutorial" class="btn btn-tutorial btn-large">📖 튜토리얼</button>
     <button id="btn-spectate" class="btn btn-spectate btn-small">👁 관전하기</button>
+    <button id="btn-deck" class="btn btn-deck btn-small">🃏 내 덱</button>
     <p id="lobby-error" class="error-msg"></p>
   </div>
 </div>
@@ -70,6 +71,7 @@
   <div class="draft-layout">
     <!-- 왼쪽: 캐릭터 뷰어 -->
     <div class="draft-main">
+      <button id="btn-deck-back" class="btn btn-small hidden" style="position:absolute;left:16px;top:16px">✕ 나가기</button>
       <h2 id="draft-title">1티어 선택</h2>
       <p id="draft-sub" class="muted">정찰과 견제 - 10명 중 1명을 선택하세요</p>
       <div id="draft-step-indicator" class="step-indicator">
@@ -323,6 +325,17 @@
     <h3 id="skill-modal-title">스킬 선택</h3>
     <div id="skill-modal-body"></div>
     <button id="skill-modal-close" class="btn btn-muted">닫기</button>
+  </div>
+</div>
+
+<div id="deck-empty-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>내 덱이 비워져 있습니다</h3>
+    <p style="color:var(--text-dim); margin:12px 0;">그래도 시작하시겠습니까?</p>
+    <div class="modal-btn-row">
+      <button id="deck-empty-confirm" class="btn btn-primary">시작하기</button>
+      <button id="deck-empty-cancel" class="btn btn-muted">취소</button>
+    </div>
   </div>
 </div>
 

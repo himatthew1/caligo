@@ -151,6 +151,8 @@ body {
 .btn-tutorial:hover:not(:disabled) { background: #4f46e5; }
 .btn-spectate { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px !important; font-size: 0.8rem; padding: 6px 16px; }
 .btn-spectate:hover:not(:disabled) { color: #818cf8; border-color: #818cf8; background: rgba(129,140,248,0.08); }
+.btn-deck { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 8px !important; font-size: 0.8rem; padding: 6px 16px; }
+.btn-deck:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(226,168,75,0.08); }
 .btn-small { padding: 6px 14px; font-size: 0.8rem; border-radius: 6px; }
 
 /* ── 관전 방 목록 ── */
