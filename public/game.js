@@ -176,40 +176,19 @@ document.getElementById('btn-deck-back').addEventListener('click', () => {
 });
 
 // ── 로비 ──────────────────────────────────────────────────────
-let pendingJoinAction = null;
-
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showError('lobby-error', '닉네임과 방 코드를 입력하세요.'); return; }
-  const doJoin = () => { S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name }); };
-  if (isDeckEmpty()) {
-    pendingJoinAction = doJoin;
-    document.getElementById('deck-empty-modal').classList.remove('hidden');
-    return;
-  }
-  doJoin();
+  if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
+  S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showError('lobby-error', '닉네임을 입력하세요.'); return; }
-  const doJoin = () => { S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name }); };
-  if (isDeckEmpty()) {
-    pendingJoinAction = doJoin;
-    document.getElementById('deck-empty-modal').classList.remove('hidden');
-    return;
-  }
-  doJoin();
-});
-
-document.getElementById('deck-empty-confirm').addEventListener('click', () => {
-  document.getElementById('deck-empty-modal').classList.add('hidden');
-  if (pendingJoinAction) { pendingJoinAction(); pendingJoinAction = null; }
-});
-document.getElementById('deck-empty-cancel').addEventListener('click', () => {
-  document.getElementById('deck-empty-modal').classList.add('hidden');
-  pendingJoinAction = null;
+  if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
+  S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name });
 });
 
 document.getElementById('input-name').addEventListener('keydown', e => {
@@ -481,12 +460,45 @@ socket.on('twin_split_needed', ({ twinTierHp }) => {
   showTwinSplit(twinTierHp);
 });
 
-// ── 캐릭터 공개 ──
+// ── 캐릭터 공개 (레거시 — 새 흐름에서는 사용 안 함) ──
 socket.on('reveal_phase', ({ yourPieces, oppPieces }) => {
   S.myPieces = yourPieces;
   S.oppPieces = oppPieces;
   buildRevealUI(yourPieces, oppPieces);
   showScreen('screen-reveal');
+});
+
+// ── 초기 공개 (드래프트 직후) ──
+socket.on('initial_reveal_phase', ({ myDraft, oppChars }) => {
+  S.phase = 'initial_reveal';
+  buildInitialRevealUI(myDraft, oppChars);
+  showScreen('screen-initial-reveal');
+});
+
+// ── 교환 드래프트 ──
+socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
+  S.phase = 'exchange_draft';
+  S.exchangeAvailable = available;
+  S.exchangeMyDraft = { ...myDraft };
+  S.exchangeSelected = null; // { tier, newType }
+  buildExchangeDraftUI(myDraft, available);
+  showScreen('screen-exchange');
+});
+
+socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
+  S.exchangeMyDraft = draft;
+  if (timeout) {
+    showSkillToast('시간초과! 교환 없이 확정되었습니다.');
+  } else if (exchanged) {
+    showSkillToast(`T${exchanged.tier} ${exchanged.newChar.icon}${exchanged.newChar.name}(으)로 교환 완료!`);
+  }
+});
+
+// ── 최종 공개 ──
+socket.on('final_reveal_phase', ({ myDraft, oppChars }) => {
+  S.phase = 'final_reveal';
+  buildFinalRevealUI(myDraft, oppChars);
+  showScreen('screen-final-reveal');
 });
 
 // ── 배치 ──
@@ -541,6 +553,8 @@ socket.on('your_turn', (data) => {
   S.moveDone = false;
   S.skillsUsedThisTurn = [];
   S.actionUsedSkillReplace = false;
+  S.twinMovePending = false;
+  S.twinMovedSub = null;
 
   refreshGameView();
   showActionBar(true);
@@ -571,10 +585,11 @@ socket.on('opp_turn', (data) => {
 });
 
 // ── 이동 결과 ──
-socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twinMovePending }) => {
+socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twinMovePending, twinMovedSub }) => {
+  const pc = yourPieces[pieceIdx];
+  animateMove(pc.icon, prev.col, prev.row, col, row);
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
-  const pc = yourPieces[pieceIdx];
   addLog(`🚶 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
   showSkillToast(`${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
 
@@ -583,15 +598,17 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.action = 'move';
     S.selectedPiece = null;
     S.twinMovePending = true;
+    S.twinMovedSub = twinMovedSub;  // 이동 완료된 쪽 추적
     renderGameBoard();
     renderMyPieces();
     const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
-    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}도 이동시키세요!`;
+    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이(가) 아직 이동하지 않았습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
     S.selectedPiece = null;
     S.twinMovePending = false;
+    S.twinMovedSub = null;
     S.moveDone = true;
     S.actionDone = true;
     renderGameBoard();
@@ -600,13 +617,22 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   }
 });
 
-socket.on('opp_moved', ({ msg }) => {
+socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
+  // 상대 이동 모션 애니메이션
+  if (prevCol != null && col != null) {
+    animateMove('👤', prevCol, prevRow, col, row);
+  }
   addLog(`🚶 ${msg}`, 'move');
   showSkillToast(msg, true);
 });
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPieces }) => {
+  // 공격 모션 애니메이션
+  const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
+  const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
+  animateAttack(atkCells, hitCells);
+
   if (oppPieces) { S.oppPieces = oppPieces; }
   if (yourPieces) { S.myPieces = yourPieces; }
   const pc = S.myPieces[pieceIdx];
@@ -651,6 +677,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
 // ── 피격 ──
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
+  // 피격 모션 애니메이션
+  const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
+  animateAttack(atkCells || [], hitCells);
+
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
     addLog(`🛡 상대방 공격 — 빗나감`, 'miss');
@@ -1833,6 +1863,178 @@ document.getElementById('btn-reveal-confirm').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── 초기 공개 UI ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildInitialRevealUI(myDraft, oppChars) {
+  document.getElementById('irev-my-name').textContent = S.myName || '나';
+  document.getElementById('irev-opp-name').textContent = S.opponentName || '상대방';
+
+  const myContainer = document.getElementById('irev-my-chars');
+  const oppContainer = document.getElementById('irev-opp-chars');
+  myContainer.innerHTML = '';
+  oppContainer.innerHTML = '';
+
+  // 내 드래프트 (타입으로부터 캐릭터 데이터 조회)
+  for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
+    const type = myDraft[key];
+    const ch = findLocalChar(type, tier);
+    if (ch) myContainer.appendChild(createDraftRevealCard(ch, tier, 'left'));
+  }
+
+  // 상대 캐릭터
+  for (const ch of oppChars) {
+    oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right'));
+  }
+
+  const btn = document.getElementById('btn-irev-confirm');
+  btn.disabled = false;
+  btn.textContent = '교환 드래프트로';
+}
+
+function findLocalChar(type, tier) {
+  const charData = S.characters;
+  if (!charData || !charData[tier]) return { type, name: type, icon: '?', tier };
+  const ch = charData[tier].find(c => c.type === type);
+  if (!ch) return { type, name: type, icon: '?', tier };
+  return { ...ch, tier };
+}
+
+function createDraftRevealCard(ch, tier, tooltipSide) {
+  const card = document.createElement('div');
+  card.className = 'reveal-piece-card';
+  const tagHtml = ch.tag
+    ? `<span class="tag-badge ${ch.tag}">${ch.tag === 'royal' ? '왕실' : '악인'}</span>`
+    : '';
+  const grid = buildMiniRangeGrid(ch.type, {}, ch.icon);
+  card.innerHTML = `
+    <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
+    <div class="piece-info">
+      <strong>${ch.name}${tagHtml}</strong>
+      <span>T${tier} · ATK ${ch.atk || '?'}</span>
+    </div>`;
+  return card;
+}
+
+document.getElementById('btn-irev-confirm').addEventListener('click', () => {
+  socket.emit('confirm_initial_reveal');
+  document.getElementById('btn-irev-confirm').disabled = true;
+  document.getElementById('btn-irev-confirm').textContent = '대기 중...';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 교환 드래프트 UI ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildExchangeDraftUI(myDraft, available) {
+  const draftContainer = document.getElementById('exchange-my-draft');
+  const poolContainer = document.getElementById('exchange-pool');
+  draftContainer.innerHTML = '';
+  poolContainer.innerHTML = '';
+  S.exchangeSelected = null;
+
+  // 내 현재 드래프트 카드 (클릭하면 해당 티어 교환 풀 표시)
+  for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
+    const type = myDraft[key];
+    const ch = findLocalChar(type, tier);
+    const card = document.createElement('div');
+    card.className = 'exchange-draft-card';
+    card.dataset.tier = tier;
+    card.innerHTML = `
+      <span style="font-size:1.4rem">${ch.icon}</span>
+      <div><strong>${ch.name}</strong><br><span class="muted">T${tier}</span></div>`;
+    card.addEventListener('click', () => {
+      // 이미 교환 선택한 티어가 있으면 해제
+      document.querySelectorAll('.exchange-draft-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      showExchangePool(tier, available[tier]);
+    });
+    draftContainer.appendChild(card);
+  }
+
+  const btn = document.getElementById('btn-exchange-confirm');
+  btn.disabled = false;
+  btn.textContent = '교환 없이 확정';
+  document.getElementById('exchange-error').textContent = '';
+}
+
+function showExchangePool(tier, chars) {
+  const poolContainer = document.getElementById('exchange-pool');
+  poolContainer.innerHTML = `<h3>T${tier} 교환 가능 캐릭터</h3>`;
+  const grid = document.createElement('div');
+  grid.className = 'exchange-pool-grid';
+
+  for (const ch of chars) {
+    const card = document.createElement('div');
+    card.className = 'exchange-pool-card';
+    if (S.exchangeSelected && S.exchangeSelected.tier === tier && S.exchangeSelected.newType === ch.type) {
+      card.classList.add('selected');
+    }
+    card.innerHTML = `
+      <span style="font-size:1.2rem">${ch.icon}</span>
+      <strong>${ch.name}</strong>
+      <span class="muted">ATK ${ch.atk || '?'}</span>`;
+    card.addEventListener('click', () => {
+      S.exchangeSelected = { tier, newType: ch.type };
+      // 선택 UI 업데이트
+      grid.querySelectorAll('.exchange-pool-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      const btn = document.getElementById('btn-exchange-confirm');
+      btn.textContent = `${ch.icon}${ch.name}(으)로 교환 확정`;
+      btn.dataset.tier = tier;
+      btn.dataset.newType = ch.type;
+    });
+    grid.appendChild(card);
+  }
+  poolContainer.appendChild(grid);
+}
+
+document.getElementById('btn-exchange-confirm').addEventListener('click', () => {
+  const btn = document.getElementById('btn-exchange-confirm');
+  if (S.exchangeSelected) {
+    socket.emit('exchange_pick', { tier: S.exchangeSelected.tier, newType: S.exchangeSelected.newType });
+  } else {
+    socket.emit('exchange_pick', {}); // 교환 안 함
+  }
+  btn.disabled = true;
+  btn.textContent = '대기 중...';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── 최종 공개 UI ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function buildFinalRevealUI(myDraft, oppChars) {
+  document.getElementById('frev-my-name').textContent = S.myName || '나';
+  document.getElementById('frev-opp-name').textContent = S.opponentName || '상대방';
+
+  const myContainer = document.getElementById('frev-my-chars');
+  const oppContainer = document.getElementById('frev-opp-chars');
+  myContainer.innerHTML = '';
+  oppContainer.innerHTML = '';
+
+  for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
+    const type = myDraft[key];
+    const ch = findLocalChar(type, tier);
+    if (ch) myContainer.appendChild(createDraftRevealCard(ch, tier, 'left'));
+  }
+
+  for (const ch of oppChars) {
+    oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right'));
+  }
+
+  const btn = document.getElementById('btn-frev-confirm');
+  btn.disabled = false;
+  btn.textContent = 'HP 분배로';
+}
+
+document.getElementById('btn-frev-confirm').addEventListener('click', () => {
+  socket.emit('confirm_final_reveal');
+  document.getElementById('btn-frev-confirm').disabled = true;
+  document.getElementById('btn-frev-confirm').textContent = '대기 중...';
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── 배치 UI ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
@@ -2363,7 +2565,9 @@ function renderMyPieces() {
     const pc = S.myPieces[i];
     const card = document.createElement('div');
     const isActive = S.selectedPiece === i;
-    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
+    // 쌍둥이: 이미 이동한 쪽 흐리게 표시
+    const twinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
+    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''} ${twinDimmed ? 'twin-moved' : ''}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     const barClass = hpPct <= 25 ? 'low' : '';
 
@@ -3897,6 +4101,63 @@ function setTurnBackground(isMyTurn) {
 // ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
   showSkillToast('🎯 나의 차례!');
+}
+
+// ── 이동 모션 애니메이션 ──
+function animateMove(icon, fromCol, fromRow, toCol, toRow) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cells = board.querySelectorAll('.cell');
+  const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
+  const toCell = [...cells].find(c => parseInt(c.dataset.col) === toCol && parseInt(c.dataset.row) === toRow);
+  if (!fromCell || !toCell) return;
+
+  const boardRect = board.getBoundingClientRect();
+  const fromRect = fromCell.getBoundingClientRect();
+  const toRect = toCell.getBoundingClientRect();
+
+  const el = document.createElement('div');
+  el.textContent = icon;
+  el.style.cssText = `
+    position:fixed; z-index:2500; font-size:1.6rem; pointer-events:none;
+    left:${fromRect.left + fromRect.width/2}px; top:${fromRect.top + fromRect.height/2}px;
+    transform:translate(-50%,-50%); transition: left 0.35s ease, top 0.35s ease;
+    filter: drop-shadow(0 0 8px rgba(82,183,136,0.8));
+  `;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => {
+    el.style.left = `${toRect.left + toRect.width/2}px`;
+    el.style.top = `${toRect.top + toRect.height/2}px`;
+  });
+  setTimeout(() => el.remove(), 400);
+}
+
+// ── 공격 모션 애니메이션 ──
+function animateAttack(atkCells, hitCells) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cells = board.querySelectorAll('.cell');
+
+  // 공격 범위 번쩍임
+  for (const ac of atkCells) {
+    const cell = [...cells].find(c => parseInt(c.dataset.col) === ac.col && parseInt(c.dataset.row) === ac.row);
+    if (cell) {
+      cell.style.transition = 'background 0.1s';
+      cell.style.background = 'rgba(226,168,75,0.4)';
+      setTimeout(() => { cell.style.background = ''; }, 300);
+    }
+  }
+
+  // 피격 셀 빨간 플래시 + 흔들림
+  for (const hc of hitCells) {
+    const cell = [...cells].find(c => parseInt(c.dataset.col) === hc.col && parseInt(c.dataset.row) === hc.row);
+    if (cell) {
+      cell.style.transition = 'background 0.1s';
+      cell.style.background = 'rgba(239,68,68,0.5)';
+      cell.style.animation = 'shake 0.3s ease';
+      setTimeout(() => { cell.style.background = ''; cell.style.animation = ''; }, 400);
+    }
+  }
 }
 
 // ── 타이머 틱 사운드 (15초 이하) ──

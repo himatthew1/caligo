@@ -286,12 +286,15 @@ function createRoom(id) {
   return {
     id,
     players: [],
-    phase: 'waiting',      // waiting -> draft -> hp_distribution -> reveal -> placement -> game -> ended
+    phase: 'waiting',      // waiting -> draft -> initial_reveal -> exchange_draft -> final_reveal -> hp_distribution -> placement -> game -> ended
     currentPlayerIdx: 0,
     turnNumber: 0,
     draftDone:     [false, false],
     hpDone:        [false, false],
-    revealDone:    [false, false],
+    initialRevealDone: [false, false],
+    exchangeDone:  [false, false],
+    finalRevealDone: [false, false],
+    revealDone:    [false, false],   // kept for legacy compatibility
     placementDone: [false, false],
     isAI: false,
     // SP system: starts 1 each, +1 each per 10 turns, per-player max 10, pool max 10, stop after turn 50
@@ -386,7 +389,7 @@ function draftTimeout(room) {
     }
   }
   if (room.draftDone.every(d => d)) {
-    transitionToHpPhase(room);
+    transitionToInitialReveal(room);
   }
 }
 
@@ -435,7 +438,7 @@ function hpTimeout(room) {
     }
   }
   if (room.hpDone.every(d => d)) {
-    startRevealPhaseFromRoom(room);
+    transitionToPlacement(room);
   }
 }
 
@@ -493,6 +496,138 @@ function turnTimeout(room) {
 }
 
 // ── 페이즈 전환 헬퍼 (타이머 연동) ─────────────────────────
+
+// ── 초기 공개: 드래프트 직후, 상대 캐릭터 타입 공개 ──
+function transitionToInitialReveal(room) {
+  clearTimer(room);
+  room.phase = 'initial_reveal';
+  if (room.isAI) {
+    room.initialRevealDone[1] = true;
+  }
+  room.players.forEach((p, i) => {
+    if (p.socketId !== 'AI') {
+      const oppDraft = room.players[1 - i].draft;
+      const oppChars = [
+        { ...findCharData(oppDraft.t1, 1), tier: 1 },
+        { ...findCharData(oppDraft.t2, 2), tier: 2 },
+        { ...findCharData(oppDraft.t3, 3), tier: 3 },
+      ];
+      io.to(p.socketId).emit('initial_reveal_phase', {
+        myDraft: p.draft,
+        oppChars,
+      });
+    }
+  });
+  emitToSpectators(room, 'spectator_phase', {
+    phase: 'initial_reveal',
+    p0Name: room.players[0].name,
+    p1Name: room.players[1].name,
+    p0Draft: room.players[0].draft,
+    p1Draft: room.players[1].draft,
+    characters: CHARACTERS,
+  });
+  startTimer(room, 'initial_reveal', () => initialRevealTimeout(room));
+}
+
+function initialRevealTimeout(room) {
+  if (room.phase !== 'initial_reveal') return;
+  for (let i = 0; i < 2; i++) {
+    if (!room.initialRevealDone[i]) room.initialRevealDone[i] = true;
+  }
+  transitionToExchangeDraft(room);
+}
+
+// 캐릭터 데이터 조회 헬퍼
+function findCharData(type, tier) {
+  const ch = CHARACTERS[tier]?.find(c => c.type === type);
+  if (!ch) return { type, name: type, icon: '?', desc: '' };
+  return { type: ch.type, name: ch.name, icon: ch.icon, desc: ch.desc, tag: ch.tag, atk: ch.atk, range: ch.range };
+}
+
+// ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (90초) ──
+function transitionToExchangeDraft(room) {
+  clearTimer(room);
+  room.phase = 'exchange_draft';
+  if (room.isAI) {
+    // AI는 교환하지 않음
+    room.exchangeDone[1] = true;
+  }
+  room.players.forEach((p, i) => {
+    if (p.socketId !== 'AI') {
+      // 각 티어에서 교환 가능한 캐릭터 목록 (자신이 이미 선택한 것 제외)
+      const available = {};
+      for (const tier of [1, 2, 3]) {
+        const myType = tier === 1 ? p.draft.t1 : tier === 2 ? p.draft.t2 : p.draft.t3;
+        available[tier] = CHARACTERS[tier]
+          .filter(c => c.type !== myType)
+          .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
+      }
+      io.to(p.socketId).emit('exchange_draft_phase', {
+        myDraft: p.draft,
+        available,
+        oppDraft: room.players[1 - i].draft,
+      });
+    }
+  });
+  emitToSpectators(room, 'spectator_phase', {
+    phase: 'exchange_draft',
+    p0Name: room.players[0].name,
+    p1Name: room.players[1].name,
+  });
+  startTimer(room, 'exchange_draft', () => exchangeDraftTimeout(room));
+}
+
+function exchangeDraftTimeout(room) {
+  if (room.phase !== 'exchange_draft') return;
+  for (let i = 0; i < 2; i++) {
+    if (!room.exchangeDone[i]) {
+      room.exchangeDone[i] = true;
+      const sock = io.sockets.sockets.get(room.players[i].socketId);
+      if (sock) sock.emit('exchange_done', { draft: room.players[i].draft, timeout: true });
+    }
+  }
+  transitionToFinalReveal(room);
+}
+
+// ── 최종 공개: 교환 후 상대 캐릭터 공개 ──
+function transitionToFinalReveal(room) {
+  clearTimer(room);
+  room.phase = 'final_reveal';
+  if (room.isAI) {
+    room.finalRevealDone[1] = true;
+  }
+  room.players.forEach((p, i) => {
+    if (p.socketId !== 'AI') {
+      const oppDraft = room.players[1 - i].draft;
+      const oppChars = [
+        { ...findCharData(oppDraft.t1, 1), tier: 1 },
+        { ...findCharData(oppDraft.t2, 2), tier: 2 },
+        { ...findCharData(oppDraft.t3, 3), tier: 3 },
+      ];
+      io.to(p.socketId).emit('final_reveal_phase', {
+        myDraft: p.draft,
+        oppChars,
+      });
+    }
+  });
+  emitToSpectators(room, 'spectator_phase', {
+    phase: 'final_reveal',
+    p0Name: room.players[0].name,
+    p1Name: room.players[1].name,
+    p0Draft: room.players[0].draft,
+    p1Draft: room.players[1].draft,
+    characters: CHARACTERS,
+  });
+  startTimer(room, 'final_reveal', () => finalRevealTimeout(room));
+}
+
+function finalRevealTimeout(room) {
+  if (room.phase !== 'final_reveal') return;
+  for (let i = 0; i < 2; i++) {
+    if (!room.finalRevealDone[i]) room.finalRevealDone[i] = true;
+  }
+  transitionToHpPhase(room);
+}
 
 function transitionToHpPhase(room) {
   clearTimer(room);
@@ -612,6 +747,7 @@ function startGameFromRoom(room) {
   room.players[0].actionDone = false;
   room.players[0].actionUsedSkillReplace = false;
   room.players[0].skillsUsedBeforeAction = [];
+  room.players[0].twinMovedSubs = [];
 
   room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
@@ -1108,6 +1244,7 @@ function processTurnStart(room) {
   player.actionDone = false;
   player.actionUsedSkillReplace = false;
   player.skillsUsedBeforeAction = [];
+  player.twinMovedSubs = [];
 
   // Reset per-turn skill states for current player
   for (const p of player.pieces) {
@@ -2243,6 +2380,7 @@ function aiTakeTurn(room) {
 function aiExecuteMove(room, action) {
   const aiPlayer = room.players[1];
   const piece = action.piece;
+  const prevCol = piece.col, prevRow = piece.row;
 
   piece.col = action.col;
   piece.row = action.row;
@@ -2264,7 +2402,7 @@ function aiExecuteMove(room, action) {
     });
   }
 
-  emitToPlayer(room, 0, 'opp_moved', { msg: '상대방(AI)이 이동했습니다.' });
+  emitToPlayer(room, 0, 'opp_moved', { msg: '상대방(AI)이 이동했습니다.', prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
@@ -2507,7 +2645,7 @@ io.on('connection', (socket) => {
     });
 
     if (room.draftDone.every(d => d)) {
-      transitionToHpPhase(room);
+      transitionToInitialReveal(room);
     } else {
       socket.emit('wait_msg', { msg: '상대방의 선택을 기다리는 중...' });
     }
@@ -2551,7 +2689,7 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces), hpDone: [...room.hpDone] });
 
       if (room.hpDone.every(d2 => d2)) {
-        startRevealPhaseFromRoom(room);
+        transitionToPlacement(room);
       } else {
         socket.emit('wait_msg', { msg: '상대방의 HP 분배를 기다리는 중...' });
       }
@@ -2592,7 +2730,7 @@ io.on('connection', (socket) => {
     emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces), hpDone: [...room.hpDone] });
 
     if (room.hpDone.every(d2 => d2)) {
-      startRevealPhaseFromRoom(room);
+      transitionToPlacement(room);
     } else {
       socket.emit('wait_msg', { msg: '상대방의 HP 분배를 기다리는 중...' });
     }
@@ -2600,7 +2738,7 @@ io.on('connection', (socket) => {
 
   // startRevealPhase moved to global scope as startRevealPhaseFromRoom
 
-  // ── Reveal 확인 ──
+  // ── Reveal 확인 (레거시 — 새 흐름에서는 사용 안 함) ──
   socket.on('confirm_reveal', () => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'reveal') return;
@@ -2609,6 +2747,84 @@ io.on('connection', (socket) => {
 
     if (room.revealDone.every(d => d)) {
       transitionToPlacement(room);
+    } else {
+      socket.emit('wait_msg', { msg: '상대방을 기다리는 중...' });
+    }
+  });
+
+  // ── 초기 공개 확인 ──
+  socket.on('confirm_initial_reveal', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.phase !== 'initial_reveal') return;
+    const idx = socket.data.idx;
+    room.initialRevealDone[idx] = true;
+
+    if (room.initialRevealDone.every(d => d)) {
+      transitionToExchangeDraft(room);
+    } else {
+      socket.emit('wait_msg', { msg: '상대방을 기다리는 중...' });
+    }
+  });
+
+  // ── 교환 드래프트: 1캐릭터 교환 ──
+  socket.on('exchange_pick', ({ tier, newType }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.phase !== 'exchange_draft') return;
+    const idx = socket.data.idx;
+    if (room.exchangeDone[idx]) return;
+
+    const player = room.players[idx];
+
+    // 교환하지 않고 확정
+    if (!tier || !newType) {
+      room.exchangeDone[idx] = true;
+      socket.emit('exchange_done', { draft: player.draft });
+      if (room.exchangeDone.every(d => d)) {
+        transitionToFinalReveal(room);
+      } else {
+        socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+      }
+      return;
+    }
+
+    // 유효성 검사
+    if (![1, 2, 3].includes(tier)) {
+      socket.emit('err', { msg: '잘못된 티어입니다.' }); return;
+    }
+    const charExists = CHARACTERS[tier]?.find(c => c.type === newType);
+    if (!charExists) {
+      socket.emit('err', { msg: '존재하지 않는 캐릭터입니다.' }); return;
+    }
+    const currentType = tier === 1 ? player.draft.t1 : tier === 2 ? player.draft.t2 : player.draft.t3;
+    if (newType === currentType) {
+      socket.emit('err', { msg: '같은 캐릭터로는 교환할 수 없습니다.' }); return;
+    }
+
+    // 교환 실행
+    if (tier === 1) player.draft.t1 = newType;
+    else if (tier === 2) player.draft.t2 = newType;
+    else player.draft.t3 = newType;
+
+    room.exchangeDone[idx] = true;
+    socket.emit('exchange_done', { draft: player.draft, exchanged: { tier, newType, newChar: findCharData(newType, tier) } });
+    emitToSpectators(room, 'spectator_exchange', { playerIdx: idx, playerName: player.name });
+
+    if (room.exchangeDone.every(d => d)) {
+      transitionToFinalReveal(room);
+    } else {
+      socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+    }
+  });
+
+  // ── 최종 공개 확인 ──
+  socket.on('confirm_final_reveal', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.phase !== 'final_reveal') return;
+    const idx = socket.data.idx;
+    room.finalRevealDone[idx] = true;
+
+    if (room.finalRevealDone.every(d => d)) {
+      transitionToHpPhase(room);
     } else {
       socket.emit('wait_msg', { msg: '상대방을 기다리는 중...' });
     }
@@ -2724,21 +2940,26 @@ io.on('connection', (socket) => {
 
     // ★ 쌍둥이 이동: 둘 다 살아있으면 각각 이동해야 행동 완료
     if (piece.subUnit) {
+      // 이미 이동한 쌍둥이인지 확인
+      if (!player.twinMovedSubs) player.twinMovedSubs = [];
+      if (player.twinMovedSubs.includes(piece.subUnit)) {
+        socket.emit('err', { msg: '이미 이동한 쌍둥이입니다. 다른 쪽을 이동시키세요.' }); return;
+      }
+      player.twinMovedSubs.push(piece.subUnit);
+
       const otherSub = piece.subUnit === 'elder' ? 'younger' : 'elder';
       const otherTwin = player.pieces.find(p => p.subUnit === otherSub && p.alive);
       if (otherTwin) {
-        // 쌍둥이 이동 추적: twinMovesDone 카운터 사용
-        if (!player.twinMovesDone) player.twinMovesDone = 0;
-        player.twinMovesDone++;
-        if (player.twinMovesDone >= 2) {
+        if (player.twinMovedSubs.length >= 2) {
           // 둘 다 이동 완료
           player.actionDone = true;
-          player.twinMovesDone = 0;
+          player.twinMovedSubs = [];
         }
         // 아직 1명만 이동 → actionDone 안 함
       } else {
         // 다른 쌍둥이 죽음 → 혼자 이동으로 행동 완료
         player.actionDone = true;
+        player.twinMovedSubs = [];
       }
     } else if (piece.messengerSprintActive && piece.messengerMovesLeft > 0) {
       // Messenger sprint: handle multi-move
@@ -2755,11 +2976,12 @@ io.on('connection', (socket) => {
       pieceIdx, prev, col, row,
       yourPieces: pieceSummary(player.pieces),
       boardObjects: boardObjectsSummary(room, idx),
-      twinMovePending: piece.subUnit && !player.actionDone,  // 클라이언트에게 쌍둥이 추가 이동 필요 알림
+      twinMovePending: piece.subUnit && !player.actionDone,
+      twinMovedSub: piece.subUnit || null,  // 어느 쪽이 이동했는지
     });
     const opp = room.players[1 - idx];
     if (opp.socketId !== 'AI') {
-      io.to(opp.socketId).emit('opp_moved', { msg: '상대방이 이동했습니다.' });
+      io.to(opp.socketId).emit('opp_moved', { msg: '상대방이 이동했습니다.', prevCol: prev.col, prevRow: prev.row, col, row });
     }
     emitToSpectators(room, 'spectator_log', { msg: `🚶 ${player.name}의 ${piece.icon}${piece.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, type: 'move', playerIdx: idx });
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));

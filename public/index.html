@@ -139,6 +139,60 @@
   </div>
 </div>
 
+<!-- ── 초기 공개 ── -->
+<div id="screen-initial-reveal" class="screen">
+  <div class="reveal-container">
+    <h2>상대 캐릭터 공개</h2>
+    <p class="muted">상대방의 캐릭터 선택이 공개됩니다!</p>
+    <div class="reveal-layout">
+      <div class="reveal-side">
+        <h3 id="irev-my-name">나</h3>
+        <div id="irev-my-chars" class="reveal-pieces"></div>
+      </div>
+      <div class="reveal-vs">VS</div>
+      <div class="reveal-side">
+        <h3 id="irev-opp-name">상대방</h3>
+        <div id="irev-opp-chars" class="reveal-pieces"></div>
+      </div>
+    </div>
+    <button id="btn-irev-confirm" class="btn btn-primary btn-large">교환 드래프트로</button>
+  </div>
+</div>
+
+<!-- ── 교환 드래프트 ── -->
+<div id="screen-exchange" class="screen">
+  <div class="exchange-container">
+    <h2>교환 드래프트</h2>
+    <p class="muted">같은 티어 내에서 캐릭터 1명을 교환할 수 있습니다 (선택사항)</p>
+    <div id="exchange-my-draft" class="exchange-draft-cards"></div>
+    <div id="exchange-pool" class="exchange-pool"></div>
+    <div class="exchange-btns">
+      <button id="btn-exchange-confirm" class="btn btn-primary">교환 없이 확정</button>
+    </div>
+    <p id="exchange-error" class="error-msg"></p>
+  </div>
+</div>
+
+<!-- ── 최종 공개 ── -->
+<div id="screen-final-reveal" class="screen">
+  <div class="reveal-container">
+    <h2>최종 캐릭터 공개</h2>
+    <p class="muted">교환 후 최종 캐릭터 구성이 공개됩니다!</p>
+    <div class="reveal-layout">
+      <div class="reveal-side">
+        <h3 id="frev-my-name">나</h3>
+        <div id="frev-my-chars" class="reveal-pieces"></div>
+      </div>
+      <div class="reveal-vs">VS</div>
+      <div class="reveal-side">
+        <h3 id="frev-opp-name">상대방</h3>
+        <div id="frev-opp-chars" class="reveal-pieces"></div>
+      </div>
+    </div>
+    <button id="btn-frev-confirm" class="btn btn-primary btn-large">HP 분배로</button>
+  </div>
+</div>
+
 <!-- ── HP 분배 ── -->
 <div id="screen-hp" class="screen">
   <div class="hp-container">
@@ -328,16 +382,6 @@
   </div>
 </div>
 
-<div id="deck-empty-modal" class="modal hidden">
-  <div class="modal-content">
-    <h3>내 덱이 비워져 있습니다</h3>
-    <p style="color:var(--text-dim); margin:12px 0;">그래도 시작하시겠습니까?</p>
-    <div class="modal-btn-row">
-      <button id="deck-empty-confirm" class="btn btn-primary">시작하기</button>
-      <button id="deck-empty-cancel" class="btn btn-muted">취소</button>
-    </div>
-  </div>
-</div>
 
 <!-- ── 게임 오버 ── -->
 <div id="screen-gameover" class="screen">

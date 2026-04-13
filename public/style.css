@@ -445,6 +445,7 @@ body {
   animation: slideIn 0.25s ease;
 }
 @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes shake { 0%,100% { transform:translateX(0); } 20% { transform:translateX(-4px); } 40% { transform:translateX(4px); } 60% { transform:translateX(-3px); } 80% { transform:translateX(3px); } }
 .slide-hero {
   display: flex; align-items: center; gap: 16px;
   justify-content: center; margin-bottom: 14px;
@@ -583,6 +584,31 @@ body {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── 교환 드래프트 ── */
+.exchange-container { max-width: 600px; width: 100%; padding: 32px; text-align: center; }
+.exchange-container h2 { font-size: 1.6rem; margin-bottom: 6px; }
+.exchange-draft-cards { display: flex; gap: 12px; justify-content: center; margin: 20px 0; flex-wrap: wrap; }
+.exchange-draft-card {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 2px solid var(--border); border-radius: 10px;
+  padding: 12px 16px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;
+}
+.exchange-draft-card:hover { border-color: var(--accent); }
+.exchange-draft-card.selected { border-color: var(--accent); box-shadow: 0 0 10px rgba(226,168,75,0.3); }
+.exchange-pool { margin: 16px 0; }
+.exchange-pool h3 { font-size: 1rem; margin-bottom: 10px; color: var(--accent); }
+.exchange-pool-grid { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.exchange-pool-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: var(--surface2); border: 2px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; cursor: pointer; transition: border-color 0.2s, background 0.2s; min-width: 80px;
+}
+.exchange-pool-card:hover { border-color: #60a5fa; background: rgba(96,165,250,0.1); }
+.exchange-pool-card.selected { border-color: #3b82f6; background: rgba(59,130,246,0.15); box-shadow: 0 0 8px rgba(59,130,246,0.3); }
+.exchange-pool-card strong { font-size: 0.85rem; }
+.exchange-pool-card .muted { font-size: 0.7rem; }
+.exchange-btns { margin-top: 16px; }
 
 /* ── 배치 ── */
 .placement-container { max-width: 1060px; width: 100%; padding: 24px; text-align: center; }
@@ -846,6 +872,7 @@ body {
 .my-piece-card:hover { border-color: #4a4a7a; }
 .my-piece-card.active-piece { border-color: var(--accent); }
 .my-piece-card.dead { opacity: 0.4; }
+.my-piece-card.twin-moved { opacity: 0.45; pointer-events: none; }
 
 /* 현재 턴 플레이어 강조 */
 .left-panel.turn-active .my-piece-card:not(.dead) {
