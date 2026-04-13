@@ -2389,10 +2389,10 @@ function renderMyPieces() {
       directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
     }
 
-    // 지휘관 사기증진 버프 체크
+    // 지휘관 사기증진 버프 체크 (십자 인접 4칸)
     const commanderBuff = pc.alive && pc.type !== 'commander' && S.myPieces.some(
       p => p.alive && p.type === 'commander' &&
-      Math.abs(p.col - pc.col) <= 1 && Math.abs(p.row - pc.row) <= 1
+      ((Math.abs(p.col - pc.col) === 1 && p.row === pc.row) || (Math.abs(p.row - pc.row) === 1 && p.col === pc.col))
     );
     const atkDisplay = commanderBuff ? `${pc.atk}<span style="color:#22c55e">+1</span>` : `${pc.atk}`;
     const moraleHtml = commanderBuff ? '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>' : '';

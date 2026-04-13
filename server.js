@@ -754,11 +754,13 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     return dmg;
   }
 
-  // Step 2: Commander buff - if attacker is in commander's 3x3 (hidden), +1 damage
+  // Step 2: Commander buff - if attacker is in commander's cross (up/down/left/right 1), +1 damage
   if (attacker) {
     for (const p of attacker.pieces) {
       if (p.alive && p.type === 'commander' && p !== attackerPiece) {
-        if (Math.abs(p.col - attackerPiece.col) <= 1 && Math.abs(p.row - attackerPiece.row) <= 1) {
+        const dc = Math.abs(p.col - attackerPiece.col);
+        const dr = Math.abs(p.row - attackerPiece.row);
+        if ((dc === 0 && dr === 1) || (dc === 1 && dr === 0)) {
           dmg += 1;
           break;
         }
