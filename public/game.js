@@ -540,6 +540,9 @@ socket.on('your_turn', (data) => {
   showActionBar(true);
   updateSPBar();
   addLog(`[턴 ${data.turnNumber}] 내 차례`, 'system');
+  setTurnBackground(true);
+  showTurnPopup(true);
+  playTurnBell();
 });
 
 // ── 상대 턴 ──
@@ -558,6 +561,7 @@ socket.on('opp_turn', (data) => {
   showActionBar(false);
   updateSPBar();
   addLog(`[턴 ${data.turnNumber}] 상대방 차례`, 'system');
+  setTurnBackground(false);
 });
 
 // ── 이동 결과 ──
@@ -566,6 +570,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   if (boardObjects) S.boardObjects = boardObjects;
   const pc = yourPieces[pieceIdx];
   addLog(`🚶 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
+  showSkillToast(`${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
 
   if (twinMovePending) {
     // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
@@ -591,6 +596,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
 
 socket.on('opp_moved', ({ msg }) => {
   addLog(`🚶 ${msg}`, 'move');
+  showSkillToast(msg, true);
 });
 
 // ── 공격 결과 ──
@@ -605,6 +611,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   if (!anyHit) {
     addLog(`⚔ ${pc.name} 공격 — 빗나감!`, 'miss');
+    showSkillToast(`${pc.icon}${pc.name} 공격 빗나감!`);
   } else {
     for (const h of cellResults.filter(c => c.hit)) {
       const info = h.destroyed
@@ -612,6 +619,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
         : ` 명중! (${h.damage} 피해)`;
       addLog(`⚔ ${pc.name} ${coord(h.col,h.row)} →${info}`, 'hit');
     }
+    const hitSummary = cellResults.filter(c => c.hit).map(h => h.destroyed ? `${h.revealedName||'적'} 격파!` : `${h.damage} 피해`).join(', ');
+    showSkillToast(`${pc.icon}${pc.name} 공격 → ${hitSummary}`);
   }
 
   S.action = null;
@@ -635,10 +644,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
     addLog(`🛡 상대방 공격 — 빗나감`, 'miss');
+    showSkillToast('상대방 공격 빗나감!', true);
   } else {
     for (const h of hitPieces) {
       addLog(`🛡 ${coord(h.col,h.row)} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
     }
+    const hitMsg = hitPieces.map(h => `${h.damage} 피해${h.destroyed ? ' 격파!' : ''}`).join(', ');
+    showSkillToast(`상대 공격! ${hitMsg}`, true);
   }
   renderGameBoard();
   renderMyPieces();
@@ -1171,7 +1183,7 @@ function renderSlide() {
     : '';
   document.getElementById('slide-name').innerHTML = c.name + tagHtml;
   // 미니 공격 범위 그리드를 desc 영역에 표시
-  const miniGrid = buildMiniRangeGrid(c.type, {});
+  const miniGrid = buildMiniRangeGrid(c.type, {}, c.icon);
   document.getElementById('slide-desc').innerHTML =
     `<div style="display:flex;align-items:center;gap:10px;justify-content:center">` +
     `<div>${miniGrid}</div>` +
@@ -1779,7 +1791,7 @@ function createRevealCard(pc, tooltipSide) {
   const tagHtml = pc.tag
     ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
     : '';
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pc.icon}</span>
     <div class="piece-info">
@@ -1849,8 +1861,8 @@ function buildPlacementOppPanel() {
         <span>T${pc.tier} · ATK ${pc.atk}</span>
       </div>`;
 
-    // 호버 팝업 (그리드 + 스킬 상세)
-    const tooltip = buildPieceTooltip(pc, 'left');
+    // 호버 팝업 (바깥 방향 = 오른쪽)
+    const tooltip = buildPieceTooltip(pc, 'right');
     card.appendChild(tooltip);
 
     container.appendChild(card);
@@ -1866,7 +1878,7 @@ function updatePlacementUI() {
     const card = document.createElement('div');
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${placementSelected === i ? 'selected' : ''}`;
 
-    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
     const tagHtml = pc.tag ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>` : '';
 
     // 스킬 정보
@@ -2506,12 +2518,11 @@ function renderOppPieces() {
 // ── 미니 공격범위 그리드 생성 ──────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-function buildMiniRangeGrid(type, extra) {
+function buildMiniRangeGrid(type, extra, icon) {
   // 5x5 미니 그리드, 중앙(2,2)을 기준으로 공격범위 계산
   const fakeExtra = { ...(extra || {}), toggleState: extra?.toggleState };
   let cells;
   if (type === 'twins') {
-    // 쌍둥이: 형(가로3칸) + 동생(세로3칸) 합산 = 십자 5칸
     const elderCells = getAttackCells('twins_elder', 2, 2, fakeExtra);
     const youngerCells = getAttackCells('twins_younger', 2, 2, fakeExtra);
     cells = [...elderCells, ...youngerCells];
@@ -2525,8 +2536,11 @@ function buildMiniRangeGrid(type, extra) {
     for (let c = 0; c < 5; c++) {
       const isCenter = (c === 2 && r === 2);
       const isAtk = atkSet.has(`${c},${r}`);
-      const cls = isCenter ? 'mini-cell center' : isAtk ? 'mini-cell atk' : 'mini-cell';
-      html += `<div class="${cls}"></div>`;
+      if (isCenter) {
+        html += `<div class="mini-cell center-icon">${icon || ''}</div>`;
+      } else {
+        html += `<div class="${isAtk ? 'mini-cell atk' : 'mini-cell'}"></div>`;
+      }
     }
   }
   html += '</div>';
@@ -2557,7 +2571,7 @@ function getSkillTypeTagFromChar(pc) {
 }
 
 function buildPieceTooltip(pc, side) {
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState });
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
 
   // 다중 스킬 지원
   let skillHtml = '';
@@ -2583,6 +2597,14 @@ function buildPieceTooltip(pc, side) {
     passiveHtml = `<div class="tooltip-line passive-color">패시브: ${passiveDesc}</div>`;
   }
 
+  // 상태이상 배지
+  let statusHtml = '';
+  if (pc.statusEffects && pc.statusEffects.length > 0) {
+    const labels = { curse: '☠ 저주', shadow: '👤 그림자', mark: '🎯 표식', poison: '☠ 독' };
+    const badges = pc.statusEffects.map(e => `<span class="status-badge status-${e.type}">${labels[e.type] || e.type}</span>`).join(' ');
+    statusHtml = `<div class="tooltip-line" style="margin-top:4px">${badges}</div>`;
+  }
+
   const tooltip = document.createElement('div');
   tooltip.className = `piece-tooltip tooltip-${side}`;
   tooltip.innerHTML = `
@@ -2593,7 +2615,8 @@ function buildPieceTooltip(pc, side) {
       <div class="tooltip-desc">ATK ${pc.atk}</div>
     </div>
     ${skillHtml}
-    ${passiveHtml}`;
+    ${passiveHtml}
+    ${statusHtml}`;
   return tooltip;
 }
 
@@ -3631,11 +3654,15 @@ function renderSpectatorGame(gs) {
   S.instantSp = gs.instantSp;
   S.boardBounds = gs.boardBounds;
 
-  // SP 바 업데이트
+  // SP 바 업데이트 (플레이어와 동일 방식)
   const mySP = gs.sp[0] || 0, oppSP = gs.sp[1] || 0;
+  const myInstant = (gs.instantSp && gs.instantSp[0]) || 0;
+  const oppInstant = (gs.instantSp && gs.instantSp[1]) || 0;
   const total = mySP + oppSP || 1;
-  document.getElementById('sp-my-label').textContent = `${gs.p0Name}: ${mySP} SP`;
-  document.getElementById('sp-opp-label').textContent = `${gs.p1Name}: ${oppSP} SP`;
+  const p0InstantStr = myInstant > 0 ? ` (+${myInstant})` : '';
+  const p1InstantStr = oppInstant > 0 ? ` (+${oppInstant})` : '';
+  document.getElementById('sp-my-label').textContent = `${gs.p0Name}: ${mySP}${p0InstantStr} SP`;
+  document.getElementById('sp-opp-label').textContent = `${gs.p1Name}: ${oppSP}${p1InstantStr} SP`;
   document.getElementById('sp-my-fill').style.width = `${(mySP / total) * 100}%`;
   document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
   const spCountdown = document.getElementById('sp-countdown');
@@ -3645,7 +3672,14 @@ function renderSpectatorGame(gs) {
       spCountdown.style.color = 'var(--danger)';
     } else {
       const turnsUntilSP = 10 - (gs.turnNumber % 10);
-      spCountdown.textContent = `다음 SP 지급까지 ${turnsUntilSP === 10 ? 10 : turnsUntilSP}턴`;
+      const displayTurns = turnsUntilSP === 10 ? 10 : turnsUntilSP;
+      if (mySP >= 10 && oppSP >= 10) {
+        spCountdown.textContent = 'SP 최대';
+        spCountdown.style.color = 'var(--accent)';
+      } else {
+        spCountdown.textContent = `다음 SP 지급까지 ${displayTurns}턴`;
+        spCountdown.style.color = 'var(--text-dim)';
+      }
     }
   }
 
@@ -3837,6 +3871,56 @@ function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
   toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
 }
 
+// ── 턴 배경색 전환 ──
+function setTurnBackground(isMyTurn) {
+  document.body.style.transition = 'background 0.5s';
+  document.body.style.background = isMyTurn
+    ? 'linear-gradient(135deg, #0a1628 0%, #0f1f3d 50%, #0a1628 100%)'
+    : 'linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 50%, #1a0a0a 100%)';
+}
+
+// ── 나의 턴 팝업 ──
+function showTurnPopup(isMyTurn) {
+  let popup = document.getElementById('turn-popup');
+  if (!popup) {
+    popup = document.createElement('div');
+    popup.id = 'turn-popup';
+    popup.style.cssText = `
+      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.5);
+      color:#fff; font-size:2.2rem; font-weight:900; z-index:3000; pointer-events:none;
+      opacity:0; transition: opacity 0.3s, transform 0.3s;
+      text-shadow: 0 0 30px rgba(59,130,246,0.8), 0 4px 20px rgba(0,0,0,0.6);
+    `;
+    document.body.appendChild(popup);
+  }
+  popup.textContent = '나의 턴';
+  popup.style.opacity = '1';
+  popup.style.transform = 'translate(-50%,-50%) scale(1)';
+  clearTimeout(popup._timer);
+  popup._timer = setTimeout(() => {
+    popup.style.opacity = '0';
+    popup.style.transform = 'translate(-50%,-50%) scale(0.8)';
+  }, 1500);
+}
+
+// ── 턴 벨소리 (Web Audio) ──
+function playTurnBell() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch (e) {}
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ── 채팅 ──────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
@@ -4015,25 +4099,25 @@ const TUTORIAL_STEPS = [
           <span class="tut-char-icon">🔱</span>
           <div class="tut-char-name">창병</div>
           <div class="tut-char-sub">세로줄 전체</div>
-          ${buildMiniRangeGrid('spearman', {})}
+          ${buildMiniRangeGrid('spearman', {}, '🔱')}
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🐎</span>
           <div class="tut-char-name">기마병</div>
           <div class="tut-char-sub">가로줄 전체</div>
-          ${buildMiniRangeGrid('cavalry', {})}
+          ${buildMiniRangeGrid('cavalry', {}, '🐎')}
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🎖</span>
           <div class="tut-char-name">장군</div>
           <div class="tut-char-sub">자신 포함 십자 5칸</div>
-          ${buildMiniRangeGrid('general', {})}
+          ${buildMiniRangeGrid('general', {}, '🎖')}
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🗡</span>
           <div class="tut-char-name">그림자 암살자</div>
           <div class="tut-char-sub">주변 9칸 중 1칸 선택</div>
-          ${buildMiniRangeGrid('shadowAssassin', {})}
+          ${buildMiniRangeGrid('shadowAssassin', {}, '🗡')}
         </div>
       </div>
     </div>

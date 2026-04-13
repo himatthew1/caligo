@@ -151,8 +151,8 @@ body {
 .btn-tutorial:hover:not(:disabled) { background: #4f46e5; }
 .btn-spectate { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px !important; font-size: 0.8rem; padding: 6px 16px; }
 .btn-spectate:hover:not(:disabled) { color: #818cf8; border-color: #818cf8; background: rgba(129,140,248,0.08); }
-.btn-deck { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 8px !important; font-size: 0.8rem; padding: 6px 16px; }
-.btn-deck:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); background: rgba(226,168,75,0.08); }
+.btn-deck-large { background: rgba(226,168,75,0.12); color: var(--accent); border: 2px solid var(--accent); font-size: 1rem; font-weight: 700; margin-bottom: 8px !important; }
+.btn-deck-large:hover:not(:disabled) { background: rgba(226,168,75,0.25); }
 .btn-small { padding: 6px 14px; font-size: 0.8rem; border-radius: 6px; }
 
 /* ── 관전 방 목록 ── */
@@ -1025,10 +1025,20 @@ body {
   background: rgba(226,168,75,0.35);
   border-color: rgba(226,168,75,0.5);
 }
-.mini-cell.center {
-  background: rgba(100,140,255,0.4);
-  border-color: rgba(100,140,255,0.6);
+.mini-cell.center-icon {
+  background: rgba(40,40,50,0.6);
+  border-color: rgba(120,120,140,0.4);
+  font-size: 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
+.status-badge { font-size:0.6rem; padding:2px 5px; border-radius:4px; font-weight:600; }
+.status-curse { background:rgba(168,85,247,0.3); color:#c084fc; }
+.status-shadow { background:rgba(100,116,139,0.3); color:#94a3b8; }
+.status-mark { background:rgba(239,68,68,0.3); color:#fca5a5; }
+.status-poison { background:rgba(34,197,94,0.3); color:#86efac; }
 
 /* ── 스킬 태그 ── */
 .skill-tag {

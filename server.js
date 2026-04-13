@@ -2263,6 +2263,8 @@ function aiExecuteMove(room, action) {
   }
 
   emitToPlayer(room, 0, 'opp_moved', { msg: '상대방(AI)이 이동했습니다.' });
+  emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
+  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   aiPlayer.actionDone = true;
   endTurn(room);
@@ -2285,6 +2287,12 @@ function aiExecuteAttack(room, action) {
     hitPieces: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed })),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
+  // 관전자에게 공격 결과 전송
+  const atkMsg = hitResults.length > 0
+    ? `${piece.icon}${piece.name} 공격 → ${hitResults.map(h => `${h.name} ${h.damage} 피해${h.destroyed ? ' 처치' : ''}`).join(', ')}`
+    : `${piece.icon}${piece.name} 공격 → 빗나감`;
+  emitToSpectators(room, 'spectator_log', { msg: atkMsg, type: 'attack', playerIdx: 1 });
+  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   if (checkWin(room, 0)) {
     endGame(room, 1);
