@@ -69,6 +69,7 @@ function startClientTimer(seconds) {
   const total = seconds * 1000;
   const circumference = 283; // 2 * π * 45
 
+  let lastTickSec = -1;
   function tick() {
     const remaining = Math.max(0, timerDeadline - Date.now());
     const secs = Math.ceil(remaining / 1000);
@@ -78,6 +79,11 @@ function startClientTimer(seconds) {
     const urgent = secs <= 10;
     arc.classList.toggle('urgent', urgent);
     text.classList.toggle('urgent', urgent);
+    // 15초 이하일 때 매초 틱 사운드
+    if (secs <= 15 && secs > 0 && secs !== lastTickSec) {
+      lastTickSec = secs;
+      playTimerTick();
+    }
     if (remaining <= 0) stopClientTimer();
   }
   tick();
@@ -332,7 +338,7 @@ socket.on('spectator_update', (gameState) => {
 socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   if (!S.isSpectator) return;
   addLog(msg, type || 'system');
-  if (type === 'skill' || type === 'hit' || type === 'passive') {
+  if (type === 'skill' || type === 'hit' || type === 'passive' || type === 'move' || type === 'miss' || type === 'attack') {
     showSkillToast(msg, false, playerIdx);
   }
 });
@@ -614,12 +620,16 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     showSkillToast(`${pc.icon}${pc.name} 공격 빗나감!`);
   } else {
     for (const h of cellResults.filter(c => c.hit)) {
+      const target = h.destroyed ? `${h.revealedIcon||''}${h.revealedName||'적'}` : coord(h.col,h.row);
       const info = h.destroyed
-        ? ` 💀 ${h.revealedName||'적'}(${h.revealedIcon||'?'}) 격파! (${h.damage} 피해)`
-        : ` 명중! (${h.damage} 피해)`;
-      addLog(`⚔ ${pc.name} ${coord(h.col,h.row)} →${info}`, 'hit');
+        ? `💀 ${target} 격파! (${h.damage}피해)`
+        : `명중! (${h.damage}피해)`;
+      addLog(`⚔ ${pc.name} → ${target} ${info}`, 'hit');
     }
-    const hitSummary = cellResults.filter(c => c.hit).map(h => h.destroyed ? `${h.revealedName||'적'} 격파!` : `${h.damage} 피해`).join(', ');
+    const hitSummary = cellResults.filter(c => c.hit).map(h => {
+      const target = h.destroyed ? `${h.revealedIcon||''}${h.revealedName||'적'}` : '적';
+      return `${target} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`;
+    }).join(', ');
     showSkillToast(`${pc.icon}${pc.name} 공격 → ${hitSummary}`);
   }
 
@@ -647,9 +657,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     showSkillToast('상대방 공격 빗나감!', true);
   } else {
     for (const h of hitPieces) {
-      addLog(`🛡 ${coord(h.col,h.row)} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
+      const unitName = h.icon && h.name ? `${h.icon}${h.name}` : coord(h.col,h.row);
+      addLog(`🛡 ${unitName} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
     }
-    const hitMsg = hitPieces.map(h => `${h.damage} 피해${h.destroyed ? ' 격파!' : ''}`).join(', ');
+    const hitMsg = hitPieces.map(h => {
+      const unitName = h.icon && h.name ? `${h.icon}${h.name}` : '유닛';
+      return `${unitName} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`;
+    }).join(', ');
     showSkillToast(`상대 공격! ${hitMsg}`, true);
   }
   renderGameBoard();
@@ -1182,12 +1196,8 @@ function renderSlide() {
     ? ` <span class="tag-badge ${c.tag}">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
     : '';
   document.getElementById('slide-name').innerHTML = c.name + tagHtml;
-  // 미니 공격 범위 그리드를 desc 영역에 표시
-  const miniGrid = buildMiniRangeGrid(c.type, {}, c.icon);
   document.getElementById('slide-desc').innerHTML =
-    `<div style="display:flex;align-items:center;gap:10px;justify-content:center">` +
-    `<div>${miniGrid}</div>` +
-    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc}</span></div>`;
+    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc}</span>`;
 
   // 스탯
   document.getElementById('slide-atk').innerHTML =
@@ -2537,7 +2547,7 @@ function buildMiniRangeGrid(type, extra, icon) {
       const isCenter = (c === 2 && r === 2);
       const isAtk = atkSet.has(`${c},${r}`);
       if (isCenter) {
-        html += `<div class="mini-cell center-icon">${icon || ''}</div>`;
+        html += `<div class="mini-cell center-icon${isAtk ? ' atk' : ''}">${icon || ''}</div>`;
       } else {
         html += `<div class="${isAtk ? 'mini-cell atk' : 'mini-cell'}"></div>`;
       }
@@ -3871,36 +3881,39 @@ function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
   toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
 }
 
-// ── 턴 배경색 전환 ──
+// ── 턴 보드 테두리 전환 ──
 function setTurnBackground(isMyTurn) {
-  document.body.style.transition = 'background 0.5s';
-  document.body.style.background = isMyTurn
-    ? 'linear-gradient(135deg, #0a1628 0%, #0f1f3d 50%, #0a1628 100%)'
-    : 'linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 50%, #1a0a0a 100%)';
+  const board = document.getElementById('game-board');
+  if (board) {
+    board.style.transition = 'border-color 0.5s, box-shadow 0.5s';
+    board.style.borderColor = isMyTurn ? '#3b82f6' : '#ef4444';
+    board.style.borderWidth = '3px';
+    board.style.boxShadow = isMyTurn
+      ? '0 0 15px rgba(59,130,246,0.3), inset 0 0 10px rgba(59,130,246,0.05)'
+      : '0 0 15px rgba(239,68,68,0.3), inset 0 0 10px rgba(239,68,68,0.05)';
+  }
 }
 
-// ── 나의 턴 팝업 ──
+// ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
-  let popup = document.getElementById('turn-popup');
-  if (!popup) {
-    popup = document.createElement('div');
-    popup.id = 'turn-popup';
-    popup.style.cssText = `
-      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.5);
-      color:#fff; font-size:2.2rem; font-weight:900; z-index:3000; pointer-events:none;
-      opacity:0; transition: opacity 0.3s, transform 0.3s;
-      text-shadow: 0 0 30px rgba(59,130,246,0.8), 0 4px 20px rgba(0,0,0,0.6);
-    `;
-    document.body.appendChild(popup);
-  }
-  popup.textContent = '나의 턴';
-  popup.style.opacity = '1';
-  popup.style.transform = 'translate(-50%,-50%) scale(1)';
-  clearTimeout(popup._timer);
-  popup._timer = setTimeout(() => {
-    popup.style.opacity = '0';
-    popup.style.transform = 'translate(-50%,-50%) scale(0.8)';
-  }, 1500);
+  showSkillToast('🎯 나의 차례!');
+}
+
+// ── 타이머 틱 사운드 (15초 이하) ──
+function playTimerTick() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.08);
+  } catch (e) {}
 }
 
 // ── 턴 벨소리 (Web Audio) ──
@@ -3914,10 +3927,10 @@ function playTurnBell() {
     osc.type = 'sine';
     osc.frequency.setValueAtTime(880, ctx.currentTime);
     osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
+    osc.stop(ctx.currentTime + 0.5);
   } catch (e) {}
 }
 

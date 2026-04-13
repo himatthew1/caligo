@@ -2284,14 +2284,22 @@ function aiExecuteAttack(room, action) {
 
   emitToPlayer(room, 0, 'being_attacked', {
     atkCells,
-    hitPieces: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed })),
+    hitPieces: hitResults.map(h => {
+      const dp = humanPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
+      return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+    }),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
   // 관전자에게 공격 결과 전송
-  const atkMsg = hitResults.length > 0
-    ? `${piece.icon}${piece.name} 공격 → ${hitResults.map(h => `${h.name} ${h.damage} 피해${h.destroyed ? ' 처치' : ''}`).join(', ')}`
-    : `${piece.icon}${piece.name} 공격 → 빗나감`;
-  emitToSpectators(room, 'spectator_log', { msg: atkMsg, type: 'attack', playerIdx: 1 });
+  if (hitResults.length > 0) {
+    for (const h of hitResults) {
+      const dp = humanPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
+      const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
+      emitToSpectators(room, 'spectator_log', { msg: `⚔ AI의 ${piece.icon}${piece.name} → ${targetName} ${h.damage}피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: 1 });
+    }
+  } else {
+    emitToSpectators(room, 'spectator_log', { msg: `⚔ AI의 ${piece.icon}${piece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: 1 });
+  }
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   if (checkWin(room, 0)) {
@@ -2307,7 +2315,10 @@ function aiExecuteAttack(room, action) {
     aiProcessAttackResult(brain, extraCells, extraHits);
     emitToPlayer(room, 0, 'being_attacked', {
       atkCells: extraCells,
-      hitPieces: extraHits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed })),
+      hitPieces: extraHits.map(h => {
+        const dp = humanPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
+        return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+      }),
       yourPieces: pieceSummary(humanPlayer.pieces),
     });
     if (checkWin(room, 0)) { endGame(room, 1); return; }
@@ -2794,14 +2805,19 @@ io.on('connection', (socket) => {
         if (defender.socketId !== 'AI') {
           io.to(defender.socketId).emit('being_attacked', {
             atkCells,
-            hitPieces: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed })),
+            hitPieces: hitResults.map(h => {
+              const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+              return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+            }),
             yourPieces: pieceSummary(defender.pieces),
           });
         }
         // 관전자 로그: 쌍검무 추가 공격
         if (hitResults.length > 0) {
           for (const h of hitResults) {
-            emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} → ${coord(h.col,h.row)} 명중! ${h.damage} 피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
+            const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+            const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
+            emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} → ${targetName} ${h.damage}피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
           }
         } else {
           emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: idx });
@@ -2885,7 +2901,10 @@ io.on('connection', (socket) => {
     if (defender.socketId !== 'AI') {
       io.to(defender.socketId).emit('being_attacked', {
         atkCells,
-        hitPieces: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed })),
+        hitPieces: hitResults.map(h => {
+          const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+        }),
         yourPieces: pieceSummary(defender.pieces),
       });
     }
@@ -2893,7 +2912,9 @@ io.on('connection', (socket) => {
     // 관전자 로그: 일반 공격
     if (hitResults.length > 0) {
       for (const h of hitResults) {
-        emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} → ${coord(h.col,h.row)} 명중! ${h.damage} 피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
+        const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+        const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
+        emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} → ${targetName} ${h.damage}피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
       }
     } else {
       emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: idx });

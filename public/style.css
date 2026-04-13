@@ -822,8 +822,8 @@ body {
   background: var(--surface); border: 1px solid var(--border);
   font-size: 0.95rem; font-weight: 600;
 }
-.turn-banner.my-turn   { border-color: var(--accent); color: var(--accent); background: rgba(226,168,75,0.08); }
-.turn-banner.opp-turn  { border-color: var(--border);  color: var(--muted); }
+.turn-banner.my-turn   { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12); }
+.turn-banner.opp-turn  { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.08); }
 
 .action-bar { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 .action-bar .action-dimmed {
@@ -850,13 +850,13 @@ body {
 /* 현재 턴 플레이어 강조 */
 .left-panel.turn-active .my-piece-card:not(.dead) {
   background: rgba(59,130,246,0.10);
-  border-color: rgba(59,130,246,0.4);
-  transform: scale(1.02);
+  border: 2px solid rgba(59,130,246,0.6);
+  box-shadow: 0 0 8px rgba(59,130,246,0.2);
 }
 .right-panel.turn-active .opp-piece-card:not(.dead) {
   background: rgba(239,68,68,0.10);
-  border-color: rgba(239,68,68,0.4);
-  transform: scale(1.02);
+  border: 2px solid rgba(239,68,68,0.6);
+  box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
 .my-piece-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .my-piece-header .p-icon { font-size: 1.4rem; }
@@ -1033,6 +1033,10 @@ body {
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+.mini-cell.center-icon.atk {
+  background: rgba(226,168,75,0.35);
+  border-color: rgba(226,168,75,0.5);
 }
 .status-badge { font-size:0.6rem; padding:2px 5px; border-radius:4px; font-weight:600; }
 .status-curse { background:rgba(168,85,247,0.3); color:#c084fc; }
