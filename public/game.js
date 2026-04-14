@@ -8,6 +8,8 @@ const socket = io();
 const ROW_LABELS = ['A','B','C','D','E'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
+function myN() { return S.myName || '나'; }
+function oppN() { return S.opponentName || '상대'; }
 
 // ── 게임 상태 ─────────────────────────────────────────────────
 const S = {
@@ -115,6 +117,12 @@ function showScreen(id) {
   const target = document.getElementById(id);
   if (target) target.classList.add('active');
   S.phase = id.replace('screen-', '');
+  // BGM 자동 전환
+  const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
+  if (id === 'screen-lobby') bgmPlay('lobby');
+  else if (setupScreens.includes(id)) bgmPlay('setup');
+  else if (id === 'screen-game') bgmPlay('game');
+  // gameover는 game_over 핸들러에서 직접 호출
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
@@ -181,14 +189,16 @@ document.getElementById('btn-join').addEventListener('click', () => {
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showError('lobby-error', '닉네임과 방 코드를 입력하세요.'); return; }
   if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
-  S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name });
+  const deck = loadDeck();
+  S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showError('lobby-error', '닉네임을 입력하세요.'); return; }
   if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
-  S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name });
+  const deck = loadDeck();
+  S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
 
 document.getElementById('input-name').addEventListener('keydown', e => {
@@ -471,6 +481,8 @@ socket.on('reveal_phase', ({ yourPieces, oppPieces }) => {
 // ── 초기 공개 (드래프트 직후) ──
 socket.on('initial_reveal_phase', ({ myDraft, oppChars }) => {
   S.phase = 'initial_reveal';
+  S.myDraft = myDraft;
+  S.oppRevealChars = oppChars;
   buildInitialRevealUI(myDraft, oppChars);
   showScreen('screen-initial-reveal');
 });
@@ -480,8 +492,9 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
   S.phase = 'exchange_draft';
   S.exchangeAvailable = available;
   S.exchangeMyDraft = { ...myDraft };
-  S.exchangeSelected = null; // { tier, newType }
-  buildExchangeDraftUI(myDraft, available);
+  S.exchangeSelected = null;
+  S.myDraft = myDraft;
+  buildExchangeDraftUI(myDraft, available, oppDraft);
   showScreen('screen-exchange');
 });
 
@@ -502,8 +515,9 @@ socket.on('final_reveal_phase', ({ myDraft, oppChars }) => {
 });
 
 // ── 배치 ──
-socket.on('placement_phase', ({ pieces }) => {
+socket.on('placement_phase', ({ pieces, oppPieces }) => {
   S.myPieces = pieces;
+  if (oppPieces) S.oppPieces = oppPieces;
   buildPlacementUI();
   showScreen('screen-placement');
 });
@@ -530,10 +544,15 @@ socket.on('game_start', (data) => {
 
   buildGameUI();
   showScreen('screen-game');
+  // 패널 제목을 닉네임으로 갱신
+  const leftH3 = document.querySelector('.left-panel h3');
+  if (leftH3) leftH3.textContent = `${myN()}의 말`;
+  const rightH3 = document.querySelector('.right-panel h3');
+  if (rightH3) rightH3.textContent = `${oppN()}의 말`;
   refreshGameView();
   showActionBar(S.isMyTurn);
   updateSPBar();
-  addLog(`게임 시작! ${S.isMyTurn ? '먼저 시작합니다.' : '상대방이 먼저 시작합니다.'}`, 'system');
+  addLog(`게임 시작! ${S.isMyTurn ? '먼저 시작합니다.' : `${oppN()}이(가) 먼저 시작합니다.`}`, 'system');
 });
 
 // ── 내 턴 ──
@@ -559,7 +578,7 @@ socket.on('your_turn', (data) => {
   refreshGameView();
   showActionBar(true);
   updateSPBar();
-  addLog(`[턴 ${data.turnNumber}] 내 차례`, 'system');
+  addLog(`[턴 ${data.turnNumber}] ${myN()} 차례`, 'system');
   setTurnBackground(true);
   showTurnPopup(true);
   playTurnBell();
@@ -580,7 +599,7 @@ socket.on('opp_turn', (data) => {
   refreshGameView();
   showActionBar(false);
   updateSPBar();
-  addLog(`[턴 ${data.turnNumber}] 상대방 차례`, 'system');
+  addLog(`[턴 ${data.turnNumber}] ${oppN()} 차례`, 'system');
   setTurnBackground(false);
 });
 
@@ -588,10 +607,11 @@ socket.on('opp_turn', (data) => {
 socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twinMovePending, twinMovedSub }) => {
   const pc = yourPieces[pieceIdx];
   animateMove(pc.icon, prev.col, prev.row, col, row);
+  playSfx('move');
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
-  addLog(`🚶 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
-  showSkillToast(`${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
+  addLog(`🚶 ${myN()}의 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
+  showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
 
   if (twinMovePending) {
     // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
@@ -617,11 +637,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   }
 });
 
-socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
-  // 상대 이동 모션 애니메이션
-  if (prevCol != null && col != null) {
-    animateMove('👤', prevCol, prevRow, col, row);
-  }
+socket.on('opp_moved', ({ msg }) => {
   addLog(`🚶 ${msg}`, 'move');
   showSkillToast(msg, true);
 });
@@ -632,6 +648,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
   animateAttack(atkCells, hitCells);
+  playSfx('attack');
 
   if (oppPieces) { S.oppPieces = oppPieces; }
   if (yourPieces) { S.myPieces = yourPieces; }
@@ -642,21 +659,39 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   }
 
   if (!anyHit) {
-    addLog(`⚔ ${pc.name} 공격 — 빗나감!`, 'miss');
-    showSkillToast(`${pc.icon}${pc.name} 공격 빗나감!`);
+    // 쌍둥이: 각 서브유닛별로 빗나감 표시
+    if (pc.subUnit) {
+      const otherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
+      const otherPc = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
+      addLog(`⚔ ${myN()}의 ${pc.name} 공격 — 빗나감!`, 'miss');
+      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+      if (otherPc) {
+        addLog(`⚔ ${myN()}의 ${otherPc.name} 공격 — 빗나감!`, 'miss');
+        showSkillToast(`${myN()}의 ${otherPc.icon}${otherPc.name} 공격 빗나감!`);
+      }
+    } else {
+      addLog(`⚔ ${myN()}의 ${pc.name} 공격 — 빗나감!`, 'miss');
+      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+    }
   } else {
     for (const h of cellResults.filter(c => c.hit)) {
-      const target = h.destroyed ? `${h.revealedIcon||''}${h.revealedName||'적'}` : coord(h.col,h.row);
+      if (h.destroyed) playSfx('kill'); else playSfx('hit');
+      // 쌍둥이: 실제 공격자 이름 사용
+      const atkName = h.attackerName || pc.name;
+      const atkIcon = h.attackerIcon || pc.icon;
+      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
       const info = h.destroyed
         ? `💀 ${target} 격파! (${h.damage}피해)`
         : `명중! (${h.damage}피해)`;
-      addLog(`⚔ ${pc.name} → ${target} ${info}`, 'hit');
+      addLog(`⚔ ${myN()}의 ${atkName} → ${target} ${info}`, 'hit');
     }
-    const hitSummary = cellResults.filter(c => c.hit).map(h => {
-      const target = h.destroyed ? `${h.revealedIcon||''}${h.revealedName||'적'}` : '적';
-      return `${target} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`;
-    }).join(', ');
-    showSkillToast(`${pc.icon}${pc.name} 공격 → ${hitSummary}`);
+    const hits = cellResults.filter(c => c.hit);
+    for (const h of hits) {
+      const atkName = h.attackerName || pc.name;
+      const atkIcon = h.attackerIcon || pc.icon;
+      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : `${oppN()} 유닛`;
+      showSkillToast(`${myN()}의 ${atkIcon}${atkName} → ${target} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, false);
+    }
   }
 
   S.action = null;
@@ -677,34 +712,49 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
 // ── 피격 ──
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
-  // 피격 모션 애니메이션
+  // 피격 셀만 흔들림 (상대 공격 범위는 표시하지 않음 — 추론 게임)
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
-  animateAttack(atkCells || [], hitCells);
+  animateAttack([], hitCells);
 
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
-    addLog(`🛡 상대방 공격 — 빗나감`, 'miss');
-    showSkillToast('상대방 공격 빗나감!', true);
+    addLog(`🛡 ${oppN()} 공격 — 빗나감`, 'miss');
+    showSkillToast(`${oppN()} 공격 빗나감!`, true);
   } else {
     for (const h of hitPieces) {
-      const unitName = h.icon && h.name ? `${h.icon}${h.name}` : coord(h.col,h.row);
+      if (h.destroyed) playSfx('kill'); else playSfx('hit');
+      const unitName = h.icon && h.name ? `${myN()}의 ${h.icon}${h.name}` : coord(h.col,h.row);
       addLog(`🛡 ${unitName} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
+      showSkillToast(`${unitName} 피격! ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, true);
     }
-    const hitMsg = hitPieces.map(h => {
-      const unitName = h.icon && h.name ? `${h.icon}${h.name}` : '유닛';
-      return `${unitName} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`;
-    }).join(', ');
-    showSkillToast(`상대 공격! ${hitMsg}`, true);
   }
   renderGameBoard();
   renderMyPieces();
+  // 피격 유닛 프로필 흔들림 애니메이션
+  if (hitPieces.length > 0) {
+    const cards = document.querySelectorAll('#my-pieces-info .my-piece-card');
+    for (const h of hitPieces) {
+      const hitIdx = S.myPieces.findIndex(p => p.col === h.col && p.row === h.row);
+      if (hitIdx >= 0 && cards[hitIdx]) {
+        cards[hitIdx].classList.add('profile-shake');
+        setTimeout(() => cards[hitIdx].classList.remove('profile-shake'), 1200);
+      }
+    }
+  }
 });
 
 // ── SP 업데이트 ──
 socket.on('sp_update', ({ sp, instantSp }) => {
   S.sp = sp;
   if (instantSp) S.instantSp = instantSp;
+  playSfx('sp');
   updateSPBar();
+});
+
+// ── 턴 이벤트 알림 ──
+socket.on('turn_event', ({ type, msg }) => {
+  showSkillToast(`⚡ ${msg}`);
+  addLog(`⚡ ${msg}`, 'system');
 });
 
 // ── 보드 축소 경고 ──
@@ -712,11 +762,15 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
   const el = document.getElementById('shrink-warning');
   el.classList.remove('hidden');
   el.textContent = `⚠ 보드 축소까지 ${turnsRemaining}턴! (턴 50에 외곽 파괴)`;
+  showSkillToast(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, true);
+  addLog(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, 'shrink');
 });
 
 // ── 보드 축소 실행 ──
 socket.on('board_shrink', ({ bounds, eliminated }) => {
   S.boardBounds = bounds;
+  playSfx('shrink');
+  showSkillToast('🔥 턴 이벤트 : 보드 축소!', true);
   addLog(`🔥 보드 축소! 5×5 → 3×3`, 'shrink');
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
@@ -741,6 +795,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
+    playSfx('skill');
     addLog(`✦ ${msg}`, 'skill');
     showSkillToast(`✦ ${msg}`);
   }
@@ -762,7 +817,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     showSkillToast(msg, true);
     addLog(msg, 'skill-enemy');
   } else if (skillUsed) {
-    const toastMsg = `🚨 상대 ${skillUsed.icon}${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
+    const toastMsg = `🚨 ${oppN()}의 ${skillUsed.icon}${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
     showSkillToast(toastMsg, true);
     addLog(toastMsg, 'skill-enemy');
   } else {
@@ -838,6 +893,7 @@ socket.on('passive_alert', ({ type, msg }) => {
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
   stopClientTimer();
   showScreen('screen-gameover');
+  if (!spectator) bgmPlay(win ? 'victory' : (draw ? 'victory' : 'defeat'));
   const r = reason || {};
   const victims = (r.victims || []).join(', ');
   const killer = r.killer || '';
@@ -1670,6 +1726,7 @@ document.getElementById('recommend-close').addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════
 
 function buildHpUI() {
+  renderProgressStepper('screen-hp', 'hp');
   const draft = S.myDraft;
   S.hpValues = [4, 3, 3];
   const types = [draft.t1, draft.t2, draft.t3];
@@ -1863,10 +1920,48 @@ document.getElementById('btn-reveal-confirm').addEventListener('click', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── 세팅 진행도 그래프 ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const SETUP_STEPS = [
+  { id: 'initial_reveal', label: '초기 공개' },
+  { id: 'exchange',       label: '교환 드래프트' },
+  { id: 'final_reveal',   label: '최종 공개' },
+  { id: 'hp',             label: 'HP 분배' },
+  { id: 'placement',      label: '말 배치' },
+];
+
+function renderProgressStepper(containerId, currentStepId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let existing = container.querySelector('.progress-stepper');
+  if (existing) existing.remove();
+
+  const stepper = document.createElement('div');
+  stepper.className = 'progress-stepper';
+  const currentIdx = SETUP_STEPS.findIndex(s => s.id === currentStepId);
+
+  for (let i = 0; i < SETUP_STEPS.length; i++) {
+    const step = SETUP_STEPS[i];
+    const dot = document.createElement('div');
+    dot.className = `step-item${i < currentIdx ? ' done' : ''}${i === currentIdx ? ' active' : ''}`;
+    dot.innerHTML = `<div class="step-circle">${i + 1}</div><div class="step-label">${step.label}</div>`;
+    stepper.appendChild(dot);
+    if (i < SETUP_STEPS.length - 1) {
+      const line = document.createElement('div');
+      line.className = `step-line${i < currentIdx ? ' done' : ''}`;
+      stepper.appendChild(line);
+    }
+  }
+  container.insertBefore(stepper, container.firstChild);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── 초기 공개 UI ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
 function buildInitialRevealUI(myDraft, oppChars) {
+  renderProgressStepper('screen-initial-reveal', 'initial_reveal');
   document.getElementById('irev-my-name').textContent = S.myName || '나';
   document.getElementById('irev-opp-name').textContent = S.opponentName || '상대방';
 
@@ -1900,19 +1995,23 @@ function findLocalChar(type, tier) {
   return { ...ch, tier };
 }
 
-function createDraftRevealCard(ch, tier, tooltipSide) {
+function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
+  card.style.position = 'relative';
   const tagHtml = ch.tag
     ? `<span class="tag-badge ${ch.tag}">${ch.tag === 'royal' ? '왕실' : '악인'}</span>`
     : '';
-  const grid = buildMiniRangeGrid(ch.type, {}, ch.icon);
+  const labelHtml = extraLabel ? `<span style="color:#e2a84b;font-size:0.7rem;font-weight:700">${extraLabel}</span>` : '';
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
     <div class="piece-info">
       <strong>${ch.name}${tagHtml}</strong>
       <span>T${tier} · ATK ${ch.atk || '?'}</span>
+      ${labelHtml}
     </div>`;
+  const tooltip = buildPieceTooltip(ch, tooltipSide || 'right');
+  card.appendChild(tooltip);
   return card;
 }
 
@@ -1926,68 +2025,273 @@ document.getElementById('btn-irev-confirm').addEventListener('click', () => {
 // ── 교환 드래프트 UI ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-function buildExchangeDraftUI(myDraft, available) {
-  const draftContainer = document.getElementById('exchange-my-draft');
-  const poolContainer = document.getElementById('exchange-pool');
-  draftContainer.innerHTML = '';
-  poolContainer.innerHTML = '';
+// ── 교환 드래프트 상태 ──
+let exSlideIndex = 0;
+let exCurrentTier = 1;
+
+function buildExchangeDraftUI(myDraft, available, oppDraft) {
+  renderProgressStepper('screen-exchange', 'exchange');
   S.exchangeSelected = null;
+  S.exAvailable = available;
+  S.exMyDraft = { ...myDraft }; // 현재 내 덱 (교환 시 업데이트)
+  S.exOriginalDraft = { ...myDraft }; // 원본 저장
+  S.exOppDraft = oppDraft;
+  S.exSwapped = null; // { tier, newType } — 한 번만 교환 가능
 
-  // 내 현재 드래프트 카드 (클릭하면 해당 티어 교환 풀 표시)
-  for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
-    const type = myDraft[key];
-    const ch = findLocalChar(type, tier);
-    const card = document.createElement('div');
-    card.className = 'exchange-draft-card';
-    card.dataset.tier = tier;
-    card.innerHTML = `
-      <span style="font-size:1.4rem">${ch.icon}</span>
-      <div><strong>${ch.name}</strong><br><span class="muted">T${tier}</span></div>`;
-    card.addEventListener('click', () => {
-      // 이미 교환 선택한 티어가 있으면 해제
-      document.querySelectorAll('.exchange-draft-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-      showExchangePool(tier, available[tier]);
-    });
-    draftContainer.appendChild(card);
-  }
+  exCurrentTier = 1;
+  exSlideIndex = 0;
 
-  const btn = document.getElementById('btn-exchange-confirm');
-  btn.disabled = false;
-  btn.textContent = '교환 없이 확정';
-  document.getElementById('exchange-error').textContent = '';
-}
-
-function showExchangePool(tier, chars) {
-  const poolContainer = document.getElementById('exchange-pool');
-  poolContainer.innerHTML = `<h3>T${tier} 교환 가능 캐릭터</h3>`;
-  const grid = document.createElement('div');
-  grid.className = 'exchange-pool-grid';
-
-  for (const ch of chars) {
-    const card = document.createElement('div');
-    card.className = 'exchange-pool-card';
-    if (S.exchangeSelected && S.exchangeSelected.tier === tier && S.exchangeSelected.newType === ch.type) {
-      card.classList.add('selected');
+  // 상대 캐릭터 사이드바
+  const oppContainer = document.getElementById('ex-opp-chars');
+  if (oppContainer && oppDraft) {
+    oppContainer.innerHTML = '';
+    for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
+      const type = oppDraft[key];
+      const ch = findLocalChar(type, tier);
+      if (!ch) continue;
+      const card = document.createElement('div');
+      card.className = 'draft-slot filled opp-slot';
+      card.style.cssText = 'border-color:rgba(239,68,68,0.4);cursor:default;position:relative';
+      card.innerHTML = `<span class="slot-icon">${ch.icon}</span>
+        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}</span></div>`;
+      const tooltip = buildPieceTooltip(ch, 'right');
+      card.appendChild(tooltip);
+      oppContainer.appendChild(card);
     }
-    card.innerHTML = `
-      <span style="font-size:1.2rem">${ch.icon}</span>
-      <strong>${ch.name}</strong>
-      <span class="muted">ATK ${ch.atk || '?'}</span>`;
-    card.addEventListener('click', () => {
-      S.exchangeSelected = { tier, newType: ch.type };
-      // 선택 UI 업데이트
-      grid.querySelectorAll('.exchange-pool-card').forEach(c => c.classList.remove('selected'));
-      card.classList.add('selected');
-      const btn = document.getElementById('btn-exchange-confirm');
-      btn.textContent = `${ch.icon}${ch.name}(으)로 교환 확정`;
-      btn.dataset.tier = tier;
-      btn.dataset.newType = ch.type;
-    });
-    grid.appendChild(card);
   }
-  poolContainer.appendChild(grid);
+
+  exBuildStepUI();
+  exUpdateSlots();
+  exUpdateConfirmBtn();
 }
+
+function exBuildStepUI() {
+  const tier = exCurrentTier;
+  const info = TIER_INFO[tier];
+  document.getElementById('ex-draft-title').textContent = `교환 드래프트 — ${info.label}`;
+  document.getElementById('ex-draft-sub').textContent = `교환할 캐릭터를 선택하세요 (선택사항 · 1회 교환 가능)`;
+
+  // 스텝 인디케이터
+  const steps = document.querySelectorAll('#ex-step-indicator .step');
+  steps.forEach((el, i) => {
+    const t = i + 1;
+    const newEl = el.cloneNode(true);
+    newEl.className = 'step clickable';
+    if (t === tier) newEl.classList.add('active');
+    // 교환된 티어 표시
+    if (S.exSwapped && S.exSwapped.tier === t) newEl.classList.add('done');
+    newEl.addEventListener('click', () => {
+      exCurrentTier = t;
+      exSlideIndex = 0;
+      exBuildStepUI();
+    });
+    el.parentNode.replaceChild(newEl, el);
+  });
+
+  // 현재 티어의 교환 가능 캐릭터 목록 (내 현재 캐릭터 포함)
+  const myKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+  const myCurrent = S.exMyDraft[myKey];
+  const myCurrentCh = findLocalChar(myCurrent, tier);
+  const avail = S.exAvailable[tier] || [];
+  // 현재 내 캐릭터를 첫 번째로, 나머지는 available 순서
+  const allChars = myCurrentCh ? [myCurrentCh, ...avail.filter(c => c.type !== myCurrent)] : [...avail];
+  S._exAllChars = allChars;
+
+  // 아이콘 인덱스
+  const iconIndex = document.getElementById('ex-icon-index');
+  if (iconIndex) {
+    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
+    iconIndex.innerHTML = '';
+    allChars.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'icon-index-btn';
+      btn.title = c.name;
+      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
+      // 현재 내 캐릭터 표시
+      if (c.type === myCurrent) btn.style.boxShadow = '0 0 6px rgba(59,130,246,0.6)';
+      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.addEventListener('click', () => { exSlideIndex = i; exRenderSlide(); });
+      iconIndex.appendChild(btn);
+    });
+  }
+
+  // 미리보기 보드
+  buildBoard('ex-preview-board', () => {});
+
+  // 페이저 도트
+  const pager = document.getElementById('ex-slide-pager');
+  pager.innerHTML = '';
+  allChars.forEach((_, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'slide-dot';
+    dot.addEventListener('click', () => { exSlideIndex = i; exRenderSlide(); });
+    pager.appendChild(dot);
+  });
+
+  // 현재 내 캐릭터로 시작
+  exSlideIndex = 0;
+  exRenderSlide();
+}
+
+function exRenderSlide() {
+  const allChars = S._exAllChars;
+  if (!allChars || !allChars.length) return;
+  const c = allChars[exSlideIndex];
+  const tier = exCurrentTier;
+  const myKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+  const isCurrentPick = c.type === S.exMyDraft[myKey];
+
+  document.getElementById('ex-slide-icon').textContent = c.icon;
+  const tagHtml = c.tag
+    ? ` <span class="tag-badge ${c.tag}">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
+    : '';
+  const currentBadge = isCurrentPick ? ' <span style="color:#3b82f6;font-size:0.7rem;background:rgba(59,130,246,0.15);padding:2px 6px;border-radius:4px">현재 선택</span>' : '';
+  document.getElementById('ex-slide-name').innerHTML = c.name + tagHtml + currentBadge;
+  document.getElementById('ex-slide-desc').innerHTML =
+    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc || ''}</span>`;
+  document.getElementById('ex-slide-atk').innerHTML =
+    `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
+
+  // 상세 설명
+  const detail = CHAR_DETAILS[c.type];
+  const blocksEl = document.getElementById('ex-slide-detail-blocks');
+  const bodyEl = document.getElementById('ex-slide-detail-body');
+  if (detail) {
+    const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    if (hasPerBlockDesc) {
+      blocksEl.innerHTML = detail.blocks.map(b =>
+        `<div style="margin-bottom:10px">` +
+        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>` +
+        (b.desc ? `<div class="slide-detail-body" style="margin-top:6px">${b.desc}</div>` : '') +
+        `</div>`
+      ).join('');
+      bodyEl.textContent = '';
+    } else {
+      blocksEl.innerHTML = detail.blocks.map(b =>
+        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>`
+      ).join('');
+      bodyEl.textContent = detail.body || '';
+    }
+  } else {
+    blocksEl.innerHTML = '';
+    bodyEl.textContent = '';
+  }
+
+  // 공격 범위 미리보기 (ex용)
+  exUpdatePreview(c);
+
+  // 페이저 도트
+  document.querySelectorAll('#ex-slide-pager .slide-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === exSlideIndex);
+  });
+  document.querySelectorAll('#ex-icon-index .icon-index-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === exSlideIndex);
+  });
+
+  // 현재 보고 있는 캐릭터를 이 티어 선택으로 반영 (단, 1회 교환 제한 확인)
+  if (!isCurrentPick) {
+    // 이미 다른 티어에서 교환했으면 이 티어에서는 교환 불가
+    if (S.exSwapped && S.exSwapped.tier !== tier) {
+      // 교환 불가 — UI만 탐색
+    } else {
+      S.exSwapped = { tier, newType: c.type };
+      S.exMyDraft[myKey] = c.type;
+      S.exchangeSelected = { tier, newType: c.type };
+    }
+  } else {
+    // 현재 캐릭터로 돌아온 경우 — 교환 취소
+    if (S.exSwapped && S.exSwapped.tier === tier) {
+      S.exSwapped = null;
+      S.exMyDraft[myKey] = S.exOriginalDraft[myKey];
+      S.exchangeSelected = null;
+    }
+  }
+  exUpdateSlots();
+  exUpdateConfirmBtn();
+
+  // 슬라이드 애니메이션
+  const content = document.getElementById('ex-slide-content');
+  if (content) { content.style.animation = 'none'; content.offsetHeight; content.style.animation = ''; }
+}
+
+function exUpdatePreview(charData) {
+  const board = document.getElementById('ex-preview-board');
+  if (!board) return;
+
+  if (charData.isTwin) {
+    const elderCol = 1, elderRow = 2;
+    const youngerCol = 3, youngerRow = 2;
+    const rangeE = getAttackCells('twins_elder', elderCol, elderRow);
+    const rangeY = getAttackCells('twins_younger', youngerCol, youngerRow);
+    board.querySelectorAll('.cell').forEach(cell => {
+      const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
+      cell.className = 'cell'; cell.innerHTML = '';
+      if (col === elderCol && row === elderRow) { cell.innerHTML = `<span style="font-size:1rem">👦</span>`; cell.classList.add('has-piece'); }
+      if (col === youngerCol && row === youngerRow) { cell.innerHTML = `<span style="font-size:1rem">👦</span>`; cell.classList.add('has-piece'); }
+      const inE = rangeE.some(c => c.col === col && c.row === row);
+      const inY = rangeY.some(c => c.col === col && c.row === row);
+      if (inE || inY) cell.classList.add(inE ? 'attack-range' : 'skill-range');
+    });
+    document.getElementById('ex-preview-info').textContent = '금색=형(가로 3칸) · 보라=동생(세로 3칸)';
+    return;
+  }
+
+  const centerCol = 2, centerRow = 2;
+  const range = getAttackCells(charData.type, centerCol, centerRow);
+  board.querySelectorAll('.cell').forEach(cell => {
+    const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
+    cell.className = 'cell'; cell.innerHTML = '';
+    if (col === centerCol && row === centerRow) {
+      cell.innerHTML = `<span style="font-size:1rem">${charData.icon}</span>`;
+      cell.classList.add('has-piece');
+    }
+    if (range.some(c => c.col === col && c.row === row)) cell.classList.add('attack-range');
+  });
+  document.getElementById('ex-preview-info').textContent = `${charData.name} · 공격 범위`;
+}
+
+function exUpdateSlots() {
+  for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
+    const slot = document.getElementById(`ex-slot-${tier}`);
+    if (!slot) continue;
+    const type = S.exMyDraft[key];
+    const ch = findLocalChar(type, tier);
+    const isSwapped = S.exSwapped && S.exSwapped.tier === tier;
+    if (ch) {
+      slot.className = `draft-slot filled${isSwapped ? ' swapped' : ''}`;
+      slot.innerHTML = `<span class="slot-icon">${ch.icon}</span>
+        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}${isSwapped ? ' · 교체됨' : ''}</span></div>`;
+      slot.style.cursor = 'pointer';
+      slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
+    } else {
+      slot.className = 'draft-slot empty';
+      slot.innerHTML = `<span class="slot-tier">${tier}티어</span><span class="slot-empty-text">미선택</span>`;
+    }
+  }
+}
+
+function exUpdateConfirmBtn() {
+  const btn = document.getElementById('btn-exchange-confirm');
+  if (S.exSwapped) {
+    const ch = findLocalChar(S.exSwapped.newType, S.exSwapped.tier);
+    btn.textContent = `${ch ? ch.icon : ''} ${ch ? ch.name : ''} 교환 → 최종 출격`;
+  } else {
+    btn.textContent = '최종 출격';
+  }
+  btn.disabled = false;
+}
+
+// 교환 드래프트 슬라이드 화살표
+document.getElementById('btn-ex-slide-prev').addEventListener('click', () => {
+  if (!S._exAllChars) return;
+  exSlideIndex = (exSlideIndex - 1 + S._exAllChars.length) % S._exAllChars.length;
+  exRenderSlide();
+});
+document.getElementById('btn-ex-slide-next').addEventListener('click', () => {
+  if (!S._exAllChars) return;
+  exSlideIndex = (exSlideIndex + 1) % S._exAllChars.length;
+  exRenderSlide();
+});
 
 document.getElementById('btn-exchange-confirm').addEventListener('click', () => {
   const btn = document.getElementById('btn-exchange-confirm');
@@ -2005,6 +2309,7 @@ document.getElementById('btn-exchange-confirm').addEventListener('click', () => 
 // ═══════════════════════════════════════════════════════════════
 
 function buildFinalRevealUI(myDraft, oppChars) {
+  renderProgressStepper('screen-final-reveal', 'final_reveal');
   document.getElementById('frev-my-name').textContent = S.myName || '나';
   document.getElementById('frev-opp-name').textContent = S.opponentName || '상대방';
 
@@ -2013,14 +2318,54 @@ function buildFinalRevealUI(myDraft, oppChars) {
   myContainer.innerHTML = '';
   oppContainer.innerHTML = '';
 
+  // 내 캐릭터 — 초기 덱과 비교하여 교체 표시 + 깜빡임 애니메이션
+  const initialDeck = loadDeck();
+  const exchangedCards = [];
   for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
     const type = myDraft[key];
     const ch = findLocalChar(type, tier);
-    if (ch) myContainer.appendChild(createDraftRevealCard(ch, tier, 'left'));
+    const wasExchanged = initialDeck && initialDeck[key] && initialDeck[key] !== type;
+    if (ch) {
+      // 교체된 경우: 먼저 이전 캐릭터로 카드 생성 → 깜빡임 후 새 캐릭터로 교체
+      if (wasExchanged) {
+        const oldCh = findLocalChar(initialDeck[key], tier);
+        const card = createDraftRevealCard(oldCh || ch, tier, 'left', '');
+        myContainer.appendChild(card);
+        exchangedCards.push({ card, newCh: ch, tier, side: 'left' });
+      } else {
+        myContainer.appendChild(createDraftRevealCard(ch, tier, 'left', ''));
+      }
+    }
   }
 
+  // 상대 캐릭터 — 초기 공개와 비교하여 교체 표시 + 깜빡임 애니메이션
+  const initialOpp = S.oppRevealChars || [];
   for (const ch of oppChars) {
-    oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right'));
+    const initial = initialOpp.find(o => o.tier === ch.tier);
+    const wasExchanged = initial && initial.type !== ch.type;
+    if (wasExchanged) {
+      const card = createDraftRevealCard(initial, ch.tier, 'right', '');
+      oppContainer.appendChild(card);
+      exchangedCards.push({ card, newCh: ch, tier: ch.tier, side: 'right' });
+    } else {
+      oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right', ''));
+    }
+  }
+
+  // 교체된 카드: 1.5초 후 깜빡임 시작 → 깜빡임 끝나면 새 캐릭터로 교체
+  if (exchangedCards.length > 0) {
+    setTimeout(() => {
+      for (const { card, newCh, tier, side } of exchangedCards) {
+        card.classList.add('exchanged-blink');
+        // 깜빡임 3회(2.4s) 후 새 카드로 교체
+        setTimeout(() => {
+          card.classList.remove('exchanged-blink');
+          const newCard = createDraftRevealCard(newCh, tier, side, '교체됨');
+          newCard.classList.add('exchanged-appear');
+          card.replaceWith(newCard);
+        }, 2400);
+      }
+    }, 1500);
   }
 
   const btn = document.getElementById('btn-frev-confirm');
@@ -2041,6 +2386,7 @@ document.getElementById('btn-frev-confirm').addEventListener('click', () => {
 let placementSelected = null;
 
 function buildPlacementUI() {
+  renderProgressStepper('screen-placement', 'placement');
   placementSelected = null;
   buildBoard('placement-board', handlePlacementCellClick);
   buildPlacementOppPanel();
@@ -2211,7 +2557,7 @@ function updateTurnBanner() {
   if (!banner) return;
   banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
   banner.textContent = S.isMyTurn
-    ? `⚔ 내 턴 (턴 ${S.turnNumber})`
+    ? `⚔ ${myN()} 턴 (턴 ${S.turnNumber})`
     : `🕐 상대방 턴 (턴 ${S.turnNumber})`;
 
   // 현재 턴 플레이어 패널 강조
@@ -2345,7 +2691,7 @@ function showActionBar(enabled) {
   document.getElementById('btn-cancel').classList.add('hidden');
 
   const hint = document.getElementById('action-hint');
-  if (hint) hint.textContent = enabled ? '행동을 선택하세요 (이동/공격/스킬/턴종료)' : '상대방의 턴입니다...';
+  if (hint) hint.textContent = enabled ? '행동을 선택하세요 (이동/공격/스킬/턴종료)' : `${oppN()}의 턴입니다...`;
 }
 
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
@@ -2370,13 +2716,15 @@ function renderGameBoard() {
     const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
     if (pc) {
       const statusIcons = getStatusIcons(pc);
+      const isTwinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
       cell.innerHTML += `
-        <div class="piece-marker">
+        <div class="piece-marker${isTwinDimmed ? ' twin-board-dimmed' : ''}">
           <span class="p-icon">${pc.icon}</span>
           <span class="p-hp">${pc.hp}/${pc.maxHp}</span>
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       cell.classList.add('has-piece');
+      if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       const idx = S.myPieces.indexOf(pc);
       if (idx === S.selectedPiece) cell.classList.add('selected-piece');
     }
@@ -2433,9 +2781,9 @@ function renderGameBoard() {
 
     // 공격/피격 기록
     const atk = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
-    if (atk && !pc) {
+    if (atk) {
       cell.classList.add(atk.hit ? 'hit-mark' : 'miss-mark');
-      cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
+      if (!pc) cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
     }
 
     // 이동 범위
@@ -2885,12 +3233,20 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
     document.getElementById('endturn-modal').classList.remove('hidden');
     return;
   }
+  // 쌍둥이 중 한명만 이동한 경우 확인
+  if (S.twinMovePending) {
+    if (!confirm('아직 이동하지 않은 쌍둥이가 있습니다. 그래도 턴을 종료하겠습니까?')) return;
+  }
   socket.emit('end_turn');
   S.isMyTurn = false;
   showActionBar(false);
 });
 document.getElementById('endturn-confirm').addEventListener('click', () => {
   document.getElementById('endturn-modal').classList.add('hidden');
+  // 쌍둥이 중 한명만 이동한 경우 확인
+  if (S.twinMovePending) {
+    if (!confirm('아직 이동하지 못한 쌍둥이가 있습니다. 그래도 종료하겠습니까?')) return;
+  }
   socket.emit('end_turn');
   S.isMyTurn = false;
   showActionBar(false);
@@ -3240,6 +3596,11 @@ function handleGameCellClick(col, row) {
       // 말 선택
       const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
       if (pc) {
+        // 이미 이동한 쌍둥이 선택 차단
+        if (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub) {
+          document.getElementById('action-hint').textContent = '⚠ 이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.';
+          return;
+        }
         S.selectedPiece = S.myPieces.indexOf(pc);
         document.getElementById('action-hint').textContent = `${pc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
         renderGameBoard();
@@ -4055,22 +4416,40 @@ function renderSpectatorGame(gs) {
   }
 }
 
-// ── 스킬 사용 토스트 알림 ─────────────────────────────────
-function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
-  let toast = document.getElementById('skill-toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'skill-toast';
-    toast.style.cssText = `
+// ── 스킬 사용 토스트 알림 (큐 기반 순차 등장) ──────────────
+const _toastStack = [];
+const _toastQueue = [];
+let _toastProcessing = false;
+const TOAST_MAX = 6;
+const TOAST_INTERVAL = 800; // 순차 등장 간격 (ms)
+const TOAST_DURATION = 4000; // 체류 시간
+
+function _getToastContainer() {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = `
       position:fixed; top:60px; left:50%; transform:translateX(-50%);
-      color:#fff; padding:12px 28px;
-      border-radius:8px; font-size:0.95rem; font-weight:600;
-      z-index:2000; pointer-events:none; opacity:0; transition:opacity 0.3s;
-      box-shadow:0 4px 20px rgba(0,0,0,0.4);
+      z-index:2000; pointer-events:none; display:flex; flex-direction:column;
+      align-items:center; gap:6px; width:max-content; max-width:90vw;
     `;
-    document.body.appendChild(toast);
+    document.body.appendChild(container);
   }
-  // 관전자: playerIdx 기반 색상 (P0=파랑, P1=빨강)
+  return container;
+}
+
+function _showToastNow(msg, isEnemy, specPlayerIdx) {
+  const container = _getToastContainer();
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    color:#fff; padding:10px 24px;
+    border-radius:8px; font-size:0.9rem; font-weight:600;
+    pointer-events:none; opacity:0; transition:opacity 0.3s, transform 0.3s;
+    box-shadow:0 4px 20px rgba(0,0,0,0.4); transform:translateY(-8px);
+    white-space:nowrap;
+  `;
+
   if (S.isSpectator && specPlayerIdx !== undefined) {
     const isP1 = specPlayerIdx === 1;
     toast.style.background = isP1 ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
@@ -4080,9 +4459,46 @@ function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
     toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
   }
   toast.textContent = msg;
-  toast.style.opacity = '1';
-  clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+  container.appendChild(toast);
+  _toastStack.push(toast);
+
+  // 최대 개수 초과 시 오래된 것 제거
+  while (_toastStack.length > TOAST_MAX) {
+    const old = _toastStack.shift();
+    if (old.parentNode) { old.style.opacity = '0'; old.style.transform = 'translateY(-8px)'; setTimeout(() => { if (old.parentNode) old.parentNode.removeChild(old); }, 300); }
+  }
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-8px)';
+    setTimeout(() => {
+      const idx = _toastStack.indexOf(toast);
+      if (idx >= 0) _toastStack.splice(idx, 1);
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 300);
+  }, TOAST_DURATION);
+}
+
+function _processToastQueue() {
+  if (_toastQueue.length === 0) { _toastProcessing = false; return; }
+  _toastProcessing = true;
+  const { msg, isEnemy, specPlayerIdx } = _toastQueue.shift();
+  _showToastNow(msg, isEnemy, specPlayerIdx);
+  if (_toastQueue.length > 0) {
+    setTimeout(_processToastQueue, TOAST_INTERVAL);
+  } else {
+    _toastProcessing = false;
+  }
+}
+
+function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
+  _toastQueue.push({ msg, isEnemy, specPlayerIdx });
+  if (!_toastProcessing) _processToastQueue();
 }
 
 // ── 턴 보드 테두리 전환 ──
@@ -4100,7 +4516,7 @@ function setTurnBackground(isMyTurn) {
 
 // ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
-  showSkillToast('🎯 나의 차례!');
+  showSkillToast(`${myN()}의 차례!`);
 }
 
 // ── 이동 모션 애니메이션 ──
@@ -4193,6 +4609,357 @@ function playTurnBell() {
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.5);
   } catch (e) {}
+}
+
+// ── 효과음 (Web Audio) ──
+function playSfx(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    switch (type) {
+      case 'move':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.setValueAtTime(500, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+        break;
+      case 'attack':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.25);
+        break;
+      case 'hit':
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(300, ctx.currentTime);
+        osc.frequency.setValueAtTime(150, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
+        break;
+      case 'kill':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(80, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+        break;
+      case 'skill':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        osc.frequency.setValueAtTime(900, ctx.currentTime + 0.1);
+        osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+        break;
+      case 'shrink':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.8);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
+        break;
+      case 'sp':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.08);
+        osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.16);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.25);
+        break;
+      case 'btn_click':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(660, ctx.currentTime);
+        osc.frequency.setValueAtTime(600, ctx.currentTime + 0.04);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.1);
+        break;
+    }
+  } catch (e) {}
+}
+
+// ── 전역 버튼 클릭 효과음 ──
+document.addEventListener('click', (e) => {
+  if (e.target.closest('button')) playSfx('btn_click');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── BGM 시스템 (Web Audio API 프로시저럴) ────────────────────
+// ═══════════════════════════════════════════════════════════════
+const BGM = {
+  ctx: null,
+  currentTrack: null,
+  gainNode: null,
+  nodes: [],
+  volume: 0.12,
+  muted: false,
+};
+
+function bgmGetCtx() {
+  if (!BGM.ctx) {
+    BGM.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    BGM.gainNode = BGM.ctx.createGain();
+    BGM.gainNode.gain.value = BGM.volume;
+    BGM.gainNode.connect(BGM.ctx.destination);
+  }
+  if (BGM.ctx.state === 'suspended') BGM.ctx.resume();
+  return BGM.ctx;
+}
+
+function bgmStop() {
+  for (const n of BGM.nodes) { try { n.stop(); } catch(e){} try { n.disconnect(); } catch(e){} }
+  BGM.nodes = [];
+  BGM.currentTrack = null;
+}
+
+function bgmPlay(trackName) {
+  if (BGM.currentTrack === trackName) return;
+  bgmStop();
+  BGM.currentTrack = trackName;
+  const ctx = bgmGetCtx();
+  const gain = BGM.gainNode;
+
+  switch (trackName) {
+    case 'lobby': bgmLobby(ctx, gain); break;
+    case 'setup': bgmSetup(ctx, gain); break;
+    case 'game':  bgmGame(ctx, gain); break;
+    case 'victory': bgmVictory(ctx, gain); break;
+    case 'defeat':  bgmDefeat(ctx, gain); break;
+  }
+}
+
+// ── 로비 BGM: 평화로운 중세 선율 (루프) ──
+function bgmLobby(ctx, dest) {
+  const notes = [329.63,392,440,392,329.63,293.66,329.63,392, 440,523.25,493.88,440,392,329.63,293.66,329.63];
+  const dur = 0.5;
+  function playLoop() {
+    if (BGM.currentTrack !== 'lobby') return;
+    const now = ctx.currentTime;
+    // 멜로디
+    for (let i = 0; i < notes.length; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = notes[i];
+      g.gain.setValueAtTime(0.15, now + i*dur);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.9);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+    // 배경 패드
+    const pad = ctx.createOscillator();
+    const pg = ctx.createGain();
+    pad.type = 'triangle';
+    pad.frequency.value = 164.81;
+    pg.gain.setValueAtTime(0.06, now);
+    pg.gain.setValueAtTime(0.06, now + notes.length*dur - 0.1);
+    pg.gain.exponentialRampToValueAtTime(0.001, now + notes.length*dur);
+    pad.connect(pg); pg.connect(dest);
+    pad.start(now); pad.stop(now + notes.length*dur);
+    BGM.nodes.push(pad);
+    setTimeout(playLoop, notes.length * dur * 1000);
+  }
+  playLoop();
+}
+
+// ── 세팅 BGM: 기대감 있는 준비 선율 (루프) ──
+function bgmSetup(ctx, dest) {
+  const notes = [261.63,329.63,392,349.23,329.63,293.66,261.63,329.63, 349.23,392,440,392,349.23,329.63,293.66,261.63];
+  const dur = 0.4;
+  function playLoop() {
+    if (BGM.currentTrack !== 'setup') return;
+    const now = ctx.currentTime;
+    for (let i = 0; i < notes.length; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = notes[i];
+      g.gain.setValueAtTime(0.12, now + i*dur);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.85);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+    // 저음 드론
+    const drone = ctx.createOscillator();
+    const dg = ctx.createGain();
+    drone.type = 'sine';
+    drone.frequency.value = 130.81;
+    dg.gain.value = 0.04;
+    drone.connect(dg); dg.connect(dest);
+    drone.start(now); drone.stop(now + notes.length*dur);
+    BGM.nodes.push(drone);
+    setTimeout(playLoop, notes.length * dur * 1000);
+  }
+  playLoop();
+}
+
+// ── 본게임 BGM: 장엄한 전투 선율 (루프) ──
+function bgmGame(ctx, dest) {
+  // D 마이너 계열 — 무겁고 장엄한 행진
+  const bass = [73.42,73.42,87.31,82.41, 73.42,73.42,65.41,69.30, 73.42,73.42,87.31,82.41, 73.42,82.41,73.42,73.42];
+  const melody = [293.66,349.23,440,392, 349.23,293.66,261.63,293.66, 349.23,440,523.25,493.88, 440,392,349.23,293.66];
+  const horn = [146.83,0,174.61,164.81, 146.83,0,130.81,138.59, 146.83,0,174.61,164.81, 146.83,164.81,146.83,0];
+  const dur = 0.38;
+  const loopLen = melody.length * dur;
+
+  function playLoop() {
+    if (BGM.currentTrack !== 'game') return;
+    const now = ctx.currentTime;
+
+    // 깊은 서브베이스 드론 (D2)
+    const sub = ctx.createOscillator();
+    const sg = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.value = 73.42;
+    sg.gain.setValueAtTime(0.10, now);
+    sg.gain.setValueAtTime(0.10, now + loopLen - 0.1);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + loopLen);
+    sub.connect(sg); sg.connect(dest);
+    sub.start(now); sub.stop(now + loopLen);
+    BGM.nodes.push(sub);
+
+    // 베이스라인 (sawtooth — 무거운 질감)
+    for (let i = 0; i < bass.length; i++) {
+      if (bass[i] === 0) continue;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = bass[i];
+      g.gain.setValueAtTime(0.05, now + i*dur);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.9);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+
+    // 호른 레이어 (triangle — 중후한 금관 느낌)
+    for (let i = 0; i < horn.length; i++) {
+      if (horn[i] === 0) continue;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = horn[i];
+      g.gain.setValueAtTime(0.07, now + i*dur);
+      g.gain.linearRampToValueAtTime(0.04, now + i*dur + dur*0.5);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.95);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+
+    // 멜로디 (square — 장엄한 선율)
+    for (let i = 0; i < melody.length; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = melody[i];
+      g.gain.setValueAtTime(0.04, now + i*dur);
+      g.gain.linearRampToValueAtTime(0.06, now + i*dur + dur*0.15);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.85);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+
+    // 퍼커션 (노이즈 버스트 — 행진 드럼 느낌, 매 2비트마다)
+    for (let i = 0; i < melody.length; i += 2) {
+      const bufSize = ctx.sampleRate * 0.08;
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let j = 0; j < bufSize; j++) data[j] = (Math.random()*2-1);
+      const noise = ctx.createBufferSource();
+      noise.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.10, now + i*dur);
+      ng.gain.exponentialRampToValueAtTime(0.001, now + i*dur + 0.08);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 150;
+      noise.connect(filter); filter.connect(ng); ng.connect(dest);
+      noise.start(now + i*dur); noise.stop(now + i*dur + 0.1);
+      BGM.nodes.push(noise);
+    }
+
+    setTimeout(playLoop, loopLen * 1000);
+  }
+  playLoop();
+}
+
+// ── 승리 BGM: 밝은 팡파레 (~5초) ──
+function bgmVictory(ctx, dest) {
+  const notes = [523.25,659.25,783.99, 659.25,783.99,1046.5, 783.99,1046.5,1318.5];
+  const dur = 0.35;
+  const now = ctx.currentTime;
+  for (let i = 0; i < notes.length; i++) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = notes[i];
+    g.gain.setValueAtTime(0.2, now + i*dur);
+    g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*2);
+    osc.connect(g); g.connect(dest);
+    osc.start(now + i*dur); osc.stop(now + i*dur + dur*2);
+    BGM.nodes.push(osc);
+  }
+  // 마무리 화음
+  const chord = [523.25, 659.25, 783.99];
+  for (const freq of chord) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.12, now + notes.length*dur);
+    g.gain.exponentialRampToValueAtTime(0.001, now + notes.length*dur + 2);
+    osc.connect(g); g.connect(dest);
+    osc.start(now + notes.length*dur); osc.stop(now + notes.length*dur + 2);
+    BGM.nodes.push(osc);
+  }
+}
+
+// ── 패배 BGM: 어둡고 슬픈 선율 (~5초) ──
+function bgmDefeat(ctx, dest) {
+  const notes = [329.63,293.66,261.63,246.94, 220,196,174.61,164.81];
+  const dur = 0.45;
+  const now = ctx.currentTime;
+  for (let i = 0; i < notes.length; i++) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = notes[i];
+    g.gain.setValueAtTime(0.15, now + i*dur);
+    g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*1.5);
+    osc.connect(g); g.connect(dest);
+    osc.start(now + i*dur); osc.stop(now + i*dur + dur*1.5);
+    BGM.nodes.push(osc);
+  }
+  // 마이너 화음 마무리
+  const chord = [164.81, 196, 233.08];
+  for (const freq of chord) {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.08, now + notes.length*dur);
+    g.gain.exponentialRampToValueAtTime(0.001, now + notes.length*dur + 1.5);
+    osc.connect(g); g.connect(dest);
+    osc.start(now + notes.length*dur); osc.stop(now + notes.length*dur + 1.5);
+    BGM.nodes.push(osc);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -4618,25 +5385,33 @@ const TUTORIAL_STEPS = [
   // 9: 게임 흐름
   () => `
     <div class="tut-title">🎮 게임 흐름</div>
-    <div class="tut-subtitle">드래프트부터 승리까지의 전체 과정</div>
+    <div class="tut-subtitle">로비부터 승리까지의 전체 과정</div>
     <div class="tut-section">
-      <div class="tut-section-title">1️⃣ 캐릭터 드래프트</div>
-      <div class="tut-text">1티어 · 2티어 · 3티어에서 <strong>각 1명씩 총 3명</strong>을 선택합니다.</div>
+      <div class="tut-section-title">1️⃣ 덱 구성 (로비)</div>
+      <div class="tut-text">로비에서 <strong>1티어 · 2티어 · 3티어 각 1명씩 총 3명</strong>으로 덱을 구성합니다.</div>
     </div>
     <div class="tut-section">
-      <div class="tut-section-title">2️⃣ HP 배분</div>
+      <div class="tut-section-title">2️⃣ 초기 공개</div>
+      <div class="tut-text">양측이 선택한 캐릭터를 <strong>서로 공개</strong>합니다. 상대의 구성을 확인하세요!</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">3️⃣ 교환 드래프트</div>
+      <div class="tut-text">상대의 구성을 본 뒤, 내 덱에서 <strong>1명까지 교체</strong>할 수 있습니다. 같은 티어의 다른 캐릭터로 바꿔 전략을 조정하세요.</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">4️⃣ 최종 공개</div>
+      <div class="tut-text">교환 결과가 <strong>동시에 공개</strong>됩니다. 교체된 캐릭터는 깜빡이며 변환됩니다!</div>
+    </div>
+    <div class="tut-section">
+      <div class="tut-section-title">5️⃣ HP 분배</div>
       <div class="tut-text">총 <strong>10 HP</strong>를 3개의 말에 자유롭게 분배합니다 (최소 1, 최대 8).</div>
     </div>
     <div class="tut-section">
-      <div class="tut-section-title">3️⃣ 캐릭터 공개</div>
-      <div class="tut-text">서로 어떤 캐릭터를 골랐는지 <strong>공개</strong>합니다. 하지만 위치는 비밀!</div>
-    </div>
-    <div class="tut-section">
-      <div class="tut-section-title">4️⃣ 말 배치</div>
+      <div class="tut-section-title">6️⃣ 말 배치</div>
       <div class="tut-text"><strong>5×5 보드에 3개의 말을 비밀리에 배치</strong>합니다. 상대는 어디에 놓았는지 모릅니다.</div>
     </div>
     <div class="tut-section">
-      <div class="tut-section-title">5️⃣ 전투</div>
+      <div class="tut-section-title">7️⃣ 전투</div>
       <div class="tut-text">번갈아 턴을 진행하며 <strong>이동, 공격, 스킬</strong>을 사용합니다. 상대 말을 전멸시키면 승리!</div>
     </div>
     <div class="tut-section">

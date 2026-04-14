@@ -53,7 +53,7 @@ const CHARACTERS = {
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸(col±1,row±1)',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 2회 공격'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리 + 쥐 위치',
-      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'랜덤 3곳에 쥐 소환 (중복 불가)'}] },
+      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'스킬 사용 시 쥐가 없는 보드 랜덤 3곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러번 사용 가능합니다.'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'자신 포함 가로3칸(토글)',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로↔세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:2, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
@@ -537,6 +537,17 @@ function initialRevealTimeout(room) {
   transitionToExchangeDraft(room);
 }
 
+// 덱 유효성 검사 (무효하면 랜덤)
+function validateDeck(deck) {
+  if (!deck || !deck.t1 || !deck.t2 || !deck.t3) {
+    return { t1: randomPick(CHARACTERS[1]).type, t2: randomPick(CHARACTERS[2]).type, t3: randomPick(CHARACTERS[3]).type };
+  }
+  const t1 = CHARACTERS[1].find(c => c.type === deck.t1) ? deck.t1 : randomPick(CHARACTERS[1]).type;
+  const t2 = CHARACTERS[2].find(c => c.type === deck.t2) ? deck.t2 : randomPick(CHARACTERS[2]).type;
+  const t3 = CHARACTERS[3].find(c => c.type === deck.t3) ? deck.t3 : randomPick(CHARACTERS[3]).type;
+  return { t1, t2, t3 };
+}
+
 // 캐릭터 데이터 조회 헬퍼
 function findCharData(type, tier) {
   const ch = CHARACTERS[tier]?.find(c => c.type === type);
@@ -724,9 +735,16 @@ function transitionToPlacement(room) {
     aiPlacePieces(room.players[1].pieces, room.boardBounds);
     room.placementDone[1] = true;
   }
-  room.players.forEach((p) => {
+  room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
-      io.to(p.socketId).emit('placement_phase', { pieces: pieceSummary(p.pieces) });
+      const oppPieces = room.players[1 - i].pieces.map(pc => ({
+        type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+        hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag,
+        desc: pc.desc, subUnit: pc.subUnit,
+        hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+        passiveName: pc.passiveName, passives: pc.passives,
+      }));
+      io.to(p.socketId).emit('placement_phase', { pieces: pieceSummary(p.pieces), oppPieces });
     }
   });
   // 관전자에게 배치 페이즈 시작 알림
@@ -741,22 +759,23 @@ function transitionToPlacement(room) {
 function startGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
-  room.currentPlayerIdx = 0;
+  const firstPlayer = Math.random() < 0.5 ? 0 : 1;
+  room.currentPlayerIdx = firstPlayer;
   room.turnNumber = 1;
 
-  room.players[0].actionDone = false;
-  room.players[0].actionUsedSkillReplace = false;
-  room.players[0].skillsUsedBeforeAction = [];
-  room.players[0].twinMovedSubs = [];
+  room.players[firstPlayer].actionDone = false;
+  room.players[firstPlayer].actionUsedSkillReplace = false;
+  room.players[firstPlayer].skillsUsedBeforeAction = [];
+  room.players[firstPlayer].twinMovedSubs = [];
 
   room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
       io.to(p.socketId).emit('game_start', {
         yourPieces: pieceSummary(p.pieces),
         oppPieces: oppPieceSummary(room.players[1 - i].pieces),
-        currentPlayerIdx: 0,
+        currentPlayerIdx: firstPlayer,
         turnNumber: 1,
-        isYourTurn: i === 0,
+        isYourTurn: i === firstPlayer,
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,
@@ -769,6 +788,13 @@ function startGameFromRoom(room) {
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
   // 첫 턴 타이머 시작
   startTimer(room, 'game', () => turnTimeout(room));
+
+  // AI가 선공인 경우 AI 턴 실행
+  if (room.isAI && firstPlayer === 1) {
+    setTimeout(() => {
+      if (room.phase === 'game') aiTakeTurn(room);
+    }, 1000 + Math.random() * 1500);
+  }
 }
 
 function createPiece(type, tier, hp, extra) {
@@ -1060,6 +1086,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
           revealedType: destroyed ? defPiece.type : undefined,
           revealedName: destroyed ? defPiece.name : undefined,
           revealedIcon: destroyed ? defPiece.icon : undefined,
+          attackerSub: atkPiece.subUnit || null,
+          attackerName: atkPiece.name,
+          attackerIcon: atkPiece.icon,
         });
 
         // Post-damage: torturer passive mark
@@ -1094,12 +1123,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
 
   // SlaughterHero passive: allies in attack range take 0.5 dmg
   if (atkPiece.type === 'slaughterHero') {
+    const attackerName = room.players[attackerIdx].name;
     for (const cell of atkCells) {
       for (const allyPiece of attacker.pieces) {
         if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
           allyPiece.hp = Math.max(0, allyPiece.hp - 1);
-          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', msg: `⚔ 학살영웅의 광역 공격에 아군 ${allyPiece.name}이(가) 휘말렸습니다! (1 피해)` });
-          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${attacker.name}의 학살영웅 광역에 아군 ${allyPiece.name} 휘말림! (1 피해)`, type: 'passive', playerIdx: attackerIdx });
+          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', msg: `⚔ ${attackerName}의 학살 영웅이 적군을 공격했습니다! 광역에 아군 ${allyPiece.name}이(가) 휘말림! (1 피해)` });
+          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${attackerName}의 학살 영웅 광역에 아군 ${allyPiece.name} 휘말림! (1 피해)`, type: 'passive', playerIdx: attackerIdx });
           if (allyPiece.hp <= 0) {
             handleDeath(room, allyPiece, attackerIdx);
           }
@@ -1297,6 +1327,7 @@ function processTurnStart(room) {
       }
     }
     emitSPUpdate(room);
+    emitToBoth(room, 'turn_event', { type: 'sp_grant', msg: '턴 이벤트 : 새로운 SP가 지급되었습니다.' });
   }
 
   // Board shrink warning (turn 40+)
@@ -2402,7 +2433,7 @@ function aiExecuteMove(room, action) {
     });
   }
 
-  emitToPlayer(room, 0, 'opp_moved', { msg: '상대방(AI)이 이동했습니다.', prevCol, prevRow, col: action.col, row: action.row });
+  emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}이(가) 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
@@ -2480,7 +2511,7 @@ io.on('connection', (socket) => {
   });
 
   // ── 방 입장 ──
-  socket.on('join_room', ({ roomId, playerName }) => {
+  socket.on('join_room', ({ roomId, playerName, deck }) => {
     if (rooms[roomId] && rooms[roomId].phase === 'ended') {
       delete rooms[roomId];
     }
@@ -2532,42 +2563,45 @@ io.on('connection', (socket) => {
     }
 
     const idx = room.players.length;
+    const playerDraft = validateDeck(deck);
     room.players.push({
       socketId: socket.id, name: playerName, index: idx,
-      pieces: [], draft: null, hpDist: null,
+      pieces: [], draft: playerDraft, hpDist: null,
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
     });
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.idx = idx;
+    room.draftDone[idx] = true;
 
     socket.emit('joined', { idx, roomId, playerName, characters: CHARACTERS });
 
     if (room.players.length === 2) {
-      room.phase = 'draft';
       room.players.forEach((p, i) => {
         io.to(p.socketId).emit('opponent_joined', { opponentName: room.players[1 - i].name });
       });
-      io.to(roomId).emit('phase_change', { phase: 'draft' });
-      emitToSpectators(room, 'spectator_phase', { phase: 'draft', p0Name: room.players[0].name, p1Name: room.players[1].name, characters: CHARACTERS });
-      startTimer(room, 'draft', () => draftTimeout(room));
+      // 드래프트 건너뛰기 → 바로 초기 공개
+      transitionToInitialReveal(room);
     } else {
       socket.emit('waiting', {});
     }
   });
 
   // ── AI 연습 모드 ──
-  socket.on('join_ai', ({ playerName }) => {
+  socket.on('join_ai', ({ playerName, deck }) => {
     const roomId = `ai_${socket.id}_${Date.now()}`;
     rooms[roomId] = createRoom(roomId);
     const room = rooms[roomId];
     room.isAI = true;
     room.aiBrain = initAiBrain();
 
+    // 덱 유효성 검사 후 드래프트로 사용
+    const playerDraft = validateDeck(deck);
+
     room.players.push({
       socketId: socket.id, name: playerName, index: 0,
-      pieces: [], draft: null, hpDist: null,
+      pieces: [], draft: playerDraft, hpDist: null,
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
     });
@@ -2585,13 +2619,13 @@ io.on('connection', (socket) => {
     socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS });
     socket.emit('opponent_joined', { opponentName: 'AI' });
 
-    room.phase = 'draft';
-    socket.emit('phase_change', { phase: 'draft' });
-    startTimer(room, 'draft', () => draftTimeout(room));
-
     const aiDraft = aiSelectPieces();
     room.players[1].draft = aiDraft;
+    room.draftDone[0] = true;
     room.draftDone[1] = true;
+
+    // 드래프트 건너뛰기 → 바로 초기 공개
+    transitionToInitialReveal(room);
   });
 
   // ── 드래프트 실시간 브라우징 (관전자용) ──
@@ -2981,7 +3015,7 @@ io.on('connection', (socket) => {
     });
     const opp = room.players[1 - idx];
     if (opp.socketId !== 'AI') {
-      io.to(opp.socketId).emit('opp_moved', { msg: '상대방이 이동했습니다.', prevCol: prev.col, prevRow: prev.row, col, row });
+      io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[playerIdx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
     }
     emitToSpectators(room, 'spectator_log', { msg: `🚶 ${player.name}의 ${piece.icon}${piece.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, type: 'move', playerIdx: idx });
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
@@ -3114,6 +3148,7 @@ io.on('connection', (socket) => {
         col: cell.col, row: cell.row, hit: !!hit,
         damage: hit ? hit.damage : 0, destroyed: hit ? hit.destroyed : false,
         revealedType: hit?.revealedType, revealedName: hit?.revealedName, revealedIcon: hit?.revealedIcon,
+        attackerSub: hit?.attackerSub, attackerName: hit?.attackerName, attackerIcon: hit?.attackerIcon,
       };
     });
     socket.emit('attack_result', {

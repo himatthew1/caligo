@@ -161,15 +161,71 @@
 
 <!-- ── 교환 드래프트 ── -->
 <div id="screen-exchange" class="screen">
-  <div class="exchange-container">
-    <h2>교환 드래프트</h2>
-    <p class="muted">같은 티어 내에서 캐릭터 1명을 교환할 수 있습니다 (선택사항)</p>
-    <div id="exchange-my-draft" class="exchange-draft-cards"></div>
-    <div id="exchange-pool" class="exchange-pool"></div>
-    <div class="exchange-btns">
-      <button id="btn-exchange-confirm" class="btn btn-primary">교환 없이 확정</button>
+  <div class="draft-layout exchange-layout">
+    <!-- 왼쪽: 캐릭터 뷰어 (덱 빌더와 동일 구조) -->
+    <div class="draft-main">
+      <h2 id="ex-draft-title">교환 드래프트</h2>
+      <p id="ex-draft-sub" class="muted">교환할 티어를 선택 후 캐릭터를 고르세요 (선택사항)</p>
+      <div id="ex-step-indicator" class="step-indicator">
+        <span class="step active">1티어</span>
+        <span class="step-arrow">→</span>
+        <span class="step">2티어</span>
+        <span class="step-arrow">→</span>
+        <span class="step">3티어</span>
+      </div>
+      <div class="draft-viewer-wrap">
+        <div id="ex-icon-index" class="draft-icon-index"></div>
+        <div class="slide-viewer">
+          <button id="btn-ex-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
+          <div class="slide-content" id="ex-slide-content">
+            <div class="slide-hero">
+              <span id="ex-slide-icon" class="slide-icon"></span>
+              <div class="slide-hero-info">
+                <div id="ex-slide-name" class="slide-name"></div>
+                <div id="ex-slide-desc" class="slide-desc"></div>
+              </div>
+            </div>
+            <div class="slide-stats">
+              <div id="ex-slide-atk" class="slide-stat"></div>
+              <div id="ex-slide-detail-blocks"></div>
+              <div id="ex-slide-detail-body" class="slide-detail-body"></div>
+            </div>
+            <div class="slide-preview-area">
+              <h4>공격 범위 미리보기</h4>
+              <div id="ex-preview-board" class="board preview-board"></div>
+              <div id="ex-preview-info" class="draft-preview-info"></div>
+            </div>
+          </div>
+          <button id="btn-ex-slide-next" class="slide-arrow slide-arrow-right">›</button>
+        </div>
+      </div>
+      <div class="slide-pager" id="ex-slide-pager"></div>
+      <p id="exchange-error" class="error-msg"></p>
     </div>
-    <p id="exchange-error" class="error-msg"></p>
+
+    <!-- 오른쪽: 내 조합 슬롯 + 상대 캐릭터 + 버튼 -->
+    <div class="draft-sidebar">
+      <h3 class="sidebar-title">내 조합</h3>
+      <div id="ex-slot-1" class="draft-slot empty" data-tier="1">
+        <span class="slot-tier">1티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="ex-slot-2" class="draft-slot empty" data-tier="2">
+        <span class="slot-tier">2티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="ex-slot-3" class="draft-slot empty" data-tier="3">
+        <span class="slot-tier">3티어</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="ex-opp-panel" class="exchange-opp-sidebar">
+        <h3 class="sidebar-title" style="color:#ef4444">상대 조합</h3>
+        <div id="ex-opp-chars"></div>
+      </div>
+      <div class="draft-sidebar-btns">
+        <button id="btn-exchange-confirm" class="btn btn-primary">최종 출격</button>
+      </div>
+    </div>
   </div>
 </div>
 
