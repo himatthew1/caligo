@@ -17,11 +17,7 @@
   <span id="timer-text" class="timer-clock-text">90</span>
 </div>
 
-<!-- ── 오디오 토글 (항상 고정 표시) ── -->
-<div id="global-audio-toggle" class="global-audio-toggle">
-  <button class="btn-bgm-toggle audio-btn" title="음악 끄기">🎵</button>
-  <button class="btn-sfx-toggle audio-btn" title="효과음 끄기">🔔</button>
-</div>
+<!-- (오디오 토글은 채팅 위젯 옆에 통합) -->
 
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
@@ -367,7 +363,11 @@
 
 <!-- ── 채팅 ── -->
 <div id="chat-widget" class="chat-widget chat-collapsed">
-  <button id="chat-toggle" class="chat-toggle-btn">💬 <span id="chat-badge" class="chat-badge hidden">0</span></button>
+  <div class="chat-bottom-row">
+    <button class="btn-bgm-toggle audio-btn-round" title="음악 끄기">🎵</button>
+    <button class="btn-sfx-toggle audio-btn-round" title="효과음 끄기">🔔</button>
+    <button id="chat-toggle" class="chat-toggle-btn">💬 <span id="chat-badge" class="chat-badge hidden">0</span></button>
+  </div>
   <div class="chat-panel">
     <div class="chat-header">
       <span>💬 채팅</span>
