@@ -552,7 +552,7 @@ function validateDeck(deck) {
 function findCharData(type, tier) {
   const ch = CHARACTERS[tier]?.find(c => c.type === type);
   if (!ch) return { type, name: type, icon: '?', desc: '' };
-  return { type: ch.type, name: ch.name, icon: ch.icon, desc: ch.desc, tag: ch.tag, atk: ch.atk, range: ch.range };
+  return { type: ch.type, name: ch.name, icon: ch.icon, desc: ch.desc, tag: ch.tag, atk: ch.atk, range: ch.range, skills: ch.skills || [], passives: ch.passives || [] };
 }
 
 // ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (90초) ──
@@ -793,7 +793,7 @@ function startGameFromRoom(room) {
   if (room.isAI && firstPlayer === 1) {
     setTimeout(() => {
       if (room.phase === 'game') aiTakeTurn(room);
-    }, 1000 + Math.random() * 1500);
+    }, 3000);
   }
 }
 
@@ -883,9 +883,13 @@ function oppPieceSummary(pieces) {
       alive: pc.alive,
       statusEffects: pc.statusEffects.filter(e => e.type !== 'trap'),
       hasSkill: pc.hasSkill, skillName: pc.skillName,
+      skillCost: pc.skillCost,
+      skills: pc.skills || [],
+      passives: pc.passives || [],
       passiveName: pc.passiveName,
       subUnit: pc.subUnit,
       isDragon: pc.isDragon,
+      range: pc.range,
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
@@ -1072,7 +1076,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
   const hitResults = [];
 
   for (const cell of atkCells) {
-    for (const defPiece of defender.pieces) {
+    for (let dpi = 0; dpi < defender.pieces.length; dpi++) {
+      const defPiece = defender.pieces[dpi];
       if (defPiece.alive && defPiece.col === cell.col && defPiece.row === cell.row) {
         const dmg = resolveDamage(room, atkPiece, defPiece, attackerIdx, baseDmg, false);
         defPiece.hp = Math.max(0, defPiece.hp - dmg);
@@ -1086,6 +1091,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
           revealedType: destroyed ? defPiece.type : undefined,
           revealedName: destroyed ? defPiece.name : undefined,
           revealedIcon: destroyed ? defPiece.icon : undefined,
+          hitName: defPiece.name,
+          hitIcon: defPiece.icon,
+          defPieceIdx: dpi,          // 피격 대상의 배열 인덱스 (프로필 애니메이션용)
           attackerSub: atkPiece.subUnit || null,
           attackerName: atkPiece.name,
           attackerIcon: atkPiece.icon,
@@ -1404,9 +1412,11 @@ function endTurn(room) {
       oppPieces: oppPieceSummary(cur.pieces),
       boardObjects: boardObjectsSummary(room, prevIdx),
     });
+    // AI 턴에도 타이머 리셋 (플레이어에게 시각적 표시)
+    startTimer(room, 'game', () => turnTimeout(room));
     setTimeout(() => {
       if (room.phase === 'game') aiTakeTurn(room);
-    }, 1000 + Math.random() * 1500);
+    }, 3000);
     return;
   }
 
@@ -1429,10 +1439,8 @@ function endTurn(room) {
   emitToSpectators(room, 'spectator_log', { msg: `[턴 ${room.turnNumber}] ${curPlayer.name}의 차례`, type: 'system', playerIdx: room.currentPlayerIdx });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-  // 턴 타이머 시작 (AI 턴이 아닌 경우)
-  if (!(room.isAI && curIdx === 1)) {
-    startTimer(room, 'game', () => turnTimeout(room));
-  }
+  // 턴 타이머 시작
+  startTimer(room, 'game', () => turnTimeout(room));
 }
 
 function endGame(room, winnerIdx, reason) {
@@ -2250,6 +2258,13 @@ function aiFindFleeingPieces(room) {
   return fleeing.sort((a, b) => b.urgency - a.urgency);
 }
 
+const AI_ACTION_DELAY = 3000;
+function aiEndTurn(room) {
+  setTimeout(() => {
+    if (room.phase === 'game') endTurn(room);
+  }, AI_ACTION_DELAY);
+}
+
 function aiTakeTurn(room) {
   const aiPlayer = room.players[1];
   const humanPlayer = room.players[0];
@@ -2306,7 +2321,7 @@ function aiTakeTurn(room) {
         if (Math.random() < 0.4) {
           aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
-          endTurn(room);
+          aiEndTurn(room);
           return;
         }
       }
@@ -2329,7 +2344,7 @@ function aiTakeTurn(room) {
           if (bestBombCell && bestBombScore > 3) {
             aiExecSkill(room, pidx, );
             aiPlayer.actionDone = true;
-            endTurn(room);
+            aiEndTurn(room);
             return;
           }
         }
@@ -2344,7 +2359,7 @@ function aiTakeTurn(room) {
           const tIdx = room.players[0].pieces.indexOf(target);
           aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
-          endTurn(room);
+          aiEndTurn(room);
           return;
         }
       }
@@ -2356,7 +2371,7 @@ function aiTakeTurn(room) {
         if (borderScore > 20) {
           aiExecSkill(room, pidx, );
           aiPlayer.actionDone = true;
-          endTurn(room);
+          aiEndTurn(room);
           return;
         }
       }
@@ -2397,7 +2412,7 @@ function aiTakeTurn(room) {
 
   if (!bestAction) {
     aiPlayer.actionDone = true;
-    endTurn(room);
+    aiEndTurn(room);
     return;
   }
 
@@ -2438,7 +2453,7 @@ function aiExecuteMove(room, action) {
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   aiPlayer.actionDone = true;
-  endTurn(room);
+  aiEndTurn(room);
 }
 
 function aiExecuteAttack(room, action) {
@@ -2496,7 +2511,7 @@ function aiExecuteAttack(room, action) {
   }
 
   aiPlayer.actionDone = true;
-  endTurn(room);
+  aiEndTurn(room);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2939,6 +2954,11 @@ io.on('connection', (socket) => {
 
     const piece = player.pieces[pieceIdx];
     if (!piece || !piece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
+
+    // 쌍둥이 이동 중에는 쌍둥이만 이동 가능
+    if (player.twinMovedSubs && player.twinMovedSubs.length > 0 && !piece.subUnit) {
+      socket.emit('err', { msg: '쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.' }); return;
+    }
     if (!inBounds(col, row, room.boardBounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
     if (!isCrossAdjacent(piece.col, piece.row, col, row)) {
       socket.emit('err', { msg: '상하좌우 1칸만 이동할 수 있습니다.' }); return;
@@ -3052,6 +3072,8 @@ io.on('connection', (socket) => {
             col: cell.col, row: cell.row, hit: !!hit,
             damage: hit ? hit.damage : 0, destroyed: hit ? hit.destroyed : false,
             revealedType: hit?.revealedType, revealedName: hit?.revealedName, revealedIcon: hit?.revealedIcon,
+            hitName: hit?.hitName, hitIcon: hit?.hitIcon,
+            defPieceIdx: hit?.defPieceIdx,
           };
         });
         socket.emit('attack_result', {
@@ -3089,6 +3111,11 @@ io.on('connection', (socket) => {
 
     if (player.actionUsedSkillReplace) {
       socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 공격할 수 없습니다.' }); return;
+    }
+
+    // 쌍둥이 이동 중이면 공격 불가 (이동과 공격을 섞을 수 없음)
+    if (player.twinMovedSubs && player.twinMovedSubs.length > 0) {
+      socket.emit('err', { msg: '쌍둥이가 이동 중입니다. 나머지 쌍둥이도 이동하거나 턴을 종료하세요.' }); return;
     }
 
     const attacker = player;
@@ -3148,6 +3175,8 @@ io.on('connection', (socket) => {
         col: cell.col, row: cell.row, hit: !!hit,
         damage: hit ? hit.damage : 0, destroyed: hit ? hit.destroyed : false,
         revealedType: hit?.revealedType, revealedName: hit?.revealedName, revealedIcon: hit?.revealedIcon,
+        hitName: hit?.hitName, hitIcon: hit?.hitIcon,
+        defPieceIdx: hit?.defPieceIdx,
         attackerSub: hit?.attackerSub, attackerName: hit?.attackerName, attackerIcon: hit?.attackerIcon,
       };
     });

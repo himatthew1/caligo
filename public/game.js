@@ -120,6 +120,7 @@ function showScreen(id) {
   // BGM 자동 전환
   const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
   if (id === 'screen-lobby') bgmPlay('lobby');
+  else if (id === 'screen-draft' && S.deckBuilderMode) bgmPlay('lobby');
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
   // gameover는 game_over 핸들러에서 직접 호출
@@ -619,6 +620,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.selectedPiece = null;
     S.twinMovePending = true;
     S.twinMovedSub = twinMovedSub;  // 이동 완료된 쪽 추적
+    S.moveDone = true;  // 이동 시작됨 → 공격 차단
     renderGameBoard();
     renderMyPieces();
     const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
@@ -649,6 +651,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
   animateAttack(atkCells, hitCells);
   playSfx('attack');
+
+  // 아군 피해 감지용: 업데이트 전 HP 스냅샷 (학살 영웅 등)
+  const oldMyHps = S.myPieces.map(p => p.hp);
 
   if (oppPieces) { S.oppPieces = oppPieces; }
   if (yourPieces) { S.myPieces = yourPieces; }
@@ -704,10 +709,28 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     addLog(`⚔ 쌍검무: 추가 공격 가능! (남은 공격: ${pc.dualBladeAttacksLeft})`, 'info');
   }
 
+  // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
+  const oppHitIndices = [];
+  for (const c of cellResults) {
+    if (c.hit && c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) {
+      oppHitIndices.push(c.defPieceIdx);
+    }
+  }
+  // 아군 피해 인덱스 (학살 영웅 등 friendly fire)
+  const myFriendlyFireIndices = [];
+  for (let i = 0; i < S.myPieces.length; i++) {
+    if (S.myPieces[i].hp < oldMyHps[i]) myFriendlyFireIndices.push(i);
+  }
+
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
   showActionBar(true);
+
+  // 상대 유닛 피격 애니메이션
+  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
+  // 아군 피해 애니메이션 (학살 영웅 등)
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
 });
 
 // ── 피격 ──
@@ -728,19 +751,14 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
       showSkillToast(`${unitName} 피격! ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, true);
     }
   }
+  // 피격 유닛 인덱스를 미리 수집 (renderMyPieces 전에 — 좌표 매칭)
+  const hitIndices = findPieceIndices(S.myPieces, hitPieces);
+
   renderGameBoard();
   renderMyPieces();
-  // 피격 유닛 프로필 흔들림 애니메이션
-  if (hitPieces.length > 0) {
-    const cards = document.querySelectorAll('#my-pieces-info .my-piece-card');
-    for (const h of hitPieces) {
-      const hitIdx = S.myPieces.findIndex(p => p.col === h.col && p.row === h.row);
-      if (hitIdx >= 0 && cards[hitIdx]) {
-        cards[hitIdx].classList.add('profile-shake');
-        setTimeout(() => cards[hitIdx].classList.remove('profile-shake'), 1200);
-      }
-    }
-  }
+
+  // 피격 유닛 프로필 흔들림 + 금색 플래시
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
 });
 
 // ── SP 업데이트 ──
@@ -772,19 +790,36 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   playSfx('shrink');
   showSkillToast('🔥 턴 이벤트 : 보드 축소!', true);
   addLog(`🔥 보드 축소! 5×5 → 3×3`, 'shrink');
+
+  // 축소로 파괴된 유닛 인덱스 수집 (렌더 전)
+  const myShrinkIdx = [];
+  const oppShrinkIdx = [];
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
       addLog(`  💀 ${e.icon} ${e.name} 파괴됨!`, 'shrink');
+      const hitData = [{ col: e.col, row: e.row, name: e.name }];
+      if (e.owner === S.playerIdx) {
+        myShrinkIdx.push(...findPieceIndices(S.myPieces, hitData));
+      } else {
+        oppShrinkIdx.push(...findPieceIndices(S.oppPieces, hitData));
+      }
     }
   }
   document.getElementById('shrink-warning').classList.add('hidden');
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
+
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', myShrinkIdx);
+  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppShrinkIdx);
 });
 
 // ── 스킬 결과 ──
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed }) => {
+  // 피해 감지용: 업데이트 전 HP 스냅샷
+  const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
+  const oldMyHps = S.myPieces.map(p => p.hp);
+
   if (yourPieces) S.myPieces = yourPieces;
   if (oppPieces) S.oppPieces = oppPieces;
   if (sp) { S.sp = sp; }
@@ -799,14 +834,36 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
     addLog(`✦ ${msg}`, 'skill');
     showSkillToast(`✦ ${msg}`);
   }
+
+  // 내 스킬로 상대 유닛이 피해를 받았는지 감지
+  const oppSkillDmgIdx = [];
+  if (S.oppPieces) {
+    for (let i = 0; i < S.oppPieces.length; i++) {
+      if (i < oldOppHps.length && S.oppPieces[i].hp < oldOppHps[i]) oppSkillDmgIdx.push(i);
+    }
+  }
+  // 내 스킬로 내 유닛이 피해를 받았는지 감지 (자해 스킬 등)
+  const mySkillDmgIdx = [];
+  for (let i = 0; i < S.myPieces.length; i++) {
+    if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
+  }
+
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
   if (S.isMyTurn) showActionBar(true);
+
+  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
 socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed }) => {
+  playSfx('opp_skill');
+
+  // 피해 감지용: 업데이트 전 HP 스냅샷
+  const oldMyHps = S.myPieces.map(p => p.hp);
+
   if (yourPieces) S.myPieces = yourPieces;
   if (oppPieces) S.oppPieces = oppPieces;
   if (sp) { S.sp = sp; }
@@ -824,9 +881,18 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     showSkillToast(`🚨 상대가 스킬을 사용했습니다.`, true);
     addLog(`🚨 상대가 스킬을 사용했습니다.`, 'skill-enemy');
   }
+
+  // 상대 스킬로 내 유닛이 피해를 받았는지 감지
+  const mySkillDmgIdx = [];
+  for (let i = 0; i < S.myPieces.length; i++) {
+    if (S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
+  }
+
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
+
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
 });
 
 // ── 정찰 결과 ──
@@ -861,11 +927,23 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 
 // ── 함정 발동 ──
 socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
+  playSfx('hit');
   const msg = `🪤 ${pieceInfo.icon}${pieceInfo.name}이(가) 인간 사냥꾼의 덫에 걸렸습니다! ${damage} 피해`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
+
+  // 덫 피격 애니메이션: 이름으로만 매칭 (좌표 매칭하면 같은 자리의 다른 유닛이 잘못 매칭됨)
+  const trapHit = [{ name: pieceInfo.name }];
+  const myTrapIdx = findPieceIndices(S.myPieces, trapHit, false);
+  const oppTrapIdx = findPieceIndices(S.oppPieces, trapHit, false);
+
   renderGameBoard();
+  renderMyPieces();
+  renderOppPieces();
+
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', myTrapIdx);
+  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppTrapIdx);
 });
 
 // ── 폭탄 폭발 ──
@@ -873,14 +951,24 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   addLog(`💣 ${coord(col,row)} 폭탄 폭발!`, 'hit');
   showSkillToast(`💣 ${coord(col,row)} 폭탄 폭발!`);
   for (const h of hits) {
+    if (h.destroyed) playSfx('kill'); else playSfx('hit');
     addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
   }
   if (hits.length === 0) {
     S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
   }
+
+  // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두
+  const myBombIdx = findPieceIndices(S.myPieces, hits);
+  const oppBombIdx = findPieceIndices(S.oppPieces, hits);
+
   renderGameBoard();
   renderMyPieces();
+  renderOppPieces();
+
+  applyProfileHitAnim('#my-pieces-info .my-piece-card', myBombIdx);
+  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppBombIdx);
 });
 
 // ── 패시브 알림 ──
@@ -2646,9 +2734,11 @@ function showActionBar(enabled) {
 
     // ── 공격 가능 여부 ──
     // actionDone이면 공격 불가 (이미 이동 또는 공격함)
+    // 이동했으면 공격 불가 (moveDone 또는 twinMovePending)
     // 단, 쌍검무 추가 공격이 남아있으면 가능
     const hasDualBlade = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
-    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !S.actionUsedSkillReplace;
+    const movedAlready = S.moveDone || S.twinMovePending;
+    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !movedAlready && !S.actionUsedSkillReplace;
     btnAttack.disabled = !canAttack;
     btnAttack.classList.toggle('action-dimmed', !canAttack);
 
@@ -2915,7 +3005,7 @@ function renderMyPieces() {
     const isActive = S.selectedPiece === i;
     // 쌍둥이: 이미 이동한 쪽 흐리게 표시
     const twinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
-    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''} ${twinDimmed ? 'twin-moved' : ''}`;
+    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     const barClass = hpPct <= 25 ? 'low' : '';
 
@@ -3039,6 +3129,12 @@ function renderOppPieces() {
       ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
       : '';
     const statusHtml = renderStatusBadges(pc);
+    const skillHtml = pc.hasSkill
+      ? `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP)</div>`
+      : '';
+    const passiveHtml = pc.passiveName
+      ? `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${pc.passiveName}</div>`
+      : '';
 
     const pieceKey = `${pc.type}:${pc.subUnit || ''}`;
     const placedToken = S.deductionTokens.find(t => t.pieceKey === pieceKey);
@@ -3047,16 +3143,21 @@ function renderOppPieces() {
       : '';
 
     card.innerHTML = `
-      <span class="p-icon">${pc.icon}</span>
-      <div class="opp-info">
-        <strong>${pc.name}${tagHtml}${placedBadge}</strong>
-        <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+      <div class="my-piece-header">
+        <span class="p-icon">${pc.icon}</span>
+        <strong>${pc.name}</strong>
+        <span class="tier-badge">${pc.tier}T</span>
+        ${tagHtml}
+        ${placedBadge}
+      </div>
+      <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
-        ${statusHtml}
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.68rem">
-          ${pc.alive ? '생존' : '💀'}
+          ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : '💀 격파'}
         </span>
-      </div>`;
+      </div>
+      ${skillHtml}${passiveHtml}${statusHtml}`;
 
     // 호버 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
@@ -3135,9 +3236,9 @@ function getSkillTypeTagFromChar(pc) {
 function buildPieceTooltip(pc, side) {
   const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
 
-  // 다중 스킬 지원
+  // 스킬 표시 — skills 배열 우선, 없으면 hasSkill/skillName 폴백
   let skillHtml = '';
-  if (pc.skills && pc.skills.length > 1) {
+  if (pc.skills && pc.skills.length > 0) {
     for (const sk of pc.skills) {
       const skTag = getSkillTypeTag(sk);
       skillHtml += `<div class="tooltip-line skill-color">스킬: ${sk.name} (${sk.cost}SP) ${skTag}</div>`;
@@ -3152,11 +3253,15 @@ function buildPieceTooltip(pc, side) {
     skillHtml = '<div class="tooltip-line" style="color:var(--muted)">스킬 없음</div>';
   }
 
-  // 패시브
+  // 패시브 — passiveName 또는 passives 배열
   let passiveHtml = '';
   if (pc.passiveName) {
-    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
+    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : pc.passiveName;
     passiveHtml = `<div class="tooltip-line passive-color">패시브: ${passiveDesc}</div>`;
+  } else if (pc.passives && pc.passives.length > 0) {
+    for (const pid of pc.passives) {
+      passiveHtml += `<div class="tooltip-line passive-color">패시브: ${getPassiveLabel(pid)}</div>`;
+    }
   }
 
   // 상태이상 배지
@@ -3212,6 +3317,10 @@ document.getElementById('btn-move').addEventListener('click', () => {
 // 공격 버튼
 document.getElementById('btn-attack').addEventListener('click', () => {
   if (!S.isMyTurn) return;
+  if (S.twinMovePending) {
+    document.getElementById('action-hint').textContent = '⚠ 쌍둥이가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
+    return;
+  }
   S.action = 'attack';
   S.selectedPiece = null;
   S.targetSelectMode = false;
@@ -3229,13 +3338,14 @@ document.getElementById('btn-skill').addEventListener('click', () => {
 // 턴 종료 버튼 (행동 없이 누르면 확인 모달)
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!S.isMyTurn) return;
+  // 쌍둥이 중 한명만 이동한 경우 확인
+  if (S.twinMovePending) {
+    document.getElementById('twin-endturn-modal').classList.remove('hidden');
+    return;
+  }
   if (!S.moveDone && !S.actionDone) {
     document.getElementById('endturn-modal').classList.remove('hidden');
     return;
-  }
-  // 쌍둥이 중 한명만 이동한 경우 확인
-  if (S.twinMovePending) {
-    if (!confirm('아직 이동하지 않은 쌍둥이가 있습니다. 그래도 턴을 종료하겠습니까?')) return;
   }
   socket.emit('end_turn');
   S.isMyTurn = false;
@@ -3243,16 +3353,26 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
 });
 document.getElementById('endturn-confirm').addEventListener('click', () => {
   document.getElementById('endturn-modal').classList.add('hidden');
-  // 쌍둥이 중 한명만 이동한 경우 확인
-  if (S.twinMovePending) {
-    if (!confirm('아직 이동하지 못한 쌍둥이가 있습니다. 그래도 종료하겠습니까?')) return;
-  }
   socket.emit('end_turn');
   S.isMyTurn = false;
   showActionBar(false);
 });
 document.getElementById('endturn-cancel').addEventListener('click', () => {
   document.getElementById('endturn-modal').classList.add('hidden');
+});
+
+// 쌍둥이 미이동 턴 종료 모달
+document.getElementById('twin-endturn-confirm').addEventListener('click', () => {
+  document.getElementById('twin-endturn-modal').classList.add('hidden');
+  S.twinMovePending = false;
+  S.twinMovedSub = null;
+  socket.emit('end_turn');
+  S.isMyTurn = false;
+  showActionBar(false);
+  renderBoard();
+});
+document.getElementById('twin-endturn-cancel').addEventListener('click', () => {
+  document.getElementById('twin-endturn-modal').classList.add('hidden');
 });
 
 // 기권 버튼
@@ -3596,9 +3716,14 @@ function handleGameCellClick(col, row) {
       // 말 선택
       const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
       if (pc) {
-        // 이미 이동한 쌍둥이 선택 차단
+        // 쌍둥이 이동 중: 이미 이동한 쪽 차단
         if (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub) {
           document.getElementById('action-hint').textContent = '⚠ 이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.';
+          return;
+        }
+        // 쌍둥이 이동 중: 쌍둥이가 아닌 유닛 선택 차단
+        if (S.twinMovePending && !pc.subUnit) {
+          document.getElementById('action-hint').textContent = '⚠ 쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.';
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
@@ -4417,12 +4542,12 @@ function renderSpectatorGame(gs) {
 }
 
 // ── 스킬 사용 토스트 알림 (큐 기반 순차 등장) ──────────────
-const _toastStack = [];
 const _toastQueue = [];
 let _toastProcessing = false;
-const TOAST_MAX = 6;
-const TOAST_INTERVAL = 800; // 순차 등장 간격 (ms)
+const TOAST_INTERVAL = 1000; // 순차 등장 간격 (ms) — 한 개씩 1초 텀
 const TOAST_DURATION = 4000; // 체류 시간
+const TOAST_MAX_VISIBLE = 4;  // 화면에 동시 표시 최대 수
+const _toastVisible = [];     // 현재 화면에 보이는 토스트 목록
 
 function _getToastContainer() {
   let container = document.getElementById('toast-container');
@@ -4445,8 +4570,10 @@ function _showToastNow(msg, isEnemy, specPlayerIdx) {
   toast.style.cssText = `
     color:#fff; padding:10px 24px;
     border-radius:8px; font-size:0.9rem; font-weight:600;
-    pointer-events:none; opacity:0; transition:opacity 0.3s, transform 0.3s;
-    box-shadow:0 4px 20px rgba(0,0,0,0.4); transform:translateY(-8px);
+    pointer-events:none; opacity:0;
+    transition:opacity 0.35s ease, transform 0.35s ease;
+    box-shadow:0 4px 20px rgba(0,0,0,0.4);
+    transform:translateY(-20px);
     white-space:nowrap;
   `;
 
@@ -4459,28 +4586,40 @@ function _showToastNow(msg, isEnemy, specPlayerIdx) {
     toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
   }
   toast.textContent = msg;
-  container.appendChild(toast);
-  _toastStack.push(toast);
 
-  // 최대 개수 초과 시 오래된 것 제거
-  while (_toastStack.length > TOAST_MAX) {
-    const old = _toastStack.shift();
-    if (old.parentNode) { old.style.opacity = '0'; old.style.transform = 'translateY(-8px)'; setTimeout(() => { if (old.parentNode) old.parentNode.removeChild(old); }, 300); }
+  // 최신 토스트를 맨 위(컨테이너 첫 자식)에 삽입
+  if (container.firstChild) {
+    container.insertBefore(toast, container.firstChild);
+  } else {
+    container.appendChild(toast);
+  }
+  _toastVisible.unshift(toast);
+
+  // 최대 표시 수 초과 시 오래된 것 즉시 제거
+  while (_toastVisible.length > TOAST_MAX_VISIBLE) {
+    const old = _toastVisible.pop();
+    if (old.parentNode) {
+      old.style.opacity = '0';
+      old.style.transform = 'translateY(10px)';
+      setTimeout(() => { if (old.parentNode) old.parentNode.removeChild(old); }, 300);
+    }
   }
 
+  // 위에서 아래로 슬라이드 인
   requestAnimationFrame(() => {
     toast.style.opacity = '1';
     toast.style.transform = 'translateY(0)';
   });
 
+  // 체류 후 페이드아웃
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(-8px)';
+    toast.style.transform = 'translateY(-10px)';
     setTimeout(() => {
-      const idx = _toastStack.indexOf(toast);
-      if (idx >= 0) _toastStack.splice(idx, 1);
+      const idx = _toastVisible.indexOf(toast);
+      if (idx >= 0) _toastVisible.splice(idx, 1);
       if (toast.parentNode) toast.parentNode.removeChild(toast);
-    }, 300);
+    }, 350);
   }, TOAST_DURATION);
 }
 
@@ -4489,11 +4628,14 @@ function _processToastQueue() {
   _toastProcessing = true;
   const { msg, isEnemy, specPlayerIdx } = _toastQueue.shift();
   _showToastNow(msg, isEnemy, specPlayerIdx);
-  if (_toastQueue.length > 0) {
-    setTimeout(_processToastQueue, TOAST_INTERVAL);
-  } else {
-    _toastProcessing = false;
-  }
+  // 다음 토스트는 반드시 TOAST_INTERVAL 후에 (큐에 남아있든 없든)
+  setTimeout(() => {
+    if (_toastQueue.length > 0) {
+      _processToastQueue();
+    } else {
+      _toastProcessing = false;
+    }
+  }, TOAST_INTERVAL);
 }
 
 function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
@@ -4549,6 +4691,38 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow) {
 }
 
 // ── 공격 모션 애니메이션 ──
+// ── 피격 프로필 애니메이션 헬퍼 ──
+function applyProfileHitAnim(selector, indices) {
+  if (!indices || indices.length === 0) return;
+  requestAnimationFrame(() => {
+    const cards = document.querySelectorAll(selector);
+    for (const idx of indices) {
+      if (cards[idx]) {
+        cards[idx].classList.remove('profile-hit');
+        void cards[idx].offsetWidth; // reflow to restart animation
+        cards[idx].classList.add('profile-hit');
+        setTimeout(() => cards[idx].classList.remove('profile-hit'), 1800);
+      }
+    }
+  });
+}
+
+// 좌표/이름으로 피스 배열에서 인덱스 찾기 (살아있는 유닛만)
+function findPieceIndices(pieces, hitList, matchByCoord = true) {
+  const indices = [];
+  for (const h of hitList) {
+    let idx = -1;
+    if (matchByCoord && h.col !== undefined && h.row !== undefined) {
+      idx = pieces.findIndex(p => p.alive && p.col === h.col && p.row === h.row);
+    }
+    if (idx < 0 && h.name) {
+      idx = pieces.findIndex(p => p.alive && p.name === h.name);
+    }
+    if (idx >= 0 && !indices.includes(idx)) indices.push(idx);
+  }
+  return indices;
+}
+
 function animateAttack(atkCells, hitCells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -4653,15 +4827,111 @@ function playSfx(type) {
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
         break;
-      case 'skill':
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(600, ctx.currentTime);
-        osc.frequency.setValueAtTime(900, ctx.currentTime + 0.1);
-        osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.15, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+      case 'skill': {
+        // 메인 오실레이터 비활성
+        osc.type = 'sine'; osc.frequency.value = 0; gain.gain.value = 0;
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.01);
+        const now = ctx.currentTime;
+        const out = ctx.destination;
+        // ① 스파클 아르페지오 (G5→B5→D6→F#6→G6→A6)
+        const sparkleNotes = [784, 988, 1175, 1397, 1568, 1760];
+        for (let i = 0; i < sparkleNotes.length; i++) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.value = sparkleNotes[i];
+          g.gain.setValueAtTime(0.12, now + i * 0.05);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.2);
+          o.connect(g); g.connect(out);
+          o.start(now + i * 0.05); o.stop(now + i * 0.05 + 0.25);
+        }
+        // ② 마법 화음 (C5+E5+G5+C6)
+        const chordTime = now + 0.3;
+        const chordFreqs = [523.25, 659.25, 783.99, 1046.5];
+        for (const freq of chordFreqs) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle';
+          o.frequency.value = freq;
+          g.gain.setValueAtTime(0.08, chordTime);
+          g.gain.linearRampToValueAtTime(0.06, chordTime + 0.15);
+          g.gain.exponentialRampToValueAtTime(0.001, chordTime + 0.7);
+          o.connect(g); g.connect(out);
+          o.start(chordTime); o.stop(chordTime + 0.75);
+        }
+        // ③ 고음 심벌 반짝임
+        const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+        const nData = nBuf.getChannelData(0);
+        for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+        const noise = ctx.createBufferSource();
+        noise.buffer = nBuf;
+        const nGain = ctx.createGain();
+        nGain.gain.setValueAtTime(0.06, now);
+        nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        const hpf = ctx.createBiquadFilter();
+        hpf.type = 'highpass'; hpf.frequency.value = 6000;
+        noise.connect(hpf); hpf.connect(nGain); nGain.connect(out);
+        noise.start(now); noise.stop(now + 0.15);
         break;
+      }
+      case 'opp_skill': {
+        // 상대 스킬 — 위협적이고 긴장되는 사운드
+        osc.type = 'sine'; osc.frequency.value = 0; gain.gain.value = 0;
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.01);
+        const now2 = ctx.currentTime;
+        const out2 = ctx.destination;
+        // ① 저음 임팩트 (위협적인 시작)
+        const boom = ctx.createOscillator();
+        const boomG = ctx.createGain();
+        boom.type = 'sawtooth';
+        boom.frequency.setValueAtTime(90, now2);
+        boom.frequency.exponentialRampToValueAtTime(35, now2 + 0.4);
+        boomG.gain.setValueAtTime(0.18, now2);
+        boomG.gain.exponentialRampToValueAtTime(0.001, now2 + 0.5);
+        boom.connect(boomG); boomG.connect(out2);
+        boom.start(now2); boom.stop(now2 + 0.5);
+        // ② 불길한 하강 아르페지오 (D마이너 계열)
+        const darkNotes = [1175, 1047, 880, 784, 659, 587, 440];
+        for (let i = 0; i < darkNotes.length; i++) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'square';
+          o.frequency.value = darkNotes[i];
+          g.gain.setValueAtTime(0.07, now2 + i * 0.06);
+          g.gain.exponentialRampToValueAtTime(0.001, now2 + i * 0.06 + 0.25);
+          o.connect(g); g.connect(out2);
+          o.start(now2 + i * 0.06); o.stop(now2 + i * 0.06 + 0.3);
+        }
+        // ③ 어둠 화음 (마이너 — 긴장감)
+        const darkChordT = now2 + 0.45;
+        const darkChord = [293.66, 349.23, 440, 587.33];
+        for (const freq of darkChord) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle';
+          o.frequency.value = freq;
+          g.gain.setValueAtTime(0.09, darkChordT);
+          g.gain.linearRampToValueAtTime(0.06, darkChordT + 0.2);
+          g.gain.exponentialRampToValueAtTime(0.001, darkChordT + 0.8);
+          o.connect(g); g.connect(out2);
+          o.start(darkChordT); o.stop(darkChordT + 0.85);
+        }
+        // ④ 노이즈 스웰 (불안한 바람 소리)
+        const windBuf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+        const windData = windBuf.getChannelData(0);
+        for (let j = 0; j < windData.length; j++) windData[j] = (Math.random() * 2 - 1);
+        const wind = ctx.createBufferSource();
+        wind.buffer = windBuf;
+        const wGain = ctx.createGain();
+        wGain.gain.setValueAtTime(0.001, now2);
+        wGain.gain.linearRampToValueAtTime(0.08, now2 + 0.15);
+        wGain.gain.exponentialRampToValueAtTime(0.001, now2 + 0.3);
+        const wFilter = ctx.createBiquadFilter();
+        wFilter.type = 'bandpass'; wFilter.frequency.value = 3000; wFilter.Q.value = 1.5;
+        wind.connect(wFilter); wFilter.connect(wGain); wGain.connect(out2);
+        wind.start(now2); wind.stop(now2 + 0.3);
+        break;
+      }
       case 'shrink':
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(100, ctx.currentTime);
@@ -4719,6 +4989,18 @@ function bgmGetCtx() {
   return BGM.ctx;
 }
 
+// 첫 사용자 인터랙션 시 현재 화면에 맞는 BGM 자동 재생
+document.addEventListener('click', function _bgmFirstClick() {
+  document.removeEventListener('click', _bgmFirstClick);
+  if (!BGM.currentTrack) {
+    const active = document.querySelector('.screen.active');
+    if (active) {
+      const id = active.id;
+      if (id === 'screen-lobby') bgmPlay('lobby');
+    }
+  }
+}, { once: true });
+
 function bgmStop() {
   for (const n of BGM.nodes) { try { n.stop(); } catch(e){} try { n.disconnect(); } catch(e){} }
   BGM.nodes = [];
@@ -4741,12 +5023,44 @@ function bgmPlay(trackName) {
   }
 }
 
-// ── 로비 BGM: 평화로운 중세 선율 (루프) ──
+// ── 로비 BGM: 기대감 있는 준비 선율 (루프) ──
 function bgmLobby(ctx, dest) {
+  const notes = [261.63,329.63,392,349.23,329.63,293.66,261.63,329.63, 349.23,392,440,392,349.23,329.63,293.66,261.63];
+  const dur = 0.4;
+  function playLoop() {
+    if (BGM.currentTrack !== 'lobby') return;
+    const now = ctx.currentTime;
+    for (let i = 0; i < notes.length; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = notes[i];
+      g.gain.setValueAtTime(0.12, now + i*dur);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.85);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+    // 저음 드론
+    const drone = ctx.createOscillator();
+    const dg = ctx.createGain();
+    drone.type = 'sine';
+    drone.frequency.value = 130.81;
+    dg.gain.value = 0.04;
+    drone.connect(dg); dg.connect(dest);
+    drone.start(now); drone.stop(now + notes.length*dur);
+    BGM.nodes.push(drone);
+    setTimeout(playLoop, notes.length * dur * 1000);
+  }
+  playLoop();
+}
+
+// ── 세팅 BGM: 평화로운 중세 선율 (루프) ──
+function bgmSetup(ctx, dest) {
   const notes = [329.63,392,440,392,329.63,293.66,329.63,392, 440,523.25,493.88,440,392,329.63,293.66,329.63];
   const dur = 0.5;
   function playLoop() {
-    if (BGM.currentTrack !== 'lobby') return;
+    if (BGM.currentTrack !== 'setup') return;
     const now = ctx.currentTime;
     // 멜로디
     for (let i = 0; i < notes.length; i++) {
@@ -4771,38 +5085,6 @@ function bgmLobby(ctx, dest) {
     pad.connect(pg); pg.connect(dest);
     pad.start(now); pad.stop(now + notes.length*dur);
     BGM.nodes.push(pad);
-    setTimeout(playLoop, notes.length * dur * 1000);
-  }
-  playLoop();
-}
-
-// ── 세팅 BGM: 기대감 있는 준비 선율 (루프) ──
-function bgmSetup(ctx, dest) {
-  const notes = [261.63,329.63,392,349.23,329.63,293.66,261.63,329.63, 349.23,392,440,392,349.23,329.63,293.66,261.63];
-  const dur = 0.4;
-  function playLoop() {
-    if (BGM.currentTrack !== 'setup') return;
-    const now = ctx.currentTime;
-    for (let i = 0; i < notes.length; i++) {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.value = notes[i];
-      g.gain.setValueAtTime(0.12, now + i*dur);
-      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.85);
-      osc.connect(g); g.connect(dest);
-      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
-      BGM.nodes.push(osc);
-    }
-    // 저음 드론
-    const drone = ctx.createOscillator();
-    const dg = ctx.createGain();
-    drone.type = 'sine';
-    drone.frequency.value = 130.81;
-    dg.gain.value = 0.04;
-    drone.connect(dg); dg.connect(dest);
-    drone.start(now); drone.stop(now + notes.length*dur);
-    BGM.nodes.push(drone);
     setTimeout(playLoop, notes.length * dur * 1000);
   }
   playLoop();

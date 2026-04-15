@@ -445,8 +445,29 @@ body {
   animation: slideIn 0.25s ease;
 }
 @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes shake { 0%,100% { transform:translateX(0); } 20% { transform:translateX(-4px); } 40% { transform:translateX(4px); } 60% { transform:translateX(-3px); } 80% { transform:translateX(3px); } }
-.my-piece-card.profile-shake { animation: shake 0.4s ease-in-out 3; box-shadow: 0 0 12px rgba(239,68,68,0.5); border-color: #ef4444 !important; }
+@keyframes profileHitShake {
+  0%,100% { transform:translateX(0) scale(1); }
+  10% { transform:translateX(-6px) scale(1.02); }
+  20% { transform:translateX(6px) scale(0.98); }
+  30% { transform:translateX(-5px) scale(1.01); }
+  40% { transform:translateX(5px) scale(0.99); }
+  50% { transform:translateX(-4px); }
+  60% { transform:translateX(4px); }
+  70% { transform:translateX(-2px); }
+  80% { transform:translateX(2px); }
+  90% { transform:translateX(-1px); }
+}
+@keyframes profileHitFlash {
+  0% { background-color: rgba(255,255,255,0.7); box-shadow: 0 0 24px rgba(255,200,60,0.8), inset 0 0 20px rgba(255,255,255,0.4); border-color: #fbbf24 !important; }
+  15% { background-color: rgba(251,191,36,0.45); box-shadow: 0 0 18px rgba(251,191,36,0.6), inset 0 0 10px rgba(255,220,100,0.2); }
+  40% { background-color: rgba(251,191,36,0.15); box-shadow: 0 0 8px rgba(251,191,36,0.3); }
+  100% { background-color: transparent; box-shadow: none; }
+}
+.my-piece-card.profile-hit,
+.opp-piece-card.profile-hit {
+  animation: profileHitShake 0.5s ease-in-out 2, profileHitFlash 1.8s ease-out forwards;
+  border-color: #fbbf24 !important;
+}
 .slide-hero {
   display: flex; align-items: center; gap: 16px;
   justify-content: center; margin-bottom: 14px;
@@ -946,17 +967,16 @@ body {
 .opp-piece-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 8px;
-  display: flex; align-items: center; gap: 8px;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  transition: border-color 0.2s;
 }
-.opp-piece-card.dead { opacity: 0.35; }
+.opp-piece-card:hover { border-color: #4a4a7a; }
+.opp-piece-card.dead { opacity: 0.4; }
 .opp-piece-card[draggable="true"] { cursor: grab; }
 .opp-piece-card[draggable="true"]:active { cursor: grabbing; }
 .opp-piece-card.dragging { opacity: 0.4; }
-.opp-piece-card .p-icon { font-size: 1.2rem; }
-.opp-piece-card .opp-info { flex: 1; }
 
 /* ── 추리 토큰 ── */
 .deduction-token {
@@ -1011,8 +1031,7 @@ body {
   opacity: 0.7;
   line-height: 1.3;
 }
-.opp-piece-card .opp-info strong { font-size: 0.82rem; display: block; }
-.opp-piece-card .opp-info span { font-size: 0.7rem; color: var(--muted); }
+/* (opp-info 레이아웃 제거됨 — my-piece-card와 동일한 구조 사용) */
 
 /* ── 공통 호버 팝업 (공격범위 그리드 포함) ── */
 .piece-tooltip {
@@ -1607,8 +1626,7 @@ body {
   .my-piece-pos { font-size: 0.65rem; }
 
   /* 상대 말 + 로그 */
-  .opp-piece-card { padding: 8px; }
-  .opp-piece-card .p-icon { font-size: 1rem; }
+  .opp-piece-card { padding: 8px; margin-bottom: 6px; }
   .game-log { max-height: 150px; }
   .log-entry { font-size: 0.68rem; }
 
