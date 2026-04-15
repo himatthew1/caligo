@@ -3007,7 +3007,7 @@ function renderGameBoard() {
       tokenEl.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== token.pieceKey);
-        renderGameBoard();
+        refreshDeductionTokens();
         renderOppPieces();
       });
       cell.appendChild(tokenEl);
@@ -3024,11 +3024,49 @@ function renderGameBoard() {
         S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== data.pieceKey);
         // 새 위치에 배치
         S.deductionTokens.push({ pieceKey: data.pieceKey, icon: data.icon, name: data.name, col, row });
-        renderGameBoard();
+        refreshDeductionTokens();
         renderOppPieces();
       } catch (err) { /* ignore */ }
     });
   });
+}
+
+// ── 추리 토큰만 가볍게 갱신 (보드 전체 재렌더 없이) ──
+function refreshDeductionTokens() {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  // 기존 토큰 전부 제거
+  board.querySelectorAll('.deduction-token').forEach(el => el.remove());
+  const bounds = S.boardBounds;
+  // 현재 토큰 다시 배치
+  for (const token of S.deductionTokens) {
+    const cell = board.querySelector(`.cell[data-col="${token.col}"][data-row="${token.row}"]`);
+    if (!cell) continue;
+    const tokenEl = document.createElement('span');
+    tokenEl.className = 'deduction-token';
+    tokenEl.textContent = token.icon;
+    tokenEl.title = `추리: ${token.name}`;
+    tokenEl.draggable = true;
+    tokenEl.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      e.dataTransfer.setData('text/plain', JSON.stringify({
+        pieceKey: token.pieceKey,
+        icon: token.icon,
+        name: token.name,
+        fromBoard: true,
+        fromCol: token.col,
+        fromRow: token.row
+      }));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    tokenEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== token.pieceKey);
+      refreshDeductionTokens();
+      renderOppPieces();
+    });
+    cell.appendChild(tokenEl);
+  }
 }
 
 function getStatusIcons(pc) {

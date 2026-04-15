@@ -3,6 +3,14 @@ const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
 
+// ── 글로벌 에러 핸들러 (서버 크래시 방지) ──
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT]', err.message, err.stack);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[UNHANDLED REJECTION]', err);
+});
+
 const ROW_LABELS = ['A','B','C','D','E'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 
@@ -2520,6 +2528,15 @@ function aiExecuteAttack(room, action) {
 
 io.on('connection', (socket) => {
 
+  // 소켓 이벤트 안전 래퍼 (에러 시 서버 크래시 방지)
+  const _on = socket.on.bind(socket);
+  socket.on = (event, handler) => {
+    _on(event, (...args) => {
+      try { handler(...args); }
+      catch (err) { console.error(`[Socket Error] ${event}:`, err.message, err.stack); }
+    });
+  };
+
   // ── 캐릭터 데이터 요청 (덱빌더용) ──
   socket.on('request_characters', () => {
     socket.emit('characters_data', { characters: CHARACTERS });
@@ -3035,7 +3052,7 @@ io.on('connection', (socket) => {
     });
     const opp = room.players[1 - idx];
     if (opp.socketId !== 'AI') {
-      io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[playerIdx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+      io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
     }
     emitToSpectators(room, 'spectator_log', { msg: `🚶 ${player.name}의 ${piece.icon}${piece.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, type: 'move', playerIdx: idx });
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
@@ -3097,10 +3114,10 @@ io.on('connection', (socket) => {
           for (const h of hitResults) {
             const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
             const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
-            emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} → ${targetName} ${h.damage}피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
+            emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${piece.icon}${piece.name} → ${targetName} ${h.damage}피해${h.destroyed ? ' 💀 격파!' : ''}`, type: 'hit', playerIdx: idx });
           }
         } else {
-          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: idx });
+          emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${piece.icon}${piece.name} 공격 — 빗나감!`, type: 'miss', playerIdx: idx });
         }
         emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
         if (checkWin(room, 1 - idx)) { endGame(room, idx); }
