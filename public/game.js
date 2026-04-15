@@ -206,16 +206,22 @@ function initAudioToggle() {
         b.textContent = bgmMuted ? '🔇' : '🎵';
         b.title = bgmMuted ? '음악 켜기' : '음악 끄기';
       });
-      if (bgmMuted) { bgmStop(); }
+      if (bgmMuted) { bgmStop(); BGM.pendingTrack = null; }
       else {
-        const active = document.querySelector('.screen.active');
-        if (active) {
-          const id = active.id;
-          const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
-          if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
-          else if (setupScreens.includes(id)) bgmPlay('setup');
-          else if (id === 'screen-game') bgmPlay('game');
+        // 뮤트 해제: 대기 중이던 트랙 또는 현재 화면에 맞는 트랙 재생
+        let track = BGM.pendingTrack;
+        if (!track) {
+          const active = document.querySelector('.screen.active');
+          if (active) {
+            const id = active.id;
+            const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
+            if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) track = 'lobby';
+            else if (setupScreens.includes(id)) track = 'setup';
+            else if (id === 'screen-game') track = 'game';
+          }
         }
+        BGM.pendingTrack = null;
+        if (track) bgmPlay(track);
       }
     });
   });
@@ -5040,6 +5046,7 @@ const BGM = {
   currentTrack: null,
   gainNode: null,
   nodes: [],
+  timers: [],      // setTimeout ID 추적 (루프 취소용)
   volume: 0.12,
   muted: false,
 };
@@ -5068,13 +5075,15 @@ document.addEventListener('click', function _bgmFirstClick() {
 }, { once: true });
 
 function bgmStop() {
+  for (const t of BGM.timers) clearTimeout(t);
+  BGM.timers = [];
   for (const n of BGM.nodes) { try { n.stop(); } catch(e){} try { n.disconnect(); } catch(e){} }
   BGM.nodes = [];
   BGM.currentTrack = null;
 }
 
 function bgmPlay(trackName) {
-  if (bgmMuted) { BGM.currentTrack = trackName; return; }
+  if (bgmMuted) { BGM.pendingTrack = trackName; return; }
   if (BGM.currentTrack === trackName) return;
   bgmStop();
   BGM.currentTrack = trackName;
@@ -5117,7 +5126,7 @@ function bgmLobby(ctx, dest) {
     drone.connect(dg); dg.connect(dest);
     drone.start(now); drone.stop(now + notes.length*dur);
     BGM.nodes.push(drone);
-    setTimeout(playLoop, notes.length * dur * 1000);
+    BGM.timers.push(setTimeout(playLoop, notes.length * dur * 1000));
   }
   playLoop();
 }
@@ -5152,7 +5161,7 @@ function bgmSetup(ctx, dest) {
     pad.connect(pg); pg.connect(dest);
     pad.start(now); pad.stop(now + notes.length*dur);
     BGM.nodes.push(pad);
-    setTimeout(playLoop, notes.length * dur * 1000);
+    BGM.timers.push(setTimeout(playLoop, notes.length * dur * 1000));
   }
   playLoop();
 }
@@ -5244,7 +5253,7 @@ function bgmGame(ctx, dest) {
       BGM.nodes.push(noise);
     }
 
-    setTimeout(playLoop, loopLen * 1000);
+    BGM.timers.push(setTimeout(playLoop, loopLen * 1000));
   }
   playLoop();
 }
