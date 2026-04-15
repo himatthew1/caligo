@@ -90,9 +90,10 @@ body {
   padding-top: 0;
 }
 
-/* ── 오디오 토글 ── */
-.audio-toggle-row {
-  display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px;
+/* ── 오디오 토글 (항상 표시) ── */
+.global-audio-toggle {
+  position: fixed; top: 16px; left: 16px; z-index: 1001;
+  display: flex; gap: 6px;
 }
 .audio-btn {
   background: rgba(255,255,255,0.06);
@@ -105,11 +106,6 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 .audio-btn:hover { background: rgba(255,255,255,0.12); border-color: var(--accent); }
-.game-audio-toggle {
-  position: fixed; top: 16px; left: 16px; z-index: 1001;
-  display: flex; gap: 6px;
-}
-.game-audio-toggle.hidden { display: none; }
 
 /* ── 로비 ── */
 .lobby-box {

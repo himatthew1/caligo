@@ -128,13 +128,6 @@ function showScreen(id) {
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
   // gameover는 game_over 핸들러에서 직접 호출
-
-  // 게임 중 오디오 토글 표시
-  const gameAudio = document.getElementById('game-audio-toggle');
-  if (gameAudio) {
-    const showOnScreens = ['screen-game', ...setupScreens, 'screen-gameover'];
-    gameAudio.classList.toggle('hidden', !showOnScreens.includes(id));
-  }
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
