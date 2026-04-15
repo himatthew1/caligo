@@ -90,6 +90,27 @@ body {
   padding-top: 0;
 }
 
+/* ── 오디오 토글 ── */
+.audio-toggle-row {
+  display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px;
+}
+.audio-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 36px; height: 36px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.audio-btn:hover { background: rgba(255,255,255,0.12); border-color: var(--accent); }
+.game-audio-toggle {
+  position: fixed; top: 16px; left: 16px; z-index: 1001;
+  display: flex; gap: 6px;
+}
+.game-audio-toggle.hidden { display: none; }
+
 /* ── 로비 ── */
 .lobby-box {
   background: var(--surface);
@@ -667,6 +688,8 @@ body {
 .placement-container { max-width: 1060px; width: 100%; padding: 24px; text-align: center; }
 .placement-container h2 { margin-bottom: 6px; }
 .placement-layout { display: flex; gap: 24px; align-items: flex-start; justify-content: center; margin-top: 20px; }
+.placement-board-wrap { display: flex; flex-direction: column; align-items: center; }
+.placement-confirm-btn { margin-top: 16px; width: 100%; max-width: 280px; font-size: 1rem; padding: 12px 24px; }
 .piece-list { display: flex; flex-direction: column; gap: 10px; min-width: 180px; margin-bottom: 16px; }
 .piece-card {
   background: var(--surface); border: 2px solid var(--border);

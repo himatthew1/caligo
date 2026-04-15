@@ -57,6 +57,10 @@ const S = {
   deductionTokens: [],
 };
 
+// ── 오디오 설정 ─────────────────────────────────────────────
+let bgmMuted = false;
+let sfxMuted = false;
+
 // ── 타이머 ───────────────────────────────────────────────────
 let timerInterval = null;
 let timerDeadline = null;
@@ -124,6 +128,13 @@ function showScreen(id) {
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
   // gameover는 game_over 핸들러에서 직접 호출
+
+  // 게임 중 오디오 토글 표시
+  const gameAudio = document.getElementById('game-audio-toggle');
+  if (gameAudio) {
+    const showOnScreens = ['screen-game', ...setupScreens, 'screen-gameover'];
+    gameAudio.classList.toggle('hidden', !showOnScreens.includes(id));
+  }
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
@@ -183,6 +194,44 @@ document.getElementById('btn-deck-back').addEventListener('click', () => {
   document.getElementById('btn-deck-back').classList.add('hidden');
   showScreen('screen-lobby');
 });
+
+// ── 오디오 토글 버튼 ──
+function initAudioToggle() {
+  document.querySelectorAll('.btn-bgm-toggle').forEach(btn => {
+    btn.textContent = bgmMuted ? '🔇' : '🎵';
+    btn.title = bgmMuted ? '음악 켜기' : '음악 끄기';
+    btn.addEventListener('click', () => {
+      bgmMuted = !bgmMuted;
+      document.querySelectorAll('.btn-bgm-toggle').forEach(b => {
+        b.textContent = bgmMuted ? '🔇' : '🎵';
+        b.title = bgmMuted ? '음악 켜기' : '음악 끄기';
+      });
+      if (bgmMuted) { bgmStop(); }
+      else {
+        const active = document.querySelector('.screen.active');
+        if (active) {
+          const id = active.id;
+          const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
+          if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
+          else if (setupScreens.includes(id)) bgmPlay('setup');
+          else if (id === 'screen-game') bgmPlay('game');
+        }
+      }
+    });
+  });
+  document.querySelectorAll('.btn-sfx-toggle').forEach(btn => {
+    btn.textContent = sfxMuted ? '🔕' : '🔔';
+    btn.title = sfxMuted ? '효과음 켜기' : '효과음 끄기';
+    btn.addEventListener('click', () => {
+      sfxMuted = !sfxMuted;
+      document.querySelectorAll('.btn-sfx-toggle').forEach(b => {
+        b.textContent = sfxMuted ? '🔕' : '🔔';
+        b.title = sfxMuted ? '효과음 켜기' : '효과음 끄기';
+      });
+    });
+  });
+}
+initAudioToggle();
 
 // ── 로비 ──────────────────────────────────────────────────────
 document.getElementById('btn-join').addEventListener('click', () => {
@@ -4750,25 +4799,41 @@ function animateAttack(atkCells, hitCells) {
   }
 }
 
-// ── 타이머 틱 사운드 (15초 이하) ──
+// ── 타이머 틱 사운드 (15초 이하) — 깊은 부저/초시계 ──
 function playTimerTick() {
+  if (sfxMuted) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(600, ctx.currentTime);
-    gain.gain.setValueAtTime(0.12, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.08);
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 깊은 부저 톤 (저음 사각파)
+    const osc1 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    osc1.connect(g1); g1.connect(out);
+    osc1.type = 'square';
+    osc1.frequency.setValueAtTime(80, now);
+    osc1.frequency.linearRampToValueAtTime(60, now + 0.15);
+    g1.gain.setValueAtTime(0.15, now);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    osc1.start(now); osc1.stop(now + 0.2);
+
+    // ② 메탈릭 클릭 (고음 임펄스)
+    const osc2 = ctx.createOscillator();
+    const g2 = ctx.createGain();
+    osc2.connect(g2); g2.connect(out);
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(2400, now);
+    osc2.frequency.exponentialRampToValueAtTime(800, now + 0.03);
+    g2.gain.setValueAtTime(0.08, now);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    osc2.start(now); osc2.stop(now + 0.08);
   } catch (e) {}
 }
 
 // ── 턴 벨소리 (Web Audio) ──
 function playTurnBell() {
+  if (sfxMuted) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -4787,6 +4852,7 @@ function playTurnBell() {
 
 // ── 효과음 (Web Audio) ──
 function playSfx(type) {
+  if (sfxMuted) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
@@ -5008,6 +5074,7 @@ function bgmStop() {
 }
 
 function bgmPlay(trackName) {
+  if (bgmMuted) { BGM.currentTrack = trackName; return; }
   if (BGM.currentTrack === trackName) return;
   bgmStop();
   BGM.currentTrack = trackName;
@@ -5396,8 +5463,13 @@ const TUTORIAL_STEPS = [
         ${Array.from({length:25}, (_,i) => {
           const c = i % 5, r = Math.floor(i / 5);
           const isCenter = c === 2 && r === 2;
-          const isMove = (c === 2 && (r === 1 || r === 3)) || (r === 2 && (c === 1 || c === 3));
-          return `<div class="tut-cell ${isCenter ? 'tut-piece' : isMove ? 'tut-move' : ''}">${isCenter ? '🏹' : isMove ? '→' : ''}</div>`;
+          const isUp = c === 2 && r === 1;
+          const isDown = c === 2 && r === 3;
+          const isLeft = r === 2 && c === 1;
+          const isRight = r === 2 && c === 3;
+          const isMove = isUp || isDown || isLeft || isRight;
+          const arrow = isUp ? '↑' : isDown ? '↓' : isLeft ? '←' : isRight ? '→' : '';
+          return `<div class="tut-cell ${isCenter ? 'tut-piece' : isMove ? 'tut-move' : ''}">${isCenter ? '🏹' : arrow}</div>`;
         }).join('')}
       </div>
       <div class="tut-text" style="text-align:center;margin-top:6px">
@@ -5537,7 +5609,7 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🪓</span>
           <div class="tut-char-name">학살 영웅</div>
-          <div class="tut-char-sub">3×3 범위 ATK 2</div>
+          <div class="tut-char-sub">3×3 범위 ATK 1</div>
         </div>
       </div>
     </div>

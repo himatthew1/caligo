@@ -17,9 +17,19 @@
   <span id="timer-text" class="timer-clock-text">90</span>
 </div>
 
+<!-- ── 게임 중 오디오 토글 (고정 위치) ── -->
+<div id="game-audio-toggle" class="game-audio-toggle hidden">
+  <button class="btn-bgm-toggle audio-btn" title="음악 끄기">🎵</button>
+  <button class="btn-sfx-toggle audio-btn" title="효과음 끄기">🔔</button>
+</div>
+
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
+    <div class="audio-toggle-row">
+      <button class="btn-bgm-toggle audio-btn" title="음악 끄기">🎵</button>
+      <button class="btn-sfx-toggle audio-btn" title="효과음 끄기">🔔</button>
+    </div>
     <h1 class="game-title">CALIGO</h1>
     <p class="game-sub">칼리고 · 1vs1 전략 보드게임</p>
     <button id="btn-deck" class="btn btn-deck-large btn-large">🃏 내 덱</button>
@@ -296,10 +306,12 @@
     <div class="placement-layout">
       <div>
         <div id="placement-piece-list" class="piece-list"></div>
-        <button id="btn-placement-confirm" class="btn btn-primary" disabled>배치 확정</button>
         <p id="placement-error" class="error-msg"></p>
       </div>
-      <div id="placement-board" class="board"></div>
+      <div class="placement-board-wrap">
+        <div id="placement-board" class="board"></div>
+        <button id="btn-placement-confirm" class="btn btn-primary placement-confirm-btn" disabled>배치 확정</button>
+      </div>
       <div id="placement-opp-info" class="placement-opp-panel">
         <h4>상대방 캐릭터</h4>
         <div id="placement-opp-pieces"></div>
