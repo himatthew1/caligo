@@ -257,7 +257,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요!'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
   const deck = loadDeck();
   S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
 });
@@ -265,7 +265,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showSkillToast('닉네임을 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요!'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
   const deck = loadDeck();
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
@@ -621,7 +621,7 @@ socket.on('game_start', (data) => {
   refreshGameView();
   showActionBar(S.isMyTurn);
   updateSPBar();
-  addLog(`게임 시작! ${S.isMyTurn ? '먼저 시작합니다.' : `${oppN()}이(가) 먼저 시작합니다.`}`, 'system');
+  addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
 });
 
 // ── 내 턴 ──
@@ -647,7 +647,7 @@ socket.on('your_turn', (data) => {
   refreshGameView();
   showActionBar(true);
   updateSPBar();
-  addLog(`[턴 ${data.turnNumber}] ${myN()} 차례`, 'system');
+  addLog(`${data.turnNumber}턴 : ${myN()} 차례`, 'system');
   setTurnBackground(true);
   showTurnPopup(true);
   playTurnBell();
@@ -668,7 +668,7 @@ socket.on('opp_turn', (data) => {
   refreshGameView();
   showActionBar(false);
   updateSPBar();
-  addLog(`[턴 ${data.turnNumber}] ${oppN()} 차례`, 'system');
+  addLog(`${data.turnNumber}턴 : ${oppN()} 차례`, 'system');
   setTurnBackground(false);
 });
 
@@ -679,7 +679,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   playSfx('move');
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
-  addLog(`🚶 ${myN()}의 ${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`, 'move');
+  addLog(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`, 'move');
   showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
 
   if (twinMovePending) {
@@ -708,7 +708,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
 });
 
 socket.on('opp_moved', ({ msg }) => {
-  addLog(`🚶 ${msg}`, 'move');
+  addLog(`🚶 상대가 이동했습니다.`, 'move');
   showSkillToast(msg, true);
 });
 
@@ -749,14 +749,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     if (pc.subUnit) {
       const otherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
       const otherPc = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
-      addLog(`⚔ ${myN()}의 ${pc.name} 공격 — 빗나감!`, 'miss');
+      addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
       showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
       if (otherPc) {
-        addLog(`⚔ ${myN()}의 ${otherPc.name} 공격 — 빗나감!`, 'miss');
+        addLog(`⚔ ${myN()}의 ${otherPc.name}! 공격 빗나감.`, 'miss');
         showSkillToast(`${myN()}의 ${otherPc.icon}${otherPc.name} 공격 빗나감!`);
       }
     } else {
-      addLog(`⚔ ${myN()}의 ${pc.name} 공격 — 빗나감!`, 'miss');
+      addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
       showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
     }
   } else {
@@ -766,10 +766,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       const atkName = h.attackerName || pc.name;
       const atkIcon = h.attackerIcon || pc.icon;
       const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
-      const info = h.destroyed
-        ? `💀 ${target} 격파! (${h.damage}피해)`
-        : `명중! (${h.damage}피해)`;
-      addLog(`⚔ ${myN()}의 ${atkName} → ${target} ${info}`, 'hit');
+      addLog(h.destroyed
+        ? `⚔ ${myN()}의 ${atkName}! ${target} 격파함. 💀`
+        : `⚔ ${myN()}의 ${atkName}! ${target}에 ${h.damage} 피해.`, 'hit');
     }
     const hits = cellResults.filter(c => c.hit);
     for (const h of hits) {
@@ -787,7 +786,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
   if (pc && pc.dualBladeAttacksLeft > 0) {
-    addLog(`⚔ 쌍검무: 추가 공격 가능! (남은 공격: ${pc.dualBladeAttacksLeft})`, 'info');
+    addLog(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다`, 'info');
   }
 
   // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
@@ -849,13 +848,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
 
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
-    addLog(`🛡 ${oppN()} 공격 — 빗나감`, 'miss');
+    addLog(`⚔ ${oppN()}의 공격 빗나감.`, 'miss');
     showSkillToast(`${oppN()} 공격 빗나감!`, true);
   } else {
     for (const h of hitPieces) {
       if (h.destroyed) playSfx('kill'); else playSfx('hit');
       const unitName = h.icon && h.name ? `${myN()}의 ${h.icon}${h.name}` : coord(h.col,h.row);
-      addLog(`🛡 ${unitName} 피격! ${h.damage} 피해${h.destroyed ? ' 💀 격파됨!' : ` (잔여 HP: ${h.newHp})`}`, 'hit');
+      addLog(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, 'hit');
       showSkillToast(`${unitName} 피격! ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, true);
     }
   }
@@ -901,24 +900,24 @@ socket.on('turn_event', ({ type, msg }) => {
 socket.on('board_shrink_warning', ({ turnsRemaining }) => {
   const el = document.getElementById('shrink-warning');
   el.classList.remove('hidden');
-  el.textContent = `⚠ 보드 축소까지 ${turnsRemaining}턴! (턴 50에 외곽 파괴)`;
-  showSkillToast(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, false, undefined, 'event');
-  addLog(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, 'shrink');
+  el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
+  showSkillToast(`외곽 파괴까지 ${turnsRemaining}턴`, false, undefined, 'event');
+  addLog(`외곽 파괴까지 ${turnsRemaining}턴`, 'shrink');
 });
 
 // ── 보드 축소 실행 ──
 socket.on('board_shrink', ({ bounds, eliminated }) => {
   S.boardBounds = bounds;
   playSfx('shrink');
-  showSkillToast('🔥 턴 이벤트 : 보드 축소!', false, undefined, 'event');
-  addLog(`🔥 보드 축소! 5×5 → 3×3`, 'shrink');
+  showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
+  addLog(`🔥 보드 외곽 파괴`, 'shrink');
 
   // 축소로 파괴된 유닛 인덱스 수집 (렌더 전)
   const myShrinkIdx = [];
   const oppShrinkIdx = [];
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
-      addLog(`  💀 ${e.icon} ${e.name} 파괴됨!`, 'shrink');
+      addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
       const hitData = [{ col: e.col, row: e.row, name: e.name }];
       if (e.owner === S.playerIdx) {
         myShrinkIdx.push(...findPieceIndices(S.myPieces, hitData));
@@ -1020,8 +1019,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 // ── 정찰 결과 ──
 socket.on('scout_result', ({ axis, value, targetName }) => {
   const label = axis === 'row' ? `${ROW_LABELS[value] || value}행` : `${value+1}열`;
-  addLog(`🔭 정찰: ${targetName}은(는) ${label}에 있다!`, 'skill');
-  showSkillToast(`🔭 정찰: ${targetName}은(는) ${label}에 있다!`);
+  addLog(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`, 'skill');
+  showSkillToast(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`);
 });
 
 // ── 쥐 소환 ──
@@ -1030,8 +1029,8 @@ socket.on('rats_spawned', ({ rats, owner }) => {
     addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
   } else {
-    addLog(`🐀 상대 쥐 장수가 쥐를 소환했습니다! 해당 보드를 공격하는 것으로 쥐를 제거할 수 있습니다.`, 'skill');
-    showSkillToast(`🐀 상대 쥐 장수가 쥐를 소환했습니다!`, true);
+    addLog(`🐀 역병의 자손들: 상대가 쥐를 소환. 쥐는 공격으로 제거할 수 있습니다.`, 'skill');
+    showSkillToast(`🐀 역병의 자손들: 상대가 쥐를 소환. 쥐는 공격으로 제거할 수 있습니다.`, true);
   }
   renderGameBoard();
 });
@@ -1039,11 +1038,11 @@ socket.on('rats_spawned', ({ rats, owner }) => {
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
   if (owner === S.playerIdx) {
-    addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 배치!`, 'skill');
-    showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 배치!`);
+    addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, 'skill');
+    showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`);
   } else {
-    addLog(`🐉 상대가 드래곤을 소환했습니다!`, 'skill');
-    showSkillToast(`🐉 상대가 드래곤을 소환했습니다!`, true);
+    addLog(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, 'skill');
+    showSkillToast(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, true);
   }
 });
 
@@ -1138,7 +1137,7 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     document.getElementById('gameover-title').style.color = 'var(--accent)';
     let sub = '';
     switch (r.type) {
-      case 'surrender': sub = `${L}가 기권하여 ${W}가 승리했습니다!`; break;
+      case 'surrender': sub = `${L}의 기권으로, ${W}의 승리입니다!`; break;
       case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}가 승리했습니다!`; break;
       case 'trap': sub = `${L}의 ${vs}이(가) 인간 사냥꾼의 덫에 걸려 ${W}가 승리했습니다!`; break;
       case 'bomb': sub = `화약병의 폭탄으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
@@ -1146,7 +1145,7 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
       case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 ${L}의 ${vs}이(가) 쓰러져 ${W}가 승리했습니다!`; break;
       case 'attack': sub = killer
         ? `${W}의 ${killer}가 ${L}의 ${vs}을(를) 처치해 승리했습니다!`
-        : `${W}가 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        : `${L}의 모든 말을 제거해, ${W}의 승리입니다.`; break;
       default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -1157,7 +1156,7 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     document.getElementById('gameover-title').style.color = 'var(--accent)';
     let sub = '';
     switch (r.type) {
-      case 'surrender': sub = `${opponentName}이(가) 기권했습니다!`; break;
+      case 'surrender': sub = `${opponentName}의 기권입니다!`; break;
       case 'shrink': sub = `상대가 보드 축소를 피하지 못해 승리했습니다!`; break;
       case 'trap': sub = `상대가 인간 사냥꾼의 덫에 걸려 승리했습니다!`; break;
       case 'bomb': sub = `화약병의 폭탄으로 상대의 모든 말을 제거해 승리했습니다!`; break;
@@ -1165,7 +1164,7 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
       case 'nightmare': sub = `고문 기술자의 악몽으로 상대의 모든 말을 제거해 승리했습니다!`; break;
       case 'attack': sub = killer
         ? `${killer}의 공격으로 상대의 모든 말을 제거해 승리했습니다!`
-        : `상대의 모든 말을 제거해 승리했습니다!`; break;
+        : `상대의 모든 말을 제거해 승리했습니다.`; break;
       default: sub = `${opponentName}의 모든 말을 제거했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -3053,7 +3052,7 @@ function showActionBar(enabled) {
   document.getElementById('btn-cancel').classList.add('hidden');
 
   const hint = document.getElementById('action-hint');
-  if (hint) hint.textContent = enabled ? '행동을 선택하세요 (이동/공격/스킬/턴종료)' : `${oppN()}의 턴입니다...`;
+  if (hint) hint.textContent = enabled ? '행동을 선택하세요.' : `${oppN()}의 턴입니다.`;
 }
 
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
@@ -3616,7 +3615,7 @@ function resetAction() {
   S.skillTargetData = null;
   document.getElementById('btn-cancel').classList.add('hidden');
   const hint = document.getElementById('action-hint');
-  if (hint) hint.textContent = '행동을 선택하세요 (이동/공격/스킬/턴종료)';
+  if (hint) hint.textContent = '행동을 선택하세요.';
   renderGameBoard();
   renderMyPieces();
 }
@@ -3636,7 +3635,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
 document.getElementById('btn-attack').addEventListener('click', () => {
   if (!S.isMyTurn) return;
   if (S.twinMovePending) {
-    document.getElementById('action-hint').textContent = '⚠ 쌍둥이가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
+    document.getElementById('action-hint').textContent = '쌍둥이가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
     return;
   }
   S.action = 'attack';
@@ -3921,7 +3920,7 @@ function showKingSkillUI(pieceIdx) {
       S.action = 'skill_target';
       S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type };
       document.getElementById('btn-cancel').classList.remove('hidden');
-      document.getElementById('action-hint').textContent = `♛ ${opc.name}을(를) 이동시킬 위치를 클릭하세요`;
+      document.getElementById('action-hint').textContent = `♛ 대상을 강제 이동시킬 위치를 클릭하세요.`;
       renderGameBoard();
     });
     body.appendChild(opt);
