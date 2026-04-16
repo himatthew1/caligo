@@ -236,16 +236,16 @@ initAudioToggle();
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
-  if (!name || !roomId) { showError('lobby-error', '닉네임과 방 코드를 입력하세요.'); return; }
-  if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
+  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요!'); return; }
   const deck = loadDeck();
   S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
-  if (!name) { showError('lobby-error', '닉네임을 입력하세요.'); return; }
-  if (isDeckEmpty()) { showError('lobby-error', '🃏 내 덱을 채워주세요!'); return; }
+  if (!name) { showSkillToast('닉네임을 입력하세요.'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요!'); return; }
   const deck = loadDeck();
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
