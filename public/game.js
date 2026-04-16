@@ -108,11 +108,11 @@ socket.on('timer_start', ({ seconds }) => {
 
 socket.on('turn_timeout', () => {
   addLog('⏰ 시간 초과! 턴이 넘어갑니다.', 'system');
-  showSkillToast('⏰ 시간 초과!');
+  showSkillToast('⏰ 시간 초과!', false, undefined, 'event');
 });
 
 socket.on('placement_timeout', () => {
-  showSkillToast('⏰ 시간 초과! 미배치 말이 랜덤 배치됩니다.');
+  showSkillToast('⏰ 시간 초과! 미배치 말이 랜덤 배치됩니다.', false, undefined, 'event');
 });
 
 // ── 화면 전환 ─────────────────────────────────────────────────
@@ -499,7 +499,7 @@ socket.on('phase_change', ({ phase }) => {
 // ── 드래프트 확정 ──
 socket.on('draft_ok', ({ t1, t2, t3, timeout, timeoutMsg }) => {
   S.myDraft = { t1, t2, t3 };
-  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과! 캐릭터가 랜덤 선택되었습니다.'}`);
+  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과! 캐릭터가 랜덤 선택되었습니다.'}`, false, undefined, 'event');
 });
 
 // ── HP 분배 페이즈 ──
@@ -511,7 +511,7 @@ socket.on('hp_phase', ({ draft, hasTwins }) => {
 });
 
 socket.on('hp_ok', ({ timeout }) => {
-  if (timeout) showSkillToast('⏰ 시간 초과! HP가 랜덤 분배되었습니다.');
+  if (timeout) showSkillToast('⏰ 시간 초과! HP가 랜덤 분배되었습니다.', false, undefined, 'event');
 });
 
 socket.on('twin_split_needed', ({ twinTierHp }) => {
@@ -550,9 +550,9 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
 socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   S.exchangeMyDraft = draft;
   if (timeout) {
-    showSkillToast('시간초과! 교환 없이 확정되었습니다.');
+    showSkillToast('시간초과! 교환 없이 확정되었습니다.', false, undefined, 'event');
   } else if (exchanged) {
-    showSkillToast(`T${exchanged.tier} ${exchanged.newChar.icon}${exchanged.newChar.name}(으)로 교환 완료!`);
+    showSkillToast(`T${exchanged.tier} ${exchanged.newChar.icon}${exchanged.newChar.name}(으)로 교환 완료!`, false, undefined, 'event');
   }
 });
 
@@ -694,6 +694,19 @@ socket.on('opp_moved', ({ msg }) => {
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPieces }) => {
+  // 쥐 격파 감지: 공격 범위에 있던 상대 쥐 찾기 (서버가 자동 제거)
+  const destroyedRats = [];
+  if (S.boardObjects) {
+    for (const c of cellResults) {
+      const rat = S.boardObjects.find(o => o.type === 'rat' && o.owner !== S.playerIdx && o.col === c.col && o.row === c.row);
+      if (rat) destroyedRats.push({ col: rat.col, row: rat.row });
+    }
+    // 로컬에서 파괴된 쥐 제거 (서버에서는 이미 제거됨)
+    for (const dr of destroyedRats) {
+      S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.owner !== S.playerIdx && o.col === dr.col && o.row === dr.row));
+    }
+  }
+
   // 공격 모션 애니메이션
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
@@ -779,10 +792,37 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
   // 아군 피해 애니메이션 (학살 영웅 등)
   applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
+
+  // 쥐 격파 피드백
+  for (const dr of destroyedRats) {
+    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`);
+    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
+    // 셀 흔들림 애니메이션
+    const board = document.getElementById('game-board');
+    if (board) {
+      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
+      if (cell) {
+        cell.classList.add('cell-hit-shake');
+        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
+      }
+    }
+  }
 });
 
 // ── 피격 ──
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
+  // 쥐 격파 감지: 상대 공격 범위에 있던 내 쥐
+  const myDestroyedRats = [];
+  if (S.boardObjects && atkCells) {
+    for (const c of atkCells) {
+      const rat = S.boardObjects.find(o => o.type === 'rat' && o.owner === S.playerIdx && o.col === c.col && o.row === c.row);
+      if (rat) myDestroyedRats.push({ col: rat.col, row: rat.row });
+    }
+    for (const dr of myDestroyedRats) {
+      S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.owner === S.playerIdx && o.col === dr.col && o.row === dr.row));
+    }
+  }
+
   // 피격 셀만 흔들림 (상대 공격 범위는 표시하지 않음 — 추론 게임)
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
   animateAttack([], hitCells);
@@ -807,6 +847,20 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
 
   // 피격 유닛 프로필 흔들림 + 금색 플래시
   applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
+
+  // 쥐 격파 피드백
+  for (const dr of myDestroyedRats) {
+    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, true);
+    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
+    const board = document.getElementById('game-board');
+    if (board) {
+      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
+      if (cell) {
+        cell.classList.add('cell-hit-shake');
+        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
+      }
+    }
+  }
 });
 
 // ── SP 업데이트 ──
@@ -819,7 +873,7 @@ socket.on('sp_update', ({ sp, instantSp }) => {
 
 // ── 턴 이벤트 알림 ──
 socket.on('turn_event', ({ type, msg }) => {
-  showSkillToast(`⚡ ${msg}`);
+  showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
 
@@ -828,7 +882,7 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
   const el = document.getElementById('shrink-warning');
   el.classList.remove('hidden');
   el.textContent = `⚠ 보드 축소까지 ${turnsRemaining}턴! (턴 50에 외곽 파괴)`;
-  showSkillToast(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, true);
+  showSkillToast(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, false, undefined, 'event');
   addLog(`⚠ 턴 이벤트 : 보드 축소까지 ${turnsRemaining}턴!`, 'shrink');
 });
 
@@ -836,7 +890,7 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
 socket.on('board_shrink', ({ bounds, eliminated }) => {
   S.boardBounds = bounds;
   playSfx('shrink');
-  showSkillToast('🔥 턴 이벤트 : 보드 축소!', true);
+  showSkillToast('🔥 턴 이벤트 : 보드 축소!', false, undefined, 'event');
   addLog(`🔥 보드 축소! 5×5 → 3×3`, 'shrink');
 
   // 축소로 파괴된 유닛 인덱스 수집 (렌더 전)
@@ -957,7 +1011,7 @@ socket.on('rats_spawned', ({ rats, owner }) => {
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
   } else {
     addLog(`🐀 상대 쥐 장수가 쥐를 소환했습니다! 해당 보드를 공격하는 것으로 쥐를 제거할 수 있습니다.`, 'skill');
-    showSkillToast(`🐀 상대 쥐 장수가 쥐를 소환했습니다!`);
+    showSkillToast(`🐀 상대 쥐 장수가 쥐를 소환했습니다!`, true);
   }
   renderGameBoard();
 });
@@ -969,7 +1023,7 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
     showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 배치!`);
   } else {
     addLog(`🐉 상대가 드래곤을 소환했습니다!`, 'skill');
-    showSkillToast(`🐉 상대가 드래곤을 소환했습니다!`);
+    showSkillToast(`🐉 상대가 드래곤을 소환했습니다!`, true);
   }
 });
 
@@ -1684,7 +1738,7 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
   if (S.deckBuilderMode) {
     saveDeck(S.draftSelected[1] || null, S.draftSelected[2] || null, S.draftSelected[3] || null);
-    showSkillToast('덱이 저장되었습니다!');
+    showSkillToast('덱이 저장되었습니다!', false, undefined, 'event');
     return;
   }
 
@@ -1734,7 +1788,7 @@ document.getElementById('random-confirm-ok').addEventListener('click', () => {
   document.getElementById('random-confirm-modal').classList.add('hidden');
   // 슬롯만 채우기 (확정은 별도)
   S.draftSelected = { 1: pick.t1, 2: pick.t2, 3: pick.t3 };
-  showSkillToast('🎲 슬롯이 랜덤으로 채워졌습니다!');
+  showSkillToast('🎲 슬롯이 랜덤으로 채워졌습니다!', false, undefined, 'event');
   buildDraftStepUI();
 });
 
@@ -2104,15 +2158,27 @@ function buildInitialRevealUI(myDraft, oppChars) {
   oppContainer.innerHTML = '';
 
   // 내 드래프트 (타입으로부터 캐릭터 데이터 조회)
+  let cardIdx = 0;
   for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
     const type = myDraft[key];
     const ch = findLocalChar(type, tier);
-    if (ch) myContainer.appendChild(createDraftRevealCard(ch, tier, 'left'));
+    if (ch) {
+      const card = createDraftRevealCard(ch, tier, 'left');
+      card.style.animationDelay = `${0.5 + cardIdx * 1}s`;
+      card.style.opacity = '0';
+      myContainer.appendChild(card);
+      cardIdx++;
+    }
   }
 
   // 상대 캐릭터
+  cardIdx = 0;
   for (const ch of oppChars) {
-    oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right'));
+    const card = createDraftRevealCard(ch, ch.tier, 'right');
+    card.style.animationDelay = `${0.5 + cardIdx * 1}s`;
+    card.style.opacity = '0';
+    oppContainer.appendChild(card);
+    cardIdx++;
   }
 
   const btn = document.getElementById('btn-irev-confirm');
@@ -2473,6 +2539,7 @@ function buildFinalRevealUI(myDraft, oppChars) {
   // 내 캐릭터 — 초기 덱과 비교하여 교체 표시 + 깜빡임 애니메이션
   const initialDeck = loadDeck();
   const exchangedCards = [];
+  let frevIdx = 0;
   for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
     const type = myDraft[key];
     const ch = findLocalChar(type, tier);
@@ -2482,26 +2549,39 @@ function buildFinalRevealUI(myDraft, oppChars) {
       if (wasExchanged) {
         const oldCh = findLocalChar(initialDeck[key], tier);
         const card = createDraftRevealCard(oldCh || ch, tier, 'left', '');
+        card.style.animationDelay = `${0.5 + frevIdx * 1}s`;
+        card.style.opacity = '0';
         myContainer.appendChild(card);
         exchangedCards.push({ card, newCh: ch, tier, side: 'left' });
       } else {
-        myContainer.appendChild(createDraftRevealCard(ch, tier, 'left', ''));
+        const card = createDraftRevealCard(ch, tier, 'left', '');
+        card.style.animationDelay = `${0.5 + frevIdx * 1}s`;
+        card.style.opacity = '0';
+        myContainer.appendChild(card);
       }
+      frevIdx++;
     }
   }
 
   // 상대 캐릭터 — 초기 공개와 비교하여 교체 표시 + 깜빡임 애니메이션
   const initialOpp = S.oppRevealChars || [];
+  frevIdx = 0;
   for (const ch of oppChars) {
     const initial = initialOpp.find(o => o.tier === ch.tier);
     const wasExchanged = initial && initial.type !== ch.type;
     if (wasExchanged) {
       const card = createDraftRevealCard(initial, ch.tier, 'right', '');
+      card.style.animationDelay = `${0.5 + frevIdx * 1}s`;
+      card.style.opacity = '0';
       oppContainer.appendChild(card);
       exchangedCards.push({ card, newCh: ch, tier: ch.tier, side: 'right' });
     } else {
-      oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right', ''));
+      const card = createDraftRevealCard(ch, ch.tier, 'right', '');
+      card.style.animationDelay = `${0.5 + frevIdx * 1}s`;
+      card.style.opacity = '0';
+      oppContainer.appendChild(card);
     }
+    frevIdx++;
   }
 
   // 교체된 카드: 1.5초 후 깜빡임 시작 → 깜빡임 끝나면 새 캐릭터로 교체
@@ -2616,7 +2696,7 @@ function updatePlacementUI() {
     card.innerHTML = `
       <div class="placement-card-header">
         <span class="piece-icon">${pc.icon}</span>
-        <div class="piece-info">
+        <div class="piece-info" style="text-align:right">
           <strong>${pc.name} ${tagHtml}</strong>
           <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
           ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
@@ -2813,7 +2893,7 @@ function showActionBar(enabled) {
     let hasUsableSkill = false;
     for (const p of alivePieces) {
       if (!p.hasSkill && (!p.skills || p.skills.length === 0)) continue;
-      const skills = p.skills && p.skills.length > 0 ? p.skills : (p.hasSkill ? [{ id: p.skillId, cost: p.skillCost, replacesAction: p.skillReplacesAction, oncePerTurn: false }] : []);
+      const skills = p.skills && p.skills.length > 0 ? p.skills : (p.hasSkill ? [{ id: p.skillId, cost: p.skillCost, replacesAction: p.skillReplacesAction, oncePerTurn: !!p.skillOncePerTurn }] : []);
       for (const sk of skills) {
         // SP 체크
         if ((sk.cost || 0) > mySp) continue;
@@ -3109,7 +3189,6 @@ function renderMyPieces() {
     const twinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
     card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
-    const barClass = hpPct <= 25 ? 'low' : '';
 
     const tagHtml = pc.tag
       ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
@@ -3149,7 +3228,7 @@ function renderMyPieces() {
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
       </div>
-      <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${atkDisplay}</span>
         <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
@@ -3226,7 +3305,6 @@ function renderOppPieces() {
       card.addEventListener('dragend', () => card.classList.remove('dragging'));
     }
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
-    const barClass = hpPct <= 25 ? 'low' : '';
     const tagHtml = pc.tag
       ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
       : '';
@@ -3252,7 +3330,7 @@ function renderOppPieces() {
         ${tagHtml}
         ${placedBadge}
       </div>
-      <div class="hp-bar-bg"><div class="hp-bar ${barClass}" style="width:${hpPct}%"></div></div>
+      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.68rem">
@@ -3584,6 +3662,11 @@ function openSkillModal() {
         const hasMarked = (S.oppPieces || []).some(p => p.alive && p.statusEffects && p.statusEffects.some(e => e.type === 'mark'));
         if (!hasMarked) { singleDisabled = true; singleNote = ' (표식 대상 없음)'; }
       }
+      // 드래곤 조련사: 드래곤이 이미 존재하면 비활성화
+      if (pc.type === 'dragonTamer') {
+        const hasDragon = S.myPieces.some(p => p.isDragon && p.alive);
+        if (hasDragon) { singleDisabled = true; singleNote = ' (드래곤 이미 소환됨)'; }
+      }
       const opt = document.createElement('div');
       opt.className = 'skill-option';
       opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
@@ -3877,7 +3960,7 @@ function handleGameCellClick(col, row) {
           document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name}: 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} — 공격 범위 표시 중. 말을 다시 클릭하면 공격!`;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -3899,7 +3982,7 @@ function handleGameCellClick(col, row) {
           document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name}: 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} — 공격 범위 표시 중. 말을 다시 클릭하면 공격!`;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -4666,7 +4749,7 @@ function _getToastContainer() {
   return container;
 }
 
-function _showToastNow(msg, isEnemy, specPlayerIdx) {
+function _showToastNow(msg, isEnemy, specPlayerIdx, toastType) {
   const container = _getToastContainer();
   const toast = document.createElement('div');
   toast.style.cssText = `
@@ -4683,9 +4766,12 @@ function _showToastNow(msg, isEnemy, specPlayerIdx) {
     const isP1 = specPlayerIdx === 1;
     toast.style.background = isP1 ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
     toast.style.border = isP1 ? '1px solid #ff6b6b' : '1px solid #93c5fd';
+  } else if (toastType === 'event') {
+    toast.style.background = 'rgba(30,30,30,0.92)';
+    toast.style.border = '1px solid #555';
   } else {
-    toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(124,58,237,0.92)';
-    toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #a78bfa';
+    toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(59,130,246,0.92)';
+    toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #93c5fd';
   }
   toast.textContent = msg;
 
@@ -4728,8 +4814,8 @@ function _showToastNow(msg, isEnemy, specPlayerIdx) {
 function _processToastQueue() {
   if (_toastQueue.length === 0) { _toastProcessing = false; return; }
   _toastProcessing = true;
-  const { msg, isEnemy, specPlayerIdx } = _toastQueue.shift();
-  _showToastNow(msg, isEnemy, specPlayerIdx);
+  const { msg, isEnemy, specPlayerIdx, toastType } = _toastQueue.shift();
+  _showToastNow(msg, isEnemy, specPlayerIdx, toastType);
   // 다음 토스트는 반드시 TOAST_INTERVAL 후에 (큐에 남아있든 없든)
   setTimeout(() => {
     if (_toastQueue.length > 0) {
@@ -4740,8 +4826,8 @@ function _processToastQueue() {
   }, TOAST_INTERVAL);
 }
 
-function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined) {
-  _toastQueue.push({ msg, isEnemy, specPlayerIdx });
+function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined, toastType = undefined) {
+  _toastQueue.push({ msg, isEnemy, specPlayerIdx, toastType });
   if (!_toastProcessing) _processToastQueue();
 }
 
@@ -4760,7 +4846,7 @@ function setTurnBackground(isMyTurn) {
 
 // ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
-  showSkillToast(`${myN()}의 차례!`);
+  showSkillToast(`${myN()}의 차례!`, false, undefined, 'event');
 }
 
 // ── 이동 모션 애니메이션 ──

@@ -52,22 +52,30 @@
   stroke-dashoffset: 0;
   transition: stroke-dashoffset 0.3s linear, stroke 0.3s;
 }
-.timer-arc.urgent { stroke: var(--danger); }
+.timer-arc.urgent { stroke: var(--danger); animation: timer-pulse 0.8s ease-in-out infinite; }
 .timer-clock-text {
   position: relative; z-index: 1;
   font-size: 0.95rem; font-weight: 800;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.timer-clock-text.urgent { color: var(--danger); }
+.timer-clock-text.urgent { color: var(--danger); animation: timer-text-pulse 0.8s ease-in-out infinite; }
+@keyframes timer-pulse {
+  0%, 100% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.4; }
+}
+@keyframes timer-text-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
 
 /* 턴 플레이어별 타이머 색상 */
 .timer-clock.my-turn-timer .timer-arc:not(.urgent) { stroke: #3b82f6; }
 .timer-clock.my-turn-timer .timer-track { fill: rgba(59,130,246,0.08); }
 .timer-clock.my-turn-timer .timer-clock-text:not(.urgent) { color: #3b82f6; }
-.timer-clock.opp-turn-timer .timer-arc:not(.urgent) { stroke: #ef4444; }
-.timer-clock.opp-turn-timer .timer-track { fill: rgba(239,68,68,0.08); }
-.timer-clock.opp-turn-timer .timer-clock-text:not(.urgent) { color: #ef4444; }
+.timer-clock.opp-turn-timer .timer-arc:not(.urgent) { stroke: #7a7a9a; }
+.timer-clock.opp-turn-timer .timer-track { fill: rgba(122,122,154,0.08); }
+.timer-clock.opp-turn-timer .timer-clock-text:not(.urgent) { color: #7a7a9a; }
 
 body {
   font-family: 'Segoe UI', system-ui, sans-serif;
@@ -722,6 +730,10 @@ body {
   align-items: center;
   gap: 10px;
 }
+.placement-card-header .piece-info {
+  flex: 1;
+  text-align: right;
+}
 .placement-card-detail {
   display: flex;
   gap: 10px;
@@ -826,13 +838,28 @@ body {
 .piece-marker.opp-marked .p-icon { filter: drop-shadow(0 0 4px #e05252); }
 .cell.has-piece:has(.opp-marked) { background: rgba(224,82,82,0.12); border-color: rgba(224,82,82,0.5); }
 .cell.selected-piece { border-color: var(--accent) !important; background: rgba(226,168,75,0.18) !important; box-shadow: 0 0 0 2px var(--accent); }
-.cell.attack-range { background: var(--range); border-color: rgba(226,168,75,0.5); }
+.cell.attack-range { background: rgba(239,68,68,0.25); border-color: rgba(239,68,68,0.6); box-shadow: inset 0 0 6px rgba(239,68,68,0.3); }
 .cell.move-range   { background: var(--move-h); border-color: rgba(82,183,136,0.5); }
 .cell.hit-mark     { background: var(--hit); border: 2px solid #ef4444 !important; box-shadow: inset 0 0 8px rgba(239,68,68,0.4); }
 .cell.miss-mark    { background: var(--miss); }
 .cell.assassin-target { background: rgba(220,80,80,0.3); border-color: var(--danger); }
 .cell.skill-range  { background: rgba(124,58,237,0.2); border-color: rgba(124,58,237,0.5); }
 .cell.explosion-trace { background: rgba(255,100,0,0.12); border-color: rgba(255,100,0,0.25); }
+
+/* 셀 피격 흔들림 (쥐 격파 등) */
+.cell.cell-hit-shake {
+  animation: cellHitShake 0.5s ease-in-out;
+  border-color: #fbbf24 !important;
+  box-shadow: inset 0 0 8px rgba(251,191,36,0.5);
+}
+@keyframes cellHitShake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-3px); }
+  30% { transform: translateX(3px); }
+  45% { transform: translateX(-2px); }
+  60% { transform: translateX(2px); }
+  75% { transform: translateX(-1px); }
+}
 
 /* 파괴된 셀 (보드 축소) */
 .cell.destroyed {
@@ -974,7 +1001,6 @@ body {
 .my-piece-header .tier-badge { font-size: 0.65rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
 .hp-bar-bg { height: 6px; background: var(--border); border-radius: 3px; margin: 4px 0; }
 .hp-bar    { height: 6px; background: var(--success); border-radius: 3px; transition: width 0.3s; }
-.hp-bar.low { background: var(--danger); }
 .my-piece-pos { font-size: 0.72rem; color: var(--muted); }
 
 /* 상태효과 뱃지 */
