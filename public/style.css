@@ -675,15 +675,51 @@ body {
   0% { opacity: 0; transform: scale(0.8); }
   100% { opacity: 1; transform: scale(1); }
 }
-.reveal-card.exchanged-blink {
+.reveal-piece-card.exchanged-blink {
   animation: revealBlink 0.8s ease-in-out 3;
   border-color: var(--accent) !important;
   box-shadow: 0 0 16px rgba(226,168,75,0.5) !important;
 }
-.reveal-card.exchanged-appear {
+.reveal-piece-card.exchanged-appear {
   animation: revealAppear 0.5s ease-out forwards;
   border-color: var(--accent) !important;
   box-shadow: 0 0 16px rgba(226,168,75,0.5) !important;
+}
+.reveal-piece-card.exchanged-highlight {
+  border: 2px solid var(--accent) !important;
+  box-shadow: 0 0 12px rgba(226,168,75,0.4);
+  background: linear-gradient(135deg, var(--surface), rgba(226,168,75,0.1));
+  position: relative;
+}
+.reveal-piece-card.exchanged-highlight::after {
+  content: '🔄 교체됨';
+  position: absolute; top: -10px; right: 8px;
+  background: var(--accent); color: #1a1a2e; font-size: 0.6rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 8px;
+}
+.no-exchange-label {
+  text-align: center; font-size: 0.78rem; color: var(--muted);
+  padding: 10px 0; margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  animation: revealSlide 0.5s ease-out both;
+}
+
+/* ── 캐릭터 선택 버튼 ── */
+.btn-select-char {
+  display: block; width: 80%; max-width: 240px; margin: 14px auto 0;
+  padding: 10px 0; font-size: 0.95rem; font-weight: 700;
+  border: 2px solid var(--accent); border-radius: 10px;
+  background: linear-gradient(135deg, rgba(226,168,75,0.15), rgba(226,168,75,0.05));
+  color: var(--accent); cursor: pointer; transition: all 0.2s;
+}
+.btn-select-char:hover {
+  background: linear-gradient(135deg, rgba(226,168,75,0.3), rgba(226,168,75,0.1));
+  box-shadow: 0 0 12px rgba(226,168,75,0.3);
+  transform: translateY(-1px);
+}
+.btn-select-char.selected {
+  background: var(--accent); color: #1a1a2e;
+  pointer-events: none;
 }
 
 /* ── 교환 드래프트 ── */
@@ -891,12 +927,12 @@ body {
 .coord-label { font-size: 0.55rem; color: #3a3a5a; position: absolute; bottom: 1px; left: 2px; }
 
 /* ── SP 영향력 바 ── */
+.sp-section {
+  width: 100%; flex-basis: 100%;
+}
 .sp-bar-container {
   display: flex; align-items: center; gap: 12px;
-  width: 100%; padding: 10px 20px;
-  position: sticky; top: 0; z-index: 50;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  width: 100%; padding: 6px 0;
 }
 .sp-label { font-size: 0.8rem; font-weight: 700; white-space: nowrap; min-width: 80px; }
 .sp-label.sp-mine { color: var(--sp-mine); text-align: right; }
@@ -913,7 +949,7 @@ body {
   text-align: center;
   font-size: 0.72rem;
   color: var(--text-dim);
-  margin-top: -4px;
+  margin-top: 2px;
   padding-bottom: 4px;
 }
 
@@ -925,10 +961,10 @@ body {
 
 /* ── 보드 축소 경고 ── */
 .shrink-warning {
-  max-width: 1000px; width: 100%;
+  width: 100%;
   text-align: center; padding: 8px 16px;
   background: rgba(220,80,80,0.1); border: 1px solid var(--danger);
-  border-radius: 8px; margin: 0 20px;
+  border-radius: 8px; margin-top: 4px;
   font-size: 0.85rem; font-weight: 600; color: var(--danger);
   animation: pulse-warn 2s ease-in-out infinite;
 }
@@ -940,13 +976,15 @@ body {
 /* ── 게임 화면 ── */
 .game-layout {
   display: flex;
-  gap: 20px;
+  flex-wrap: wrap;
+  gap: 16px;
   align-items: flex-start;
-  max-width: 1000px;
+  max-width: 1200px;
   width: 100%;
   padding: 20px;
 }
-.side-panel { width: 220px; flex-shrink: 0; }
+.side-panel { width: 200px; flex-shrink: 0; }
+.log-panel { width: 220px; flex-shrink: 0; position: sticky; top: 60px; }
 .side-panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; }
 .center-panel { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 
@@ -1285,6 +1323,11 @@ body {
 #screen-gameover .center-box { padding: 60px 40px; }
 
 /* ── 반응형 ── */
+@media (max-width: 1100px) {
+  .game-layout { flex-wrap: wrap; }
+  .log-panel { width: 100%; position: static; max-height: 250px; overflow-y: auto; }
+  .game-log { max-height: 200px; }
+}
 @media (max-width: 900px) {
   .draft-layout { flex-direction: column; align-items: center; }
   .draft-cards { grid-template-columns: 1fr; max-width: 100%; }
@@ -1293,7 +1336,7 @@ body {
 }
 @media (max-width: 700px) {
   .game-layout { flex-direction: column; align-items: center; }
-  .side-panel { width: 100%; }
+  .side-panel, .log-panel { width: 100%; }
   .board { grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(5, 46px); }
   .board .cell { width: 46px; height: 46px; }
   .reveal-layout { flex-direction: column; }
@@ -1630,14 +1673,15 @@ body {
     padding: 10px 8px;
     gap: 10px;
   }
-  .side-panel {
+  .side-panel, .log-panel {
     width: 100%; max-width: 100%;
     flex-shrink: 1;
   }
-  /* 패널 순서: 턴배너+보드+액션 먼저, 내말, 상대+로그 */
+  /* 패널 순서: 턴배너+보드+액션 먼저, 내말, 상대, 로그 */
   .center-panel { order: 1; }
   .left-panel   { order: 2; }
   .right-panel  { order: 3; }
+  .log-panel    { order: 4; }
 
   .center-panel { gap: 8px; }
   .turn-banner { font-size: 0.82rem; padding: 8px 12px; }
