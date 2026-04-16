@@ -1685,9 +1685,6 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   if (S.deckBuilderMode) {
     saveDeck(S.draftSelected[1] || null, S.draftSelected[2] || null, S.draftSelected[3] || null);
     showSkillToast('덱이 저장되었습니다!');
-    S.deckBuilderMode = false;
-    document.getElementById('btn-deck-back').classList.add('hidden');
-    showScreen('screen-lobby');
     return;
   }
 
@@ -2187,9 +2184,23 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
       if (!ch) continue;
       const card = document.createElement('div');
       card.className = 'draft-slot filled opp-slot';
-      card.style.cssText = 'border-color:rgba(239,68,68,0.4);cursor:default;position:relative';
-      card.innerHTML = `<span class="slot-icon">${ch.icon}</span>
-        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}</span></div>`;
+      card.style.cssText = 'border-color:rgba(239,68,68,0.4);cursor:pointer;position:relative';
+      card.innerHTML = `
+        <span class="slot-tier">${tier}티어</span>
+        <span class="slot-icon">${ch.icon}</span>
+        <div class="slot-info">
+          <span class="slot-name">${ch.name}</span>
+          <span class="slot-stats">${ch.desc || ''}</span>
+        </div>`;
+      card.addEventListener('click', () => {
+        exCurrentTier = tier;
+        exSlideIndex = 0;
+        exBuildStepUI();
+        // Find this opponent's character in the slide list and navigate to it
+        const allChars = S._exAllChars || [];
+        const idx = allChars.findIndex(c => c.type === type);
+        if (idx >= 0) { exSlideIndex = idx; exRenderSlide(); }
+      });
       const tooltip = buildPieceTooltip(ch, 'right');
       card.appendChild(tooltip);
       oppContainer.appendChild(card);
@@ -2395,8 +2406,13 @@ function exUpdateSlots() {
     const isSwapped = S.exSwapped && S.exSwapped.tier === tier;
     if (ch) {
       slot.className = `draft-slot filled${isSwapped ? ' swapped' : ''}`;
-      slot.innerHTML = `<span class="slot-icon">${ch.icon}</span>
-        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}${isSwapped ? ' · 교체됨' : ''}</span></div>`;
+      slot.innerHTML = `
+        <span class="slot-tier">${tier}티어</span>
+        <span class="slot-icon">${ch.icon}</span>
+        <div class="slot-info">
+          <span class="slot-name">${ch.name}</span>
+          <span class="slot-stats">${isSwapped ? '교체됨' : (ch.desc || '')}</span>
+        </div>`;
       slot.style.cursor = 'pointer';
       slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
     } else {
