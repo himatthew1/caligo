@@ -74,13 +74,9 @@
     <!-- 왼쪽: 캐릭터 뷰어 -->
     <div class="draft-main">
       <button id="btn-deck-back" class="btn btn-small hidden" style="position:absolute;left:16px;top:16px">✕ 나가기</button>
-      <h2 id="draft-title">1티어 선택</h2>
-      <p id="draft-sub" class="muted">정찰과 견제 - 10명 중 1명을 선택하세요</p>
       <div id="draft-step-indicator" class="step-indicator">
         <span class="step active">1티어</span>
-        <span class="step-arrow">→</span>
         <span class="step">2티어</span>
-        <span class="step-arrow">→</span>
         <span class="step">3티어</span>
       </div>
 
@@ -106,6 +102,7 @@
             <div id="draft-preview-board" class="board preview-board"></div>
             <div id="draft-preview-info" class="draft-preview-info"></div>
           </div>
+          <button id="btn-draft-select" class="btn btn-accent btn-select-char">캐릭터 선택</button>
         </div>
         <button id="btn-slide-next" class="slide-arrow slide-arrow-right">›</button>
       </div>
@@ -166,13 +163,10 @@
   <div class="draft-layout exchange-layout">
     <!-- 왼쪽: 캐릭터 뷰어 (덱 빌더와 동일 구조) -->
     <div class="draft-main">
-      <h2 id="ex-draft-title">교환 드래프트</h2>
-      <p id="ex-draft-sub" class="muted">교환할 티어를 선택 후 캐릭터를 고르세요 (선택사항)</p>
+      <p id="ex-draft-sub" class="muted" style="margin-top:8px;font-size:0.85rem"></p>
       <div id="ex-step-indicator" class="step-indicator">
         <span class="step active">1티어</span>
-        <span class="step-arrow">→</span>
         <span class="step">2티어</span>
-        <span class="step-arrow">→</span>
         <span class="step">3티어</span>
       </div>
       <div class="draft-viewer-wrap">
@@ -197,6 +191,7 @@
               <div id="ex-preview-board" class="board preview-board"></div>
               <div id="ex-preview-info" class="draft-preview-info"></div>
             </div>
+            <button id="btn-ex-select" class="btn btn-accent btn-select-char">이 캐릭터로 교체</button>
           </div>
           <button id="btn-ex-slide-next" class="slide-arrow slide-arrow-right">›</button>
         </div>
@@ -314,21 +309,21 @@
 
 <!-- ── 게임 ── -->
 <div id="screen-game" class="screen">
-  <!-- SP 영향력 그래프 (상단) -->
-  <div class="sp-bar-container">
-    <span id="sp-my-label" class="sp-label sp-mine">내 SP: 1</span>
-    <div class="sp-bar">
-      <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
-      <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
-    </div>
-    <span id="sp-opp-label" class="sp-label sp-opp">상대 SP: 1</span>
-  </div>
-  <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
-
-  <!-- 보드 축소 경고 -->
-  <div id="shrink-warning" class="shrink-warning hidden"></div>
-
   <div class="game-layout">
+    <!-- SP 영향력 그래프 (상단, game-layout 안) -->
+    <div class="sp-section">
+      <div class="sp-bar-container">
+        <span id="sp-my-label" class="sp-label sp-mine">내 SP: 1</span>
+        <div class="sp-bar">
+          <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
+          <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
+        </div>
+        <span id="sp-opp-label" class="sp-label sp-opp">상대 SP: 1</span>
+      </div>
+      <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
+      <!-- 보드 축소 경고 -->
+      <div id="shrink-warning" class="shrink-warning hidden"></div>
+    </div>
     <!-- 왼쪽: 내 말 정보 -->
     <div class="side-panel left-panel">
       <h3>내 말</h3>
@@ -350,12 +345,16 @@
       <div id="action-hint" class="action-hint"></div>
     </div>
 
-    <!-- 오른쪽: 상대 말 + 로그 -->
+    <!-- 오른쪽: 상대 말 -->
     <div class="side-panel right-panel">
       <h3>상대방 말</h3>
       <p style="font-size:0.7rem;color:var(--muted);margin:0 0 8px">위치 비공개 · 스탯 공개</p>
       <div id="opp-pieces-info"></div>
-      <h3 style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">전투 로그</h3>
+    </div>
+
+    <!-- 맨 오른쪽: 전투 로그 -->
+    <div class="side-panel log-panel">
+      <h3>전투 로그</h3>
       <div id="game-log" class="game-log"></div>
     </div>
   </div>
@@ -446,6 +445,30 @@
       <p class="muted">로딩 중...</p>
     </div>
     <button id="spectate-modal-close" class="btn btn-muted">닫기</button>
+  </div>
+</div>
+
+<!-- ── 덱 나가기 확인 모달 ── -->
+<div id="deck-exit-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>⚠ 나가기</h3>
+    <p id="deck-exit-msg" style="color:var(--text-dim); margin:12px 0;"></p>
+    <div class="modal-btn-row">
+      <button id="deck-exit-confirm" class="btn btn-danger">나가기</button>
+      <button id="deck-exit-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 교환 미선택 확인 모달 ── -->
+<div id="exchange-noswap-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>⚠ 교체 확인</h3>
+    <p style="color:var(--text-dim); margin:12px 0;">교체되지 않았습니다. 그래도 넘어가시겠습니까?</p>
+    <div class="modal-btn-row">
+      <button id="exchange-noswap-confirm" class="btn btn-warning">넘어가기</button>
+      <button id="exchange-noswap-cancel" class="btn btn-muted">취소</button>
+    </div>
   </div>
 </div>
 

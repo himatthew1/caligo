@@ -898,6 +898,7 @@ function oppPieceSummary(pieces) {
       subUnit: pc.subUnit,
       isDragon: pc.isDragon,
       range: pc.range,
+      toggleState: pc.toggleState,
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
@@ -1542,7 +1543,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       const dir = piece.toggleState === 'right' ? '우대각선(\\)' : '좌대각선(/)';
       result.msg = `🏹 정비: 궁수의 공격 범위를 ${dir}(으)로 반전했습니다.`;
-      result.oppMsg = `🏹 상대가 정비를 사용해 궁수의 공격 범위를 바꿨습니다.`;
+      result.oppMsg = `🏹 상대가 정비를 사용해 궁수의 공격 범위를 ${dir}(으)로 반전했습니다.`;
       result.data.toggleState = piece.toggleState;
       break;
     }
@@ -1734,7 +1735,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       const wsDir = piece.toggleState === 'vertical' ? '세로' : '가로';
       result.msg = `⚒ 정비: 무기상의 공격 범위를 ${wsDir}(으)로 전환했습니다.`;
-      result.oppMsg = `⚒ 상대가 정비를 사용해 무기상의 공격 범위를 바꿨습니다.`;
+      result.oppMsg = `⚒ 상대가 정비를 사용해 무기상의 공격 범위를 ${wsDir}(으)로 전환했습니다.`;
       result.data.toggleState = piece.toggleState;
       break;
     }

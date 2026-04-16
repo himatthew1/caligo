@@ -154,14 +154,15 @@ function openDeckBuilder() {
   S.deckBuilderMode = true;
   S.draftStep = 1;
   S.draftPicked = [];
+  S.deckSaved = false;
+  // 저장된 덱이 있으면 불러오기
   const deck = loadDeck();
+  S.draftSelected = {};
   if (deck) {
-    S.draftSelected = {};
     if (deck.t1 && S.characters[1]?.find(c => c.type === deck.t1)) S.draftSelected[1] = deck.t1;
     if (deck.t2 && S.characters[2]?.find(c => c.type === deck.t2)) S.draftSelected[2] = deck.t2;
     if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
-  } else {
-    S.draftSelected = {};
+    S.deckSaved = !!(S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3]);
   }
   document.getElementById('btn-deck-back').classList.remove('hidden');
   document.getElementById('btn-draft-random').disabled = false;
@@ -183,9 +184,28 @@ document.getElementById('btn-deck').addEventListener('click', () => {
 });
 
 document.getElementById('btn-deck-back').addEventListener('click', () => {
+  const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+  if (!allSelected) {
+    document.getElementById('deck-exit-msg').textContent = '캐릭터를 모두 선택하지 않았습니다. 그래도 나가시겠습니까?';
+    document.getElementById('deck-exit-modal').classList.remove('hidden');
+    return;
+  } else if (!S.deckSaved) {
+    document.getElementById('deck-exit-msg').textContent = '덱이 저장되지 않았습니다. 그래도 나가시겠습니까?';
+    document.getElementById('deck-exit-modal').classList.remove('hidden');
+    return;
+  }
   S.deckBuilderMode = false;
   document.getElementById('btn-deck-back').classList.add('hidden');
   showScreen('screen-lobby');
+});
+document.getElementById('deck-exit-confirm').addEventListener('click', () => {
+  document.getElementById('deck-exit-modal').classList.add('hidden');
+  S.deckBuilderMode = false;
+  document.getElementById('btn-deck-back').classList.add('hidden');
+  showScreen('screen-lobby');
+});
+document.getElementById('deck-exit-cancel').addEventListener('click', () => {
+  document.getElementById('deck-exit-modal').classList.add('hidden');
 });
 
 // ── 오디오 토글 버튼 ──
@@ -1342,9 +1362,6 @@ let slideIndex = 0;
 
 function buildDraftStepUI() {
   const step = S.draftStep;
-  const info = TIER_INFO[step];
-  document.getElementById('draft-title').textContent = `${info.label} 선택`;
-  document.getElementById('draft-sub').textContent = info.desc;
 
   // 스텝 인디케이터 업데이트 (클릭 가능)
   const steps = document.querySelectorAll('#draft-step-indicator .step');
@@ -1384,15 +1401,9 @@ function buildDraftStepUI() {
   // 미리보기 보드 생성
   buildBoard('draft-preview-board', () => {});
 
-  // 페이저 도트 생성
+  // 페이저 도트 숨김 (아이콘 인덱스로 대체)
   const pager = document.getElementById('slide-pager');
-  pager.innerHTML = '';
-  chars.forEach((_, i) => {
-    const dot = document.createElement('button');
-    dot.className = 'slide-dot';
-    dot.addEventListener('click', () => goToSlide(i));
-    pager.appendChild(dot);
-  });
+  if (pager) pager.innerHTML = '';
 
   // 이전 선택이 있으면 해당 슬라이드로, 아니면 첫 슬라이드
   const prevSelected = S.draftSelected[step];
@@ -1455,18 +1466,23 @@ function renderSlide() {
   // 공격 범위 미리보기
   updateDraftPreview(c);
 
-  // 페이저 도트 업데이트
-  document.querySelectorAll('#slide-pager .slide-dot').forEach((dot, i) => {
-    dot.classList.toggle('active', i === slideIndex);
-  });
-
   // 아이콘 인덱스 활성 상태 업데이트
   document.querySelectorAll('.icon-index-btn').forEach((btn, i) => {
     btn.classList.toggle('active', i === slideIndex);
   });
 
-  // 현재 티어에 이 캐릭터를 선택 상태로 설정
-  S.draftSelected[step] = c.type;
+  // 캐릭터 선택 버튼 상태 업데이트
+  const selectBtn = document.getElementById('btn-draft-select');
+  if (selectBtn) {
+    const isAlreadySelected = S.draftSelected[step] === c.type;
+    if (isAlreadySelected) {
+      selectBtn.textContent = '✔ 선택됨';
+      selectBtn.className = 'btn btn-accent btn-select-char selected';
+    } else {
+      selectBtn.textContent = '캐릭터 선택';
+      selectBtn.className = 'btn btn-accent btn-select-char';
+    }
+  }
   updateDraftConfirmBtn();
   // 관전자에게 실시간 브라우징 전송
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
@@ -1493,6 +1509,19 @@ function goToSlide(idx) {
 
 document.getElementById('btn-slide-prev').addEventListener('click', () => goToSlide(slideIndex - 1));
 document.getElementById('btn-slide-next').addEventListener('click', () => goToSlide(slideIndex + 1));
+
+// 캐릭터 선택 버튼
+document.getElementById('btn-draft-select').addEventListener('click', () => {
+  const step = S.draftStep;
+  const chars = S.characters[step];
+  if (!chars || !chars[slideIndex]) return;
+  const c = chars[slideIndex];
+  S.draftSelected[step] = c.type;
+  if (S.deckBuilderMode) S.deckSaved = false;
+  renderSlide(); // 버튼 상태 갱신
+  updateDraftConfirmBtn();
+  socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
+});
 
 // 키보드 좌우 화살표로도 슬라이드 이동
 document.addEventListener('keydown', (e) => {
@@ -1638,6 +1667,7 @@ function renderDraftSlots() {
       slot.onclick = (e) => {
         if (e.target.classList.contains('slot-remove')) {
           S.draftSelected[tier] = null;
+          if (S.deckBuilderMode) S.deckSaved = false;
           S.draftStep = tier;
           buildDraftStepUI();
           socket.emit('draft_browse', { step: tier, type: null, selected: { ...S.draftSelected } });
@@ -1683,7 +1713,12 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
 
   // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
   if (S.deckBuilderMode) {
-    saveDeck(S.draftSelected[1] || null, S.draftSelected[2] || null, S.draftSelected[3] || null);
+    if (!allSelected) {
+      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.');
+      return;
+    }
+    saveDeck(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
+    S.deckSaved = true;
     showSkillToast('덱이 저장되었습니다!');
     S.deckBuilderMode = false;
     document.getElementById('btn-deck-back').classList.add('hidden');
@@ -1702,10 +1737,9 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
     t3: S.draftSelected[3],
   });
   document.getElementById('btn-draft-confirm').disabled = true;
-  document.getElementById('draft-title').textContent = '선택 완료!';
-  document.getElementById('draft-sub').textContent = '상대방의 선택을 기다리는 중...';
-  document.querySelector('.draft-main .slide-viewer').innerHTML = '<div class="spinner"></div>';
-  document.getElementById('slide-pager').innerHTML = '';
+  document.querySelector('.draft-main .slide-viewer').innerHTML = '<div class="spinner" style="text-align:center;padding:40px;color:var(--muted)">상대방의 선택을 기다리는 중...</div>';
+  const pager = document.getElementById('slide-pager');
+  if (pager) pager.innerHTML = '';
   // 사이드바 버튼 비활성화
   document.getElementById('btn-draft-random').disabled = true;
   document.getElementById('btn-draft-recommend').disabled = true;
@@ -2106,21 +2140,44 @@ function buildInitialRevealUI(myDraft, oppChars) {
   myContainer.innerHTML = '';
   oppContainer.innerHTML = '';
 
-  // 내 드래프트 (타입으로부터 캐릭터 데이터 조회)
+  const btn = document.getElementById('btn-irev-confirm');
+  btn.disabled = true;
+  btn.style.opacity = '0';
+  btn.textContent = '교환 드래프트로';
+
+  // 카드 데이터 준비
+  const myCards = [];
   for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
     const type = myDraft[key];
     const ch = findLocalChar(type, tier);
-    if (ch) myContainer.appendChild(createDraftRevealCard(ch, tier, 'left'));
+    if (ch) myCards.push({ ch, tier });
+  }
+  const oppCards = oppChars.map(ch => ({ ch, tier: ch.tier }));
+
+  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
+  const totalSlots = Math.max(myCards.length, oppCards.length);
+  for (let i = 0; i < totalSlots; i++) {
+    setTimeout(() => {
+      playSfxRevealAppear();
+      if (myCards[i]) {
+        const card = createDraftRevealCard(myCards[i].ch, myCards[i].tier, 'left');
+        card.style.animation = 'revealSlide 0.5s ease-out both';
+        myContainer.appendChild(card);
+      }
+      if (oppCards[i]) {
+        const card = createDraftRevealCard(oppCards[i].ch, oppCards[i].tier, 'right');
+        card.style.animation = 'revealSlide 0.5s ease-out both';
+        oppContainer.appendChild(card);
+      }
+    }, (i + 1) * 1500);
   }
 
-  // 상대 캐릭터
-  for (const ch of oppChars) {
-    oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right'));
-  }
-
-  const btn = document.getElementById('btn-irev-confirm');
-  btn.disabled = false;
-  btn.textContent = '교환 드래프트로';
+  // 모든 등장 후 버튼 표시
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.animation = 'revealSlide 0.5s ease-out both';
+  }, (totalSlots + 1) * 1500);
 }
 
 function findLocalChar(type, tier) {
@@ -2203,9 +2260,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
 
 function exBuildStepUI() {
   const tier = exCurrentTier;
-  const info = TIER_INFO[tier];
-  document.getElementById('ex-draft-title').textContent = `교환 드래프트 — ${info.label}`;
-  document.getElementById('ex-draft-sub').textContent = `교환할 캐릭터를 선택하세요 (선택사항 · 1회 교환 가능)`;
+  document.getElementById('ex-draft-sub').textContent = `상대방 말을 견제할 주요 전력을 하나 교체할 수 있습니다!`;
 
   // 스텝 인디케이터
   const steps = document.querySelectorAll('#ex-step-indicator .step');
@@ -2254,15 +2309,9 @@ function exBuildStepUI() {
   // 미리보기 보드
   buildBoard('ex-preview-board', () => {});
 
-  // 페이저 도트
+  // 페이저 도트 숨김 (아이콘 인덱스로 대체)
   const pager = document.getElementById('ex-slide-pager');
-  pager.innerHTML = '';
-  allChars.forEach((_, i) => {
-    const dot = document.createElement('button');
-    dot.className = 'slide-dot';
-    dot.addEventListener('click', () => { exSlideIndex = i; exRenderSlide(); });
-    pager.appendChild(dot);
-  });
+  if (pager) pager.innerHTML = '';
 
   // 현재 내 캐릭터로 시작
   exSlideIndex = 0;
@@ -2316,30 +2365,44 @@ function exRenderSlide() {
   // 공격 범위 미리보기 (ex용)
   exUpdatePreview(c);
 
-  // 페이저 도트
-  document.querySelectorAll('#ex-slide-pager .slide-dot').forEach((dot, i) => {
-    dot.classList.toggle('active', i === exSlideIndex);
-  });
   document.querySelectorAll('#ex-icon-index .icon-index-btn').forEach((btn, i) => {
     btn.classList.toggle('active', i === exSlideIndex);
   });
 
-  // 현재 보고 있는 캐릭터를 이 티어 선택으로 반영 (단, 1회 교환 제한 확인)
-  if (!isCurrentPick) {
-    // 이미 다른 티어에서 교환했으면 이 티어에서는 교환 불가
-    if (S.exSwapped && S.exSwapped.tier !== tier) {
-      // 교환 불가 — UI만 탐색
+  // 교체 선택 버튼 상태 업데이트
+  const exSelectBtn = document.getElementById('btn-ex-select');
+  if (exSelectBtn) {
+    const isCurrentDraft = c.type === S.exMyDraft[myKey]; // 현재 이 티어에 배정된 캐릭터인가
+    const isOriginal = c.type === S.exOriginalDraft[myKey];
+    const isCurrentSwap = S.exSwapped && S.exSwapped.tier === tier && S.exSwapped.newType === c.type;
+    const canSwap = !S.exSwapped || S.exSwapped.tier === tier;
+
+    // 초기화
+    exSelectBtn.style.opacity = '';
+    exSelectBtn.style.pointerEvents = '';
+
+    if (isCurrentDraft && !isCurrentSwap) {
+      // 이 티어에 현재 배정된 캐릭터 (변동 없음) → "현재 선택"
+      exSelectBtn.textContent = '✔ 현재 선택';
+      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+    } else if (isCurrentSwap) {
+      // 이미 이 캐릭터로 교체한 상태
+      exSelectBtn.textContent = '✔ 교체 선택됨';
+      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+    } else if (isOriginal && S.exSwapped && S.exSwapped.tier === tier) {
+      // 다른 캐릭터로 교체한 상태에서 원래 캐릭터 보기 → "원래대로 되돌리기"
+      exSelectBtn.textContent = '↩ 원래대로 되돌리기';
+      exSelectBtn.className = 'btn btn-accent btn-select-char';
+    } else if (!canSwap) {
+      // 다른 티어에서 이미 교환함 → 교환 불가
+      exSelectBtn.textContent = '다른 티어에서 교체함';
+      exSelectBtn.className = 'btn btn-accent btn-select-char';
+      exSelectBtn.style.opacity = '0.35';
+      exSelectBtn.style.pointerEvents = 'none';
     } else {
-      S.exSwapped = { tier, newType: c.type };
-      S.exMyDraft[myKey] = c.type;
-      S.exchangeSelected = { tier, newType: c.type };
-    }
-  } else {
-    // 현재 캐릭터로 돌아온 경우 — 교환 취소
-    if (S.exSwapped && S.exSwapped.tier === tier) {
-      S.exSwapped = null;
-      S.exMyDraft[myKey] = S.exOriginalDraft[myKey];
-      S.exchangeSelected = null;
+      // 교체 가능
+      exSelectBtn.textContent = '이 캐릭터로 교체';
+      exSelectBtn.className = 'btn btn-accent btn-select-char';
     }
   }
   exUpdateSlots();
@@ -2393,15 +2456,47 @@ function exUpdateSlots() {
     const type = S.exMyDraft[key];
     const ch = findLocalChar(type, tier);
     const isSwapped = S.exSwapped && S.exSwapped.tier === tier;
+    const isOriginal = type === S.exOriginalDraft[key];
     if (ch) {
       slot.className = `draft-slot filled${isSwapped ? ' swapped' : ''}`;
+      const originBadge = !isSwapped ? `<span style="color:#3b82f6;font-size:0.6rem"> · 선택됨</span>` : '';
+      const swapBadge = isSwapped ? `<span style="color:var(--accent);font-size:0.6rem"> · 교체됨</span>` : '';
       slot.innerHTML = `<span class="slot-icon">${ch.icon}</span>
-        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}${isSwapped ? ' · 교체됨' : ''}</span></div>`;
+        <div class="slot-info"><strong>${ch.name}</strong><span class="slot-tier-label">T${tier}${originBadge}${swapBadge}</span></div>`;
+      // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
+      if (isSwapped) {
+        const xBtn = document.createElement('span');
+        xBtn.className = 'slot-remove';
+        xBtn.title = '교체 취소';
+        xBtn.textContent = '✕';
+        xBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          S.exSwapped = null;
+          S.exMyDraft[key] = S.exOriginalDraft[key];
+          S.exchangeSelected = null;
+          exUpdateSlots();
+          exUpdateConfirmBtn();
+          exRenderSlide();
+        });
+        slot.appendChild(xBtn);
+      }
       slot.style.cursor = 'pointer';
-      slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
+      slot.onclick = (e) => {
+        if (e.target.classList.contains('slot-remove')) return;
+        exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI();
+      };
     } else {
       slot.className = 'draft-slot empty';
       slot.innerHTML = `<span class="slot-tier">${tier}티어</span><span class="slot-empty-text">미선택</span>`;
+      slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
+    }
+    // 현재 보고 있는 티어 강조
+    if (tier === exCurrentTier) {
+      slot.style.borderColor = 'var(--accent)';
+      slot.style.boxShadow = '0 0 8px rgba(226,168,75,0.2)';
+    } else {
+      slot.style.borderColor = '';
+      slot.style.boxShadow = '';
     }
   }
 }
@@ -2429,15 +2524,53 @@ document.getElementById('btn-ex-slide-next').addEventListener('click', () => {
   exRenderSlide();
 });
 
+// 교환 드래프트 캐릭터 선택 버튼
+document.getElementById('btn-ex-select').addEventListener('click', () => {
+  const allChars = S._exAllChars;
+  if (!allChars || !allChars[exSlideIndex]) return;
+  const c = allChars[exSlideIndex];
+  const tier = exCurrentTier;
+  const myKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+  const isOriginal = c.type === S.exOriginalDraft[myKey];
+  const canSwap = !S.exSwapped || S.exSwapped.tier === tier;
+
+  if (!canSwap && !isOriginal) return; // 다른 티어에서 교환 완료 — 불가
+
+  if (isOriginal) {
+    // 원래 캐릭터로 되돌리기
+    if (S.exSwapped && S.exSwapped.tier === tier) {
+      S.exSwapped = null;
+      S.exMyDraft[myKey] = S.exOriginalDraft[myKey];
+      S.exchangeSelected = null;
+    }
+  } else {
+    // 새 캐릭터로 교체
+    S.exSwapped = { tier, newType: c.type };
+    S.exMyDraft[myKey] = c.type;
+    S.exchangeSelected = { tier, newType: c.type };
+  }
+  exRenderSlide();
+});
+
 document.getElementById('btn-exchange-confirm').addEventListener('click', () => {
   const btn = document.getElementById('btn-exchange-confirm');
-  if (S.exchangeSelected) {
-    socket.emit('exchange_pick', { tier: S.exchangeSelected.tier, newType: S.exchangeSelected.newType });
-  } else {
-    socket.emit('exchange_pick', {}); // 교환 안 함
+  if (!S.exchangeSelected) {
+    document.getElementById('exchange-noswap-modal').classList.remove('hidden');
+    return;
   }
+  socket.emit('exchange_pick', { tier: S.exchangeSelected.tier, newType: S.exchangeSelected.newType });
   btn.disabled = true;
   btn.textContent = '대기 중...';
+});
+document.getElementById('exchange-noswap-confirm').addEventListener('click', () => {
+  document.getElementById('exchange-noswap-modal').classList.add('hidden');
+  socket.emit('exchange_pick', {});
+  const btn = document.getElementById('btn-exchange-confirm');
+  btn.disabled = true;
+  btn.textContent = '대기 중...';
+});
+document.getElementById('exchange-noswap-cancel').addEventListener('click', () => {
+  document.getElementById('exchange-noswap-modal').classList.add('hidden');
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -2454,59 +2587,82 @@ function buildFinalRevealUI(myDraft, oppChars) {
   myContainer.innerHTML = '';
   oppContainer.innerHTML = '';
 
-  // 내 캐릭터 — 초기 덱과 비교하여 교체 표시 + 깜빡임 애니메이션
+  const btn = document.getElementById('btn-frev-confirm');
+  btn.disabled = true;
+  btn.style.opacity = '0';
+  btn.textContent = 'HP 분배로';
+
+  // 교체 여부 판단
   const initialDeck = loadDeck();
-  const exchangedCards = [];
+  const initialOpp = S.oppRevealChars || [];
+  let myExchanged = false;
+  let oppExchanged = false;
+
+  // 카드 데이터 준비
+  const myCards = [];
   for (const [key, tier] of [['t1', 1], ['t2', 2], ['t3', 3]]) {
     const type = myDraft[key];
     const ch = findLocalChar(type, tier);
     const wasExchanged = initialDeck && initialDeck[key] && initialDeck[key] !== type;
-    if (ch) {
-      // 교체된 경우: 먼저 이전 캐릭터로 카드 생성 → 깜빡임 후 새 캐릭터로 교체
-      if (wasExchanged) {
-        const oldCh = findLocalChar(initialDeck[key], tier);
-        const card = createDraftRevealCard(oldCh || ch, tier, 'left', '');
-        myContainer.appendChild(card);
-        exchangedCards.push({ card, newCh: ch, tier, side: 'left' });
-      } else {
-        myContainer.appendChild(createDraftRevealCard(ch, tier, 'left', ''));
-      }
-    }
+    if (wasExchanged) myExchanged = true;
+    if (ch) myCards.push({ ch, tier, wasExchanged });
   }
-
-  // 상대 캐릭터 — 초기 공개와 비교하여 교체 표시 + 깜빡임 애니메이션
-  const initialOpp = S.oppRevealChars || [];
+  const oppCards = [];
   for (const ch of oppChars) {
     const initial = initialOpp.find(o => o.tier === ch.tier);
     const wasExchanged = initial && initial.type !== ch.type;
-    if (wasExchanged) {
-      const card = createDraftRevealCard(initial, ch.tier, 'right', '');
-      oppContainer.appendChild(card);
-      exchangedCards.push({ card, newCh: ch, tier: ch.tier, side: 'right' });
-    } else {
-      oppContainer.appendChild(createDraftRevealCard(ch, ch.tier, 'right', ''));
-    }
+    if (wasExchanged) oppExchanged = true;
+    oppCards.push({ ch, tier: ch.tier, wasExchanged });
   }
 
-  // 교체된 카드: 1.5초 후 깜빡임 시작 → 깜빡임 끝나면 새 캐릭터로 교체
-  if (exchangedCards.length > 0) {
+  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
+  const totalSlots = Math.max(myCards.length, oppCards.length);
+  for (let i = 0; i < totalSlots; i++) {
     setTimeout(() => {
-      for (const { card, newCh, tier, side } of exchangedCards) {
-        card.classList.add('exchanged-blink');
-        // 깜빡임 3회(2.4s) 후 새 카드로 교체
-        setTimeout(() => {
-          card.classList.remove('exchanged-blink');
-          const newCard = createDraftRevealCard(newCh, tier, side, '교체됨');
-          newCard.classList.add('exchanged-appear');
-          card.replaceWith(newCard);
-        }, 2400);
+      // 교체된 캐릭터 등장 시 삐로~ 사운드, 일반은 둥-
+      const hasSwap = (myCards[i]?.wasExchanged) || (oppCards[i]?.wasExchanged);
+      if (hasSwap) {
+        playSfxSwapBlink();
+        setTimeout(() => playSfxSwapReveal(), 400);
+      } else {
+        playSfxRevealAppear();
       }
-    }, 1500);
+
+      if (myCards[i]) {
+        const { ch, tier, wasExchanged } = myCards[i];
+        const card = createDraftRevealCard(ch, tier, 'left', wasExchanged ? '교체됨' : '');
+        card.style.animation = 'revealSlide 0.5s ease-out both';
+        if (wasExchanged) card.classList.add('exchanged-highlight');
+        myContainer.appendChild(card);
+      }
+      if (oppCards[i]) {
+        const { ch, tier, wasExchanged } = oppCards[i];
+        const card = createDraftRevealCard(ch, tier, 'right', wasExchanged ? '교체됨' : '');
+        card.style.animation = 'revealSlide 0.5s ease-out both';
+        if (wasExchanged) card.classList.add('exchanged-highlight');
+        oppContainer.appendChild(card);
+      }
+    }, (i + 1) * 1500);
   }
 
-  const btn = document.getElementById('btn-frev-confirm');
-  btn.disabled = false;
-  btn.textContent = 'HP 분배로';
+  // 모든 등장 후 버튼 + 교체 안 한 플레이어 표시
+  setTimeout(() => {
+    if (!myExchanged) {
+      const noSwap = document.createElement('div');
+      noSwap.className = 'no-exchange-label';
+      noSwap.textContent = '교체하지 않음';
+      myContainer.appendChild(noSwap);
+    }
+    if (!oppExchanged) {
+      const noSwap = document.createElement('div');
+      noSwap.className = 'no-exchange-label';
+      noSwap.textContent = '교체하지 않음';
+      oppContainer.appendChild(noSwap);
+    }
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.animation = 'revealSlide 0.5s ease-out both';
+  }, (totalSlots + 1) * 1500);
 }
 
 document.getElementById('btn-frev-confirm').addEventListener('click', () => {
@@ -3221,6 +3377,16 @@ function renderOppPieces() {
     const passiveHtml = pc.passiveName
       ? `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${pc.passiveName}</div>`
       : '';
+    // 궁수/무기상 방향 표시
+    let directionHtml = '';
+    if (pc.alive && pc.type === 'archer') {
+      const dir = pc.toggleState === 'right' ? '우측 대각선' : '좌측 대각선';
+      directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+    }
+    if (pc.alive && pc.type === 'weaponSmith') {
+      const dir = pc.toggleState === 'vertical' ? '세로' : '가로';
+      directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+    }
 
     const pieceKey = `${pc.type}:${pc.subUnit || ''}`;
     const placedToken = S.deductionTokens.find(t => t.pieceKey === pieceKey);
@@ -3243,7 +3409,7 @@ function renderOppPieces() {
           ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : '💀 격파'}
         </span>
       </div>
-      ${skillHtml}${passiveHtml}${statusHtml}`;
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}`;
 
     // 호버 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
@@ -4836,7 +5002,121 @@ function animateAttack(atkCells, hitCells) {
   }
 }
 
-// ── 타이머 틱 사운드 (15초 이하) — 깊은 부저/초시계 ──
+// ── 캐릭터 등장 사운드 (둥-) ──
+function playSfxRevealAppear() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // ① 둥- 저음 임팩트
+    const bass = ctx.createOscillator();
+    const bG = ctx.createGain();
+    bass.type = 'sine';
+    bass.frequency.setValueAtTime(180, now);
+    bass.frequency.exponentialRampToValueAtTime(60, now + 0.2);
+    bG.gain.setValueAtTime(0.25, now);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    bass.connect(bG); bG.connect(out);
+    bass.start(now); bass.stop(now + 0.45);
+    // ② 밝은 어택 (존재감)
+    const mid = ctx.createOscillator();
+    const mG = ctx.createGain();
+    mid.type = 'triangle';
+    mid.frequency.setValueAtTime(500, now);
+    mid.frequency.exponentialRampToValueAtTime(300, now + 0.1);
+    mG.gain.setValueAtTime(0.1, now);
+    mG.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    mid.connect(mG); mG.connect(out);
+    mid.start(now); mid.stop(now + 0.25);
+  } catch (e) {}
+}
+
+// ── 교체 깜빡임 사운드 (삐로- 1회, 깜빡임마다 호출) ──
+function playSfxSwapBlink() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // ① 삐~ 고음 시작 → 로~ 하강 슬라이드
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1400, now);
+    osc.frequency.exponentialRampToValueAtTime(700, now + 0.25);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.setValueAtTime(0.15, now + 0.15);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(g); g.connect(out);
+    osc.start(now); osc.stop(now + 0.38);
+    // ② 배음 (풍성한 울림)
+    const h = ctx.createOscillator();
+    const hG = ctx.createGain();
+    h.type = 'triangle';
+    h.frequency.setValueAtTime(2100, now);
+    h.frequency.exponentialRampToValueAtTime(1050, now + 0.25);
+    hG.gain.setValueAtTime(0.06, now);
+    hG.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    h.connect(hG); hG.connect(out);
+    h.start(now); h.stop(now + 0.33);
+  } catch (e) {}
+}
+
+// ── 교체 공개 사운드 (뿅! 팝) ──
+function playSfxSwapReveal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // ① 팝! 임팩트 (짧고 밝은 타격)
+    const pop = ctx.createOscillator();
+    const popG = ctx.createGain();
+    pop.type = 'sine';
+    pop.frequency.setValueAtTime(1200, now);
+    pop.frequency.exponentialRampToValueAtTime(300, now + 0.08);
+    popG.gain.setValueAtTime(0.3, now);
+    popG.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    pop.connect(popG); popG.connect(out);
+    pop.start(now); pop.stop(now + 0.18);
+    // ② 밝은 스파클 상승음 (뿅~ 느낌)
+    const sparkle = ctx.createOscillator();
+    const spG = ctx.createGain();
+    sparkle.type = 'sine';
+    sparkle.frequency.setValueAtTime(600, now + 0.03);
+    sparkle.frequency.exponentialRampToValueAtTime(1800, now + 0.2);
+    spG.gain.setValueAtTime(0.15, now + 0.03);
+    spG.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    sparkle.connect(spG); spG.connect(out);
+    sparkle.start(now + 0.03); sparkle.stop(now + 0.45);
+    // ③ 하모닉 배음 (풍성함 추가)
+    const harm = ctx.createOscillator();
+    const hG = ctx.createGain();
+    harm.type = 'triangle';
+    harm.frequency.setValueAtTime(900, now + 0.05);
+    harm.frequency.exponentialRampToValueAtTime(2400, now + 0.18);
+    hG.gain.setValueAtTime(0.08, now + 0.05);
+    hG.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    harm.connect(hG); hG.connect(out);
+    harm.start(now + 0.05); harm.stop(now + 0.4);
+    // ④ 에어 버스트 (뿅 공기 느낌)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.12, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.1, now);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    const hpf = ctx.createBiquadFilter();
+    hpf.type = 'highpass'; hpf.frequency.value = 4000;
+    noise.connect(hpf); hpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.12);
+  } catch (e) {}
+}
+
+// ── 타이머 틱 사운드 (15초 이하) — 초시계 딸깍 ──
 function playTimerTick() {
   if (sfxMuted) return;
   try {
@@ -4844,27 +5124,37 @@ function playTimerTick() {
     const now = ctx.currentTime;
     const out = ctx.destination;
 
-    // ① 깊은 부저 톤 (저음 사각파)
-    const osc1 = ctx.createOscillator();
-    const g1 = ctx.createGain();
-    osc1.connect(g1); g1.connect(out);
-    osc1.type = 'square';
-    osc1.frequency.setValueAtTime(80, now);
-    osc1.frequency.linearRampToValueAtTime(60, now + 0.15);
-    g1.gain.setValueAtTime(0.15, now);
-    g1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-    osc1.start(now); osc1.stop(now + 0.2);
+    // ① 딸- (초시계 메커니즘 클릭)
+    const click = ctx.createOscillator();
+    const cG = ctx.createGain();
+    click.type = 'sine';
+    click.frequency.setValueAtTime(3200, now);
+    click.frequency.exponentialRampToValueAtTime(1200, now + 0.008);
+    cG.gain.setValueAtTime(0.2, now);
+    cG.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+    click.connect(cG); cG.connect(out);
+    click.start(now); click.stop(now + 0.05);
 
-    // ② 메탈릭 클릭 (고음 임펄스)
-    const osc2 = ctx.createOscillator();
-    const g2 = ctx.createGain();
-    osc2.connect(g2); g2.connect(out);
-    osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(2400, now);
-    osc2.frequency.exponentialRampToValueAtTime(800, now + 0.03);
-    g2.gain.setValueAtTime(0.08, now);
-    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-    osc2.start(now); osc2.stop(now + 0.08);
+    // ② 깍- (약간 뒤의 반동 클릭)
+    const click2 = ctx.createOscillator();
+    const c2G = ctx.createGain();
+    click2.type = 'sine';
+    click2.frequency.setValueAtTime(2800, now + 0.05);
+    click2.frequency.exponentialRampToValueAtTime(1000, now + 0.058);
+    c2G.gain.setValueAtTime(0.12, now + 0.05);
+    c2G.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+    click2.connect(c2G); c2G.connect(out);
+    click2.start(now + 0.05); click2.stop(now + 0.1);
+
+    // ③ 미세 공명 (시계 울림)
+    const res = ctx.createOscillator();
+    const rG = ctx.createGain();
+    res.type = 'triangle';
+    res.frequency.setValueAtTime(1800, now);
+    rG.gain.setValueAtTime(0.03, now);
+    rG.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    res.connect(rG); rG.connect(out);
+    res.start(now); res.stop(now + 0.14);
   } catch (e) {}
 }
 
