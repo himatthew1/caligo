@@ -5619,6 +5619,10 @@ const TUTORIAL_STEPS = [
         <span style="color:var(--success)">■</span> 이동 가능 칸
       </div>
     </div>
+    <div class="tut-section">
+      <div class="tut-section-title">⚠ 겹침 규칙</div>
+      <div class="tut-text">아군 유닛은 <strong>같은 칸에 있을 수 없습니다.</strong><br>단, <strong>쌍둥이 강도</strong>는 예외로 같은 칸에 위치할 수 있습니다.</div>
+    </div>
     <div class="tut-highlight">💡 이동으로 적의 공격 범위를 피하거나, 유리한 위치를 선점하세요!</div>
   `,
 
