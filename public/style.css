@@ -337,6 +337,7 @@ body {
   border-radius: 10px; padding: 10px; min-height: 68px;
   display: flex; align-items: center; gap: 8px;
   transition: all 0.2s; cursor: pointer; position: relative;
+  overflow: visible;
 }
 .draft-slot.empty {
   justify-content: center; flex-direction: column; opacity: 0.5;
@@ -352,20 +353,25 @@ body {
 }
 .slot-empty-text { font-size: 0.72rem; color: var(--muted); }
 .draft-slot .slot-icon { font-size: 1.3rem; }
-.draft-slot .slot-info { flex: 1; text-align: left; }
-.draft-slot .slot-info .slot-name { font-size: 0.82rem; font-weight: 700; display: block; }
-.draft-slot .slot-info .slot-stats { font-size: 0.68rem; color: var(--muted); }
+.draft-slot .slot-info { flex: 1; text-align: left; min-width: 0; overflow: hidden; }
+.draft-slot .slot-info .slot-name { font-size: 0.82rem; font-weight: 700; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.draft-slot .slot-info .slot-stats { font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .draft-slot .slot-remove {
-  position: absolute; top: 4px; right: 6px;
-  font-size: 0.65rem; color: var(--muted); cursor: pointer;
+  position: absolute; top: -8px; right: -8px;
+  font-size: 1.2rem; line-height: 1;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 50%;
+  color: var(--muted); cursor: pointer;
   opacity: 0; transition: opacity 0.15s;
+  z-index: 2;
 }
 .draft-slot.filled:hover .slot-remove { opacity: 1; }
-.draft-slot .slot-remove:hover { color: var(--danger); }
+.draft-slot .slot-remove:hover { color: var(--danger); border-color: var(--danger); background: rgba(224,82,82,0.1); }
 .draft-sidebar-btns {
   display: flex; flex-direction: column; gap: 8px; margin-top: 8px;
 }
-.draft-sidebar-btns .btn-primary { width: 100%; font-size: 0.88rem; padding: 12px; }
+.draft-sidebar-btns .btn-primary { width: 100%; font-size: 0.88rem; padding: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .draft-sub-btns { display: flex; gap: 6px; }
 .draft-sub-btns .btn { flex: 1; font-size: 0.72rem; padding: 7px 4px; }
 .btn-random-sm { background: #f59e0b; color: #000; font-weight: 600; border-radius: 6px; }
@@ -456,8 +462,10 @@ body {
   background: var(--surface); border: 2px solid var(--accent);
   border-radius: 14px; padding: 24px 28px;
   min-width: 380px; max-width: 460px; width: 100%;
+  min-height: 480px;
   text-align: center;
   animation: slideIn 0.25s ease;
+  display: flex; flex-direction: column;
 }
 @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes profileHitShake {
@@ -486,16 +494,18 @@ body {
 .slide-hero {
   display: flex; align-items: center; gap: 16px;
   justify-content: center; margin-bottom: 14px;
+  flex-shrink: 0;
 }
-.slide-icon { font-size: 2.8rem; line-height: 1; }
-.slide-hero-info { text-align: left; }
-.slide-name { font-size: 1.2rem; font-weight: 800; }
+.slide-icon { font-size: 2.8rem; line-height: 1; flex-shrink: 0; }
+.slide-hero-info { text-align: left; min-width: 0; }
+.slide-name { font-size: 1.2rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slide-desc { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
 .slide-stats {
   display: flex; flex-direction: column; gap: 4px;
   text-align: left; padding: 10px 14px;
   background: var(--bg); border-radius: 8px;
   margin-bottom: 14px;
+  flex: 1; overflow-y: auto;
 }
 .slide-stat { font-size: 0.78rem; }
 .slide-stat:empty { display: none; }
@@ -508,7 +518,7 @@ body {
   font-size: 0.8rem; color: #c9cad0; line-height: 1.6;
   margin-top: 4px; white-space: pre-line; text-align: left;
 }
-.slide-preview-area { text-align: center; }
+.slide-preview-area { text-align: center; flex-shrink: 0; }
 .slide-preview-area h4 {
   font-size: 0.75rem; color: var(--muted);
   text-transform: uppercase; letter-spacing: 1px;
@@ -672,7 +682,8 @@ body {
 .exchange-layout .draft-sidebar { gap: 8px; }
 .exchange-opp-sidebar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .exchange-opp-sidebar h3 { margin-bottom: 8px; }
-.opp-slot { border-color: rgba(239,68,68,0.4) !important; cursor: default !important; }
+.opp-slot { border-color: rgba(239,68,68,0.4) !important; cursor: pointer !important; }
+.opp-slot:hover { background: rgba(239,68,68,0.08); }
 .draft-slot.swapped { border-color: var(--accent) !important; box-shadow: 0 0 8px rgba(226,168,75,0.3); }
 .draft-slot.swapped .slot-tier-label { color: var(--accent); }
 .exchange-pool-card .muted { font-size: 0.7rem; }
@@ -1480,6 +1491,7 @@ body {
   .slide-content {
     min-width: 0; width: 100%;
     padding: 16px 14px;
+    min-height: 420px;
   }
   .slide-arrow { width: 36px; height: 36px; font-size: 1.3rem; }
   .slide-viewer { gap: 6px; }
