@@ -61,7 +61,7 @@ const CHARACTERS = {
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸(col±1,row±1)',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 2회 공격'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리 + 쥐 위치',
-      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'스킬 사용 시 쥐가 없는 보드 랜덤 3곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러번 사용 가능합니다.'}] },
+      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다.'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'자신 포함 가로3칸(토글)',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로↔세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:2, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
@@ -1550,9 +1550,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── TWINS: 의좋은형제 (move one twin to the other) ──
     case 'twins_elder':
     case 'twins_younger': {
-      const otherSub = piece.subUnit === 'elder' ? 'younger' : 'elder';
-      const otherTwin = player.pieces.find(p => p.subUnit === otherSub && p.alive);
-      if (!otherTwin) return { ok: false, msg: '상대 쌍둥이가 없습니다.' };
+      const elderTwin = player.pieces.find(p => p.subUnit === 'elder' && p.alive);
+      const youngerTwin = player.pieces.find(p => p.subUnit === 'younger' && p.alive);
+      if (!elderTwin || !youngerTwin) return { ok: false, msg: '쌍둥이 중 하나가 쓰러져 분신을 사용할 수 없습니다.' };
 
       const mover = params?.target === 'elder'
         ? player.pieces.find(p => p.subUnit === 'elder' && p.alive)
@@ -2979,6 +2979,15 @@ io.on('connection', (socket) => {
     if (!inBounds(col, row, room.boardBounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
     if (!isCrossAdjacent(piece.col, piece.row, col, row)) {
       socket.emit('err', { msg: '상하좌우 1칸만 이동할 수 있습니다.' }); return;
+    }
+
+    // Block friendly unit stacking (except twins)
+    const friendlyOccupant = player.pieces.find(p => p.alive && p.col === col && p.row === row);
+    if (friendlyOccupant) {
+      const bothAreTwins = piece.subUnit && friendlyOccupant.subUnit;
+      if (!bothAreTwins) {
+        socket.emit('err', { msg: '아군이 있는 칸으로는 이동할 수 없습니다.' }); return;
+      }
     }
 
     const prev = { col: piece.col, row: piece.row };
