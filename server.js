@@ -946,6 +946,9 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   // Step 3: Monk attacking villain => damage = 3
   if (attackerPiece.type === 'monk' && defenderPiece.tag === 'villain') {
     dmg = 3;
+    const atkName = room.players[attackerIdx].name;
+    emitToBoth(room, 'passive_alert', { type: 'monk_attack', playerIdx: attackerIdx, msg: `🙏 가호: ${atkName}의 수도승은 악인을 공격할때 3 피해.` });
+    emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: ${atkName}의 수도승은 악인을 공격할때 3 피해.`, type: 'passive', playerIdx: attackerIdx });
   }
 
   // Step 4: Shadow => damage = 0
@@ -959,7 +962,7 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
       const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.` });
+      emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', playerIdx: 1 - attackerIdx, msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.` });
       emitToSpectators(room, 'spectator_log', { msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
     }
   }
@@ -968,7 +971,7 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   if (defenderPiece.type === 'monk' && attackerPiece.tag === 'villain') {
     dmg = 0.5;
     const defName = room.players[1 - attackerIdx].name;
-    emitToBoth(room, 'passive_alert', { type: 'monk', msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.` });
+    emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: 1 - attackerIdx, msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.` });
     emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
   }
 
@@ -978,7 +981,7 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
       const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'count', msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.` });
+      emitToBoth(room, 'passive_alert', { type: 'count', playerIdx: 1 - attackerIdx, msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.` });
       emitToSpectators(room, 'spectator_log', { msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
     }
   }
@@ -990,7 +993,7 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
       // Redirect: original target takes 0, bodyguard takes 1
       bodyguardPiece.hp = Math.max(0, bodyguardPiece.hp - 1);
       const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'bodyguard', msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.` });
+      emitToBoth(room, 'passive_alert', { type: 'bodyguard', playerIdx: 1 - attackerIdx, msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.` });
       emitToSpectators(room, 'spectator_log', { msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.`, type: 'passive', playerIdx: 1 - attackerIdx });
       if (bodyguardPiece.hp <= 0) {
         bodyguardPiece.alive = false;
@@ -1064,7 +1067,7 @@ function detonateBomb(room, ownerIdx, bomb) {
         room.instantSp[1 - ownerIdx] += 1;
         emitSPUpdate(room);
         const wizOwnerName = room.players[1 - ownerIdx].name;
-        emitToBoth(room, 'passive_alert', { type: 'wizard', msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.` });
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1 - ownerIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.` });
         emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: 1 - ownerIdx });
       }
       hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon });
@@ -1119,7 +1122,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
           if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
             markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
             const atkName = room.players[attackerIdx].name;
-            emitToBoth(room, 'passive_alert', { type: 'torturer', msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.` });
+            emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.` });
             emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.`, type: 'passive', playerIdx: attackerIdx });
           }
         }
@@ -1131,7 +1134,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
           room.instantSp[1 - attackerIdx] += 1;
           emitSPUpdate(room);
           const defName = room.players[1 - attackerIdx].name;
-          emitToBoth(room, 'passive_alert', { type: 'wizard', msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.` });
+          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1 - attackerIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.` });
           emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: 1 - attackerIdx });
         }
       }
@@ -1145,7 +1148,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
       for (const allyPiece of attacker.pieces) {
         if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
           allyPiece.hp = Math.max(0, allyPiece.hp - 1);
-          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${allyPiece.name}도 휘말려 1 피해!` });
+          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', playerIdx: attackerIdx, msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${allyPiece.name}도 휘말려 1 피해!` });
           emitToSpectators(room, 'spectator_log', { msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${allyPiece.name}도 휘말려 1 피해!`, type: 'passive', playerIdx: attackerIdx });
           if (allyPiece.hp <= 0) {
             handleDeath(room, allyPiece, attackerIdx);
@@ -1216,21 +1219,47 @@ function buildSpectatorSkillMsg(playerName, piece, result) {
   // 기존 이모지+스킬명 패턴에서 플레이어 이름 삽입
   // "🏹 정비: ..." → "🏹 {이름}의 궁수가 정비를 사용! ..."
   const patterns = [
-    { prefix: '🏹 정비:', rewrite: (m) => `🏹 ${playerName}의 궁수가 정비를 사용! ${m.replace('🏹 정비: ', '')}` },
-    { prefix: '👬 분신:', rewrite: (m) => `👬 ${playerName}의 ${m.replace('👬 분신: ', '')}` },
-    { prefix: '🪤 덫 설치:', rewrite: (m) => `🪤 ${playerName}의 인간 사냥꾼이 덫을 설치!` },
-    { prefix: '📯 질주:', rewrite: (m) => `📯 ${playerName}의 전령이 질주를 사용! 이번 턴 2회 이동` },
-    { prefix: '💥 기폭:', rewrite: (m) => `💥 ${playerName}의 화약상이 기폭! ${m.replace('💥 기폭: ', '')}` },
-    { prefix: '💣 폭탄 설치:', rewrite: (m) => `💣 ${playerName}의 화약상이 ${m.replace('💣 폭탄 설치: ', '')}` },
-    { prefix: '🌿 약초학:', rewrite: (m) => `🌿 ${playerName}의 약초전문가가 약초학을 사용! ${m.replace('🌿 약초학: ', '')}` },
-    { prefix: '🗡 그림자 숨기:', rewrite: (m) => `🗡 ${playerName}의 그림자 암살자가 은신!` },
-    { prefix: '🧙 저주:', rewrite: (m) => `🧹 ${playerName}의 마녀가 ${m.replace('🧙 저주: ', '')}` },
-    { prefix: '⚔ 쌍검무:', rewrite: (m) => `⚔ ${playerName}의 양손 검객이 쌍검무를 사용! 이번 턴 2회 공격` },
-    { prefix: '⚒ 정비:', rewrite: (m) => `⚒ ${playerName}의 무기상이 정비를 사용! ${m.replace('⚒ 정비: ', '')}` },
-    { prefix: '♛ 절대복종 반지:', rewrite: (m) => `♛ ${playerName}의 국왕이 절대복종 반지를 사용! ${m.replace('♛ 절대복종 반지: ', '')}` },
-    { prefix: '🙏 신성:', rewrite: (m) => `🙏 ${playerName}의 수도승이 신성을 사용! ${m.replace('🙏 신성: ', '')}` },
-    { prefix: '🔥 유황범람:', rewrite: (m) => `🔥 ${playerName}의 유황이 끓는 솥이 유황범람을 사용! 보드 테두리 전체 공격 (피해 2)` },
-    { prefix: '⛓ 악몽:', rewrite: (m) => `⛓ ${playerName}의 고문 기술자가 악몽을 사용! ${m.replace('⛓ 악몽: ', '')}` },
+    { prefix: '🏹 정비:', rewrite: (m) => {
+        const dirMatch = m.match(/현재 방향은 (.+)\.?$/);
+        const dir = dirMatch ? dirMatch[1].replace(/\.$/, '') : '';
+        return `🏹 정비: ${playerName}의 궁수가 공격 범위를 전환합니다. 현재 방향은 ${dir}.`;
+      } },
+    { prefix: '👬 분신:', rewrite: (m) => `👬 분신: ${playerName}의 ${m.replace('👬 분신: ', '')}` },
+    { prefix: '🪤 덫 설치:', rewrite: (m) => `🪤 덫 설치: ${playerName}의 인간 사냥꾼이 덫을 설치했습니다.` },
+    { prefix: '📯 질주:', rewrite: (m) => `📯 질주: ${playerName}의 전령은 이번 턴 2회 이동합니다.` },
+    { prefix: '💥 기폭:', rewrite: (m) => `💥 기폭: ${playerName}의 모든 폭탄이 폭발했습니다.` },
+    { prefix: '💣 폭탄 설치:', rewrite: (m) => `💣 폭탄 설치: ${playerName}의 화약상이 폭탄을 설치했습니다.` },
+    { prefix: '🌿 약초학:', rewrite: (m) => {
+        const hMatch = m.match(/아군 (\d+)명/);
+        const healed = hMatch ? hMatch[1] : '0';
+        return `🌿 약초학: ${playerName}의 유닛 ${healed}명이 1 HP를 회복했습니다.`;
+      } },
+    { prefix: '🗡 그림자 숨기:', rewrite: (m) => `🗡 그림자 숨기: ${playerName}의 그림자 암살자가 은신했습니다.` },
+    { prefix: '🧙 저주:', rewrite: (m) => {
+        const tMatch = m.match(/^🧙 저주: (.+?)에게 저주를 걸었습니다/);
+        const tName = tMatch ? tMatch[1] : '대상';
+        return `🧙 저주: ${playerName}의 마녀가 ${tName}에게 저주를 걸었습니다.`;
+      } },
+    { prefix: '⚔ 쌍검무:', rewrite: (m) => `⚔ 쌍검무: ${playerName}의 양손검객은 이번 턴 2회 공격합니다.` },
+    { prefix: '⚒ 정비:', rewrite: (m) => {
+        const dirMatch = m.match(/현재 방향은 (.+)\.?$/);
+        const dir = dirMatch ? dirMatch[1].replace(/\.$/, '') : '';
+        return `⚒ 정비: ${playerName}의 무기상이 공격 범위를 전환합니다. 현재 방향은 ${dir}.`;
+      } },
+    { prefix: '♛ 절대복종 반지:', rewrite: (m) => {
+        const kMatch = m.match(/^♛ 절대복종 반지: 상대 (.+?)의 위치를 (.+?)로 강제 이동/);
+        if (kMatch) {
+          return `♛ 절대복종 반지: ${playerName}의 국왕이 ${kMatch[1]}의 위치를 ${kMatch[2]}로 이동시켰습니다.`;
+        }
+        return `♛ 절대복종 반지: ${playerName}의 국왕이 ${m.replace('♛ 절대복종 반지: ', '')}`;
+      } },
+    { prefix: '🙏 신성:', rewrite: (m) => {
+        const mMatch = m.match(/^🙏 신성: (.+?)의 상태이상을/);
+        const tName = mMatch ? mMatch[1] : '대상';
+        return `🙏 신성: ${playerName}의 수도승이 ${tName}의 상태이상을 제거하고 2 HP를 회복했습니다.`;
+      } },
+    { prefix: '🔥 유황범람:', rewrite: (m) => `🔥 유황범람: ${playerName}의 유황이 끓는 솥이 보드 외곽에 2 피해 공격.` },
+    { prefix: '⛓ 악몽:', rewrite: (m) => `⛓ 악몽: ${playerName}의 고문기술자가 표식 상태의 적 모두에게 1 피해.` },
   ];
   for (const p of patterns) {
     if (msg.startsWith(p.prefix)) return p.rewrite(msg);
@@ -1317,8 +1346,8 @@ function processTurnStart(room) {
         if (!sourceWitch || p.hp <= 1) {
           // 마녀 사망 또는 대상 HP ≤ 1이면 저주 해제
           p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
-          const reason = !sourceWitch ? '마녀 사망' : 'HP 1 도달';
-          emitToBoth(room, 'passive_alert', { type: 'curse_removed', msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.` });
+          const reason = !sourceWitch ? '마녀가 사망해' : '체력 고갈로';
+          emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.` });
           emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: idx });
         } else {
           p.hp = Math.max(0, p.hp - 0.5);
@@ -1345,6 +1374,7 @@ function processTurnStart(room) {
     }
     emitSPUpdate(room);
     emitToBoth(room, 'turn_event', { type: 'sp_grant', msg: '새로운 SP가 지급되었습니다.' });
+    emitToSpectators(room, 'spectator_log', { msg: '⚡ 새로운 SP가 지급되었습니다.', type: 'event' });
   }
 
   // Board shrink warning (turn 40+)
@@ -1352,6 +1382,7 @@ function processTurnStart(room) {
     const remaining = 50 - room.turnNumber;
     if (remaining > 0) {
       emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining });
+      emitToSpectators(room, 'spectator_log', { msg: `⏳ 외곽 파괴까지 ${remaining}턴`, type: 'event' });
     }
   }
 
@@ -1376,6 +1407,7 @@ function processTurnStart(room) {
       room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
     }
     emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated });
+    emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽이 파괴되었습니다.', type: 'event' });
 
     // Check board shrink wins/draw
     const p0Dead = checkWin(room, 0);
@@ -1682,9 +1714,6 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       if (target.statusEffects.some(e => e.type === 'curse')) {
         return { ok: false, msg: '이미 저주 상태입니다.' };
-      }
-      if (target.type === 'monk') {
-        return { ok: false, msg: '수도승에게는 저주가 통하지 않습니다.' };
       }
       target.statusEffects.push({ type: 'curse', source: playerIdx });
       spendSP(room, playerIdx, cost);
@@ -3007,7 +3036,7 @@ io.on('connection', (socket) => {
       if (piece.type === 'wizard') {
         room.instantSp[idx] += 1;
         emitSPUpdate(room);
-        emitToBoth(room, 'passive_alert', { type: 'wizard', msg: `✨ 마법사가 덫에 피격! 인스턴트 SP +1 획득!` });
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `✨ 마법사가 덫에 피격! 인스턴트 SP +1 획득!` });
         emitToSpectators(room, 'spectator_log', { msg: `✨ ${player.name}의 마법사가 덫에 피격! SP +1`, type: 'passive', playerIdx: idx });
       }
       if (piece.hp <= 0) {

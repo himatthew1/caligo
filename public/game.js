@@ -396,7 +396,9 @@ socket.on('spectator_update', (gameState) => {
 socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   if (!S.isSpectator) return;
   addLog(msg, type || 'system');
-  if (type === 'skill' || type === 'hit' || type === 'passive' || type === 'move' || type === 'miss' || type === 'attack') {
+  if (type === 'event') {
+    showSkillToast(msg, false, undefined, 'event');
+  } else if (type === 'skill' || type === 'hit' || type === 'passive' || type === 'move' || type === 'miss' || type === 'attack') {
     showSkillToast(msg, false, playerIdx);
   }
 });
@@ -830,6 +832,12 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
 // ── 피격 ──
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
+  // 호위무사 가로채기: 원래 대상(damage=0)의 피격 애니메이션 억제
+  if (S._bodyguardIntercepted) {
+    hitPieces = hitPieces.filter(h => h.damage > 0);
+    S._bodyguardIntercepted = false;
+  }
+
   // 쥐 격파 감지: 상대 공격 범위에 있던 내 쥐
   const myDestroyedRats = [];
   if (S.boardObjects && atkCells) {
@@ -892,6 +900,7 @@ socket.on('sp_update', ({ sp, instantSp }) => {
 
 // ── 턴 이벤트 알림 ──
 socket.on('turn_event', ({ type, msg }) => {
+  if (S.isSpectator) return; // 관전자는 spectator_log 경로로 수신
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
@@ -899,8 +908,11 @@ socket.on('turn_event', ({ type, msg }) => {
 // ── 보드 축소 경고 ──
 socket.on('board_shrink_warning', ({ turnsRemaining }) => {
   const el = document.getElementById('shrink-warning');
-  el.classList.remove('hidden');
-  el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
+  if (el) {
+    el.classList.remove('hidden');
+    el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
+  }
+  if (S.isSpectator) return;
   showSkillToast(`외곽 파괴까지 ${turnsRemaining}턴`, false, undefined, 'event');
   addLog(`외곽 파괴까지 ${turnsRemaining}턴`, 'shrink');
 });
@@ -909,8 +921,10 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
 socket.on('board_shrink', ({ bounds, eliminated }) => {
   S.boardBounds = bounds;
   playSfx('shrink');
-  showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
-  addLog(`🔥 보드 외곽 파괴`, 'shrink');
+  if (!S.isSpectator) {
+    showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
+    addLog(`🔥 보드 외곽 파괴`, 'shrink');
+  }
 
   // 축소로 파괴된 유닛 인덱스 수집 (렌더 전)
   const myShrinkIdx = [];
@@ -926,7 +940,8 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
       }
     }
   }
-  document.getElementById('shrink-warning').classList.add('hidden');
+  const sw = document.getElementById('shrink-warning');
+  if (sw) sw.classList.add('hidden');
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
@@ -1093,9 +1108,17 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
 });
 
 // ── 패시브 알림 ──
-socket.on('passive_alert', ({ type, msg }) => {
+socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   addLog(msg, 'skill');
-  showSkillToast(msg);
+  if (type === 'bodyguard') {
+    S._bodyguardIntercepted = true;
+  }
+  if (S.isSpectator) {
+    showSkillToast(msg, false, playerIdx);
+    return;
+  }
+  const isEnemy = (playerIdx !== undefined) ? (playerIdx !== S.playerIdx) : false;
+  showSkillToast(msg, isEnemy);
 });
 
 // ── 게임 오버 ──
