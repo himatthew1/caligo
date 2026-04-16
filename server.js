@@ -3036,8 +3036,8 @@ io.on('connection', (socket) => {
       if (piece.type === 'wizard') {
         room.instantSp[idx] += 1;
         emitSPUpdate(room);
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `✨ 마법사가 덫에 피격! 인스턴트 SP +1 획득!` });
-        emitToSpectators(room, 'spectator_log', { msg: `✨ ${player.name}의 마법사가 덫에 피격! SP +1`, type: 'passive', playerIdx: idx });
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.` });
+        emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: idx });
       }
       if (piece.hp <= 0) {
         handleDeath(room, piece, idx);
