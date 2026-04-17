@@ -19,6 +19,21 @@
 
 <!-- (오디오 토글은 채팅 위젯 옆에 통합) -->
 
+<!-- ── 설정 단계 나가기 버튼 (#7) ── -->
+<button id="btn-setup-exit" class="btn-setup-exit hidden">← 나가기</button>
+
+<!-- ── 설정 단계 나가기 확인 모달 (#7) ── -->
+<div id="setup-exit-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>← 로비로 돌아가시겠습니까?</h3>
+    <p style="color:var(--text-dim);margin:12px 0;">현재 진행 중인 게임이 기권 처리됩니다.</p>
+    <div class="modal-btn-row">
+      <button id="setup-exit-confirm" class="btn btn-danger">나가기</button>
+      <button id="setup-exit-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
@@ -134,6 +149,7 @@
           <button id="btn-draft-recommend" class="btn btn-recommend-sm">💡 추천</button>
         </div>
       </div>
+      <div id="deck-list" class="deck-list hidden"></div>
     </div>
   </div>
 </div>

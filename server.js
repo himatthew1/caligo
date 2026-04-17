@@ -64,7 +64,7 @@ const CHARACTERS = {
       skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다.'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'자신 포함 가로3칸(토글)',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로↔세로 공격 범위 전환'}] },
-    { type:'bodyguard', name:'호위 무사', tier:2, atk:2, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
+    { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
       skills:[], passives:['loyalty'] },
   ],
   3: [
@@ -1351,6 +1351,8 @@ function processTurnStart(room) {
           emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: idx });
         } else {
           p.hp = Math.max(0, p.hp - 0.5);
+          emitToBoth(room, 'passive_alert', { type: 'curse_tick', playerIdx: idx, msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.` });
+          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.`, type: 'passive', playerIdx: idx });
           if (p.hp <= 0) {
             handleDeath(room, p, idx);
           }

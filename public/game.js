@@ -128,6 +128,10 @@ function showScreen(id) {
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
   // gameover는 game_over 핸들러에서 직접 호출
+  // #7: 설정 단계 나가기 버튼 표시/숨김
+  const exitScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement'];
+  const exitBtn = document.getElementById('btn-setup-exit');
+  if (exitBtn) exitBtn.classList.toggle('hidden', !exitScreens.includes(id));
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
@@ -149,6 +153,84 @@ function isDeckEmpty() {
   return !d || (!d.t1 && !d.t2 && !d.t3);
 }
 
+// ── 덱 목록 (10슬롯) ──────────────────────────────────────────
+const DECK_LIST_KEY = 'caligo_deck_list';
+function loadDeckList() {
+  try {
+    const raw = localStorage.getItem(DECK_LIST_KEY);
+    if (!raw) return Array(10).fill(null);
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      while (arr.length < 10) arr.push(null);
+      return arr.slice(0, 10);
+    }
+  } catch (e) {}
+  return Array(10).fill(null);
+}
+function saveDeckList(list) {
+  localStorage.setItem(DECK_LIST_KEY, JSON.stringify(list));
+}
+function addToDeckList(t1, t2, t3) {
+  const list = loadDeckList();
+  const isDupe = list.some(d => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3);
+  if (isDupe) {
+    showSkillToast('이미 같은 덱이 있습니다.');
+    renderDeckList();
+    return;
+  }
+  const emptyIdx = list.findIndex(d => !d);
+  if (emptyIdx === -1) {
+    showSkillToast('덱 슬롯이 모두 채워져있습니다.');
+    renderDeckList();
+    return;
+  }
+  list[emptyIdx] = { t1, t2, t3 };
+  saveDeckList(list);
+  renderDeckList();
+}
+function renderDeckList() {
+  const container = document.getElementById('deck-list');
+  if (!container) return;
+  const list = loadDeckList();
+  container.innerHTML = '';
+  list.forEach((deck, idx) => {
+    const slot = document.createElement('div');
+    slot.className = 'deck-list-slot' + (deck ? ' filled' : ' empty');
+    if (deck) {
+      const chars = [1, 2, 3].map(tier => {
+        const key = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+        return findLocalChar(deck[key], tier);
+      });
+      const iconsHtml = chars.map(c => c ? `<span class="deck-list-icon" title="${c.name}">${c.icon}</span>` : '').join('');
+      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><div class="deck-list-icons">${iconsHtml}</div><button class="deck-list-del" data-idx="${idx}" title="삭제">✕</button>`;
+      slot.addEventListener('click', (e) => {
+        if (e.target.classList.contains('deck-list-del')) return;
+        // 덱 불러오기
+        S.draftSelected = { 1: deck.t1, 2: deck.t2, 3: deck.t3 };
+        S.deckSavedState = { t1: deck.t1, t2: deck.t2, t3: deck.t3 };
+        S.deckSaved = true;
+        buildDraftStepUI();
+        showSkillToast('덱을 불러왔습니다!', false, undefined, 'event');
+      });
+    } else {
+      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><span class="deck-list-empty-label">빈 슬롯</span>`;
+    }
+    container.appendChild(slot);
+  });
+  // 삭제 버튼 이벤트
+  container.querySelectorAll('.deck-list-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx);
+      if (!confirm('덱을 삭제하시겠습니까?')) return;
+      const list = loadDeckList();
+      list[idx] = null;
+      saveDeckList(list);
+      renderDeckList();
+    });
+  });
+}
+
 // ── 덱 빌더 ─────────────────────────────────────────────────
 function openDeckBuilder() {
   S.deckBuilderMode = true;
@@ -164,10 +246,15 @@ function openDeckBuilder() {
     if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
     S.deckSaved = !!(S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3]);
   }
+  S.deckSavedState = (deck && deck.t1 && deck.t2 && deck.t3)
+    ? { t1: deck.t1, t2: deck.t2, t3: deck.t3 } : null;
   document.getElementById('btn-deck-back').classList.remove('hidden');
   document.getElementById('btn-draft-random').disabled = false;
   document.getElementById('btn-draft-recommend').disabled = false;
+  const deckListEl = document.getElementById('deck-list');
+  if (deckListEl) deckListEl.classList.remove('hidden');
   buildDraftStepUI();
+  renderDeckList();
   showScreen('screen-draft');
 }
 
@@ -196,12 +283,16 @@ document.getElementById('btn-deck-back').addEventListener('click', () => {
   }
   S.deckBuilderMode = false;
   document.getElementById('btn-deck-back').classList.add('hidden');
+  const _deckListEl1 = document.getElementById('deck-list');
+  if (_deckListEl1) _deckListEl1.classList.add('hidden');
   showScreen('screen-lobby');
 });
 document.getElementById('deck-exit-confirm').addEventListener('click', () => {
   document.getElementById('deck-exit-modal').classList.add('hidden');
   S.deckBuilderMode = false;
   document.getElementById('btn-deck-back').classList.add('hidden');
+  const _deckListEl2 = document.getElementById('deck-list');
+  if (_deckListEl2) _deckListEl2.classList.add('hidden');
   showScreen('screen-lobby');
 });
 document.getElementById('deck-exit-cancel').addEventListener('click', () => {
@@ -256,16 +347,16 @@ initAudioToggle();
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
-  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
+  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
   S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
-  if (!name) { showSkillToast('닉네임을 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
+  if (!name) { showSkillToast('닉네임을 입력하세요.', false, undefined, 'event'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
@@ -497,6 +588,8 @@ socket.on('phase_change', ({ phase }) => {
   if (phase === 'draft') {
     S.deckBuilderMode = false;
     document.getElementById('btn-deck-back').classList.add('hidden');
+    const deckListEl = document.getElementById('deck-list');
+    if (deckListEl) deckListEl.classList.add('hidden');
     S.draftStep = 1;
     S.draftPicked = [];
     // 저장된 덱에서 프리필
@@ -624,6 +717,7 @@ socket.on('game_start', (data) => {
   showActionBar(S.isMyTurn);
   updateSPBar();
   addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
+  showSkillToast(S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.', false, undefined, 'event');
 });
 
 // ── 내 턴 ──
@@ -1033,13 +1127,14 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
 // ── 정찰 결과 ──
 socket.on('scout_result', ({ axis, value, targetName }) => {
-  const label = axis === 'row' ? `${ROW_LABELS[value] || value}행` : `${value+1}열`;
+  const label = axis === 'row' ? `${ROW_LABELS[value] || value}열` : `${value+1}행`;
   addLog(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`, 'skill');
   showSkillToast(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`);
 });
 
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner }) => {
+  playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
@@ -1052,6 +1147,7 @@ socket.on('rats_spawned', ({ rats, owner }) => {
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
+  playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, 'skill');
     showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`);
@@ -1356,7 +1452,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [역병의 자손들] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 보드 위 랜덤 3곳에 쥐를 소환합니다 (이미 쥐가 있는 곳에는 중복 소환 불가). 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용이 가능합니다.',
   },
   weaponSmith: {
     blocks: [
@@ -1393,7 +1489,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [드래곤 소환] SP 5 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. (보드 위 최대 1마리까지 소환 가능) 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: '스킬 사용시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. 보드 위 드래곤은 최대 1마리까지만 소환 가능합니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용이 가능합니다.',
   },
   monk: {
     blocks: [
@@ -1753,6 +1849,10 @@ function renderDraftSlots() {
         buildDraftStepUI();
       };
 
+      // 저장 상태 녹색 밴드
+      const savedKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+      const isSavedSlot = S.deckSavedState && S.deckSavedState[savedKey] === selectedType;
+      slot.style.borderLeft = isSavedSlot ? '3px solid #22c55e' : '';
       // 현재 보고 있는 티어 강조
       if (tier === S.draftStep) {
         slot.style.borderColor = 'var(--accent)';
@@ -1790,11 +1890,14 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
   if (S.deckBuilderMode) {
     if (!allSelected) {
-      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.');
+      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.', false, undefined, 'event');
       return;
     }
     saveDeck(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
     S.deckSaved = true;
+    S.deckSavedState = { t1: S.draftSelected[1], t2: S.draftSelected[2], t3: S.draftSelected[3] };
+    addToDeckList(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
+    renderDraftSlots();
     showSkillToast('덱이 저장되었습니다!', false, undefined, 'event');
     return;
   }
@@ -2227,22 +2330,31 @@ function buildInitialRevealUI(myDraft, oppChars) {
   }
   const oppCards = oppChars.map(ch => ({ ch, tier: ch.tier }));
 
-  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
-  const totalSlots = Math.max(myCards.length, oppCards.length);
-  for (let i = 0; i < totalSlots; i++) {
+  // 빈 슬롯 3개씩 미리 표시
+  for (let i = 0; i < 3; i++) {
+    const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
+    myContainer.appendChild(ms);
+    const os = document.createElement('div'); os.className = 'reveal-slot-empty';
+    oppContainer.appendChild(os);
+  }
+
+  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
+  const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       playSfxRevealAppear();
       if (myCards[i]) {
         const card = createDraftRevealCard(myCards[i].ch, myCards[i].tier, 'left');
         card.style.animation = 'revealSlide 0.5s ease-out both';
-        myContainer.appendChild(card);
+        mySlots[i].replaceWith(card);
       }
       if (oppCards[i]) {
         const card = createDraftRevealCard(oppCards[i].ch, oppCards[i].tier, 'right');
         card.style.animation = 'revealSlide 0.5s ease-out both';
-        oppContainer.appendChild(card);
+        oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 1500);
+    }, (i + 1) * 500);
   }
 
   // 모든 등장 후 버튼 표시
@@ -2250,7 +2362,7 @@ function buildInitialRevealUI(myDraft, oppChars) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, (totalSlots + 1) * 1500);
+  }, 4 * 500);
 }
 
 function findLocalChar(type, tier) {
@@ -2551,7 +2663,7 @@ function exUpdateSlots() {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${isSwapped ? '교체됨' : (ch.desc || '')}</span>
+          <span class="slot-stats">${ch.desc || ''}</span>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
       if (isSwapped) {
@@ -2580,25 +2692,29 @@ function exUpdateSlots() {
       slot.innerHTML = `<span class="slot-tier">${tier}티어</span><span class="slot-empty-text">미선택</span>`;
       slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
     }
-    // 현재 보고 있는 티어 강조
+    // 현재 보고 있는 티어 강조 + 교체된 슬롯 황금 글로우
     if (tier === exCurrentTier) {
       slot.style.borderColor = 'var(--accent)';
-      slot.style.boxShadow = '0 0 8px rgba(226,168,75,0.2)';
+      slot.style.boxShadow = isSwapped ? '0 0 12px rgba(226,168,75,0.6)' : '0 0 8px rgba(226,168,75,0.2)';
+    } else if (isSwapped) {
+      slot.style.borderColor = 'var(--accent)';
+      slot.style.boxShadow = '0 0 12px rgba(226,168,75,0.6)';
     } else {
       slot.style.borderColor = '';
       slot.style.boxShadow = '';
+    }
+    // Task #4: 교체 확정 시 다른 티어 흐리게
+    if (S.exSwapped && !isSwapped) {
+      slot.classList.add('exchange-dimmed');
+    } else {
+      slot.classList.remove('exchange-dimmed');
     }
   }
 }
 
 function exUpdateConfirmBtn() {
   const btn = document.getElementById('btn-exchange-confirm');
-  if (S.exSwapped) {
-    const ch = findLocalChar(S.exSwapped.newType, S.exSwapped.tier);
-    btn.textContent = `${ch ? ch.icon : ''} ${ch ? ch.name : ''} 교환 → 최종 출격`;
-  } else {
-    btn.textContent = '최종 출격';
-  }
+  btn.textContent = '최종 출격';
   btn.disabled = false;
 }
 
@@ -2705,9 +2821,18 @@ function buildFinalRevealUI(myDraft, oppChars) {
     oppCards.push({ ch, tier: ch.tier, wasExchanged });
   }
 
-  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
-  const totalSlots = Math.max(myCards.length, oppCards.length);
-  for (let i = 0; i < totalSlots; i++) {
+  // 빈 슬롯 3개씩 미리 표시
+  for (let i = 0; i < 3; i++) {
+    const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
+    myContainer.appendChild(ms);
+    const os = document.createElement('div'); os.className = 'reveal-slot-empty';
+    oppContainer.appendChild(os);
+  }
+
+  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
+  const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       // 교체된 캐릭터 등장 시 삐로~ 사운드, 일반은 둥-
       const hasSwap = (myCards[i]?.wasExchanged) || (oppCards[i]?.wasExchanged);
@@ -2723,16 +2848,16 @@ function buildFinalRevealUI(myDraft, oppChars) {
         const card = createDraftRevealCard(ch, tier, 'left', wasExchanged ? '교체됨' : '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
-        myContainer.appendChild(card);
+        mySlots[i].replaceWith(card);
       }
       if (oppCards[i]) {
         const { ch, tier, wasExchanged } = oppCards[i];
         const card = createDraftRevealCard(ch, tier, 'right', wasExchanged ? '교체됨' : '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
-        oppContainer.appendChild(card);
+        oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 1500);
+    }, (i + 1) * 500);
   }
 
   // 모든 등장 후 버튼 + 교체 안 한 플레이어 표시
@@ -2752,7 +2877,7 @@ function buildFinalRevealUI(myDraft, oppChars) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, (totalSlots + 1) * 1500);
+  }, 4 * 500);
 }
 
 document.getElementById('btn-frev-confirm').addEventListener('click', () => {
@@ -2938,9 +3063,7 @@ function updateTurnBanner() {
   const banner = document.getElementById('turn-banner');
   if (!banner) return;
   banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
-  banner.textContent = S.isMyTurn
-    ? `⚔ ${myN()} 턴 (턴 ${S.turnNumber})`
-    : `🕐 상대방 턴 (턴 ${S.turnNumber})`;
+  banner.textContent = `${S.turnNumber}턴`;
 
   // 현재 턴 플레이어 패널 강조
   const leftPanel = document.querySelector('.left-panel');
@@ -3730,6 +3853,19 @@ document.getElementById('surrender-cancel').addEventListener('click', () => {
   document.getElementById('surrender-modal').classList.add('hidden');
 });
 
+// #7 설정 단계 나가기 버튼
+document.getElementById('btn-setup-exit').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.remove('hidden');
+});
+document.getElementById('setup-exit-confirm').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.add('hidden');
+  socket.emit('surrender');
+  showScreen('screen-lobby');
+});
+document.getElementById('setup-exit-cancel').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.add('hidden');
+});
+
 // 취소 버튼
 document.getElementById('btn-cancel').addEventListener('click', resetAction);
 
@@ -3769,9 +3905,11 @@ function openSkillModal() {
           extraNote = ' (행동 이미 소비됨)';
         }
         // 턴당 1회인데 이미 사용했으면 비활성화
+        let oncePerTurnUsed = false;
         if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${sk.id}`)) {
+          oncePerTurnUsed = true;
           extraDisabled = true;
-          extraNote = ' (이번 턴 사용 완료)';
+          extraNote = ' (사용 완료)';
         }
         // 기폭의 경우 폭탄이 없으면 비활성화
         if (sk.id === 'detonate') {
@@ -3786,7 +3924,13 @@ function openSkillModal() {
 
         const opt = document.createElement('div');
         opt.className = 'skill-option';
-        opt.style.opacity = (canAfford && !extraDisabled) ? '1' : '0.4';
+        if (oncePerTurnUsed) {
+          opt.style.opacity = '0.3';
+          opt.style.pointerEvents = 'none';
+          opt.style.cursor = 'not-allowed';
+        } else {
+          opt.style.opacity = (canAfford && !extraDisabled) ? '1' : '0.4';
+        }
         const skTag = getSkillTypeTag(sk);
         opt.innerHTML = `
           <div class="skill-name">${pc.icon} ${pc.name} — ${sk.name} ${skTag}</div>
@@ -3813,9 +3957,17 @@ function openSkillModal() {
         singleDisabled = true;
         singleNote = ' (행동 이미 소비됨)';
       }
-      if (pc.skillOncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`)) {
-        singleDisabled = true;
-        singleNote = ' (이번 턴 사용 완료)';
+      let singleOncePerTurnUsed = false;
+      const firstSkillDef = pc.skills && pc.skills[0];
+      if (firstSkillDef && firstSkillDef.oncePerTurn) {
+        const usedByTracker = S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`);
+        const usedByFlag = (pc.messengerSprintActive && pc.skillId === 'sprint') ||
+                           (pc.dualBladeAttacksLeft > 0 && pc.skillId === 'dualStrike');
+        if (usedByTracker || usedByFlag) {
+          singleOncePerTurnUsed = true;
+          singleDisabled = true;
+          singleNote = ' (사용 완료)';
+        }
       }
       // 고문기술자: 표식 적이 없으면 악몽 비활성화
       if (pc.type === 'torturer') {
@@ -3827,9 +3979,26 @@ function openSkillModal() {
         const hasDragon = S.myPieces.some(p => p.isDragon && p.alive);
         if (hasDragon) { singleDisabled = true; singleNote = ' (드래곤 이미 소환됨)'; }
       }
+      // 쌍둥이 분신: 두 명 모두 살아있어야 사용 가능
+      let twinsDisabled = false;
+      if (pc.type === 'twins_elder' || pc.type === 'twins_younger') {
+        const elderAlive = S.myPieces.some(p => p.subUnit === 'elder' && p.alive);
+        const youngerAlive = S.myPieces.some(p => p.subUnit === 'younger' && p.alive);
+        if (!elderAlive || !youngerAlive) {
+          twinsDisabled = true;
+          singleDisabled = true;
+          singleNote = ' (사용 불가)';
+        }
+      }
       const opt = document.createElement('div');
       opt.className = 'skill-option';
-      opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
+      if (singleOncePerTurnUsed || twinsDisabled) {
+        opt.style.opacity = '0.3';
+        opt.style.pointerEvents = 'none';
+        opt.style.cursor = 'not-allowed';
+      } else {
+        opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
+      }
       const singleTag = getSkillTypeTagFromChar(pc);
       opt.innerHTML = `
         <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
