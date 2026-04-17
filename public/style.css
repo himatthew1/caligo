@@ -386,6 +386,26 @@ body {
 .btn-random-sm:hover:not(:disabled) { background: #d97706; }
 .btn-recommend-sm { background: transparent; color: #818cf8; border: 1px solid #818cf8; border-radius: 6px; }
 .btn-recommend-sm:hover:not(:disabled) { background: rgba(129,140,248,0.12); }
+.deck-list { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.deck-list-slot {
+  display: flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); cursor: pointer; transition: all 0.15s;
+}
+.deck-list-slot.filled:hover { border-color: var(--accent); background: rgba(226,168,75,0.08); }
+.deck-list-slot.empty { opacity: 0.5; cursor: default; }
+.deck-list-num { font-size: 0.65rem; color: var(--muted); width: 14px; flex-shrink: 0; text-align: center; }
+.deck-list-icons { display: flex; gap: 4px; flex: 1; }
+.deck-list-icon { font-size: 1.1rem; }
+.deck-list-empty-label { font-size: 0.72rem; color: var(--muted); flex: 1; }
+.deck-list-del {
+  background: none; border: none; color: var(--muted); font-size: 0.75rem;
+  cursor: pointer; padding: 2px 4px; border-radius: 4px; opacity: 0;
+  transition: opacity 0.15s; flex-shrink: 0;
+}
+.deck-list-slot.filled:hover .deck-list-del { opacity: 1; }
+.deck-list-del:hover { color: var(--danger); }
 
 .step-indicator { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 16px 0 24px; }
 .step-indicator .step {
@@ -456,6 +476,8 @@ body {
   display: flex; align-items: center; gap: 12px;
   justify-content: center;
   user-select: none;
+  position: relative;
+  padding: 0 52px;
 }
 .slide-arrow {
   width: 44px; height: 44px; border-radius: 50%;
@@ -464,7 +486,10 @@ body {
   display: flex; align-items: center; justify-content: center;
   transition: all 0.15s; flex-shrink: 0;
   line-height: 1;
+  position: absolute; top: 50%; transform: translateY(-50%);
 }
+.slide-arrow-left { left: 0; }
+.slide-arrow-right { right: 0; }
 .slide-arrow:hover { border-color: var(--accent); color: var(--accent); background: rgba(226,168,75,0.08); }
 .slide-content {
   background: var(--surface); border: 2px solid var(--accent);
@@ -728,8 +753,9 @@ body {
 .exchange-opp-sidebar h3 { margin-bottom: 8px; }
 .opp-slot { border-color: rgba(239,68,68,0.4) !important; cursor: pointer !important; }
 .opp-slot:hover { background: rgba(239,68,68,0.08); }
-.draft-slot.swapped { border-color: var(--accent) !important; box-shadow: 0 0 8px rgba(226,168,75,0.3); }
+.draft-slot.swapped { border-color: var(--accent) !important; box-shadow: 0 0 12px rgba(226,168,75,0.6) !important; }
 .draft-slot.swapped .slot-tier-label { color: var(--accent); }
+.draft-slot.exchange-dimmed { opacity: 0.4; transition: opacity 0.2s; }
 .exchange-pool-card .muted { font-size: 0.7rem; }
 .exchange-btns { margin-top: 16px; }
 
