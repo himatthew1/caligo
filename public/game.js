@@ -256,16 +256,16 @@ initAudioToggle();
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
-  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
+  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
   S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
-  if (!name) { showSkillToast('닉네임을 입력하세요.'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.'); return; }
+  if (!name) { showSkillToast('닉네임을 입력하세요.', false, undefined, 'event'); return; }
+  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
@@ -624,6 +624,7 @@ socket.on('game_start', (data) => {
   showActionBar(S.isMyTurn);
   updateSPBar();
   addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
+  showSkillToast(S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.', false, undefined, 'event');
 });
 
 // ── 내 턴 ──
@@ -1033,7 +1034,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
 // ── 정찰 결과 ──
 socket.on('scout_result', ({ axis, value, targetName }) => {
-  const label = axis === 'row' ? `${ROW_LABELS[value] || value}행` : `${value+1}열`;
+  const label = axis === 'row' ? `${ROW_LABELS[value] || value}열` : `${value+1}행`;
   addLog(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`, 'skill');
   showSkillToast(`🔭 정찰: ${targetName}의 위치는 ${label} 입니다.`);
 });
@@ -1356,7 +1357,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [역병의 자손들] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 보드 위 랜덤 3곳에 쥐를 소환합니다 (이미 쥐가 있는 곳에는 중복 소환 불가). 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용이 가능합니다.',
   },
   weaponSmith: {
     blocks: [
@@ -1393,7 +1394,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [드래곤 소환] SP 5 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. (보드 위 최대 1마리까지 소환 가능) 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: '스킬 사용시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. 보드 위 드래곤은 최대 1마리까지만 소환 가능합니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용이 가능합니다.',
   },
   monk: {
     blocks: [
@@ -1790,7 +1791,7 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
   if (S.deckBuilderMode) {
     if (!allSelected) {
-      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.');
+      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.', false, undefined, 'event');
       return;
     }
     saveDeck(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
@@ -2593,12 +2594,7 @@ function exUpdateSlots() {
 
 function exUpdateConfirmBtn() {
   const btn = document.getElementById('btn-exchange-confirm');
-  if (S.exSwapped) {
-    const ch = findLocalChar(S.exSwapped.newType, S.exSwapped.tier);
-    btn.textContent = `${ch ? ch.icon : ''} ${ch ? ch.name : ''} 교환 → 최종 출격`;
-  } else {
-    btn.textContent = '최종 출격';
-  }
+  btn.textContent = '최종 출격';
   btn.disabled = false;
 }
 
@@ -2938,9 +2934,7 @@ function updateTurnBanner() {
   const banner = document.getElementById('turn-banner');
   if (!banner) return;
   banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
-  banner.textContent = S.isMyTurn
-    ? `⚔ ${myN()} 턴 (턴 ${S.turnNumber})`
-    : `🕐 상대방 턴 (턴 ${S.turnNumber})`;
+  banner.textContent = `${S.turnNumber}턴`;
 
   // 현재 턴 플레이어 패널 강조
   const leftPanel = document.querySelector('.left-panel');
