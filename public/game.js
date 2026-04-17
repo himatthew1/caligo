@@ -153,6 +153,84 @@ function isDeckEmpty() {
   return !d || (!d.t1 && !d.t2 && !d.t3);
 }
 
+// ── 덱 목록 (10슬롯) ──────────────────────────────────────────
+const DECK_LIST_KEY = 'caligo_deck_list';
+function loadDeckList() {
+  try {
+    const raw = localStorage.getItem(DECK_LIST_KEY);
+    if (!raw) return Array(10).fill(null);
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      while (arr.length < 10) arr.push(null);
+      return arr.slice(0, 10);
+    }
+  } catch (e) {}
+  return Array(10).fill(null);
+}
+function saveDeckList(list) {
+  localStorage.setItem(DECK_LIST_KEY, JSON.stringify(list));
+}
+function addToDeckList(t1, t2, t3) {
+  const list = loadDeckList();
+  const isDupe = list.some(d => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3);
+  if (isDupe) {
+    showSkillToast('이미 같은 덱이 있습니다.');
+    renderDeckList();
+    return;
+  }
+  const emptyIdx = list.findIndex(d => !d);
+  if (emptyIdx === -1) {
+    showSkillToast('덱 슬롯이 모두 채워져있습니다.');
+    renderDeckList();
+    return;
+  }
+  list[emptyIdx] = { t1, t2, t3 };
+  saveDeckList(list);
+  renderDeckList();
+}
+function renderDeckList() {
+  const container = document.getElementById('deck-list');
+  if (!container) return;
+  const list = loadDeckList();
+  container.innerHTML = '';
+  list.forEach((deck, idx) => {
+    const slot = document.createElement('div');
+    slot.className = 'deck-list-slot' + (deck ? ' filled' : ' empty');
+    if (deck) {
+      const chars = [1, 2, 3].map(tier => {
+        const key = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+        return findLocalChar(deck[key], tier);
+      });
+      const iconsHtml = chars.map(c => c ? `<span class="deck-list-icon" title="${c.name}">${c.icon}</span>` : '').join('');
+      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><div class="deck-list-icons">${iconsHtml}</div><button class="deck-list-del" data-idx="${idx}" title="삭제">✕</button>`;
+      slot.addEventListener('click', (e) => {
+        if (e.target.classList.contains('deck-list-del')) return;
+        // 덱 불러오기
+        S.draftSelected = { 1: deck.t1, 2: deck.t2, 3: deck.t3 };
+        S.deckSavedState = { t1: deck.t1, t2: deck.t2, t3: deck.t3 };
+        S.deckSaved = true;
+        buildDraftStepUI();
+        showSkillToast('덱을 불러왔습니다!', false, undefined, 'event');
+      });
+    } else {
+      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><span class="deck-list-empty-label">빈 슬롯</span>`;
+    }
+    container.appendChild(slot);
+  });
+  // 삭제 버튼 이벤트
+  container.querySelectorAll('.deck-list-del').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.idx);
+      if (!confirm('덱을 삭제하시겠습니까?')) return;
+      const list = loadDeckList();
+      list[idx] = null;
+      saveDeckList(list);
+      renderDeckList();
+    });
+  });
+}
+
 // ── 덱 빌더 ─────────────────────────────────────────────────
 function openDeckBuilder() {
   S.deckBuilderMode = true;
@@ -168,10 +246,15 @@ function openDeckBuilder() {
     if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
     S.deckSaved = !!(S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3]);
   }
+  S.deckSavedState = (deck && deck.t1 && deck.t2 && deck.t3)
+    ? { t1: deck.t1, t2: deck.t2, t3: deck.t3 } : null;
   document.getElementById('btn-deck-back').classList.remove('hidden');
   document.getElementById('btn-draft-random').disabled = false;
   document.getElementById('btn-draft-recommend').disabled = false;
+  const deckListEl = document.getElementById('deck-list');
+  if (deckListEl) deckListEl.classList.remove('hidden');
   buildDraftStepUI();
+  renderDeckList();
   showScreen('screen-draft');
 }
 
@@ -200,12 +283,16 @@ document.getElementById('btn-deck-back').addEventListener('click', () => {
   }
   S.deckBuilderMode = false;
   document.getElementById('btn-deck-back').classList.add('hidden');
+  const _deckListEl1 = document.getElementById('deck-list');
+  if (_deckListEl1) _deckListEl1.classList.add('hidden');
   showScreen('screen-lobby');
 });
 document.getElementById('deck-exit-confirm').addEventListener('click', () => {
   document.getElementById('deck-exit-modal').classList.add('hidden');
   S.deckBuilderMode = false;
   document.getElementById('btn-deck-back').classList.add('hidden');
+  const _deckListEl2 = document.getElementById('deck-list');
+  if (_deckListEl2) _deckListEl2.classList.add('hidden');
   showScreen('screen-lobby');
 });
 document.getElementById('deck-exit-cancel').addEventListener('click', () => {
@@ -501,6 +588,8 @@ socket.on('phase_change', ({ phase }) => {
   if (phase === 'draft') {
     S.deckBuilderMode = false;
     document.getElementById('btn-deck-back').classList.add('hidden');
+    const deckListEl = document.getElementById('deck-list');
+    if (deckListEl) deckListEl.classList.add('hidden');
     S.draftStep = 1;
     S.draftPicked = [];
     // 저장된 덱에서 프리필
@@ -1760,6 +1849,10 @@ function renderDraftSlots() {
         buildDraftStepUI();
       };
 
+      // 저장 상태 녹색 밴드
+      const savedKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+      const isSavedSlot = S.deckSavedState && S.deckSavedState[savedKey] === selectedType;
+      slot.style.borderLeft = isSavedSlot ? '3px solid #22c55e' : '';
       // 현재 보고 있는 티어 강조
       if (tier === S.draftStep) {
         slot.style.borderColor = 'var(--accent)';
@@ -1802,6 +1895,9 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
     }
     saveDeck(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
     S.deckSaved = true;
+    S.deckSavedState = { t1: S.draftSelected[1], t2: S.draftSelected[2], t3: S.draftSelected[3] };
+    addToDeckList(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
+    renderDraftSlots();
     showSkillToast('덱이 저장되었습니다!', false, undefined, 'event');
     return;
   }
@@ -2567,7 +2663,7 @@ function exUpdateSlots() {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${isSwapped ? '교체됨' : (ch.desc || '')}</span>
+          <span class="slot-stats">${ch.desc || ''}</span>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
       if (isSwapped) {
@@ -2596,13 +2692,22 @@ function exUpdateSlots() {
       slot.innerHTML = `<span class="slot-tier">${tier}티어</span><span class="slot-empty-text">미선택</span>`;
       slot.onclick = () => { exCurrentTier = tier; exSlideIndex = 0; exBuildStepUI(); };
     }
-    // 현재 보고 있는 티어 강조
+    // 현재 보고 있는 티어 강조 + 교체된 슬롯 황금 글로우
     if (tier === exCurrentTier) {
       slot.style.borderColor = 'var(--accent)';
-      slot.style.boxShadow = '0 0 8px rgba(226,168,75,0.2)';
+      slot.style.boxShadow = isSwapped ? '0 0 12px rgba(226,168,75,0.6)' : '0 0 8px rgba(226,168,75,0.2)';
+    } else if (isSwapped) {
+      slot.style.borderColor = 'var(--accent)';
+      slot.style.boxShadow = '0 0 12px rgba(226,168,75,0.6)';
     } else {
       slot.style.borderColor = '';
       slot.style.boxShadow = '';
+    }
+    // Task #4: 교체 확정 시 다른 티어 흐리게
+    if (S.exSwapped && !isSwapped) {
+      slot.classList.add('exchange-dimmed');
+    } else {
+      slot.classList.remove('exchange-dimmed');
     }
   }
 }
