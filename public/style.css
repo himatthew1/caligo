@@ -703,6 +703,23 @@ body {
   border-top: 1px dashed var(--border);
   animation: revealSlide 0.5s ease-out both;
 }
+.reveal-slot-empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  min-height: 60px;
+  opacity: 0.3;
+}
+/* #25 Final reveal: right-align character info text */
+#screen-final-reveal .piece-info { text-align: right; }
+/* #7 Setup exit button */
+.btn-setup-exit {
+  position: fixed; top: 16px; left: 16px; z-index: 200;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); border-radius: 8px; padding: 7px 12px;
+  font-size: 0.8rem; cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.btn-setup-exit:hover { color: var(--text); border-color: var(--text); background: rgba(255,255,255,0.05); }
 
 /* ── 캐릭터 선택 버튼 ── */
 .btn-select-char {

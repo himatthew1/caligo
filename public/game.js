@@ -128,6 +128,10 @@ function showScreen(id) {
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
   // gameover는 game_over 핸들러에서 직접 호출
+  // #7: 설정 단계 나가기 버튼 표시/숨김
+  const exitScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement'];
+  const exitBtn = document.getElementById('btn-setup-exit');
+  if (exitBtn) exitBtn.classList.toggle('hidden', !exitScreens.includes(id));
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
@@ -2228,22 +2232,31 @@ function buildInitialRevealUI(myDraft, oppChars) {
   }
   const oppCards = oppChars.map(ch => ({ ch, tier: ch.tier }));
 
-  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
-  const totalSlots = Math.max(myCards.length, oppCards.length);
-  for (let i = 0; i < totalSlots; i++) {
+  // 빈 슬롯 3개씩 미리 표시
+  for (let i = 0; i < 3; i++) {
+    const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
+    myContainer.appendChild(ms);
+    const os = document.createElement('div'); os.className = 'reveal-slot-empty';
+    oppContainer.appendChild(os);
+  }
+
+  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
+  const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       playSfxRevealAppear();
       if (myCards[i]) {
         const card = createDraftRevealCard(myCards[i].ch, myCards[i].tier, 'left');
         card.style.animation = 'revealSlide 0.5s ease-out both';
-        myContainer.appendChild(card);
+        mySlots[i].replaceWith(card);
       }
       if (oppCards[i]) {
         const card = createDraftRevealCard(oppCards[i].ch, oppCards[i].tier, 'right');
         card.style.animation = 'revealSlide 0.5s ease-out both';
-        oppContainer.appendChild(card);
+        oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 1500);
+    }, (i + 1) * 500);
   }
 
   // 모든 등장 후 버튼 표시
@@ -2251,7 +2264,7 @@ function buildInitialRevealUI(myDraft, oppChars) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, (totalSlots + 1) * 1500);
+  }, 4 * 500);
 }
 
 function findLocalChar(type, tier) {
@@ -2701,9 +2714,18 @@ function buildFinalRevealUI(myDraft, oppChars) {
     oppCards.push({ ch, tier: ch.tier, wasExchanged });
   }
 
-  // T1→T2→T3 순차 등장 (1.5초 간격, 첫 등장도 1.5초 대기 후)
-  const totalSlots = Math.max(myCards.length, oppCards.length);
-  for (let i = 0; i < totalSlots; i++) {
+  // 빈 슬롯 3개씩 미리 표시
+  for (let i = 0; i < 3; i++) {
+    const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
+    myContainer.appendChild(ms);
+    const os = document.createElement('div'); os.className = 'reveal-slot-empty';
+    oppContainer.appendChild(os);
+  }
+
+  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
+  const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       // 교체된 캐릭터 등장 시 삐로~ 사운드, 일반은 둥-
       const hasSwap = (myCards[i]?.wasExchanged) || (oppCards[i]?.wasExchanged);
@@ -2719,16 +2741,16 @@ function buildFinalRevealUI(myDraft, oppChars) {
         const card = createDraftRevealCard(ch, tier, 'left', wasExchanged ? '교체됨' : '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
-        myContainer.appendChild(card);
+        mySlots[i].replaceWith(card);
       }
       if (oppCards[i]) {
         const { ch, tier, wasExchanged } = oppCards[i];
         const card = createDraftRevealCard(ch, tier, 'right', wasExchanged ? '교체됨' : '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
-        oppContainer.appendChild(card);
+        oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 1500);
+    }, (i + 1) * 500);
   }
 
   // 모든 등장 후 버튼 + 교체 안 한 플레이어 표시
@@ -2748,7 +2770,7 @@ function buildFinalRevealUI(myDraft, oppChars) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, (totalSlots + 1) * 1500);
+  }, 4 * 500);
 }
 
 document.getElementById('btn-frev-confirm').addEventListener('click', () => {
@@ -3722,6 +3744,19 @@ document.getElementById('surrender-confirm').addEventListener('click', () => {
 });
 document.getElementById('surrender-cancel').addEventListener('click', () => {
   document.getElementById('surrender-modal').classList.add('hidden');
+});
+
+// #7 설정 단계 나가기 버튼
+document.getElementById('btn-setup-exit').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.remove('hidden');
+});
+document.getElementById('setup-exit-confirm').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.add('hidden');
+  socket.emit('surrender');
+  showScreen('screen-lobby');
+});
+document.getElementById('setup-exit-cancel').addEventListener('click', () => {
+  document.getElementById('setup-exit-modal').classList.add('hidden');
 });
 
 // 취소 버튼
