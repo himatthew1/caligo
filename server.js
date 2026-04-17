@@ -1351,6 +1351,8 @@ function processTurnStart(room) {
           emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: idx });
         } else {
           p.hp = Math.max(0, p.hp - 0.5);
+          emitToBoth(room, 'passive_alert', { type: 'curse_tick', playerIdx: idx, msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.` });
+          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.`, type: 'passive', playerIdx: idx });
           if (p.hp <= 0) {
             handleDeath(room, p, idx);
           }
