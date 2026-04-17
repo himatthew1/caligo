@@ -11,6 +11,37 @@ function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function myN() { return S.myName || '나'; }
 function oppN() { return S.opponentName || '상대'; }
 
+function ratDestroyMsg(rats, mine) {
+  const suffix = mine ? '격파됨.' : '격파함.';
+  const coords = rats.map(r => coord(r.col, r.row));
+  if (coords.length === 1) return `${coords[0]}의 쥐 ${suffix}`;
+  if (coords.length === 2) return `${coords[0]}와 ${coords[1]}의 쥐 ${suffix}`;
+  const last = coords[coords.length - 1];
+  const rest = coords.slice(0, -1).join(', ');
+  return `${rest}와 ${last}의 쥐 ${suffix}`;
+}
+
+function animateRatDestruction(cells, isMyRat) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const emoji = isMyRat ? '🐀' : '🐁';
+  const color = isMyRat ? '#52b788' : '#e05252';
+  const posStyle = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
+  for (const { col, row } of cells) {
+    const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (!cell) continue;
+    const ratEl = document.createElement('span');
+    ratEl.style.cssText = `position:absolute;${posStyle};font-size:0.5rem;color:${color};z-index:10;pointer-events:none`;
+    ratEl.textContent = emoji;
+    ratEl.classList.add('rat-fading');
+    cell.appendChild(ratEl);
+    setTimeout(() => {
+      ratEl.classList.add('rat-fadeout');
+      setTimeout(() => ratEl.remove(), 600);
+    }, 400);
+  }
+}
+
 // ── 게임 상태 ─────────────────────────────────────────────────
 const S = {
   playerIdx: null,
@@ -107,7 +138,7 @@ socket.on('timer_start', ({ seconds }) => {
 });
 
 socket.on('turn_timeout', () => {
-  addLog('⏰ 시간 초과! 턴이 넘어갑니다.', 'system');
+  addLog('⏰ 시간 초과!', 'system');
   showSkillToast('⏰ 시간 초과!', false, undefined, 'event');
 });
 
@@ -765,6 +796,7 @@ socket.on('opp_turn', (data) => {
   showActionBar(false);
   updateSPBar();
   addLog(`${data.turnNumber}턴 : ${oppN()} 차례`, 'system');
+  showSkillToast(`[${data.turnNumber}턴] ${oppN()} 차례`, false, undefined, 'event');
   setTurnBackground(false);
 });
 
@@ -776,7 +808,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
   addLog(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`, 'move');
-  showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
+  showSkillToast(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`);
 
   if (twinMovePending) {
     // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
@@ -788,7 +820,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     renderGameBoard();
     renderMyPieces();
     const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
-    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이(가) 아직 이동하지 않았습니다.`;
+    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이 아직 이동하지 않았습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
@@ -805,7 +837,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
 
 socket.on('opp_moved', ({ msg }) => {
   addLog(`🚶 상대가 이동했습니다.`, 'move');
-  showSkillToast(msg, true);
+  showSkillToast(`🚶 상대가 이동했습니다.`, true);
 });
 
 // ── 공격 결과 ──
@@ -846,14 +878,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       const otherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
       const otherPc = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
       addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
-      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+      showSkillToast(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`);
       if (otherPc) {
         addLog(`⚔ ${myN()}의 ${otherPc.name}! 공격 빗나감.`, 'miss');
-        showSkillToast(`${myN()}의 ${otherPc.icon}${otherPc.name} 공격 빗나감!`);
+        showSkillToast(`⚔ ${myN()}의 ${otherPc.name}! 공격 빗나감.`);
       }
     } else {
       addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
-      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+      showSkillToast(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`);
     }
   } else {
     for (const h of cellResults.filter(c => c.hit)) {
@@ -869,9 +901,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     const hits = cellResults.filter(c => c.hit);
     for (const h of hits) {
       const atkName = h.attackerName || pc.name;
-      const atkIcon = h.attackerIcon || pc.icon;
-      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : `${oppN()} 유닛`;
-      showSkillToast(`${myN()}의 ${atkIcon}${atkName} → ${target} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, false);
+      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
+      showSkillToast(h.destroyed
+        ? `⚔ ${myN()}의 ${atkName}! ${target} 격파함. 💀`
+        : `⚔ ${myN()}의 ${atkName}! ${target}에 ${h.damage} 피해.`, false);
     }
   }
 
@@ -883,6 +916,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
   if (pc && pc.dualBladeAttacksLeft > 0) {
     addLog(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다`, 'info');
+    showSkillToast(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다.`);
   }
 
   // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
@@ -909,18 +943,11 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
 
   // 쥐 격파 피드백
-  for (const dr of destroyedRats) {
-    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`);
-    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
-    // 셀 흔들림 애니메이션
-    const board = document.getElementById('game-board');
-    if (board) {
-      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
-      if (cell) {
-        cell.classList.add('cell-hit-shake');
-        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
-      }
-    }
+  if (destroyedRats.length > 0) {
+    const msg = ratDestroyMsg(destroyedRats, false);
+    showSkillToast(`🐀 ${msg}`);
+    addLog(`🐀 ${msg}`, 'hit');
+    animateRatDestruction(destroyedRats, false);
   }
 });
 
@@ -951,13 +978,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
     addLog(`⚔ ${oppN()}의 공격 빗나감.`, 'miss');
-    showSkillToast(`${oppN()} 공격 빗나감!`, true);
+    showSkillToast(`⚔ ${oppN()}의 공격 빗나감.`, true);
   } else {
     for (const h of hitPieces) {
       if (h.destroyed) playSfx('kill'); else playSfx('hit');
       const unitName = h.icon && h.name ? `${myN()}의 ${h.icon}${h.name}` : coord(h.col,h.row);
       addLog(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, 'hit');
-      showSkillToast(`${unitName} 피격! ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, true);
+      showSkillToast(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, true);
     }
   }
   // 피격 유닛 인덱스를 미리 수집 (renderMyPieces 전에 — 좌표 매칭)
@@ -970,17 +997,11 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
 
   // 쥐 격파 피드백
-  for (const dr of myDestroyedRats) {
-    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, true);
-    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
-    const board = document.getElementById('game-board');
-    if (board) {
-      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
-      if (cell) {
-        cell.classList.add('cell-hit-shake');
-        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
-      }
-    }
+  if (myDestroyedRats.length > 0) {
+    const msg = ratDestroyMsg(myDestroyedRats, true);
+    showSkillToast(`🐀 ${msg}`, true);
+    addLog(`🐀 ${msg}`, 'hit');
+    animateRatDestruction(myDestroyedRats, true);
   }
 });
 
@@ -1026,6 +1047,8 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
       addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
+      const ownerName = e.owner === S.playerIdx ? myN() : oppN();
+      showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
       const hitData = [{ col: e.col, row: e.row, name: e.name }];
       if (e.owner === S.playerIdx) {
         myShrinkIdx.push(...findPieceIndices(S.myPieces, hitData));
@@ -1061,8 +1084,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
     playSfx('skill');
-    addLog(`✦ ${msg}`, 'skill');
-    showSkillToast(`✦ ${msg}`);
+    addLog(msg, 'skill');
+    showSkillToast(msg);
   }
 
   // 내 스킬로 상대 유닛이 피해를 받았는지 감지
@@ -1158,9 +1181,10 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 });
 
 // ── 함정 발동 ──
-socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
+socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
   playSfx('hit');
-  const msg = `🪤 ${pieceInfo.icon}${pieceInfo.name}이(가) 인간 사냥꾼의 덫에 걸렸습니다! ${damage} 피해`;
+  const trapOwnerName = (owner !== undefined) ? (owner === S.playerIdx ? myN() : oppN()) : oppN();
+  const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} 1 피해.`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
@@ -1180,11 +1204,11 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
 
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
-  addLog(`💣 ${coord(col,row)} 폭탄 폭발!`, 'hit');
-  showSkillToast(`💣 ${coord(col,row)} 폭탄 폭발!`);
   for (const h of hits) {
     if (h.destroyed) playSfx('kill'); else playSfx('hit');
-    addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
+    const bombMsg = `💥${h.icon}${h.name} 1 피해.`;
+    addLog(bombMsg, 'hit');
+    showSkillToast(bombMsg);
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
   }
   if (hits.length === 0) {
@@ -1257,14 +1281,14 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     let sub = '';
     switch (r.type) {
       case 'surrender': sub = `${L}의 기권으로, ${W}의 승리입니다!`; break;
-      case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}가 승리했습니다!`; break;
-      case 'trap': sub = `${L}의 ${vs}이(가) 인간 사냥꾼의 덫에 걸려 ${W}가 승리했습니다!`; break;
-      case 'bomb': sub = `화약병의 폭탄으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
-      case 'sulfur': sub = `유황범람으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
-      case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 ${L}의 ${vs}이(가) 쓰러져 ${W}가 승리했습니다!`; break;
+      case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}의 승리입니다!`; break;
+      case 'trap': sub = `인간 사냥꾼의 덫으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'sulfur': sub = `${W}의 유황범람으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
       case 'attack': sub = killer
-        ? `${W}의 ${killer}가 ${L}의 ${vs}을(를) 처치해 승리했습니다!`
-        : `${L}의 모든 말을 제거해, ${W}의 승리입니다.`; break;
+        ? `${killer}의 공격으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`
+        : `${L}의 모든 유닛을 제거해, ${W}의 승리입니다.`; break;
       default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -1282,8 +1306,8 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
       case 'sulfur': sub = `유황범람으로 상대의 모든 말을 제거해 승리했습니다!`; break;
       case 'nightmare': sub = `고문 기술자의 악몽으로 상대의 모든 말을 제거해 승리했습니다!`; break;
       case 'attack': sub = killer
-        ? `${killer}의 공격으로 상대의 모든 말을 제거해 승리했습니다!`
-        : `상대의 모든 말을 제거해 승리했습니다.`; break;
+        ? `${killer}의 공격으로 ${opponentName}의 모든 말을 제거해 승리했습니다!`
+        : `${opponentName}의 모든 유닛을 제거해 승리했습니다.`; break;
       default: sub = `${opponentName}의 모든 말을 제거했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -1296,12 +1320,12 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     switch (r.type) {
       case 'surrender': sub = `기권하여 패배했습니다.`; break;
       case 'shrink': sub = `보드 축소를 피하지 못해 패배하였습니다.`; break;
-      case 'trap': sub = `${vs}이(가) 인간 사냥꾼의 덫에 걸려 패배하였습니다.`; break;
-      case 'bomb': sub = `화약병의 폭탄으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
-      case 'sulfur': sub = `유황범람으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
-      case 'nightmare': sub = `고문 기술자의 악몽으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
+      case 'trap': sub = `인간 사냥꾼의 덫에 마지막 유닛이 걸려 패배하였습니다.`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
+      case 'sulfur': sub = `유황범람으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
+      case 'nightmare': sub = `고문 기술자의 악몽으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
       case 'attack': sub = killer
-        ? `${killer}의 공격으로 ${vs}이(가) 쓰러져 패배하였습니다.`
+        ? `${killer}의 공격으로 모든 유닛이 쓰러져 패배하였습니다.`
         : `${opponentName}에게 패배했습니다.`; break;
       default: sub = `${opponentName}에게 패배했습니다.`;
     }
@@ -1403,7 +1427,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [약초학] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
     ],
-    body: '자신 주변 3×3 범위 내 아군의 체력을 +1 회복합니다 (자기 자신 제외). 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '자신 주변 3×3 범위 내 모든 아군의 체력을 1 회복합니다. 스스로는 회복 할 수 없습니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
   },
   // ── 2티어 ──
   general: {
@@ -1440,7 +1464,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [저주] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없습니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
+    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
   },
   dualBlade: {
     blocks: [
@@ -1462,7 +1486,7 @@ const CHAR_DETAILS = {
   },
   bodyguard: {
     blocks: [
-      { head: '패시브 [충성] SP 2', color: '#f59e0b' },
+      { head: '패시브 [충성]', color: '#f59e0b' },
     ],
     body: '자신의 다른 왕실 태그 아군이 받을 공격 피해를 1로 줄이고, 그 피해를 자신이 대신 받습니다. 왕실 유닛의 방패 역할입니다. 왕실 유닛이 받게 될 상태 이상 또한 호위 무사가 대신 받습니다.',
   },
@@ -1493,7 +1517,7 @@ const CHAR_DETAILS = {
   },
   monk: {
     blocks: [
-      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 +2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
+      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
       { head: '패시브 [가호]', color: '#f59e0b', desc: '악인 태그 적을 공격할 때 피해가 3으로 증가하고, 악인에게 피격 시 피해가 0.5로 감소합니다.' },
     ],
   },
@@ -1507,7 +1531,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '패시브 [사기증진]', color: '#f59e0b' },
     ],
-    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 +1 버프합니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
+    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 1 상승시킵니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
   },
   sulfurCauldron: {
     blocks: [
@@ -1933,9 +1957,9 @@ document.getElementById('btn-draft-random').addEventListener('click', () => {
   document.getElementById('random-confirm-body').innerHTML = `
     <p style="margin-bottom:14px;color:var(--muted)">캐릭터를 랜덤 선택합니다.</p>
     <div class="random-pick-list">
-      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> <span class="muted">— ${t1.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> <span class="muted">— ${t2.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> <span class="muted">— ${t3.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}<span class="muted">— ${t1.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}<span class="muted">— ${t2.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}<span class="muted">— ${t3.desc}</span></div>
     </div>
   `;
   modal.classList.remove('hidden');
@@ -1959,57 +1983,57 @@ document.getElementById('random-confirm-cancel').addEventListener('click', () =>
 // ── 추천 조합 ──
 const RECOMMENDED_COMBOS = [
   {
-    style: '⚔️ 공격형 (올인 화력)',
+    style: '⚔️ 화력 집중형',
     desc: '강력한 화력으로 적을 빠르게 제압하는 스타일',
     picks: [
       { tier: 1, type: 'archer', reason: '대각선 전체 공격으로 넓은 범위 커버' },
       { tier: 2, type: 'dualBlade', reason: '쌍검무로 한 턴에 2회 공격 가능' },
-      { tier: 3, type: 'slaughterHero', reason: '3×3 전체 9칸 공격, 최대 범위' },
+      { tier: 3, type: 'slaughterHero', reason: '9칸의 최대 범위 공격' },
     ]
   },
   {
-    style: '🛡️ 방어형 (안정 운영)',
-    desc: '높은 생존력과 지원으로 오래 버티며 이기는 스타일',
+    style: '🛡️ 방어형',
+    desc: '높은 생존력과 지원으로 장기전으로 끌고가는 스타일',
     picks: [
-      { tier: 1, type: 'herbalist', reason: '아군 힐링으로 팀 생존력 UP' },
-      { tier: 2, type: 'armoredWarrior', reason: '철갑 패시브로 피해 1 감소' },
-      { tier: 3, type: 'monk', reason: '신성으로 아군 회복 + 상태이상 제거' },
+      { tier: 1, type: 'herbalist', reason: '아군 힐링으로 팀 생존력 확보' },
+      { tier: 2, type: 'armoredWarrior', reason: '패시브 스킬로 피해 감소' },
+      { tier: 3, type: 'monk', reason: '아군 회복과 더불어 상태이상 제거' },
     ]
   },
   {
-    style: '🎯 저격형 (원거리 컨트롤)',
-    desc: '가로+세로 긴 사거리로 안전하게 저격하는 스타일',
+    style: '🎯 저격형',
+    desc: '가로 세로 모두 긴 사거리로 안전하게 플레이하는 스타일',
     picks: [
       { tier: 1, type: 'spearman', reason: '세로줄 전체 관통 공격' },
-      { tier: 2, type: 'weaponSmith', reason: '가로↔세로 전환으로 유연한 사격 라인' },
-      { tier: 3, type: 'prince', reason: '좌우 3칸 강력한 가로 공격' },
+      { tier: 2, type: 'weaponSmith', reason: '자유로운 공격 범위 전환으로 유연한 사격 라인' },
+      { tier: 3, type: 'prince', reason: '강력한 가로 공격' },
     ]
   },
   {
-    style: '🗡️ 암살형 (기습 & 트릭)',
+    style: '🗡️ 트릭형',
     desc: '기습과 교란으로 상대를 혼란에 빠뜨리는 스타일',
     picks: [
-      { tier: 1, type: 'manhunter', reason: '덫 설치로 이동 경로 봉쇄' },
-      { tier: 2, type: 'shadowAssassin', reason: '그림자 숨기로 생존 + 선택 공격' },
-      { tier: 3, type: 'torturer', reason: '표식 + 악몽 콤보로 지속 피해' },
+      { tier: 1, type: 'manhunter', reason: '예측되는 경로에 함정 설치' },
+      { tier: 2, type: 'shadowAssassin', reason: '그림자 숨기 스킬의 질긴 생존력' },
+      { tier: 3, type: 'torturer', reason: '표식과 악몽 콤보로 보드 전체를 장악' },
     ]
   },
   {
-    style: '✨ 스킬형 (SP 풀가동)',
+    style: '✨ 스킬 폭발형',
     desc: 'SP를 적극 활용해 스킬로 전장을 지배하는 스타일',
     picks: [
-      { tier: 1, type: 'gunpowder', reason: '폭탄 설치 + 기폭 2개 스킬, SP 활용 극대화' },
-      { tier: 2, type: 'wizard', reason: '피격 시 SP+1 획득 패시브로 스킬 자원 빠르게 확보' },
-      { tier: 3, type: 'dragonTamer', reason: 'SP 5 투자로 드래곤 소환, 판세 뒤집기' },
+      { tier: 1, type: 'gunpowder', reason: '폭탄 설치로 폭 넓은 견제' },
+      { tier: 2, type: 'wizard', reason: '피격 시 지급되는 SP1로 스킬 자원 펌핑' },
+      { tier: 3, type: 'dragonTamer', reason: 'SP5를 지불해 판세를 뒤흔들 드래곤 소환' },
     ]
   },
   {
-    style: '👑 왕실형 (시너지 특화)',
-    desc: 'royal 태그 유닛끼리의 시너지를 활용하는 스타일',
+    style: '👑 시너지 특화형',
+    desc: '왕실 태그 유닛끼리의 시너지를 활용하는 스타일',
     picks: [
-      { tier: 1, type: 'cavalry', reason: '가로줄 전체 공격, 왕실 태그' },
-      { tier: 2, type: 'bodyguard', reason: '충성 패시브로 왕실 아군 보호' },
-      { tier: 3, type: 'commander', reason: '사기증진 패시브로 인접 아군 공격력 +1 버프' },
+      { tier: 1, type: 'cavalry', reason: '가로줄 전체 공격의 우수한 색적' },
+      { tier: 2, type: 'bodyguard', reason: '충성 패시브로 왕실 아군을 보호' },
+      { tier: 3, type: 'commander', reason: '사기증진 패시브로 아군의 공격력 버프' },
     ]
   },
 ];
@@ -2385,7 +2409,8 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
     <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
     <div class="piece-info">
       <strong>${ch.name}${tagHtml}</strong>
-      <span>T${tier} · ATK ${ch.atk || '?'}</span>
+      <span>${tier}티어 · ATK ${ch.atk || '?'}</span>
+      <div>${buildMiniHeaders(ch)}</div>
       ${labelHtml}
     </div>`;
   const tooltip = buildPieceTooltip(ch, tooltipSide || 'right');
@@ -2435,7 +2460,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${ch.desc || ''}</span>
+          <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       card.addEventListener('click', () => {
         exCurrentTier = tier;
@@ -2531,8 +2556,7 @@ function exRenderSlide() {
     : '';
   const currentBadge = isCurrentPick ? ' <span style="color:#3b82f6;font-size:0.7rem;background:rgba(59,130,246,0.15);padding:2px 6px;border-radius:4px">현재 선택</span>' : '';
   document.getElementById('ex-slide-name').innerHTML = c.name + tagHtml + currentBadge;
-  document.getElementById('ex-slide-desc').innerHTML =
-    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc || ''}</span>`;
+  document.getElementById('ex-slide-desc').innerHTML = '';
   document.getElementById('ex-slide-atk').innerHTML =
     `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
 
@@ -2663,7 +2687,6 @@ function exUpdateSlots() {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${ch.desc || ''}</span>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
       if (isSwapped) {
@@ -2923,7 +2946,8 @@ function buildPlacementOppPanel() {
       <span class="char-icon">${pc.icon}</span>
       <div class="opp-info">
         <strong>${pc.name}${tagHtml}</strong>
-        <span>T${pc.tier} · ATK ${pc.atk}</span>
+        <span>${pc.tier}티어 · ATK ${pc.atk}</span>
+        <div>${buildMiniHeaders(pc)}</div>
       </div>`;
 
     // 호버 팝업 (바깥 방향 = 오른쪽)
@@ -2963,9 +2987,13 @@ function updatePlacementUI() {
 
     // 패시브 정보
     let passiveHtml = '';
-    if (pc.passiveName) {
-      const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
-      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${passiveDesc}</span></div>`;
+    if (pc.passiveName && pc.passives && pc.passives.length > 0) {
+      const pid = pc.passives[0];
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      passiveHtml = `<div class="placement-skill-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div><div class="placement-skill-desc">${label}</div>`;
+    } else if (pc.passiveName) {
+      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${pc.passiveName}</span></div>`;
     }
 
     card.innerHTML = `
@@ -3635,7 +3663,7 @@ function renderOppPieces() {
   if (!container.querySelector('.deduction-hint')) {
     const hint = document.createElement('div');
     hint.className = 'deduction-hint';
-    hint.textContent = '📌 상대 말 프로필을 보드로 드래그해 추리 토큰을 생성해보세요! (우클릭으로 제거)';
+    hint.textContent = '📌 상대 말 프로필을 보드로 드래그해 추리 토큰을 생성해보세요. 우클릭으로 제거할 수 있습니다.';
     container.appendChild(hint);
   }
 }
@@ -3680,6 +3708,28 @@ function getSkillTypeTag(skill) {
   return '<span class="skill-tag tag-free">자유시전형</span>';
 }
 
+function buildMiniHeaders(ch) {
+  if (!ch) return '';
+  let html = '';
+  if (ch.skills && ch.skills.length > 0) {
+    for (const sk of ch.skills) {
+      let cls;
+      if (sk.replacesAction) cls = 'mini-header-action';
+      else if (sk.oncePerTurn) cls = 'mini-header-once';
+      else cls = 'mini-header-free';
+      html += `<span class="mini-header ${cls}">${sk.name}</span>`;
+    }
+  }
+  if (ch.passives && ch.passives.length > 0) {
+    for (const pid of ch.passives) {
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      html += `<span class="mini-header mini-header-passive">${name}</span>`;
+    }
+  }
+  return html;
+}
+
 function getSkillTypeTagFromChar(pc) {
   // 서버 CHARACTERS에서 스킬 정보 가져오기
   const charData = S.characters || S.specCharacters;
@@ -3718,19 +3768,24 @@ function buildPieceTooltip(pc, side) {
 
   // 패시브 — passiveName 또는 passives 배열
   let passiveHtml = '';
-  if (pc.passiveName) {
-    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : pc.passiveName;
-    passiveHtml = `<div class="tooltip-line passive-color">패시브: ${passiveDesc}</div>`;
-  } else if (pc.passives && pc.passives.length > 0) {
-    for (const pid of pc.passives) {
-      passiveHtml += `<div class="tooltip-line passive-color">패시브: ${getPassiveLabel(pid)}</div>`;
+  const passiveIds = (pc.passives && pc.passives.length > 0) ? pc.passives : [];
+  if (passiveIds.length > 0) {
+    for (const pid of passiveIds) {
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      passiveHtml += `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
+      passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${label}</div>`;
     }
+  } else if (pc.passiveName) {
+    const name = pc.passiveName.includes(' — ') ? pc.passiveName.split(' — ')[0] : pc.passiveName;
+    passiveHtml = `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
+    passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${pc.passiveName}</div>`;
   }
 
   // 상태이상 배지
   let statusHtml = '';
   if (pc.statusEffects && pc.statusEffects.length > 0) {
-    const labels = { curse: '☠ 저주', shadow: '👤 그림자', mark: '🎯 표식', poison: '☠ 독' };
+    const labels = { curse: '☠ 저주', shadow: '👻 그림자', mark: '🎯 표식', morale: '📋 사기증진' };
     const badges = pc.statusEffects.map(e => `<span class="status-badge status-${e.type}">${labels[e.type] || e.type}</span>`).join(' ');
     statusHtml = `<div class="tooltip-line" style="margin-top:4px">${badges}</div>`;
   }
@@ -3773,7 +3828,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.selectedPiece = null;
   S.targetSelectMode = false;
   document.getElementById('btn-cancel').classList.remove('hidden');
-  document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+  document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
   renderGameBoard();
 });
 
@@ -4047,7 +4102,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     S.action = 'skill_target';
     S.skillTargetData = { pieceIdx, skillId: 'bomb', type: 'bomb_place' };
     document.getElementById('btn-cancel').classList.remove('hidden');
-    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요 (자신 또는 인접 8칸)`;
+    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요.`;
     renderGameBoard();
     return;
   }
@@ -4241,7 +4296,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
-        document.getElementById('action-hint').textContent = `${pc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        document.getElementById('action-hint').textContent = `${pc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
         renderMyPieces();
       }
@@ -4250,7 +4305,7 @@ function handleGameCellClick(col, row) {
       // 같은 말 클릭 → 해제
       if (col === selPc.col && row === selPc.row) {
         S.selectedPiece = null;
-        document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+        document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
         renderGameBoard();
         renderMyPieces();
         return;
@@ -4259,14 +4314,14 @@ function handleGameCellClick(col, row) {
       const otherPc = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (otherPc) {
         S.selectedPiece = S.myPieces.indexOf(otherPc);
-        document.getElementById('action-hint').textContent = `${otherPc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        document.getElementById('action-hint').textContent = `${otherPc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
         renderMyPieces();
         return;
       }
       // 이동 범위 체크
       if (!isCrossAdjacent(selPc.col, selPc.row, col, row)) {
-        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다!';
+        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다.';
         return;
       }
       socket.emit('move_piece', { pieceIdx: S.selectedPiece, col, row });
@@ -4286,10 +4341,10 @@ function handleGameCellClick(col, row) {
         // 타겟 선택이 필요한 캐릭터
         if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name}: 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 더블 클릭 시 공격합니다.`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -4308,10 +4363,10 @@ function handleGameCellClick(col, row) {
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
         if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name}: 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 더블 클릭 시 공격합니다.`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -4529,14 +4584,14 @@ function findChar(type) {
 
 function getPassiveLabel(passiveId) {
   const map = {
-    instantMagic: '인스턴트매직 — 피격마다 1회용 SP+1 획득 (영향력 그래프 미포함)',
-    ironSkin: '아이언스킨 — 받는 피해 -0.5',
-    grace: '가호 — 악인 공격 시 피해=3, 악인에게 피격 시 피해=0.5',
-    betrayer: '배반자 — 3×3 공격 시 아군도 1 피해',
-    wrath: '사기증진 — 인접 아군 공격력 +1',
-    markPassive: '표식 — 공격 적중 시 대상에 표식 부여',
-    tyranny: '폭정 — 1~2티어에게 받는 피해 -0.5',
-    loyalty: '충성 — 왕실 아군 피해를 1로 줄이고 대신 받음',
+    instantMagic: '피격마다 1회용 SP를 1개 획득',
+    ironSkin: '받는 피해가 0.5 감소',
+    grace: '악인 공격 시 공격력 3, 악인에게 피격 시 받는 피해 0.5로 감소',
+    betrayer: '공격 시 아군도 1 피해',
+    wrath: '인접한 아군 공격력 1 증가',
+    markPassive: '공격 적중 시 대상에게 표식 부여',
+    tyranny: '1~2티어에게 받는 피해 0.5 감소',
+    loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음',
   };
   return map[passiveId] || passiveId;
 }
@@ -5175,7 +5230,7 @@ function setTurnBackground(isMyTurn) {
 
 // ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
-  showSkillToast(`${myN()}의 차례!`, false, undefined, 'event');
+  showSkillToast(`[${S.turnNumber}턴] ${myN()} 차례`, false, undefined, 'event');
 }
 
 // ── 이동 모션 애니메이션 ──
@@ -6156,17 +6211,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🏹</span>
           <div class="tut-char-name">궁수</div>
-          <div class="tut-char-sub">대각선 전체 관통</div>
+          <div class="tut-char-sub">대각선 전체 공격. 더불어 공격 방향 전환 가능.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🔭</span>
           <div class="tut-char-name">척후병</div>
-          <div class="tut-char-sub">적 위치 정찰 스킬</div>
+          <div class="tut-char-sub">적 위치를 알아내는 정찰.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">💣</span>
           <div class="tut-char-name">화약상</div>
-          <div class="tut-char-sub">폭탄 설치 + 기폭</div>
+          <div class="tut-char-sub">폭탄 설치로 맵을 견제.</div>
         </div>
       </div>
     </div>
@@ -6177,17 +6232,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🗡</span>
           <div class="tut-char-name">그림자 암살자</div>
-          <div class="tut-char-sub">은신 + 타겟 공격</div>
+          <div class="tut-char-sub">은신 스킬을 활용한 교란.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">⚔</span>
           <div class="tut-char-name">양손 검객</div>
-          <div class="tut-char-sub">쌍검무로 2회 공격</div>
+          <div class="tut-char-sub">쌍검무로 2회 공격.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🧹</span>
           <div class="tut-char-name">마녀</div>
-          <div class="tut-char-sub">저주로 지속 피해</div>
+          <div class="tut-char-sub">저주로 상대 핵심 유닛의 스킬을 막고 턴당 0.5 피해 부여.</div>
         </div>
       </div>
     </div>
@@ -6198,17 +6253,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🐉</span>
           <div class="tut-char-name">드래곤 조련사</div>
-          <div class="tut-char-sub">드래곤 유닛 소환</div>
+          <div class="tut-char-sub">드래곤 유닛 소환. 대량의 SP 필요.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🙏</span>
           <div class="tut-char-name">수도승</div>
-          <div class="tut-char-sub">힐링 + 정화 + 가호</div>
+          <div class="tut-char-sub">힐링과 상태이상 제거에 능통. 약한 공격 능력.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🪓</span>
           <div class="tut-char-name">학살 영웅</div>
-          <div class="tut-char-sub">3×3 범위 ATK 1</div>
+          <div class="tut-char-sub">최대규모의 범위 공격. 아군도 피해를 보는 양날의 검.</div>
         </div>
       </div>
     </div>
@@ -6287,13 +6342,13 @@ const TUTORIAL_STEPS = [
           <span class="tut-char-icon">🛡</span>
           <div class="tut-char-name">갑주무사</div>
           <div class="tut-char-sub" style="color:#f59e0b">아이언 스킨</div>
-          <div class="tut-char-sub">받는 피해 -0.5</div>
+          <div class="tut-char-sub">공격 피해 0.5 감소</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">📋</span>
           <div class="tut-char-name">지휘관</div>
           <div class="tut-char-sub" style="color:#f59e0b">사기증진</div>
-          <div class="tut-char-sub">인접 아군 ATK +1</div>
+          <div class="tut-char-sub">인접 아군의 공격력 1 증가</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🧙</span>
@@ -6305,7 +6360,7 @@ const TUTORIAL_STEPS = [
           <span class="tut-char-icon">⛓</span>
           <div class="tut-char-name">고문 기술자</div>
           <div class="tut-char-sub" style="color:#f59e0b">표식</div>
-          <div class="tut-char-sub">공격 적중 시 위치 공개</div>
+          <div class="tut-char-sub">표식 상태의 적의 위치 공개</div>
         </div>
       </div>
     </div>
@@ -6319,17 +6374,13 @@ const TUTORIAL_STEPS = [
     <div class="tut-section">
       <div class="tut-section-title"><span class="tag-badge royal" style="font-size:0.8rem">왕실</span> 왕실 태그</div>
       <div class="tut-text">
-        왕실 유닛끼리 시너지가 있습니다.<br>
-        • <strong>호위 무사</strong>는 왕실 아군이 받을 피해를 대신 받습니다<br>
-        • <strong>창병, 기마병, 장군, 기사</strong> 등 정통 무력 계열
+        왕실 유닛들은 서로 연계된 능력으로 시너지가 좋습니다.
       </div>
     </div>
     <div class="tut-section">
       <div class="tut-section-title"><span class="tag-badge villain" style="font-size:0.8rem">악인</span> 악인 태그</div>
       <div class="tut-text">
-        트리키한 스킬과 상태 이상 특화.<br>
-        • <strong>수도승의 가호</strong> — 악인에게 피해 3, 악인에게 피격 시 0.5<br>
-        • <strong>마녀, 쥐 장수, 그림자 암살자</strong> 등 변칙 계열
+        마녀, 쥐 장수, 그림자 암살자 등 변칙 계열의 유닛들이 다수 포진되어 있습니다.
       </div>
     </div>
     <div class="tut-highlight">💡 수도승 vs 악인은 치명적! 태그 조합을 고려해 전략을 짜세요.</div>
