@@ -107,7 +107,7 @@ socket.on('timer_start', ({ seconds }) => {
 });
 
 socket.on('turn_timeout', () => {
-  addLog('⏰ 시간 초과! 턴이 넘어갑니다.', 'system');
+  addLog('⏰ 시간 초과!', 'system');
   showSkillToast('⏰ 시간 초과!', false, undefined, 'event');
 });
 
@@ -765,6 +765,7 @@ socket.on('opp_turn', (data) => {
   showActionBar(false);
   updateSPBar();
   addLog(`${data.turnNumber}턴 : ${oppN()} 차례`, 'system');
+  showSkillToast(`[${data.turnNumber}턴] ${oppN()} 차례`, false, undefined, 'event');
   setTurnBackground(false);
 });
 
@@ -776,7 +777,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
   addLog(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`, 'move');
-  showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 이동: ${coord(prev.col,prev.row)} → ${coord(col,row)}`);
+  showSkillToast(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`);
 
   if (twinMovePending) {
     // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
@@ -788,7 +789,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     renderGameBoard();
     renderMyPieces();
     const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
-    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이(가) 아직 이동하지 않았습니다.`;
+    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이 아직 이동하지 않았습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
@@ -805,7 +806,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
 
 socket.on('opp_moved', ({ msg }) => {
   addLog(`🚶 상대가 이동했습니다.`, 'move');
-  showSkillToast(msg, true);
+  showSkillToast(`🚶 상대가 이동했습니다.`, true);
 });
 
 // ── 공격 결과 ──
@@ -846,14 +847,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       const otherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
       const otherPc = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
       addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
-      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+      showSkillToast(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`);
       if (otherPc) {
         addLog(`⚔ ${myN()}의 ${otherPc.name}! 공격 빗나감.`, 'miss');
-        showSkillToast(`${myN()}의 ${otherPc.icon}${otherPc.name} 공격 빗나감!`);
+        showSkillToast(`⚔ ${myN()}의 ${otherPc.name}! 공격 빗나감.`);
       }
     } else {
       addLog(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`, 'miss');
-      showSkillToast(`${myN()}의 ${pc.icon}${pc.name} 공격 빗나감!`);
+      showSkillToast(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`);
     }
   } else {
     for (const h of cellResults.filter(c => c.hit)) {
@@ -869,9 +870,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     const hits = cellResults.filter(c => c.hit);
     for (const h of hits) {
       const atkName = h.attackerName || pc.name;
-      const atkIcon = h.attackerIcon || pc.icon;
-      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : `${oppN()} 유닛`;
-      showSkillToast(`${myN()}의 ${atkIcon}${atkName} → ${target} ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, false);
+      const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
+      showSkillToast(h.destroyed
+        ? `⚔ ${myN()}의 ${atkName}! ${target} 격파함. 💀`
+        : `⚔ ${myN()}의 ${atkName}! ${target}에 ${h.damage} 피해.`, false);
     }
   }
 
@@ -883,6 +885,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
   if (pc && pc.dualBladeAttacksLeft > 0) {
     addLog(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다`, 'info');
+    showSkillToast(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다.`);
   }
 
   // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
@@ -951,13 +954,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   S.myPieces = yourPieces;
   if (hitPieces.length === 0) {
     addLog(`⚔ ${oppN()}의 공격 빗나감.`, 'miss');
-    showSkillToast(`${oppN()} 공격 빗나감!`, true);
+    showSkillToast(`⚔ ${oppN()}의 공격 빗나감.`, true);
   } else {
     for (const h of hitPieces) {
       if (h.destroyed) playSfx('kill'); else playSfx('hit');
       const unitName = h.icon && h.name ? `${myN()}의 ${h.icon}${h.name}` : coord(h.col,h.row);
       addLog(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, 'hit');
-      showSkillToast(`${unitName} 피격! ${h.damage}피해${h.destroyed ? ' 격파!' : ''}`, true);
+      showSkillToast(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, true);
     }
   }
   // 피격 유닛 인덱스를 미리 수집 (renderMyPieces 전에 — 좌표 매칭)
@@ -1026,6 +1029,8 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
       addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
+      const ownerName = e.owner === S.playerIdx ? myN() : oppN();
+      showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
       const hitData = [{ col: e.col, row: e.row, name: e.name }];
       if (e.owner === S.playerIdx) {
         myShrinkIdx.push(...findPieceIndices(S.myPieces, hitData));
@@ -1061,8 +1066,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
     playSfx('skill');
-    addLog(`✦ ${msg}`, 'skill');
-    showSkillToast(`✦ ${msg}`);
+    addLog(msg, 'skill');
+    showSkillToast(msg);
   }
 
   // 내 스킬로 상대 유닛이 피해를 받았는지 감지
@@ -1158,9 +1163,10 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 });
 
 // ── 함정 발동 ──
-socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
+socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
   playSfx('hit');
-  const msg = `🪤 ${pieceInfo.icon}${pieceInfo.name}이(가) 인간 사냥꾼의 덫에 걸렸습니다! ${damage} 피해`;
+  const trapOwnerName = (owner !== undefined) ? (owner === S.playerIdx ? myN() : oppN()) : oppN();
+  const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} 1 피해.`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
@@ -1180,11 +1186,11 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage }) => {
 
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
-  addLog(`💣 ${coord(col,row)} 폭탄 폭발!`, 'hit');
-  showSkillToast(`💣 ${coord(col,row)} 폭탄 폭발!`);
   for (const h of hits) {
     if (h.destroyed) playSfx('kill'); else playSfx('hit');
-    addLog(`  💥 ${h.icon}${h.name} ${h.damage} 피해${h.destroyed ? ' 💀' : ''}`, 'hit');
+    const bombMsg = `💥${h.icon}${h.name} 1 피해.`;
+    addLog(bombMsg, 'hit');
+    showSkillToast(bombMsg);
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
   }
   if (hits.length === 0) {
@@ -1257,14 +1263,14 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     let sub = '';
     switch (r.type) {
       case 'surrender': sub = `${L}의 기권으로, ${W}의 승리입니다!`; break;
-      case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}가 승리했습니다!`; break;
-      case 'trap': sub = `${L}의 ${vs}이(가) 인간 사냥꾼의 덫에 걸려 ${W}가 승리했습니다!`; break;
-      case 'bomb': sub = `화약병의 폭탄으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
-      case 'sulfur': sub = `유황범람으로 ${L}의 ${vs}이(가) 전멸해 ${W}가 승리했습니다!`; break;
-      case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 ${L}의 ${vs}이(가) 쓰러져 ${W}가 승리했습니다!`; break;
+      case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}의 승리입니다!`; break;
+      case 'trap': sub = `인간 사냥꾼의 덫으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'sulfur': sub = `${W}의 유황범람으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+      case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
       case 'attack': sub = killer
-        ? `${W}의 ${killer}가 ${L}의 ${vs}을(를) 처치해 승리했습니다!`
-        : `${L}의 모든 말을 제거해, ${W}의 승리입니다.`; break;
+        ? `${killer}의 공격으로 상대의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`
+        : `${L}의 모든 유닛을 제거해, ${W}의 승리입니다.`; break;
       default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -1282,8 +1288,8 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
       case 'sulfur': sub = `유황범람으로 상대의 모든 말을 제거해 승리했습니다!`; break;
       case 'nightmare': sub = `고문 기술자의 악몽으로 상대의 모든 말을 제거해 승리했습니다!`; break;
       case 'attack': sub = killer
-        ? `${killer}의 공격으로 상대의 모든 말을 제거해 승리했습니다!`
-        : `상대의 모든 말을 제거해 승리했습니다.`; break;
+        ? `${killer}의 공격으로 ${opponentName}의 모든 말을 제거해 승리했습니다!`
+        : `${opponentName}의 모든 유닛을 제거해 승리했습니다.`; break;
       default: sub = `${opponentName}의 모든 말을 제거했습니다!`;
     }
     document.getElementById('gameover-sub').textContent = sub;
@@ -1296,12 +1302,12 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     switch (r.type) {
       case 'surrender': sub = `기권하여 패배했습니다.`; break;
       case 'shrink': sub = `보드 축소를 피하지 못해 패배하였습니다.`; break;
-      case 'trap': sub = `${vs}이(가) 인간 사냥꾼의 덫에 걸려 패배하였습니다.`; break;
-      case 'bomb': sub = `화약병의 폭탄으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
-      case 'sulfur': sub = `유황범람으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
-      case 'nightmare': sub = `고문 기술자의 악몽으로 ${vs}이(가) 쓰러져 패배하였습니다.`; break;
+      case 'trap': sub = `인간 사냥꾼의 덫에 마지막 유닛이 걸려 패배하였습니다.`; break;
+      case 'bomb': sub = `화약병의 폭탄으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
+      case 'sulfur': sub = `유황범람으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
+      case 'nightmare': sub = `고문 기술자의 악몽으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
       case 'attack': sub = killer
-        ? `${killer}의 공격으로 ${vs}이(가) 쓰러져 패배하였습니다.`
+        ? `${killer}의 공격으로 모든 유닛이 쓰러져 패배하였습니다.`
         : `${opponentName}에게 패배했습니다.`; break;
       default: sub = `${opponentName}에게 패배했습니다.`;
     }
@@ -3632,7 +3638,7 @@ function renderOppPieces() {
   if (!container.querySelector('.deduction-hint')) {
     const hint = document.createElement('div');
     hint.className = 'deduction-hint';
-    hint.textContent = '📌 상대 말 프로필을 보드로 드래그해 추리 토큰을 생성해보세요! (우클릭으로 제거)';
+    hint.textContent = '📌 상대 말 프로필을 보드로 드래그해 추리 토큰을 생성해보세요. 우클릭으로 제거할 수 있습니다.';
     container.appendChild(hint);
   }
 }
@@ -3770,7 +3776,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.selectedPiece = null;
   S.targetSelectMode = false;
   document.getElementById('btn-cancel').classList.remove('hidden');
-  document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+  document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
   renderGameBoard();
 });
 
@@ -4044,7 +4050,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     S.action = 'skill_target';
     S.skillTargetData = { pieceIdx, skillId: 'bomb', type: 'bomb_place' };
     document.getElementById('btn-cancel').classList.remove('hidden');
-    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요 (자신 또는 인접 8칸)`;
+    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요.`;
     renderGameBoard();
     return;
   }
@@ -4238,7 +4244,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
-        document.getElementById('action-hint').textContent = `${pc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        document.getElementById('action-hint').textContent = `${pc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
         renderMyPieces();
       }
@@ -4247,7 +4253,7 @@ function handleGameCellClick(col, row) {
       // 같은 말 클릭 → 해제
       if (col === selPc.col && row === selPc.row) {
         S.selectedPiece = null;
-        document.getElementById('action-hint').textContent = '이동할 말을 클릭하세요.';
+        document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
         renderGameBoard();
         renderMyPieces();
         return;
@@ -4256,14 +4262,14 @@ function handleGameCellClick(col, row) {
       const otherPc = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (otherPc) {
         S.selectedPiece = S.myPieces.indexOf(otherPc);
-        document.getElementById('action-hint').textContent = `${otherPc.name} 선택됨. 이동할 칸(상하좌우)을 클릭하세요.`;
+        document.getElementById('action-hint').textContent = `${otherPc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
         renderMyPieces();
         return;
       }
       // 이동 범위 체크
       if (!isCrossAdjacent(selPc.col, selPc.row, col, row)) {
-        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다!';
+        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다.';
         return;
       }
       socket.emit('move_piece', { pieceIdx: S.selectedPiece, col, row });
@@ -4283,10 +4289,10 @@ function handleGameCellClick(col, row) {
         // 타겟 선택이 필요한 캐릭터
         if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name}: 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
+          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 더블 클릭 시 공격합니다.`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -4305,10 +4311,10 @@ function handleGameCellClick(col, row) {
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
         if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name}: 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} — 공격할 대상을 선택하세요 (다시 클릭하면 공격!)`;
+          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 더블 클릭 시 공격합니다.`;
         }
         renderGameBoard();
         renderMyPieces();
@@ -5172,7 +5178,7 @@ function setTurnBackground(isMyTurn) {
 
 // ── 나의 턴 팝업 (토스트 스타일) ──
 function showTurnPopup(isMyTurn) {
-  showSkillToast(`${myN()}의 차례!`, false, undefined, 'event');
+  showSkillToast(`[${S.turnNumber}턴] ${myN()} 차례`, false, undefined, 'event');
 }
 
 // ── 이동 모션 애니메이션 ──
