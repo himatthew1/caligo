@@ -11,6 +11,37 @@ function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function myN() { return S.myName || '나'; }
 function oppN() { return S.opponentName || '상대'; }
 
+function ratDestroyMsg(rats, mine) {
+  const suffix = mine ? '격파됨.' : '격파함.';
+  const coords = rats.map(r => coord(r.col, r.row));
+  if (coords.length === 1) return `${coords[0]}의 쥐 ${suffix}`;
+  if (coords.length === 2) return `${coords[0]}와 ${coords[1]}의 쥐 ${suffix}`;
+  const last = coords[coords.length - 1];
+  const rest = coords.slice(0, -1).join(', ');
+  return `${rest}와 ${last}의 쥐 ${suffix}`;
+}
+
+function animateRatDestruction(cells, isMyRat) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const emoji = isMyRat ? '🐀' : '🐁';
+  const color = isMyRat ? '#52b788' : '#e05252';
+  const posStyle = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
+  for (const { col, row } of cells) {
+    const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (!cell) continue;
+    const ratEl = document.createElement('span');
+    ratEl.style.cssText = `position:absolute;${posStyle};font-size:0.5rem;color:${color};z-index:10;pointer-events:none`;
+    ratEl.textContent = emoji;
+    ratEl.classList.add('rat-fading');
+    cell.appendChild(ratEl);
+    setTimeout(() => {
+      ratEl.classList.add('rat-fadeout');
+      setTimeout(() => ratEl.remove(), 600);
+    }, 400);
+  }
+}
+
 // ── 게임 상태 ─────────────────────────────────────────────────
 const S = {
   playerIdx: null,
@@ -912,18 +943,11 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
 
   // 쥐 격파 피드백
-  for (const dr of destroyedRats) {
-    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`);
-    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
-    // 셀 흔들림 애니메이션
-    const board = document.getElementById('game-board');
-    if (board) {
-      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
-      if (cell) {
-        cell.classList.add('cell-hit-shake');
-        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
-      }
-    }
+  if (destroyedRats.length > 0) {
+    const msg = ratDestroyMsg(destroyedRats, false);
+    showSkillToast(`🐀 ${msg}`);
+    addLog(`🐀 ${msg}`, 'hit');
+    animateRatDestruction(destroyedRats, false);
   }
 });
 
@@ -973,17 +997,11 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
 
   // 쥐 격파 피드백
-  for (const dr of myDestroyedRats) {
-    showSkillToast(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, true);
-    addLog(`🐀 ${coord(dr.col, dr.row)} 쥐 격파!`, 'hit');
-    const board = document.getElementById('game-board');
-    if (board) {
-      const cell = board.querySelector(`.cell[data-col="${dr.col}"][data-row="${dr.row}"]`);
-      if (cell) {
-        cell.classList.add('cell-hit-shake');
-        setTimeout(() => cell.classList.remove('cell-hit-shake'), 600);
-      }
-    }
+  if (myDestroyedRats.length > 0) {
+    const msg = ratDestroyMsg(myDestroyedRats, true);
+    showSkillToast(`🐀 ${msg}`, true);
+    addLog(`🐀 ${msg}`, 'hit');
+    animateRatDestruction(myDestroyedRats, true);
   }
 });
 
@@ -1939,9 +1957,9 @@ document.getElementById('btn-draft-random').addEventListener('click', () => {
   document.getElementById('random-confirm-body').innerHTML = `
     <p style="margin-bottom:14px;color:var(--muted)">캐릭터를 랜덤 선택합니다.</p>
     <div class="random-pick-list">
-      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> <span class="muted">— ${t1.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> <span class="muted">— ${t2.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> <span class="muted">— ${t3.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}<span class="muted">— ${t1.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}<span class="muted">— ${t2.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}<span class="muted">— ${t3.desc}</span></div>
     </div>
   `;
   modal.classList.remove('hidden');
@@ -2391,7 +2409,8 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
     <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
     <div class="piece-info">
       <strong>${ch.name}${tagHtml}</strong>
-      <span>T${tier} · ATK ${ch.atk || '?'}</span>
+      <span>${tier}티어 · ATK ${ch.atk || '?'}</span>
+      <div>${buildMiniHeaders(ch)}</div>
       ${labelHtml}
     </div>`;
   const tooltip = buildPieceTooltip(ch, tooltipSide || 'right');
@@ -2441,6 +2460,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
+          <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       card.addEventListener('click', () => {
         exCurrentTier = tier;
@@ -2926,7 +2946,8 @@ function buildPlacementOppPanel() {
       <span class="char-icon">${pc.icon}</span>
       <div class="opp-info">
         <strong>${pc.name}${tagHtml}</strong>
-        <span>T${pc.tier} · ATK ${pc.atk}</span>
+        <span>${pc.tier}티어 · ATK ${pc.atk}</span>
+        <div>${buildMiniHeaders(pc)}</div>
       </div>`;
 
     // 호버 팝업 (바깥 방향 = 오른쪽)
@@ -2966,9 +2987,13 @@ function updatePlacementUI() {
 
     // 패시브 정보
     let passiveHtml = '';
-    if (pc.passiveName) {
-      const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
-      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${passiveDesc}</span></div>`;
+    if (pc.passiveName && pc.passives && pc.passives.length > 0) {
+      const pid = pc.passives[0];
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      passiveHtml = `<div class="placement-skill-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div><div class="placement-skill-desc">${label}</div>`;
+    } else if (pc.passiveName) {
+      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${pc.passiveName}</span></div>`;
     }
 
     card.innerHTML = `
@@ -3683,6 +3708,28 @@ function getSkillTypeTag(skill) {
   return '<span class="skill-tag tag-free">자유시전형</span>';
 }
 
+function buildMiniHeaders(ch) {
+  if (!ch) return '';
+  let html = '';
+  if (ch.skills && ch.skills.length > 0) {
+    for (const sk of ch.skills) {
+      let cls;
+      if (sk.replacesAction) cls = 'mini-header-action';
+      else if (sk.oncePerTurn) cls = 'mini-header-once';
+      else cls = 'mini-header-free';
+      html += `<span class="mini-header ${cls}">${sk.name}</span>`;
+    }
+  }
+  if (ch.passives && ch.passives.length > 0) {
+    for (const pid of ch.passives) {
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      html += `<span class="mini-header mini-header-passive">${name}</span>`;
+    }
+  }
+  return html;
+}
+
 function getSkillTypeTagFromChar(pc) {
   // 서버 CHARACTERS에서 스킬 정보 가져오기
   const charData = S.characters || S.specCharacters;
@@ -3721,13 +3768,18 @@ function buildPieceTooltip(pc, side) {
 
   // 패시브 — passiveName 또는 passives 배열
   let passiveHtml = '';
-  if (pc.passiveName) {
-    const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : pc.passiveName;
-    passiveHtml = `<div class="tooltip-line passive-color">패시브: ${passiveDesc}</div>`;
-  } else if (pc.passives && pc.passives.length > 0) {
-    for (const pid of pc.passives) {
-      passiveHtml += `<div class="tooltip-line passive-color">패시브: ${getPassiveLabel(pid)}</div>`;
+  const passiveIds = (pc.passives && pc.passives.length > 0) ? pc.passives : [];
+  if (passiveIds.length > 0) {
+    for (const pid of passiveIds) {
+      const label = getPassiveLabel(pid);
+      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      passiveHtml += `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
+      passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${label}</div>`;
     }
+  } else if (pc.passiveName) {
+    const name = pc.passiveName.includes(' — ') ? pc.passiveName.split(' — ')[0] : pc.passiveName;
+    passiveHtml = `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
+    passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${pc.passiveName}</div>`;
   }
 
   // 상태이상 배지
