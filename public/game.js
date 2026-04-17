@@ -1403,7 +1403,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [약초학] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
     ],
-    body: '자신 주변 3×3 범위 내 아군의 체력을 +1 회복합니다 (자기 자신 제외). 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '자신 주변 3×3 범위 내 모든 아군의 체력을 1 회복합니다. 스스로는 회복 할 수 없습니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
   },
   // ── 2티어 ──
   general: {
@@ -1440,7 +1440,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '스킬 [저주] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없습니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
+    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
   },
   dualBlade: {
     blocks: [
@@ -1462,7 +1462,7 @@ const CHAR_DETAILS = {
   },
   bodyguard: {
     blocks: [
-      { head: '패시브 [충성] SP 2', color: '#f59e0b' },
+      { head: '패시브 [충성]', color: '#f59e0b' },
     ],
     body: '자신의 다른 왕실 태그 아군이 받을 공격 피해를 1로 줄이고, 그 피해를 자신이 대신 받습니다. 왕실 유닛의 방패 역할입니다. 왕실 유닛이 받게 될 상태 이상 또한 호위 무사가 대신 받습니다.',
   },
@@ -1493,7 +1493,7 @@ const CHAR_DETAILS = {
   },
   monk: {
     blocks: [
-      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 +2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
+      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
       { head: '패시브 [가호]', color: '#f59e0b', desc: '악인 태그 적을 공격할 때 피해가 3으로 증가하고, 악인에게 피격 시 피해가 0.5로 감소합니다.' },
     ],
   },
@@ -1507,7 +1507,7 @@ const CHAR_DETAILS = {
     blocks: [
       { head: '패시브 [사기증진]', color: '#f59e0b' },
     ],
-    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 +1 버프합니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
+    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 1 상승시킵니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
   },
   sulfurCauldron: {
     blocks: [
@@ -1959,57 +1959,57 @@ document.getElementById('random-confirm-cancel').addEventListener('click', () =>
 // ── 추천 조합 ──
 const RECOMMENDED_COMBOS = [
   {
-    style: '⚔️ 공격형 (올인 화력)',
+    style: '⚔️ 화력 집중형',
     desc: '강력한 화력으로 적을 빠르게 제압하는 스타일',
     picks: [
       { tier: 1, type: 'archer', reason: '대각선 전체 공격으로 넓은 범위 커버' },
       { tier: 2, type: 'dualBlade', reason: '쌍검무로 한 턴에 2회 공격 가능' },
-      { tier: 3, type: 'slaughterHero', reason: '3×3 전체 9칸 공격, 최대 범위' },
+      { tier: 3, type: 'slaughterHero', reason: '9칸의 최대 범위 공격' },
     ]
   },
   {
-    style: '🛡️ 방어형 (안정 운영)',
-    desc: '높은 생존력과 지원으로 오래 버티며 이기는 스타일',
+    style: '🛡️ 방어형',
+    desc: '높은 생존력과 지원으로 장기전으로 끌고가는 스타일',
     picks: [
-      { tier: 1, type: 'herbalist', reason: '아군 힐링으로 팀 생존력 UP' },
-      { tier: 2, type: 'armoredWarrior', reason: '철갑 패시브로 피해 1 감소' },
-      { tier: 3, type: 'monk', reason: '신성으로 아군 회복 + 상태이상 제거' },
+      { tier: 1, type: 'herbalist', reason: '아군 힐링으로 팀 생존력 확보' },
+      { tier: 2, type: 'armoredWarrior', reason: '패시브 스킬로 피해 감소' },
+      { tier: 3, type: 'monk', reason: '아군 회복과 더불어 상태이상 제거' },
     ]
   },
   {
-    style: '🎯 저격형 (원거리 컨트롤)',
-    desc: '가로+세로 긴 사거리로 안전하게 저격하는 스타일',
+    style: '🎯 저격형',
+    desc: '가로 세로 모두 긴 사거리로 안전하게 플레이하는 스타일',
     picks: [
       { tier: 1, type: 'spearman', reason: '세로줄 전체 관통 공격' },
-      { tier: 2, type: 'weaponSmith', reason: '가로↔세로 전환으로 유연한 사격 라인' },
-      { tier: 3, type: 'prince', reason: '좌우 3칸 강력한 가로 공격' },
+      { tier: 2, type: 'weaponSmith', reason: '자유로운 공격 범위 전환으로 유연한 사격 라인' },
+      { tier: 3, type: 'prince', reason: '강력한 가로 공격' },
     ]
   },
   {
-    style: '🗡️ 암살형 (기습 & 트릭)',
+    style: '🗡️ 트릭형',
     desc: '기습과 교란으로 상대를 혼란에 빠뜨리는 스타일',
     picks: [
-      { tier: 1, type: 'manhunter', reason: '덫 설치로 이동 경로 봉쇄' },
-      { tier: 2, type: 'shadowAssassin', reason: '그림자 숨기로 생존 + 선택 공격' },
-      { tier: 3, type: 'torturer', reason: '표식 + 악몽 콤보로 지속 피해' },
+      { tier: 1, type: 'manhunter', reason: '예측되는 경로에 함정 설치' },
+      { tier: 2, type: 'shadowAssassin', reason: '그림자 숨기 스킬의 질긴 생존력' },
+      { tier: 3, type: 'torturer', reason: '표식과 악몽 콤보로 보드 전체를 장악' },
     ]
   },
   {
-    style: '✨ 스킬형 (SP 풀가동)',
+    style: '✨ 스킬 폭발형',
     desc: 'SP를 적극 활용해 스킬로 전장을 지배하는 스타일',
     picks: [
-      { tier: 1, type: 'gunpowder', reason: '폭탄 설치 + 기폭 2개 스킬, SP 활용 극대화' },
-      { tier: 2, type: 'wizard', reason: '피격 시 SP+1 획득 패시브로 스킬 자원 빠르게 확보' },
-      { tier: 3, type: 'dragonTamer', reason: 'SP 5 투자로 드래곤 소환, 판세 뒤집기' },
+      { tier: 1, type: 'gunpowder', reason: '폭탄 설치로 폭 넓은 견제' },
+      { tier: 2, type: 'wizard', reason: '피격 시 지급되는 SP1로 스킬 자원 펌핑' },
+      { tier: 3, type: 'dragonTamer', reason: 'SP5를 지불해 판세를 뒤흔들 드래곤 소환' },
     ]
   },
   {
-    style: '👑 왕실형 (시너지 특화)',
-    desc: 'royal 태그 유닛끼리의 시너지를 활용하는 스타일',
+    style: '👑 시너지 특화형',
+    desc: '왕실 태그 유닛끼리의 시너지를 활용하는 스타일',
     picks: [
-      { tier: 1, type: 'cavalry', reason: '가로줄 전체 공격, 왕실 태그' },
-      { tier: 2, type: 'bodyguard', reason: '충성 패시브로 왕실 아군 보호' },
-      { tier: 3, type: 'commander', reason: '사기증진 패시브로 인접 아군 공격력 +1 버프' },
+      { tier: 1, type: 'cavalry', reason: '가로줄 전체 공격의 우수한 색적' },
+      { tier: 2, type: 'bodyguard', reason: '충성 패시브로 왕실 아군을 보호' },
+      { tier: 3, type: 'commander', reason: '사기증진 패시브로 아군의 공격력 버프' },
     ]
   },
 ];
@@ -2435,7 +2435,6 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${ch.desc || ''}</span>
         </div>`;
       card.addEventListener('click', () => {
         exCurrentTier = tier;
@@ -2531,8 +2530,7 @@ function exRenderSlide() {
     : '';
   const currentBadge = isCurrentPick ? ' <span style="color:#3b82f6;font-size:0.7rem;background:rgba(59,130,246,0.15);padding:2px 6px;border-radius:4px">현재 선택</span>' : '';
   document.getElementById('ex-slide-name').innerHTML = c.name + tagHtml + currentBadge;
-  document.getElementById('ex-slide-desc').innerHTML =
-    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc || ''}</span>`;
+  document.getElementById('ex-slide-desc').innerHTML = '';
   document.getElementById('ex-slide-atk').innerHTML =
     `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
 
@@ -2663,7 +2661,6 @@ function exUpdateSlots() {
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name}</span>
-          <span class="slot-stats">${ch.desc || ''}</span>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
       if (isSwapped) {
@@ -3730,7 +3727,7 @@ function buildPieceTooltip(pc, side) {
   // 상태이상 배지
   let statusHtml = '';
   if (pc.statusEffects && pc.statusEffects.length > 0) {
-    const labels = { curse: '☠ 저주', shadow: '👤 그림자', mark: '🎯 표식', poison: '☠ 독' };
+    const labels = { curse: '☠ 저주', shadow: '👻 그림자', mark: '🎯 표식', morale: '📋 사기증진' };
     const badges = pc.statusEffects.map(e => `<span class="status-badge status-${e.type}">${labels[e.type] || e.type}</span>`).join(' ');
     statusHtml = `<div class="tooltip-line" style="margin-top:4px">${badges}</div>`;
   }
@@ -4529,14 +4526,14 @@ function findChar(type) {
 
 function getPassiveLabel(passiveId) {
   const map = {
-    instantMagic: '인스턴트매직 — 피격마다 1회용 SP+1 획득 (영향력 그래프 미포함)',
-    ironSkin: '아이언스킨 — 받는 피해 -0.5',
-    grace: '가호 — 악인 공격 시 피해=3, 악인에게 피격 시 피해=0.5',
-    betrayer: '배반자 — 3×3 공격 시 아군도 1 피해',
-    wrath: '사기증진 — 인접 아군 공격력 +1',
-    markPassive: '표식 — 공격 적중 시 대상에 표식 부여',
-    tyranny: '폭정 — 1~2티어에게 받는 피해 -0.5',
-    loyalty: '충성 — 왕실 아군 피해를 1로 줄이고 대신 받음',
+    instantMagic: '피격마다 1회용 SP를 1개 획득',
+    ironSkin: '받는 피해가 0.5 감소',
+    grace: '악인 공격 시 공격력 3, 악인에게 피격 시 받는 피해 0.5로 감소',
+    betrayer: '공격 시 아군도 1 피해',
+    wrath: '인접한 아군 공격력 1 증가',
+    markPassive: '공격 적중 시 대상에게 표식 부여',
+    tyranny: '1~2티어에게 받는 피해 0.5 감소',
+    loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음',
   };
   return map[passiveId] || passiveId;
 }
@@ -6156,17 +6153,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🏹</span>
           <div class="tut-char-name">궁수</div>
-          <div class="tut-char-sub">대각선 전체 관통</div>
+          <div class="tut-char-sub">대각선 전체 공격. 더불어 공격 방향 전환 가능.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🔭</span>
           <div class="tut-char-name">척후병</div>
-          <div class="tut-char-sub">적 위치 정찰 스킬</div>
+          <div class="tut-char-sub">적 위치를 알아내는 정찰.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">💣</span>
           <div class="tut-char-name">화약상</div>
-          <div class="tut-char-sub">폭탄 설치 + 기폭</div>
+          <div class="tut-char-sub">폭탄 설치로 맵을 견제.</div>
         </div>
       </div>
     </div>
@@ -6177,17 +6174,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🗡</span>
           <div class="tut-char-name">그림자 암살자</div>
-          <div class="tut-char-sub">은신 + 타겟 공격</div>
+          <div class="tut-char-sub">은신 스킬을 활용한 교란.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">⚔</span>
           <div class="tut-char-name">양손 검객</div>
-          <div class="tut-char-sub">쌍검무로 2회 공격</div>
+          <div class="tut-char-sub">쌍검무로 2회 공격.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🧹</span>
           <div class="tut-char-name">마녀</div>
-          <div class="tut-char-sub">저주로 지속 피해</div>
+          <div class="tut-char-sub">저주로 상대 핵심 유닛의 스킬을 막고 턴당 0.5 피해 부여.</div>
         </div>
       </div>
     </div>
@@ -6198,17 +6195,17 @@ const TUTORIAL_STEPS = [
         <div class="tut-char-card">
           <span class="tut-char-icon">🐉</span>
           <div class="tut-char-name">드래곤 조련사</div>
-          <div class="tut-char-sub">드래곤 유닛 소환</div>
+          <div class="tut-char-sub">드래곤 유닛 소환. 대량의 SP 필요.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🙏</span>
           <div class="tut-char-name">수도승</div>
-          <div class="tut-char-sub">힐링 + 정화 + 가호</div>
+          <div class="tut-char-sub">힐링과 상태이상 제거에 능통. 약한 공격 능력.</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🪓</span>
           <div class="tut-char-name">학살 영웅</div>
-          <div class="tut-char-sub">3×3 범위 ATK 1</div>
+          <div class="tut-char-sub">최대규모의 범위 공격. 아군도 피해를 보는 양날의 검.</div>
         </div>
       </div>
     </div>
@@ -6287,13 +6284,13 @@ const TUTORIAL_STEPS = [
           <span class="tut-char-icon">🛡</span>
           <div class="tut-char-name">갑주무사</div>
           <div class="tut-char-sub" style="color:#f59e0b">아이언 스킨</div>
-          <div class="tut-char-sub">받는 피해 -0.5</div>
+          <div class="tut-char-sub">공격 피해 0.5 감소</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">📋</span>
           <div class="tut-char-name">지휘관</div>
           <div class="tut-char-sub" style="color:#f59e0b">사기증진</div>
-          <div class="tut-char-sub">인접 아군 ATK +1</div>
+          <div class="tut-char-sub">인접 아군의 공격력 1 증가</div>
         </div>
         <div class="tut-char-card">
           <span class="tut-char-icon">🧙</span>
@@ -6305,7 +6302,7 @@ const TUTORIAL_STEPS = [
           <span class="tut-char-icon">⛓</span>
           <div class="tut-char-name">고문 기술자</div>
           <div class="tut-char-sub" style="color:#f59e0b">표식</div>
-          <div class="tut-char-sub">공격 적중 시 위치 공개</div>
+          <div class="tut-char-sub">표식 상태의 적의 위치 공개</div>
         </div>
       </div>
     </div>
@@ -6319,17 +6316,13 @@ const TUTORIAL_STEPS = [
     <div class="tut-section">
       <div class="tut-section-title"><span class="tag-badge royal" style="font-size:0.8rem">왕실</span> 왕실 태그</div>
       <div class="tut-text">
-        왕실 유닛끼리 시너지가 있습니다.<br>
-        • <strong>호위 무사</strong>는 왕실 아군이 받을 피해를 대신 받습니다<br>
-        • <strong>창병, 기마병, 장군, 기사</strong> 등 정통 무력 계열
+        왕실 유닛들은 서로 연계된 능력으로 시너지가 좋습니다.
       </div>
     </div>
     <div class="tut-section">
       <div class="tut-section-title"><span class="tag-badge villain" style="font-size:0.8rem">악인</span> 악인 태그</div>
       <div class="tut-text">
-        트리키한 스킬과 상태 이상 특화.<br>
-        • <strong>수도승의 가호</strong> — 악인에게 피해 3, 악인에게 피격 시 0.5<br>
-        • <strong>마녀, 쥐 장수, 그림자 암살자</strong> 등 변칙 계열
+        마녀, 쥐 장수, 그림자 암살자 등 변칙 계열의 유닛들이 다수 포진되어 있습니다.
       </div>
     </div>
     <div class="tut-highlight">💡 수도승 vs 악인은 치명적! 태그 조합을 고려해 전략을 짜세요.</div>
