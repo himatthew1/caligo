@@ -1045,6 +1045,7 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner }) => {
+  playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
@@ -1057,6 +1058,7 @@ socket.on('rats_spawned', ({ rats, owner }) => {
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
+  playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, 'skill');
     showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`);
@@ -3798,9 +3800,11 @@ function openSkillModal() {
           extraNote = ' (행동 이미 소비됨)';
         }
         // 턴당 1회인데 이미 사용했으면 비활성화
+        let oncePerTurnUsed = false;
         if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${sk.id}`)) {
+          oncePerTurnUsed = true;
           extraDisabled = true;
-          extraNote = ' (이번 턴 사용 완료)';
+          extraNote = ' (사용 완료)';
         }
         // 기폭의 경우 폭탄이 없으면 비활성화
         if (sk.id === 'detonate') {
@@ -3815,7 +3819,13 @@ function openSkillModal() {
 
         const opt = document.createElement('div');
         opt.className = 'skill-option';
-        opt.style.opacity = (canAfford && !extraDisabled) ? '1' : '0.4';
+        if (oncePerTurnUsed) {
+          opt.style.opacity = '0.3';
+          opt.style.pointerEvents = 'none';
+          opt.style.cursor = 'not-allowed';
+        } else {
+          opt.style.opacity = (canAfford && !extraDisabled) ? '1' : '0.4';
+        }
         const skTag = getSkillTypeTag(sk);
         opt.innerHTML = `
           <div class="skill-name">${pc.icon} ${pc.name} — ${sk.name} ${skTag}</div>
@@ -3842,9 +3852,17 @@ function openSkillModal() {
         singleDisabled = true;
         singleNote = ' (행동 이미 소비됨)';
       }
-      if (pc.skillOncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`)) {
-        singleDisabled = true;
-        singleNote = ' (이번 턴 사용 완료)';
+      let singleOncePerTurnUsed = false;
+      const firstSkillDef = pc.skills && pc.skills[0];
+      if (firstSkillDef && firstSkillDef.oncePerTurn) {
+        const usedByTracker = S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${i}:${pc.skillId}`);
+        const usedByFlag = (pc.messengerSprintActive && pc.skillId === 'sprint') ||
+                           (pc.dualBladeAttacksLeft > 0 && pc.skillId === 'dualStrike');
+        if (usedByTracker || usedByFlag) {
+          singleOncePerTurnUsed = true;
+          singleDisabled = true;
+          singleNote = ' (사용 완료)';
+        }
       }
       // 고문기술자: 표식 적이 없으면 악몽 비활성화
       if (pc.type === 'torturer') {
@@ -3856,9 +3874,26 @@ function openSkillModal() {
         const hasDragon = S.myPieces.some(p => p.isDragon && p.alive);
         if (hasDragon) { singleDisabled = true; singleNote = ' (드래곤 이미 소환됨)'; }
       }
+      // 쌍둥이 분신: 두 명 모두 살아있어야 사용 가능
+      let twinsDisabled = false;
+      if (pc.type === 'twins_elder' || pc.type === 'twins_younger') {
+        const elderAlive = S.myPieces.some(p => p.subUnit === 'elder' && p.alive);
+        const youngerAlive = S.myPieces.some(p => p.subUnit === 'younger' && p.alive);
+        if (!elderAlive || !youngerAlive) {
+          twinsDisabled = true;
+          singleDisabled = true;
+          singleNote = ' (사용 불가)';
+        }
+      }
       const opt = document.createElement('div');
       opt.className = 'skill-option';
-      opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
+      if (singleOncePerTurnUsed || twinsDisabled) {
+        opt.style.opacity = '0.3';
+        opt.style.pointerEvents = 'none';
+        opt.style.cursor = 'not-allowed';
+      } else {
+        opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
+      }
       const singleTag = getSkillTypeTagFromChar(pc);
       opt.innerHTML = `
         <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
