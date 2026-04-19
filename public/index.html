@@ -8,6 +8,20 @@
 </head>
 <body>
 
+<!-- ── 왕실/악인 도장 SVG 심볼 (재사용) ── -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="stamp-royal" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="21" fill="rgba(240,192,64,0.3)" stroke="#f0c040" stroke-width="2.5"/>
+      <text x="24" y="25.5" text-anchor="middle" dominant-baseline="middle" fill="#ffe066" font-family="'Noto Sans KR', 'Malgun Gothic', sans-serif" font-size="14" font-weight="800">왕실</text>
+    </symbol>
+    <symbol id="stamp-villain" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="21" fill="rgba(168,85,244,0.3)" stroke="#a855f4" stroke-width="2.5"/>
+      <text x="24" y="25.5" text-anchor="middle" dominant-baseline="middle" fill="#d8b4fe" font-family="'Noto Sans KR', 'Malgun Gothic', sans-serif" font-size="14" font-weight="800">악인</text>
+    </symbol>
+  </defs>
+</svg>
+
 <!-- ── 아날로그 타이머 ── -->
 <div id="timer-clock" class="timer-clock hidden">
   <svg viewBox="0 0 100 100" class="timer-svg">
@@ -20,12 +34,12 @@
 <!-- (오디오 토글은 채팅 위젯 옆에 통합) -->
 
 <!-- ── 설정 단계 나가기 버튼 (#7) ── -->
-<button id="btn-setup-exit" class="btn-setup-exit hidden">← 나가기</button>
+<button id="btn-setup-exit" class="btn btn-small btn-setup-exit hidden">✕ 나가기</button>
 
 <!-- ── 설정 단계 나가기 확인 모달 (#7) ── -->
 <div id="setup-exit-modal" class="modal hidden">
   <div class="modal-content">
-    <h3>← 로비로 돌아가시겠습니까?</h3>
+    <h3>로비로 돌아가시겠습니까?</h3>
     <p style="color:var(--text-dim);margin:12px 0;">현재 진행 중인 게임이 기권 처리됩니다.</p>
     <div class="modal-btn-row">
       <button id="setup-exit-confirm" class="btn btn-danger">나가기</button>
@@ -100,22 +114,28 @@
       <div class="slide-viewer">
         <button id="btn-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
         <div class="slide-content">
-          <div class="slide-hero">
-            <span id="slide-icon" class="slide-icon"></span>
-            <div class="slide-hero-info">
-              <div id="slide-name" class="slide-name"></div>
-              <div id="slide-desc" class="slide-desc"></div>
+          <div class="slide-top-row">
+            <div class="slide-left-col">
+              <span id="slide-icon" class="slide-icon-large"></span>
+              <div class="slide-info-col">
+                <div id="slide-name" class="slide-name"></div>
+                <div class="slide-atk-row">
+                  <div id="slide-atk" class="slide-atk"></div>
+                  <div id="slide-mini-headers" class="slide-mini-headers"></div>
+                </div>
+                <div id="slide-flavor" class="slide-flavor"></div>
+                <div id="slide-desc" class="slide-desc hidden"></div>
+              </div>
+            </div>
+            <div class="slide-right-col">
+              <div class="slide-preview-label">공격 범위 미리보기</div>
+              <div id="draft-preview-board" class="board preview-board"></div>
+              <div id="draft-preview-info" class="draft-preview-info"></div>
             </div>
           </div>
-          <div class="slide-stats">
-            <div id="slide-atk" class="slide-stat"></div>
+          <div class="slide-skill-box">
             <div id="slide-detail-blocks"></div>
             <div id="slide-detail-body" class="slide-detail-body"></div>
-          </div>
-          <div class="slide-preview-area">
-            <h4>공격 범위 미리보기</h4>
-            <div id="draft-preview-board" class="board preview-board"></div>
-            <div id="draft-preview-info" class="draft-preview-info"></div>
           </div>
           <button id="btn-draft-select" class="btn btn-accent btn-select-char">캐릭터 선택</button>
         </div>
@@ -190,22 +210,28 @@
         <div class="slide-viewer">
           <button id="btn-ex-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
           <div class="slide-content" id="ex-slide-content">
-            <div class="slide-hero">
-              <span id="ex-slide-icon" class="slide-icon"></span>
-              <div class="slide-hero-info">
-                <div id="ex-slide-name" class="slide-name"></div>
-                <div id="ex-slide-desc" class="slide-desc"></div>
+            <div class="slide-top-row">
+              <div class="slide-left-col">
+                <span id="ex-slide-icon" class="slide-icon-large"></span>
+                <div class="slide-info-col">
+                  <div id="ex-slide-name" class="slide-name"></div>
+                  <div class="slide-atk-row">
+                    <div id="ex-slide-atk" class="slide-atk"></div>
+                    <div id="ex-slide-mini-headers" class="slide-mini-headers"></div>
+                  </div>
+                  <div id="ex-slide-flavor" class="slide-flavor"></div>
+                  <div id="ex-slide-desc" class="slide-desc hidden"></div>
+                </div>
+              </div>
+              <div class="slide-right-col">
+                <div class="slide-preview-label">공격 범위 미리보기</div>
+                <div id="ex-preview-board" class="board preview-board"></div>
+                <div id="ex-preview-info" class="draft-preview-info"></div>
               </div>
             </div>
-            <div class="slide-stats">
-              <div id="ex-slide-atk" class="slide-stat"></div>
+            <div class="slide-skill-box">
               <div id="ex-slide-detail-blocks"></div>
               <div id="ex-slide-detail-body" class="slide-detail-body"></div>
-            </div>
-            <div class="slide-preview-area">
-              <h4>공격 범위 미리보기</h4>
-              <div id="ex-preview-board" class="board preview-board"></div>
-              <div id="ex-preview-info" class="draft-preview-info"></div>
             </div>
             <button id="btn-ex-select" class="btn btn-accent btn-select-char">이 캐릭터로 교체</button>
           </div>
@@ -364,7 +390,6 @@
     <!-- 오른쪽: 상대 말 -->
     <div class="side-panel right-panel">
       <h3>상대방 말</h3>
-      <p style="font-size:0.7rem;color:var(--muted);margin:0 0 8px">위치 비공개 · 스탯 공개</p>
       <div id="opp-pieces-info"></div>
     </div>
 
@@ -472,6 +497,31 @@
     <div class="modal-btn-row">
       <button id="deck-exit-confirm" class="btn btn-danger">나가기</button>
       <button id="deck-exit-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 덱 삭제 확인 모달 ── -->
+<div id="deck-delete-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>⚠ 덱 삭제</h3>
+    <p style="color:var(--text-dim); margin:12px 0;">덱을 삭제하시겠습니까?</p>
+    <div class="modal-btn-row">
+      <button id="deck-delete-confirm" class="btn btn-danger">삭제</button>
+      <button id="deck-delete-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 덱 이름 입력 모달 ── -->
+<div id="deck-name-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3 id="deck-name-modal-title">덱 이름 설정</h3>
+    <p style="color:var(--text-dim); margin:12px 0 6px;">저장할 덱의 이름을 입력해주세요.</p>
+    <input id="deck-name-input" type="text" maxlength="10" placeholder="덱 이름을 입력해주세요 (최대 10글자)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:12px" />
+    <div class="modal-btn-row">
+      <button id="deck-name-confirm" class="btn btn-primary">확인</button>
+      <button id="deck-name-cancel" class="btn btn-muted">취소</button>
     </div>
   </div>
 </div>

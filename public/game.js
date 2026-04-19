@@ -11,19 +11,62 @@ function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function myN() { return S.myName || '나'; }
 function oppN() { return S.opponentName || '상대'; }
 
+// 슬라이더 좌측 컬럼 오버플로 감지 → --slide-scale을 점진적으로 줄여 최적점 찾기
+function autoFitLeftCol(leftCol) {
+  if (!leftCol) return;
+  leftCol.style.setProperty('--slide-scale', '1');
+  requestAnimationFrame(() => {
+    const name = leftCol.querySelector('.slide-name');
+    const atkRow = leftCol.querySelector('.slide-atk-row');
+    const miniRow = leftCol.querySelector('.slide-mini-headers');
+    const overflowing = () => {
+      const o = (el) => el && (el.scrollWidth > el.clientWidth + 1);
+      return o(name) || o(atkRow) || o(miniRow);
+    };
+    let scale = 1;
+    const MIN = 0.72;
+    const STEP = 0.04;
+    for (let i = 0; i < 10 && overflowing() && scale > MIN; i++) {
+      scale = Math.max(MIN, scale - STEP);
+      leftCol.style.setProperty('--slide-scale', String(scale.toFixed(2)));
+    }
+  });
+}
+
+// 왕실/악인 도장 SVG 뱃지 (단일 이미지, 크기/모양 고정)
+function tagBadgeHtml(tag) {
+  if (!tag) return '';
+  const id = tag === 'royal' ? 'stamp-royal' : 'stamp-villain';
+  return `<span class="tag-badge ${tag}" title="${tag === 'royal' ? '왕실' : '악인'}"><svg><use href="#${id}"/></svg></span>`;
+}
+
+// 특수 공격 범위 캐릭터만 desc 표시 — 나머지는 미니 그리드로 충분
+const SPECIAL_DESC_TYPES = new Set([
+  'archer',         // 좌측 대각선 전체 (토글)
+  'spearman',       // 세로줄 전체
+  'cavalry',        // 가로줄 전체
+  'twins',          // 형/동생 패턴
+  'shadowAssassin', // 1칸 선택
+  'witch',          // 원하는 칸 1곳
+  'ratMerchant',    // 쥐 위치
+  'weaponSmith',    // 가로/세로 토글
+]);
+function shouldShowDesc(typeOrObj) {
+  if (!typeOrObj) return false;
+  const t = typeof typeOrObj === 'string' ? typeOrObj : typeOrObj.type;
+  return SPECIAL_DESC_TYPES.has(t);
+}
+
 function ratDestroyMsg(rats, mine) {
   const suffix = mine ? '격파됨.' : '격파함.';
   const coords = rats.map(r => coord(r.col, r.row));
-  if (coords.length === 1) return `${coords[0]}의 쥐 ${suffix}`;
-  if (coords.length === 2) return `${coords[0]}와 ${coords[1]}의 쥐 ${suffix}`;
-  const last = coords[coords.length - 1];
-  const rest = coords.slice(0, -1).join(', ');
-  return `${rest}와 ${last}의 쥐 ${suffix}`;
+  return `${coords.join(', ')}의 쥐 ${suffix}`;
 }
 
 function animateRatDestruction(cells, isMyRat) {
   const board = document.getElementById('game-board');
   if (!board) return;
+  if (cells && cells.length > 0) playSfxRatDeath();
   const emoji = isMyRat ? '🐀' : '🐁';
   const color = isMyRat ? '#52b788' : '#e05252';
   const posStyle = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
@@ -113,7 +156,8 @@ function startClientTimer(seconds) {
     const ratio = remaining / total;
     arc.style.strokeDashoffset = circumference * (1 - ratio);
     text.textContent = secs;
-    const urgent = secs <= 10;
+    // 15초부터 회색 + 깜빡임 (틱 효과음 타이밍과 동일)
+    const urgent = secs <= 15;
     arc.classList.toggle('urgent', urgent);
     text.classList.toggle('urgent', urgent);
     // 15초 이하일 때 매초 틱 사운드
@@ -129,20 +173,31 @@ function startClientTimer(seconds) {
 
 function stopClientTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  timerDeadline = null;
   const clock = document.getElementById('timer-clock');
   if (clock) clock.classList.add('hidden');
 }
 
+// 로비/게임오버 상태에서는 타이머 관련 이벤트 무시
+function isActiveGamePhase() {
+  const lobbyShown = document.getElementById('screen-lobby')?.classList.contains('active');
+  const gameoverShown = document.getElementById('screen-gameover')?.classList.contains('active');
+  return !(lobbyShown || gameoverShown);
+}
+
 socket.on('timer_start', ({ seconds }) => {
+  if (!isActiveGamePhase()) return;
   startClientTimer(seconds);
 });
 
 socket.on('turn_timeout', () => {
+  if (!isActiveGamePhase()) return;
   addLog('⏰ 시간 초과!', 'system');
   showSkillToast('⏰ 시간 초과!', false, undefined, 'event');
 });
 
 socket.on('placement_timeout', () => {
+  if (!isActiveGamePhase()) return;
   showSkillToast('⏰ 시간 초과! 미배치 말이 랜덤 배치됩니다.', false, undefined, 'event');
 });
 
@@ -152,6 +207,10 @@ function showScreen(id) {
   const target = document.getElementById(id);
   if (target) target.classList.add('active');
   S.phase = id.replace('screen-', '');
+  // 로비 / 게임오버로 돌아가면 타이머 무조건 종료
+  if (id === 'screen-lobby' || id === 'screen-gameover') {
+    stopClientTimer();
+  }
   // BGM 자동 전환
   const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
   if (id === 'screen-lobby') bgmPlay('lobby');
@@ -184,38 +243,52 @@ function isDeckEmpty() {
   return !d || (!d.t1 && !d.t2 && !d.t3);
 }
 
-// ── 덱 목록 (10슬롯) ──────────────────────────────────────────
+// ── 덱 목록 (5슬롯) ──────────────────────────────────────────
 const DECK_LIST_KEY = 'caligo_deck_list';
+const DECK_LIST_SIZE = 5;
 function loadDeckList() {
   try {
     const raw = localStorage.getItem(DECK_LIST_KEY);
-    if (!raw) return Array(10).fill(null);
+    if (!raw) return Array(DECK_LIST_SIZE).fill(null);
     const arr = JSON.parse(raw);
     if (Array.isArray(arr)) {
-      while (arr.length < 10) arr.push(null);
-      return arr.slice(0, 10);
+      while (arr.length < DECK_LIST_SIZE) arr.push(null);
+      return arr.slice(0, DECK_LIST_SIZE);
     }
   } catch (e) {}
-  return Array(10).fill(null);
+  return Array(DECK_LIST_SIZE).fill(null);
 }
 function saveDeckList(list) {
   localStorage.setItem(DECK_LIST_KEY, JSON.stringify(list));
 }
-function addToDeckList(t1, t2, t3) {
+// 지정 슬롯 저장 (slotIdx = null이면 빈 슬롯 자동 선택)
+function addToDeckList(t1, t2, t3, name, slotIdx) {
   const list = loadDeckList();
-  const isDupe = list.some(d => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3);
-  if (isDupe) {
-    showSkillToast('이미 같은 덱이 있습니다.');
+  // 중복 검사 (다른 슬롯에 같은 조합)
+  const dupIdx = list.findIndex((d, i) => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3 && i !== slotIdx);
+  if (dupIdx !== -1) {
+    showSkillToast('이미 같은 덱이 있습니다.', false, undefined, 'event');
     renderDeckList();
-    return;
+    return false;
   }
-  const emptyIdx = list.findIndex(d => !d);
-  if (emptyIdx === -1) {
-    showSkillToast('덱 슬롯이 모두 채워져있습니다.');
-    renderDeckList();
-    return;
+  let targetIdx = slotIdx;
+  if (targetIdx === null || targetIdx === undefined) {
+    targetIdx = list.findIndex(d => !d);
+    if (targetIdx === -1) {
+      showSkillToast('덱이 가득 차서 저장할 수 없습니다.', false, undefined, 'event');
+      renderDeckList();
+      return false;
+    }
   }
-  list[emptyIdx] = { t1, t2, t3 };
+  list[targetIdx] = { t1, t2, t3, name: (name || '').slice(0, 10) };
+  saveDeckList(list);
+  renderDeckList();
+  return true;
+}
+function updateDeckName(slotIdx, newName) {
+  const list = loadDeckList();
+  if (!list[slotIdx]) return;
+  list[slotIdx].name = (newName || '').slice(0, 10);
   saveDeckList(list);
   renderDeckList();
 }
@@ -233,18 +306,39 @@ function renderDeckList() {
         return findLocalChar(deck[key], tier);
       });
       const iconsHtml = chars.map(c => c ? `<span class="deck-list-icon" title="${c.name}">${c.icon}</span>` : '').join('');
-      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><div class="deck-list-icons">${iconsHtml}</div><button class="deck-list-del" data-idx="${idx}" title="삭제">✕</button>`;
+      const isSelected = S.deckSavedState && S.deckSavedState.t1 === deck.t1 && S.deckSavedState.t2 === deck.t2 && S.deckSavedState.t3 === deck.t3;
+      if (isSelected) slot.classList.add('selected');
+      const deckName = deck.name || '';
+      slot.innerHTML = `
+        <span class="deck-list-num">${idx + 1}</span>
+        <div class="deck-list-icons">${iconsHtml}</div>
+        <span class="deck-list-name" title="이름 수정">${deckName || '<span style="color:var(--muted);font-style:italic">이름 없음</span>'}</span>
+        <button class="deck-list-rename" data-idx="${idx}" title="이름 수정">✏</button>
+        <button class="deck-list-del" data-idx="${idx}" title="삭제">✕</button>`;
       slot.addEventListener('click', (e) => {
         if (e.target.classList.contains('deck-list-del')) return;
+        if (e.target.classList.contains('deck-list-rename')) return;
+        if (e.target.classList.contains('deck-list-name')) return;
         // 덱 불러오기
         S.draftSelected = { 1: deck.t1, 2: deck.t2, 3: deck.t3 };
         S.deckSavedState = { t1: deck.t1, t2: deck.t2, t3: deck.t3 };
         S.deckSaved = true;
         buildDraftStepUI();
-        showSkillToast('덱을 불러왔습니다!', false, undefined, 'event');
+        renderDeckList();
+        showSkillToast('덱을 불러왔습니다.', false, undefined, 'event');
       });
     } else {
       slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><span class="deck-list-empty-label">빈 슬롯</span>`;
+      slot.addEventListener('click', () => {
+        // 빈 슬롯 클릭 → 현재 선택된 덱이 모두 채워져있으면 이 슬롯에 저장
+        const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+        if (!allSelected) {
+          showSkillToast('캐릭터를 모두 선택한 후 저장할 수 있습니다.', false, undefined, 'event');
+          return;
+        }
+        S._pendingSaveSlotIdx = idx;
+        openDeckNameModal('');
+      });
     }
     container.appendChild(slot);
   });
@@ -253,14 +347,106 @@ function renderDeckList() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const idx = parseInt(btn.dataset.idx);
-      if (!confirm('덱을 삭제하시겠습니까?')) return;
-      const list = loadDeckList();
-      list[idx] = null;
-      saveDeckList(list);
-      renderDeckList();
+      S._pendingDeleteIdx = idx;
+      document.getElementById('deck-delete-modal').classList.remove('hidden');
+    });
+  });
+  // 이름 수정 버튼 / 이름 자체 클릭 이벤트
+  const openRename = (idx) => {
+    const list = loadDeckList();
+    if (!list[idx]) return;
+    S._pendingRenameIdx = idx;
+    openDeckNameModal(list[idx].name || '', true);
+  };
+  container.querySelectorAll('.deck-list-rename').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openRename(parseInt(btn.dataset.idx));
+    });
+  });
+  container.querySelectorAll('.deck-list-name').forEach(span => {
+    span.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const slot = e.target.closest('.deck-list-slot');
+      if (!slot) return;
+      const idx = Array.from(container.children).indexOf(slot);
+      if (idx >= 0) openRename(idx);
     });
   });
 }
+
+// 덱 이름 모달
+function openDeckNameModal(initial, isRename) {
+  const modal = document.getElementById('deck-name-modal');
+  if (!modal) return;
+  document.getElementById('deck-name-modal-title').textContent = isRename ? '덱 이름 수정' : '덱 이름 설정';
+  const input = document.getElementById('deck-name-input');
+  input.value = initial || '';
+  input.maxLength = 10;
+  modal.classList.remove('hidden');
+  setTimeout(() => input.focus(), 50);
+}
+
+// 덱 삭제 모달 핸들러 (한번만 바인딩)
+document.getElementById('deck-delete-confirm').addEventListener('click', () => {
+  document.getElementById('deck-delete-modal').classList.add('hidden');
+  const idx = S._pendingDeleteIdx;
+  if (idx === undefined || idx === null) return;
+  const list = loadDeckList();
+  list[idx] = null;
+  saveDeckList(list);
+  renderDeckList();
+  S._pendingDeleteIdx = null;
+});
+document.getElementById('deck-delete-cancel').addEventListener('click', () => {
+  document.getElementById('deck-delete-modal').classList.add('hidden');
+  S._pendingDeleteIdx = null;
+});
+
+// 덱 이름 모달 확인/취소
+document.getElementById('deck-name-confirm').addEventListener('click', () => {
+  const input = document.getElementById('deck-name-input');
+  const name = (input.value || '').trim().slice(0, 10);
+  if (!name) {
+    showSkillToast('덱 이름을 입력해주세요.', false, undefined, 'event');
+    return;
+  }
+  const modal = document.getElementById('deck-name-modal');
+  modal.classList.add('hidden');
+  // 이름 수정 모드
+  if (S._pendingRenameIdx !== undefined && S._pendingRenameIdx !== null) {
+    updateDeckName(S._pendingRenameIdx, name);
+    S._pendingRenameIdx = null;
+    showSkillToast('덱 이름이 수정되었습니다.', false, undefined, 'event');
+    return;
+  }
+  // 저장 모드 (지정 슬롯 또는 자동)
+  const slotIdx = S._pendingSaveSlotIdx;
+  S._pendingSaveSlotIdx = null;
+  const t1 = S.draftSelected[1], t2 = S.draftSelected[2], t3 = S.draftSelected[3];
+  if (!t1 || !t2 || !t3) return;
+  const saved = addToDeckList(t1, t2, t3, name, slotIdx);
+  if (saved) {
+    saveDeck(t1, t2, t3);
+    S.deckSaved = true;
+    S.deckSavedState = { t1, t2, t3 };
+    renderDraftSlots();
+    playSfxDeckSave();
+    showSkillToast('덱이 저장되었습니다.', false, undefined, 'event');
+  }
+});
+document.getElementById('deck-name-cancel').addEventListener('click', () => {
+  document.getElementById('deck-name-modal').classList.add('hidden');
+  S._pendingRenameIdx = null;
+  S._pendingSaveSlotIdx = null;
+});
+// Enter 키로 확인
+document.getElementById('deck-name-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('deck-name-confirm').click();
+  }
+});
 
 // ── 덱 빌더 ─────────────────────────────────────────────────
 function openDeckBuilder() {
@@ -523,6 +709,16 @@ socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   } else if (type === 'skill' || type === 'hit' || type === 'passive' || type === 'move' || type === 'miss' || type === 'attack') {
     showSkillToast(msg, false, playerIdx);
   }
+  // 관전자 전용 효과음: 메시지 내용으로 판단
+  if (type === 'passive' && msg.includes('저주로') && msg.includes('0.5 피해')) {
+    playSfxCurseDamage();
+  } else if (type === 'hit' && msg.includes('🪤')) {
+    playSfxTrapSnap();
+  } else if (type === 'hit' && msg.includes('💥')) {
+    playSfxBombExplode();
+  } else if (msg.includes('🐀') && (msg.includes('격파') || msg.includes('사라'))) {
+    playSfxRatDeath();
+  }
 });
 
 // ── 관전자: 페이즈 전환 알림 ──
@@ -776,7 +972,7 @@ socket.on('your_turn', (data) => {
   updateSPBar();
   addLog(`${data.turnNumber}턴 : ${myN()} 차례`, 'system');
   setTurnBackground(true);
-  showTurnPopup(true);
+  updateTurnBanner();
   playTurnBell();
 });
 
@@ -796,8 +992,8 @@ socket.on('opp_turn', (data) => {
   showActionBar(false);
   updateSPBar();
   addLog(`${data.turnNumber}턴 : ${oppN()} 차례`, 'system');
-  showSkillToast(`[${data.turnNumber}턴] ${oppN()} 차례`, false, undefined, 'event');
   setTurnBackground(false);
+  updateTurnBanner();
 });
 
 // ── 이동 결과 ──
@@ -1041,20 +1237,12 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
     addLog(`🔥 보드 외곽 파괴`, 'shrink');
   }
 
-  // 축소로 파괴된 유닛 인덱스 수집 (렌더 전)
-  const myShrinkIdx = [];
-  const oppShrinkIdx = [];
+  // 축소로 파괴된 유닛은 피격 애니메이션 없이 바로 사망 상태로 처리
   if (eliminated && eliminated.length > 0) {
     for (const e of eliminated) {
       addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
       const ownerName = e.owner === S.playerIdx ? myN() : oppN();
       showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
-      const hitData = [{ col: e.col, row: e.row, name: e.name }];
-      if (e.owner === S.playerIdx) {
-        myShrinkIdx.push(...findPieceIndices(S.myPieces, hitData));
-      } else {
-        oppShrinkIdx.push(...findPieceIndices(S.oppPieces, hitData));
-      }
     }
   }
   const sw = document.getElementById('shrink-warning');
@@ -1062,9 +1250,6 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   renderGameBoard();
   renderMyPieces();
   renderOppPieces();
-
-  applyProfileHitAnim('#my-pieces-info .my-piece-card', myShrinkIdx);
-  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppShrinkIdx);
 });
 
 // ── 스킬 결과 ──
@@ -1182,7 +1367,7 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 
 // ── 함정 발동 ──
 socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
-  playSfx('hit');
+  playSfxTrapSnap();
   const trapOwnerName = (owner !== undefined) ? (owner === S.playerIdx ? myN() : oppN()) : oppN();
   const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} 1 피해.`;
   addLog(msg, 'hit');
@@ -1204,8 +1389,8 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
 
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
+  playSfxBombExplode();
   for (const h of hits) {
-    if (h.destroyed) playSfx('kill'); else playSfx('hit');
     const bombMsg = `💥${h.icon}${h.name} 1 피해.`;
     addLog(bombMsg, 'hit');
     showSkillToast(bombMsg);
@@ -1232,6 +1417,19 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   addLog(msg, 'skill');
   if (type === 'bodyguard') {
     S._bodyguardIntercepted = true;
+  }
+  // 저주 틱 피해: 일반 피격 + 저주 사운드 레이어링 + 피격 애니메이션
+  if (type === 'curse_tick') {
+    playSfxCurseDamage();
+    // 피격 애니메이션: msg에서 이름 추출 (예: "🧙 저주: 궁수이 저주로 0.5 피해.")
+    const nameMatch = msg.match(/저주: (.+?)이?\s*저주로/);
+    if (nameMatch) {
+      const pname = nameMatch[1].trim();
+      const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
+      const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
+      if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
+      if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
+    }
   }
   if (S.isSpectator) {
     showSkillToast(msg, false, playerIdx);
@@ -1367,189 +1565,231 @@ const TIER_INFO = {
 };
 
 /* ── 캐릭터 상세 설명 ── */
+// ── 스킬 헤더 템플릿 헬퍼 ──────────────────────────────────────
+// 스킬 이름 박스 = 스킬 유형 색상 (미니헤더와 동일 팔레트)
+// 타입 텍스트 = 박스 없이 글자만
+// tagCls: 'tag-action' | 'tag-once' | 'tag-free'  → 이름 박스 색도 여기에 맞춤
+const TAG_TO_BLOCK_CLASS = {
+  'tag-action':  'mini-header-action',   // 빨강
+  'tag-once':    'mini-header-once',     // 노랑
+  'tag-free':    'mini-header-free',     // 초록
+  'tag-passive': 'mini-header-passive',  // 주황
+};
+const mkSkillHead = (name, tagCls, tagLabel) => ({
+  head: name,
+  headCls: TAG_TO_BLOCK_CLASS[tagCls] || '',
+  tag: tagCls ? `<span class="skill-type-text ${tagCls}">${tagLabel}</span>` : '',
+});
+const mkPassiveHead = (name) => ({
+  head: name,
+  headCls: 'mini-header-passive',
+  tag: `<span class="skill-type-text tag-passive">패시브</span>`,
+});
+// SP 텍스트 — 블록 오른쪽에 붙을 작은 라벨용
+const spLabel = (sp) => {
+  if (sp === 0 || sp === '0') return 'SP 소모 없음';
+  if (sp == null) return '';
+  return `SP ${sp} 소모`;
+};
+// 상태 태그 인라인 — 게임 중 사용되는 아이콘 포함
+const STATUS_ICONS = { curse: '☠', shadow: '👻', mark: '🎯', morale: '📋' };
+const stBadge = (cls, label) => {
+  const icon = STATUS_ICONS[cls] || '';
+  return `<span class="status-badge ${cls}">${icon ? icon + ' ' : ''}${label}</span>`;
+};
+
 const CHAR_DETAILS = {
   // ── 1티어 ──
   archer: {
     blocks: [
-      { head: '스킬 [정비] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('정비', 'tag-once', '자유시전·1회'), sp: 1, color: '#a78bfa' },
     ],
-    body: '공격 범위의 대각선 방향을 영구적으로 좌우 반전시킵니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: '스킬 사용 시 공격 범위의 대각선 방향을 영구적으로 좌우 반전시킵니다.',
+    flavor: '전장의 어느 언덕 위에서든 화살 한 발로 결과를 바꾼다. 먼 거리의 적을 조용히 처리하는 원거리 사격수.',
   },
   spearman: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '세로줄 전체를 관통하는 공격 범위를 가집니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '긴 창을 앞세워 세로축을 완전히 차단한다. 정면 돌파를 허용하지 않는 근위대의 기둥.',
   },
   cavalry: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '가로줄 전체를 관통하는 공격 범위를 가집니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '질주하는 말굽 아래 전선이 무너진다. 횡단하는 순간 모든 것을 쓸어버리는 돌격대.',
   },
   watchman: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '자기 주변 8칸 전부를 공격합니다. 공격력 0.5로 위력은 낮지만, 빈틈 없이 사방을 감시해 접근하는 적을 견제합니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '잠들지 않는 눈이 사방을 경계한다. 약한 공격력이지만 빈틈 없는 감시망으로 접근을 허락하지 않는다.',
   },
   twins: {
     blocks: [
-      { head: '스킬 [분신] SP 2 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('분신', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '형과 동생 두 유닛이 한 세트로, 각각 독립적으로 이동·공격합니다. 스킬 사용 시 한쪽을 다른 쪽의 칸으로 합류시켜 업어옵니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
+    body: '스킬 사용 시 한쪽의 위치를 다른 형제의 칸으로 합류시켜 업어옵니다.',
+    flavor: '피로 이어진 두 형제. 한쪽이 쓰러지지 않는 한, 둘은 언제든 서로의 곁으로 돌아간다.',
   },
   scout: {
     blocks: [
-      { head: '스킬 [정찰] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('정찰', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '상대방 말 1개의 행 또는 열 좌표를 랜덤으로 공개합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용 시 랜덤한 상대방 말 1개의 행 또는 열을 알아낼 수 있습니다.',
+    flavor: '수풀 너머, 안개 너머, 적진 깊숙이 들어가 정보를 수집한다. 정보는 칼보다 날카롭다.',
   },
   manhunter: {
     blocks: [
-      { head: '스킬 [덫 설치] SP 2 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 1 피해를 입힙니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
+    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 덫이 설치 된 칸을 밟으면 덫이 발동하여 1 피해를 입힙니다.',
+    flavor: '발소리 없는 사냥꾼. 적이 밟기 전까지 아무도 그의 함정을 눈치채지 못한다.',
   },
   messenger: {
     blocks: [
-      { head: '스킬 [질주] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('질주', 'tag-once', '자유시전·1회'), sp: 1, color: '#a78bfa' },
     ],
-    body: '이동을 2회 실행할 수 있습니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다. 공격력 0.5로 전투력은 낮지만, 빠른 기동력으로 위치 선점이나 도주에 활용됩니다.',
+    body: '스킬 사용 시 해당 턴에 전령은 이동을 2회 실행할 수 있습니다.',
+    flavor: '바람보다 빠른 발놀림. 전장의 흐름을 바꾸는 단 하나의 소식을 전한다.',
   },
   gunpowder: {
     blocks: [
-      { head: '스킬 [시한폭탄 설치] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '주변 8칸 중 한 곳에 폭탄을 설치합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 개 설치가 가능합니다.' },
-      { head: '스킬 [기폭] SP 0 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa', desc: '설치한 폭탄을 모두 동시에 폭발시켜 해당 칸의 모든 적에게 1 피해를 줍니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다. 화약상이 사망하면 자동으로 발동됩니다.' },
+      { ...mkSkillHead('폭탄 설치', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: '스킬 사용 시 화약상의 주변 8칸 중 한 곳에 폭탄을 설치합니다.' },
+      { ...mkSkillHead('기폭', 'tag-once', '자유시전·1회'), sp: 0, color: '#a78bfa', desc: '스킬 사용 시 보드 위에 설치한 폭탄을 전부 폭발시켜, 해당 칸에 위치한 모든 적에게 1 피해를 줍니다. 해당 스킬은 화약상이 사망할 때도 자동으로 발동됩니다.' },
     ],
+    flavor: '불꽃의 시인. 계산된 폭발로 전장을 재구성하는 위험한 예술가.',
   },
   herbalist: {
     blocks: [
-      { head: '스킬 [약초학] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('약초학', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '자신 주변 3×3 범위 내 모든 아군의 체력을 1 회복합니다. 스스로는 회복 할 수 없습니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용 시 자신 주변 8칸 내에 위치한 모든 아군의 체력을 1 회복시킵니다. 약초전문가는 이 스킬로 스스로 회복할 수 없습니다.',
+    flavor: '전장에서 피어나는 작은 희망. 그의 손끝에서 전우의 상처가 아문다.',
   },
   // ── 2티어 ──
   general: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '자기 자신을 포함한 십자 5칸을 공격합니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '전장의 기둥. 그가 자리를 지키면 사방 어느 방향의 적도 감히 돌파를 시도하지 못한다.',
   },
   knight: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '자기 자신을 포함한 X대각선 5칸을 공격합니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '기사도의 화신. 대각선의 모든 적을 베어내며 진격하는 왕실의 자랑.',
   },
   shadowAssassin: {
     blocks: [
-      { head: '스킬 [그림자 숨기] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('그림자 숨기', 'tag-once', '자유시전·1회'), sp: 1, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 다음 턴까지 공격과 상태 이상에 완전 면역이 됩니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: `스킬 사용 시 ${stBadge('shadow', '그림자')} 상태가 되어 다음 턴까지 공격과 상태 이상에 완전 면역이 됩니다.`,
+    flavor: '어둠을 입고 움직이는 자. 표적을 정하면 살아남는 자는 없다.',
   },
   wizard: {
     blocks: [
-      { head: '패시브 [인스턴트 매직]', color: '#f59e0b' },
+      { ...mkPassiveHead('인스턴트 매직'), color: '#f59e0b' },
     ],
-    body: '마법사는 피격 당할 때마다 1회용 SP를 제공합니다. 이 SP는 사용하면 사라집니다. 맞을수록 아군의 스킬 사용 기회가 늘어납니다.',
+    body: '마법사는 피격 당할 때마다 1회용 SP를 제공합니다. 이 SP는 사용하면 사라집니다.',
+    flavor: '맞을수록 강해지는 역설의 존재. 상처가 곧 마력의 연료가 된다.',
   },
   armoredWarrior: {
     blocks: [
-      { head: '패시브 [아이언 스킨]', color: '#f59e0b' },
+      { ...mkPassiveHead('아이언 스킨'), color: '#f59e0b' },
     ],
-    body: '받는 피해가 항상 0.5 씩 감소해 생존력이 뛰어납니다. 다만 상태 이상으로 받는 피해는 감소되지 않습니다.',
+    body: '갑주무사가 받는 모든 공격 피해는 항상 0.5 씩 감소합니다. 하지만 상태 이상으로 받는 피해는 감소되지 않습니다.',
+    flavor: '두꺼운 갑주는 그 자체가 움직이는 요새. 어떤 공격도 그의 의지를 꺾지 못한다.',
   },
   witch: {
     blocks: [
-      { head: '스킬 [저주] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('저주', 'tag-action', '행동소비형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 저주 상태의 적은 적의 차례마다 0.5씩 피해 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 해제됩니다.',
+    body: `스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. ${stBadge('curse', '저주')} 상태의 적은 차례마다 0.5 피해를 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 즉시 해제됩니다.`,
+    flavor: '속삭임 하나로 적의 운명을 뒤바꾸는 자. 그녀에게 찍힌 자는 서서히 스러진다.',
   },
   dualBlade: {
     blocks: [
-      { head: '스킬 [쌍검무] SP 2 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('쌍검무', 'tag-once', '자유시전·1회'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 이번 턴 2회 공격할 수 있습니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: '스킬 사용 시 해당 턴에 양손 검객은 공격을 2회 실행할 수 있습니다.',
+    flavor: '양손에 쥔 두 자루의 검이 춤을 춘다. 한 번의 숨에 두 번의 죽음을 선사한다.',
   },
   ratMerchant: {
     blocks: [
-      { head: '스킬 [역병의 자손들] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('역병의 자손들', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용이 가능합니다.',
+    body: '스킬 사용시 보드 위 쥐가 없는 타일 세 곳에 쥐를 소환합니다. 쥐가 있는 칸은 쥐 장수의 공격 범위에 포함됩니다. 쥐는 적에게 공격 받으면 즉시 사라집니다.',
+    flavor: '그림자 속에서 키우는 수많은 쥐떼. 그가 휘파람을 불면 역병이 퍼진다.',
   },
   weaponSmith: {
     blocks: [
-      { head: '스킬 [정비] SP 1 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('정비', 'tag-once', '자유시전·1회'), sp: 1, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 가로에서 세로로, 혹은 세로에서 가로로 영구적으로 공격 방향을 전환합니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용 가능합니다.',
+    body: '스킬 사용 시 가로에서 세로로, 혹은 세로에서 가로로 공격 방향을 영구적으로 전환합니다.',
+    flavor: '쇠를 다루는 장인의 손. 전장에서 직접 무기를 벼려내며 방향을 바꾼다.',
   },
   bodyguard: {
     blocks: [
-      { head: '패시브 [충성]', color: '#f59e0b' },
+      { ...mkPassiveHead('충성'), color: '#f59e0b' },
     ],
-    body: '자신의 다른 왕실 태그 아군이 받을 공격 피해를 1로 줄이고, 그 피해를 자신이 대신 받습니다. 왕실 유닛의 방패 역할입니다. 왕실 유닛이 받게 될 상태 이상 또한 호위 무사가 대신 받습니다.',
+    body: '호위 무사는 다른 왕실 아군이 받을 공격 피해를 1로 줄이고, 그 피해를 모두 대신 받습니다. 다른 왕실 아군이 받게 될 상태 이상 또한 호위 무사가 대신 받습니다.',
+    flavor: '왕실을 위한 인간 방패. 그의 존재만으로 왕가는 안전하다.',
   },
   // ── 3티어 ──
   prince: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '자기 자신을 포함한 좌우 3칸을 공격합니다. 범위가 좁으므로 정확한 위치 운용이 생존의 핵심입니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '왕실의 적자. 젊은 패기와 날선 검을 휘두르며 왕좌로 향한다.',
   },
   princess: {
-    blocks: [
-      { head: '스킬 없음', color: '#6b7280' },
-    ],
-    body: '자기 자신을 포함한 상하 3칸을 공격합니다. 범위가 좁으므로 정확한 위치 운용이 생존의 핵심입니다.',
+    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
+    flavor: '섬세하지만 결단력 있는 왕실의 후계자. 그녀의 결정은 나라의 운명을 좌우한다.',
   },
   king: {
     blocks: [
-      { head: '스킬 [절대복종 반지] SP 3 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('절대복종 반지', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 적 말 하나의 이름을 선언하고 위치를 지정하면, 해당 적을 강제로 이동시킵니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.',
+    body: '스킬 사용 시 적 한 명을 선택하고 위치를 지정하면, 그 적을 해당 위치로 강제 이동시킵니다.',
+    flavor: '왕좌에 앉은 자. 그의 명령은 곧 신의 뜻처럼 거역할 수 없다.',
   },
   dragonTamer: {
     blocks: [
-      { head: '스킬 [드래곤 소환] SP 5 <span class="skill-tag tag-once">자유시전·1회</span>', color: '#a78bfa' },
+      { ...mkSkillHead('드래곤 소환', 'tag-once', '자유시전·1회'), sp: 5, color: '#a78bfa' },
     ],
-    body: '스킬 사용시 HP 3, 공격력 3, 십자 5칸 범위공격을 가진 드래곤 유닛을 소환합니다. 보드 위 드래곤은 최대 1마리까지만 소환 가능합니다. 이 스킬은 행동을 소비하지 않지만, 한 턴에 1회만 사용이 가능합니다.',
+    body: '스킬 사용시 강력한 드래곤 유닛을 원하는 위치에 소환합니다. 보드 위 드래곤은 최대 1마리까지만 소환 가능합니다.',
+    flavor: '고대의 계약으로 잠든 용을 깨우는 자. 그의 부름에 하늘이 진동한다.',
   },
   monk: {
     blocks: [
-      { head: '스킬 [신성] SP 4 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '아군 1명을 선택해 체력을 2 회복하고 상태 이상을 제거합니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다.' },
-      { head: '패시브 [가호]', color: '#f59e0b', desc: '악인 태그 적을 공격할 때 피해가 3으로 증가하고, 악인에게 피격 시 피해가 0.5로 감소합니다.' },
+      { ...mkPassiveHead('가호'), color: '#f59e0b', desc: '악인 적을 공격할 때 공격력이 3으로 증가하며, 악인에게 받는 모든 공격 피해는 0.5로 감소합니다.' },
+      { ...mkSkillHead('신성', 'tag-free', '자유시전형'), sp: 4, color: '#a78bfa', desc: '스킬 사용 시 아군 1명을 선택합니다. 해당 아군의 체력을 2 회복시키고 상태 이상을 제거합니다. 수도승은 이 스킬로 스스로 회복할 수 없습니다.' },
     ],
+    flavor: '신의 뜻을 전하는 자. 악을 응징하고 선한 자를 치유하는 성스러운 손길.',
   },
   slaughterHero: {
     blocks: [
-      { head: '패시브 [배반자]', color: '#f59e0b' },
+      { ...mkPassiveHead('배반자'), color: '#f59e0b' },
     ],
-    body: '공격 시 범위 내 아군에게도 1 피해를 입힙니다. 아군 배치에 각별히 주의해야 합니다. 리스크 대비 리턴이 극단적인 양날의 검입니다.',
+    body: '학살 영웅은 공격 시 아군에게도 피해를 입힙니다.',
+    flavor: '한때 영웅이라 불렸던 자. 피에 취한 그의 검은 적과 아군을 구분하지 않는다.',
   },
   commander: {
     blocks: [
-      { head: '패시브 [사기증진]', color: '#f59e0b' },
+      { ...mkPassiveHead('사기증진'), color: '#f59e0b' },
     ],
-    body: '좌우 각 1칸을 공격합니다. 인접한 아군의 공격력을 1 상승시킵니다. 전선 뒤에서 아군을 강화하는 서포터 역할에 최적화되어 있습니다.',
+    body: `지휘관과 인접한 아군은 ${stBadge('morale', '사기증진')} 상태가 됩니다. 사기증진 상태의 모든 아군은 공격력이 1 상승합니다.`,
+    flavor: '전장의 지휘봉을 든 자. 그의 함성 한 마디에 병사들의 칼이 무겁게 벼려진다.',
   },
   sulfurCauldron: {
     blocks: [
-      { head: '스킬 [유황범람] SP 3 <span class="skill-tag tag-action">행동소비형</span>', color: '#a78bfa' },
+      { ...mkSkillHead('유황범람', 'tag-action', '행동소비형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 현재 보드의 테두리 전체에 피해 2의 대규모 공격을 가합니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다. 테두리에 몰린 적들을 한꺼번에 쓸어버리는 맵 병기입니다.',
+    body: '스킬 사용 시 현재 보드의 테두리 전체에 피해 2의 대규모 공격을 가합니다.',
+    flavor: '끓어오르는 지옥의 조각. 뚜껑이 열리는 순간 전장은 불바다로 변한다.',
   },
   torturer: {
     blocks: [
-      { head: '패시브 [표식]', color: '#f59e0b', desc: '공격이 적중하면 대상에 표식을 부여합니다. 표식 상태의 적은 위치가 항상 공유됩니다.' },
-      { head: '스킬 [악몽] SP 2 <span class="skill-tag tag-free">자유시전형</span>', color: '#a78bfa', desc: '표식이 찍힌 모든 적에게 피해 1을 줍니다. 이 스킬은 행동을 소비하지 않으며, SP가 있는 한 여러 번 사용 가능합니다. 여러 적을 표식으로 마킹한 뒤 일괄 타격하는 지속 딜러입니다.' },
+      { ...mkPassiveHead('표식'), color: '#f59e0b', desc: `고문 기술자는 공격한 대상에게 표식을 부여합니다. ${stBadge('mark', '표식')} 상태의 적은 위치가 항상 노출됩니다.` },
+      { ...mkSkillHead('악몽', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: `${stBadge('mark', '표식')} 상태의 모든 적에게 1 피해를 줍니다.` },
     ],
+    flavor: '표식을 남기는 손. 한 번 그의 눈에 띈 자는 끝없는 악몽에서 벗어날 수 없다.',
   },
   count: {
     blocks: [
-      { head: '패시브 [폭정]', color: '#f59e0b' },
+      { ...mkPassiveHead('폭정'), color: '#f59e0b' },
     ],
-    body: '상대 1~2티어 유닛에게 받는 피해가 0.5 감소합니다. 상대의 저티어 견제에 강한 내성을 가집니다. 후반으로 갈수록 빛나는 내구형 딜러입니다.',
+    body: '백작은 1티어와 2티어 유닛에게 받는 모든 피해가 0.5 감소합니다.',
+    flavor: '피와 공포로 군림하는 영주. 낮은 자들의 무기는 그의 갑옷을 뚫지 못한다.',
   },
 };
 
@@ -1619,44 +1859,56 @@ function renderSlide() {
   if (!chars || !chars.length) return;
   const c = chars[slideIndex];
 
-  // 아이콘 & 이름
+  // 아이콘 & 이름 + 태그
   document.getElementById('slide-icon').textContent = c.icon;
-  const tagHtml = c.tag
-    ? ` <span class="tag-badge ${c.tag}">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
-    : '';
-  document.getElementById('slide-name').innerHTML = c.name + tagHtml;
-  document.getElementById('slide-desc').innerHTML =
-    `<span style="color:var(--text-dim);font-size:0.8rem">${c.desc}</span>`;
-
-  // 스탯
-  document.getElementById('slide-atk').innerHTML =
-    `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
+  const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+  document.getElementById('slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
+  // 이름 아래 공격력
+  document.getElementById('slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
+  // 그 아래 미니 헤더
+  const miniEl = document.getElementById('slide-mini-headers');
+  if (miniEl) miniEl.innerHTML = buildMiniHeaders(c);
+  // 실제 오버플로 감지 — 내용이 좌측 컬럼을 넘치면만 살짝 축소
+  const leftCol = document.querySelector('#screen-draft .slide-left-col');
+  if (leftCol) autoFitLeftCol(leftCol);
+  // slide-desc는 숨김 (사용 안 함)
+  const descEl = document.getElementById('slide-desc');
+  if (descEl) { descEl.innerHTML = ''; descEl.classList.add('hidden'); }
 
   // 상세 설명 블록
   const detail = CHAR_DETAILS[c.type];
   const blocksEl = document.getElementById('slide-detail-blocks');
   const bodyEl = document.getElementById('slide-detail-body');
+  // 좌측 컬럼 플레이버 텍스트 (이름+ATK 아래)
+  const flavorEl = document.getElementById('slide-flavor');
+  if (flavorEl) flavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
+
   if (detail) {
     const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    const renderHeadLine = (b) => {
+      const cls = b.headCls || '';
+      const name = cls
+        ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
+        : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
+      const tag = b.tag || '';
+      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
+      return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
+    };
     if (hasPerBlockDesc) {
-      // 각 블록 아래에 개별 설명 표시 (스킬+패시브 분리)
-      blocksEl.innerHTML = detail.blocks.map(b =>
-        `<div style="margin-bottom:10px">` +
-        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>` +
-        (b.desc ? `<div class="slide-detail-body" style="margin-top:6px">${b.desc}</div>` : '') +
-        `</div>`
-      ).join('');
+      blocksEl.innerHTML = detail.blocks.map(b => {
+        return `<div style="margin-bottom:10px">` +
+          renderHeadLine(b) +
+          (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
+          `</div>`;
+      }).join('');
       bodyEl.textContent = '';
     } else {
-      // 블록 헤더만 나열 + 하단에 통합 설명
-      blocksEl.innerHTML = detail.blocks.map(b =>
-        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>`
-      ).join('');
-      bodyEl.textContent = detail.body || '';
+      blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
+      bodyEl.innerHTML = detail.body || '';
     }
   } else {
     blocksEl.innerHTML = '';
-    bodyEl.textContent = '';
+    bodyEl.innerHTML = '';
   }
 
   // 공격 범위 미리보기
@@ -1767,8 +2019,7 @@ function updateDraftPreview(charData) {
       }
     });
 
-    document.getElementById('draft-preview-info').textContent =
-      `금색=형(가로 3칸) · 보라=동생(세로 3칸)`;
+    document.getElementById('draft-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
     return;
   }
 
@@ -1793,8 +2044,7 @@ function updateDraftPreview(charData) {
     }
   });
 
-  document.getElementById('draft-preview-info').textContent =
-    `ATK ${charData.atk} · ${charData.desc}`;
+  document.getElementById('draft-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
 }
 
 function updateDraftConfirmBtn() {
@@ -1842,17 +2092,16 @@ function renderDraftSlots() {
 
     if (c) {
       slot.className = 'draft-slot filled';
-      const tagHtml = c.tag
-        ? `<span class="tag-badge ${c.tag}" style="font-size:0.6rem">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
-        : '';
+      const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
       slot.innerHTML = `
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${c.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${c.name} ${tagHtml}</span>
-          <span class="slot-stats">ATK ${c.atk} · ${c.desc}</span>
+          <span class="slot-stats">ATK ${c.atk}</span>
+          <div>${buildMiniHeaders(c)}</div>
         </div>
-        <span class="slot-remove" title="선택 해제">✕</span>`;
+        <span class="slot-remove" title="선택 해제">×</span>`;
 
       // 호버 팝업
       const pieceLike = charDataToPieceLike(c);
@@ -1911,18 +2160,29 @@ function renderDraftSlots() {
 document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
 
-  // 덱 빌더 모드: localStorage에 저장 후 로비로 복귀
+  // 덱 빌더 모드: 덱 이름 모달을 먼저 띄움 (이름 입력 후 저장)
   if (S.deckBuilderMode) {
     if (!allSelected) {
       showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.', false, undefined, 'event');
       return;
     }
-    saveDeck(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
-    S.deckSaved = true;
-    S.deckSavedState = { t1: S.draftSelected[1], t2: S.draftSelected[2], t3: S.draftSelected[3] };
-    addToDeckList(S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]);
-    renderDraftSlots();
-    showSkillToast('덱이 저장되었습니다!', false, undefined, 'event');
+    // 덱 리스트 사전 검증
+    const t1 = S.draftSelected[1], t2 = S.draftSelected[2], t3 = S.draftSelected[3];
+    const list = loadDeckList();
+    // 동일한 캐릭터 조합이 이미 있으면 덮어쓰기 의도로 그 슬롯 선택
+    const dupIdx = list.findIndex(d => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3);
+    if (dupIdx !== -1) {
+      showSkillToast('이미 같은 덱이 있습니다.', false, undefined, 'event');
+      return;
+    }
+    const emptyIdx = list.findIndex(d => !d);
+    if (emptyIdx === -1) {
+      showSkillToast('덱이 가득 차서 저장할 수 없습니다.', false, undefined, 'event');
+      return;
+    }
+    // 덱 이름 모달 띄우고, 확인 시 저장
+    S._pendingSaveSlotIdx = emptyIdx;
+    openDeckNameModal('');
     return;
   }
 
@@ -1957,9 +2217,9 @@ document.getElementById('btn-draft-random').addEventListener('click', () => {
   document.getElementById('random-confirm-body').innerHTML = `
     <p style="margin-bottom:14px;color:var(--muted)">캐릭터를 랜덤 선택합니다.</p>
     <div class="random-pick-list">
-      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}<span class="muted">— ${t1.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}<span class="muted">— ${t2.desc}</span></div>
-      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}<span class="muted">— ${t3.desc}</span></div>
+      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}</div>
+      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}</div>
+      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}</div>
     </div>
   `;
   modal.classList.remove('hidden');
@@ -2112,13 +2372,13 @@ function buildHpUI() {
     const row = document.createElement('div');
     row.className = 'hp-piece-row';
     const tagHtml = charData.tag
-      ? `<span class="tag-badge ${charData.tag}">${charData.tag === 'royal' ? '왕실' : '악인'}</span>`
+      ? tagBadgeHtml(charData.tag)
       : '';
     row.innerHTML = `
       <span class="char-icon">${charData.icon}</span>
       <div class="hp-piece-label">
         <strong>${charData.name}${tagHtml}</strong>
-        <span>${tierLabels[i]} · ${charData.desc}</span>
+        <span>${tierLabels[i]}</span>
       </div>
       <div class="hp-input-group">
         <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
@@ -2255,9 +2515,7 @@ function createRevealCard(pc, tooltipSide) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
-  const tagHtml = pc.tag
-    ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
-    : '';
+  const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
   const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pc.icon}</span>
@@ -2362,9 +2620,10 @@ function buildInitialRevealUI(myDraft, oppChars) {
     oppContainer.appendChild(os);
   }
 
-  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  // 슬롯 등장 타이밍: 첫 0.5s, 이후 0.75s 간격 (좌우 동시)
   const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
   const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  const delays = [500, 1250, 2000]; // 0.5, 1.25, 2.0
   for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       playSfxRevealAppear();
@@ -2378,7 +2637,7 @@ function buildInitialRevealUI(myDraft, oppChars) {
         card.style.animation = 'revealSlide 0.5s ease-out both';
         oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 500);
+    }, delays[i]);
   }
 
   // 모든 등장 후 버튼 표시
@@ -2386,7 +2645,7 @@ function buildInitialRevealUI(myDraft, oppChars) {
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, 4 * 500);
+  }, 2500);
 }
 
 function findLocalChar(type, tier) {
@@ -2401,16 +2660,14 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
-  const tagHtml = ch.tag
-    ? `<span class="tag-badge ${ch.tag}">${ch.tag === 'royal' ? '왕실' : '악인'}</span>`
-    : '';
-  const labelHtml = extraLabel ? `<span style="color:#e2a84b;font-size:0.7rem;font-weight:700">${extraLabel}</span>` : '';
+  const tagHtml = ch.tag ? tagBadgeHtml(ch.tag) : '';
+  const labelHtml = extraLabel ? `<span class="reveal-extra-label">${extraLabel}</span>` : '';
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
     <div class="piece-info">
-      <strong>${ch.name}${tagHtml}</strong>
-      <span>${tier}티어 · ATK ${ch.atk || '?'}</span>
-      <div>${buildMiniHeaders(ch)}</div>
+      <div class="piece-name-row"><strong>${ch.name}</strong>${tagHtml}</div>
+      <div class="piece-stats">${tier}티어 · ATK ${ch.atk || '?'}</div>
+      <div class="piece-mini-headers">${buildMiniHeaders(ch)}</div>
       ${labelHtml}
     </div>`;
   const tooltip = buildPieceTooltip(ch, tooltipSide || 'right');
@@ -2459,17 +2716,34 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
-          <span class="slot-name">${ch.name}</span>
+          <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
           <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       card.addEventListener('click', () => {
         exCurrentTier = tier;
         exSlideIndex = 0;
         exBuildStepUI();
-        // Find this opponent's character in the slide list and navigate to it
-        const allChars = S._exAllChars || [];
-        const idx = allChars.findIndex(c => c.type === type);
-        if (idx >= 0) { exSlideIndex = idx; exRenderSlide(); }
+        // 상대 캐릭터 슬라이드로 이동. S._exAllChars에 없으면 강제 삽입 (내가 못 가진 상대 전용 캐릭터)
+        let idx = (S._exAllChars || []).findIndex(c => c.type === type);
+        if (idx < 0) {
+          S._exAllChars.push(ch);
+          idx = S._exAllChars.length - 1;
+          // 아이콘 인덱스에도 이 상대 캐릭터 버튼 추가 (빨간 강조)
+          const iconIndex = document.getElementById('ex-icon-index');
+          if (iconIndex) {
+            const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
+            const btn = document.createElement('button');
+            btn.className = 'icon-index-btn';
+            btn.title = ch.name + ' (상대)';
+            const darkCls = DARK_ICONS.has(ch.icon) ? ' dark-icon' : '';
+            btn.style.boxShadow = '0 0 6px rgba(239,68,68,0.6)';
+            btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${ch.icon}</span>`;
+            btn.addEventListener('click', () => { exSlideIndex = idx; exRenderSlide(); });
+            iconIndex.appendChild(btn);
+          }
+        }
+        exSlideIndex = idx;
+        exRenderSlide();
       });
       const tooltip = buildPieceTooltip(ch, 'right');
       card.appendChild(tooltip);
@@ -2551,38 +2825,54 @@ function exRenderSlide() {
   const isCurrentPick = c.type === S.exMyDraft[myKey];
 
   document.getElementById('ex-slide-icon').textContent = c.icon;
-  const tagHtml = c.tag
-    ? ` <span class="tag-badge ${c.tag}">${c.tag === 'royal' ? '왕실' : '악인'}</span>`
-    : '';
-  const currentBadge = isCurrentPick ? ' <span style="color:#3b82f6;font-size:0.7rem;background:rgba(59,130,246,0.15);padding:2px 6px;border-radius:4px">현재 선택</span>' : '';
-  document.getElementById('ex-slide-name').innerHTML = c.name + tagHtml + currentBadge;
-  document.getElementById('ex-slide-desc').innerHTML = '';
-  document.getElementById('ex-slide-atk').innerHTML =
-    `<span style="color:var(--accent);font-weight:700">⚔ 공격력 ${c.atk}</span>`;
+  const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+  document.getElementById('ex-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
+  // 이름 아래 공격력
+  document.getElementById('ex-slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
+  // 그 아래 미니 헤더
+  const exMiniEl = document.getElementById('ex-slide-mini-headers');
+  if (exMiniEl) exMiniEl.innerHTML = buildMiniHeaders(c);
+  // 실제 오버플로 감지
+  const exLeftCol = document.querySelector('#screen-exchange .slide-left-col');
+  if (exLeftCol) autoFitLeftCol(exLeftCol);
+  // slide-desc는 숨김 (사용 안 함)
+  const exDescEl = document.getElementById('ex-slide-desc');
+  if (exDescEl) { exDescEl.innerHTML = ''; exDescEl.classList.add('hidden'); }
 
   // 상세 설명
   const detail = CHAR_DETAILS[c.type];
   const blocksEl = document.getElementById('ex-slide-detail-blocks');
   const bodyEl = document.getElementById('ex-slide-detail-body');
+  // 좌측 컬럼 플레이버 텍스트 (교환 드래프트)
+  const exFlavorEl = document.getElementById('ex-slide-flavor');
+  if (exFlavorEl) exFlavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
+
   if (detail) {
     const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    const renderHeadLine = (b) => {
+      const cls = b.headCls || '';
+      const name = cls
+        ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
+        : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
+      const tag = b.tag || '';
+      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
+      return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
+    };
     if (hasPerBlockDesc) {
-      blocksEl.innerHTML = detail.blocks.map(b =>
-        `<div style="margin-bottom:10px">` +
-        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>` +
-        (b.desc ? `<div class="slide-detail-body" style="margin-top:6px">${b.desc}</div>` : '') +
-        `</div>`
-      ).join('');
+      blocksEl.innerHTML = detail.blocks.map(b => {
+        return `<div style="margin-bottom:10px">` +
+          renderHeadLine(b) +
+          (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
+          `</div>`;
+      }).join('');
       bodyEl.textContent = '';
     } else {
-      blocksEl.innerHTML = detail.blocks.map(b =>
-        `<span class="slide-detail-block" style="color:${b.color};border-color:${b.color};background:${b.color}18">${b.head}</span>`
-      ).join('');
-      bodyEl.textContent = detail.body || '';
+      blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
+      bodyEl.innerHTML = detail.body || '';
     }
   } else {
     blocksEl.innerHTML = '';
-    bodyEl.textContent = '';
+    bodyEl.innerHTML = '';
   }
 
   // 공격 범위 미리보기 (ex용)
@@ -2591,6 +2881,15 @@ function exRenderSlide() {
   document.querySelectorAll('#ex-icon-index .icon-index-btn').forEach((btn, i) => {
     btn.classList.toggle('active', i === exSlideIndex);
   });
+
+  // 슬라이드 뷰어 어둡게 (다른 티어이고 이미 교체한 경우)
+  const slideViewer = document.querySelector('#screen-exchange .slide-viewer');
+  const iconIndex = document.getElementById('ex-icon-index');
+  const stepIndicator = document.getElementById('ex-step-indicator');
+  const isDimmedTier = S.exSwapped && S.exSwapped.tier !== tier;
+  if (slideViewer) slideViewer.classList.toggle('slide-dimmed', !!isDimmedTier);
+  if (iconIndex) iconIndex.classList.toggle('slide-dimmed', !!isDimmedTier);
+  if (stepIndicator) stepIndicator.classList.toggle('slide-dimmed', !!S.exSwapped);
 
   // 교체 선택 버튼 상태 업데이트
   const exSelectBtn = document.getElementById('btn-ex-select');
@@ -2605,9 +2904,9 @@ function exRenderSlide() {
     exSelectBtn.style.pointerEvents = '';
 
     if (isCurrentDraft && !isCurrentSwap) {
-      // 이 티어에 현재 배정된 캐릭터 (변동 없음) → "현재 선택"
+      // 이 티어에 현재 배정된 캐릭터 (변동 없음) → "현재 선택" (파란색 강조)
       exSelectBtn.textContent = '✔ 현재 선택';
-      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+      exSelectBtn.className = 'btn btn-select-char btn-current-select';
     } else if (isCurrentSwap) {
       // 이미 이 캐릭터로 교체한 상태
       exSelectBtn.textContent = '✔ 교체 선택됨';
@@ -2654,7 +2953,7 @@ function exUpdatePreview(charData) {
       const inY = rangeY.some(c => c.col === col && c.row === row);
       if (inE || inY) cell.classList.add(inE ? 'attack-range' : 'skill-range');
     });
-    document.getElementById('ex-preview-info').textContent = '금색=형(가로 3칸) · 보라=동생(세로 3칸)';
+    document.getElementById('ex-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
     return;
   }
 
@@ -2669,7 +2968,7 @@ function exUpdatePreview(charData) {
     }
     if (range.some(c => c.col === col && c.row === row)) cell.classList.add('attack-range');
   });
-  document.getElementById('ex-preview-info').textContent = `${charData.name} · 공격 범위`;
+  document.getElementById('ex-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
 }
 
 function exUpdateSlots() {
@@ -2686,14 +2985,15 @@ function exUpdateSlots() {
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${ch.icon}</span>
         <div class="slot-info">
-          <span class="slot-name">${ch.name}</span>
+          <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
+          <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
       if (isSwapped) {
         const xBtn = document.createElement('span');
         xBtn.className = 'slot-remove';
         xBtn.title = '교체 취소';
-        xBtn.textContent = '✕';
+        xBtn.textContent = '×';
         xBtn.addEventListener('click', (e) => {
           e.stopPropagation();
           S.exSwapped = null;
@@ -2844,17 +3144,27 @@ function buildFinalRevealUI(myDraft, oppChars) {
     oppCards.push({ ch, tier: ch.tier, wasExchanged });
   }
 
-  // 빈 슬롯 3개씩 미리 표시
+  // 빈 슬롯 3개 + "교체하지 않음" 라벨 placeholder 미리 생성 (레이아웃 완전 고정)
   for (let i = 0; i < 3; i++) {
     const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
     myContainer.appendChild(ms);
     const os = document.createElement('div'); os.className = 'reveal-slot-empty';
     oppContainer.appendChild(os);
   }
+  // 라벨은 반드시 양쪽 동일하게 처음부터 존재 (보이기/안보이기만 토글)
+  const myLabel = document.createElement('div');
+  myLabel.className = 'no-exchange-label invisible-placeholder';
+  myLabel.textContent = '교체하지 않음';
+  myContainer.appendChild(myLabel);
+  const oppLabel = document.createElement('div');
+  oppLabel.className = 'no-exchange-label invisible-placeholder';
+  oppLabel.textContent = '교체하지 않음';
+  oppContainer.appendChild(oppLabel);
 
-  // 0.5초 간격으로 각 슬롯 채우기 (좌우 동시)
+  // 슬롯 등장 타이밍: 첫 0.5s, 이후 0.75s 간격 (좌우 동시)
   const mySlots = myContainer.querySelectorAll('.reveal-slot-empty');
   const oppSlots = oppContainer.querySelectorAll('.reveal-slot-empty');
+  const delays = [500, 1250, 2000];
   for (let i = 0; i < 3; i++) {
     setTimeout(() => {
       // 교체된 캐릭터 등장 시 삐로~ 사운드, 일반은 둥-
@@ -2868,39 +3178,29 @@ function buildFinalRevealUI(myDraft, oppChars) {
 
       if (myCards[i]) {
         const { ch, tier, wasExchanged } = myCards[i];
-        const card = createDraftRevealCard(ch, tier, 'left', wasExchanged ? '교체됨' : '');
+        const card = createDraftRevealCard(ch, tier, 'left', '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
         mySlots[i].replaceWith(card);
       }
       if (oppCards[i]) {
         const { ch, tier, wasExchanged } = oppCards[i];
-        const card = createDraftRevealCard(ch, tier, 'right', wasExchanged ? '교체됨' : '');
+        const card = createDraftRevealCard(ch, tier, 'right', '');
         card.style.animation = 'revealSlide 0.5s ease-out both';
         if (wasExchanged) card.classList.add('exchanged-highlight');
         oppSlots[i].replaceWith(card);
       }
-    }, (i + 1) * 500);
+    }, delays[i]);
   }
 
-  // 모든 등장 후 버튼 + 교체 안 한 플레이어 표시
+  // 모든 등장 후 라벨 visibility 토글 (높이 변화 없음 — 이미 placeholder로 예약됨)
   setTimeout(() => {
-    if (!myExchanged) {
-      const noSwap = document.createElement('div');
-      noSwap.className = 'no-exchange-label';
-      noSwap.textContent = '교체하지 않음';
-      myContainer.appendChild(noSwap);
-    }
-    if (!oppExchanged) {
-      const noSwap = document.createElement('div');
-      noSwap.className = 'no-exchange-label';
-      noSwap.textContent = '교체하지 않음';
-      oppContainer.appendChild(noSwap);
-    }
+    if (!myExchanged) myLabel.classList.remove('invisible-placeholder');
+    if (!oppExchanged) oppLabel.classList.remove('invisible-placeholder');
     btn.disabled = false;
     btn.style.opacity = '1';
     btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, 4 * 500);
+  }, 2500);
 }
 
 document.getElementById('btn-frev-confirm').addEventListener('click', () => {
@@ -2930,9 +3230,7 @@ function buildPlacementOppPanel() {
   for (const pc of S.oppPieces) {
     const card = document.createElement('div');
     card.className = 'placement-opp-card';
-    const tagHtml = pc.tag
-      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
-      : '';
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
     const skillDesc = getSkillDescForPiece(pc);
     const skillHtml = pc.hasSkill
       ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP) — ${skillDesc}</span>`
@@ -2968,7 +3266,7 @@ function updatePlacementUI() {
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${placementSelected === i ? 'selected' : ''}`;
 
     const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
-    const tagHtml = pc.tag ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>` : '';
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
 
     // 스킬 정보
     let skillHtml = '';
@@ -2985,21 +3283,27 @@ function updatePlacementUI() {
       skillHtml += `<div class="placement-skill-desc">${skillDesc}</div>`;
     }
 
-    // 패시브 정보
+    // 패시브 정보 — 툴팁과 동일: 주황색 "패시브: 이름" + 패시브 태그
+    const passiveTagHtml = '<span class="skill-tag tag-passive">패시브</span>';
     let passiveHtml = '';
-    if (pc.passiveName && pc.passives && pc.passives.length > 0) {
-      const pid = pc.passives[0];
-      const label = getPassiveLabel(pid);
-      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
-      passiveHtml = `<div class="placement-skill-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div><div class="placement-skill-desc">${label}</div>`;
+    if (pc.passives && pc.passives.length > 0) {
+      for (const pid of pc.passives) {
+        const name = getPassiveName(pid);
+        const desc = getPassiveLabel(pid);
+        passiveHtml += `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${name} ${passiveTagHtml}</div>`;
+        passiveHtml += `<div class="placement-skill-desc">${desc}</div>`;
+      }
     } else if (pc.passiveName) {
-      passiveHtml = `<div class="placement-skill-line"><span style="color:#f59e0b">패시브: ${pc.passiveName}</span></div>`;
+      passiveHtml = `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${pc.passiveName} ${passiveTagHtml}</div>`;
     }
+
+    const hasAnySkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
+    const hasAnyPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
 
     card.innerHTML = `
       <div class="placement-card-header">
         <span class="piece-icon">${pc.icon}</span>
-        <div class="piece-info" style="text-align:right">
+        <div class="piece-info">
           <strong>${pc.name} ${tagHtml}</strong>
           <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
           ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
@@ -3011,7 +3315,7 @@ function updatePlacementUI() {
           ${grid}
         </div>
         <div class="placement-info-section">
-          ${skillHtml || '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>'}
+          ${skillHtml || (!hasAnyPassive ? '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>' : '')}
           ${passiveHtml}
         </div>
       </div>`;
@@ -3091,7 +3395,8 @@ function updateTurnBanner() {
   const banner = document.getElementById('turn-banner');
   if (!banner) return;
   banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
-  banner.textContent = `${S.turnNumber}턴`;
+  const whose = S.isMyTurn ? myN() : oppN();
+  banner.textContent = `${S.turnNumber}턴 : ${whose}의 차례`;
 
   // 현재 턴 플레이어 패널 강조
   const leftPanel = document.querySelector('.left-panel');
@@ -3124,8 +3429,8 @@ function updateSPBar() {
   // SP 카운트다운 표시
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && S.turnNumber) {
-    if (S.turnNumber >= 50) {
-      spCountdown.textContent = 'SP 지급 중단 (50턴 초과)';
+    if (S.turnNumber >= 40) {
+      spCountdown.textContent = 'SP 지급 종료 (40턴 이후)';
       spCountdown.style.color = 'var(--danger)';
     } else {
       const turnsUntilSP = 10 - (S.turnNumber % 10);
@@ -3491,9 +3796,7 @@ function renderMyPieces() {
     card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
 
-    const tagHtml = pc.tag
-      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
-      : '';
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
     const statusHtml = renderStatusBadges(pc);
     const skillHtml = pc.hasSkill
       ? `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${pc.skillName} (${pc.skillCost}SP)</div>`
@@ -3606,9 +3909,7 @@ function renderOppPieces() {
       card.addEventListener('dragend', () => card.classList.remove('dragging'));
     }
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
-    const tagHtml = pc.tag
-      ? `<span class="tag-badge ${pc.tag}">${pc.tag === 'royal' ? '왕실' : '악인'}</span>`
-      : '';
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
     const statusHtml = renderStatusBadges(pc);
     const skillHtml = pc.hasSkill
       ? `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP)</div>`
@@ -3722,8 +4023,7 @@ function buildMiniHeaders(ch) {
   }
   if (ch.passives && ch.passives.length > 0) {
     for (const pid of ch.passives) {
-      const label = getPassiveLabel(pid);
-      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
+      const name = getPassiveName(pid);
       html += `<span class="mini-header mini-header-passive">${name}</span>`;
     }
   }
@@ -3751,6 +4051,8 @@ function buildPieceTooltip(pc, side) {
 
   // 스킬 표시 — skills 배열 우선, 없으면 hasSkill/skillName 폴백
   let skillHtml = '';
+  const hasActiveSkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
+  const hasPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
   if (pc.skills && pc.skills.length > 0) {
     for (const sk of pc.skills) {
       const skTag = getSkillTypeTag(sk);
@@ -3762,24 +4064,23 @@ function buildPieceTooltip(pc, side) {
     const skillDesc = getSkillDescForPiece(pc);
     skillHtml = `<div class="tooltip-line skill-color">스킬: ${pc.skillName} (${pc.skillCost}SP) ${tag}</div>`;
     skillHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${skillDesc}</div>`;
-  } else {
+  } else if (!hasPassive) {
+    // 액티브 스킬도, 패시브도 없을 때만 "스킬 없음"
     skillHtml = '<div class="tooltip-line" style="color:var(--muted)">스킬 없음</div>';
   }
 
-  // 패시브 — passiveName 또는 passives 배열
+  // 패시브 — 스킬 라인과 동일 포맷: 주황색 "패시브: 이름" + 패시브 태그
   let passiveHtml = '';
-  const passiveIds = (pc.passives && pc.passives.length > 0) ? pc.passives : [];
-  if (passiveIds.length > 0) {
-    for (const pid of passiveIds) {
-      const label = getPassiveLabel(pid);
-      const name = label.includes(' — ') ? label.split(' — ')[0] : label;
-      passiveHtml += `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
-      passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${label}</div>`;
+  const passiveTag = '<span class="skill-tag tag-passive">패시브</span>';
+  if (pc.passives && pc.passives.length > 0) {
+    for (const pid of pc.passives) {
+      const name = getPassiveName(pid);
+      const desc = getPassiveLabel(pid);
+      passiveHtml += `<div class="tooltip-line passive-color">패시브: ${name} ${passiveTag}</div>`;
+      passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${desc}</div>`;
     }
   } else if (pc.passiveName) {
-    const name = pc.passiveName.includes(' — ') ? pc.passiveName.split(' — ')[0] : pc.passiveName;
-    passiveHtml = `<div class="tooltip-line">패시브 <span class="mini-header mini-header-passive">${name}</span></div>`;
-    passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${pc.passiveName}</div>`;
+    passiveHtml = `<div class="tooltip-line passive-color">패시브: ${pc.passiveName} ${passiveTag}</div>`;
   }
 
   // 상태이상 배지
@@ -3914,6 +4215,7 @@ document.getElementById('btn-setup-exit').addEventListener('click', () => {
 });
 document.getElementById('setup-exit-confirm').addEventListener('click', () => {
   document.getElementById('setup-exit-modal').classList.add('hidden');
+  stopClientTimer();
   socket.emit('surrender');
   showScreen('screen-lobby');
 });
@@ -3989,7 +4291,7 @@ function openSkillModal() {
         const skTag = getSkillTypeTag(sk);
         opt.innerHTML = `
           <div class="skill-name">${pc.icon} ${pc.name} — ${sk.name} ${skTag}</div>
-          <div class="skill-cost">SP 비용: ${sk.cost} (보유: ${mySP}${instantLabel})${extraNote}</div>
+          <div class="skill-cost">SP 비용: ${sk.cost}${extraNote}</div>
           <div class="skill-desc">${sk.desc}</div>`;
 
         if (canAfford && !extraDisabled) {
@@ -4057,7 +4359,7 @@ function openSkillModal() {
       const singleTag = getSkillTypeTagFromChar(pc);
       opt.innerHTML = `
         <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
-        <div class="skill-cost">SP 비용: ${pc.skillCost} (보유: ${mySP}${instantLabel})${singleNote}</div>
+        <div class="skill-cost">SP 비용: ${pc.skillCost}${singleNote}</div>
         <div class="skill-desc">${getSkillDesc(pc)}</div>`;
 
       if (canAfford && !singleDisabled) {
@@ -4595,6 +4897,20 @@ function getPassiveLabel(passiveId) {
   };
   return map[passiveId] || passiveId;
 }
+// 패시브의 공식 이름 (미니 헤더용) — server.js의 passiveName과 일치
+function getPassiveName(passiveId) {
+  const map = {
+    instantMagic: '인스턴트매직',
+    ironSkin: '아이언스킨',
+    grace: '가호',
+    betrayer: '배반자',
+    wrath: '사기증진',
+    markPassive: '표식',
+    tyranny: '폭정',
+    loyalty: '충성',
+  };
+  return map[passiveId] || passiveId;
+}
 
 // ── 관전자: 드래프트 UI ──────────────────────────────────────
 function renderSpectatorDraft() {
@@ -4643,11 +4959,12 @@ function renderSpectatorDraft() {
       const c = typeKey ? charList.find(ch => ch.type === typeKey) : null;
       if (c) {
         slot.className = `draft-slot filled ${isDone ? 'confirmed' : 'browsing'}`;
-        const tagHtml = c.tag ? `<span class="tag-badge ${c.tag}" style="font-size:0.6rem">${c.tag === 'royal' ? '왕실' : '악인'}</span>` : '';
+        const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
         slot.innerHTML = `<span class="slot-tier">${tier}티어</span>
           <span class="slot-icon">${c.icon}</span>
           <div class="slot-info"><span class="slot-name">${c.name} ${tagHtml}</span>
-          <span class="slot-stats">ATK ${c.atk} · ${c.desc}</span></div>`;
+          <span class="slot-stats">ATK ${c.atk}</span>
+          <div>${buildMiniHeaders(c)}</div></div>`;
         if (isDone) slot.innerHTML += '<span class="slot-confirmed-badge">확정</span>';
         slot.style.position = 'relative';
         const pieceLike = charDataToPieceLike(c);
@@ -4936,8 +5253,8 @@ function renderSpectatorGame(gs) {
   document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && gs.turnNumber) {
-    if (gs.turnNumber >= 50) {
-      spCountdown.textContent = 'SP 지급 중단 (50턴 초과)';
+    if (gs.turnNumber >= 40) {
+      spCountdown.textContent = 'SP 지급 종료 (40턴 이후)';
       spCountdown.style.color = 'var(--danger)';
     } else {
       const turnsUntilSP = 10 - (gs.turnNumber % 10);
@@ -5228,9 +5545,9 @@ function setTurnBackground(isMyTurn) {
   }
 }
 
-// ── 나의 턴 팝업 (토스트 스타일) ──
+// ── 나의 턴 팝업: 더 이상 토스트 표시하지 않음 (턴 배너로 대체) ──
 function showTurnPopup(isMyTurn) {
-  showSkillToast(`[${S.turnNumber}턴] ${myN()} 차례`, false, undefined, 'event');
+  updateTurnBanner();
 }
 
 // ── 이동 모션 애니메이션 ──
@@ -5323,6 +5640,247 @@ function animateAttack(atkCells, hitCells) {
 }
 
 // ── 캐릭터 등장 사운드 (둥-) ──
+// ── 쥐 격파 사운드 (꽥!) ──
+function playSfxRatDeath() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const sq = ctx.createOscillator();
+    const sqG = ctx.createGain();
+    sq.type = 'square';
+    sq.frequency.setValueAtTime(1400, now);
+    sq.frequency.exponentialRampToValueAtTime(2400, now + 0.06);
+    sq.frequency.exponentialRampToValueAtTime(400, now + 0.2);
+    sqG.gain.setValueAtTime(0.2, now);
+    sqG.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    sq.connect(sqG); sqG.connect(out);
+    sq.start(now); sq.stop(now + 0.25);
+    const slide = ctx.createOscillator();
+    const slG = ctx.createGain();
+    slide.type = 'triangle';
+    slide.frequency.setValueAtTime(800, now + 0.08);
+    slide.frequency.exponentialRampToValueAtTime(200, now + 0.28);
+    slG.gain.setValueAtTime(0.12, now + 0.08);
+    slG.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    slide.connect(slG); slG.connect(out);
+    slide.start(now + 0.08); slide.stop(now + 0.35);
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.08, now + 0.18);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 1800; bpf.Q.value = 2;
+    noise.connect(bpf); bpf.connect(nG); nG.connect(out);
+    noise.start(now + 0.18); noise.stop(now + 0.26);
+  } catch (e) {}
+}
+
+// ── 폭탄 폭발 사운드 ──
+function playSfxBombExplode() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const boom = ctx.createOscillator();
+    const bG = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(120, now);
+    boom.frequency.exponentialRampToValueAtTime(40, now + 0.35);
+    bG.gain.setValueAtTime(0.5, now);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    boom.connect(bG); bG.connect(out);
+    boom.start(now); boom.stop(now + 0.55);
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.35, now);
+    nG.gain.exponentialRampToValueAtTime(0.05, now + 0.3);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 1500;
+    noise.connect(lpf); lpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.8);
+    const crunch = ctx.createOscillator();
+    const crG = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(200, now + 0.05);
+    crunch.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+    crG.gain.setValueAtTime(0.18, now + 0.05);
+    crG.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    crunch.connect(crG); crG.connect(out);
+    crunch.start(now + 0.05); crunch.stop(now + 0.45);
+  } catch (e) {}
+}
+
+// ── 덫 발동 사운드 (콱!) ──
+function playSfxTrapSnap() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const thud = ctx.createOscillator();
+    const tG = ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(90, now);
+    thud.frequency.exponentialRampToValueAtTime(35, now + 0.3);
+    tG.gain.setValueAtTime(0.55, now);
+    tG.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    thud.connect(tG); tG.connect(out);
+    thud.start(now); thud.stop(now + 0.5);
+    const crunch = ctx.createOscillator();
+    const crG = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(180, now);
+    crunch.frequency.exponentialRampToValueAtTime(55, now + 0.25);
+    crG.gain.setValueAtTime(0.3, now);
+    crG.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 900;
+    crunch.connect(lpf); lpf.connect(crG); crG.connect(out);
+    crunch.start(now); crunch.stop(now + 0.4);
+    const snap = ctx.createOscillator();
+    const sG = ctx.createGain();
+    snap.type = 'square';
+    snap.frequency.setValueAtTime(1400, now);
+    snap.frequency.exponentialRampToValueAtTime(300, now + 0.03);
+    sG.gain.setValueAtTime(0.18, now);
+    sG.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    snap.connect(sG); sG.connect(out);
+    snap.start(now); snap.stop(now + 0.08);
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.35, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.22, now);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    const lpf2 = ctx.createBiquadFilter();
+    lpf2.type = 'lowpass'; lpf2.frequency.value = 700;
+    noise.connect(lpf2); lpf2.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.38);
+    const sub = ctx.createOscillator();
+    const subG = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(45, now);
+    sub.frequency.exponentialRampToValueAtTime(25, now + 0.4);
+    subG.gain.setValueAtTime(0.35, now);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    sub.connect(subG); subG.connect(out);
+    sub.start(now); sub.stop(now + 0.52);
+  } catch (e) {}
+}
+
+// ── 저주 피해 사운드 (레이어링: 일반 피격 + 어둠) ──
+function playSfxCurseDamage() {
+  if (sfxMuted) return;
+  // 레이어 1: 일반 피격음
+  playSfx('hit');
+  // 레이어 2: 어두운 저주 속삭임
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const d1 = ctx.createOscillator();
+    const d1G = ctx.createGain();
+    d1.type = 'sine';
+    d1.frequency.setValueAtTime(180, now);
+    d1.frequency.linearRampToValueAtTime(130, now + 0.5);
+    d1G.gain.setValueAtTime(0.1, now);
+    d1G.gain.linearRampToValueAtTime(0.15, now + 0.2);
+    d1G.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    d1.connect(d1G); d1G.connect(out);
+    d1.start(now); d1.stop(now + 0.85);
+    const d2 = ctx.createOscillator();
+    const d2G = ctx.createGain();
+    d2.type = 'sine';
+    d2.frequency.setValueAtTime(193, now);
+    d2.frequency.linearRampToValueAtTime(138, now + 0.5);
+    d2G.gain.setValueAtTime(0.08, now);
+    d2G.gain.linearRampToValueAtTime(0.12, now + 0.2);
+    d2G.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    d2.connect(d2G); d2G.connect(out);
+    d2.start(now); d2.stop(now + 0.85);
+    const whistle = ctx.createOscillator();
+    const wG = ctx.createGain();
+    whistle.type = 'sine';
+    whistle.frequency.setValueAtTime(800, now + 0.15);
+    whistle.frequency.linearRampToValueAtTime(400, now + 0.75);
+    wG.gain.setValueAtTime(0.06, now + 0.15);
+    wG.gain.linearRampToValueAtTime(0.04, now + 0.4);
+    wG.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    whistle.connect(wG); wG.connect(out);
+    whistle.start(now + 0.15); whistle.stop(now + 0.85);
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.05, now);
+    nG.gain.linearRampToValueAtTime(0.08, now + 0.3);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 600; bpf.Q.value = 1.5;
+    noise.connect(bpf); bpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.7);
+  } catch (e) {}
+}
+
+// ── 덱 저장 사운드 (딩동) ──
+function playSfxDeckSave() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const n1 = ctx.createOscillator();
+    const n1G = ctx.createGain();
+    n1.type = 'sine';
+    n1.frequency.value = 1047;
+    n1G.gain.setValueAtTime(0.22, now);
+    n1G.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    n1.connect(n1G); n1G.connect(out);
+    n1.start(now); n1.stop(now + 0.32);
+    const n2 = ctx.createOscillator();
+    const n2G = ctx.createGain();
+    n2.type = 'sine';
+    n2.frequency.value = 1318;
+    n2G.gain.setValueAtTime(0.22, now + 0.12);
+    n2G.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    n2.connect(n2G); n2G.connect(out);
+    n2.start(now + 0.12); n2.stop(now + 0.52);
+    const h1 = ctx.createOscillator();
+    const h1G = ctx.createGain();
+    h1.type = 'triangle';
+    h1.frequency.value = 2094;
+    h1G.gain.setValueAtTime(0.08, now);
+    h1G.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    h1.connect(h1G); h1G.connect(out);
+    h1.start(now); h1.stop(now + 0.38);
+    const sp = ctx.createOscillator();
+    const spG = ctx.createGain();
+    sp.type = 'sine';
+    sp.frequency.setValueAtTime(2637, now + 0.22);
+    sp.frequency.exponentialRampToValueAtTime(3136, now + 0.4);
+    spG.gain.setValueAtTime(0.1, now + 0.22);
+    spG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    sp.connect(spG); spG.connect(out);
+    sp.start(now + 0.22); sp.stop(now + 0.52);
+  } catch (e) {}
+}
+
 function playSfxRevealAppear() {
   if (sfxMuted) return;
   try {
@@ -6372,13 +6930,13 @@ const TUTORIAL_STEPS = [
     <div class="tut-title">🏰 태그 시스템</div>
     <div class="tut-subtitle">왕실과 악인 — 태그 간 시너지가 존재합니다</div>
     <div class="tut-section">
-      <div class="tut-section-title"><span class="tag-badge royal" style="font-size:0.8rem">왕실</span> 왕실 태그</div>
+      <div class="tut-section-title">${tagBadgeHtml('royal')} 왕실 태그</div>
       <div class="tut-text">
         왕실 유닛들은 서로 연계된 능력으로 시너지가 좋습니다.
       </div>
     </div>
     <div class="tut-section">
-      <div class="tut-section-title"><span class="tag-badge villain" style="font-size:0.8rem">악인</span> 악인 태그</div>
+      <div class="tut-section-title">${tagBadgeHtml('villain')} 악인 태그</div>
       <div class="tut-text">
         마녀, 쥐 장수, 그림자 암살자 등 변칙 계열의 유닛들이 다수 포진되어 있습니다.
       </div>

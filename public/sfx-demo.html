@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO 효과음 데모</title>
+<style>
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #1a1a2e; color: #e8e8f0;
+    padding: 40px 24px; max-width: 640px; margin: 0 auto;
+  }
+  h1 { color: #e2a84b; text-align: center; margin-bottom: 8px; }
+  .sub { text-align: center; color: #888; margin-bottom: 32px; }
+  .sfx-card {
+    background: #2a2a4a; border: 1px solid #3a3a5a;
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+  }
+  .sfx-info { flex: 1; }
+  .sfx-name { font-size: 1rem; font-weight: 700; color: #e2a84b; margin-bottom: 4px; }
+  .sfx-desc { font-size: 0.85rem; color: #aaa; }
+  button {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff; border: none; border-radius: 8px;
+    padding: 12px 22px; font-size: 1rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+    min-width: 100px;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59,130,246,0.4); }
+  button:active { transform: translateY(0); }
+  .all-btn {
+    background: linear-gradient(135deg, #e2a84b, #d97706);
+    width: 100%; margin-top: 20px; padding: 14px; font-size: 1.1rem;
+  }
+</style>
+</head>
+<body>
+  <h1>🎵 CALIGO 효과음 데모</h1>
+  <p class="sub">각 버튼을 눌러 효과음을 들어보세요. 검수 후 알려주세요.</p>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">🐀 쥐 격파</div>
+      <div class="sfx-desc">쥐가 공격 받고 사라질 때. 짧고 귀여운 꽥 사운드.</div>
+    </div>
+    <button onclick="playSfxRatDeath()">▶ 재생</button>
+  </div>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">💣 폭탄 폭발</div>
+      <div class="sfx-desc">기폭 스킬 발동 시. 묵직한 폭발음 + 저음 임팩트.</div>
+    </div>
+    <button onclick="playSfxBombExplode()">▶ 재생</button>
+  </div>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">🪤 덫 발동</div>
+      <div class="sfx-desc">덫에 걸려들 때. 날카로운 메탈 스냅 사운드.</div>
+    </div>
+    <button onclick="playSfxTrapSnap()">▶ 재생</button>
+  </div>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">☠ 저주 피해 (단독)</div>
+      <div class="sfx-desc">저주 효과음만. 어둡고 불길한 속삭임.</div>
+    </div>
+    <button onclick="playSfxCurseTick()">▶ 재생</button>
+  </div>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">☠ 저주 피해 (레이어링)</div>
+      <div class="sfx-desc">실제 게임 내 사용. 일반 피격음 + 저주 효과음 동시 재생.</div>
+    </div>
+    <button onclick="playSfxCurseHitLayered()">▶ 재생</button>
+  </div>
+
+  <div class="sfx-card">
+    <div class="sfx-info">
+      <div class="sfx-name">💾 덱 저장</div>
+      <div class="sfx-desc">덱 저장 확정 시. 밝고 깔끔한 확인 사운드.</div>
+    </div>
+    <button onclick="playSfxDeckSave()">▶ 재생</button>
+  </div>
+
+  <button class="all-btn" onclick="playAll()">⏩ 전체 순차 재생 (1초 간격)</button>
+
+<script>
+// ─── 쥐 격파: 꽥! (짧은 처피 스퀴크 + 픽) ───
+function playSfxRatDeath() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 고음 스퀴크 (꽥~)
+    const sq = ctx.createOscillator();
+    const sqG = ctx.createGain();
+    sq.type = 'square';
+    sq.frequency.setValueAtTime(1400, now);
+    sq.frequency.exponentialRampToValueAtTime(2400, now + 0.06);
+    sq.frequency.exponentialRampToValueAtTime(400, now + 0.2);
+    sqG.gain.setValueAtTime(0.2, now);
+    sqG.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    sq.connect(sqG); sqG.connect(out);
+    sq.start(now); sq.stop(now + 0.25);
+
+    // ② 하강 톤 (꽥 끝부분)
+    const slide = ctx.createOscillator();
+    const slG = ctx.createGain();
+    slide.type = 'triangle';
+    slide.frequency.setValueAtTime(800, now + 0.08);
+    slide.frequency.exponentialRampToValueAtTime(200, now + 0.28);
+    slG.gain.setValueAtTime(0.12, now + 0.08);
+    slG.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    slide.connect(slG); slG.connect(out);
+    slide.start(now + 0.08); slide.stop(now + 0.35);
+
+    // ③ 픽! 노이즈 (퍼프)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.08, now + 0.18);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 1800; bpf.Q.value = 2;
+    noise.connect(bpf); bpf.connect(nG); nG.connect(out);
+    noise.start(now + 0.18); noise.stop(now + 0.26);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 폭탄 폭발: 쾅! ───
+function playSfxBombExplode() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 저음 폭발 임팩트 (쾅 첫번째 부분)
+    const boom = ctx.createOscillator();
+    const bG = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(120, now);
+    boom.frequency.exponentialRampToValueAtTime(40, now + 0.35);
+    bG.gain.setValueAtTime(0.5, now);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    boom.connect(bG); bG.connect(out);
+    boom.start(now); boom.stop(now + 0.55);
+
+    // ② 거친 폭발 노이즈 (쾅~)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) {
+      nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.35, now);
+    nG.gain.exponentialRampToValueAtTime(0.05, now + 0.3);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    // 저역 필터로 묵직함 추가
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 1500;
+    noise.connect(lpf); lpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.8);
+
+    // ③ 중간 크런치 (잔해 비산)
+    const crunch = ctx.createOscillator();
+    const crG = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(200, now + 0.05);
+    crunch.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+    crG.gain.setValueAtTime(0.18, now + 0.05);
+    crG.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    crunch.connect(crG); crG.connect(out);
+    crunch.start(now + 0.05); crunch.stop(now + 0.45);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 덫 발동: 콱! (묵직한 물림) ───
+function playSfxTrapSnap() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 거대 저음 쿵! (턱이 닫힐 때 충격)
+    const thud = ctx.createOscillator();
+    const tG = ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(90, now);
+    thud.frequency.exponentialRampToValueAtTime(35, now + 0.3);
+    tG.gain.setValueAtTime(0.55, now);
+    tG.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    thud.connect(tG); tG.connect(out);
+    thud.start(now); thud.stop(now + 0.5);
+
+    // ② 강철 크런치 (뼈가 물리는 느낌)
+    const crunch = ctx.createOscillator();
+    const crG = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(180, now);
+    crunch.frequency.exponentialRampToValueAtTime(55, now + 0.25);
+    crG.gain.setValueAtTime(0.3, now);
+    crG.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 900;
+    crunch.connect(lpf); lpf.connect(crG); crG.connect(out);
+    crunch.start(now); crunch.stop(now + 0.4);
+
+    // ③ 짧은 메탈 스냅 (찰칵의 순간)
+    const snap = ctx.createOscillator();
+    const sG = ctx.createGain();
+    snap.type = 'square';
+    snap.frequency.setValueAtTime(1400, now);
+    snap.frequency.exponentialRampToValueAtTime(300, now + 0.03);
+    sG.gain.setValueAtTime(0.18, now);
+    sG.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    snap.connect(sG); sG.connect(out);
+    snap.start(now); snap.stop(now + 0.08);
+
+    // ④ 묵직한 저역 노이즈 (충격의 잔향)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.35, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) {
+      nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.22, now);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    const lpf2 = ctx.createBiquadFilter();
+    lpf2.type = 'lowpass'; lpf2.frequency.value = 700;
+    noise.connect(lpf2); lpf2.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.38);
+
+    // ⑤ 초저음 서브 임팩트 (몸을 울리는 깊이)
+    const sub = ctx.createOscillator();
+    const subG = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(45, now);
+    sub.frequency.exponentialRampToValueAtTime(25, now + 0.4);
+    subG.gain.setValueAtTime(0.35, now);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    sub.connect(subG); subG.connect(out);
+    sub.start(now); sub.stop(now + 0.52);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 일반 피격음 (저주 레이어링 데모용, 게임 내 'hit' 효과음과 동일) ───
+function playSfxHit() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(300, ctx.currentTime);
+    osc.frequency.setValueAtTime(150, ctx.currentTime + 0.05);
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 저주 피해 레이어링: 일반 피격 + 저주 효과 동시 재생 ───
+function playSfxCurseHitLayered() {
+  playSfxHit();
+  playSfxCurseTick();
+}
+
+// ─── 저주 틱: 어둡고 불길한 속삭임 ───
+function playSfxCurseTick() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 디튠된 저음 드론 (불길한 기저)
+    const d1 = ctx.createOscillator();
+    const d1G = ctx.createGain();
+    d1.type = 'sine';
+    d1.frequency.setValueAtTime(180, now);
+    d1.frequency.linearRampToValueAtTime(130, now + 0.5);
+    d1G.gain.setValueAtTime(0.1, now);
+    d1G.gain.linearRampToValueAtTime(0.15, now + 0.2);
+    d1G.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    d1.connect(d1G); d1G.connect(out);
+    d1.start(now); d1.stop(now + 0.85);
+
+    // ② 약간 엇나간 드론 (불협화음)
+    const d2 = ctx.createOscillator();
+    const d2G = ctx.createGain();
+    d2.type = 'sine';
+    d2.frequency.setValueAtTime(193, now);
+    d2.frequency.linearRampToValueAtTime(138, now + 0.5);
+    d2G.gain.setValueAtTime(0.08, now);
+    d2G.gain.linearRampToValueAtTime(0.12, now + 0.2);
+    d2G.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    d2.connect(d2G); d2G.connect(out);
+    d2.start(now); d2.stop(now + 0.85);
+
+    // ③ 고음 휘슬 (영혼 빠져나가는 느낌)
+    const whistle = ctx.createOscillator();
+    const wG = ctx.createGain();
+    whistle.type = 'sine';
+    whistle.frequency.setValueAtTime(800, now + 0.15);
+    whistle.frequency.linearRampToValueAtTime(400, now + 0.75);
+    wG.gain.setValueAtTime(0.06, now + 0.15);
+    wG.gain.linearRampToValueAtTime(0.04, now + 0.4);
+    wG.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    whistle.connect(wG); wG.connect(out);
+    whistle.start(now + 0.15); whistle.stop(now + 0.85);
+
+    // ④ 속삭임 노이즈 (어둠의 숨결)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.6, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.05, now);
+    nG.gain.linearRampToValueAtTime(0.08, now + 0.3);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    const bpf = ctx.createBiquadFilter();
+    bpf.type = 'bandpass'; bpf.frequency.value = 600; bpf.Q.value = 1.5;
+    noise.connect(bpf); bpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.7);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 덱 저장: 깔끔한 확인 (딩-동) ───
+function playSfxDeckSave() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 첫 톤 (C6 = 1047Hz)
+    const n1 = ctx.createOscillator();
+    const n1G = ctx.createGain();
+    n1.type = 'sine';
+    n1.frequency.value = 1047;
+    n1G.gain.setValueAtTime(0.22, now);
+    n1G.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    n1.connect(n1G); n1G.connect(out);
+    n1.start(now); n1.stop(now + 0.32);
+
+    // ② 두번째 톤 (E6 = 1318Hz, 상승)
+    const n2 = ctx.createOscillator();
+    const n2G = ctx.createGain();
+    n2.type = 'sine';
+    n2.frequency.value = 1318;
+    n2G.gain.setValueAtTime(0.22, now + 0.12);
+    n2G.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    n2.connect(n2G); n2G.connect(out);
+    n2.start(now + 0.12); n2.stop(now + 0.52);
+
+    // ③ 하모닉 배음 (풍성함)
+    const h1 = ctx.createOscillator();
+    const h1G = ctx.createGain();
+    h1.type = 'triangle';
+    h1.frequency.value = 2094;
+    h1G.gain.setValueAtTime(0.08, now);
+    h1G.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    h1.connect(h1G); h1G.connect(out);
+    h1.start(now); h1.stop(now + 0.38);
+
+    // ④ 짧은 스파클 (마무리)
+    const sp = ctx.createOscillator();
+    const spG = ctx.createGain();
+    sp.type = 'sine';
+    sp.frequency.setValueAtTime(2637, now + 0.22);
+    sp.frequency.exponentialRampToValueAtTime(3136, now + 0.4);
+    spG.gain.setValueAtTime(0.1, now + 0.22);
+    spG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    sp.connect(spG); spG.connect(out);
+    sp.start(now + 0.22); sp.stop(now + 0.52);
+  } catch (e) { console.error(e); }
+}
+
+// ─── 전체 순차 재생 ───
+function playAll() {
+  const sfxs = [
+    ['🐀 쥐 격파', playSfxRatDeath],
+    ['💣 폭탄 폭발', playSfxBombExplode],
+    ['🪤 덫 발동', playSfxTrapSnap],
+    ['☠ 저주 피해', playSfxCurseTick],
+    ['💾 덱 저장', playSfxDeckSave],
+  ];
+  sfxs.forEach(([name, fn], i) => {
+    setTimeout(() => {
+      console.log(`▶ ${name}`);
+      fn();
+    }, i * 1200);
+  });
+}
+</script>
+</body>
+</html>

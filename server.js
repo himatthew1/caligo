@@ -26,12 +26,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const CHARACTERS = {
   1: [
-    { type:'archer', name:'궁수', tier:1, atk:1, icon:'🏹', tag:null, desc:'좌측 대각선(/) 전체',
+    { type:'archer', name:'궁수', tier:1, atk:1, icon:'🏹', tag:null, desc:'위치한 곳 좌측 대각선 전체 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
-    { type:'spearman', name:'창병', tier:1, atk:1, icon:'🔱', tag:'royal', desc:'세로줄 전체', skills:[] },
-    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'🐎', tag:'royal', desc:'가로줄 전체', skills:[] },
+    { type:'spearman', name:'창병', tier:1, atk:1, icon:'🔱', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
+    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'🐎', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'👁', tag:null, desc:'주변 8칸(자기제외)', skills:[] },
-    { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'👬', tag:'villain', desc:'형:가로3칸, 동생:세로3칸', isTwin:true,
+    { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'👬', tag:'villain', desc:'형 가로 3칸 / 동생 세로 3칸', isTwin:true,
       skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'형을 동생 위치로 또는 동생을 형 위치로 합류'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'🔭', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
@@ -41,7 +41,7 @@ const CHARACTERS = {
       skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
     { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'💣', tag:null, desc:'상하 각2칸(자기제외)',
       skills:[
-        {id:'bomb', name:'시한폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
+        {id:'bomb', name:'폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발. 1 피해.'}
       ] },
     { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null, desc:'좌우 각2칸(자기제외)',
@@ -50,19 +50,19 @@ const CHARACTERS = {
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'🎖', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
     { type:'knight', name:'기사', tier:2, atk:2, icon:'🐴', tag:'royal', desc:'자신 포함 X대각선 5칸', skills:[] },
-    { type:'shadowAssassin', name:'그림자 암살자', tier:2, atk:2, icon:'🗡', tag:'villain', desc:'주변 9칸 중 1칸 선택',
+    { type:'shadowAssassin', name:'그림자 암살자', tier:2, atk:2, icon:'🗡', tag:'villain', desc:'주변 9칸 중 1칸 선택 공격',
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
     { type:'wizard', name:'마법사', tier:2, atk:2, icon:'🧙', tag:null, desc:'한칸 건너뛴 십자 4칸',
       skills:[], passives:['instantMagic'] },
     { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'🛡', tag:null, desc:'자신 + 아래 가로3칸(4칸)',
       skills:[], passives:['ironSkin'] },
-    { type:'witch', name:'마녀', tier:2, atk:1, icon:'🧹', tag:'villain', desc:'원하는 칸 1곳 지정 공격',
+    { type:'witch', name:'마녀', tier:2, atk:1, icon:'🧹', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
       skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에 저주'}] },
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸(col±1,row±1)',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
-    { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리 + 쥐 위치',
+    { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리와 쥐가 소환된 칸 공격',
       skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 타일 세 곳에 쥐 소환.'}] },
-    { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'자신 포함 가로3칸(토글)',
+    { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'가로 3칸을 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
       skills:[], passives:['loyalty'] },
@@ -1159,11 +1159,25 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
     }
   }
 
-  // Destroy rats hit by attacks (opponent's rats)
+  // Destroy rats hit by attacks (opponent's rats) + spectator notify
+  const destroyedRatCells = [];
   for (const cell of atkCells) {
+    const before = room.rats[1 - attackerIdx].length;
     room.rats[1 - attackerIdx] = room.rats[1 - attackerIdx].filter(
       r => !(r.col === cell.col && r.row === cell.row)
     );
+    if (room.rats[1 - attackerIdx].length < before) {
+      destroyedRatCells.push({ col: cell.col, row: cell.row });
+    }
+  }
+  if (destroyedRatCells.length > 0) {
+    const attackerName = room.players[attackerIdx].name;
+    const coordStr = destroyedRatCells.map(c => coord(c.col, c.row)).join(', ');
+    emitToSpectators(room, 'spectator_log', {
+      msg: `🐀 ${attackerName}이(가) ${coordStr}의 쥐 격파함.`,
+      type: 'hit',
+      playerIdx: attackerIdx,
+    });
   }
 
   // Track kill info for game-over messages
@@ -1362,8 +1376,8 @@ function processTurnStart(room) {
     }
   }
 
-  // SP gain every 10 turns (+1 each), per-player max 10, pool max 10, stop after turn 50
-  if (room.turnNumber > 0 && room.turnNumber % 10 === 0 && room.turnNumber <= 50) {
+  // SP gain every 10 turns (+1 each), per-player max 10, pool max 10, stop after turn 40
+  if (room.turnNumber > 0 && room.turnNumber % 10 === 0 && room.turnNumber <= 40) {
     const poolTotal = room.sp[0] + room.sp[1];
     if (poolTotal < 10) {
       room.sp[0] = Math.min(room.sp[0] + 1, 10);
@@ -3232,17 +3246,25 @@ io.on('connection', (socket) => {
       }
     }
 
-    const cellResults = atkCells.map(cell => {
-      const hit = hitResults.find(h => h.col === cell.col && h.row === cell.row);
-      return {
-        col: cell.col, row: cell.row, hit: !!hit,
-        damage: hit ? hit.damage : 0, destroyed: hit ? hit.destroyed : false,
-        revealedType: hit?.revealedType, revealedName: hit?.revealedName, revealedIcon: hit?.revealedIcon,
-        hitName: hit?.hitName, hitIcon: hit?.hitIcon,
-        defPieceIdx: hit?.defPieceIdx,
-        attackerSub: hit?.attackerSub, attackerName: hit?.attackerName, attackerIcon: hit?.attackerIcon,
-      };
-    });
+    // 각 셀별로 모든 hit를 보존 (쌍둥이 중첩 공격 시 같은 셀에 2개의 hit 가능)
+    const cellResults = [];
+    for (const cell of atkCells) {
+      const cellHits = hitResults.filter(h => h.col === cell.col && h.row === cell.row);
+      if (cellHits.length === 0) {
+        cellResults.push({ col: cell.col, row: cell.row, hit: false, damage: 0, destroyed: false });
+      } else {
+        for (const hit of cellHits) {
+          cellResults.push({
+            col: cell.col, row: cell.row, hit: true,
+            damage: hit.damage, destroyed: hit.destroyed,
+            revealedType: hit.revealedType, revealedName: hit.revealedName, revealedIcon: hit.revealedIcon,
+            hitName: hit.hitName, hitIcon: hit.hitIcon,
+            defPieceIdx: hit.defPieceIdx,
+            attackerSub: hit.attackerSub, attackerName: hit.attackerName, attackerIcon: hit.attackerIcon,
+          });
+        }
+      }
+    }
     socket.emit('attack_result', {
       pieceIdx, cellResults, anyHit: hitResults.length > 0,
       oppPieces: oppPieceSummary(defender.pieces),
@@ -3260,14 +3282,17 @@ io.on('connection', (socket) => {
       });
     }
 
-    // 관전자 로그: 일반 공격
+    // 관전자 로그: 일반 공격 (쌍둥이는 각 공격자별로 메시지 분리)
     if (hitResults.length > 0) {
       for (const h of hitResults) {
-        const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
-        const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
+        const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row) || defender.pieces.find(p => !p.alive && p.hp === 0 && p.lastCol === h.col && p.lastRow === h.row);
+        const targetName = (h.hitIcon && h.hitName) ? `${h.hitIcon}${h.hitName}` : (dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row));
+        // 실제 공격자 (쌍둥이의 경우 attackerSub로 구분)
+        const atkName = h.attackerName || atkPiece.name;
+        const atkIcon = h.attackerIcon || atkPiece.icon;
         emitToSpectators(room, 'spectator_log', { msg: h.destroyed
-          ? `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name}! ${targetName} 격파함. 💀`
-          : `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name}! ${targetName}에 ${h.damage} 피해.`, type: 'hit', playerIdx: idx });
+          ? `⚔ ${player.name}의 ${atkIcon}${atkName}! ${targetName} 격파함. 💀`
+          : `⚔ ${player.name}의 ${atkIcon}${atkName}! ${targetName}에 ${h.damage} 피해.`, type: 'hit', playerIdx: idx });
       }
     } else {
       emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name}! 공격 빗나감.`, type: 'miss', playerIdx: idx });
@@ -3321,8 +3346,19 @@ io.on('connection', (socket) => {
   // ── 기권 ──
   socket.on('surrender', () => {
     const room = rooms[socket.data.roomId];
-    if (!room || room.phase !== 'game') return;
+    if (!room) return;
     const idx = socket.data.idx;
+    // 이미 종료된 방은 무시
+    if (room.phase === 'ended' || room.phase === 'waiting') return;
+    // 세팅 단계(초기공개/교환/최종공개/HP/배치)에서 나가기 — 상대 승리
+    const setupPhases = ['initial_reveal','exchange_draft','final_reveal','hp_distribution','placement'];
+    if (setupPhases.includes(room.phase)) {
+      emitToSpectators(room, 'spectator_log', { msg: `🚪 ${room.players[idx].name}이(가) 게임을 나갔습니다.`, type: 'system', playerIdx: idx });
+      endGame(room, 1 - idx, 'disconnect');
+      return;
+    }
+    // 게임 중 기권
+    if (room.phase !== 'game') return;
     if (room.currentPlayerIdx !== idx) return;
     emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다!`, type: 'system', playerIdx: idx });
     endGame(room, 1 - idx, 'surrender');
