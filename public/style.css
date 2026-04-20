@@ -424,7 +424,7 @@ body {
 }
 .deck-list-slot.selected::after {
   content: '⭐ 선택됨';
-  position: absolute; top: -10px; right: 8px;
+  position: absolute; top: -10px; left: 8px;
   background: var(--accent); color: #1a1a2e; font-size: 0.6rem; font-weight: 700;
   padding: 2px 8px; border-radius: 8px;
   z-index: 2;
@@ -440,15 +440,42 @@ body {
 }
 .deck-list-name:hover { background: rgba(226,168,75,0.12); cursor: text; }
 .deck-list-empty-label { font-size: 0.78rem; color: var(--muted); flex: 1; font-style: italic; }
-.deck-list-rename, .deck-list-del {
-  background: none; border: none; color: var(--muted); font-size: 0.8rem;
-  cursor: pointer; padding: 2px 6px; border-radius: 4px; opacity: 0;
-  transition: opacity 0.15s; flex-shrink: 0;
+
+/* 덱 슬롯 행 — 슬롯은 full-width, 액션 버튼은 absolute로 우측 상단에 오버레이 */
+.deck-list-row {
+  position: relative;
+  width: 100%;
 }
-.deck-list-slot.filled:hover .deck-list-rename,
-.deck-list-slot.filled:hover .deck-list-del { opacity: 1; }
-.deck-list-rename:hover { color: var(--accent); }
-.deck-list-del:hover { color: var(--danger); }
+.deck-list-row .deck-list-slot { width: 100%; }
+
+.deck-list-actions {
+  position: absolute;
+  top: -8px; right: -6px;       /* 슬롯 우측 상단 바깥쪽으로 살짝 */
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0;                    /* 평소엔 숨김 */
+  transition: opacity 0.15s;
+  z-index: 3;
+}
+.deck-list-row:hover .deck-list-actions { opacity: 1; }
+
+/* 드래프트 슬롯의 X 버튼과 완전히 동일한 스타일 */
+.deck-list-rename, .deck-list-del {
+  width: 22px; height: 22px;
+  padding: 0; margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #1a1a2e; border: 1px solid var(--border); border-radius: 50%;
+  color: var(--muted); cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+}
+.deck-list-rename:hover { color: #1a1a2e; border-color: var(--accent); background: var(--accent); }
+.deck-list-del:hover    { color: #fff;     border-color: var(--danger); background: var(--danger); }
 
 .step-indicator { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 16px 0 24px; }
 .step-indicator .step {

@@ -298,6 +298,9 @@ function renderDeckList() {
   const list = loadDeckList();
   container.innerHTML = '';
   list.forEach((deck, idx) => {
+    // 래퍼: 슬롯 + 바깥쪽 액션 버튼
+    const wrap = document.createElement('div');
+    wrap.className = 'deck-list-row';
     const slot = document.createElement('div');
     slot.className = 'deck-list-slot' + (deck ? ' filled' : ' empty');
     if (deck) {
@@ -312,17 +315,17 @@ function renderDeckList() {
       slot.innerHTML = `
         <span class="deck-list-num">${idx + 1}</span>
         <div class="deck-list-icons">${iconsHtml}</div>
-        <span class="deck-list-name" title="이름 수정">${deckName || '<span style="color:var(--muted);font-style:italic">이름 없음</span>'}</span>
-        <button class="deck-list-rename" data-idx="${idx}" title="이름 수정">✏</button>
-        <button class="deck-list-del" data-idx="${idx}" title="삭제">✕</button>`;
+        <span class="deck-list-name" title="이름 수정">${deckName || '<span style="color:var(--muted);font-style:italic">이름 없음</span>'}</span>`;
       slot.addEventListener('click', (e) => {
         if (e.target.classList.contains('deck-list-del')) return;
         if (e.target.classList.contains('deck-list-rename')) return;
         if (e.target.classList.contains('deck-list-name')) return;
-        // 덱 불러오기
+        if (e.target.closest('.deck-list-actions')) return;
+        // 덱 불러오기 + 메인 덱으로 저장 (로비 기본 덱으로 사용됨)
         S.draftSelected = { 1: deck.t1, 2: deck.t2, 3: deck.t3 };
         S.deckSavedState = { t1: deck.t1, t2: deck.t2, t3: deck.t3 };
         S.deckSaved = true;
+        saveDeck(deck.t1, deck.t2, deck.t3);
         buildDraftStepUI();
         renderDeckList();
         showSkillToast('덱을 불러왔습니다.', false, undefined, 'event');
@@ -340,7 +343,17 @@ function renderDeckList() {
         openDeckNameModal('');
       });
     }
-    container.appendChild(slot);
+    wrap.appendChild(slot);
+    // 채워진 슬롯만 바깥쪽에 액션 버튼 추가
+    if (deck) {
+      const actions = document.createElement('div');
+      actions.className = 'deck-list-actions';
+      actions.innerHTML = `
+        <button class="deck-list-rename" data-idx="${idx}" title="이름 수정">✏</button>
+        <button class="deck-list-del" data-idx="${idx}" title="삭제">×</button>`;
+      wrap.appendChild(actions);
+    }
+    container.appendChild(wrap);
   });
   // 삭제 버튼 이벤트
   container.querySelectorAll('.deck-list-del').forEach(btn => {
@@ -367,9 +380,9 @@ function renderDeckList() {
   container.querySelectorAll('.deck-list-name').forEach(span => {
     span.addEventListener('click', (e) => {
       e.stopPropagation();
-      const slot = e.target.closest('.deck-list-slot');
-      if (!slot) return;
-      const idx = Array.from(container.children).indexOf(slot);
+      const row = e.target.closest('.deck-list-row');
+      if (!row) return;
+      const idx = Array.from(container.children).indexOf(row);
       if (idx >= 0) openRename(idx);
     });
   });
