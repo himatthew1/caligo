@@ -1528,49 +1528,74 @@ function processTurnStart(room) {
     emitToSpectators(room, 'spectator_log', { msg: '⚡ 새로운 SP가 지급되었습니다.', type: 'event' });
   }
 
-  // Board shrink warning (turn 40+)
-  if (room.turnNumber >= 40 && !room.boardShrunk) {
-    const remaining = 50 - room.turnNumber;
-    if (remaining > 0) {
-      emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining });
-      emitToSpectators(room, 'spectator_log', { msg: `⏳ 외곽 파괴까지 ${remaining}턴`, type: 'event' });
-    }
-  }
-
-  // Board shrink at turn 50
-  if (room.turnNumber >= 50 && !room.boardShrunk) {
-    room.boardShrunk = true;
-    room.boardBounds = { min: 1, max: 3 };
-    const eliminated = [];
-    for (let pi = 0; pi < room.players.length; pi++) {
-      const pl = room.players[pi];
-      for (const p of pl.pieces) {
-        if (p.alive && !inBounds(p.col, p.row, room.boardBounds)) {
-          p.alive = false;
-          p.hp = 0;
-          eliminated.push({ type: p.type, name: p.name, icon: p.icon, col: p.col, row: p.row, owner: pi });
-        }
+  // ── 보드 축소 스케줄 ──
+  // 1v1: 40턴 경고 → 50턴 5x5→3x3
+  // 팀전: 20턴 경고 → 25턴 7x7→5x5 / 45턴 경고 → 50턴 5x5→3x3
+  const schedule = getBoardShrinkSchedule(room);
+  for (const ev of schedule) {
+    // 경고 (5턴 전부터)
+    if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
+      const remaining = ev.shrinkTurn - room.turnNumber;
+      if (remaining > 0) {
+        emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining, stage: ev.stage });
+        emitToSpectators(room, 'spectator_log', { msg: `⏳ 외곽 파괴까지 ${remaining}턴`, type: 'event' });
       }
     }
-    // Remove board objects outside bounds
-    for (let i = 0; i < 2; i++) {
-      room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
-      room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
-    }
-    emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated });
-    emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽이 파괴되었습니다.', type: 'event' });
+    // 축소 실행
+    if (room.turnNumber >= ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
+      room.boardShrinkStage = ev.stage;
+      // 최종 축소 시 1v1 레거시 플래그도 설정 (기존 코드 호환)
+      if (ev.final) room.boardShrunk = true;
+      room.boardBounds = { ...ev.newBounds };
+      const eliminated = [];
+      for (let pi = 0; pi < room.players.length; pi++) {
+        const pl = room.players[pi];
+        for (const p of pl.pieces) {
+          if (p.alive && !inBounds(p.col, p.row, room.boardBounds)) {
+            p.alive = false;
+            p.hp = 0;
+            eliminated.push({ type: p.type, name: p.name, icon: p.icon, col: p.col, row: p.row, owner: pi });
+          }
+        }
+      }
+      // 영역 밖 오브젝트/쥐 제거
+      for (let i = 0; i < room.players.length; i++) {
+        if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
+        if (room.rats[i]) room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
+      }
+      emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated, stage: ev.stage });
+      emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽이 파괴되었습니다.', type: 'event' });
 
-    // Check board shrink wins/draw
-    const p0Dead = checkWin(room, 0);
-    const p1Dead = checkWin(room, 1);
-    if (p0Dead && p1Dead) {
-      setKillInfo(room, 'shrink', null, []);
-      endGame(room, -1, 'draw');
-      return;
+      // 축소로 인한 승부 체크
+      if (room.mode === 'team') {
+        const aElim = isTeamEliminated(room, 0);
+        const bElim = isTeamEliminated(room, 1);
+        if (aElim && bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
+        if (aElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[1][0], 'shrink'); return; }
+        if (bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[0][0], 'shrink'); return; }
+      } else {
+        const p0Dead = checkWin(room, 0);
+        const p1Dead = checkWin(room, 1);
+        if (p0Dead && p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
+        if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
+        if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
+      }
     }
-    if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
-    if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
   }
+}
+
+// 보드 축소 스케줄 (모드별)
+function getBoardShrinkSchedule(room) {
+  if (room.mode === 'team') {
+    return [
+      { stage: 1, warnTurn: 20, shrinkTurn: 25, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5
+      { stage: 2, warnTurn: 45, shrinkTurn: 50, newBounds: { min: 2, max: 4 }, final: true },   // 5x5 → 3x3
+    ];
+  }
+  // 1v1: 기존 로직 그대로
+  return [
+    { stage: 1, warnTurn: 40, shrinkTurn: 50, newBounds: { min: 1, max: 3 }, final: true },
+  ];
 }
 
 function endTurn(room) {
