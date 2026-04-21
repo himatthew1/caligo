@@ -1103,6 +1103,199 @@ if (_btnTeamRevealContinue) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 배치 ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+S.teamPlacement = {
+  myPieces: [],
+  teammates: [],         // [{ idx, name, pieces }]
+  selectedPieceIdx: null,
+  zone: null,            // { rowMin, rowMax }
+  boardBounds: null,
+  confirmed: false,
+};
+
+socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, zone, myPieces, teammates }) => {
+  S.playerIdx = myIdx;
+  S.teamId = teamId;
+  S.teamTeams = teams || S.teamTeams;
+  S.boardBounds = boardBounds || { min: 0, max: 6 };
+  S.teamPlacement = {
+    myPieces: myPieces || [],
+    teammates: teammates || [],
+    selectedPieceIdx: null,
+    zone: zone || { rowMin: teamId === 0 ? 0 : 4, rowMax: teamId === 0 ? 2 : 6 },
+    boardBounds: boardBounds,
+    confirmed: false,
+  };
+  renderTeamPlacement();
+  showScreen('screen-team-placement');
+});
+
+socket.on('team_placement_update', ({ teamPieces }) => {
+  if (!teamPieces) return;
+  // 내 pieces 업데이트
+  const mine = teamPieces.find(t => t.idx === S.playerIdx);
+  if (mine) S.teamPlacement.myPieces = mine.pieces;
+  // 팀원 pieces 업데이트
+  S.teamPlacement.teammates = teamPieces.filter(t => t.idx !== S.playerIdx);
+  renderTeamPlacement();
+});
+
+socket.on('team_placed_ok', ({ pieceIdx, col, row }) => {
+  if (S.teamPlacement.myPieces[pieceIdx]) {
+    S.teamPlacement.myPieces[pieceIdx].col = col;
+    S.teamPlacement.myPieces[pieceIdx].row = row;
+  }
+  S.teamPlacement.selectedPieceIdx = null;
+  renderTeamPlacement();
+});
+
+socket.on('team_confirm_placement_ok', () => {
+  S.teamPlacement.confirmed = true;
+  renderTeamPlacement();
+  showSkillToast('배치 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
+});
+
+socket.on('team_placement_status', ({ placementDone, doneNames }) => {
+  const statusEl = document.getElementById('team-placement-status');
+  if (statusEl) {
+    const doneCount = (placementDone || []).filter(d => d).length;
+    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+  }
+});
+
+function renderTeamPlacement() {
+  const titleEl = document.getElementById('team-placement-title');
+  if (titleEl) {
+    const teamLabel = S.teamId === 0 ? 'A팀 (상단)' : 'B팀 (하단)';
+    titleEl.textContent = `배치 — ${teamLabel}`;
+  }
+  // 보드 렌더 (7x7)
+  const board = document.getElementById('team-placement-board');
+  if (!board) return;
+  const b = S.teamPlacement.boardBounds || { min: 0, max: 6 };
+  const zone = S.teamPlacement.zone;
+  // 팀 점유 맵
+  const occupied = {};  // key = `${c},${r}`, val = { owner: idx, piece }
+  for (const pc of S.teamPlacement.myPieces || []) {
+    if (pc.col >= 0) occupied[`${pc.col},${pc.row}`] = { owner: 'me', piece: pc };
+  }
+  for (const tm of S.teamPlacement.teammates || []) {
+    for (const pc of tm.pieces || []) {
+      if (pc.col >= 0) occupied[`${pc.col},${pc.row}`] = { owner: 'teammate', piece: pc, teammateName: tm.name };
+    }
+  }
+  let html = '';
+  for (let r = b.min; r <= b.max; r++) {
+    for (let c = b.min; c <= b.max; c++) {
+      const classes = ['cell'];
+      // 구역 표시
+      const isMineZone = r >= zone.rowMin && r <= zone.rowMax;
+      if (isMineZone) classes.push('zone-mine');
+      else if (r === 3) classes.push('zone-neutral');
+      else classes.push('zone-other');
+      // A/B 색상 힌트
+      if (!isMineZone) {
+        if (r < 3) classes.push('zone-team-a');
+        else if (r > 3) classes.push('zone-team-b');
+      }
+      // 점유 표시
+      const occ = occupied[`${c},${r}`];
+      let inner = '';
+      if (occ) {
+        inner = `<span class="piece-icon">${occ.piece.icon || ''}</span>`;
+        if (occ.owner === 'teammate') classes.push('occupied-other');
+      }
+      html += `<div class="${classes.join(' ')}" data-col="${c}" data-row="${r}">${inner}</div>`;
+    }
+  }
+  board.innerHTML = html;
+  // 클릭: 선택된 piece를 해당 위치에 배치
+  board.querySelectorAll('.cell').forEach(cellEl => {
+    cellEl.addEventListener('click', () => {
+      if (S.teamPlacement.confirmed) return;
+      const c = parseInt(cellEl.dataset.col, 10);
+      const r = parseInt(cellEl.dataset.row, 10);
+      const isMineZone = r >= zone.rowMin && r <= zone.rowMax;
+      if (!isMineZone) { showSkillToast('본인 팀 구역에만 배치할 수 있습니다.', false, undefined, 'event'); return; }
+      const pIdx = S.teamPlacement.selectedPieceIdx;
+      if (pIdx === null || pIdx === undefined) { showSkillToast('먼저 말을 선택하세요.', false, undefined, 'event'); return; }
+      socket.emit('team_place_piece', { pieceIdx: pIdx, col: c, row: r });
+    });
+  });
+  // 내 pieces 리스트
+  const myList = document.getElementById('team-placement-my-pieces');
+  if (myList) {
+    myList.innerHTML = (S.teamPlacement.myPieces || []).map((pc, i) => {
+      const placed = pc.col >= 0;
+      const selected = S.teamPlacement.selectedPieceIdx === i;
+      return `<div class="team-placement-piece ${placed ? 'placed' : ''} ${selected ? 'selected' : ''}" data-idx="${i}">
+        <span class="piece-icon">${pc.icon || ''}</span>
+        <span class="piece-name">${escapeHtmlGlobal(pc.name || pc.type)}</span>
+        <span class="piece-hp">HP ${pc.hp}</span>
+      </div>`;
+    }).join('');
+    myList.querySelectorAll('.team-placement-piece').forEach(el => {
+      el.addEventListener('click', () => {
+        if (S.teamPlacement.confirmed) return;
+        const i = parseInt(el.dataset.idx, 10);
+        S.teamPlacement.selectedPieceIdx = S.teamPlacement.selectedPieceIdx === i ? null : i;
+        renderTeamPlacement();
+      });
+    });
+  }
+  // 팀원 pieces
+  const tmList = document.getElementById('team-placement-teammate-pieces');
+  if (tmList) {
+    const teammates = S.teamPlacement.teammates || [];
+    if (!teammates.length) {
+      tmList.innerHTML = '<p class="muted" style="font-size:0.78rem">팀원 정보 없음</p>';
+    } else {
+      tmList.innerHTML = teammates.map(tm => {
+        const placedCnt = (tm.pieces || []).filter(p => p.col >= 0).length;
+        const totalCnt = (tm.pieces || []).length;
+        return `<div class="team-placement-piece">
+          <span class="piece-name"><strong>${escapeHtmlGlobal(tm.name)}</strong></span>
+          <span class="piece-hp">${placedCnt}/${totalCnt} 배치</span>
+        </div>`;
+      }).join('');
+    }
+  }
+  // 확정 버튼
+  const btn = document.getElementById('btn-team-placement-confirm');
+  if (btn) {
+    const allPlaced = (S.teamPlacement.myPieces || []).every(p => p.col >= 0);
+    btn.disabled = S.teamPlacement.confirmed || !allPlaced;
+    btn.textContent = S.teamPlacement.confirmed ? '✅ 확정됨' : allPlaced ? '배치 확정' : '모든 말을 배치하세요';
+  }
+}
+
+const _btnTeamPlacementConfirm = document.getElementById('btn-team-placement-confirm');
+if (_btnTeamPlacementConfirm) {
+  _btnTeamPlacementConfirm.addEventListener('click', () => {
+    if (_btnTeamPlacementConfirm.disabled) return;
+    socket.emit('team_confirm_placement');
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 게임 시작 (Phase 4d 초기 훅) ─────────────────────────
+// ═══════════════════════════════════════════════════════════════
+socket.on('team_game_start', ({ myIdx, teamId, teams, currentPlayerIdx, turnNumber, boardBounds, sp, instantSp, players }) => {
+  S.playerIdx = myIdx;
+  S.teamId = teamId;
+  S.teamTeams = teams || S.teamTeams;
+  S.turnNumber = turnNumber;
+  S.boardBounds = boardBounds;
+  S.sp = sp;
+  S.instantSp = instantSp;
+  S.teamGamePlayers = players || [];
+  // Phase 4d: screen-game 전환 및 렌더 (추후 구현)
+  showSkillToast(`🎮 게임 시작! 현재 턴: ${players?.find(p=>p.idx===currentPlayerIdx)?.name || '?'}`, false, undefined, 'event');
+  // TODO: screen-game 전환 + 4인 프로필 UI
+});
+
 // 팀 대기실 렌더
 function renderTeamWaitingRoom() {
   const statusCount = document.getElementById('team-status-count');

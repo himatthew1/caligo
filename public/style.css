@@ -355,6 +355,70 @@ body {
 /* 팀 슬롯 아이콘 */
 .slot-icon-big { font-size: 1.6rem; display: block; }
 .slot-name-sm { font-size: 0.82rem; font-weight: 600; }
+
+/* ── 팀전 배치 ── */
+.team-placement-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+  max-width: 1100px; width: 100%;
+  padding: 20px;
+}
+.team-placement-main {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.team-placement-main h2 { margin: 0; color: var(--accent); }
+.placement-board {
+  display: grid;
+  grid-template-columns: repeat(7, 48px);
+  grid-template-rows: repeat(7, 48px);
+  gap: 2px;
+  background: var(--border); padding: 2px;
+  border-radius: 8px;
+}
+.placement-board .cell {
+  background: var(--bg); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 1.3rem;
+  position: relative;
+  transition: all 0.15s;
+}
+.placement-board .cell.zone-mine { background: rgba(226,168,75,0.10); border-color: rgba(226,168,75,0.3); }
+.placement-board .cell.zone-team-a { background: rgba(96,165,250,0.06); }
+.placement-board .cell.zone-team-b { background: rgba(239,68,68,0.06); }
+.placement-board .cell.zone-neutral { background: rgba(255,255,255,0.02); cursor: not-allowed; }
+.placement-board .cell:hover:not(.zone-neutral):not(.zone-other):not(.occupied-other) { background: rgba(226,168,75,0.25); }
+.placement-board .cell.zone-other { cursor: not-allowed; opacity: 0.55; }
+.placement-board .cell .piece-icon { font-size: 1.4rem; }
+.placement-board .cell.selected-dest { outline: 2px solid var(--accent); }
+
+.team-placement-sidebar {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px;
+  display: flex; flex-direction: column;
+}
+.team-placement-pieces {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.team-placement-piece {
+  background: var(--bg); border: 2px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
+  display: flex; align-items: center; gap: 8px;
+  cursor: pointer; transition: all 0.15s;
+  font-size: 0.85rem;
+}
+.team-placement-piece:hover { border-color: var(--accent); }
+.team-placement-piece.selected { border-color: var(--accent); background: rgba(226,168,75,0.12); box-shadow: 0 0 8px rgba(226,168,75,0.2); }
+.team-placement-piece.placed { opacity: 0.55; }
+.team-placement-piece.placed::after {
+  content: '✓';
+  margin-left: auto; color: #22c55e; font-weight: 800;
+}
+.team-placement-piece .piece-icon { font-size: 1.3rem; }
+.team-placement-piece .piece-name { flex: 1; }
+.team-placement-piece .piece-hp { color: var(--muted); font-size: 0.75rem; }
 .btn-tutorial:hover:not(:disabled) { background: #4f46e5; }
 .btn-spectate { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px !important; font-size: 0.8rem; padding: 6px 16px; }
 .btn-spectate:hover:not(:disabled) { color: #818cf8; border-color: #818cf8; background: rgba(129,140,248,0.08); }

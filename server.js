@@ -795,8 +795,12 @@ function transitionToTeamPlacement(room) {
   clearTimer(room);
   room.phase = 'team_placement';
   room.placementDone = Array(room.playerCount).fill(false);
-  // TODO(Phase 4e): 배치 페이즈 구현
-  // 임시로 모두 done 처리 후 turn_start 유도
+  // 모든 pieces를 미배치 상태로 리셋 (col=-1, row=-1)
+  for (const p of room.players) {
+    for (const pc of p.pieces) {
+      pc.col = -1; pc.row = -1;
+    }
+  }
   for (const p of room.players) {
     if (!p.socketId) continue;
     io.to(p.socketId).emit('team_placement_phase', {
@@ -804,15 +808,112 @@ function transitionToTeamPlacement(room) {
       teamId: p.teamId,
       teams: room.teams,
       boardBounds: room.boardBounds,
+      zone: getTeamPlacementZone(p.teamId),
       myPieces: pieceSummary(p.pieces),
+      teammates: getTeammates(room, p.index).map(i => ({
+        idx: i,
+        name: room.players[i].name,
+        pieces: pieceSummary(room.players[i].pieces),
+      })),
     });
   }
   startTimer(room, 'team_placement', () => teamPlacementTimeout(room));
 }
 
+// 팀 배치 구역
+function getTeamPlacementZone(teamId) {
+  if (teamId === 0) return { rowMin: 0, rowMax: 2 };  // A팀 상단
+  return { rowMin: 4, rowMax: 6 };                    // B팀 하단
+}
+
+// 팀 배치 상태를 팀원에게 브로드캐스트
+function broadcastTeamPlacementUpdate(room, changedIdx) {
+  if (!room || room.mode !== 'team') return;
+  const teamId = room.players[changedIdx]?.teamId;
+  if (teamId === undefined || teamId === null) return;
+  const teamMembers = room.teams[teamId] || [];
+  // 팀 내 모두에게 팀 전체 pieces 상태 전송
+  const teamPieces = teamMembers.map(i => ({
+    idx: i,
+    name: room.players[i].name,
+    pieces: pieceSummary(room.players[i].pieces),
+  }));
+  for (const tIdx of teamMembers) {
+    const tp = room.players[tIdx];
+    if (!tp || !tp.socketId) continue;
+    io.to(tp.socketId).emit('team_placement_update', { teamPieces });
+  }
+}
+
 function teamPlacementTimeout(room) {
   if (room.phase !== 'team_placement') return;
-  // TODO: AI 배치 헬퍼
+  // 미배치 유닛은 자동 배치 (팀 구역 내 빈 칸)
+  for (let i = 0; i < room.playerCount; i++) {
+    if (room.placementDone[i]) continue;
+    const p = room.players[i];
+    const zone = getTeamPlacementZone(p.teamId);
+    // 팀 내 점유된 칸 수집
+    const occupied = new Set();
+    for (const tIdx of room.teams[p.teamId]) {
+      for (const pc of room.players[tIdx].pieces) {
+        if (pc.col >= 0 && pc.row >= 0) occupied.add(`${pc.col},${pc.row}`);
+      }
+    }
+    // 미배치 pieces 순회하며 빈 칸에 자동 배치
+    for (const pc of p.pieces) {
+      if (pc.col >= 0) continue;
+      for (let r = zone.rowMin; r <= zone.rowMax; r++) {
+        let placed = false;
+        for (let c = room.boardBounds.min; c <= room.boardBounds.max; c++) {
+          const key = `${c},${r}`;
+          if (!occupied.has(key)) {
+            pc.col = c; pc.row = r;
+            occupied.add(key);
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+    }
+    room.placementDone[i] = true;
+  }
+  startTeamGameFromRoom(room);
+}
+
+// 팀전 게임 시작 — A1 먼저
+function startTeamGameFromRoom(room) {
+  clearTimer(room);
+  room.phase = 'game';
+  // 턴 순서: A팀 랜덤으로 먼저 or A팀이 항상 먼저? 단순히 A1 먼저.
+  room.currentPlayerIdx = (room.teams[0] || [])[0] ?? 0;
+  room.turnNumber = 1;
+  // 첫 플레이어 턴 리셋
+  const first = room.players[room.currentPlayerIdx];
+  if (first) {
+    first.actionDone = false;
+    first.actionUsedSkillReplace = false;
+    first.skillsUsedBeforeAction = [];
+    first.twinMovedSubs = [];
+  }
+  // 각 플레이어에게 게임 시작 알림
+  for (const p of room.players) {
+    if (!p.socketId) continue;
+    io.to(p.socketId).emit('team_game_start', {
+      myIdx: p.index,
+      teamId: p.teamId,
+      teams: room.teams,
+      currentPlayerIdx: room.currentPlayerIdx,
+      turnNumber: room.turnNumber,
+      boardBounds: room.boardBounds,
+      sp: room.sp,
+      instantSp: room.instantSp,
+      players: room.players.map(pl => ({
+        idx: pl.index, name: pl.name, teamId: pl.teamId,
+        pieces: pieceSummary(pl.pieces),
+      })),
+    });
+  }
 }
 
 // ── 초기 공개: 드래프트 직후, 상대 캐릭터 타입 공개 ──
@@ -3274,6 +3375,70 @@ io.on('connection', (socket) => {
       transitionToTeamReveal(room);
     } else {
       socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
+    }
+  });
+
+  // ── 팀전 배치 ──
+  socket.on('team_place_piece', ({ pieceIdx, col, row }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'team_placement') return;
+    const idx = socket.data.idx;
+    if (idx === undefined || idx < 0) return;
+    const player = room.players[idx];
+    if (!player) return;
+    if (room.placementDone[idx]) {
+      socket.emit('err', { msg: '이미 확정한 배치는 수정할 수 없습니다.' }); return;
+    }
+    const bounds = room.boardBounds;
+    if (pieceIdx < 0 || pieceIdx >= player.pieces.length) return;
+    const zone = getTeamPlacementZone(player.teamId);
+    if (!inBounds(col, row, bounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
+    if (row < zone.rowMin || row > zone.rowMax) {
+      socket.emit('err', { msg: '본인 팀 구역에만 배치 가능합니다.' }); return;
+    }
+    const piece = player.pieces[pieceIdx];
+    // 자기 말 중복 체크 (쌍둥이는 서로 공유 허용)
+    if (piece.subUnit) {
+      if (player.pieces.some((p, i) => i !== pieceIdx && p.col === col && p.row === row && !p.subUnit)) {
+        socket.emit('err', { msg: '이미 자신의 말이 있는 칸입니다.' }); return;
+      }
+    } else {
+      if (player.pieces.some((p, i) => i !== pieceIdx && p.col === col && p.row === row)) {
+        socket.emit('err', { msg: '이미 자신의 말이 있는 칸입니다.' }); return;
+      }
+    }
+    // 팀원 말 중복 체크
+    for (const tIdx of getTeammates(room, idx)) {
+      const tp = room.players[tIdx];
+      if (tp.pieces.some(p => p.col === col && p.row === row)) {
+        socket.emit('err', { msg: '팀원의 말이 이미 있는 칸입니다.' }); return;
+      }
+    }
+    piece.col = col; piece.row = row;
+    socket.emit('team_placed_ok', { pieceIdx, col, row });
+    broadcastTeamPlacementUpdate(room, idx);
+  });
+
+  socket.on('team_confirm_placement', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'team_placement') return;
+    const idx = socket.data.idx;
+    if (idx === undefined || idx < 0) return;
+    const player = room.players[idx];
+    if (!player) return;
+    if (player.pieces.some(p => p.col < 0)) {
+      socket.emit('err', { msg: '모든 말을 배치하세요.' }); return;
+    }
+    room.placementDone[idx] = true;
+    socket.emit('team_confirm_placement_ok');
+    io.to(room.id).emit('team_placement_status', {
+      placementDone: [...room.placementDone],
+      doneNames: room.players.filter((_, i) => room.placementDone[i]).map(p => p.name),
+    });
+    if (room.placementDone.every(d => d)) {
+      startTeamGameFromRoom(room);
+    } else {
+      socket.emit('wait_msg', { msg: '다른 플레이어의 배치를 기다리는 중...' });
     }
   });
 
