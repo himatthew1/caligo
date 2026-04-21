@@ -1336,9 +1336,12 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     return dmg;
   }
 
-  // Step 2: Commander buff - if attacker is in commander's cross (up/down/left/right 1), +1 damage
+  // Step 2: Commander buff — 팀모드에서는 팀원 지휘관 인접도 버프 적용
   if (attacker) {
-    for (const p of attacker.pieces) {
+    const commanderSources = (room.mode === 'team')
+      ? getAllyIndices(room, attackerIdx).flatMap(i => room.players[i].pieces)
+      : attacker.pieces;
+    for (const p of commanderSources) {
       if (p.alive && p.type === 'commander' && p !== attackerPiece) {
         const dc = Math.abs(p.col - attackerPiece.col);
         const dr = Math.abs(p.row - attackerPiece.row);
@@ -1394,17 +1397,25 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   }
 
   // Step 8: Bodyguard passive — 왕실 아군 피해를 1로 줄이고 대신 받음 (항상 활성)
+  // 팀모드: 방어자의 팀 전체에서 호위무사 탐색 + 대상 왕실은 팀원 것도 가능
   if (defenderPiece.tag === 'royal' && defenderPiece.type !== 'bodyguard') {
-    const bodyguardPiece = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
+    const defenderTeamIdx = (room.mode === 'team')
+      ? getAllyIndices(room, 1 - attackerIdx)  // 1v1에선 [1-attackerIdx], 팀모드엔 해당 팀 인덱스들
+      : [1 - attackerIdx];
+    // 호위무사 탐색 (가장 먼저 찾은 것)
+    let bodyguardPiece = null, bodyguardOwnerIdx = null;
+    for (const bIdx of defenderTeamIdx) {
+      const bg = room.players[bIdx].pieces.find(p => p.type === 'bodyguard' && p.alive);
+      if (bg) { bodyguardPiece = bg; bodyguardOwnerIdx = bIdx; break; }
+    }
     if (bodyguardPiece) {
-      // Redirect: original target takes 0, bodyguard takes 1
       bodyguardPiece.hp = Math.max(0, bodyguardPiece.hp - 1);
-      const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'bodyguard', playerIdx: 1 - attackerIdx, msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.` });
-      emitToSpectators(room, 'spectator_log', { msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.`, type: 'passive', playerIdx: 1 - attackerIdx });
+      const defName = room.players[bodyguardOwnerIdx].name;
+      emitToBoth(room, 'passive_alert', { type: 'bodyguard', playerIdx: bodyguardOwnerIdx, msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.` });
+      emitToSpectators(room, 'spectator_log', { msg: `🛡 충성: ${defName}의 호위무사가 ${defenderPiece.name} 대신 1 피해.`, type: 'passive', playerIdx: bodyguardOwnerIdx });
       if (bodyguardPiece.hp <= 0) {
         bodyguardPiece.alive = false;
-        handleDeath(room, bodyguardPiece, 1 - attackerIdx);
+        handleDeath(room, bodyguardPiece, bodyguardOwnerIdx);
       }
       return 0;
     }
@@ -1548,17 +1559,22 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
     }
   }
 
-  // SlaughterHero passive: allies in attack range take 0.5 dmg
+  // SlaughterHero passive: 공격 범위 내 "아군"(팀모드: 자기+팀원) 1 피해
   if (atkPiece.type === 'slaughterHero') {
     const attackerName = room.players[attackerIdx].name;
+    const allyIndices = (room.mode === 'team') ? getAllyIndices(room, attackerIdx) : [attackerIdx];
     for (const cell of atkCells) {
-      for (const allyPiece of attacker.pieces) {
-        if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
-          allyPiece.hp = Math.max(0, allyPiece.hp - 1);
-          emitToBoth(room, 'passive_alert', { type: 'slaughterHero', playerIdx: attackerIdx, msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${allyPiece.name}도 휘말려 1 피해!` });
-          emitToSpectators(room, 'spectator_log', { msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${allyPiece.name}도 휘말려 1 피해!`, type: 'passive', playerIdx: attackerIdx });
-          if (allyPiece.hp <= 0) {
-            handleDeath(room, allyPiece, attackerIdx);
+      for (const aIdx of allyIndices) {
+        const allyPlayer = room.players[aIdx];
+        for (const allyPiece of allyPlayer.pieces) {
+          if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
+            allyPiece.hp = Math.max(0, allyPiece.hp - 1);
+            const whose = aIdx === attackerIdx ? '' : `${allyPlayer.name}의 `;
+            emitToBoth(room, 'passive_alert', { type: 'slaughterHero', playerIdx: attackerIdx, msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${whose}${allyPiece.name}도 휘말려 1 피해!` });
+            emitToSpectators(room, 'spectator_log', { msg: `⚔ 배반자: ${attackerName}의 학살 영웅 공격에 ${whose}${allyPiece.name}도 휘말려 1 피해!`, type: 'passive', playerIdx: attackerIdx });
+            if (allyPiece.hp <= 0) {
+              handleDeath(room, allyPiece, aIdx);
+            }
           }
         }
       }
@@ -2229,17 +2245,24 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     }
 
     // ── HERBALIST: 약초학 (heal 3x3 allies +1 HP, not self) ──
+    // 팀모드: 팀원 아군도 대상 포함
     case 'herbalist': {
       let healed = 0;
-      for (const ally of player.pieces) {
-        if (ally.alive && ally !== piece && Math.abs(ally.col - piece.col) <= 1 && Math.abs(ally.row - piece.row) <= 1) {
-          ally.hp = Math.min(ally.maxHp, ally.hp + 1);
-          healed++;
+      const allyIndices = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      for (const aIdx of allyIndices) {
+        const allyPlayer = room.players[aIdx];
+        for (const ally of allyPlayer.pieces) {
+          if (ally.alive && ally !== piece && Math.abs(ally.col - piece.col) <= 1 && Math.abs(ally.row - piece.row) <= 1) {
+            if (ally.hp < ally.maxHp) {
+              ally.hp = Math.min(ally.maxHp, ally.hp + 1);
+              healed++;
+            }
+          }
         }
       }
       spendSP(room, playerIdx, cost);
       result.msg = `🌿 약초학: 주변 아군 ${healed}명은 1 HP를 회복합니다.`;
-      result.oppMsg = `🌿 약초학: 상대가 적군 ${healed}명을 치유했습니다.`;
+      result.oppMsg = `🌿 약초학: 상대가 아군 ${healed}명을 치유했습니다.`;
       break;
     }
 
