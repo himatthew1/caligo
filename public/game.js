@@ -129,6 +129,12 @@ const S = {
 
   // 추리 토큰 (클라이언트 전용) — { pieceKey, icon, name, col, row }
   deductionTokens: [],
+
+  // 팀전 (2v2)
+  isTeamMode: false,
+  teamId: null,           // 내 팀 (0=A, 1=B)
+  teamPlayers: [],        // [{ name, idx, teamId }, ...]
+  teamTeams: [[], []],    // [[idx,...], [idx,...]]
 };
 
 // ── 오디오 설정 ─────────────────────────────────────────────
@@ -628,6 +634,16 @@ document.getElementById('btn-ai').addEventListener('click', () => {
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
 
+// ── 2vs2 팀전 입장 ──
+document.getElementById('btn-join-team').addEventListener('click', () => {
+  const name   = document.getElementById('input-name').value.trim();
+  const roomId = document.getElementById('input-room').value.trim();
+  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
+  // 팀전은 덱을 드래프트 중 새로 구성하므로 로비 덱 확인 생략
+  S.myName = name; S.roomId = roomId; S.isTeamMode = true;
+  socket.emit('join_team_room', { roomId, playerName: name });
+});
+
 document.getElementById('input-name').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('input-room').focus();
 });
@@ -694,6 +710,163 @@ socket.on('joined', ({ idx, roomId, characters }) => {
 });
 
 socket.on('waiting', () => showScreen('screen-waiting'));
+
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 (2v2) 대기실 ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+socket.on('team_joined', ({ idx, roomId, playerName }) => {
+  S.playerIdx = idx;
+  S.roomId = roomId;
+  S.isTeamMode = true;
+  const codeEl = document.getElementById('team-waiting-room-code');
+  if (codeEl) codeEl.textContent = `방 코드: ${roomId}`;
+  showScreen('screen-team-waiting');
+});
+
+socket.on('team_room_state', ({ players, teams, count, myIdx }) => {
+  S.teamPlayers = players || [];
+  S.teamTeams = teams || [[], []];
+  if (typeof myIdx === 'number') {
+    S.playerIdx = myIdx;
+    const me = S.teamPlayers.find(p => p.idx === myIdx);
+    if (me) S.teamId = me.teamId;
+  }
+  renderTeamWaitingRoom();
+});
+
+socket.on('team_left', () => {
+  S.isTeamMode = false;
+  S.teamId = null;
+  S.teamPlayers = [];
+  S.teamTeams = [[], []];
+  S.playerIdx = null;
+  S.roomId = null;
+  showScreen('screen-lobby');
+});
+
+socket.on('team_countdown', ({ seconds }) => {
+  const el = document.getElementById('team-countdown');
+  if (!el) return;
+  el.classList.remove('hidden');
+  let remain = seconds;
+  el.textContent = remain;
+  // 시작 버튼 잠금
+  const startBtn = document.getElementById('btn-team-start');
+  const leaveBtn = document.getElementById('btn-team-leave');
+  if (startBtn) startBtn.disabled = true;
+  if (leaveBtn) leaveBtn.disabled = true;
+  if (window._teamCountdownInterval) clearInterval(window._teamCountdownInterval);
+  window._teamCountdownInterval = setInterval(() => {
+    remain -= 1;
+    if (remain <= 0) {
+      clearInterval(window._teamCountdownInterval);
+      window._teamCountdownInterval = null;
+      el.classList.add('hidden');
+      el.textContent = '';
+    } else {
+      el.textContent = remain;
+    }
+  }, 1000);
+});
+
+socket.on('team_countdown_cancel', () => {
+  if (window._teamCountdownInterval) { clearInterval(window._teamCountdownInterval); window._teamCountdownInterval = null; }
+  const el = document.getElementById('team-countdown');
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
+  const startBtn = document.getElementById('btn-team-start');
+  const leaveBtn = document.getElementById('btn-team-leave');
+  if (leaveBtn) leaveBtn.disabled = false;
+  // 시작 버튼은 renderTeamWaitingRoom에서 업데이트
+  if (startBtn && S.teamPlayers && S.teamPlayers.length < 4) {
+    startBtn.disabled = true;
+  }
+  showSkillToast('카운트다운이 취소되었습니다.', false, undefined, 'event');
+});
+
+socket.on('team_start_ready', ({ players, teams, characters }) => {
+  if (window._teamCountdownInterval) { clearInterval(window._teamCountdownInterval); window._teamCountdownInterval = null; }
+  const el = document.getElementById('team-countdown');
+  if (el) { el.classList.add('hidden'); el.textContent = ''; }
+  S.teamPlayers = players || [];
+  S.teamTeams = teams || [[], []];
+  if (characters) S.characters = characters;
+  const me = S.teamPlayers.find(p => p.idx === S.playerIdx);
+  if (me) S.teamId = me.teamId;
+  // Phase 4에서 screen-draft 전환. 임시로 대기 화면에 표시.
+  showSkillToast('게임 시작! 드래프트 준비 중...', false, undefined, 'event');
+  // TODO(Phase 4): showScreen('screen-draft') + 팀전 드래프트 렌더
+});
+
+// 팀 대기실 렌더
+function renderTeamWaitingRoom() {
+  const statusCount = document.getElementById('team-status-count');
+  const statusMsg = document.getElementById('team-status-msg');
+  const startBtn = document.getElementById('btn-team-start');
+  const total = (S.teamPlayers || []).length;
+  if (statusCount) statusCount.textContent = `${total} / 4`;
+  const teamAOk = (S.teamTeams[0] || []).length === 2;
+  const teamBOk = (S.teamTeams[1] || []).length === 2;
+  const ready = total === 4 && teamAOk && teamBOk;
+  if (statusMsg) {
+    if (total < 4) statusMsg.textContent = '참가자를 기다리는 중...';
+    else if (!ready) statusMsg.textContent = '각 팀에 2명씩 배정해야 시작할 수 있습니다.';
+    else statusMsg.textContent = '모두 준비 완료! 게임을 시작하세요.';
+  }
+  if (startBtn) {
+    startBtn.disabled = !ready;
+    startBtn.textContent = ready ? '게임 시작 (3초 카운트다운)' : `게임 시작 (${total}/4 필요)`;
+  }
+  // 슬롯 렌더
+  document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
+    const teamId = parseInt(slotEl.dataset.team, 10);
+    const pos = parseInt(slotEl.dataset.pos, 10);
+    const members = S.teamTeams[teamId] || [];
+    const occupantIdx = members[pos];
+    slotEl.classList.remove('filled', 'self');
+    if (occupantIdx !== undefined && occupantIdx !== null) {
+      const player = S.teamPlayers.find(p => p.idx === occupantIdx);
+      const name = player ? player.name : `플레이어 ${occupantIdx+1}`;
+      const isMe = occupantIdx === S.playerIdx;
+      slotEl.classList.add('filled');
+      if (isMe) slotEl.classList.add('self');
+      slotEl.innerHTML = `
+        <span class="slot-nickname">${escapeHtmlGlobal(name)}</span>
+        ${isMe ? '<span class="slot-you-badge">나</span>' : ''}
+      `;
+    } else {
+      slotEl.innerHTML = `<span class="team-slot-label">빈 슬롯</span>`;
+    }
+  });
+}
+
+// 팀 슬롯 클릭 → 팀 변경 요청
+document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
+  slotEl.addEventListener('click', () => {
+    if (!S.isTeamMode) return;
+    const teamId = parseInt(slotEl.dataset.team, 10);
+    const pos = parseInt(slotEl.dataset.pos, 10);
+    // 이미 내 팀이면 무시
+    if (teamId === S.teamId) return;
+    socket.emit('team_change', { targetTeam: teamId, targetPos: pos });
+  });
+});
+
+// 게임 시작 버튼
+const btnTeamStart = document.getElementById('btn-team-start');
+if (btnTeamStart) {
+  btnTeamStart.addEventListener('click', () => {
+    if (btnTeamStart.disabled) return;
+    socket.emit('team_start_request');
+  });
+}
+// 나가기 버튼
+const btnTeamLeave = document.getElementById('btn-team-leave');
+if (btnTeamLeave) {
+  btnTeamLeave.addEventListener('click', () => {
+    if (window._teamCountdownInterval) { clearInterval(window._teamCountdownInterval); window._teamCountdownInterval = null; }
+    socket.emit('team_leave');
+  });
+}
 
 // ── 관전자 모드 ──
 socket.on('spectator_joined', ({ roomId, phase, gameState, draftState, hpState, placementState, characters, p0Name, p1Name }) => {
@@ -1590,6 +1763,10 @@ socket.on('err', ({ msg }) => {
   showError('hp-error', msg);
   showError('draft-error', msg);
   addLog(`⚠ ${msg}`, 'system');
+  // 팀 대기실에서도 보이도록 토스트 표시
+  if (S.isTeamMode && S.phase === 'team-waiting') {
+    try { showSkillToast(msg, false, undefined, 'event'); } catch (e) {}
+  }
 });
 
 socket.on('wait_msg', ({ msg }) => {

@@ -64,7 +64,8 @@
       <label>방 코드</label>
       <input id="input-room" type="text" placeholder="방 코드를 자유롭게 입력해 생성하세요" maxlength="20">
     </div>
-    <button id="btn-join" class="btn btn-primary btn-large">입장하기</button>
+    <button id="btn-join" class="btn btn-primary btn-large">1vs1 입장하기</button>
+    <button id="btn-join-team" class="btn btn-team-large btn-large">👥 2vs2 팀전 입장하기</button>
     <div class="divider"><span>또는</span></div>
     <button id="btn-ai" class="btn btn-secondary btn-large">AI 연습 모드</button>
     <button id="btn-tutorial" class="btn btn-tutorial btn-large">📖 튜토리얼</button>
@@ -96,6 +97,46 @@
     <h2 id="waiting-title">상대방을 기다리는 중...</h2>
     <p id="waiting-sub" class="muted">같은 방 코드를 상대에게 공유하세요</p>
     <p id="waiting-room-code" class="room-code-display"></p>
+  </div>
+</div>
+
+<!-- ── 4인 팀 대기실 ── -->
+<div id="screen-team-waiting" class="screen">
+  <div class="team-waiting-box">
+    <h2>👥 2vs2 팀전 대기실</h2>
+    <p id="team-waiting-room-code" class="room-code-display"></p>
+    <p class="muted" style="margin-bottom:24px">팀 슬롯을 클릭해 팀을 변경할 수 있습니다. 4명이 모이면 게임을 시작하세요.</p>
+
+    <div class="team-rooms">
+      <div class="team-room team-a">
+        <div class="team-room-title">A팀</div>
+        <div class="team-slot" data-team="0" data-pos="0">
+          <span class="team-slot-label">빈 슬롯</span>
+        </div>
+        <div class="team-slot" data-team="0" data-pos="1">
+          <span class="team-slot-label">빈 슬롯</span>
+        </div>
+      </div>
+      <div class="team-vs">VS</div>
+      <div class="team-room team-b">
+        <div class="team-room-title">B팀</div>
+        <div class="team-slot" data-team="1" data-pos="0">
+          <span class="team-slot-label">빈 슬롯</span>
+        </div>
+        <div class="team-slot" data-team="1" data-pos="1">
+          <span class="team-slot-label">빈 슬롯</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="team-status-bar">
+      <span id="team-status-count">0 / 4</span>
+      <span id="team-status-msg" class="muted">참가자를 기다리는 중...</span>
+    </div>
+
+    <button id="btn-team-start" class="btn btn-primary btn-large" disabled>게임 시작 (4/4 필요)</button>
+    <button id="btn-team-leave" class="btn btn-muted btn-small">대기실 나가기</button>
+    <div id="team-countdown" class="team-countdown hidden"></div>
   </div>
 </div>
 

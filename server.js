@@ -428,6 +428,22 @@ function getNextPlayerIdx(room) {
   }
   return room.currentPlayerIdx;  // fallback
 }
+// 팀전 대기실 상태 방송
+function broadcastTeamRoomState(room) {
+  if (!room || room.mode !== 'team') return;
+  const payload = {
+    roomId: room.id,
+    players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })),
+    teams: room.teams,
+    count: room.players.length,
+  };
+  // 각 플레이어에게 자신의 idx도 포함해서 전송
+  for (const p of room.players) {
+    if (!p.socketId) continue;
+    io.to(p.socketId).emit('team_room_state', { ...payload, myIdx: p.index });
+  }
+}
+
 // 이전 턴 플레이어 (오류 메시지/로그용)
 function getPrevPlayerIdx(room, curIdx) {
   if (room.mode !== 'team') return 1 - curIdx;
@@ -2787,6 +2803,134 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════
+  // ── 팀전 (2v2) 대기실 ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════
+  socket.on('join_team_room', ({ roomId, playerName }) => {
+    if (rooms[roomId] && rooms[roomId].phase === 'ended') {
+      delete rooms[roomId];
+    }
+    if (!rooms[roomId]) {
+      rooms[roomId] = createRoom(roomId, { mode: 'team' });
+    }
+    const room = rooms[roomId];
+    if (room.mode !== 'team') {
+      socket.emit('err', { msg: '이미 1대1 전용 방입니다.' });
+      return;
+    }
+    if (room.phase !== 'waiting') {
+      socket.emit('err', { msg: '이미 게임이 시작된 방입니다.' });
+      return;
+    }
+    if (room.players.length >= 4) {
+      socket.emit('err', { msg: '방이 가득 찼습니다. (4/4)' });
+      return;
+    }
+    const idx = room.players.length;
+    room.players.push({
+      socketId: socket.id, name: playerName, index: idx,
+      pieces: [], draft: null, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: null,  // 배정 후 채워짐
+    });
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.data.idx = idx;
+    socket.data.isTeamMode = true;
+
+    // 팀 자동 배정 — A팀이 덜 찼으면 A, 아니면 B
+    const teamACount = room.teams[0].length;
+    const teamBCount = room.teams[1].length;
+    const targetTeam = teamACount <= teamBCount ? 0 : 1;
+    room.teams[targetTeam].push(idx);
+    room.players[idx].teamId = targetTeam;
+
+    socket.emit('team_joined', { idx, roomId, playerName });
+    broadcastTeamRoomState(room);
+  });
+
+  // 팀 변경 요청
+  socket.on('team_change', ({ targetTeam, targetPos }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
+    const idx = socket.data.idx;
+    if (idx === undefined) return;
+    if (targetTeam !== 0 && targetTeam !== 1) return;
+    // 현재 팀에서 제거
+    for (let t = 0; t < 2; t++) {
+      room.teams[t] = room.teams[t].filter(i => i !== idx);
+    }
+    // 새 팀에 추가 (targetPos 있으면 해당 자리에 삽입, 이미 차있으면 거절)
+    if (room.teams[targetTeam].length >= 2) {
+      // 원래 팀으로 복구
+      const original = room.players[idx].teamId;
+      room.teams[original].push(idx);
+      socket.emit('err', { msg: '해당 팀이 이미 가득 찼습니다.' });
+      broadcastTeamRoomState(room);
+      return;
+    }
+    room.teams[targetTeam].push(idx);
+    room.players[idx].teamId = targetTeam;
+    broadcastTeamRoomState(room);
+  });
+
+  // 대기실 나가기
+  socket.on('team_leave', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
+    const idx = socket.data.idx;
+    if (idx === undefined) return;
+    // 제거
+    room.players.splice(idx, 1);
+    for (let t = 0; t < 2; t++) {
+      room.teams[t] = room.teams[t].filter(i => i !== idx).map(i => i > idx ? i - 1 : i);
+    }
+    // 인덱스 재조정
+    room.players.forEach((p, i) => {
+      p.index = i;
+      if (p.socketId) {
+        const s = io.sockets.sockets.get(p.socketId);
+        if (s) s.data.idx = i;
+      }
+    });
+    socket.leave(room.id);
+    socket.data.roomId = null;
+    socket.data.idx = undefined;
+    socket.emit('team_left');
+    if (room.players.length === 0) {
+      delete rooms[room.id];
+    } else {
+      broadcastTeamRoomState(room);
+    }
+  });
+
+  // 게임 시작 요청 (4/4일 때만)
+  socket.on('team_start_request', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
+    if (room.players.length < 4) {
+      socket.emit('err', { msg: '4명이 모여야 시작할 수 있습니다.' });
+      return;
+    }
+    if (room.teams[0].length !== 2 || room.teams[1].length !== 2) {
+      socket.emit('err', { msg: '각 팀에 2명씩 배정해야 합니다.' });
+      return;
+    }
+    // 3초 카운트다운 방송
+    io.to(room.id).emit('team_countdown', { seconds: 3 });
+    room._teamStartTimeout = setTimeout(() => {
+      if (room.phase !== 'waiting') return;  // 이미 취소됨
+      // 팀전 드래프트 단계로 이동 (Phase 4에서 구현)
+      room.phase = 'team_draft_pending';  // 임시 상태
+      io.to(room.id).emit('team_start_ready', {
+        players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })),
+        teams: room.teams,
+        characters: CHARACTERS,
+      });
+    }, 3000);
+  });
+
   // ── AI 연습 모드 ──
   socket.on('join_ai', ({ playerName, deck }) => {
     const roomId = `ai_${socket.id}_${Date.now()}`;
@@ -3658,6 +3802,35 @@ io.on('connection', (socket) => {
       if (socket.data.isSpectator) {
         room.spectators = (room.spectators || []).filter(s => s.socketId !== socket.id);
         return;
+      }
+      // ── 팀전 대기실 중 한 명 이탈 처리 ──
+      if (room.mode === 'team' && room.phase === 'waiting') {
+        const dcIdx = room.players.findIndex(p => p.socketId === socket.id);
+        if (dcIdx >= 0) {
+          // 카운트다운이 진행 중이면 취소
+          if (room._teamStartTimeout) {
+            clearTimeout(room._teamStartTimeout);
+            room._teamStartTimeout = null;
+            io.to(room.id).emit('team_countdown_cancel');
+          }
+          room.players.splice(dcIdx, 1);
+          for (let t = 0; t < 2; t++) {
+            room.teams[t] = (room.teams[t] || []).filter(i => i !== dcIdx).map(i => i > dcIdx ? i - 1 : i);
+          }
+          room.players.forEach((p, i) => {
+            p.index = i;
+            if (p.socketId) {
+              const s = io.sockets.sockets.get(p.socketId);
+              if (s) s.data.idx = i;
+            }
+          });
+          if (room.players.length === 0) {
+            delete rooms[roomId];
+          } else {
+            broadcastTeamRoomState(room);
+          }
+          return;
+        }
       }
       if (room.phase !== 'waiting' && room.phase !== 'ended') {
         const dcIdx = room.players.findIndex(p => p.socketId === socket.id);
