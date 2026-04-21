@@ -217,6 +217,69 @@
   </div>
 </div>
 
+<!-- ── 팀전 드래프트 (2픽, 티어 없음) ── -->
+<div id="screen-team-draft" class="screen">
+  <div class="team-draft-layout">
+    <div class="team-draft-main">
+      <div class="team-draft-header">
+        <h2>👥 팀전 드래프트</h2>
+        <p class="muted">2개 캐릭터를 선택하세요. 팀원이 고른 캐릭터는 선택할 수 없습니다.</p>
+      </div>
+      <div id="team-draft-grid" class="team-draft-grid"></div>
+      <p id="team-draft-error" class="error-msg"></p>
+    </div>
+    <div class="team-draft-sidebar">
+      <h3 class="sidebar-title">내 선택</h3>
+      <div id="team-draft-slot-1" class="draft-slot empty" data-slot="pick1">
+        <span class="slot-tier">1번 캐릭터</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div id="team-draft-slot-2" class="draft-slot empty" data-slot="pick2">
+        <span class="slot-tier">2번 캐릭터</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>
+      <div class="team-draft-teammate-box">
+        <h4 class="team-draft-teammate-title">팀원 선택</h4>
+        <div id="team-draft-teammate-info" class="muted">팀원 정보 로딩 중...</div>
+      </div>
+      <button id="btn-team-draft-confirm" class="btn btn-primary" disabled>선택 확정 (0/2)</button>
+      <div id="team-draft-status" class="muted" style="font-size:0.78rem;text-align:center;margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 팀전 HP 분배 ── -->
+<div id="screen-team-hp" class="screen">
+  <div class="team-hp-layout">
+    <h2>💚 HP 분배 (팀전)</h2>
+    <p class="muted">10 HP를 2개 캐릭터에 분배하세요. 각 최소 1.</p>
+    <div id="team-hp-area" class="team-hp-area"></div>
+    <p id="team-hp-error" class="error-msg"></p>
+    <button id="btn-team-hp-confirm" class="btn btn-primary btn-large">확정</button>
+    <div id="team-hp-status" class="muted" style="font-size:0.78rem;text-align:center;margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- ── 팀전 캐릭터 공개 ── -->
+<div id="screen-team-reveal" class="screen">
+  <div class="team-reveal-container">
+    <h2>전원 캐릭터 공개</h2>
+    <p class="muted">4명 전원의 캐릭터가 공개됩니다.</p>
+    <div class="team-reveal-layout">
+      <div class="team-reveal-side team-reveal-a">
+        <h3>A팀</h3>
+        <div id="team-reveal-a-chars" class="reveal-pieces"></div>
+      </div>
+      <div class="reveal-vs">VS</div>
+      <div class="team-reveal-side team-reveal-b">
+        <h3>B팀</h3>
+        <div id="team-reveal-b-chars" class="reveal-pieces"></div>
+      </div>
+    </div>
+    <button id="btn-team-reveal-continue" class="btn btn-primary btn-large">배치로 이동</button>
+  </div>
+</div>
+
 <!-- ── 초기 공개 ── -->
 <div id="screen-initial-reveal" class="screen">
   <div class="reveal-container">

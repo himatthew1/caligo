@@ -135,6 +135,10 @@ const S = {
   teamId: null,           // 내 팀 (0=A, 1=B)
   teamPlayers: [],        // [{ name, idx, teamId }, ...]
   teamTeams: [[], []],    // [[idx,...], [idx,...]]
+  teamDraft: { pick1: null, pick2: null },
+  teamDraftConfirmed: false,
+  teamTeammatePicks: { pick1: null, pick2: null },
+  teamHpDist: null,
 };
 
 // ── 오디오 설정 ─────────────────────────────────────────────
@@ -792,10 +796,312 @@ socket.on('team_start_ready', ({ players, teams, characters }) => {
   if (characters) S.characters = characters;
   const me = S.teamPlayers.find(p => p.idx === S.playerIdx);
   if (me) S.teamId = me.teamId;
-  // Phase 4에서 screen-draft 전환. 임시로 대기 화면에 표시.
   showSkillToast('게임 시작! 드래프트 준비 중...', false, undefined, 'event');
-  // TODO(Phase 4): showScreen('screen-draft') + 팀전 드래프트 렌더
+  // 실제 screen 전환은 team_draft_start 수신 시
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 드래프트 ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+socket.on('team_draft_start', ({ myIdx, teamId, players, teams, characters }) => {
+  S.playerIdx = myIdx;
+  S.teamId = teamId;
+  S.teamPlayers = players || [];
+  S.teamTeams = teams || [[], []];
+  if (characters) S.characters = characters;
+  S.teamDraft = { pick1: null, pick2: null };
+  S.teamDraftConfirmed = false;
+  S.teamTeammatePicks = { pick1: null, pick2: null };
+  renderTeamDraft();
+  showScreen('screen-team-draft');
+});
+
+socket.on('team_draft_pick_update', ({ playerIdx, slot, type, teamDrafts }) => {
+  // 팀원 선택 상태 업데이트
+  if (teamDrafts) {
+    const teammateEntry = teamDrafts.find(d => d.idx !== S.playerIdx);
+    if (teammateEntry) {
+      S.teamTeammatePicks = {
+        pick1: teammateEntry.draft.pick1,
+        pick2: teammateEntry.draft.pick2,
+      };
+    }
+    // 내 상태도 동기화 (다른 기기에서 접속한 경우 대비)
+    const myEntry = teamDrafts.find(d => d.idx === S.playerIdx);
+    if (myEntry && playerIdx !== S.playerIdx) {
+      // 내 pick은 변경 안함 (자기가 변경한 것만 반영)
+    }
+  }
+  renderTeamDraft();
+});
+
+socket.on('team_draft_confirmed', ({ pick1, pick2 }) => {
+  S.teamDraft = { pick1, pick2 };
+  S.teamDraftConfirmed = true;
+  renderTeamDraft();
+  showSkillToast('선택 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
+});
+
+socket.on('team_draft_status', ({ draftDone, doneNames }) => {
+  const statusEl = document.getElementById('team-draft-status');
+  if (statusEl) {
+    const doneCount = (draftDone || []).filter(d => d).length;
+    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+  }
+});
+
+function renderTeamDraft() {
+  const grid = document.getElementById('team-draft-grid');
+  if (!grid || !S.characters) return;
+  // 모든 캐릭터 통합 (티어 구분 X)
+  const all = [
+    ...(S.characters[1] || []),
+    ...(S.characters[2] || []),
+    ...(S.characters[3] || []),
+  ];
+  const myPick1 = S.teamDraft?.pick1;
+  const myPick2 = S.teamDraft?.pick2;
+  const tmPicks = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+  grid.innerHTML = all.map(c => {
+    const selected1 = myPick1 === c.type;
+    const selected2 = myPick2 === c.type;
+    const selected = selected1 || selected2;
+    const disabled = tmPicks.includes(c.type) || S.teamDraftConfirmed;
+    const classes = ['team-draft-card'];
+    if (selected) classes.push('selected');
+    if (disabled) classes.push('disabled');
+    const badge = selected1 ? '<div class="team-draft-card-slot-badge">1</div>'
+                : selected2 ? '<div class="team-draft-card-slot-badge">2</div>' : '';
+    return `<div class="${classes.join(' ')}" data-type="${c.type}">
+      <div class="team-draft-card-icon">${c.icon || '❔'}</div>
+      <div class="team-draft-card-name">${escapeHtmlGlobal(c.name || c.type)}</div>
+      <div class="team-draft-card-atk">ATK ${c.atk}</div>
+      ${badge}
+    </div>`;
+  }).join('');
+  // 슬롯 UI
+  updateTeamDraftSlot('team-draft-slot-1', '1번 캐릭터', myPick1);
+  updateTeamDraftSlot('team-draft-slot-2', '2번 캐릭터', myPick2);
+  // 팀원 정보
+  const tmInfo = document.getElementById('team-draft-teammate-info');
+  if (tmInfo) {
+    const teammateEntry = S.teamPlayers.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
+    if (teammateEntry) {
+      const tmName = escapeHtmlGlobal(teammateEntry.name || '팀원');
+      const tp1 = S.teamTeammatePicks?.pick1;
+      const tp2 = S.teamTeammatePicks?.pick2;
+      const findChar = (t) => all.find(x => x.type === t);
+      const tp1Str = tp1 ? `${findChar(tp1)?.icon || ''}${findChar(tp1)?.name || tp1}` : '—';
+      const tp2Str = tp2 ? `${findChar(tp2)?.icon || ''}${findChar(tp2)?.name || tp2}` : '—';
+      tmInfo.innerHTML = `<strong>${tmName}</strong><br>1번: ${tp1Str}<br>2번: ${tp2Str}`;
+    } else {
+      tmInfo.textContent = '팀원 없음';
+    }
+  }
+  // 확정 버튼
+  const confirmBtn = document.getElementById('btn-team-draft-confirm');
+  if (confirmBtn) {
+    const pickCount = (myPick1 ? 1 : 0) + (myPick2 ? 1 : 0);
+    confirmBtn.textContent = S.teamDraftConfirmed ? '✅ 확정됨' : `선택 확정 (${pickCount}/2)`;
+    confirmBtn.disabled = S.teamDraftConfirmed || pickCount !== 2;
+  }
+  // 카드 클릭
+  grid.querySelectorAll('.team-draft-card').forEach(card => {
+    card.addEventListener('click', () => {
+      if (S.teamDraftConfirmed) return;
+      if (card.classList.contains('disabled')) return;
+      const type = card.dataset.type;
+      // 이미 선택된 슬롯이면 취소
+      if (myPick1 === type) {
+        S.teamDraft.pick1 = null;
+        socket.emit('team_draft_pick', { slot: 'pick1', type: null });
+        renderTeamDraft();
+        return;
+      }
+      if (myPick2 === type) {
+        S.teamDraft.pick2 = null;
+        socket.emit('team_draft_pick', { slot: 'pick2', type: null });
+        renderTeamDraft();
+        return;
+      }
+      // 빈 슬롯에 할당
+      const slot = !myPick1 ? 'pick1' : !myPick2 ? 'pick2' : null;
+      if (!slot) {
+        showSkillToast('두 슬롯이 모두 찼습니다. 취소하려면 선택된 카드를 다시 클릭하세요.', false, undefined, 'event');
+        return;
+      }
+      S.teamDraft[slot] = type;
+      socket.emit('team_draft_pick', { slot, type });
+      renderTeamDraft();
+    });
+  });
+}
+
+function updateTeamDraftSlot(slotId, label, type) {
+  const el = document.getElementById(slotId);
+  if (!el) return;
+  if (!type) {
+    el.classList.add('empty');
+    el.classList.remove('filled');
+    el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
+    return;
+  }
+  const all = [
+    ...(S.characters?.[1] || []),
+    ...(S.characters?.[2] || []),
+    ...(S.characters?.[3] || []),
+  ];
+  const c = all.find(x => x.type === type);
+  if (!c) return;
+  el.classList.remove('empty');
+  el.classList.add('filled');
+  el.innerHTML = `<span class="slot-tier">${label}</span>
+    <span class="slot-icon-big">${c.icon || ''}</span>
+    <span class="slot-name-sm">${escapeHtmlGlobal(c.name || c.type)}</span>`;
+}
+
+// 확정 버튼
+const _btnTeamDraftConfirm = document.getElementById('btn-team-draft-confirm');
+if (_btnTeamDraftConfirm) {
+  _btnTeamDraftConfirm.addEventListener('click', () => {
+    if (_btnTeamDraftConfirm.disabled) return;
+    socket.emit('team_draft_confirm');
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 HP 분배 ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+socket.on('team_hp_phase', ({ draft, hasTwins }) => {
+  S.teamDraft = draft || S.teamDraft;
+  S.teamHpDist = null;
+  renderTeamHp(hasTwins);
+  showScreen('screen-team-hp');
+});
+
+socket.on('team_hp_ok', ({ hpDist }) => {
+  S.teamHpDist = hpDist;
+  showSkillToast('HP 분배 완료!', false, undefined, 'event');
+  const btn = document.getElementById('btn-team-hp-confirm');
+  if (btn) btn.disabled = true;
+});
+
+socket.on('team_hp_status', ({ hpDone, doneNames }) => {
+  const statusEl = document.getElementById('team-hp-status');
+  if (statusEl) {
+    const doneCount = (hpDone || []).filter(d => d).length;
+    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+  }
+});
+
+function renderTeamHp(hasTwins) {
+  const area = document.getElementById('team-hp-area');
+  if (!area) return;
+  const all = [
+    ...(S.characters?.[1] || []),
+    ...(S.characters?.[2] || []),
+    ...(S.characters?.[3] || []),
+  ];
+  const p1 = S.teamDraft?.pick1;
+  const p2 = S.teamDraft?.pick2;
+  const c1 = all.find(x => x.type === p1);
+  const c2 = all.find(x => x.type === p2);
+  if (!c1 || !c2) { area.innerHTML = '<p class="error-msg">드래프트 데이터가 없습니다.</p>'; return; }
+
+  const slotHtml = (slotId, c, defaultVal, minVal) => `
+    <div class="team-hp-slot" data-slot="${slotId}">
+      <div class="team-hp-slot-row">
+        <span class="icon">${c.icon || ''}</span>
+        <span>${escapeHtmlGlobal(c.name || c.type)}</span>
+        <input type="number" min="${minVal}" max="${10 - minVal}" value="${defaultVal}" class="team-hp-input" data-slot="${slotId}">
+        <span>HP</span>
+      </div>
+    </div>`;
+
+  const isTwinsP1 = p1 === 'twins';
+  const isTwinsP2 = p2 === 'twins';
+  const p1Min = isTwinsP1 ? 2 : 1;
+  const p2Min = isTwinsP2 ? 2 : 1;
+
+  let html = slotHtml('pick1', c1, 5, p1Min) + slotHtml('pick2', c2, 5, p2Min);
+  if (isTwinsP1 || isTwinsP2) {
+    html += `<div class="team-hp-slot">
+      <div class="team-hp-slot-row">
+        <span>👬 쌍둥이 내부 분배:</span>
+      </div>
+      <div class="team-hp-slot-row">
+        <span>형:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
+        <span>동생:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinYounger"><span>HP</span>
+      </div>
+    </div>`;
+  }
+  area.innerHTML = html;
+}
+
+const _btnTeamHpConfirm = document.getElementById('btn-team-hp-confirm');
+if (_btnTeamHpConfirm) {
+  _btnTeamHpConfirm.addEventListener('click', () => {
+    if (_btnTeamHpConfirm.disabled) return;
+    const p1 = parseInt(document.querySelector('.team-hp-input[data-slot="pick1"]')?.value, 10);
+    const p2 = parseInt(document.querySelector('.team-hp-input[data-slot="pick2"]')?.value, 10);
+    const tE = parseInt(document.querySelector('.team-hp-twin-input[data-slot="twinElder"]')?.value, 10);
+    const tY = parseInt(document.querySelector('.team-hp-twin-input[data-slot="twinYounger"]')?.value, 10);
+    if (!Number.isFinite(p1) || !Number.isFinite(p2)) {
+      showError('team-hp-error', '유효한 HP 값을 입력하세요.');
+      return;
+    }
+    if (p1 + p2 !== 10) {
+      showError('team-hp-error', 'HP 합계는 10이어야 합니다.');
+      return;
+    }
+    socket.emit('team_hp_distribute', { pick1Hp: p1, pick2Hp: p2, twinElder: tE || undefined, twinYounger: tY || undefined });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 팀전 공개 ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+socket.on('team_reveal_phase', ({ myIdx, teamId, teams, allPlayerPieces }) => {
+  S.playerIdx = myIdx;
+  S.teamId = teamId;
+  S.teamTeams = teams || S.teamTeams;
+  renderTeamReveal(allPlayerPieces);
+  showScreen('screen-team-reveal');
+});
+
+socket.on('team_reveal_status', () => {
+  // optional: show waiting state
+});
+
+function renderTeamReveal(allPlayerPieces) {
+  if (!allPlayerPieces) return;
+  const aChars = document.getElementById('team-reveal-a-chars');
+  const bChars = document.getElementById('team-reveal-b-chars');
+  if (!aChars || !bChars) return;
+  const pieceCard = (p) => `<div class="reveal-piece">
+    <div class="reveal-piece-icon">${p.icon || ''}</div>
+    <div class="reveal-piece-name">${escapeHtmlGlobal(p.name || p.type)}</div>
+    <div class="reveal-piece-hp">HP ${p.hp}/${p.maxHp}</div>
+  </div>`;
+  const playerCard = (pl) => {
+    const piecesHtml = (pl.pieces || []).map(pieceCard).join('');
+    return `<div class="reveal-player-block">
+      <h4>${escapeHtmlGlobal(pl.name)}${pl.idx === S.playerIdx ? ' (나)' : ''}</h4>
+      <div class="reveal-pieces-row">${piecesHtml}</div>
+    </div>`;
+  };
+  aChars.innerHTML = allPlayerPieces.filter(p => p.teamId === 0).map(playerCard).join('');
+  bChars.innerHTML = allPlayerPieces.filter(p => p.teamId === 1).map(playerCard).join('');
+}
+
+const _btnTeamRevealContinue = document.getElementById('btn-team-reveal-continue');
+if (_btnTeamRevealContinue) {
+  _btnTeamRevealContinue.addEventListener('click', () => {
+    socket.emit('team_reveal_continue');
+    _btnTeamRevealContinue.disabled = true;
+    _btnTeamRevealContinue.textContent = '대기 중...';
+  });
+}
 
 // 팀 대기실 렌더
 function renderTeamWaitingRoom() {
