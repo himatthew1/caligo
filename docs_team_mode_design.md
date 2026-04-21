@@ -188,6 +188,61 @@ isTeamEliminated(room, teamId)
 
 ---
 
+## 진행 현황 (2026-04-21 기준)
+
+### ✅ 완료 (커밋된 기능)
+- **Phase 0**: 설계 문서 작성 (이 파일)
+- **Phase 1.1**: 룸/플레이어에 mode/teamId/teams/eliminatedPlayers/playerCount 필드, 헬퍼 (getTeamOf/getTeammates/getEnemyIndices/isTeammate/isAlly/getNextPlayerIdx/getPrevPlayerIdx/isTeamEliminated/broadcastTeamRoomState)
+- **Phase 1.2**: endTurn이 getNextPlayerIdx/getPrevPlayerIdx 헬퍼 호출로 교체 (1v1 동일 동작)
+- **Phase 2**: 로비 "2vs2 입장하기" 버튼, screen-team-waiting 화면 (슬롯/VS/상태/시작/나가기/카운트다운), 서버 join_team_room/team_change/team_leave/team_start_request 핸들러, 3초 카운트다운, 대기실 disconnect 처리
+- **Phase 3**: getBoardShrinkSchedule 헬퍼 기반 축소 (1v1 1단/팀 2단), boardShrinkStage 플래그, 팀 축소 시 isTeamEliminated 기반 승부 체크
+- **Phase 4a (서버)**: transitionToTeamDraft/Hp/Reveal/Placement, team_draft_pick/confirm, team_hp_distribute, team_reveal_continue 핸들러, buildTeamPieces 팩토리, teamDraftTimeout/teamHpTimeout 기본 폴백
+- **Phase 4b (클라)**: screen-team-draft (카드 그리드, 2픽 토글, 팀원 실시간 공유, 확정 버튼), screen-team-hp (HP 입력 + 쌍둥이 내부 분배), screen-team-reveal (A/B팀 블록)
+
+### ⏳ 남은 작업
+
+#### Phase 4c: 팀전 배치
+**서버 측**
+- 팀별 배치 존 정의 (예: A팀 row 0-2, B팀 row 4-6, 중앙 3 비움)
+- `team_placement_submit` 핸들러: 각 플레이어가 자기 pieces 배치 제출
+- 중복/영역 검증
+- 4명 모두 제출 → 게임 시작 (transitionToTeamGame)
+
+**클라이언트 측**
+- screen-team-placement: 7x7 보드 + 내 캐릭터 드래그 배치 + 팀원 배치 실시간 표시
+- 내 존 하이라이트
+
+#### Phase 4d: 팀전 게임 루프 통합
+- emitToBoth, getSpectatorGameState 등 기존 2인 전용 함수를 4인 대응으로 확장 (또는 별도 emitToTeamAll 추가)
+- 턴 배너: 현재 플레이어 이름 + 팀 색깔
+- 게임 UI에 4명 프로필 표시 (위: 적팀 2명, 아래: 내팀 2명 형태?)
+- 공격/이동/스킬 명령이 팀원 좌표를 아군으로 처리하도록 isAlly 적용
+- 승패 판정: isTeamEliminated 기반 (Phase 1.1 헬퍼 활용)
+
+#### Phase 5: 팀 정보 공유 + 팀 채팅
+- `oppPieceSummary` 교체: 팀원 pieces는 aliveSummary(공개)로, 상대팀만 oppSummary
+- 팀원 HP/SP/쿨다운 공유 이벤트
+- 표식/정찰 결과 팀 공유 (scoutResult, mark 브로드캐스트에 팀 멤버 포함)
+- 채팅 탭 UI (전체/팀), `chat` 이벤트에 `scope: 'all' | 'team'` 추가
+
+#### Phase 6: 스킬 팀 확장
+- 호위무사(loyalty): 보호 대상 `isAlly` 확장
+- 지휘관(morale): `isAlly` 인접 판정
+- 약초전문가(herb): 주변 아군 `isAlly`
+- 학살영웅(betrayer): 아군 피해에 팀원 포함
+
+#### Phase 7: 이탈/기권 처리 (게임 중)
+- 기존 disconnect 로직의 `phase !== 'waiting'` 분기를 팀전 승부 판정으로 확장
+- 해당 플레이어를 `eliminatedPlayers`에 추가 → `isTeamEliminated` 체크 → 승리팀 결정
+- 관전자: 팀 채팅 접근 차단 (전체만)
+
+### 회귀 테스트 필요 시점
+- 1v1 풀 플레이 (드래프트 → 교환 → HP → 배치 → 전투 → 축소 → 승/패): **각 Phase 커밋 후 확인 권장**
+- 1v1 AI 모드: Phase 1 이후 동일 동작
+- 1v1 관전: Phase 3 이후 `boardShrinkStage` 도입에 따라 축소 타이밍 기록 확인
+
+---
+
 ## 파일 영향 범위
 
 ### 서버 측 (server.js)
