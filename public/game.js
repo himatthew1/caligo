@@ -7478,10 +7478,43 @@ function bgmDefeat(ctx, dest) {
     widget.classList.add('chat-collapsed');
   });
 
+  // 현재 선택된 채팅 범위 ('all' or 'team')
+  let currentChatScope = 'all';
+  const scopeTabs = document.getElementById('chat-scope-tabs');
+  const scopeAllBtn = document.getElementById('chat-scope-all');
+  const scopeTeamBtn = document.getElementById('chat-scope-team');
+  function showChatScopeTabs() {
+    if (scopeTabs) scopeTabs.classList.remove('hidden');
+  }
+  function hideChatScopeTabs() {
+    if (scopeTabs) scopeTabs.classList.add('hidden');
+    currentChatScope = 'all';
+  }
+  // 팀전 진입 시 탭 표시 (S.isTeamMode 변경 감지용 간이 polling)
+  setInterval(() => {
+    if (S.isTeamMode) showChatScopeTabs();
+    else hideChatScopeTabs();
+  }, 500);
+  if (scopeAllBtn) scopeAllBtn.addEventListener('click', () => {
+    currentChatScope = 'all';
+    scopeAllBtn.classList.add('active'); scopeTeamBtn?.classList.remove('active');
+    if (input) input.placeholder = '메시지 입력 (전체)...';
+  });
+  if (scopeTeamBtn) scopeTeamBtn.addEventListener('click', () => {
+    if (!S.isTeamMode) {
+      showSkillToast('팀전 모드에서만 팀 채팅을 사용할 수 있습니다.', false, undefined, 'event');
+      return;
+    }
+    currentChatScope = 'team';
+    scopeTeamBtn.classList.add('active'); scopeAllBtn?.classList.remove('active');
+    if (input) input.placeholder = '메시지 입력 (팀)...';
+  });
+
   function sendMsg() {
     const text = input.value.trim();
     if (!text) return;
-    socket.emit('chat_msg', { text });
+    const scope = (S.isTeamMode && currentChatScope === 'team') ? 'team' : 'all';
+    socket.emit('chat_msg', { text, scope });
     input.value = '';
     input.focus();
   }
@@ -7491,18 +7524,29 @@ function bgmDefeat(ctx, dest) {
     if (e.key === 'Enter') { e.preventDefault(); sendMsg(); }
   });
 
-  socket.on('chat_msg', ({ sender, text, pIdx, color, isSpectator: senderIsSpec }) => {
+  socket.on('chat_msg', ({ sender, text, pIdx, color, isSpectator: senderIsSpec, scope, teamId }) => {
     const myName = document.getElementById('input-name').value;
     const isSelf = (S.isSpectator && pIdx === -1 && sender === myName) ||
                    (!S.isSpectator && pIdx === S.playerIdx);
     const div = document.createElement('div');
     div.className = `chat-msg ${isSelf ? 'mine' : 'other'}`;
+    if (scope === 'team') div.classList.add('scope-team');
+
+    // Scope 배지
+    let scopeBadge = '';
+    if (S.isTeamMode && scope) {
+      if (scope === 'team') scopeBadge = '<span class="scope-badge team">팀</span>';
+      else scopeBadge = '<span class="scope-badge all">전체</span>';
+    }
+    // 팀 표시 (A/B)
+    let teamBadge = '';
+    if (S.isTeamMode && (teamId === 0 || teamId === 1)) {
+      teamBadge = `<span class="scope-badge ${teamId === 0 ? 'all' : 'all'}" style="color:${teamId === 0 ? '#60a5fa' : '#ef4444'}">${teamId === 0 ? 'A' : 'B'}</span>`;
+    }
 
     const senderLabel = senderIsSpec ? `${escapeHtml(sender)} (관전자)` : escapeHtml(sender);
     const senderColor = isSelf ? '#ffffff' : (color || '#aaa');
-    if (!isSelf && color) {
-      // 타인 메시지: 해당 유저 컬러 테마로 말풍선+텍스트 통일
-      // hex → rgb 변환 후 rgba 생성
+    if (!isSelf && color && scope !== 'team') {
       const hex = color.replace('#', '');
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
@@ -7513,7 +7557,7 @@ function bgmDefeat(ctx, dest) {
         div.style.color = color;
       }
     }
-    div.innerHTML = `<span class="chat-sender" style="color:${senderColor}">${senderLabel}</span>${escapeHtml(text)}`;
+    div.innerHTML = `${scopeBadge}${teamBadge}<span class="chat-sender" style="color:${senderColor}">${senderLabel}</span>${escapeHtml(text)}`;
     msgBox.appendChild(div);
     msgBox.scrollTop = msgBox.scrollHeight;
 

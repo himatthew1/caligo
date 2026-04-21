@@ -2144,14 +2144,33 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── SCOUT: 정찰 (reveal random enemy's row or col) ──
     case 'scout': {
-      const enemyPieces = room.players[1 - playerIdx].pieces.filter(p => p.alive && !p.isDragon);
+      // 팀모드: 모든 상대팀 유닛 중에서 랜덤 / 1v1: 상대 1명
+      let enemyPieces;
+      if (room.mode === 'team') {
+        const enemyIndices = getEnemyIndices(room, playerIdx);
+        enemyPieces = enemyIndices.flatMap(ei => (room.players[ei]?.pieces || []).filter(p => p.alive && !p.isDragon));
+      } else {
+        enemyPieces = room.players[1 - playerIdx].pieces.filter(p => p.alive && !p.isDragon);
+      }
       if (enemyPieces.length === 0) return { ok: false, msg: '적이 없습니다.' };
       const target = enemyPieces[Math.floor(Math.random() * enemyPieces.length)];
       const axis = Math.random() < 0.5 ? 'row' : 'col';
       const value = axis === 'row' ? target.row : target.col;
       spendSP(room, playerIdx, cost);
-      emitToPlayer(room, playerIdx, 'scout_result', { axis, value, targetName: target.name });
-      emitToPlayer(room, 1 - playerIdx, 'skill_result', { msg: `🔭 정찰: 상대가 ${target.name}의 위치를 알아냈습니다.` });
+      if (room.mode === 'team') {
+        // 팀모드: 팀 전체에게 정찰 결과 공유
+        const allies = getAllyIndices(room, playerIdx);
+        for (const aIdx of allies) {
+          emitToPlayer(room, aIdx, 'scout_result', { axis, value, targetName: target.name });
+        }
+        // 상대팀에게는 "정찰당했다" 알림
+        for (const eIdx of getEnemyIndices(room, playerIdx)) {
+          emitToPlayer(room, eIdx, 'skill_result', { msg: `🔭 정찰: 상대가 ${target.name}의 위치를 알아냈습니다.` });
+        }
+      } else {
+        emitToPlayer(room, playerIdx, 'scout_result', { axis, value, targetName: target.name });
+        emitToPlayer(room, 1 - playerIdx, 'skill_result', { msg: `🔭 정찰: 상대가 ${target.name}의 위치를 알아냈습니다.` });
+      }
       emitToSpectators(room, 'spectator_log', { msg: `🔭 정찰: ${player.name}의 척후병이 상대 ${target.name}의 위치를 알아냈습니다.`, type: 'skill', playerIdx: playerIdx });
       result.skipLog = true;
       break;
@@ -4437,7 +4456,7 @@ io.on('connection', (socket) => {
   });
 
   // ── 채팅 ──
-  socket.on('chat_msg', ({ text }) => {
+  socket.on('chat_msg', ({ text, scope }) => {
     const roomId = socket.data.roomId;
     if (!roomId || !rooms[roomId]) return;
     const room = rooms[roomId];
@@ -4453,22 +4472,43 @@ io.on('connection', (socket) => {
       return;
     }
     const color = assignChatColor(room, socket.id);
-    const msg = { sender: name, text: String(text).slice(0, 200), pIdx: isSpec ? -1 : pIdx, color, isSpectator: !!isSpec };
+    // 관전자는 scope 무시하고 항상 전체 채팅만 가능
+    const effectiveScope = isSpec ? 'all' : (scope === 'team' ? 'team' : 'all');
+    const msg = {
+      sender: name, text: String(text).slice(0, 200),
+      pIdx: isSpec ? -1 : pIdx, color,
+      isSpectator: !!isSpec,
+      scope: effectiveScope,
+      teamId: pIdx >= 0 ? room.players[pIdx].teamId : null,
+    };
     if (isSpec) {
       // 관전자 메시지 → 관전자끼리만
       for (const s of (room.spectators || [])) {
         io.to(s.socketId).emit('chat_msg', msg);
       }
-    } else {
-      // 플레이어 메시지 → 플레이어 + 관전자
-      for (const p of room.players) {
-        if (p.socketId !== 'AI') {
-          io.to(p.socketId).emit('chat_msg', msg);
+      return;
+    }
+    // ── 팀 채팅 ──: 팀 내 멤버에게만
+    if (effectiveScope === 'team' && room.mode === 'team') {
+      const senderTeam = room.players[pIdx].teamId;
+      if (senderTeam !== 0 && senderTeam !== 1) return;
+      for (const tIdx of (room.teams[senderTeam] || [])) {
+        const tp = room.players[tIdx];
+        if (tp && tp.socketId && tp.socketId !== 'AI') {
+          io.to(tp.socketId).emit('chat_msg', msg);
         }
       }
-      for (const s of (room.spectators || [])) {
-        io.to(s.socketId).emit('chat_msg', msg);
+      // 팀 채팅은 관전자/상대팀에게 안 감
+      return;
+    }
+    // ── 전체 채팅 ──: 모든 플레이어 + 관전자
+    for (const p of room.players) {
+      if (p.socketId !== 'AI') {
+        io.to(p.socketId).emit('chat_msg', msg);
       }
+    }
+    for (const s of (room.spectators || [])) {
+      io.to(s.socketId).emit('chat_msg', msg);
     }
   });
 
