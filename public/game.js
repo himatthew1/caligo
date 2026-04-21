@@ -1280,21 +1280,97 @@ if (_btnTeamPlacementConfirm) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── 팀전 게임 시작 (Phase 4d 초기 훅) ─────────────────────────
+// ── 팀전 게임 루프 ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
-socket.on('team_game_start', ({ myIdx, teamId, teams, currentPlayerIdx, turnNumber, boardBounds, sp, instantSp, players }) => {
-  S.playerIdx = myIdx;
-  S.teamId = teamId;
-  S.teamTeams = teams || S.teamTeams;
-  S.turnNumber = turnNumber;
-  S.boardBounds = boardBounds;
-  S.sp = sp;
-  S.instantSp = instantSp;
-  S.teamGamePlayers = players || [];
-  // Phase 4d: screen-game 전환 및 렌더 (추후 구현)
-  showSkillToast(`🎮 게임 시작! 현재 턴: ${players?.find(p=>p.idx===currentPlayerIdx)?.name || '?'}`, false, undefined, 'event');
-  // TODO: screen-game 전환 + 4인 프로필 UI
+function applyTeamGameState(state) {
+  if (!state) return;
+  S.playerIdx = state.myIdx;
+  S.teamId = state.myTeamId;
+  S.teamTeams = state.teams || S.teamTeams;
+  S.turnNumber = state.turnNumber;
+  S.boardBounds = state.boardBounds;
+  S.sp = state.sp;
+  S.instantSp = state.instantSp;
+  S.currentPlayerIdx = state.currentPlayerIdx;
+  S.isMyTurn = !!state.isMyTurn;
+  S.teamGamePlayers = state.players || [];
+  S.boardObjects = state.boardObjects || [];
+  // 내 pieces / 팀원 pieces / 적팀 pieces 재구성
+  const me = S.teamGamePlayers.find(p => p.idx === S.playerIdx);
+  const teammate = S.teamGamePlayers.find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+  const enemies = S.teamGamePlayers.filter(p => p.teamId !== S.teamId);
+  S.myPieces = me ? me.pieces : [];
+  S.teammatePieces = teammate ? teammate.pieces : [];
+  // 적 2명의 pieces를 합쳐서 oppPieces처럼 다룸 (oppSummary 포맷)
+  S.oppPieces = enemies.flatMap(e => (e.pieces || []).map(pc => ({ ...pc, ownerIdx: e.idx, ownerName: e.name, ownerTeamId: e.teamId })));
+}
+
+socket.on('team_game_start', (state) => {
+  applyTeamGameState(state);
+  // screen-game 전환
+  if (typeof buildBoard === 'function') {
+    try { buildBoard('game-board', () => {}); } catch (e) {}
+  }
+  showScreen('screen-game');
+  renderTeamGameSnapshot();
+  const curName = (S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx) || {}).name || '?';
+  showSkillToast(`🎮 팀전 시작! ${S.isMyTurn ? '당신의 턴!' : `${curName}의 턴`}`, false, undefined, 'event');
 });
+
+socket.on('team_game_update', (state) => {
+  applyTeamGameState(state);
+  renderTeamGameSnapshot();
+  if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
+});
+
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg }) => {
+  const myTeam = casterTeamId === S.teamId;
+  const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
+  const icon = skillUsed?.icon || '✨';
+  const txt = `${icon} ${casterName} — ${label}${msg ? ` (${msg})` : ''}`;
+  showSkillToast(txt, !myTeam, casterIdx, 'skill');
+  addLog(txt, 'skill');
+});
+
+socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => {
+  stopClientTimer();
+  showScreen('screen-gameover');
+  const iconEl = document.getElementById('gameover-icon');
+  const titleEl = document.getElementById('gameover-title');
+  const subEl = document.getElementById('gameover-sub');
+  if (iconEl) iconEl.textContent = win ? '🏆' : '💀';
+  if (titleEl) {
+    titleEl.textContent = win ? '팀 승리!' : '팀 패배';
+    titleEl.style.color = win ? 'var(--accent)' : 'var(--danger)';
+  }
+  if (subEl) {
+    const winStr = (winners || []).join(', ');
+    const loseStr = (losers || []).join(', ');
+    subEl.innerHTML = `승리팀: <strong>${escapeHtmlGlobal(winStr)}</strong><br>패배팀: ${escapeHtmlGlobal(loseStr)}<br><span class="muted">${reason || ''}</span>`;
+  }
+});
+
+// 팀전 게임 화면 간소 렌더 (Phase 4d MVP)
+function renderTeamGameSnapshot() {
+  // 기존 1v1 렌더 함수들을 최대한 재사용
+  try {
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (typeof renderMyPieces === 'function') renderMyPieces();
+    if (typeof renderOppPieces === 'function') renderOppPieces();
+    if (typeof updateSPBar === 'function') updateSPBar();
+  } catch (e) {
+    console.error('[team render] error:', e);
+  }
+  // 턴 표시 업데이트 (1v1 렌더가 놓칠 수 있음)
+  const turnEl = document.getElementById('turn-indicator') || document.getElementById('turn-banner');
+  if (turnEl && S.teamGamePlayers) {
+    const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
+    if (cur) {
+      const teamLabel = cur.teamId === 0 ? 'A팀' : 'B팀';
+      turnEl.textContent = `[${teamLabel}] ${cur.name}의 턴 (${S.turnNumber}턴)`;
+    }
+  }
+}
 
 // 팀 대기실 렌더
 function renderTeamWaitingRoom() {

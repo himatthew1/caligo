@@ -885,7 +885,7 @@ function teamPlacementTimeout(room) {
 function startTeamGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
-  // 턴 순서: A팀 랜덤으로 먼저 or A팀이 항상 먼저? 단순히 A1 먼저.
+  // 턴 순서: A팀 A1 먼저 (A1→B1→A2→B2 반복)
   room.currentPlayerIdx = (room.teams[0] || [])[0] ?? 0;
   room.turnNumber = 1;
   // 첫 플레이어 턴 리셋
@@ -896,24 +896,19 @@ function startTeamGameFromRoom(room) {
     first.skillsUsedBeforeAction = [];
     first.twinMovedSubs = [];
   }
-  // 각 플레이어에게 게임 시작 알림
+  // 초기 게임 상태 브로드캐스트
   for (const p of room.players) {
     if (!p.socketId) continue;
+    const state = getTeamGameStateFor(room, p.index);
     io.to(p.socketId).emit('team_game_start', {
-      myIdx: p.index,
-      teamId: p.teamId,
+      ...state,
       teams: room.teams,
-      currentPlayerIdx: room.currentPlayerIdx,
-      turnNumber: room.turnNumber,
-      boardBounds: room.boardBounds,
-      sp: room.sp,
-      instantSp: room.instantSp,
-      players: room.players.map(pl => ({
-        idx: pl.index, name: pl.name, teamId: pl.teamId,
-        pieces: pieceSummary(pl.pieces),
-      })),
     });
   }
+  // 관전자 (Phase 5에서 보강)
+  emitToSpectators(room, 'spectator_log', { msg: `팀전 게임 시작! 선공: ${first?.name || '?'}`, type: 'event' });
+  // 턴 타이머 시작
+  startTimer(room, 'game', () => turnTimeout(room));
 }
 
 // ── 초기 공개: 드래프트 직후, 상대 캐릭터 타입 공개 ──
@@ -1887,9 +1882,14 @@ function endTurn(room) {
   // Process turn-start effects
   processTurnStart(room);
 
-  // Check wins after curse damage
-  if (checkWin(room, 0)) { endGame(room, 1); return; }
-  if (checkWin(room, 1)) { endGame(room, 0); return; }
+  // 승부 체크 (모드별)
+  if (room.mode === 'team') {
+    if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+    if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+  } else {
+    if (checkWin(room, 0)) { endGame(room, 1); return; }
+    if (checkWin(room, 1)) { endGame(room, 0); return; }
+  }
 
   const turnData = {
     turnNumber: room.turnNumber,
@@ -1898,6 +1898,15 @@ function endTurn(room) {
     skillPoints: room.sp,
     boardBounds: room.boardBounds,
   };
+
+  // ── 팀 모드 분기 ──
+  if (room.mode === 'team') {
+    broadcastTeamGameState(room, turnData);
+    emitToSpectators(room, 'spectator_log', { msg: `[턴 ${room.turnNumber}] ${cur.name}의 차례`, type: 'system', playerIdx: curIdx });
+    // TODO: 팀전 관전자 상태 (Phase 5에서 보강)
+    startTimer(room, 'game', () => turnTimeout(room));
+    return;
+  }
 
   // AI turn
   if (room.isAI && curIdx === 1) {
@@ -1935,6 +1944,79 @@ function endTurn(room) {
 
   // 턴 타이머 시작
   startTimer(room, 'game', () => turnTimeout(room));
+}
+
+// ── 팀전 게임 상태 브로드캐스트 ──
+// 각 플레이어에게 개인화된 뷰 전송 (자기팀 pieces full, 적팀 oppSummary)
+function getTeamGameStateFor(room, viewerIdx) {
+  const viewerTeamId = room.players[viewerIdx]?.teamId;
+  const players = room.players.map(p => {
+    const isAlly = p.teamId === viewerTeamId;  // 자기 + 팀원 = ally
+    return {
+      idx: p.index,
+      name: p.name,
+      teamId: p.teamId,
+      pieces: isAlly ? pieceSummary(p.pieces) : oppPieceSummary(p.pieces),
+      actionDone: !!p.actionDone,
+      eliminated: isPlayerEliminated(room, p.index),
+    };
+  });
+  // 보드 오브젝트: 자기팀 것은 full, 상대팀은 공개된 것만
+  const boardObjects = [];
+  for (let i = 0; i < room.players.length; i++) {
+    const pTeam = room.players[i].teamId;
+    if (pTeam === viewerTeamId) {
+      // own team: full objects + own rats
+      for (const o of (room.boardObjects[i] || [])) boardObjects.push({ ...o });
+      for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+    } else {
+      // enemy team: rats are visible
+      for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+    }
+  }
+  return {
+    currentPlayerIdx: room.currentPlayerIdx,
+    turnNumber: room.turnNumber,
+    sp: room.sp,
+    instantSp: room.instantSp,
+    boardBounds: room.boardBounds,
+    boardShrinkStage: room.boardShrinkStage,
+    players,
+    boardObjects,
+    myIdx: viewerIdx,
+    myTeamId: viewerTeamId,
+    isMyTurn: room.currentPlayerIdx === viewerIdx,
+  };
+}
+
+function broadcastTeamGameState(room, extra) {
+  if (!room || room.mode !== 'team') return;
+  for (const p of room.players) {
+    if (!p.socketId) continue;
+    const state = getTeamGameStateFor(room, p.index);
+    if (extra) Object.assign(state, extra);
+    io.to(p.socketId).emit('team_game_update', state);
+  }
+}
+
+// 팀전 게임 종료
+function endTeamGame(room, winnerTeamId, reason) {
+  clearTimer(room);
+  room.phase = 'ended';
+  const winners = (room.teams[winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
+  const losers = (room.teams[1 - winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
+  for (const p of room.players) {
+    if (!p.socketId) continue;
+    io.to(p.socketId).emit('team_game_over', {
+      win: p.teamId === winnerTeamId,
+      winnerTeamId,
+      winners, losers,
+      reason: reason || 'eliminated',
+    });
+  }
+  emitToSpectators(room, 'team_game_over', {
+    winnerTeamId, winners, losers, reason: reason || 'eliminated',
+  });
 }
 
 function endGame(room, winnerIdx, reason) {
@@ -3897,17 +3979,27 @@ io.on('connection', (socket) => {
       twinMovePending: piece.subUnit && !player.actionDone,
       twinMovedSub: piece.subUnit || null,  // 어느 쪽이 이동했는지
     });
-    const opp = room.players[1 - idx];
-    if (opp.socketId !== 'AI') {
-      io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+    if (room.mode === 'team') {
+      // 팀모드: 이동 후 전체 상태 재브로드캐스트
+      broadcastTeamGameState(room);
+    } else {
+      const opp = room.players[1 - idx];
+      if (opp.socketId !== 'AI') {
+        io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+      }
     }
     emitToSpectators(room, 'spectator_log', { msg: `🚶 ${player.name}, ${piece.icon}${piece.name}의 위치를 ${coord(col,row)}로 이동합니다.`, type: 'move', playerIdx: idx });
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
     // Check win after trap damage
-    if (checkWin(room, idx)) {
-      endGame(room, 1 - idx);
-      return;
+    if (room.mode === 'team') {
+      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+    } else {
+      if (checkWin(room, idx)) {
+        endGame(room, 1 - idx);
+        return;
+      }
     }
 
     // DON'T auto end turn - wait for 'end_turn' event
@@ -4127,11 +4219,21 @@ io.on('connection', (socket) => {
       player.actionDone = true;
     }
 
+    if (room.mode === 'team') {
+      // 팀모드: 공격 후 전체 상태 재브로드캐스트
+      broadcastTeamGameState(room);
+    }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    if (checkWin(room, 1 - idx)) {
-      endGame(room, idx);
-      return;
+    // 승리 체크
+    if (room.mode === 'team') {
+      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+    } else {
+      if (checkWin(room, 1 - idx)) {
+        endGame(room, idx);
+        return;
+      }
     }
 
     // DON'T auto end turn - wait for 'end_turn' event
@@ -4145,6 +4247,20 @@ io.on('connection', (socket) => {
     const idx = socket.data.idx;
     // 이미 종료된 방은 무시
     if (room.phase === 'ended' || room.phase === 'waiting') return;
+
+    // ── 팀전: 한 명 기권 = 팀 즉시 패배 ──
+    if (room.mode === 'team') {
+      const teamSetupPhases = ['team_draft', 'team_hp', 'team_reveal', 'team_placement'];
+      const surrenderedTeam = room.players[idx]?.teamId;
+      if (surrenderedTeam === undefined || surrenderedTeam === null) return;
+      const winnerTeamId = 1 - surrenderedTeam;
+      if (room.phase === 'game' || teamSetupPhases.includes(room.phase)) {
+        emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다! ${surrenderedTeam === 0 ? 'A' : 'B'}팀 패배.`, type: 'system', playerIdx: idx });
+        endTeamGame(room, winnerTeamId, 'surrender');
+      }
+      return;
+    }
+
     // 세팅 단계(초기공개/교환/최종공개/HP/배치)에서 나가기 — 상대 승리
     const setupPhases = ['initial_reveal','exchange_draft','final_reveal','hp_distribution','placement'];
     if (setupPhases.includes(room.phase)) {
@@ -4182,40 +4298,72 @@ io.on('connection', (socket) => {
       return;
     }
 
-    socket.emit('skill_result', {
-      msg: result.skipLog ? '' : result.msg,
-      data: result.data,
-      success: true,
-      effects: result.data,
-      yourPieces: pieceSummary(room.players[idx].pieces),
-      oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
-      sp: room.sp,
-      instantSp: room.instantSp,
-      skillPoints: room.sp,
-      boardObjects: boardObjectsSummary(room, idx),
-      actionDone: room.players[idx].actionDone,
-      actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
-      skillsUsed: room.players[idx].skillsUsedBeforeAction,
-    });
-
-    // Update opponent with skill details
     const skillPiece = room.players[idx].pieces[pieceIdx];
-    const opp = room.players[1 - idx];
-    if (opp.socketId !== 'AI') {
-      io.to(opp.socketId).emit('status_update', {
-        oppPieces: oppPieceSummary(room.players[idx].pieces),
-        yourPieces: pieceSummary(opp.pieces),
+
+    if (room.mode === 'team') {
+      // 팀모드: 시전자에게 skill_result, 그리고 모두에게 전체 상태 브로드캐스트
+      socket.emit('skill_result', {
+        msg: result.skipLog ? '' : result.msg,
+        data: result.data,
+        success: true,
+        effects: result.data,
+        yourPieces: pieceSummary(room.players[idx].pieces),
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,
-        boardObjects: boardObjectsSummary(room, 1 - idx),
-        msg: result.oppMsg || null,
-        skillUsed: {
-          icon: skillPiece.icon,
-          name: skillPiece.name,
-          skillName: skillPiece.skillName,
-        },
+        boardObjects: boardObjectsSummary(room, idx),
+        actionDone: room.players[idx].actionDone,
+        actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
+        skillsUsed: room.players[idx].skillsUsedBeforeAction,
       });
+      broadcastTeamGameState(room);
+      // 시전자 외 모두에게 skill 알림
+      for (const p of room.players) {
+        if (!p.socketId || p.index === idx) continue;
+        io.to(p.socketId).emit('team_skill_notice', {
+          casterIdx: idx,
+          casterName: room.players[idx].name,
+          casterTeamId: room.players[idx].teamId,
+          skillUsed: {
+            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+          },
+          msg: result.oppMsg || result.msg || null,
+        });
+      }
+    } else {
+      // 1v1 기존 로직
+      socket.emit('skill_result', {
+        msg: result.skipLog ? '' : result.msg,
+        data: result.data,
+        success: true,
+        effects: result.data,
+        yourPieces: pieceSummary(room.players[idx].pieces),
+        oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
+        sp: room.sp,
+        instantSp: room.instantSp,
+        skillPoints: room.sp,
+        boardObjects: boardObjectsSummary(room, idx),
+        actionDone: room.players[idx].actionDone,
+        actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
+        skillsUsed: room.players[idx].skillsUsedBeforeAction,
+      });
+
+      // Update opponent with skill details
+      const opp = room.players[1 - idx];
+      if (opp.socketId !== 'AI') {
+        io.to(opp.socketId).emit('status_update', {
+          oppPieces: oppPieceSummary(room.players[idx].pieces),
+          yourPieces: pieceSummary(opp.pieces),
+          sp: room.sp,
+          instantSp: room.instantSp,
+          skillPoints: room.sp,
+          boardObjects: boardObjectsSummary(room, 1 - idx),
+          msg: result.oppMsg || null,
+          skillUsed: {
+            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+          },
+        });
+      }
     }
 
     // 관전자에게 상세 스킬 로그 전송
@@ -4225,9 +4373,14 @@ io.on('connection', (socket) => {
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    // Check win after skill effects
-    if (checkWin(room, 0)) { endGame(room, 1); return; }
-    if (checkWin(room, 1)) { endGame(room, 0); return; }
+    // Check win after skill effects (모드별)
+    if (room.mode === 'team') {
+      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+    } else {
+      if (checkWin(room, 0)) { endGame(room, 1); return; }
+      if (checkWin(room, 1)) { endGame(room, 0); return; }
+    }
   });
 
   // ── 폭탄 기폭 ──
@@ -4362,13 +4515,23 @@ io.on('connection', (socket) => {
       if (room.phase !== 'waiting' && room.phase !== 'ended') {
         const dcIdx = room.players.findIndex(p => p.socketId === socket.id);
         const dcName = dcIdx >= 0 ? room.players[dcIdx].name : '알 수 없음';
+
+        // ── 팀전 중 이탈: 해당 팀 즉시 패배 ──
+        if (room.mode === 'team' && dcIdx >= 0) {
+          const dcTeam = room.players[dcIdx].teamId;
+          if (dcTeam === 0 || dcTeam === 1) {
+            emitToSpectators(room, 'spectator_log', { msg: `🔌 ${dcName} 연결 끊김. ${dcTeam === 0 ? 'A' : 'B'}팀 패배.`, type: 'system', playerIdx: dcIdx });
+            endTeamGame(room, 1 - dcTeam, 'disconnect');
+            return;
+          }
+        }
+
+        // 1v1 기존 로직
         const otherIdx = dcIdx >= 0 ? 1 - dcIdx : -1;
         const otherName = otherIdx >= 0 ? room.players[otherIdx].name : '';
-        // 남은 플레이어에게
         if (otherIdx >= 0) {
           emitToPlayer(room, otherIdx, 'disconnected', { msg: `${dcName}이(가) 연결을 끊었습니다. 승리!` });
         }
-        // 관전자에게
         emitToSpectators(room, 'disconnected', { msg: `${dcName}이(가) 접속을 끊어 ${otherName}이(가) 승리했습니다!` });
         room.phase = 'ended';
       }
