@@ -52,8 +52,10 @@
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
     <h1 class="game-title">CALIGO</h1>
-    <p class="game-sub">칼리고 · 1vs1 전략 보드게임</p>
-    <button id="btn-deck" class="btn btn-deck-large btn-large">🃏 내 덱</button>
+    <div class="deck-button-wrapper">
+      <div id="btn-deck-preview" class="btn-deck-preview"></div>
+      <button id="btn-deck" class="btn btn-deck-large btn-large">🃏 내 덱</button>
+    </div>
     <div class="form-group">
       <label>닉네임</label>
       <input id="input-name" type="text" placeholder="닉네임을 입력해주세요" maxlength="12">
@@ -411,7 +413,10 @@
   <div class="chat-panel">
     <div class="chat-header">
       <span>💬 채팅</span>
-      <button id="chat-close" class="chat-close-btn">✕</button>
+      <div class="chat-header-actions">
+        <button id="chat-mute" class="chat-mute-btn" title="채팅 알림 소리 끄기">🔔</button>
+        <button id="chat-close" class="chat-close-btn">✕</button>
+      </div>
     </div>
     <div id="chat-messages" class="chat-messages"></div>
     <div class="chat-input-row">

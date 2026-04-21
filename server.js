@@ -290,32 +290,40 @@ function isCrossAdjacent(c1, r1, c2, r2) {
 
 const rooms = {};
 
-function createRoom(id) {
+function createRoom(id, opts = {}) {
+  const mode = opts.mode || 'pvp';             // 'pvp' (1v1) | 'team' (2v2)
+  const playerCount = mode === 'team' ? 4 : 2;
   return {
     id,
+    mode,                                       // NEW
+    playerCount,                                // NEW
     players: [],
     phase: 'waiting',      // waiting -> draft -> initial_reveal -> exchange_draft -> final_reveal -> hp_distribution -> placement -> game -> ended
     currentPlayerIdx: 0,
     turnNumber: 0,
-    draftDone:     [false, false],
-    hpDone:        [false, false],
-    initialRevealDone: [false, false],
-    exchangeDone:  [false, false],
-    finalRevealDone: [false, false],
-    revealDone:    [false, false],   // kept for legacy compatibility
-    placementDone: [false, false],
+    // 인원수에 따라 동적으로 초기화
+    draftDone:         Array(playerCount).fill(false),
+    hpDone:            Array(playerCount).fill(false),
+    initialRevealDone: Array(playerCount).fill(false),
+    exchangeDone:      Array(playerCount).fill(false),
+    finalRevealDone:   Array(playerCount).fill(false),
+    revealDone:        Array(playerCount).fill(false),   // kept for legacy compatibility
+    placementDone:     Array(playerCount).fill(false),
     isAI: false,
-    // SP system: starts 1 each, +1 each per 10 turns, per-player max 10, pool max 10, stop after turn 50
+    // SP system: 1v1은 플레이어당, 팀전은 팀 풀. 인덱스 0/1은 1v1=p0/p1, 팀전=teamA/teamB
     sp: [1, 1],
-    // Instant SP: one-time-use SP from wizard passive (not part of influence graph)
     instantSp: [0, 0],
-    // Board bounds
-    boardBounds: { min: 0, max: 4 },
+    // Board bounds — 팀전은 7×7로 시작
+    boardBounds: mode === 'team' ? { min: 0, max: 6 } : { min: 0, max: 4 },
     boardShrunk: false,
+    boardShrinkStage: 0,   // 0=초기, 1=첫 축소, 2=최종 축소
     // Board objects: traps, bombs (per player arrays)
-    boardObjects: [[], []],
+    boardObjects: Array(playerCount).fill(null).map(() => []),
     // Rats per player
-    rats: [[], []],
+    rats: Array(playerCount).fill(null).map(() => []),
+    // Teams (팀전 전용, 1v1에서도 편의상 채워둠: teamA=[0], teamB=[1])
+    teams: mode === 'team' ? [[], []] : [[0], [1]],
+    eliminatedPlayers: new Set(),
     // Spectators
     spectators: [],
     // Timer
@@ -326,6 +334,40 @@ function createRoom(id) {
     chatColorPool: ['#f87171','#fb923c','#fbbf24','#4ade80','#60a5fa','#a78bfa'],
     chatColorIdx: 0,
   };
+}
+
+// ── 팀/인덱스 헬퍼 ───────────────────────────────────────
+function getTeamOf(room, idx) {
+  if (room.mode !== 'team') return idx;  // 1v1: 팀=인덱스
+  for (let t = 0; t < room.teams.length; t++) {
+    if (room.teams[t].includes(idx)) return t;
+  }
+  return -1;
+}
+function getTeammates(room, idx) {
+  if (room.mode !== 'team') return [];    // 1v1: 팀원 없음
+  const t = getTeamOf(room, idx);
+  if (t < 0) return [];
+  return room.teams[t].filter(i => i !== idx);
+}
+function getEnemyIndices(room, idx) {
+  if (room.mode !== 'team') return [1 - idx];
+  const myTeam = getTeamOf(room, idx);
+  const enemyTeam = 1 - myTeam;
+  return [...(room.teams[enemyTeam] || [])];
+}
+function getEnemyTeamOf(room, idx) {
+  if (room.mode !== 'team') return 1 - idx;
+  return 1 - getTeamOf(room, idx);
+}
+function isTeammate(room, a, b) {
+  if (a === b) return false;
+  return getTeamOf(room, a) === getTeamOf(room, b);
+}
+// 두 말이 같은 편(본인 or 같은 팀)인지
+function isAlly(room, pieceOwnerIdxA, pieceOwnerIdxB) {
+  if (pieceOwnerIdxA === pieceOwnerIdxB) return true;
+  return room.mode === 'team' && isTeammate(room, pieceOwnerIdxA, pieceOwnerIdxB);
 }
 
 function assignChatColor(room, socketId) {
@@ -1362,12 +1404,12 @@ function processTurnStart(room) {
           // 마녀 사망 또는 대상 HP ≤ 1이면 저주 해제
           p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
           const reason = !sourceWitch ? '마녀가 사망해' : '체력 고갈로';
-          emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.` });
-          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason}, ${p.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: idx });
+          emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, msg: `🧙 저주: ${reason} ${p.name}의 저주가 해제되었습니다.` });
+          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason} ${p.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: idx });
         } else {
           p.hp = Math.max(0, p.hp - 0.5);
-          emitToBoth(room, 'passive_alert', { type: 'curse_tick', playerIdx: idx, msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.` });
-          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${p.name}이 저주로 0.5 피해.`, type: 'passive', playerIdx: idx });
+          emitToBoth(room, 'passive_alert', { type: 'curse_tick', playerIdx: idx, msg: `🧙 저주: 저주 상태의 ${p.name}! 0.5 피해.` });
+          emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: 저주 상태의 ${p.name}! 0.5 피해.`, type: 'passive', playerIdx: idx });
           if (p.hp <= 0) {
             handleDeath(room, p, idx);
           }
@@ -3204,6 +3246,12 @@ io.on('connection', (socket) => {
     if ((atkPiece.type === 'shadowAssassin' || atkPiece.type === 'witch') &&
         (tCol === undefined || tRow === undefined || !inBounds(tCol, tRow, room.boardBounds))) {
       socket.emit('err', { msg: '대상 칸을 선택하세요.' }); return;
+    }
+    // shadowAssassin: 자기 주변 9칸(자신 포함) 이내만 허용
+    if (atkPiece.type === 'shadowAssassin') {
+      if (Math.abs(tCol - atkPiece.col) > 1 || Math.abs(tRow - atkPiece.row) > 1) {
+        socket.emit('err', { msg: '주변 9칸 중에서만 선택 가능합니다.' }); return;
+      }
     }
 
     const bounds = room.boardBounds;

@@ -134,6 +134,9 @@ const S = {
 // ── 오디오 설정 ─────────────────────────────────────────────
 let bgmMuted = false;
 let sfxMuted = false;
+let chatMuted = (() => {
+  try { return localStorage.getItem('caligo_chat_muted') === '1'; } catch (e) { return false; }
+})();
 
 // ── 타이머 ───────────────────────────────────────────────────
 let timerInterval = null;
@@ -222,6 +225,42 @@ function showScreen(id) {
   const exitScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement'];
   const exitBtn = document.getElementById('btn-setup-exit');
   if (exitBtn) exitBtn.classList.toggle('hidden', !exitScreens.includes(id));
+  // 로비 진입 시 내 덱 버튼 상태 갱신
+  if (id === 'screen-lobby') updateLobbyDeckButton();
+}
+
+// 로비의 "내 덱" 버튼 — 현재 선택된 덱 이름 + 캐릭터 아이콘 상단 표시
+function updateLobbyDeckButton() {
+  const btn = document.getElementById('btn-deck');
+  const preview = document.getElementById('btn-deck-preview');
+  if (!btn) return;
+  const deck = loadDeck();
+  const hasChars = S.characters;
+  const deckReady = deck && deck.t1 && deck.t2 && deck.t3;
+  // 버튼 텍스트
+  if (deckReady) {
+    const list = loadDeckList();
+    const matched = list.find(d => d && d.t1 === deck.t1 && d.t2 === deck.t2 && d.t3 === deck.t3);
+    const deckName = (matched && matched.name) ? matched.name : '내 덱';
+    btn.textContent = `🃏 ${deckName}`;
+  } else {
+    btn.textContent = '🃏 내 덱';
+  }
+  // 프리뷰 원 — 항상 3개 표시 (빈 슬롯은 empty placeholder)
+  if (!preview) return;
+  preview.classList.remove('hidden');
+  const factionCls = (tag) => tag === 'royal' ? 'faction-royal'
+                            : tag === 'villain' ? 'faction-villain'
+                            : 'faction-none';
+  const iconsHtml = [['t1',1],['t2',2],['t3',3]].map(([k, tier]) => {
+    if (!deckReady || !hasChars) {
+      return `<span class="deck-preview-icon empty"></span>`;
+    }
+    const c = findLocalChar(deck[k], tier);
+    if (!c) return `<span class="deck-preview-icon empty"></span>`;
+    return `<span class="deck-preview-icon ${factionCls(c.tag)}" title="${c.name}">${c.icon}</span>`;
+  }).join('');
+  preview.innerHTML = iconsHtml;
 }
 
 // ── 덱 저장/로드 (localStorage) ──────────────────────────────
@@ -308,18 +347,20 @@ function renderDeckList() {
         const key = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
         return findLocalChar(deck[key], tier);
       });
-      const iconsHtml = chars.map(c => c ? `<span class="deck-list-icon" title="${c.name}">${c.icon}</span>` : '').join('');
+      // 팩션별 원 배경색 (왕실=노랑 / 악인=보라 / 무소속=회색)
+      const factionCls = (tag) => tag === 'royal' ? 'faction-royal'
+                                : tag === 'villain' ? 'faction-villain'
+                                : 'faction-none';
+      const iconsHtml = chars.map(c => c
+        ? `<span class="deck-list-icon ${factionCls(c.tag)}" title="${c.name}">${c.icon}</span>`
+        : '').join('');
       const isSelected = S.deckSavedState && S.deckSavedState.t1 === deck.t1 && S.deckSavedState.t2 === deck.t2 && S.deckSavedState.t3 === deck.t3;
       if (isSelected) slot.classList.add('selected');
       const deckName = deck.name || '';
       slot.innerHTML = `
-        <span class="deck-list-num">${idx + 1}</span>
         <div class="deck-list-icons">${iconsHtml}</div>
-        <span class="deck-list-name" title="이름 수정">${deckName || '<span style="color:var(--muted);font-style:italic">이름 없음</span>'}</span>`;
+        <span class="deck-list-name">${deckName || '<span style="color:var(--muted);font-style:italic">이름 없음</span>'}</span>`;
       slot.addEventListener('click', (e) => {
-        if (e.target.classList.contains('deck-list-del')) return;
-        if (e.target.classList.contains('deck-list-rename')) return;
-        if (e.target.classList.contains('deck-list-name')) return;
         if (e.target.closest('.deck-list-actions')) return;
         // 덱 불러오기 + 메인 덱으로 저장 (로비 기본 덱으로 사용됨)
         S.draftSelected = { 1: deck.t1, 2: deck.t2, 3: deck.t3 };
@@ -331,7 +372,7 @@ function renderDeckList() {
         showSkillToast('덱을 불러왔습니다.', false, undefined, 'event');
       });
     } else {
-      slot.innerHTML = `<span class="deck-list-num">${idx + 1}</span><span class="deck-list-empty-label">빈 슬롯</span>`;
+      slot.innerHTML = `<span class="deck-list-empty-label">빈 슬롯</span>`;
       slot.addEventListener('click', () => {
         // 빈 슬롯 클릭 → 현재 선택된 덱이 모두 채워져있으면 이 슬롯에 저장
         const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
@@ -377,15 +418,7 @@ function renderDeckList() {
       openRename(parseInt(btn.dataset.idx));
     });
   });
-  container.querySelectorAll('.deck-list-name').forEach(span => {
-    span.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const row = e.target.closest('.deck-list-row');
-      if (!row) return;
-      const idx = Array.from(container.children).indexOf(row);
-      if (idx >= 0) openRename(idx);
-    });
-  });
+  // 이름 텍스트 자체 클릭은 더 이상 이름 수정으로 가지 않음 (연필 버튼 전용)
 }
 
 // 덱 이름 모달
@@ -496,6 +529,7 @@ document.getElementById('btn-deck').addEventListener('click', () => {
     socket.once('characters_data', ({ characters }) => {
       S.characters = characters;
       openDeckBuilder();
+      updateLobbyDeckButton();
     });
   }
 });
@@ -572,6 +606,9 @@ function initAudioToggle() {
   });
 }
 initAudioToggle();
+
+// 페이지 로드 시 로비 덱 버튼 초기 렌더 (빈 원 3개 표시 보장)
+try { updateLobbyDeckButton(); } catch (e) {}
 
 // ── 로비 ──────────────────────────────────────────────────────
 document.getElementById('btn-join').addEventListener('click', () => {
@@ -723,7 +760,7 @@ socket.on('spectator_log', ({ msg, type, playerIdx }) => {
     showSkillToast(msg, false, playerIdx);
   }
   // 관전자 전용 효과음: 메시지 내용으로 판단
-  if (type === 'passive' && msg.includes('저주로') && msg.includes('0.5 피해')) {
+  if (type === 'passive' && msg.includes('저주 상태의') && msg.includes('0.5 피해')) {
     playSfxCurseDamage();
   } else if (type === 'hit' && msg.includes('🪤')) {
     playSfxTrapSnap();
@@ -1324,14 +1361,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   if (msg) {
     showSkillToast(msg, true);
     addLog(msg, 'skill-enemy');
-  } else if (skillUsed) {
-    const toastMsg = `🚨 ${oppN()}의 ${skillUsed.icon}${skillUsed.name}이(가) [${skillUsed.skillName}] 사용!`;
-    showSkillToast(toastMsg, true);
-    addLog(toastMsg, 'skill-enemy');
-  } else {
-    showSkillToast(`🚨 상대가 스킬을 사용했습니다.`, true);
-    addLog(`🚨 상대가 스킬을 사용했습니다.`, 'skill-enemy');
   }
+  // skillUsed만 있거나 아무 정보도 없는 경우는 조용히 무시 (🚨 토스트 영구 삭제)
 
   // 상대 스킬로 내 유닛이 피해를 받았는지 감지
   const mySkillDmgIdx = [];
@@ -1434,8 +1465,8 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   // 저주 틱 피해: 일반 피격 + 저주 사운드 레이어링 + 피격 애니메이션
   if (type === 'curse_tick') {
     playSfxCurseDamage();
-    // 피격 애니메이션: msg에서 이름 추출 (예: "🧙 저주: 궁수이 저주로 0.5 피해.")
-    const nameMatch = msg.match(/저주: (.+?)이?\s*저주로/);
+    // 피격 애니메이션: msg에서 이름 추출 (예: "🧙 저주: 저주 상태의 궁수! 0.5 피해.")
+    const nameMatch = msg.match(/저주 상태의\s+(.+?)!/);
     if (nameMatch) {
       const pname = nameMatch[1].trim();
       const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
@@ -1672,7 +1703,7 @@ const CHAR_DETAILS = {
       { ...mkSkillHead('약초학', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
     ],
     body: '스킬 사용 시 자신 주변 8칸 내에 위치한 모든 아군의 체력을 1 회복시킵니다. 약초전문가는 이 스킬로 스스로 회복할 수 없습니다.',
-    flavor: '전장에서 피어나는 작은 희망. 그의 손끝 한번이면 곪은 상처도 아문다.',
+    flavor: '전장에서 피어나는 작은 희망. 그의 손끝이 스치면 곪은 상처도 아문다.',
   },
   // ── 2티어 ──
   general: {
@@ -1708,7 +1739,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('저주', 'tag-action', '행동소비형'), sp: 3, color: '#a78bfa' },
     ],
-    body: `스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주를 부여합니다. ${stBadge('curse', '저주')} 상태의 적은 차례마다 0.5 피해를 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 즉시 해제됩니다.`,
+    body: `스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 ${stBadge('curse', '저주')} 상태로 만듭니다. 저주 상태의 적은 차례마다 0.5 피해를 받으며 스킬을 사용할 수 없게 됩니다. 저주는 마녀가 죽거나, 저주 상태의 캐릭터 체력이 1 이하가 되면 즉시 해제됩니다.`,
     flavor: '죽음의 속삭임으로 적의 목숨을 서서히 앗아가는 수상한 여인.',
   },
   dualBlade: {
@@ -1938,7 +1969,7 @@ function renderSlide() {
     const isAlreadySelected = S.draftSelected[step] === c.type;
     if (isAlreadySelected) {
       selectBtn.textContent = '✔ 선택됨';
-      selectBtn.className = 'btn btn-accent btn-select-char selected';
+      selectBtn.className = 'btn btn-select-char btn-current-select';
     } else {
       selectBtn.textContent = '캐릭터 선택';
       selectBtn.className = 'btn btn-accent btn-select-char';
@@ -1977,11 +2008,16 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   const chars = S.characters[step];
   if (!chars || !chars[slideIndex]) return;
   const c = chars[slideIndex];
+  const isDuplicate = S.draftSelected[step] === c.type;
   S.draftSelected[step] = c.type;
   if (S.deckBuilderMode) S.deckSaved = false;
   renderSlide(); // 버튼 상태 갱신
   updateDraftConfirmBtn();
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
+  if (!isDuplicate) {
+    playSfxCharSelect();
+    showSkillToast(`${c.icon} ${c.name}을(를) 선택했습니다.`, false, undefined, 'event');
+  }
 });
 
 // 키보드 좌우 화살표로도 슬라이드 이동
@@ -3459,6 +3495,56 @@ function updateSPBar() {
   }
 }
 
+// 각 스킬별 실제 타겟/조건 체크 — 타겟이 하나도 없으면 false
+function skillHasValidTarget(piece, sk) {
+  const skillId = sk.id || piece.skillId;
+  const type = piece.type;
+  const alive = (arr) => (arr || []).filter(p => p.alive);
+
+  // 마녀 저주: HP>=1 + 아직 저주 안 걸린 살아있는 적이 있어야 함
+  if (type === 'witch' || skillId === 'curse') {
+    const candidates = alive(S.oppPieces).filter(p => p.hp >= 1 && !(p.statusEffects || []).some(e => e.type === 'curse'));
+    return candidates.length > 0;
+  }
+  // 수도승 신성: 자신 외 살아있는 아군
+  if (skillId === 'divine') {
+    return alive(S.myPieces).some(p => p.type !== 'monk');
+  }
+  // 국왕 절대복종 반지: 살아있는 적
+  if (skillId === 'ring') {
+    return alive(S.oppPieces).length > 0;
+  }
+  // 고문 기술자 악몽: 표식 상태의 적이 1명 이상
+  if (skillId === 'nightmare') {
+    return alive(S.oppPieces).some(p => (p.statusEffects || []).some(e => e.type === 'mark'));
+  }
+  // 화약상 기폭: 설치된 폭탄이 있어야 함
+  if (skillId === 'detonate') {
+    return (S.boardObjects || []).some(o => o.type === 'bomb' && o.owner === S.playerIdx);
+  }
+  // 쥐 장수 역병의 자손들: 보드 위 쥐가 없는 빈 타일이 3곳 이상 (느슨히 1곳 이상으로도 시도 가능)
+  if (skillId === 'rats') {
+    const bounds = S.boardBounds || { min: 0, max: 4 };
+    let emptyCount = 0;
+    for (let c = bounds.min; c <= bounds.max; c++) {
+      for (let r = bounds.min; r <= bounds.max; r++) {
+        const hasRat = (S.boardObjects || []).some(o => o.type === 'rat' && o.col === c && o.row === r);
+        if (!hasRat) emptyCount++;
+      }
+    }
+    return emptyCount >= 1;
+  }
+  // 드래곤 소환: 보드에 드래곤이 없어야 + 빈 칸 존재
+  if (skillId === 'dragon') {
+    const myDragon = alive(S.myPieces).some(p => p.type === 'dragon' || p.isDragon);
+    if (myDragon) return false;
+    return true; // 빈 칸 판정은 서버에서
+  }
+  // 나머지 (그림자 숨기, 쌍검무, 정찰, 질주, 정비, 덫 설치, 분신, 약초학, 폭탄 설치, 유황범람)
+  // — 기본적으로 자신/주변 기반이라 SP/행동 조건만 통과하면 가능
+  return true;
+}
+
 function showActionBar(enabled) {
   const bar = document.getElementById('action-bar');
   if (!bar) return;
@@ -3512,6 +3598,9 @@ function showActionBar(enabled) {
     let hasUsableSkill = false;
     for (const p of alivePieces) {
       if (!p.hasSkill && (!p.skills || p.skills.length === 0)) continue;
+      // 저주 상태인 말은 스킬 사용 불가
+      const isCursed = p.statusEffects && p.statusEffects.some(e => e.type === 'curse');
+      if (isCursed) continue;
       const skills = p.skills && p.skills.length > 0 ? p.skills : (p.hasSkill ? [{ id: p.skillId, cost: p.skillCost, replacesAction: p.skillReplacesAction, oncePerTurn: !!p.skillOncePerTurn }] : []);
       for (const sk of skills) {
         // SP 체크
@@ -3520,6 +3609,8 @@ function showActionBar(enabled) {
         if (sk.replacesAction && S.actionDone) continue;
         // 턴당 1회인데 이미 사용했으면 불가
         if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${p.index}:${sk.id}`)) continue;
+        // 스킬별 실제 대상/조건 체크
+        if (!skillHasValidTarget(p, sk)) continue;
         hasUsableSkill = true;
         break;
       }
@@ -3671,11 +3762,15 @@ function renderGameBoard() {
       }
     }
 
-    // 대상 선택 모드 (shadowAssassin, witch)
+    // 대상 선택 모드 (shadowAssassin: 자신 주변 9칸, witch: 전체 보드)
     if (S.targetSelectMode && S.selectedPiece !== null) {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
-        cell.classList.add('assassin-target');
+        let inRange = true;
+        if (selPc.type === 'shadowAssassin') {
+          inRange = Math.abs(col - selPc.col) <= 1 && Math.abs(row - selPc.row) <= 1;
+        }
+        if (inRange) cell.classList.add('assassin-target');
       }
     }
 
@@ -4905,7 +5000,7 @@ function getPassiveLabel(passiveId) {
     betrayer: '공격 시 아군도 1 피해',
     wrath: '인접한 아군 공격력 1 증가',
     markPassive: '공격 적중 시 대상에게 표식 부여',
-    tyranny: '1~2티어에게 받는 피해 0.5 감소',
+    tyranny: '1티어와 2티어에게 받는 피해 0.5 감소',
     loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음',
   };
   return map[passiveId] || passiveId;
@@ -5851,6 +5946,55 @@ function playSfxCurseDamage() {
   } catch (e) {}
 }
 
+// ── 채팅 수신 사운드 (부드러운 팝) ──
+function playSfxChat() {
+  if (sfxMuted) return;
+  if (chatMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, now);
+    o.frequency.exponentialRampToValueAtTime(1320, now + 0.08);
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.17);
+  } catch (e) {}
+}
+
+// ── 캐릭터 선택 사운드 (짧은 확인 딩) ──
+function playSfxCharSelect() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 가벼운 C6 → G6 상승 딩
+    const o1 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    o1.type = 'sine';
+    o1.frequency.setValueAtTime(1047, now);
+    o1.frequency.exponentialRampToValueAtTime(1568, now + 0.12);
+    g1.gain.setValueAtTime(0.18, now);
+    g1.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    o1.connect(g1); g1.connect(out);
+    o1.start(now); o1.stop(now + 0.22);
+    // 배음
+    const o2 = ctx.createOscillator();
+    const g2 = ctx.createGain();
+    o2.type = 'triangle';
+    o2.frequency.value = 2093;
+    g2.gain.setValueAtTime(0.06, now + 0.03);
+    g2.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    o2.connect(g2); g2.connect(out);
+    o2.start(now + 0.03); o2.stop(now + 0.17);
+  } catch (e) {}
+}
+
 // ── 덱 저장 사운드 (딩동) ──
 function playSfxDeckSave() {
   if (sfxMuted) return;
@@ -6540,11 +6684,29 @@ function bgmDefeat(ctx, dest) {
   const widget = document.getElementById('chat-widget');
   const toggle = document.getElementById('chat-toggle');
   const closeBtn = document.getElementById('chat-close');
+  const muteBtn = document.getElementById('chat-mute');
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('chat-send');
   const msgBox = document.getElementById('chat-messages');
   const badge = document.getElementById('chat-badge');
   let unread = 0;
+
+  // 채팅 무음 토글 초기화
+  const syncMuteBtn = () => {
+    if (!muteBtn) return;
+    muteBtn.textContent = chatMuted ? '알림켜기' : '알림끄기';
+    muteBtn.title = chatMuted ? '채팅 알림 소리 켜기' : '채팅 알림 소리 끄기';
+    muteBtn.classList.toggle('muted', chatMuted);
+  };
+  syncMuteBtn();
+  if (muteBtn) {
+    muteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      chatMuted = !chatMuted;
+      try { localStorage.setItem('caligo_chat_muted', chatMuted ? '1' : '0'); } catch (e) {}
+      syncMuteBtn();
+    });
+  }
 
   function isOpen() { return !widget.classList.contains('chat-collapsed'); }
 
@@ -6603,10 +6765,13 @@ function bgmDefeat(ctx, dest) {
     msgBox.appendChild(div);
     msgBox.scrollTop = msgBox.scrollHeight;
 
-    if (!isSelf && !isOpen()) {
-      unread++;
-      badge.textContent = unread > 9 ? '9+' : unread;
-      badge.classList.remove('hidden');
+    if (!isSelf) {
+      playSfxChat();
+      if (!isOpen()) {
+        unread++;
+        badge.textContent = unread > 9 ? '9+' : unread;
+        badge.classList.remove('hidden');
+      }
     }
   });
 
