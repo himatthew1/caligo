@@ -369,6 +369,82 @@ function isAlly(room, pieceOwnerIdxA, pieceOwnerIdxB) {
   if (pieceOwnerIdxA === pieceOwnerIdxB) return true;
   return room.mode === 'team' && isTeammate(room, pieceOwnerIdxA, pieceOwnerIdxB);
 }
+// 본인 + 팀원 인덱스 배열 (아군 맥락)
+function getAllyIndices(room, idx) {
+  if (room.mode !== 'team') return [idx];
+  const t = getTeamOf(room, idx);
+  if (t < 0) return [idx];
+  return [...room.teams[t]];
+}
+// 기본 상대 인덱스 (1v1 호환) — 단일 상대가 필요할 때
+function getOpponentIdx(room, idx) {
+  if (room.mode !== 'team') return 1 - idx;
+  const enemies = getEnemyIndices(room, idx);
+  return enemies[0];   // 팀모드에서 단일 상대 의미가 모호하니 사용처에서 주의
+}
+// SP/상태 배열 인덱스 — 1v1에서는 playerIdx, 팀전에서는 teamId
+function teamSlotIdx(room, idx) {
+  return room.mode === 'team' ? getTeamOf(room, idx) : idx;
+}
+// 탈락자(전멸/이탈/기권)인지
+function isPlayerEliminated(room, idx) {
+  if (room.eliminatedPlayers && room.eliminatedPlayers.has(idx)) return true;
+  const p = room.players[idx];
+  if (!p || !p.pieces) return false;
+  return p.pieces.every(piece => !piece.alive);
+}
+// 팀 전멸 여부
+function isTeamEliminated(room, teamId) {
+  if (room.mode !== 'team') return false;
+  const team = room.teams[teamId] || [];
+  return team.every(idx => isPlayerEliminated(room, idx));
+}
+// 다음 턴 플레이어 계산
+// 1v1: 단순 토글
+// 팀전: A1 → B1 → A2 → B2 → A1 ... 순서로 순환, 탈락자 스킵
+//   단, 동일 팀의 살아남은 멤버가 탈락자 턴을 대신 수행
+function getNextPlayerIdx(room) {
+  if (room.mode !== 'team') return 1 - room.currentPlayerIdx;
+  // 팀전 턴 순서: [A0, B0, A1, B1] 인덱스로 순환
+  const teamA = room.teams[0] || [];
+  const teamB = room.teams[1] || [];
+  const order = [];
+  const maxLen = Math.max(teamA.length, teamB.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < teamA.length) order.push(teamA[i]);
+    if (i < teamB.length) order.push(teamB[i]);
+  }
+  if (order.length === 0) return 0;
+  const curPos = order.indexOf(room.currentPlayerIdx);
+  const startPos = curPos >= 0 ? curPos : -1;
+  for (let offset = 1; offset <= order.length; offset++) {
+    const nextPos = (startPos + offset) % order.length;
+    const candidate = order[nextPos];
+    if (!isPlayerEliminated(room, candidate)) return candidate;
+    // 탈락자면 같은 팀의 살아남은 멤버로 대체
+    const teamOfCandidate = getTeamOf(room, candidate);
+    const replacement = (room.teams[teamOfCandidate] || []).find(i => !isPlayerEliminated(room, i));
+    if (replacement !== undefined) return replacement;
+  }
+  return room.currentPlayerIdx;  // fallback
+}
+// 이전 턴 플레이어 (오류 메시지/로그용)
+function getPrevPlayerIdx(room, curIdx) {
+  if (room.mode !== 'team') return 1 - curIdx;
+  const teamA = room.teams[0] || [];
+  const teamB = room.teams[1] || [];
+  const order = [];
+  const maxLen = Math.max(teamA.length, teamB.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < teamA.length) order.push(teamA[i]);
+    if (i < teamB.length) order.push(teamB[i]);
+  }
+  if (order.length === 0) return curIdx;
+  const curPos = order.indexOf(curIdx);
+  if (curPos < 0) return curIdx;
+  const prevPos = (curPos - 1 + order.length) % order.length;
+  return order[prevPos];
+}
 
 function assignChatColor(room, socketId) {
   if (room.chatColors[socketId]) return room.chatColors[socketId];
@@ -1482,11 +1558,11 @@ function processTurnStart(room) {
 }
 
 function endTurn(room) {
-  room.currentPlayerIdx = 1 - room.currentPlayerIdx;
+  room.currentPlayerIdx = getNextPlayerIdx(room);
   room.turnNumber++;
 
   const curIdx = room.currentPlayerIdx;
-  const prevIdx = 1 - curIdx;
+  const prevIdx = getPrevPlayerIdx(room, curIdx);
   const cur = room.players[curIdx];
   const prev = room.players[prevIdx];
 
