@@ -118,17 +118,18 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 48px 40px;
-  width: 380px;
+  padding: 28px 22px 22px;
+  width: 340px;
   text-align: center;
   box-shadow: 0 8px 40px rgba(0,0,0,0.5);
 }
 .game-title {
-  font-size: 2.4rem;
+  font-size: 2.2rem;
   font-weight: 800;
   color: var(--accent);
   letter-spacing: 2px;
   margin-bottom: 6px;
+  margin-top: 0;
 }
 .game-sub {
   color: var(--muted);
@@ -136,6 +137,7 @@ body {
   margin-bottom: 32px;
   letter-spacing: 1px;
 }
+/* 레거시 form-group (1v1 기존 화면 등) */
 .form-group { margin-bottom: 16px; text-align: left; }
 .form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; }
 .form-group input {
@@ -145,6 +147,60 @@ body {
   transition: border-color 0.2s;
 }
 .form-group input:focus { border-color: var(--accent); }
+
+/* 로비 컴팩트 인풋 + 행 */
+.lobby-input {
+  width: 100%; padding: 9px 12px;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-size: 0.92rem; outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.lobby-input::placeholder { color: var(--muted); }
+.lobby-input:focus { border-color: var(--accent); }
+
+/* 닉네임 + 방코드 간격 */
+#screen-lobby #input-name { margin: 14px 0 8px; }
+.lobby-join-row {
+  display: flex; gap: 8px; align-items: stretch;
+  margin-bottom: 14px;
+}
+.lobby-join-row .lobby-input { flex: 1; }
+.btn-join-compact {
+  flex-shrink: 0;
+  padding: 9px 18px; font-size: 0.92rem;
+  font-weight: 700; letter-spacing: 1px;
+  min-width: 72px;
+}
+
+/* 4칸 그리드 — 부차 액션들 */
+.lobby-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.btn.btn-lobby {
+  padding: 10px 8px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: auto;
+  margin: 0;
+}
+.btn.btn-lobby:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(226,168,75,0.06);
+}
+.btn.btn-join-compact {
+  width: auto;
+  margin: 0;
+}
 
 /* ── 버튼 ── */
 .btn {
@@ -422,6 +478,7 @@ body {
 .btn-tutorial:hover:not(:disabled) { background: #4f46e5; }
 .btn-spectate { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-top: 10px !important; font-size: 0.8rem; padding: 6px 16px; }
 .btn-spectate:hover:not(:disabled) { color: #818cf8; border-color: #818cf8; background: rgba(129,140,248,0.08); }
+/* 레거시 호환 — 아직 일부 페이지에서 사용 중일 수 있음 */
 .btn-deck-large {
   background: rgba(226,168,75,0.12); color: var(--accent);
   border: 2px solid var(--accent);
@@ -436,13 +493,37 @@ body {
 }
 .btn-deck-large:hover:not(:disabled) { background: rgba(226,168,75,0.25); }
 
+/* 로비: 덱 pill 버튼 — 컴팩트 */
+.btn-deck-pill {
+  background: rgba(226,168,75,0.10); color: var(--accent);
+  border: 1.5px solid rgba(226,168,75,0.55);
+  font-size: 0.78rem; font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  max-width: 72%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s;
+}
+.btn-deck-pill:hover:not(:disabled) {
+  background: rgba(226,168,75,0.20);
+  border-color: var(--accent);
+}
+
 /* 로비: 내 덱 버튼 + 프리뷰 아이콘 래퍼 */
 .deck-button-wrapper {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.deck-preview-icon {
+  width: 42px !important; height: 42px !important;
+  font-size: 1.35rem !important;
 }
 .btn-deck-preview {
   display: flex;
@@ -2349,8 +2430,8 @@ body {
 @media (max-width: 480px) {
   /* ── 로비 ── */
   .lobby-box {
-    width: calc(100vw - 32px); max-width: 380px;
-    padding: 32px 20px;
+    width: calc(100vw - 32px); max-width: 340px;
+    padding: 22px 16px;
   }
   .game-title { font-size: 1.8rem; }
   .game-sub { margin-bottom: 20px; }

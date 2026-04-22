@@ -54,22 +54,22 @@
     <h1 class="game-title">CALIGO</h1>
     <div class="deck-button-wrapper">
       <div id="btn-deck-preview" class="btn-deck-preview"></div>
-      <button id="btn-deck" class="btn btn-deck-large btn-large">🃏 내 덱</button>
+      <button id="btn-deck" class="btn btn-deck-pill">🃏 내 덱</button>
     </div>
-    <div class="form-group">
-      <label>닉네임</label>
-      <input id="input-name" type="text" placeholder="닉네임을 입력해주세요" maxlength="12">
+
+    <input id="input-name" type="text" placeholder="닉네임" maxlength="12" class="lobby-input">
+
+    <div class="lobby-join-row">
+      <input id="input-room" type="text" placeholder="방 코드" maxlength="20" class="lobby-input">
+      <button id="btn-join" class="btn btn-primary btn-join-compact">입장</button>
     </div>
-    <div class="form-group">
-      <label>방 코드</label>
-      <input id="input-room" type="text" placeholder="방 코드를 자유롭게 입력해 생성하세요" maxlength="20">
+
+    <div class="lobby-actions-grid">
+      <button id="btn-ai" class="btn btn-lobby">🤖 AI 연습</button>
+      <button id="btn-join-team" class="btn btn-lobby">👥 2v2 팀전</button>
+      <button id="btn-tutorial" class="btn btn-lobby">📖 튜토리얼</button>
+      <button id="btn-spectate" class="btn btn-lobby">👁 관전</button>
     </div>
-    <button id="btn-join" class="btn btn-primary btn-large">1vs1 입장하기</button>
-    <button id="btn-join-team" class="btn btn-team-large btn-large">👥 2vs2 팀전 입장하기</button>
-    <div class="divider"><span>또는</span></div>
-    <button id="btn-ai" class="btn btn-secondary btn-large">AI 연습 모드</button>
-    <button id="btn-tutorial" class="btn btn-tutorial btn-large">📖 튜토리얼</button>
-    <button id="btn-spectate" class="btn btn-spectate btn-small">👁 관전하기</button>
     <p id="lobby-error" class="error-msg"></p>
   </div>
 </div>
