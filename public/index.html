@@ -54,22 +54,26 @@
     <h1 class="game-title">CALIGO</h1>
     <div class="deck-button-wrapper">
       <div id="btn-deck-preview" class="btn-deck-preview"></div>
-      <button id="btn-deck" class="btn btn-deck-pill">🃏 내 덱</button>
+      <button id="btn-deck" class="btn btn-deck-pill">내 덱</button>
     </div>
 
-    <input id="input-name" type="text" placeholder="닉네임" maxlength="12" class="lobby-input">
-
-    <div class="lobby-join-row">
+    <div class="lobby-grid">
+      <input id="input-name" type="text" placeholder="닉네임" maxlength="12" class="lobby-input">
+      <div class="lobby-btn-slot lobby-btn-slot-join">
+        <button id="btn-join" class="btn btn-join-inline">입장</button>
+      </div>
       <input id="input-room" type="text" placeholder="방 코드" maxlength="20" class="lobby-input">
-      <button id="btn-join" class="btn btn-primary btn-join-compact">입장</button>
+      <div class="lobby-btn-slot">
+        <button id="btn-roomlist" class="btn btn-mini">방목록</button>
+        <button id="btn-spectate" class="btn btn-mini">관전</button>
+      </div>
     </div>
 
-    <div class="lobby-actions-grid">
-      <button id="btn-ai" class="btn btn-lobby">🤖 AI 연습</button>
-      <button id="btn-join-team" class="btn btn-lobby">👥 2v2 팀전</button>
-      <button id="btn-tutorial" class="btn btn-lobby">📖 튜토리얼</button>
-      <button id="btn-spectate" class="btn btn-lobby">👁 관전</button>
+    <div class="lobby-mode-row">
+      <button id="btn-ai" class="btn btn-mode-green">AI 연습 모드</button>
+      <button id="btn-join-team" class="btn btn-mode-blue">2vs2 팀전 모드</button>
     </div>
+    <button id="btn-tutorial" class="btn btn-mode-purple">📖 튜토리얼</button>
     <p id="lobby-error" class="error-msg"></p>
   </div>
 </div>
@@ -264,8 +268,8 @@
 <div id="screen-team-placement" class="screen">
   <div class="team-placement-layout">
     <div class="team-placement-main">
-      <h2 id="team-placement-title">배치 (A팀)</h2>
-      <p class="muted">내 캐릭터를 선택한 후 보드의 <strong>내 팀 구역</strong>을 클릭해 배치하세요.</p>
+      <h2 id="team-placement-title">배치</h2>
+      <p class="muted">내 캐릭터를 선택한 후 보드의 원하는 칸을 클릭해 배치하세요.</p>
       <div id="team-placement-board" class="board placement-board"></div>
       <p id="team-placement-error" class="error-msg"></p>
     </div>
@@ -638,7 +642,7 @@
 <!-- ── 관전 방 목록 모달 ── -->
 <div id="spectate-modal" class="modal hidden">
   <div class="modal-content">
-    <h3>👁 관전 가능한 방</h3>
+    <h3 id="spectate-modal-title">👁 관전 가능한 방</h3>
     <div id="spectate-room-list" class="spectate-room-list">
       <p class="muted">로딩 중...</p>
     </div>

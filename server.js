@@ -18,7 +18,7 @@ process.on('unhandledRejection', (err) => {
   console.error('[UNHANDLED REJECTION]', err);
 });
 
-const ROW_LABELS = ['A','B','C','D','E'];
+const ROW_LABELS = ['A','B','C','D','E','F','G'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 
 const app = express();
@@ -655,12 +655,11 @@ function turnTimeout(room) {
 function transitionToTeamDraft(room) {
   clearTimer(room);
   room.phase = 'team_draft';
-  // 드래프트 상태 초기화
+  // 팀전 드래프트 — 2픽 (티어 무관)
   for (const p of room.players) {
     p.draft = { pick1: null, pick2: null };
   }
   room.draftDone = Array(room.playerCount).fill(false);
-  // 각 플레이어에게 드래프트 시작 알림
   for (const p of room.players) {
     if (!p.socketId) continue;
     io.to(p.socketId).emit('team_draft_start', {
@@ -671,13 +670,11 @@ function transitionToTeamDraft(room) {
       characters: CHARACTERS,
     });
   }
-  // 150초 타이머
   startTimer(room, 'team_draft', () => teamDraftTimeout(room));
 }
 
 function teamDraftTimeout(room) {
   if (room.phase !== 'team_draft') return;
-  // 미완료 플레이어는 랜덤으로 채움 (팀원과 중복 회피)
   for (let i = 0; i < room.playerCount; i++) {
     if (room.draftDone[i]) continue;
     const p = room.players[i];
@@ -3303,6 +3300,20 @@ io.on('connection', (socket) => {
     if (!rooms[roomId]) rooms[roomId] = createRoom(roomId);
     const room = rooms[roomId];
 
+    // 이 방이 팀전 방이면 join_team_room 흐름으로 자동 전환
+    if (room.mode === 'team') {
+      if (room.phase !== 'waiting') {
+        socket.emit('err', { msg: '이 방은 이미 시작된 2v2 팀전 방입니다.' });
+        return;
+      }
+      if (room.players.length >= 4) {
+        socket.emit('err', { msg: '이 팀전 방이 가득 찼습니다. (4/4)' });
+        return;
+      }
+      socket.emit('team_room_redirect', { roomId, playerName });
+      return;
+    }
+
     if (room.players.length >= 2 || room.phase !== 'waiting') {
       // 관전자로 입장
       room.spectators = room.spectators || [];
@@ -3508,6 +3519,7 @@ io.on('connection', (socket) => {
 
   // ── 팀전 드래프트 ──
   // 각자 2개 캐릭터 선택 (티어 구분 없음, 팀원 중복 불가)
+  // 팀전 드래프트 — 2픽 슬롯 (티어 무관). slot = 'pick1' | 'pick2'
   socket.on('team_draft_pick', ({ slot, type }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.mode !== 'team' || room.phase !== 'team_draft') return;
@@ -3516,11 +3528,11 @@ io.on('connection', (socket) => {
     const player = room.players[idx];
     if (!player || room.draftDone[idx]) return;
     if (slot !== 'pick1' && slot !== 'pick2') return;
-    if (type !== null && !ALL_CHARS.find(c => c.type === type)) {
-      socket.emit('err', { msg: '잘못된 선택입니다.' }); return;
-    }
-    // 팀원 이미 선택한 캐릭터 금지
     if (type !== null) {
+      if (!ALL_CHARS.find(c => c.type === type)) {
+        socket.emit('err', { msg: '잘못된 선택입니다.' }); return;
+      }
+      // 팀원이 이미 선택한 캐릭터 금지
       const teammates = getTeammates(room, idx);
       for (const tIdx of teammates) {
         const tmDraft = room.players[tIdx]?.draft || {};
@@ -3528,7 +3540,7 @@ io.on('connection', (socket) => {
           socket.emit('err', { msg: '팀원이 이미 선택한 캐릭터입니다.' }); return;
         }
       }
-      // 자신의 다른 슬롯과도 중복 불가
+      // 자기 다른 슬롯과 중복 방지
       const otherSlot = slot === 'pick1' ? 'pick2' : 'pick1';
       if (player.draft?.[otherSlot] === type) {
         socket.emit('err', { msg: '같은 캐릭터를 2번 선택할 수 없습니다.' }); return;
@@ -3536,27 +3548,21 @@ io.on('connection', (socket) => {
     }
     if (!player.draft) player.draft = { pick1: null, pick2: null };
     player.draft[slot] = type;
-    // 팀원 전체에게 업데이트 전송 (상대팀에는 공개 X)
     const myTeam = player.teamId;
     const teamMembers = room.teams[myTeam] || [];
+    const teamDrafts = teamMembers.map(i => ({
+      idx: i,
+      name: room.players[i]?.name,
+      draft: {
+        pick1: room.players[i]?.draft?.pick1 || null,
+        pick2: room.players[i]?.draft?.pick2 || null,
+      },
+      confirmed: !!room.draftDone[i],
+    }));
     for (const tIdx of teamMembers) {
       const tp = room.players[tIdx];
       if (!tp || !tp.socketId) continue;
-      io.to(tp.socketId).emit('team_draft_pick_update', {
-        playerIdx: idx,
-        playerName: player.name,
-        slot, type,
-        // 팀원 현재 pick 상태 (내가 본 내 팀 전체 상태)
-        teamDrafts: teamMembers.map(i => ({
-          idx: i,
-          name: room.players[i]?.name,
-          draft: {
-            pick1: room.players[i]?.draft?.pick1 || null,
-            pick2: room.players[i]?.draft?.pick2 || null,
-          },
-          confirmed: !!room.draftDone[i],
-        })),
-      });
+      io.to(tp.socketId).emit('team_draft_pick_update', { playerIdx: idx, slot, type, teamDrafts });
     }
   });
 
@@ -3585,22 +3591,21 @@ io.on('connection', (socket) => {
     }
     room.draftDone[idx] = true;
     socket.emit('team_draft_confirmed', { pick1, pick2 });
-    // 전체에게 진행 상황 알림 (누가 완료됐는지만)
     io.to(room.id).emit('team_draft_status', {
       draftDone: [...room.draftDone],
       doneNames: room.players.filter((_, i) => room.draftDone[i]).map(p => p.name),
     });
-    if (room.draftDone.every(d => d)) {
+    if (room.draftDone.every(done => done)) {
       transitionToTeamHp(room);
     } else {
       socket.emit('wait_msg', { msg: '다른 플레이어의 선택을 기다리는 중...' });
     }
   });
 
-  // ── 팀전 HP 분배 ──
-  // 각 플레이어는 10 HP를 2개 캐릭터에 분배 (최소 각 1)
-  // 쌍둥이 있으면 쌍둥이 슬롯은 최소 2, 내부 split(elder/younger) 추가 필요
-  socket.on('team_hp_distribute', ({ pick1Hp, pick2Hp, twinElder, twinYounger }) => {
+  // ── 팀전 HP 분배 — 2픽 포맷 ──
+  // hps = [pick1Hp, pick2Hp] 합계 10, 각 최소 1
+  // 쌍둥이 포함 시: 해당 pick 슬롯은 최소 2 + twinSplit=[elder,younger]
+  socket.on('team_hp_distribute', ({ hps, twinSplit }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.mode !== 'team' || room.phase !== 'team_hp') return;
     const idx = socket.data.idx;
@@ -3611,42 +3616,53 @@ io.on('connection', (socket) => {
     if (!draft.pick1 || !draft.pick2) {
       socket.emit('err', { msg: '드래프트가 완료되지 않았습니다.' }); return;
     }
-    const p1Hp = parseInt(pick1Hp, 10);
-    const p2Hp = parseInt(pick2Hp, 10);
-    if (!Number.isFinite(p1Hp) || !Number.isFinite(p2Hp)) {
-      socket.emit('err', { msg: 'HP 값이 올바르지 않습니다.' }); return;
-    }
-    if (p1Hp < 1 || p2Hp < 1 || p1Hp + p2Hp !== 10) {
-      socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1이어야 합니다.' }); return;
-    }
     const hasTwins = draft.pick1 === 'twins' || draft.pick2 === 'twins';
-    if (hasTwins) {
-      const twinSlot = draft.pick1 === 'twins' ? 'pick1' : 'pick2';
-      const twinSlotHp = twinSlot === 'pick1' ? p1Hp : p2Hp;
-      if (twinSlotHp < 2) {
-        socket.emit('err', { msg: '쌍둥이 슬롯은 최소 2 HP 필요합니다.' }); return;
-      }
-      const e = parseInt(twinElder, 10);
-      const y = parseInt(twinYounger, 10);
-      if (!Number.isFinite(e) || !Number.isFinite(y) || e < 1 || y < 1 || e + y !== twinSlotHp) {
+    const twinSlot = draft.pick1 === 'twins' ? 'pick1' : draft.pick2 === 'twins' ? 'pick2' : null;
+
+    // twin split 단계
+    if (twinSplit && hasTwins && player.hpDist) {
+      const twinSlotHp = player.hpDist[twinSlot];
+      if (!Array.isArray(twinSplit) || twinSplit.length !== 2 ||
+          twinSplit[0] < 1 || twinSplit[1] < 1 ||
+          twinSplit[0] + twinSplit[1] !== twinSlotHp) {
         socket.emit('err', { msg: `쌍둥이 HP 합계는 ${twinSlotHp}, 각 최소 1이어야 합니다.` }); return;
       }
-      player.hpDist = {
-        pick1: p1Hp, pick2: p2Hp,
-        twinElder: e, twinYounger: y,
-      };
-    } else {
-      player.hpDist = { pick1: p1Hp, pick2: p2Hp };
+      player.hpDist = { ...player.hpDist, twinElder: twinSplit[0], twinYounger: twinSplit[1] };
+      player.pieces = buildTeamPieces(draft, player.hpDist);
+      player.twinSplitDone = true;
+      room.hpDone[idx] = true;
+      socket.emit('hp_ok', { hps: [player.hpDist.pick1, player.hpDist.pick2], twinSplit });
+      io.to(room.id).emit('team_hp_status', {
+        hpDone: [...room.hpDone],
+        doneNames: room.players.filter((_, i) => room.hpDone[i]).map(p => p.name),
+      });
+      if (room.hpDone.every(d => d)) transitionToTeamPlacement(room);
+      else socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
+      return;
     }
+
+    // 일반 — hps 2개
+    if (!Array.isArray(hps) || hps.length !== 2 ||
+        hps.reduce((a, b) => a + b, 0) !== 10 || hps.some(h => h < 1 || h > 9)) {
+      socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 9 (2개 필요)' }); return;
+    }
+    if (hasTwins) {
+      const twinIdx = twinSlot === 'pick1' ? 0 : 1;
+      if (hps[twinIdx] < 2) { socket.emit('err', { msg: '쌍둥이는 최소 2 HP 필요합니다.' }); return; }
+      player.hpDist = { pick1: hps[0], pick2: hps[1] };
+      socket.emit('twin_split_needed', { twinTierHp: hps[twinIdx] });
+      return;
+    }
+    player.hpDist = { pick1: hps[0], pick2: hps[1] };
     player.pieces = buildTeamPieces(draft, player.hpDist);
     room.hpDone[idx] = true;
-    socket.emit('team_hp_ok', { hpDist: player.hpDist });
+    socket.emit('hp_ok', { hps });
     io.to(room.id).emit('team_hp_status', {
       hpDone: [...room.hpDone],
       doneNames: room.players.filter((_, i) => room.hpDone[i]).map(p => p.name),
     });
     if (room.hpDone.every(d => d)) {
-      transitionToTeamReveal(room);
+      transitionToTeamPlacement(room);
     } else {
       socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
     }
@@ -3665,11 +3681,7 @@ io.on('connection', (socket) => {
     }
     const bounds = room.boardBounds;
     if (pieceIdx < 0 || pieceIdx >= player.pieces.length) return;
-    const zone = getTeamPlacementZone(player.teamId);
     if (!inBounds(col, row, bounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
-    if (row < zone.rowMin || row > zone.rowMax) {
-      socket.emit('err', { msg: '본인 팀 구역에만 배치 가능합니다.' }); return;
-    }
     const piece = player.pieces[pieceIdx];
     // 자기 말 중복 체크 (쌍둥이는 서로 공유 허용)
     if (piece.subUnit) {
@@ -4626,6 +4638,25 @@ io.on('connection', (socket) => {
       }
     }
     socket.emit('room_list', list);
+  });
+
+  // 대기 중(입장 가능) 방 목록
+  socket.on('list_waiting_rooms', () => {
+    const list = [];
+    for (const [id, room] of Object.entries(rooms)) {
+      if (room.phase !== 'waiting') continue;
+      if (room.isAI) continue;
+      const max = room.mode === 'team' ? 4 : 2;
+      if (room.players.length >= max) continue;
+      list.push({
+        roomId: id,
+        mode: room.mode || 'pvp',
+        playerCount: room.players.length,
+        maxPlayers: max,
+        players: room.players.map(p => p.name),
+      });
+    }
+    socket.emit('waiting_room_list', list);
   });
 
   // ── 채팅 ──

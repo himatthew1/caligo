@@ -37,12 +37,21 @@ socket.on('reconnect_phase_resume', ({ phase }) => {
   console.log('[reconnect] phase resume:', phase);
 });
 
+// 1v1 입장 버튼으로 팀 방 코드를 입력한 경우 — 자동으로 팀전 입장으로 전환
+socket.on('team_room_redirect', ({ roomId, playerName }) => {
+  S.isTeamMode = true;
+  S.myName = playerName;
+  S.roomId = roomId;
+  showSkillToast('이 방은 2v2 팀전 방입니다. 팀전으로 입장합니다.', false, undefined, 'event');
+  socket.emit('join_team_room', { roomId, playerName });
+});
+
 socket.on('opp_disconnected_pending', ({ msg, graceMs }) => {
   try { showSkillToast(`🔌 ${msg}`, true, undefined, 'event'); } catch (e) {}
 });
 
 // ── 좌표 변환 헬퍼 (세로=A~E, 가로=1~5) ──
-const ROW_LABELS = ['A','B','C','D','E'];
+const ROW_LABELS = ['A','B','C','D','E','F','G'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function myN() { return S.myName || '나'; }
@@ -283,17 +292,19 @@ function updateLobbyDeckButton() {
   if (!btn) return;
   const deck = loadDeck();
   const hasChars = S.characters;
-  const deckReady = deck && deck.t1 && deck.t2 && deck.t3;
+  // 덱 리스트에 실제 존재하는지 확인 — 삭제된 경우 로비에서도 빈 상태로 표시
+  const list = loadDeckList();
+  const matched = (deck && deck.t1 && deck.t2 && deck.t3)
+    ? list.find(d => d && d.t1 === deck.t1 && d.t2 === deck.t2 && d.t3 === deck.t3)
+    : null;
+  const deckReady = !!matched;  // 리스트에 있어야만 "준비됨"
   // 버튼 텍스트
   if (deckReady) {
-    const list = loadDeckList();
-    const matched = list.find(d => d && d.t1 === deck.t1 && d.t2 === deck.t2 && d.t3 === deck.t3);
-    const deckName = (matched && matched.name) ? matched.name : '내 덱';
-    btn.textContent = `🃏 ${deckName}`;
+    btn.textContent = matched.name || '내 덱';
   } else {
-    btn.textContent = '🃏 내 덱';
+    btn.textContent = '내 덱';
   }
-  // 프리뷰 원 — 항상 3개 표시 (빈 슬롯은 empty placeholder)
+  // 프리뷰 원 — 리스트에 없으면 빈 슬롯 3개
   if (!preview) return;
   preview.classList.remove('hidden');
   const factionCls = (tag) => tag === 'royal' ? 'faction-royal'
@@ -486,9 +497,21 @@ document.getElementById('deck-delete-confirm').addEventListener('click', () => {
   const idx = S._pendingDeleteIdx;
   if (idx === undefined || idx === null) return;
   const list = loadDeckList();
+  const removed = list[idx];
   list[idx] = null;
   saveDeckList(list);
+  // 삭제한 덱이 현재 활성 덱(caligo_my_deck)과 일치하면 활성 덱도 정리
+  if (removed) {
+    const cur = loadDeck();
+    if (cur && cur.t1 === removed.t1 && cur.t2 === removed.t2 && cur.t3 === removed.t3) {
+      // 리스트에 남은 덱이 있으면 첫 번째 덱을 활성으로, 없으면 완전 비움
+      const next = list.find(d => d && d.t1 && d.t2 && d.t3);
+      if (next) saveDeck(next.t1, next.t2, next.t3);
+      else saveDeck(null, null, null);
+    }
+  }
   renderDeckList();
+  try { updateLobbyDeckButton(); } catch (e) {}
   S._pendingDeleteIdx = null;
 });
 document.getElementById('deck-delete-cancel').addEventListener('click', () => {
@@ -542,11 +565,18 @@ document.getElementById('deck-name-input').addEventListener('keydown', (e) => {
 });
 
 // ── 덱 빌더 ─────────────────────────────────────────────────
+// 현재 draftSelected가 실제로 덱 리스트에 저장된 덱과 일치하는지 판정
+function isCurrentSelectionSaved() {
+  const t1 = S.draftSelected?.[1], t2 = S.draftSelected?.[2], t3 = S.draftSelected?.[3];
+  if (!t1 || !t2 || !t3) return false;
+  const list = loadDeckList();
+  return list.some(d => d && d.t1 === t1 && d.t2 === t2 && d.t3 === t3);
+}
+
 function openDeckBuilder() {
   S.deckBuilderMode = true;
   S.draftStep = 1;
   S.draftPicked = [];
-  S.deckSaved = false;
   // 저장된 덱이 있으면 불러오기
   const deck = loadDeck();
   S.draftSelected = {};
@@ -554,10 +584,11 @@ function openDeckBuilder() {
     if (deck.t1 && S.characters[1]?.find(c => c.type === deck.t1)) S.draftSelected[1] = deck.t1;
     if (deck.t2 && S.characters[2]?.find(c => c.type === deck.t2)) S.draftSelected[2] = deck.t2;
     if (deck.t3 && S.characters[3]?.find(c => c.type === deck.t3)) S.draftSelected[3] = deck.t3;
-    S.deckSaved = !!(S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3]);
   }
-  S.deckSavedState = (deck && deck.t1 && deck.t2 && deck.t3)
-    ? { t1: deck.t1, t2: deck.t2, t3: deck.t3 } : null;
+  // 덱 리스트에 실제로 존재하는지 기준으로 '저장됨' 판단
+  S.deckSaved = isCurrentSelectionSaved();
+  S.deckSavedState = S.deckSaved
+    ? { t1: S.draftSelected[1], t2: S.draftSelected[2], t3: S.draftSelected[3] } : null;
   document.getElementById('btn-deck-back').classList.remove('hidden');
   document.getElementById('btn-draft-random').disabled = false;
   document.getElementById('btn-draft-recommend').disabled = false;
@@ -583,11 +614,14 @@ document.getElementById('btn-deck').addEventListener('click', () => {
 
 document.getElementById('btn-deck-back').addEventListener('click', () => {
   const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+  // 덱 리스트에 실제로 존재하는지 실시간 검사 (리스트에서 삭제된 경우 대응)
+  const savedInList = isCurrentSelectionSaved();
+  S.deckSaved = savedInList;
   if (!allSelected) {
     document.getElementById('deck-exit-msg').textContent = '캐릭터를 모두 선택하지 않았습니다. 그래도 나가시겠습니까?';
     document.getElementById('deck-exit-modal').classList.remove('hidden');
     return;
-  } else if (!S.deckSaved) {
+  } else if (!savedInList) {
     document.getElementById('deck-exit-msg').textContent = '덱이 저장되지 않았습니다. 그래도 나가시겠습니까?';
     document.getElementById('deck-exit-modal').classList.remove('hidden');
     return;
@@ -657,14 +691,34 @@ initAudioToggle();
 // 페이지 로드 시 로비 덱 버튼 초기 렌더 (빈 원 3개 표시 보장)
 try { updateLobbyDeckButton(); } catch (e) {}
 
+// 페이지 로드 직후 캐릭터 데이터 요청 — 저장된 덱의 아이콘을 로비에서 즉시 표시
+socket.on('connect', () => {
+  if (!S.characters) {
+    socket.emit('request_characters');
+  }
+});
+socket.on('characters_data', ({ characters }) => {
+  if (characters && !S.characters) {
+    S.characters = characters;
+    try { updateLobbyDeckButton(); } catch (e) {}
+  }
+});
+
 // ── 로비 ──────────────────────────────────────────────────────
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
-  const deck = loadDeck();
-  S.myName = name; S.roomId = roomId; socket.emit('join_room', { roomId, playerName: name, deck });
+  // 덱이 비어도 일단 서버에 물어본다 — 팀 방이면 자동 재연결됨
+  const deck = isDeckEmpty() ? null : loadDeck();
+  if (!deck) {
+    // 덱 없어도 팀 방 가능성이 있으니 서버에 보내고, 1v1이면 서버가 거절
+    S.myName = name; S.roomId = roomId;
+    socket.emit('join_room', { roomId, playerName: name, deck: null });
+    return;
+  }
+  S.myName = name; S.roomId = roomId;
+  socket.emit('join_room', { roomId, playerName: name, deck });
 });
 
 document.getElementById('btn-ai').addEventListener('click', () => {
@@ -676,11 +730,18 @@ document.getElementById('btn-ai').addEventListener('click', () => {
 });
 
 // ── 2vs2 팀전 입장 ──
+// 방 코드가 비어 있으면 랜덤 생성해서 즉시 방 만들기
 document.getElementById('btn-join-team').addEventListener('click', () => {
-  const name   = document.getElementById('input-name').value.trim();
-  const roomId = document.getElementById('input-room').value.trim();
-  if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
-  // 팀전은 덱을 드래프트 중 새로 구성하므로 로비 덱 확인 생략
+  const name = document.getElementById('input-name').value.trim();
+  if (!name) { showSkillToast('닉네임을 먼저 입력하세요.', false, undefined, 'event'); return; }
+  let roomId = document.getElementById('input-room').value.trim();
+  if (!roomId) {
+    // 랜덤 방 코드 (6자리)
+    roomId = 'T' + Math.random().toString(36).substr(2, 5).toUpperCase();
+    const roomInput = document.getElementById('input-room');
+    if (roomInput) roomInput.value = roomId;
+    showSkillToast(`방 코드 [${roomId}] 생성됨. 팀원과 공유하세요.`, false, undefined, 'event');
+  }
   S.myName = name; S.roomId = roomId; S.isTeamMode = true;
   socket.emit('join_team_room', { roomId, playerName: name });
 });
@@ -696,11 +757,68 @@ document.getElementById('input-room').addEventListener('keydown', e => {
 document.getElementById('btn-spectate').addEventListener('click', () => {
   const modal = document.getElementById('spectate-modal');
   modal.classList.remove('hidden');
+  modal.dataset.mode = 'spectate';
+  const titleEl = document.getElementById('spectate-modal-title');
+  if (titleEl) titleEl.textContent = '👁 관전 가능한 방';
   document.getElementById('spectate-room-list').innerHTML = '<p class="muted">방 목록을 불러오는 중...</p>';
   socket.emit('list_rooms');
 });
 document.getElementById('spectate-modal-close').addEventListener('click', () => {
   document.getElementById('spectate-modal').classList.add('hidden');
+});
+
+// ── 방목록 버튼 (입장 가능한 대기 방) ──
+const _btnRoomlist = document.getElementById('btn-roomlist');
+if (_btnRoomlist) {
+  _btnRoomlist.addEventListener('click', () => {
+    const modal = document.getElementById('spectate-modal');
+    modal.classList.remove('hidden');
+    modal.dataset.mode = 'join';
+    const titleEl = document.getElementById('spectate-modal-title');
+    if (titleEl) titleEl.textContent = '🚪 입장 가능한 방';
+    document.getElementById('spectate-room-list').innerHTML = '<p class="muted">대기 중인 방 목록을 불러오는 중...</p>';
+    socket.emit('list_waiting_rooms');
+  });
+}
+
+socket.on('waiting_room_list', (list) => {
+  const container = document.getElementById('spectate-room-list');
+  if (!list || list.length === 0) {
+    container.innerHTML = '<p class="muted">현재 입장 가능한 방이 없습니다.</p>';
+    return;
+  }
+  container.innerHTML = list.map(r => {
+    const modeLabel = r.mode === 'team' ? '2v2 팀전' : '1v1';
+    return `
+    <div class="spectate-room-item" data-room="${r.roomId}" data-mode="${r.mode}">
+      <div class="spectate-room-players">${escapeHtmlGlobal(r.players.join(', ') || '빈 방')}</div>
+      <div class="spectate-room-meta">
+        <span class="spectate-phase">${modeLabel}</span>
+        <span class="spectate-viewers">${r.playerCount}/${r.maxPlayers}</span>
+      </div>
+    </div>
+  `;}).join('');
+  container.querySelectorAll('.spectate-room-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const roomId = el.dataset.room;
+      const mode = el.dataset.mode;
+      const name = document.getElementById('input-name').value.trim();
+      if (!name) {
+        showSkillToast('닉네임을 먼저 입력하세요.', false, undefined, 'event');
+        return;
+      }
+      S.myName = name;
+      S.roomId = roomId;
+      document.getElementById('spectate-modal').classList.add('hidden');
+      if (mode === 'team') {
+        S.isTeamMode = true;
+        socket.emit('join_team_room', { roomId, playerName: name });
+      } else {
+        if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
+        socket.emit('join_room', { roomId, playerName: name, deck: loadDeck() });
+      }
+    });
+  });
 });
 
 socket.on('room_list', (list) => {
@@ -870,15 +988,33 @@ socket.on('team_draft_start', ({ myIdx, teamId, players, teams, characters }) =>
   S.teamPlayers = players || [];
   S.teamTeams = teams || [[], []];
   if (characters) S.characters = characters;
-  S.teamDraft = { pick1: null, pick2: null };
+  S.teamDraftMode = true;
+  S.deckBuilderMode = false;
   S.teamDraftConfirmed = false;
-  S.teamTeammatePicks = { pick1: null, pick2: null };
-  renderTeamDraft();
-  showScreen('screen-team-draft');
+  S.teamDraft = { pick1: null, pick2: null };  // 내 2픽 슬롯
+  S.teamTeammatePicks = { pick1: null, pick2: null };  // 팀원 2픽
+  S.draftSelected = {};  // 1v1과 호환 — 티어 인덱스. 팀에선 사용 X
+  S.draftStep = 1;
+  S.draftPicked = [];
+  // 덱 관련 버튼 숨김
+  const deckBackBtn = document.getElementById('btn-deck-back');
+  if (deckBackBtn) deckBackBtn.classList.add('hidden');
+  const deckListEl = document.getElementById('deck-list');
+  if (deckListEl) deckListEl.classList.add('hidden');
+  const randomBtn = document.getElementById('btn-draft-random');
+  if (randomBtn) randomBtn.style.display = 'none';
+  const recBtn = document.getElementById('btn-draft-recommend');
+  if (recBtn) recBtn.style.display = 'none';
+  // 사이드바: 3번째 슬롯 숨기고, 1/2번은 "1번 캐릭터" 라벨로
+  const slot1 = document.getElementById('draft-slot-1');
+  const slot2 = document.getElementById('draft-slot-2');
+  const slot3 = document.getElementById('draft-slot-3');
+  if (slot3) slot3.classList.add('hidden');
+  buildDraftStepUI();
+  showScreen('screen-draft');
 });
 
 socket.on('team_draft_pick_update', ({ playerIdx, slot, type, teamDrafts }) => {
-  // 팀원 선택 상태 업데이트
   if (teamDrafts) {
     const teammateEntry = teamDrafts.find(d => d.idx !== S.playerIdx);
     if (teammateEntry) {
@@ -887,21 +1023,57 @@ socket.on('team_draft_pick_update', ({ playerIdx, slot, type, teamDrafts }) => {
         pick2: teammateEntry.draft.pick2,
       };
     }
-    // 내 상태도 동기화 (다른 기기에서 접속한 경우 대비)
-    const myEntry = teamDrafts.find(d => d.idx === S.playerIdx);
-    if (myEntry && playerIdx !== S.playerIdx) {
-      // 내 pick은 변경 안함 (자기가 변경한 것만 반영)
-    }
   }
-  renderTeamDraft();
+  if (S.teamDraftMode) { renderSlide(); renderTeamDraftSlots(); }
 });
 
 socket.on('team_draft_confirmed', ({ pick1, pick2 }) => {
   S.teamDraft = { pick1, pick2 };
   S.teamDraftConfirmed = true;
-  renderTeamDraft();
+  document.getElementById('btn-draft-confirm').disabled = true;
+  document.getElementById('btn-draft-select').disabled = true;
   showSkillToast('선택 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
 });
+
+// 팀 드래프트 사이드바 2슬롯 렌더
+function renderTeamDraftSlots() {
+  const all = [...(S.characters?.[1]||[]), ...(S.characters?.[2]||[]), ...(S.characters?.[3]||[])];
+  const findChar = (t) => all.find(c => c.type === t);
+  const renderOne = (slotId, label, type) => {
+    const el = document.getElementById(slotId);
+    if (!el) return;
+    const c = type ? findChar(type) : null;
+    el.classList.remove('empty', 'filled');
+    if (c) {
+      el.classList.add('filled');
+      const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+      el.innerHTML = `
+        <span class="slot-tier">${label}</span>
+        <span class="slot-icon">${c.icon}</span>
+        <div class="slot-info">
+          <span class="slot-name">${c.name} ${tagHtml}</span>
+          <span class="slot-stats">ATK ${c.atk}</span>
+        </div>
+        <span class="slot-remove" title="선택 해제">×</span>`;
+      el.onclick = (e) => {
+        if (S.teamDraftConfirmed) return;
+        if (e.target.classList.contains('slot-remove')) {
+          const slot = slotId === 'draft-slot-1' ? 'pick1' : 'pick2';
+          S.teamDraft[slot] = null;
+          socket.emit('team_draft_pick', { slot, type: null });
+          renderTeamDraftSlots();
+          renderSlide();
+        }
+      };
+    } else {
+      el.classList.add('empty');
+      el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
+      el.onclick = null;
+    }
+  };
+  renderOne('draft-slot-1', '1번 캐릭터', S.teamDraft?.pick1);
+  renderOne('draft-slot-2', '2번 캐릭터', S.teamDraft?.pick2);
+}
 
 socket.on('team_draft_status', ({ draftDone, doneNames }) => {
   const statusEl = document.getElementById('team-draft-status');
@@ -1034,18 +1206,65 @@ if (_btnTeamDraftConfirm) {
 // ── 팀전 HP 분배 ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 socket.on('team_hp_phase', ({ draft, hasTwins }) => {
-  S.teamDraft = draft || S.teamDraft;
-  S.teamHpDist = null;
-  renderTeamHp(hasTwins);
+  S.teamHpMode = true;
+  S.teamDraft = { pick1: draft.pick1, pick2: draft.pick2 };
+  S.hasTwins = hasTwins;
+  renderTeamHpUI(hasTwins);
   showScreen('screen-team-hp');
 });
 
-socket.on('team_hp_ok', ({ hpDist }) => {
-  S.teamHpDist = hpDist;
+socket.on('team_hp_ok', () => {
   showSkillToast('HP 분배 완료!', false, undefined, 'event');
   const btn = document.getElementById('btn-team-hp-confirm');
   if (btn) btn.disabled = true;
 });
+
+// 팀전 HP UI — 2슬롯 슬라이더
+function renderTeamHpUI(hasTwins) {
+  const area = document.getElementById('team-hp-area');
+  if (!area) return;
+  const all = [...(S.characters?.[1]||[]), ...(S.characters?.[2]||[]), ...(S.characters?.[3]||[])];
+  const find = (t) => all.find(c => c.type === t);
+  const p1 = S.teamDraft.pick1, p2 = S.teamDraft.pick2;
+  const c1 = find(p1), c2 = find(p2);
+  if (!c1 || !c2) { area.innerHTML = '<p class="error-msg">드래프트 데이터 없음</p>'; return; }
+
+  const t1IsTwin = p1 === 'twins', t2IsTwin = p2 === 'twins';
+  const min1 = t1IsTwin ? 2 : 1, min2 = t2IsTwin ? 2 : 1;
+
+  area.innerHTML = `
+    <div class="hp-row" data-slot="pick1">
+      <span class="hp-row-icon">${c1.icon}</span>
+      <span class="hp-row-name">${escapeHtmlGlobal(c1.name)}</span>
+      <input type="range" min="${min1}" max="${10-min2}" value="5" class="hp-slider" data-slot="pick1">
+      <span class="hp-row-val" id="hp-val-pick1">5</span>
+    </div>
+    <div class="hp-row" data-slot="pick2">
+      <span class="hp-row-icon">${c2.icon}</span>
+      <span class="hp-row-name">${escapeHtmlGlobal(c2.name)}</span>
+      <input type="range" min="${min2}" max="${10-min1}" value="5" class="hp-slider" data-slot="pick2">
+      <span class="hp-row-val" id="hp-val-pick2">5</span>
+    </div>
+    <div class="hp-total-row">총합 <span id="hp-total">10</span> / 10</div>
+  `;
+
+  // 슬라이더 연동: 한쪽 변경 시 다른쪽 10-X 자동 조정
+  const s1 = area.querySelector('.hp-slider[data-slot="pick1"]');
+  const s2 = area.querySelector('.hp-slider[data-slot="pick2"]');
+  const v1 = area.querySelector('#hp-val-pick1');
+  const v2 = area.querySelector('#hp-val-pick2');
+  function update(from) {
+    let a = parseInt(s1.value, 10), b = parseInt(s2.value, 10);
+    if (from === 's1') b = 10 - a;
+    else b = parseInt(s2.value, 10), a = 10 - b;
+    a = Math.max(min1, Math.min(10 - min2, a));
+    b = 10 - a;
+    s1.value = a; s2.value = b; v1.textContent = a; v2.textContent = b;
+    const totalEl = area.querySelector('#hp-total'); if (totalEl) totalEl.textContent = (a+b);
+  }
+  s1.addEventListener('input', () => update('s1'));
+  s2.addEventListener('input', () => update('s2'));
+}
 
 socket.on('team_hp_status', ({ hpDone, doneNames }) => {
   const statusEl = document.getElementById('team-hp-status');
@@ -1103,19 +1322,16 @@ const _btnTeamHpConfirm = document.getElementById('btn-team-hp-confirm');
 if (_btnTeamHpConfirm) {
   _btnTeamHpConfirm.addEventListener('click', () => {
     if (_btnTeamHpConfirm.disabled) return;
-    const p1 = parseInt(document.querySelector('.team-hp-input[data-slot="pick1"]')?.value, 10);
-    const p2 = parseInt(document.querySelector('.team-hp-input[data-slot="pick2"]')?.value, 10);
-    const tE = parseInt(document.querySelector('.team-hp-twin-input[data-slot="twinElder"]')?.value, 10);
-    const tY = parseInt(document.querySelector('.team-hp-twin-input[data-slot="twinYounger"]')?.value, 10);
-    if (!Number.isFinite(p1) || !Number.isFinite(p2)) {
-      showError('team-hp-error', '유효한 HP 값을 입력하세요.');
-      return;
-    }
-    if (p1 + p2 !== 10) {
+    const s1 = document.querySelector('.hp-slider[data-slot="pick1"]');
+    const s2 = document.querySelector('.hp-slider[data-slot="pick2"]');
+    if (!s1 || !s2) return;
+    const p1 = parseInt(s1.value, 10);
+    const p2 = parseInt(s2.value, 10);
+    if (!Number.isFinite(p1) || !Number.isFinite(p2) || p1 + p2 !== 10) {
       showError('team-hp-error', 'HP 합계는 10이어야 합니다.');
       return;
     }
-    socket.emit('team_hp_distribute', { pick1Hp: p1, pick2Hp: p2, twinElder: tE || undefined, twinYounger: tY || undefined });
+    socket.emit('team_hp_distribute', { hps: [p1, p2] });
   });
 }
 
@@ -1229,14 +1445,13 @@ socket.on('team_placement_status', ({ placementDone, doneNames }) => {
 function renderTeamPlacement() {
   const titleEl = document.getElementById('team-placement-title');
   if (titleEl) {
-    const teamLabel = S.teamId === 0 ? 'A팀 (상단)' : 'B팀 (하단)';
+    const teamLabel = S.teamId === 0 ? 'A팀' : 'B팀';
     titleEl.textContent = `배치 — ${teamLabel}`;
   }
   // 보드 렌더 (7x7)
   const board = document.getElementById('team-placement-board');
   if (!board) return;
   const b = S.teamPlacement.boardBounds || { min: 0, max: 6 };
-  const zone = S.teamPlacement.zone;
   // 팀 점유 맵
   const occupied = {};  // key = `${c},${r}`, val = { owner: idx, piece }
   for (const pc of S.teamPlacement.myPieces || []) {
@@ -1251,35 +1466,27 @@ function renderTeamPlacement() {
   for (let r = b.min; r <= b.max; r++) {
     for (let c = b.min; c <= b.max; c++) {
       const classes = ['cell'];
-      // 구역 표시
-      const isMineZone = r >= zone.rowMin && r <= zone.rowMax;
-      if (isMineZone) classes.push('zone-mine');
-      else if (r === 3) classes.push('zone-neutral');
-      else classes.push('zone-other');
-      // A/B 색상 힌트
-      if (!isMineZone) {
-        if (r < 3) classes.push('zone-team-a');
-        else if (r > 3) classes.push('zone-team-b');
-      }
-      // 점유 표시
+      // 팀원 점유: 다른 말이 차지함을 표시
       const occ = occupied[`${c},${r}`];
-      let inner = '';
+      let inner = `<span class="coord-label">${coord(c, r)}</span>`;
       if (occ) {
-        inner = `<span class="piece-icon">${occ.piece.icon || ''}</span>`;
+        inner += `<span class="piece-icon">${occ.piece.icon || ''}</span>`;
         if (occ.owner === 'teammate') classes.push('occupied-other');
       }
       html += `<div class="${classes.join(' ')}" data-col="${c}" data-row="${r}">${inner}</div>`;
     }
   }
   board.innerHTML = html;
-  // 클릭: 선택된 piece를 해당 위치에 배치
+  // 보드 7x7 그리드 강제
+  const totalSize = b.max - b.min + 1;
+  board.style.gridTemplateColumns = `repeat(${totalSize}, 44px)`;
+  board.style.gridTemplateRows = `repeat(${totalSize}, 44px)`;
+  // 클릭: 선택된 piece를 해당 위치에 배치 — 구역 제한 없음
   board.querySelectorAll('.cell').forEach(cellEl => {
     cellEl.addEventListener('click', () => {
       if (S.teamPlacement.confirmed) return;
       const c = parseInt(cellEl.dataset.col, 10);
       const r = parseInt(cellEl.dataset.row, 10);
-      const isMineZone = r >= zone.rowMin && r <= zone.rowMax;
-      if (!isMineZone) { showSkillToast('본인 팀 구역에만 배치할 수 있습니다.', false, undefined, 'event'); return; }
       const pIdx = S.teamPlacement.selectedPieceIdx;
       if (pIdx === null || pIdx === undefined) { showSkillToast('먼저 말을 선택하세요.', false, undefined, 'event'); return; }
       socket.emit('team_place_piece', { pieceIdx: pIdx, col: c, row: r });
@@ -1368,12 +1575,13 @@ function applyTeamGameState(state) {
 
 socket.on('team_game_start', (state) => {
   applyTeamGameState(state);
-  // screen-game 전환
-  if (typeof buildBoard === 'function') {
-    try { buildBoard('game-board', () => {}); } catch (e) {}
+  // 1v1 게임 UI 초기화 — 셀 클릭 핸들러 연결
+  if (typeof buildGameUI === 'function') {
+    try { buildGameUI(); } catch (e) {}
   }
   showScreen('screen-game');
   renderTeamGameSnapshot();
+  showActionBar(S.isMyTurn);
   const curName = (S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx) || {}).name || '?';
   showSkillToast(`🎮 팀전 시작! ${S.isMyTurn ? '당신의 턴!' : `${curName}의 턴`}`, false, undefined, 'event');
 });
@@ -1381,6 +1589,7 @@ socket.on('team_game_start', (state) => {
 socket.on('team_game_update', (state) => {
   applyTeamGameState(state);
   renderTeamGameSnapshot();
+  showActionBar(S.isMyTurn);
   if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
 });
 
@@ -1414,26 +1623,115 @@ socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => 
   }, 200);
 });
 
-// 팀전 게임 화면 간소 렌더 (Phase 4d MVP)
+// 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시
 function renderTeamGameSnapshot() {
-  // 기존 1v1 렌더 함수들을 최대한 재사용
   try {
     if (typeof renderGameBoard === 'function') renderGameBoard();
-    if (typeof renderMyPieces === 'function') renderMyPieces();
-    if (typeof renderOppPieces === 'function') renderOppPieces();
+    renderTeamProfiles();  // 1v1의 renderMyPieces/renderOppPieces 대체
     if (typeof updateSPBar === 'function') updateSPBar();
   } catch (e) {
     console.error('[team render] error:', e);
   }
-  // 턴 표시 업데이트 (1v1 렌더가 놓칠 수 있음)
-  const turnEl = document.getElementById('turn-indicator') || document.getElementById('turn-banner');
+  // 턴 배너 — 현재 플레이어 + 팀 표시
+  const turnEl = document.getElementById('turn-banner');
   if (turnEl && S.teamGamePlayers) {
     const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
     if (cur) {
       const teamLabel = cur.teamId === 0 ? 'A팀' : 'B팀';
-      turnEl.textContent = `[${teamLabel}] ${cur.name}의 턴 (${S.turnNumber}턴)`;
+      const color = cur.teamId === 0 ? '#60a5fa' : '#ef4444';
+      const isMine = cur.idx === S.playerIdx;
+      const isAlly = cur.teamId === S.teamId;
+      turnEl.innerHTML = `
+        <span style="color:${color};font-weight:800">[${teamLabel}]</span>
+        <strong style="color:${isMine ? 'var(--accent)' : 'var(--text)'}">${escapeHtmlGlobal(cur.name)}</strong>
+        ${isMine ? '<span style="color:var(--accent)">(당신의 턴!)</span>' : isAlly ? '<span style="color:#60a5fa">(팀원 턴)</span>' : '<span style="color:var(--danger)">(적 턴)</span>'}
+        <span class="muted">— ${S.turnNumber}턴</span>
+      `;
     }
   }
+}
+
+// 팀전 프로필 렌더 — 내팀(나+팀원)은 왼쪽, 상대팀은 오른쪽
+function renderTeamProfiles() {
+  const myContainer = document.getElementById('my-pieces-info');
+  const oppContainer = document.getElementById('opp-pieces-info');
+  if (!myContainer || !oppContainer) return;
+
+  const players = S.teamGamePlayers || [];
+  const myTeam = S.teamId;
+
+  // 내팀 = 나 + 팀원 (나 먼저)
+  const myTeamPlayers = players
+    .filter(p => p.teamId === myTeam)
+    .sort((a, b) => (a.idx === S.playerIdx ? -1 : b.idx === S.playerIdx ? 1 : 0));
+  const enemyPlayers = players.filter(p => p.teamId !== myTeam);
+
+  myContainer.innerHTML = myTeamPlayers.map(pl => renderTeamPlayerBlock(pl, true)).join('');
+  oppContainer.innerHTML = enemyPlayers.map(pl => renderTeamPlayerBlock(pl, false)).join('');
+
+  // 내 pieces 카드에 클릭 리스너 연결 (1v1 renderMyPieces 동작 유지)
+  myContainer.querySelectorAll('[data-my-piece-idx]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (!S.isMyTurn) return;
+      const idx = parseInt(card.dataset.myPieceIdx, 10);
+      const pc = S.myPieces[idx];
+      if (!pc || !pc.alive) return;
+      S.selectedPiece = idx;
+      renderGameBoard();
+      renderTeamProfiles();
+    });
+  });
+}
+
+function renderTeamPlayerBlock(playerData, isAlly) {
+  const isMe = playerData.idx === S.playerIdx;
+  const currentPlayer = playerData.idx === S.currentPlayerIdx;
+  const teamColor = playerData.teamId === 0 ? '#60a5fa' : '#ef4444';
+  const pieces = playerData.pieces || [];
+  const aliveCount = pieces.filter(p => p.alive).length;
+  const headerBg = currentPlayer ? 'rgba(226,168,75,0.15)' : 'transparent';
+  const headerBorder = currentPlayer ? '2px solid var(--accent)' : '1px solid var(--border)';
+
+  const piecesHtml = pieces.map((pc, i) => {
+    if (!pc.alive) {
+      return `<div class="my-piece-card dead">
+        <div class="my-piece-header"><span class="p-icon">${pc.icon || '❔'}</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
+        <div style="font-size:0.72rem;color:var(--muted)">💀 격파</div>
+      </div>`;
+    }
+    const hpPct = (pc.hp / pc.maxHp) * 100;
+    const tagHtml = pc.tag ? (pc.tag === 'royal' ? '<span class="tag-stamp stamp-royal">왕실</span>' : pc.tag === 'villain' ? '<span class="tag-stamp stamp-villain">악인</span>' : '') : '';
+    const myPieceAttr = (isAlly && isMe) ? `data-my-piece-idx="${i}"` : '';
+    const selectedClass = (isAlly && isMe && S.selectedPiece === i) ? 'active-piece' : '';
+    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr}>
+      <div class="my-piece-header">
+        <span class="p-icon">${pc.icon || ''}</span>
+        <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
+        ${pc.tier ? `<span class="tier-badge">${pc.tier}T</span>` : ''}
+        ${tagHtml}
+      </div>
+      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
+      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
+        <span>HP ${pc.hp}/${pc.maxHp} · ATK ${pc.atk}</span>
+        <span>${pc.col >= 0 ? coord(pc.col, pc.row) : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="team-profile-block" style="margin-bottom:10px;padding:8px;border-radius:8px;background:${headerBg};border:${headerBorder}">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:0.85rem">
+        <div>
+          <span style="color:${teamColor};font-weight:800">${playerData.teamId === 0 ? 'A' : 'B'}</span>
+          <strong style="color:${isMe ? 'var(--accent)' : 'var(--text)'}">${escapeHtmlGlobal(playerData.name)}</strong>
+          ${isMe ? '<span style="font-size:0.7rem;color:var(--accent)">(나)</span>' : ''}
+          ${currentPlayer ? '<span style="font-size:0.7rem;color:var(--accent)">⏰ 턴</span>' : ''}
+        </div>
+        <span class="muted" style="font-size:0.72rem">${aliveCount}/${pieces.length}</span>
+      </div>
+      ${piecesHtml}
+    </div>
+  `;
 }
 
 // 팀 대기실 렌더
@@ -2826,18 +3124,41 @@ function renderSlide() {
   // 캐릭터 선택 버튼 상태 업데이트
   const selectBtn = document.getElementById('btn-draft-select');
   if (selectBtn) {
-    const isAlreadySelected = S.draftSelected[step] === c.type;
-    if (isAlreadySelected) {
-      selectBtn.textContent = '✔ 선택됨';
+    let isAlreadySelected, teamLocked;
+    if (S.teamDraftMode) {
+      const tmPicks = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+      teamLocked = tmPicks.includes(c.type);
+      isAlreadySelected = S.teamDraft?.pick1 === c.type || S.teamDraft?.pick2 === c.type;
+    } else {
+      teamLocked = false;
+      isAlreadySelected = S.draftSelected[step] === c.type;
+    }
+    if (teamLocked) {
+      selectBtn.textContent = '🔒 팀원 선택';
+      selectBtn.className = 'btn btn-muted btn-select-char';
+      selectBtn.disabled = true;
+    } else if (isAlreadySelected) {
+      selectBtn.textContent = '✔ 선택됨 (해제)';
       selectBtn.className = 'btn btn-select-char btn-current-select';
+      selectBtn.disabled = false;
     } else {
       selectBtn.textContent = '캐릭터 선택';
       selectBtn.className = 'btn btn-accent btn-select-char';
+      selectBtn.disabled = false;
     }
   }
+  // 팀 모드: 팀원이 선택한 캐릭터 슬라이드 흐림 처리
+  const slideViewer = document.querySelector('#screen-draft .slide-viewer');
+  if (slideViewer) {
+    const tmPicks2 = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+    const thisLocked = S.teamDraftMode && tmPicks2.includes(c.type);
+    slideViewer.classList.toggle('team-dimmed', !!thisLocked);
+  }
   updateDraftConfirmBtn();
-  // 관전자에게 실시간 브라우징 전송
-  socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
+  // 관전자 브라우징은 1v1에서만
+  if (!S.teamDraftMode) {
+    socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
+  }
 
   // 스텝 인디케이터 done 상태 갱신
   document.querySelectorAll('#draft-step-indicator .step').forEach((el, i) => {
@@ -2868,10 +3189,47 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   const chars = S.characters[step];
   if (!chars || !chars[slideIndex]) return;
   const c = chars[slideIndex];
+
+  // ── 팀 드래프트 모드: 2픽 슬롯 방식 ──
+  if (S.teamDraftMode) {
+    // 팀원 픽 차단
+    const tmPicks = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+    if (tmPicks.includes(c.type)) {
+      showSkillToast('팀원이 이미 선택한 캐릭터입니다.', false, undefined, 'event');
+      return;
+    }
+    // 이미 내 슬롯에 있으면 해제
+    if (S.teamDraft.pick1 === c.type) {
+      S.teamDraft.pick1 = null;
+      socket.emit('team_draft_pick', { slot: 'pick1', type: null });
+      renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+      return;
+    }
+    if (S.teamDraft.pick2 === c.type) {
+      S.teamDraft.pick2 = null;
+      socket.emit('team_draft_pick', { slot: 'pick2', type: null });
+      renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+      return;
+    }
+    // 빈 슬롯에 할당
+    const slot = !S.teamDraft.pick1 ? 'pick1' : !S.teamDraft.pick2 ? 'pick2' : null;
+    if (!slot) {
+      showSkillToast('2개 슬롯이 모두 찼습니다. 해제하려면 슬롯의 × 또는 카드를 다시 클릭하세요.', false, undefined, 'event');
+      return;
+    }
+    S.teamDraft[slot] = c.type;
+    socket.emit('team_draft_pick', { slot, type: c.type });
+    playSfxCharSelect();
+    showSkillToast(`${c.icon} ${c.name}을(를) 선택했습니다.`, false, undefined, 'event');
+    renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+    return;
+  }
+
+  // ── 1v1 모드 (기존) ──
   const isDuplicate = S.draftSelected[step] === c.type;
   S.draftSelected[step] = c.type;
   if (S.deckBuilderMode) S.deckSaved = false;
-  renderSlide(); // 버튼 상태 갱신
+  renderSlide();
   updateDraftConfirmBtn();
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
   if (!isDuplicate) {
@@ -2957,10 +3315,27 @@ function updateDraftPreview(charData) {
 }
 
 function updateDraftConfirmBtn() {
-  const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
   const btn = document.getElementById('btn-draft-confirm');
-  const count = [1,2,3].filter(t => S.draftSelected[t]).length;
 
+  if (S.teamDraftMode) {
+    // 팀 모드 — 2픽
+    const tmCount = (S.teamDraft?.pick1 ? 1 : 0) + (S.teamDraft?.pick2 ? 1 : 0);
+    if (S.teamDraftConfirmed) {
+      btn.disabled = true;
+      btn.textContent = '✅ 확정됨';
+    } else if (tmCount === 2) {
+      btn.disabled = false;
+      btn.textContent = '선택 확정';
+    } else {
+      btn.disabled = true;
+      btn.textContent = `선택 확정 (${tmCount}/2)`;
+    }
+    renderTeamDraftSlots();
+    return;
+  }
+
+  const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
+  const count = [1,2,3].filter(t => S.draftSelected[t]).length;
   if (S.deckBuilderMode) {
     btn.disabled = false;
     btn.textContent = allSelected ? '덱 저장' : `덱 저장 (${count}/3)`;
@@ -3067,6 +3442,16 @@ function renderDraftSlots() {
 }
 
 document.getElementById('btn-draft-confirm').addEventListener('click', () => {
+  // ── 팀 드래프트 2픽 확정 ──
+  if (S.teamDraftMode) {
+    const p1 = S.teamDraft?.pick1;
+    const p2 = S.teamDraft?.pick2;
+    if (!p1 || !p2) return;
+    socket.emit('team_draft_confirm');
+    document.getElementById('btn-draft-confirm').disabled = true;
+    return;
+  }
+
   const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
 
   // 덱 빌더 모드: 덱 이름 모달을 먼저 띄움 (이름 입력 후 저장)
@@ -3098,8 +3483,6 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   if (!allSelected) return;
 
   S.draftPicked = [S.draftSelected[1], S.draftSelected[2], S.draftSelected[3]];
-
-  // 서버로 전송
   socket.emit('select_pieces', {
     t1: S.draftSelected[1],
     t2: S.draftSelected[2],
@@ -3388,14 +3771,16 @@ function showTwinSplit(twinTierHp) {
   btn.disabled = false;
   btn.textContent = '쌍둥이 분배 확정';
   btn.onclick = () => {
-    socket.emit('distribute_hp', { twinSplit: [elderHp, youngerHp] });
+    const ev = S.teamHpMode ? 'team_hp_distribute' : 'distribute_hp';
+    socket.emit(ev, { twinSplit: [elderHp, youngerHp] });
     btn.disabled = true;
     btn.onclick = null;
   };
 }
 
 document.getElementById('btn-hp-confirm').addEventListener('click', () => {
-  socket.emit('distribute_hp', { hps: S.hpValues });
+  const ev = S.teamHpMode ? 'team_hp_distribute' : 'distribute_hp';
+  socket.emit(ev, { hps: S.hpValues });
   document.getElementById('btn-hp-confirm').disabled = true;
 });
 
@@ -5739,13 +6124,21 @@ function handleGameCellClick(col, row) {
 function buildBoard(containerId, clickHandler) {
   const board = document.getElementById(containerId);
   if (!board) return;
+  // 메인 게임 보드만 팀모드에서 7x7. 드래프트 미리보기 등은 항상 5x5.
+  const is7x7 = S.isTeamMode && containerId === 'game-board';
+  const totalSize = is7x7 ? 7 : 5;
+  const cellPx = is7x7 ? 44 : 56;
   board.innerHTML = '';
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 5; col++) {
+  board.style.gridTemplateColumns = `repeat(${totalSize}, ${cellPx}px)`;
+  board.style.gridTemplateRows = `repeat(${totalSize}, ${cellPx}px)`;
+  for (let row = 0; row < totalSize; row++) {
+    for (let col = 0; col < totalSize; col++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
       cell.dataset.col = col;
       cell.dataset.row = row;
+      cell.style.width = cellPx + 'px';
+      cell.style.height = cellPx + 'px';
       cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
       cell.addEventListener('click', () => clickHandler(col, row));
       board.appendChild(cell);
