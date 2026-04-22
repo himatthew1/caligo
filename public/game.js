@@ -4,6 +4,43 @@
 
 const socket = io();
 
+// #9: 연결 직후 세션 재접속 시도 (새로고침 시 게임 복구)
+socket.on('connect', () => {
+  try {
+    const raw = sessionStorage.getItem('caligo_session');
+    if (!raw) return;
+    const sess = JSON.parse(raw);
+    // 10분 이상 지난 세션은 무시
+    if (!sess || !sess.token || !sess.roomId) return;
+    if (Date.now() - (sess.ts || 0) > 10 * 60 * 1000) {
+      sessionStorage.removeItem('caligo_session');
+      return;
+    }
+    socket.emit('reconnect_game', { roomId: sess.roomId, sessionToken: sess.token });
+  } catch (e) {}
+});
+
+socket.on('reconnect_failed', ({ reason }) => {
+  try { sessionStorage.removeItem('caligo_session'); } catch (e) {}
+  console.warn('[reconnect failed]', reason);
+});
+
+socket.on('reconnect_ok', ({ idx, phase }) => {
+  // 상태는 다른 이벤트(joined/team_game_start)로 복구
+  if (typeof showSkillToast === 'function') {
+    showSkillToast('🔌 재접속 완료!', false, undefined, 'event');
+  }
+});
+
+socket.on('reconnect_phase_resume', ({ phase }) => {
+  // 세팅 단계 재접속 — 서버가 현재 phase에 맞는 이벤트를 뒤이어 보냄
+  console.log('[reconnect] phase resume:', phase);
+});
+
+socket.on('opp_disconnected_pending', ({ msg, graceMs }) => {
+  try { showSkillToast(`🔌 ${msg}`, true, undefined, 'event'); } catch (e) {}
+});
+
 // ── 좌표 변환 헬퍼 (세로=A~E, 가로=1~5) ──
 const ROW_LABELS = ['A','B','C','D','E'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
@@ -706,9 +743,23 @@ function escapeHtmlGlobal(str) {
 // ── 소켓 이벤트 핸들러 ──────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-socket.on('joined', ({ idx, roomId, characters }) => {
+socket.on('joined', ({ idx, roomId, characters, sessionToken, reconnected }) => {
   S.playerIdx = idx;
   S.characters = characters;
+  // #9: 세션 토큰 저장 (재접속용)
+  if (sessionToken) {
+    S.sessionToken = sessionToken;
+    try {
+      sessionStorage.setItem('caligo_session', JSON.stringify({
+        roomId, token: sessionToken, playerName: S.myName,
+        isTeam: false, ts: Date.now(),
+      }));
+    } catch (e) {}
+  }
+  if (reconnected) {
+    showSkillToast('🔌 재접속 완료!', false, undefined, 'event');
+    return;
+  }
   document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
   showScreen('screen-waiting');
 });
@@ -718,10 +769,20 @@ socket.on('waiting', () => showScreen('screen-waiting'));
 // ═══════════════════════════════════════════════════════════════
 // ── 팀전 (2v2) 대기실 ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
-socket.on('team_joined', ({ idx, roomId, playerName }) => {
+socket.on('team_joined', ({ idx, roomId, playerName, sessionToken }) => {
   S.playerIdx = idx;
   S.roomId = roomId;
   S.isTeamMode = true;
+  // #9: 세션 토큰 저장
+  if (sessionToken) {
+    S.sessionToken = sessionToken;
+    try {
+      sessionStorage.setItem('caligo_session', JSON.stringify({
+        roomId, token: sessionToken, playerName,
+        isTeam: true, ts: Date.now(),
+      }));
+    } catch (e) {}
+  }
   const codeEl = document.getElementById('team-waiting-room-code');
   if (codeEl) codeEl.textContent = `방 코드: ${roomId}`;
   showScreen('screen-team-waiting');
@@ -1334,20 +1395,23 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
 
 socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => {
   stopClientTimer();
-  showScreen('screen-gameover');
-  const iconEl = document.getElementById('gameover-icon');
-  const titleEl = document.getElementById('gameover-title');
-  const subEl = document.getElementById('gameover-sub');
-  if (iconEl) iconEl.textContent = win ? '🏆' : '💀';
-  if (titleEl) {
-    titleEl.textContent = win ? '팀 승리!' : '팀 패배';
-    titleEl.style.color = win ? 'var(--accent)' : 'var(--danger)';
-  }
-  if (subEl) {
-    const winStr = (winners || []).join(', ');
-    const loseStr = (losers || []).join(', ');
-    subEl.innerHTML = `승리팀: <strong>${escapeHtmlGlobal(winStr)}</strong><br>패배팀: ${escapeHtmlGlobal(loseStr)}<br><span class="muted">${reason || ''}</span>`;
-  }
+  // #8: 0.2초 대기 + 페이드인
+  setTimeout(() => {
+    _showGameOverScreen();
+    const iconEl = document.getElementById('gameover-icon');
+    const titleEl = document.getElementById('gameover-title');
+    const subEl = document.getElementById('gameover-sub');
+    if (iconEl) iconEl.textContent = win ? '🏆' : '💀';
+    if (titleEl) {
+      titleEl.textContent = win ? '팀 승리!' : '팀 패배';
+      titleEl.style.color = win ? 'var(--accent)' : 'var(--danger)';
+    }
+    if (subEl) {
+      const winStr = (winners || []).join(', ');
+      const loseStr = (losers || []).join(', ');
+      subEl.innerHTML = `승리팀: <strong>${escapeHtmlGlobal(winStr)}</strong><br>패배팀: ${escapeHtmlGlobal(loseStr)}<br><span class="muted">${reason || ''}</span>`;
+    }
+  }, 200);
 });
 
 // 팀전 게임 화면 간소 렌더 (Phase 4d MVP)
@@ -1829,7 +1893,28 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   }
 });
 
-socket.on('opp_moved', ({ msg }) => {
+socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
+  // #10: 표식된 적이면 실시간 위치 업데이트 + 이동 애니메이션
+  if (S.oppPieces && prevCol !== undefined && prevRow !== undefined && col !== undefined && row !== undefined) {
+    const markedMover = S.oppPieces.find(p => p.marked && p.alive && p.col === prevCol && p.row === prevRow);
+    if (markedMover) {
+      // 실시간 위치 업데이트 후 이동 애니메이션
+      markedMover.col = col;
+      markedMover.row = row;
+      renderGameBoard();
+      renderOppPieces();
+      // 시각적 하이라이트 (이동 후 셀 강조)
+      const boardEl = document.getElementById('game-board');
+      const cellEl = boardEl && boardEl.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (cellEl) {
+        cellEl.classList.add('marked-move-flash');
+        setTimeout(() => cellEl.classList.remove('marked-move-flash'), 700);
+      }
+      addLog(`🎯 표식된 적이 ${coord(prevCol,prevRow)}에서 ${coord(col,row)}로 이동했습니다.`, 'move');
+      showSkillToast(`🎯 표식된 적이 ${coord(col,row)}로 이동!`, true);
+      return;
+    }
+  }
   addLog(`🚶 상대가 이동했습니다.`, 'move');
   showSkillToast(`🚶 상대가 이동했습니다.`, true);
 });
@@ -1947,9 +2032,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
 // ── 피격 ──
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
-  // 호위무사 가로채기: 원래 대상(damage=0)의 피격 애니메이션 억제
+  // #1: 호위무사 가로채기 — 원래 대상(damage=0)은 필터링, 호위무사(bodyguardRedirect)는 유지하여 애니메이션 발동
   if (S._bodyguardIntercepted) {
-    hitPieces = hitPieces.filter(h => h.damage > 0);
+    hitPieces = hitPieces.filter(h => h.damage > 0 || h.bodyguardRedirect);
     S._bodyguardIntercepted = false;
   }
 
@@ -2234,7 +2319,12 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
 // ── 게임 오버 ──
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
   stopClientTimer();
-  showScreen('screen-gameover');
+  // #8: 애니메이션 완료 대기 0.2초 + 페이드인 0.5초
+  setTimeout(() => {
+    _showGameOverScreen();
+    runGameOverRender();
+  }, 200);
+  function runGameOverRender() {
   if (!spectator) bgmPlay(win ? 'victory' : (draw ? 'victory' : 'defeat'));
   const r = reason || {};
   const victims = (r.victims || []).join(', ');
@@ -2321,16 +2411,34 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     }
     document.getElementById('gameover-sub').textContent = sub;
   }
+  }  // end runGameOverRender
 });
+
+// #8: 게임오버 화면 전환 — 0.5초 페이드인
+function _showGameOverScreen() {
+  const scr = document.getElementById('screen-gameover');
+  if (scr) {
+    scr.classList.add('fade-in');
+    // 이전 active 클래스 제거
+    document.querySelectorAll('.screen').forEach(s => { if (s !== scr) s.classList.remove('active'); });
+    scr.classList.add('active');
+    setTimeout(() => scr.classList.remove('fade-in'), 550);
+  }
+  // #9: 게임 종료 시 세션 토큰 정리 (재접속 대상 아님)
+  try { sessionStorage.removeItem('caligo_session'); } catch (e) {}
+}
 
 socket.on('disconnected', ({ msg }) => {
   stopClientTimer();
   addLog(msg, 'system');
-  showScreen('screen-gameover');
-  document.getElementById('gameover-icon').textContent = '🔌';
-  document.getElementById('gameover-title').textContent = '연결 끊김';
-  document.getElementById('gameover-title').style.color = 'var(--muted)';
-  document.getElementById('gameover-sub').textContent = msg;
+  // #8: 0.2초 대기 + 페이드인
+  setTimeout(() => {
+    _showGameOverScreen();
+    document.getElementById('gameover-icon').textContent = '🔌';
+    document.getElementById('gameover-title').textContent = '연결 끊김';
+    document.getElementById('gameover-title').style.color = 'var(--muted)';
+    document.getElementById('gameover-sub').textContent = msg;
+  }, 200);
 });
 
 socket.on('err', ({ msg }) => {
@@ -4647,13 +4755,19 @@ function renderMyPieces() {
   const container = document.getElementById('my-pieces-info');
   if (!container) return;
   container.innerHTML = '';
+  // #2/#7: 쌍검무/질주 잠금 판정 — 해당 piece 외 흐리게
+  const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
+  const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   for (let i = 0; i < S.myPieces.length; i++) {
     const pc = S.myPieces[i];
     const card = document.createElement('div');
     const isActive = S.selectedPiece === i;
     // 쌍둥이: 이미 이동한 쪽 흐리게 표시
     const twinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
-    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''}`;
+    // #2/#7: 쌍검무/질주 활성 시 다른 유닛 흐리게
+    const skillLockDimmed = (dualActive && pc !== dualActive) || (sprintActive && pc !== sprintActive);
+    const lockedClass = skillLockDimmed ? 'skill-locked-dimmed' : '';
+    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''} ${lockedClass}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
 
     const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
@@ -4707,6 +4821,15 @@ function renderMyPieces() {
 
     card.addEventListener('click', () => {
       if (!S.isMyTurn || !pc.alive) return;
+      // #2/#7: 쌍검무/질주 중 해당 유닛 외 클릭 차단
+      if (skillLockDimmed) {
+        const hint = document.getElementById('action-hint');
+        if (hint) {
+          if (dualActive) hint.textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
+          else if (sprintActive) hint.textContent = '⚠ 전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.';
+        }
+        return;
+      }
       S.selectedPiece = i;
       renderGameBoard();
       renderMyPieces();
@@ -5022,6 +5145,18 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
     document.getElementById('twin-endturn-modal').classList.remove('hidden');
     return;
   }
+  // #3: 쌍검무 활성 + 추가 공격 남음
+  const dualBladeLeft = S.myPieces && S.myPieces.some(p => p.alive && p.dualBladeAttacksLeft > 0);
+  if (dualBladeLeft) {
+    document.getElementById('dualblade-endturn-modal').classList.remove('hidden');
+    return;
+  }
+  // #7: 전령 질주 활성 + 추가 이동 남음
+  const sprintLeft = S.myPieces && S.myPieces.some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+  if (sprintLeft) {
+    document.getElementById('sprint-endturn-modal').classList.remove('hidden');
+    return;
+  }
   if (!S.moveDone && !S.actionDone) {
     document.getElementById('endturn-modal').classList.remove('hidden');
     return;
@@ -5054,6 +5189,40 @@ document.getElementById('twin-endturn-cancel').addEventListener('click', () => {
   document.getElementById('twin-endturn-modal').classList.add('hidden');
 });
 
+// #3: 쌍검무 미완료 턴 종료 모달
+const dualbladeEndturnConfirm = document.getElementById('dualblade-endturn-confirm');
+if (dualbladeEndturnConfirm) {
+  dualbladeEndturnConfirm.addEventListener('click', () => {
+    document.getElementById('dualblade-endturn-modal').classList.add('hidden');
+    socket.emit('end_turn');
+    S.isMyTurn = false;
+    showActionBar(false);
+  });
+}
+const dualbladeEndturnCancel = document.getElementById('dualblade-endturn-cancel');
+if (dualbladeEndturnCancel) {
+  dualbladeEndturnCancel.addEventListener('click', () => {
+    document.getElementById('dualblade-endturn-modal').classList.add('hidden');
+  });
+}
+
+// #7: 전령 질주 미완료 턴 종료 모달
+const sprintEndturnConfirm = document.getElementById('sprint-endturn-confirm');
+if (sprintEndturnConfirm) {
+  sprintEndturnConfirm.addEventListener('click', () => {
+    document.getElementById('sprint-endturn-modal').classList.add('hidden');
+    socket.emit('end_turn');
+    S.isMyTurn = false;
+    showActionBar(false);
+  });
+}
+const sprintEndturnCancel = document.getElementById('sprint-endturn-cancel');
+if (sprintEndturnCancel) {
+  sprintEndturnCancel.addEventListener('click', () => {
+    document.getElementById('sprint-endturn-modal').classList.add('hidden');
+  });
+}
+
 // 기권 버튼
 document.getElementById('btn-surrender').addEventListener('click', () => {
   if (!S.isMyTurn) return;
@@ -5064,6 +5233,8 @@ document.getElementById('surrender-confirm').addEventListener('click', () => {
   socket.emit('surrender');
   S.isMyTurn = false;
   showActionBar(false);
+  // #9: 기권은 의도적 나가기 → 세션 정리
+  try { sessionStorage.removeItem('caligo_session'); } catch (e) {}
 });
 document.getElementById('surrender-cancel').addEventListener('click', () => {
   document.getElementById('surrender-modal').classList.add('hidden');
@@ -5457,6 +5628,12 @@ function handleGameCellClick(col, row) {
           document.getElementById('action-hint').textContent = '⚠ 쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.';
           return;
         }
+        // #7: 전령 질주 중 — 해당 전령만 이동 가능
+        const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+        if (sprintActive && pc !== sprintActive) {
+          document.getElementById('action-hint').textContent = '⚠ 전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.';
+          return;
+        }
         S.selectedPiece = S.myPieces.indexOf(pc);
         document.getElementById('action-hint').textContent = `${pc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
@@ -5499,6 +5676,12 @@ function handleGameCellClick(col, row) {
       // 말 선택
       const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
       if (pc) {
+        // #2: 쌍검무 활성 — 해당 양손검객만 선택 가능
+        const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
+        if (dualActive && pc !== dualActive) {
+          document.getElementById('action-hint').textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
+          return;
+        }
         S.selectedPiece = S.myPieces.indexOf(pc);
         // 타겟 선택이 필요한 캐릭터
         if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
@@ -5522,6 +5705,12 @@ function handleGameCellClick(col, row) {
       // 다른 내 말 클릭 → 선택 변경
       const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (clickedOther) {
+        // #2: 쌍검무 중에는 양손검객 외 선택 차단
+        const dualActive2 = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
+        if (dualActive2 && clickedOther !== dualActive2) {
+          document.getElementById('action-hint').textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
+          return;
+        }
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
         if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
           S.targetSelectMode = true;

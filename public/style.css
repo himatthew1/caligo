@@ -1660,6 +1660,31 @@ body {
 .piece-marker.twin-board-dimmed { opacity: 0.35; }
 .cell.twin-dimmed-cell { pointer-events: none; }
 
+/* #2/#7: 쌍검무/질주 잠금 — 비활성 유닛 흐림 */
+.my-piece-card.skill-locked-dimmed {
+  opacity: 0.35;
+  filter: grayscale(0.5);
+  cursor: not-allowed;
+}
+
+/* #10: 표식된 적 이동 실시간 하이라이트 */
+.cell.marked-move-flash {
+  animation: markedMoveFlash 0.7s ease-out;
+}
+@keyframes markedMoveFlash {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.9); background: rgba(239,68,68,0.25); }
+  100% { box-shadow: 0 0 0 10px rgba(239,68,68,0); background: transparent; }
+}
+
+/* #8: 게임오버 페이드인 (0.5초) */
+.screen#screen-gameover.fade-in {
+  animation: gameoverFadeIn 0.5s ease-out both;
+}
+@keyframes gameoverFadeIn {
+  0%   { opacity: 0; transform: scale(0.98); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 /* 현재 턴 플레이어 강조 */
 .left-panel.turn-active .my-piece-card:not(.dead) {
   background: rgba(59,130,246,0.10);
