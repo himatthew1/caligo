@@ -704,16 +704,20 @@ function transitionToTeamHp(room) {
   clearTimer(room);
   room.phase = 'team_hp';
   room.hpDone = Array(room.playerCount).fill(false);
-  // 각 플레이어에게 HP 분배 페이즈 알림
+  // 각 플레이어에게 HP 분배 페이즈 알림 (팀원 draft도 포함)
   for (const p of room.players) {
     if (!p.socketId) continue;
     const hasTwins = p.draft?.pick1 === 'twins' || p.draft?.pick2 === 'twins';
+    // 팀원 draft 정보 (팀 내 다른 멤버)
+    const teammateDraft = room.teams[p.teamId]
+      .filter(i => i !== p.index)
+      .map(i => ({ idx: i, name: room.players[i].name, draft: room.players[i].draft }))[0] || null;
     io.to(p.socketId).emit('team_hp_phase', {
       draft: p.draft,
       hasTwins,
+      teammateDraft: teammateDraft ? teammateDraft.draft : null,
     });
   }
-  // 150초 타이머
   startTimer(room, 'team_hp', () => teamHpTimeout(room));
 }
 
@@ -1467,20 +1471,7 @@ function handleDeath(room, deadPiece, ownerIdx) {
   deadPiece.alive = false;
   const owner = room.players[ownerIdx];
 
-  // Curse spread: curse spreads to nearby allies on death (3x3)
-  const curseEffect = deadPiece.statusEffects.find(e => e.type === 'curse');
-  if (curseEffect) {
-    for (const ally of owner.pieces) {
-      if (ally.alive && ally !== deadPiece) {
-        if (Math.abs(ally.col - deadPiece.col) <= 1 && Math.abs(ally.row - deadPiece.row) <= 1) {
-          if (!ally.statusEffects.some(e => e.type === 'curse')) {
-            if (ally.type === 'monk') continue; // Monk immune to villain status
-            ally.statusEffects.push({ type: 'curse', source: curseEffect.source });
-          }
-        }
-      }
-    }
-  }
+  // (저주 전파 기능 제거 — 게임 룰에 없음)
 
   // Bomb auto-detonate on gunpowder death
   if (deadPiece.type === 'gunpowder') {
@@ -1584,7 +1575,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
             const bg = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
             if (bg) markTarget = bg;
           }
-          if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
+          // 그림자 상태 면역: 표식 적용 안됨
+          if (markTarget.statusEffects.some(e => e.type === 'shadow')) {
+            // skip mark
+          } else if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
             markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
             const atkName = room.players[attackerIdx].name;
             emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.` });
@@ -2250,6 +2244,12 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── MANHUNTER: 덫 설치 ──
     case 'manhunter': {
+      // 같은 칸 중복 설치 방지 (모든 플레이어 오브젝트 검사)
+      const allObjectsAtCell = (room.boardObjects || []).flat()
+        .some(o => o && (o.type === 'trap' || o.type === 'bomb') && o.col === piece.col && o.row === piece.row);
+      if (allObjectsAtCell) {
+        return { ok: false, msg: '이미 덫/폭탄이 설치된 칸입니다.' };
+      }
       room.boardObjects[playerIdx].push({ type: 'trap', col: piece.col, row: piece.row, owner: playerIdx });
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
@@ -2259,13 +2259,26 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── MESSENGER: 스퍼트 (double move this turn) ──
+    // ── MESSENGER: 질주 — 이동권 +1회 (공격 후 사용 불가, 이미 이동했다면 1회 더만 가능) ──
     case 'messenger': {
+      // 이미 공격을 수행했으면 사용 불가
+      if (player.actionDone && !player.actionUsedSkillReplace) {
+        // actionDone 만 체크로는 이동한 경우도 포함되므로 별도 플래그로 구분 필요
+        // player.actionAttacked 같은 플래그가 있으면 활용. 없으면 예외 처리:
+        // 여기서는 최근 액션이 이동이면 허용, 공격이면 차단
+        if (player._lastActionType === 'attack') {
+          return { ok: false, msg: '공격 후에는 질주를 사용할 수 없습니다.' };
+        }
+      }
+      // 질주 활성화 — 이번 턴 이동권 1회 추가 제공
       piece.messengerSprintActive = true;
-      piece.messengerMovesLeft = 2;
+      // 이동권: 아직 이동 안 했으면 2회, 이미 1회 이동했으면 1회 더 남음
+      piece.messengerMovesLeft = player.actionDone ? 1 : 2;
+      // 공격은 금지 (actionUsedSkillReplace 로 막음)
+      player.actionUsedSkillReplace = true;
       spendSP(room, playerIdx, cost);
-      result.msg = `📯 질주: 전령은 이번 턴 2회 이동합니다.`;
-      result.oppMsg = `📯 질주: 상대 전령은 이번 턴 2회 이동합니다.`;
+      result.msg = `📯 질주: 전령은 이번 턴 이동을 ${piece.messengerMovesLeft}회 할 수 있습니다.`;
+      result.oppMsg = `📯 질주: 상대 전령은 이번 턴 이동권 ${piece.messengerMovesLeft}회를 얻었습니다.`;
       break;
     }
 
@@ -2293,6 +2306,12 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '자신 또는 인접 8칸에만 설치 가능합니다.' };
       }
       if (!inBounds(tc, tr, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      // 같은 칸 중복 설치 방지
+      const bombOverlap = (room.boardObjects || []).flat()
+        .some(o => o && (o.type === 'trap' || o.type === 'bomb') && o.col === tc && o.row === tr);
+      if (bombOverlap) {
+        return { ok: false, msg: '이미 덫/폭탄이 설치된 칸입니다.' };
+      }
       room.boardObjects[playerIdx].push({ type: 'bomb', col: tc, row: tr, owner: playerIdx });
       spendSP(room, playerIdx, cost);
       result.msg = `💣 폭탄 설치: ${coord(tc,tr)}에 폭탄을 설치했습니다.`;
@@ -2304,6 +2323,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // 팀모드: 팀원 아군도 대상 포함
     case 'herbalist': {
       let healed = 0;
+      const healedIdxs = [];
       const allyIndices = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
       for (const aIdx of allyIndices) {
         const allyPlayer = room.players[aIdx];
@@ -2312,11 +2332,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
             if (ally.hp < ally.maxHp) {
               ally.hp = Math.min(ally.maxHp, ally.hp + 1);
               healed++;
+              if (aIdx === playerIdx) healedIdxs.push(allyPlayer.pieces.indexOf(ally));
             }
           }
         }
       }
       spendSP(room, playerIdx, cost);
+      result.data.healedPieceIdxs = healedIdxs;
       result.msg = `🌿 약초학: 주변 아군 ${healed}명은 1 HP를 회복합니다.`;
       result.oppMsg = `🌿 약초학: 상대가 아군 ${healed}명을 치유했습니다.`;
       break;
@@ -2348,6 +2370,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (target.statusEffects.some(e => e.type === 'curse')) {
         return { ok: false, msg: '이미 저주 상태입니다.' };
       }
+      // 그림자 상태 면역
+      if (target.statusEffects.some(e => e.type === 'shadow')) {
+        return { ok: false, msg: '그림자 상태의 대상에게는 저주를 걸 수 없습니다.' };
+      }
       target.statusEffects.push({ type: 'curse', source: playerIdx });
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
@@ -2357,12 +2383,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── DUAL BLADE: 쌍검무 (이번 턴 2회 풀 공격) ──
+    // ── DUAL BLADE: 쌍검무 (양손검객 공격권 +1 — 총 최대 2회) ──
     case 'dualBlade': {
-      piece.dualBladeAttacksLeft = 2;
+      // 이미 공격을 2회 마친 경우 사용 불가 (이론상)
+      piece.dualBladeAttacksLeft = 1;  // +1 공격권
       spendSP(room, playerIdx, cost);
-      result.msg = `⚔ 쌍검무: 양손검객은 이번 턴 2회 공격합니다.`;
-      result.oppMsg = `⚔ 쌍검무: 상대 양손검객은 이번 턴 2회 공격합니다.`;
+      result.msg = `⚔ 쌍검무: 양손검객의 공격권 1회 추가. 총 최대 2회 공격.`;
+      result.oppMsg = `⚔ 쌍검무: 상대 양손검객이 공격권을 얻었습니다.`;
       break;
     }
 
@@ -2483,6 +2510,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       target.hp = Math.min(target.maxHp, target.hp + 2);
       target.statusEffects = [];
       spendSP(room, playerIdx, cost);
+      result.data.healedPieceIdxs = [targetIdx2];
       result.msg = `🙏 신성: ${target.name}의 상태이상을 제거하고 2 HP를 회복했습니다.`;
       result.oppMsg = `🙏 신성: 상대가 ${target.name}의 상태이상을 제거하고 2 HP를 회복했습니다.`;
       break;
@@ -2808,7 +2836,7 @@ function aiUsePreSkills(room) {
       }
       // 호위무사: 패시브 — 스킬 핸들러 불필요
       // 마녀: replacesAction=true이므로 aiUseActionSkills에서 처리
-      // 궁수/무기상: 현재 공격 범위에 히트가 적으면 토글
+      // 궁수/무기상: 현재 공격 범위가 실질적으로 나쁠 때만 토글 (SP 낭비 방지)
       case 'archer':
       case 'weaponSmith': {
         const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
@@ -2820,7 +2848,8 @@ function aiUsePreSkills(room) {
         const altCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: altState });
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
-        if (altScore > curScore * 1.3) {
+        // 조건 강화: 1) 대안 점수가 1.5배 이상 + 2) alt 점수 자체가 6 이상 + 3) 현재 점수 3 미만 (공격이 실질적으로 나쁠 때만)
+        if (altScore > curScore * 1.5 && altScore >= 6 && curScore < 3) {
           aiExecSkill(room, pidx, );
         }
         break;
@@ -2983,10 +3012,25 @@ function aiTakeTurn(room) {
       }
     }
 
-    // 반격 점수가 도망 점수보다 1.3배 이상 크면 반격 (probMap 신뢰도 반영)
-    // HP 위험(maxHp * 0.3 이하)이면 도망 우선
-    const criticalHp = piece.hp <= Math.max(1, piece.maxHp * 0.3);
-    const shouldCounterAttack = !criticalHp && counterAttackScore > bestFleeScore * 1.3 && counterAttackScore > 8;
+    // 반격 우선 판단 — 상대 유닛 위치를 추론하고 격파 가능하면 반격
+    // 1. HP 위험 (maxHp * 0.25 이하)은 도망 우선
+    const criticalHp = piece.hp <= Math.max(1, piece.maxHp * 0.25);
+    // 2. 상대 위치 추론: probMap에서 가장 높은 셀이 공격 범위 내인지
+    let canHitProbTarget = false;
+    let probTargetScore = 0;
+    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+    for (const c of atkCells) {
+      const v = brain.probMap[c.row]?.[c.col] || 0;
+      if (v >= 6) {  // 6 이상이면 상대 유닛이 있을 가능성 높음
+        canHitProbTarget = true;
+        probTargetScore += v;
+      }
+    }
+    // 3. 반격 vs 도망 점수 비교 (완화: 1.3x → 1.05x, 최소 점수 8 → 4)
+    const shouldCounterAttack = !criticalHp && (
+      canHitProbTarget ||  // 상대 위치 추론 가능하면 무조건 반격 시도
+      (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
+    );
 
     if (shouldCounterAttack) {
       aiExecuteAttack(room, { piece, pieceIdx: flee.pieceIdx, score: counterAttackScore, extra: counterExtra });
@@ -3602,6 +3646,22 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 팀전 HP 실시간 브라우징 — 팀원에게 내 현재 분배 값 공유
+  socket.on('team_hp_browse', ({ hps }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'team_hp') return;
+    const idx = socket.data.idx;
+    if (idx === undefined || idx < 0) return;
+    const teamMembers = room.teams[room.players[idx].teamId] || [];
+    for (const tIdx of teamMembers) {
+      if (tIdx === idx) continue;
+      const tp = room.players[tIdx];
+      if (tp && tp.socketId) {
+        io.to(tp.socketId).emit('team_hp_browse', { playerIdx: idx, hps });
+      }
+    }
+  });
+
   // ── 팀전 HP 분배 — 2픽 포맷 ──
   // hps = [pick1Hp, pick2Hp] 합계 10, 각 최소 1
   // 쌍둥이 포함 시: 해당 pick 슬롯은 최소 2 + twinSplit=[elder,younger]
@@ -4100,6 +4160,11 @@ io.on('connection', (socket) => {
     if (player.twinMovedSubs && player.twinMovedSubs.length > 0 && !piece.subUnit) {
       socket.emit('err', { msg: '쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.' }); return;
     }
+    // 전령 질주 중에는 해당 전령만 이동 가능
+    const anySprintingMsg = player.pieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+    if (anySprintingMsg && anySprintingMsg !== piece) {
+      socket.emit('err', { msg: '전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.' }); return;
+    }
     if (!inBounds(col, row, room.boardBounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
     if (!isCrossAdjacent(piece.col, piece.row, col, row)) {
       socket.emit('err', { msg: '상하좌우 1칸만 이동할 수 있습니다.' }); return;
@@ -4397,20 +4462,53 @@ io.on('connection', (socket) => {
           aiRecordHit(room.aiBrain, hitPiece);
         }
       }
-      // 공격 범위 셀로부터 공격자 위치 추론: 공격 셀들의 중심 근처에 적이 있을 가능성 높음
-      if (atkCells.length > 0) {
-        const avgCol = atkCells.reduce((s, c) => s + c.col, 0) / atkCells.length;
-        const avgRow = atkCells.reduce((s, c) => s + c.row, 0) / atkCells.length;
-        // 공격 범위 셀 근처 확률 대폭 증가
-        for (const c of atkCells) {
-          if (c.row >= 0 && c.row < 5 && c.col >= 0 && c.col < 5) {
-            room.aiBrain.probMap[c.row][c.col] = Math.max(room.aiBrain.probMap[c.row][c.col], 7);
+      // ── 공격자 위치 역산 ──
+      // 각 hit 셀에 대해 해당 셀을 공격할 수 있는 상대 유닛의 후보 위치를 probMap에 반영
+      if (hitResults.length > 0) {
+        const bSize = 5;  // AI 모드는 1v1 5x5 고정
+        for (const h of hitResults) {
+          // 같은 행/열 (창병, 기마병, 장군 가로/세로 계열)
+          for (let c = 0; c < bSize; c++) {
+            if (c !== h.col) room.aiBrain.probMap[h.row][c] = Math.max(room.aiBrain.probMap[h.row][c], 5);
+          }
+          for (let r = 0; r < bSize; r++) {
+            if (r !== h.row) room.aiBrain.probMap[r][h.col] = Math.max(room.aiBrain.probMap[r][h.col], 5);
+          }
+          // 대각선 (궁수, 기사, 백작)
+          for (let d = -bSize; d <= bSize; d++) {
+            if (d === 0) continue;
+            const p1 = { c: h.col + d, r: h.row + d };
+            const p2 = { c: h.col + d, r: h.row - d };
+            if (p1.c >= 0 && p1.c < bSize && p1.r >= 0 && p1.r < bSize) {
+              room.aiBrain.probMap[p1.r][p1.c] = Math.max(room.aiBrain.probMap[p1.r][p1.c], 5);
+            }
+            if (p2.c >= 0 && p2.c < bSize && p2.r >= 0 && p2.r < bSize) {
+              room.aiBrain.probMap[p2.r][p2.c] = Math.max(room.aiBrain.probMap[p2.r][p2.c], 5);
+            }
+          }
+          // 인접 8칸 (암살자, 파수꾼, 수도승)
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              if (dr === 0 && dc === 0) continue;
+              const nc = h.col + dc, nr = h.row + dr;
+              if (nc < 0 || nc >= bSize || nr < 0 || nr >= bSize) continue;
+              room.aiBrain.probMap[nr][nc] = Math.max(room.aiBrain.probMap[nr][nc], 6);
+            }
           }
         }
-        // 중심점 근처는 더 높은 확률
+      }
+      // 공격 범위 셀 자체도 적이 있을 수 있음 (자기포함 공격: 척후, 왕자, 공주 등)
+      if (atkCells.length > 0) {
+        for (const c of atkCells) {
+          if (c.row >= 0 && c.row < 5 && c.col >= 0 && c.col < 5) {
+            room.aiBrain.probMap[c.row][c.col] = Math.max(room.aiBrain.probMap[c.row][c.col], 4);
+          }
+        }
+        const avgCol = atkCells.reduce((s, c) => s + c.col, 0) / atkCells.length;
+        const avgRow = atkCells.reduce((s, c) => s + c.row, 0) / atkCells.length;
         const cr = Math.round(avgRow), cc = Math.round(avgCol);
         if (cr >= 0 && cr < 5 && cc >= 0 && cc < 5) {
-          room.aiBrain.probMap[cr][cc] = Math.max(room.aiBrain.probMap[cr][cc], 9);
+          room.aiBrain.probMap[cr][cc] = Math.max(room.aiBrain.probMap[cr][cc], 7);
         }
       }
     }

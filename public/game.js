@@ -372,7 +372,7 @@ function addToDeckList(t1, t2, t3, name, slotIdx) {
   if (targetIdx === null || targetIdx === undefined) {
     targetIdx = list.findIndex(d => !d);
     if (targetIdx === -1) {
-      showSkillToast('덱이 가득 차서 저장할 수 없습니다.', false, undefined, 'event');
+      showSkillToast('덱 슬롯이 부족합니다.', false, undefined, 'event');
       renderDeckList();
       return false;
     }
@@ -435,7 +435,7 @@ function renderDeckList() {
         // 빈 슬롯 클릭 → 현재 선택된 덱이 모두 채워져있으면 이 슬롯에 저장
         const allSelected = S.draftSelected[1] && S.draftSelected[2] && S.draftSelected[3];
         if (!allSelected) {
-          showSkillToast('캐릭터를 모두 선택한 후 저장할 수 있습니다.', false, undefined, 'event');
+          showSkillToast('캐릭터를 모두 선택하지 않았습니다.', false, undefined, 'event');
           return;
         }
         S._pendingSaveSlotIdx = idx;
@@ -704,19 +704,24 @@ socket.on('characters_data', ({ characters }) => {
   }
 });
 
+// 닉네임 localStorage 저장/복구
+const NICKNAME_KEY = 'caligo_nickname';
+try {
+  const saved = localStorage.getItem(NICKNAME_KEY);
+  const nameInput = document.getElementById('input-name');
+  if (saved && nameInput && !nameInput.value) nameInput.value = saved;
+} catch (e) {}
+document.getElementById('input-name').addEventListener('input', (e) => {
+  try { localStorage.setItem(NICKNAME_KEY, (e.target.value || '').slice(0, 12)); } catch (e) {}
+});
+
 // ── 로비 ──────────────────────────────────────────────────────
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
   const roomId = document.getElementById('input-room').value.trim();
   if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
-  // 덱이 비어도 일단 서버에 물어본다 — 팀 방이면 자동 재연결됨
-  const deck = isDeckEmpty() ? null : loadDeck();
-  if (!deck) {
-    // 덱 없어도 팀 방 가능성이 있으니 서버에 보내고, 1v1이면 서버가 거절
-    S.myName = name; S.roomId = roomId;
-    socket.emit('join_room', { roomId, playerName: name, deck: null });
-    return;
-  }
+  if (isDeckEmpty()) { showSkillToast('내 덱을 채워주세요.', false, undefined, 'event'); return; }
+  const deck = loadDeck();
   S.myName = name; S.roomId = roomId;
   socket.emit('join_room', { roomId, playerName: name, deck });
 });
@@ -724,7 +729,7 @@ document.getElementById('btn-join').addEventListener('click', () => {
 document.getElementById('btn-ai').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showSkillToast('닉네임을 입력하세요.', false, undefined, 'event'); return; }
-  if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
+  if (isDeckEmpty()) { showSkillToast('내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
   S.myName = name; S.opponentName = 'AI 🤖'; socket.emit('join_ai', { playerName: name, deck });
 });
@@ -814,7 +819,7 @@ socket.on('waiting_room_list', (list) => {
         S.isTeamMode = true;
         socket.emit('join_team_room', { roomId, playerName: name });
       } else {
-        if (isDeckEmpty()) { showSkillToast('🃏 내 덱을 채워주세요.', false, undefined, 'event'); return; }
+        if (isDeckEmpty()) { showSkillToast('내 덱을 채워주세요.', false, undefined, 'event'); return; }
         socket.emit('join_room', { roomId, playerName: name, deck: loadDeck() });
       }
     });
@@ -975,7 +980,7 @@ socket.on('team_start_ready', ({ players, teams, characters }) => {
   if (characters) S.characters = characters;
   const me = S.teamPlayers.find(p => p.idx === S.playerIdx);
   if (me) S.teamId = me.teamId;
-  showSkillToast('게임 시작! 드래프트 준비 중...', false, undefined, 'event');
+  showSkillToast('게임 시작. 드래프트 준비 중.', false, undefined, 'event');
   // 실제 screen 전환은 team_draft_start 수신 시
 });
 
@@ -1032,14 +1037,16 @@ socket.on('team_draft_confirmed', ({ pick1, pick2 }) => {
   S.teamDraftConfirmed = true;
   document.getElementById('btn-draft-confirm').disabled = true;
   document.getElementById('btn-draft-select').disabled = true;
-  showSkillToast('선택 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
+  showSkillToast('선택 확정. 다른 플레이어를 기다리는 중.', false, undefined, 'event');
 });
 
-// 팀 드래프트 사이드바 2슬롯 렌더
+// 팀 드래프트 사이드바 — 내 2슬롯 + 팀원 2슬롯
 function renderTeamDraftSlots() {
   const all = [...(S.characters?.[1]||[]), ...(S.characters?.[2]||[]), ...(S.characters?.[3]||[])];
   const findChar = (t) => all.find(c => c.type === t);
-  const renderOne = (slotId, label, type) => {
+
+  // 내 슬롯
+  const renderMine = (slotId, label, type) => {
     const el = document.getElementById(slotId);
     if (!el) return;
     const c = type ? findChar(type) : null;
@@ -1071,8 +1078,47 @@ function renderTeamDraftSlots() {
       el.onclick = null;
     }
   };
-  renderOne('draft-slot-1', '1번 캐릭터', S.teamDraft?.pick1);
-  renderOne('draft-slot-2', '2번 캐릭터', S.teamDraft?.pick2);
+  renderMine('draft-slot-1', '1번 캐릭터', S.teamDraft?.pick1);
+  renderMine('draft-slot-2', '2번 캐릭터', S.teamDraft?.pick2);
+
+  // 팀원 픽 (사이드바 하단에 동적 추가)
+  let tmContainer = document.getElementById('team-draft-teammate-slots');
+  if (!tmContainer) {
+    const sidebar = document.querySelector('#screen-draft .draft-sidebar');
+    if (sidebar) {
+      tmContainer = document.createElement('div');
+      tmContainer.id = 'team-draft-teammate-slots';
+      tmContainer.className = 'team-draft-teammate-slots';
+      sidebar.appendChild(tmContainer);
+    }
+  }
+  if (tmContainer) {
+    const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
+    const tmName = tm ? tm.name : '팀원';
+    const renderTmSlot = (type, label) => {
+      const c = type ? findChar(type) : null;
+      if (c) {
+        const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+        return `<div class="draft-slot filled teammate-slot">
+          <span class="slot-tier">${label}</span>
+          <span class="slot-icon">${c.icon}</span>
+          <div class="slot-info">
+            <span class="slot-name">${c.name} ${tagHtml}</span>
+            <span class="slot-stats">ATK ${c.atk}</span>
+          </div>
+        </div>`;
+      }
+      return `<div class="draft-slot empty teammate-slot">
+        <span class="slot-tier">${label}</span>
+        <span class="slot-empty-text">미선택</span>
+      </div>`;
+    };
+    tmContainer.innerHTML = `
+      <h4 class="teammate-slots-title">🤝 ${escapeHtmlGlobal(tmName)}의 선택</h4>
+      ${renderTmSlot(S.teamTeammatePicks?.pick1, '1번')}
+      ${renderTmSlot(S.teamTeammatePicks?.pick2, '2번')}
+    `;
+  }
 }
 
 socket.on('team_draft_status', ({ draftDone, doneNames }) => {
@@ -1160,7 +1206,7 @@ function renderTeamDraft() {
       // 빈 슬롯에 할당
       const slot = !myPick1 ? 'pick1' : !myPick2 ? 'pick2' : null;
       if (!slot) {
-        showSkillToast('두 슬롯이 모두 찼습니다. 취소하려면 선택된 카드를 다시 클릭하세요.', false, undefined, 'event');
+        showSkillToast('슬롯이 모두 찼습니다.', false, undefined, 'event');
         return;
       }
       S.teamDraft[slot] = type;
@@ -1205,19 +1251,145 @@ if (_btnTeamDraftConfirm) {
 // ═══════════════════════════════════════════════════════════════
 // ── 팀전 HP 분배 ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
-socket.on('team_hp_phase', ({ draft, hasTwins }) => {
+socket.on('team_hp_phase', ({ draft, hasTwins, teammateDraft }) => {
   S.teamHpMode = true;
   S.teamDraft = { pick1: draft.pick1, pick2: draft.pick2 };
+  S.teamTeammateDraft = teammateDraft || null;
+  S.teamTeammateHps = {};
   S.hasTwins = hasTwins;
-  renderTeamHpUI(hasTwins);
-  showScreen('screen-team-hp');
+  buildTeamHpUIOnSharedScreen();
+  showScreen('screen-hp');
 });
 
 socket.on('team_hp_ok', () => {
   showSkillToast('HP 분배 완료!', false, undefined, 'event');
-  const btn = document.getElementById('btn-team-hp-confirm');
+  const btn = document.getElementById('btn-hp-confirm');
   if (btn) btn.disabled = true;
 });
+
+// 팀원 HP 실시간 공유
+socket.on('team_hp_browse', ({ playerIdx, hps }) => {
+  S.teamTeammateHps = S.teamTeammateHps || {};
+  S.teamTeammateHps[playerIdx] = hps;
+  updateTeammateHpPanel();
+});
+
+// 1v1 screen-hp에 팀전 2슬롯 HP UI를 렌더
+function buildTeamHpUIOnSharedScreen() {
+  const draft = S.teamDraft;
+  S.hpValues = [5, 5];  // 2슬롯 합 10
+  const types = [draft.pick1, draft.pick2];
+  const labels = ['1번 캐릭터', '2번 캐릭터'];
+  const container = document.getElementById('hp-pieces');
+  container.innerHTML = '';
+  const rows = document.createElement('div');
+  rows.className = 'hp-piece-rows';
+  for (let i = 0; i < 2; i++) {
+    const charData = findChar(types[i]);
+    if (!charData) continue;
+    const row = document.createElement('div');
+    row.className = 'hp-piece-row';
+    const tagHtml = charData.tag ? tagBadgeHtml(charData.tag) : '';
+    row.innerHTML = `
+      <span class="char-icon">${charData.icon}</span>
+      <div class="hp-piece-label">
+        <strong>${charData.name}${tagHtml}</strong>
+        <span>${labels[i]}</span>
+      </div>
+      <div class="hp-input-group">
+        <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
+        <span class="hp-value" id="hp-val-${i}">${S.hpValues[i]}</span>
+        <button class="hp-btn" data-i="${i}" data-delta="1">+</button>
+      </div>`;
+    rows.appendChild(row);
+  }
+  container.appendChild(rows);
+  container.querySelectorAll('.hp-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.i);
+      const delta = parseInt(btn.dataset.delta);
+      adjustTeamHp(idx, delta);
+    });
+  });
+  document.getElementById('hp-twin-split').classList.add('hidden');
+  updateTeamHpUIShared();
+  // 팀원 패널 구축
+  buildTeammateHpPanel();
+}
+
+function adjustTeamHp(idx, delta) {
+  const next = S.hpValues[idx] + delta;
+  if (next < 1 || next > 9) return;
+  const total = S.hpValues.reduce((a, b) => a + b, 0);
+  if (delta > 0 && total >= 10) return;
+  // 쌍둥이: 해당 슬롯 최소 2
+  const types = [S.teamDraft.pick1, S.teamDraft.pick2];
+  if (types[idx] === 'twins' && next < 2) return;
+  S.hpValues[idx] = next;
+  updateTeamHpUIShared();
+  socket.emit('team_hp_browse', { hps: [...S.hpValues] });
+}
+
+function updateTeamHpUIShared() {
+  for (let i = 0; i < 2; i++) {
+    const el = document.getElementById(`hp-val-${i}`);
+    if (el) el.textContent = S.hpValues[i];
+  }
+  const total = S.hpValues.reduce((a, b) => a + b, 0);
+  const remEl = document.getElementById('hp-remaining');
+  if (remEl) remEl.textContent = 10 - total;
+  document.getElementById('btn-hp-confirm').disabled = total !== 10;
+}
+
+function buildTeammateHpPanel() {
+  let panel = document.getElementById('team-hp-teammate-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'team-hp-teammate-panel';
+    panel.className = 'team-hp-teammate-panel';
+    const hpContainer = document.querySelector('#screen-hp .hp-container');
+    if (hpContainer) hpContainer.appendChild(panel);
+  }
+  updateTeammateHpPanel();
+}
+
+function updateTeammateHpPanel() {
+  const panel = document.getElementById('team-hp-teammate-panel');
+  if (!panel) return;
+  const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
+  if (!tm || !S.teamTeammateDraft) {
+    panel.innerHTML = `
+      <h4 class="teammate-hp-title">${tm ? escapeHtmlGlobal(tm.name) : '팀원'}</h4>
+      <div class="muted" style="font-size:0.82rem">분배 중...</div>
+    `;
+    return;
+  }
+  const hps = (S.teamTeammateHps && S.teamTeammateHps[tm.idx]) || [0, 0];
+  const total = hps.reduce((a, b) => a + b, 0);
+  // 내 HP 레이아웃과 동일한 행 구조 — +/- 버튼만 생략
+  const types = [S.teamTeammateDraft.pick1, S.teamTeammateDraft.pick2];
+  const labels = ['1번 캐릭터', '2번 캐릭터'];
+  const rows = types.map((t, i) => {
+    const c = findChar(t);
+    if (!c) return '';
+    const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+    return `<div class="hp-piece-row hp-piece-row-readonly">
+      <span class="char-icon">${c.icon}</span>
+      <div class="hp-piece-label">
+        <strong>${c.name}${tagHtml}</strong>
+        <span>${labels[i]}</span>
+      </div>
+      <div class="hp-input-group hp-input-readonly">
+        <span class="hp-value">${hps[i]}</span>
+      </div>
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <h4 class="teammate-hp-title">${escapeHtmlGlobal(tm.name)}</h4>
+    <div class="hp-piece-rows">${rows}</div>
+    <div class="hp-total-bar teammate-total-bar">총합 <span>${total}</span> / 10</div>
+  `;
+}
 
 // 팀전 HP UI — 2슬롯 슬라이더
 function renderTeamHpUI(hasTwins) {
@@ -1392,50 +1564,60 @@ S.teamPlacement = {
   confirmed: false,
 };
 
-socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, zone, myPieces, teammates }) => {
+socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, myPieces, teammates }) => {
   S.playerIdx = myIdx;
   S.teamId = teamId;
   S.teamTeams = teams || S.teamTeams;
   S.boardBounds = boardBounds || { min: 0, max: 6 };
-  S.teamPlacement = {
-    myPieces: myPieces || [],
-    teammates: teammates || [],
-    selectedPieceIdx: null,
-    zone: zone || { rowMin: teamId === 0 ? 0 : 4, rowMax: teamId === 0 ? 2 : 6 },
-    boardBounds: boardBounds,
-    confirmed: false,
-  };
-  renderTeamPlacement();
-  showScreen('screen-team-placement');
+  S.isTeamMode = true;
+  S.teamPlacementMode = true;
+  S.myPieces = myPieces || [];
+  S.oppPieces = [];  // 배치 단계에서 적 pieces 없음
+  S.teamPlacementTeammates = teammates || [];
+  // 1v1 placement UI 재활용
+  buildPlacementUI();
+  showScreen('screen-placement');
 });
 
 socket.on('team_placement_update', ({ teamPieces }) => {
   if (!teamPieces) return;
-  // 내 pieces 업데이트
   const mine = teamPieces.find(t => t.idx === S.playerIdx);
-  if (mine) S.teamPlacement.myPieces = mine.pieces;
-  // 팀원 pieces 업데이트
-  S.teamPlacement.teammates = teamPieces.filter(t => t.idx !== S.playerIdx);
-  renderTeamPlacement();
+  if (mine) S.myPieces = mine.pieces;
+  S.teamPlacementTeammates = teamPieces.filter(t => t.idx !== S.playerIdx);
+  // 1v1 placement UI 재렌더
+  updatePlacementUI();
+  if (typeof buildPlacementOppPanel === 'function') buildPlacementOppPanel();
 });
 
 socket.on('team_placed_ok', ({ pieceIdx, col, row }) => {
-  if (S.teamPlacement.myPieces[pieceIdx]) {
-    S.teamPlacement.myPieces[pieceIdx].col = col;
-    S.teamPlacement.myPieces[pieceIdx].row = row;
+  if (S.myPieces[pieceIdx]) {
+    S.myPieces[pieceIdx].col = col;
+    S.myPieces[pieceIdx].row = row;
   }
-  S.teamPlacement.selectedPieceIdx = null;
-  renderTeamPlacement();
+  placementSelected = null;
+  updatePlacementUI();
 });
 
 socket.on('team_confirm_placement_ok', () => {
-  S.teamPlacement.confirmed = true;
-  renderTeamPlacement();
+  S.teamPlacementConfirmed = true;
+  document.getElementById('btn-placement-confirm').disabled = true;
+  document.getElementById('btn-placement-confirm').textContent = '✅ 확정됨';
   showSkillToast('배치 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
 });
 
 socket.on('team_placement_status', ({ placementDone, doneNames }) => {
-  const statusEl = document.getElementById('team-placement-status');
+  // 하단에 상태 표시 (btn 근처)
+  let statusEl = document.getElementById('team-placement-status-bar');
+  if (!statusEl) {
+    const panel = document.querySelector('#screen-placement .placement-board-wrap');
+    if (panel) {
+      statusEl = document.createElement('div');
+      statusEl.id = 'team-placement-status-bar';
+      statusEl.className = 'muted';
+      statusEl.style = 'font-size:0.78rem;text-align:center;margin-top:8px';
+      panel.appendChild(statusEl);
+    }
+  }
   if (statusEl) {
     const doneCount = (placementDone || []).filter(d => d).length;
     statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
@@ -1575,21 +1757,24 @@ function applyTeamGameState(state) {
 
 socket.on('team_game_start', (state) => {
   applyTeamGameState(state);
-  // 1v1 게임 UI 초기화 — 셀 클릭 핸들러 연결
   if (typeof buildGameUI === 'function') {
     try { buildGameUI(); } catch (e) {}
   }
   showScreen('screen-game');
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
-  const curName = (S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx) || {}).name || '?';
-  showSkillToast(`🎮 팀전 시작! ${S.isMyTurn ? '당신의 턴!' : `${curName}의 턴`}`, false, undefined, 'event');
+  if (S.isMyTurn) try { playTurnBell(); } catch (e) {}
+  // 팀전 시작 애니메이션
+  playGameStartAnimation(S.isMyTurn);
 });
 
 socket.on('team_game_update', (state) => {
+  const wasMyTurn = S.isMyTurn;
   applyTeamGameState(state);
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
+  // 내 턴 새로 들어왔을 때만 종소리
+  if (S.isMyTurn && !wasMyTurn) try { playTurnBell(); } catch (e) {}
   if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
 });
 
@@ -1604,9 +1789,10 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
 
 socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => {
   stopClientTimer();
-  // #8: 0.2초 대기 + 페이드인
+  const inGame = _isInGameScreen();
+  const delay = inGame ? 1000 : 0;
   setTimeout(() => {
-    _showGameOverScreen();
+    _showGameOverScreen(!inGame);
     const iconEl = document.getElementById('gameover-icon');
     const titleEl = document.getElementById('gameover-title');
     const subEl = document.getElementById('gameover-sub');
@@ -2001,19 +2187,23 @@ socket.on('phase_change', ({ phase }) => {
 // ── 드래프트 확정 ──
 socket.on('draft_ok', ({ t1, t2, t3, timeout, timeoutMsg }) => {
   S.myDraft = { t1, t2, t3 };
-  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과! 캐릭터가 랜덤 선택되었습니다.'}`, false, undefined, 'event');
+  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과로 랜덤 선택되었습니다.'}`, false, undefined, 'event');
 });
 
 // ── HP 분배 페이즈 ──
 socket.on('hp_phase', ({ draft, hasTwins }) => {
   S.myDraft = draft;
   S.hasTwins = !!hasTwins;
+  S.teamHpMode = false;
+  // 1v1 모드 진입 시 팀전 패널 제거
+  const tmPanel = document.getElementById('team-hp-teammate-panel');
+  if (tmPanel) tmPanel.remove();
   buildHpUI();
   showScreen('screen-hp');
 });
 
 socket.on('hp_ok', ({ timeout }) => {
-  if (timeout) showSkillToast('⏰ 시간 초과! HP가 랜덤 분배되었습니다.', false, undefined, 'event');
+  if (timeout) showSkillToast('⏰ 시간 초과로 랜덤 분배되었습니다.', false, undefined, 'event');
 });
 
 socket.on('twin_split_needed', ({ twinTierHp }) => {
@@ -2054,7 +2244,7 @@ socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   if (timeout) {
     showSkillToast('시간초과! 교환 없이 확정되었습니다.', false, undefined, 'event');
   } else if (exchanged) {
-    showSkillToast(`T${exchanged.tier} ${exchanged.newChar.icon}${exchanged.newChar.name}(으)로 교환 완료!`, false, undefined, 'event');
+    showSkillToast(`${exchanged.newChar.icon}${exchanged.newChar.name} 교환 완료.`, false, undefined, 'event');
   }
 });
 
@@ -2069,6 +2259,10 @@ socket.on('final_reveal_phase', ({ myDraft, oppChars }) => {
 socket.on('placement_phase', ({ pieces, oppPieces }) => {
   S.myPieces = pieces;
   if (oppPieces) S.oppPieces = oppPieces;
+  S.teamPlacementMode = false;
+  S.teamPlacementTeammates = [];
+  const tmStatus = document.getElementById('team-placement-status-bar');
+  if (tmStatus) tmStatus.remove();
   buildPlacementUI();
   showScreen('screen-placement');
 });
@@ -2104,8 +2298,42 @@ socket.on('game_start', (data) => {
   showActionBar(S.isMyTurn);
   updateSPBar();
   addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
-  showSkillToast(S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.', false, undefined, 'event');
+  // 게임 시작 애니메이션
+  playGameStartAnimation(S.isMyTurn);
 });
+
+// 게임 시작 애니메이션 — 오버레이 "FIGHT!" + 1.2초 scale-up 페이드
+function playGameStartAnimation(isMyTurn) {
+  let overlay = document.getElementById('game-start-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'game-start-overlay';
+    overlay.className = 'game-start-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="game-start-title">게임 시작</div>
+    <div class="game-start-sub">${isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}</div>
+  `;
+  overlay.classList.remove('hidden');
+  overlay.classList.add('active');
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(440, ctx.currentTime);
+    o.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.4);
+    g.gain.setValueAtTime(0.0, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.1);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+    o.start(); o.stop(ctx.currentTime + 0.8);
+  } catch (e) {}
+  setTimeout(() => {
+    overlay.classList.remove('active');
+    overlay.classList.add('hidden');
+  }, 1800);
+}
 
 // ── 내 턴 ──
 socket.on('your_turn', (data) => {
@@ -2411,30 +2639,71 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
 
 // ── 보드 축소 실행 ──
 socket.on('board_shrink', ({ bounds, eliminated }) => {
-  S.boardBounds = bounds;
   playSfx('shrink');
-  if (!S.isSpectator) {
-    showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
-    addLog(`🔥 보드 외곽 파괴`, 'shrink');
+  // 쿠구궁 효과음 + 1초 흔들림
+  try { playBoardQuake(); } catch (e) {}
+  const boardEl = document.getElementById('game-board');
+  if (boardEl) {
+    boardEl.classList.add('board-shake');
+    setTimeout(() => boardEl.classList.remove('board-shake'), 1000);
   }
-
-  // 축소로 파괴된 유닛은 피격 애니메이션 없이 바로 사망 상태로 처리
-  if (eliminated && eliminated.length > 0) {
-    for (const e of eliminated) {
-      addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
-      const ownerName = e.owner === S.playerIdx ? myN() : oppN();
-      showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
+  // 1초 흔들림 후 bounds 업데이트 + 렌더 (외곽 파괴 시각 효과)
+  setTimeout(() => {
+    S.boardBounds = bounds;
+    if (!S.isSpectator) {
+      showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
+      addLog(`🔥 보드 외곽 파괴`, 'shrink');
     }
-  }
-  const sw = document.getElementById('shrink-warning');
-  if (sw) sw.classList.add('hidden');
-  renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
+    if (eliminated && eliminated.length > 0) {
+      for (const e of eliminated) {
+        addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
+        const ownerName = e.owner === S.playerIdx ? myN() : oppN();
+        showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
+      }
+    }
+    const sw = document.getElementById('shrink-warning');
+    if (sw) sw.classList.add('hidden');
+    renderGameBoard();
+    renderMyPieces();
+    renderOppPieces();
+  }, 1000);
 });
 
+// 힐 애니메이션: 지정된 인덱스의 piece 카드 2초간 초록 glow
+function flashHealPieces(indexes) {
+  const container = document.getElementById('my-pieces-info');
+  if (!container) return;
+  const cards = container.querySelectorAll('.my-piece-card');
+  for (const idx of indexes) {
+    const card = cards[idx];
+    if (!card) continue;
+    card.classList.add('heal-flash');
+    setTimeout(() => card.classList.remove('heal-flash'), 2000);
+  }
+}
+
+// 쿠구궁 효과음 — Web Audio로 생성 (저주파 + 노이즈)
+function playBoardQuake() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // 저주파 rumble
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(60, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.9);
+    gain.gain.setValueAtTime(0.0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.6, ctx.currentTime + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 1.0);
+  } catch (e) {}
+}
+
 // ── 스킬 결과 ──
-socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed }) => {
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed, data, effects }) => {
   // 피해 감지용: 업데이트 전 HP 스냅샷
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
@@ -2452,6 +2721,11 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
     playSfx('skill');
     addLog(msg, 'skill');
     showSkillToast(msg);
+  }
+  // 힐 애니메이션: data.healedPieceIdxs 있으면 해당 카드 2초 초록 빛
+  const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
+  if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
+    setTimeout(() => flashHealPieces(healedIdxs), 50);
   }
 
   // 내 스킬로 상대 유닛이 피해를 받았는지 감지
@@ -2617,11 +2891,13 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
 // ── 게임 오버 ──
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
   stopClientTimer();
-  // #8: 애니메이션 완료 대기 0.2초 + 페이드인 0.5초
+  // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 1초 대기 + 느린 페이드
+  const inGame = _isInGameScreen();
+  const delay = inGame ? 1000 : 0;
   setTimeout(() => {
-    _showGameOverScreen();
+    _showGameOverScreen(!inGame);
     runGameOverRender();
-  }, 200);
+  }, delay);
   function runGameOverRender() {
   if (!spectator) bgmPlay(win ? 'victory' : (draw ? 'victory' : 'defeat'));
   const r = reason || {};
@@ -2712,18 +2988,24 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
   }  // end runGameOverRender
 });
 
-// #8: 게임오버 화면 전환 — 0.5초 페이드인
-function _showGameOverScreen() {
+// 게임오버 화면 전환 — instant=true면 즉시, 아니면 느린 페이드인 (1.5초)
+function _showGameOverScreen(instant) {
   const scr = document.getElementById('screen-gameover');
   if (scr) {
-    scr.classList.add('fade-in');
-    // 이전 active 클래스 제거
+    scr.classList.remove('fade-in', 'fade-in-slow');
+    if (!instant) scr.classList.add('fade-in-slow');
     document.querySelectorAll('.screen').forEach(s => { if (s !== scr) s.classList.remove('active'); });
     scr.classList.add('active');
-    setTimeout(() => scr.classList.remove('fade-in'), 550);
+    if (!instant) setTimeout(() => scr.classList.remove('fade-in-slow'), 1550);
   }
-  // #9: 게임 종료 시 세션 토큰 정리 (재접속 대상 아님)
+  // 게임 종료 시 세션 토큰 정리
   try { sessionStorage.removeItem('caligo_session'); } catch (e) {}
+}
+
+// 현재 화면이 게임 중인지 (세팅 단계면 false)
+function _isInGameScreen() {
+  const active = document.querySelector('.screen.active')?.id;
+  return active === 'screen-game';
 }
 
 socket.on('disconnected', ({ msg }) => {
@@ -3134,7 +3416,7 @@ function renderSlide() {
       isAlreadySelected = S.draftSelected[step] === c.type;
     }
     if (teamLocked) {
-      selectBtn.textContent = '🔒 팀원 선택';
+      selectBtn.textContent = '🔒 팀원이 선택함';
       selectBtn.className = 'btn btn-muted btn-select-char';
       selectBtn.disabled = true;
     } else if (isAlreadySelected) {
@@ -3147,12 +3429,26 @@ function renderSlide() {
       selectBtn.disabled = false;
     }
   }
-  // 팀 모드: 팀원이 선택한 캐릭터 슬라이드 흐림 처리
+  // 팀 모드: 팀원이 선택한 캐릭터 슬라이드 흐림 + 오버레이 라벨
   const slideViewer = document.querySelector('#screen-draft .slide-viewer');
   if (slideViewer) {
     const tmPicks2 = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
     const thisLocked = S.teamDraftMode && tmPicks2.includes(c.type);
     slideViewer.classList.toggle('team-dimmed', !!thisLocked);
+    // 오버레이 배지
+    let badge = slideViewer.querySelector('.team-dim-overlay');
+    if (thisLocked) {
+      const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
+      const tmName = tm ? tm.name : '팀원';
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'team-dim-overlay';
+        slideViewer.appendChild(badge);
+      }
+      badge.innerHTML = `<span class="team-dim-label">🔒 <strong>${escapeHtmlGlobal(tmName)}</strong> 선택함</span>`;
+    } else if (badge) {
+      badge.remove();
+    }
   }
   updateDraftConfirmBtn();
   // 관전자 브라우징은 1v1에서만
@@ -3214,13 +3510,13 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     // 빈 슬롯에 할당
     const slot = !S.teamDraft.pick1 ? 'pick1' : !S.teamDraft.pick2 ? 'pick2' : null;
     if (!slot) {
-      showSkillToast('2개 슬롯이 모두 찼습니다. 해제하려면 슬롯의 × 또는 카드를 다시 클릭하세요.', false, undefined, 'event');
+      showSkillToast('슬롯이 모두 찼습니다.', false, undefined, 'event');
       return;
     }
     S.teamDraft[slot] = c.type;
     socket.emit('team_draft_pick', { slot, type: c.type });
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name}을(를) 선택했습니다.`, false, undefined, 'event');
+    showSkillToast(`${c.icon} ${c.name} 선택 완료.`, false, undefined, 'event');
     renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
     return;
   }
@@ -3234,7 +3530,7 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
   if (!isDuplicate) {
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name}을(를) 선택했습니다.`, false, undefined, 'event');
+    showSkillToast(`${c.icon} ${c.name} 선택 완료.`, false, undefined, 'event');
   }
 });
 
@@ -3246,9 +3542,125 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight') goToSlide(slideIndex + 1);
 });
 
+// 스킬별 미리보기 범위 데이터 — 중앙(2,2) 기준
+// category: 'heal' | 'attack' | 'target' | 'dragon'
+const SKILL_PREVIEW = {
+  gunpowder: { cells: surrounding8WithSelf, cat: 'attack', label: '폭탄 설치 가능 지역' },
+  herbalist: { cells: surrounding8, cat: 'heal', label: '약초학 회복 범위' },
+  manhunter: { cells: selfOnly, cat: 'attack', label: '덫 설치 가능 지역' },
+  sulfurCauldron: { cells: boardEdge, cat: 'attack', label: '유황범람 공격 범위' },
+  // 드래곤 조련사: 소환된 드래곤의 공격 범위(십자5칸) — 특수 렌더
+  dragonTamer: { cells: dragonCrossCells, cat: 'dragon', label: '드래곤 십자 5칸 공격', showDragon: true },
+  // 나머지 (수도승·국왕·마녀·고문기술자·척후병·쥐장수) — 미리보기 삭제
+};
+function surrounding8(cc, cr) {
+  const out = [];
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+    if (dr === 0 && dc === 0) continue;
+    const c = cc + dc, r = cr + dr;
+    if (c >= 0 && c < 5 && r >= 0 && r < 5) out.push({ col: c, row: r });
+  }
+  return out;
+}
+function surrounding8WithSelf(cc, cr) {
+  return [...surrounding8(cc, cr), { col: cc, row: cr }];
+}
+function selfOnly(cc, cr) { return [{ col: cc, row: cr }]; }
+function boardEdge() {
+  const out = [];
+  for (let i = 0; i < 5; i++) {
+    out.push({ col: i, row: 0 });
+    out.push({ col: i, row: 4 });
+    if (i > 0 && i < 4) {
+      out.push({ col: 0, row: i });
+      out.push({ col: 4, row: i });
+    }
+  }
+  return out;
+}
+// 드래곤의 공격 범위: 자신 포함 십자 5칸 (드래곤 아이콘은 중앙이 아닌 인접 위치에 소환)
+function dragonCrossCells(cc, cr) {
+  // 소환된 드래곤이 조련사 옆 (cc+1, cr) 가정 — 드래곤 기준 십자 5칸
+  const dc = cc + 1, dr = cr;
+  const out = [{ col: dc, row: dr }];
+  for (const [ddc, ddr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const c = dc + ddc, r = dr + ddr;
+    if (c >= 0 && c < 5 && r >= 0 && r < 5) out.push({ col: c, row: r });
+  }
+  return out;
+}
+function allCells() {
+  const out = [];
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) out.push({ col: c, row: r });
+  return out;
+}
+
+function hasSkillPreview(charData) {
+  if (!charData || !charData.type) return false;
+  return !!SKILL_PREVIEW[charData.type];
+}
+
+// 슬라이드 미리보기 모드 — 'attack' | 'skill'
+let slidePreviewMode = 'attack';
+// 탭 클릭 바인딩 (최초 1회)
+document.querySelectorAll('.slide-preview-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.disabled) return;
+    slidePreviewMode = tab.dataset.mode;
+    // 현재 슬라이드 재렌더
+    const step = S.draftStep;
+    if (S.characters && S.characters[step]) {
+      const chars = S.characters[step];
+      const c = chars[slideIndex];
+      if (c) updateDraftPreview(c);
+    }
+  });
+});
+
 function updateDraftPreview(charData) {
   const board = document.getElementById('draft-preview-board');
   if (!board) return;
+
+  // 탭 상태 업데이트
+  const tabs = document.querySelectorAll('.slide-preview-tab');
+  const hasSkill = hasSkillPreview(charData);
+  tabs.forEach(t => {
+    const m = t.dataset.mode;
+    t.classList.toggle('active', m === slidePreviewMode && (m === 'attack' || hasSkill));
+    if (m === 'skill') t.disabled = !hasSkill;
+  });
+  // 스킬 범위 없으면 자동으로 attack 모드로 복귀
+  const effectiveMode = (slidePreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
+
+  // 스킬 범위 모드
+  if (effectiveMode === 'skill' && hasSkill) {
+    const skill = SKILL_PREVIEW[charData.type];
+    const centerCol = 2, centerRow = 2;
+    const cells = skill.cells(centerCol, centerRow);
+    const cellsSet = new Set(cells.map(c => `${c.col},${c.row}`));
+    // 드래곤 소환 — 드래곤 아이콘 위치 (조련사 우측 인접)
+    const dragonCol = centerCol + 1, dragonRow = centerRow;
+    board.querySelectorAll('.cell').forEach(cell => {
+      const col = parseInt(cell.dataset.col);
+      const row = parseInt(cell.dataset.row);
+      cell.className = 'cell';
+      cell.innerHTML = '';
+      if (col === centerCol && row === centerRow) {
+        cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
+        cell.classList.add('has-piece');
+      }
+      // 드래곤 소환 특수: 드래곤 아이콘 표시
+      if (skill.showDragon && col === dragonCol && row === dragonRow) {
+        cell.innerHTML = `<span style="font-size:1.1rem">🐲</span>`;
+        cell.classList.add('has-piece');
+      }
+      if (cellsSet.has(`${col},${row}`)) {
+        cell.classList.add('skill-preview-' + skill.cat);
+      }
+    });
+    document.getElementById('draft-preview-info').textContent = skill.label;
+    return;
+  }
 
   // 쌍둥이: 형(1,2)과 동생(3,2) 따로 배치
   if (charData.isTwin) {
@@ -3457,7 +3869,7 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
   // 덱 빌더 모드: 덱 이름 모달을 먼저 띄움 (이름 입력 후 저장)
   if (S.deckBuilderMode) {
     if (!allSelected) {
-      showSkillToast('캐릭터를 모두 선택하지 않아 저장할 수 없습니다.', false, undefined, 'event');
+      showSkillToast('캐릭터를 모두 선택하지 않았습니다.', false, undefined, 'event');
       return;
     }
     // 덱 리스트 사전 검증
@@ -3471,7 +3883,7 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
     }
     const emptyIdx = list.findIndex(d => !d);
     if (emptyIdx === -1) {
-      showSkillToast('덱이 가득 차서 저장할 수 없습니다.', false, undefined, 'event');
+      showSkillToast('덱 슬롯이 부족합니다.', false, undefined, 'event');
       return;
     }
     // 덱 이름 모달 띄우고, 확인 시 저장
@@ -4519,7 +4931,44 @@ function buildPlacementUI() {
 
 function buildPlacementOppPanel() {
   const container = document.getElementById('placement-opp-pieces');
-  if (!container || !S.oppPieces || S.oppPieces.length === 0) return;
+  if (!container) return;
+  const header = document.querySelector('#placement-opp-info h4');
+
+  // 팀 모드: 오른쪽 패널에 상대팀 유닛 (enemies)
+  if (S.teamPlacementMode) {
+    if (header) header.textContent = '상대팀 캐릭터';
+    container.innerHTML = '';
+    const enemies = S.teamPlacementEnemies || [];
+    if (enemies.length === 0) {
+      container.innerHTML = '<p class="muted" style="font-size:0.78rem">상대팀 정보 없음</p>';
+      return;
+    }
+    for (const en of enemies) {
+      const block = document.createElement('div');
+      block.className = 'placement-enemy-block';
+      block.innerHTML = `<h5 class="enemy-block-header">${escapeHtmlGlobal(en.name)}</h5>`;
+      for (const pc of (en.pieces || [])) {
+        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+        const card = document.createElement('div');
+        card.className = 'placement-opp-card';
+        card.style.position = 'relative';
+        card.innerHTML = `
+          <span class="char-icon">${pc.icon}</span>
+          <div class="opp-info">
+            <strong>${pc.name}${tagHtml}</strong>
+            <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
+          </div>`;
+        const tooltip = buildPieceTooltip(pc, 'right');
+        card.appendChild(tooltip);
+        block.appendChild(card);
+      }
+      container.appendChild(block);
+    }
+    return;
+  }
+
+  if (header) header.textContent = '상대방 캐릭터';
+  if (!S.oppPieces || S.oppPieces.length === 0) return;
   container.innerHTML = '';
   for (const pc of S.oppPieces) {
     const card = document.createElement('div');
@@ -4551,6 +5000,105 @@ function buildPlacementOppPanel() {
 }
 
 function updatePlacementUI() {
+  // 팀 모드: 오른쪽 상대팀 패널 갱신
+  if (S.teamPlacementMode && typeof buildPlacementOppPanel === 'function') {
+    buildPlacementOppPanel();
+  }
+  const list = document.getElementById('placement-piece-list');
+  list.innerHTML = '';
+
+  // 내 pieces 렌더
+  renderPlacementPieceCards(list, S.myPieces, /*interactive=*/true, null);
+
+  // 팀 모드: 내 프로필 아래에 팀원 pieces 추가 (읽기 전용)
+  if (S.teamPlacementMode && S.teamPlacementTeammates) {
+    for (const tm of S.teamPlacementTeammates) {
+      const sep = document.createElement('div');
+      sep.className = 'placement-teammate-separator';
+      sep.innerHTML = `<span class="teammate-sep-label">${escapeHtmlGlobal(tm.name)}</span>`;
+      list.appendChild(sep);
+      renderPlacementPieceCards(list, tm.pieces || [], /*interactive=*/false, tm.name);
+    }
+  }
+
+  // 확정 버튼 상태 (내 것만)
+  const allPlaced = S.myPieces.every(p => p.col >= 0);
+  document.getElementById('btn-placement-confirm').disabled = !allPlaced;
+  updatePlacementBoard();
+}
+
+// 배치 UI 카드 렌더 (내 것 or 팀원)
+function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
+  for (let i = 0; i < pieces.length; i++) {
+    const pc = pieces[i];
+    const placed = pc.col >= 0;
+    const card = document.createElement('div');
+    const selectedCls = (interactive && placementSelected === i) ? 'selected' : '';
+    const teammateCls = interactive ? '' : 'teammate-piece-card';
+    card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
+    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    // 스킬/패시브 정보 (동일 로직)
+    let skillHtml = '';
+    if (pc.skills && pc.skills.length > 1) {
+      for (const sk of pc.skills) {
+        const skTag = getSkillTypeTag(sk);
+        skillHtml += `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${sk.name} (${sk.cost}SP)</span> ${skTag}</div>`;
+        skillHtml += `<div class="placement-skill-desc">${sk.desc}</div>`;
+      }
+    } else if (pc.hasSkill) {
+      const tag = getSkillTypeTagFromChar(pc);
+      const skillDesc = getSkillDescForPiece(pc);
+      skillHtml = `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${pc.skillName} (${pc.skillCost}SP)</span> ${tag}</div>`;
+      skillHtml += `<div class="placement-skill-desc">${skillDesc}</div>`;
+    }
+    const passiveTagHtml = '<span class="skill-tag tag-passive">패시브</span>';
+    let passiveHtml = '';
+    if (pc.passives && pc.passives.length > 0) {
+      for (const pid of pc.passives) {
+        const name = getPassiveName(pid);
+        const desc = getPassiveLabel(pid);
+        passiveHtml += `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${name} ${passiveTagHtml}</div>`;
+        passiveHtml += `<div class="placement-skill-desc">${desc}</div>`;
+      }
+    } else if (pc.passiveName) {
+      passiveHtml = `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${pc.passiveName} ${passiveTagHtml}</div>`;
+    }
+    const hasAnySkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
+    const hasAnyPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
+
+    card.innerHTML = `
+      <div class="placement-card-header">
+        <span class="piece-icon">${pc.icon}</span>
+        <div class="piece-info">
+          <strong>${pc.name} ${tagHtml}</strong>
+          <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
+          ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
+        </div>
+      </div>
+      <div class="placement-card-detail">
+        <div class="placement-grid-section">
+          <div class="placement-grid-label">공격 범위</div>
+          ${grid}
+        </div>
+        <div class="placement-info-section">
+          ${!hasAnySkill && !hasAnyPassive ? '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>' : ''}
+          ${skillHtml}
+          ${passiveHtml}
+        </div>
+      </div>`;
+    if (interactive) {
+      card.addEventListener('click', () => {
+        placementSelected = placementSelected === i ? null : i;
+        updatePlacementUI();
+      });
+    }
+    container.appendChild(card);
+  }
+}
+
+// 구 updatePlacementUI 로직 (사용 안함 — 위에서 대체)
+function _updatePlacementUI_old() {
   const list = document.getElementById('placement-piece-list');
   list.innerHTML = '';
   for (let i = 0; i < S.myPieces.length; i++) {
@@ -4630,7 +5178,7 @@ function updatePlacementBoard() {
   const board = document.getElementById('placement-board');
   if (!board) return;
 
-  // 배치된 모든 말의 공격 범위 통합 계산
+  // 내 공격 범위 통합
   const atkSet = new Set();
   for (const pc of S.myPieces) {
     if (pc.col >= 0) {
@@ -4638,16 +5186,52 @@ function updatePlacementBoard() {
       for (const c of cells) atkSet.add(`${c.col},${c.row}`);
     }
   }
+  // 팀원 공격 범위도 추가 (팀 모드)
+  const tmAtkSet = new Set();
+  if (S.teamPlacementMode && S.teamPlacementTeammates) {
+    for (const tm of S.teamPlacementTeammates) {
+      for (const pc of (tm.pieces || [])) {
+        if (pc.col >= 0) {
+          const cells = getAttackCells(pc.type, pc.col, pc.row, { toggleState: pc.toggleState });
+          for (const c of cells) tmAtkSet.add(`${c.col},${c.row}`);
+        }
+      }
+    }
+  }
+  // 팀원 pieces 맵
+  const teammateAt = {};
+  if (S.teamPlacementMode && S.teamPlacementTeammates) {
+    for (const tm of S.teamPlacementTeammates) {
+      for (const pc of (tm.pieces || [])) {
+        if (pc.col >= 0) teammateAt[`${pc.col},${pc.row}`] = { piece: pc, ownerName: tm.name };
+      }
+    }
+  }
 
+  const bounds = S.boardBounds || { min: 0, max: 4 };
   board.querySelectorAll('.cell').forEach(cell => {
     const col = parseInt(cell.dataset.col);
     const row = parseInt(cell.dataset.row);
     cell.className = 'cell';
     cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
 
-    // 공격 범위 표시 (배치된 모든 말)
-    if (atkSet.has(`${col},${row}`)) {
+    // 파괴된 셀 (범위 밖) — 팀모드 7x7에서 bounds 밖일 수 있음
+    if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) {
+      cell.classList.add('destroyed');
+      return;
+    }
+
+    // 공격 범위 표시 (내 + 팀원 통합)
+    if (atkSet.has(`${col},${row}`) || tmAtkSet.has(`${col},${row}`)) {
       cell.classList.add('attack-range');
+    }
+
+    // 팀원 말 표시 (파랑/다른 스타일)
+    const tmOcc = teammateAt[`${col},${row}`];
+    if (tmOcc) {
+      cell.innerHTML += `<div class="piece-marker teammate-piece"><span class="p-icon">${tmOcc.piece.icon}</span></div>`;
+      cell.classList.add('has-teammate-piece');
+      return;
     }
 
     const pc = S.myPieces.find(p => p.col === col && p.row === row);
@@ -4662,11 +5246,20 @@ function updatePlacementBoard() {
 
 function handlePlacementCellClick(col, row) {
   if (placementSelected === null) return;
-  socket.emit('place_piece', { pieceIdx: placementSelected, col, row });
+  // 팀 모드 분기
+  if (S.teamPlacementMode) {
+    socket.emit('team_place_piece', { pieceIdx: placementSelected, col, row });
+  } else {
+    socket.emit('place_piece', { pieceIdx: placementSelected, col, row });
+  }
 }
 
 document.getElementById('btn-placement-confirm').addEventListener('click', () => {
-  socket.emit('confirm_placement');
+  if (S.teamPlacementMode) {
+    socket.emit('team_confirm_placement');
+  } else {
+    socket.emit('confirm_placement');
+  }
   document.getElementById('btn-placement-confirm').disabled = true;
 });
 
@@ -4871,16 +5464,20 @@ function showActionBar(enabled) {
 
     // ── 자동 턴 종료 힌트 ──
     if (!canMove && !canAttack && !hasUsableSkill) {
-      // 할 수 있는 행동이 아무것도 없으면 힌트 표시
-      const hint = document.getElementById('action-hint');
-      if (hint) hint.textContent = '더 이상 할 수 있는 행동이 없습니다. 턴을 종료하세요.';
-      return; // 아래 힌트 설정 건너뛰기
+      setActionHint('더 이상 할 수 있는 행동이 없습니다. 턴을 종료하세요.');
+      return;
     }
   }
   document.getElementById('btn-cancel').classList.add('hidden');
+  setActionHint(enabled ? '행동을 선택하세요.' : `${oppN()}의 턴입니다.`);
+}
 
-  const hint = document.getElementById('action-hint');
-  if (hint) hint.textContent = enabled ? '행동을 선택하세요.' : `${oppN()}의 턴입니다.`;
+// 액션 힌트 헬퍼 — urgent=true면 빨강 볼드
+function setActionHint(msg, urgent) {
+  const el = document.getElementById('action-hint');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('urgent', !!urgent);
 }
 
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
@@ -4905,15 +5502,21 @@ function renderGameBoard() {
     const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
     if (pc) {
       const statusIcons = getStatusIcons(pc);
+      // 딤 통일: 쌍둥이/쌍검무/질주 중 — 해당 piece 외 전부 흐리게
       const isTwinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
+      const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
+      const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+      const lockedDim = (dualActive && pc !== dualActive) || (sprintActive && pc !== sprintActive);
+      const dimClass = isTwinDimmed ? 'twin-board-dimmed' : (lockedDim ? 'locked-board-dim' : '');
       cell.innerHTML += `
-        <div class="piece-marker${isTwinDimmed ? ' twin-board-dimmed' : ''}">
+        <div class="piece-marker${dimClass ? ' ' + dimClass : ''}">
           <span class="p-icon">${pc.icon}</span>
           <span class="p-hp">${pc.hp}/${pc.maxHp}</span>
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
+      else if (lockedDim) cell.classList.add('locked-dim-cell');
       const idx = S.myPieces.indexOf(pc);
       if (idx === S.selectedPiece) cell.classList.add('selected-piece');
     }
@@ -5210,8 +5813,8 @@ function renderMyPieces() {
       if (skillLockDimmed) {
         const hint = document.getElementById('action-hint');
         if (hint) {
-          if (dualActive) hint.textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
-          else if (sprintActive) hint.textContent = '⚠ 전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.';
+          if (dualActive) setActionHint('양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요.', true);
+          else if (sprintActive) setActionHint('전령의 질주 중입니다. 전령은 한번 더 이동할 수 있습니다.', true);
         }
         return;
       }
@@ -6005,18 +6608,18 @@ function handleGameCellClick(col, row) {
       if (pc) {
         // 쌍둥이 이동 중: 이미 이동한 쪽 차단
         if (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub) {
-          document.getElementById('action-hint').textContent = '⚠ 이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.';
+          setActionHint('이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.', true);
           return;
         }
         // 쌍둥이 이동 중: 쌍둥이가 아닌 유닛 선택 차단
         if (S.twinMovePending && !pc.subUnit) {
-          document.getElementById('action-hint').textContent = '⚠ 쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.';
+          setActionHint('쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.', true);
           return;
         }
         // #7: 전령 질주 중 — 해당 전령만 이동 가능
         const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
         if (sprintActive && pc !== sprintActive) {
-          document.getElementById('action-hint').textContent = '⚠ 전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.';
+          setActionHint('전령의 질주 중입니다. 전령은 한번 더 이동할 수 있습니다.', true);
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
@@ -6045,7 +6648,7 @@ function handleGameCellClick(col, row) {
       }
       // 이동 범위 체크
       if (!isCrossAdjacent(selPc.col, selPc.row, col, row)) {
-        document.getElementById('action-hint').textContent = '⚠ 상하좌우 1칸만 이동 가능합니다.';
+        setActionHint('상하좌우 1칸만 이동 가능합니다.', true);
         return;
       }
       socket.emit('move_piece', { pieceIdx: S.selectedPiece, col, row });
@@ -6064,7 +6667,7 @@ function handleGameCellClick(col, row) {
         // #2: 쌍검무 활성 — 해당 양손검객만 선택 가능
         const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
         if (dualActive && pc !== dualActive) {
-          document.getElementById('action-hint').textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
+          setActionHint('양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요.', true);
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
@@ -6093,7 +6696,7 @@ function handleGameCellClick(col, row) {
         // #2: 쌍검무 중에는 양손검객 외 선택 차단
         const dualActive2 = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
         if (dualActive2 && clickedOther !== dualActive2) {
-          document.getElementById('action-hint').textContent = '⚠ 쌍검무 중입니다. 양손 검객으로만 공격할 수 있습니다.';
+          setActionHint('양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요.', true);
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
@@ -6124,8 +6727,8 @@ function handleGameCellClick(col, row) {
 function buildBoard(containerId, clickHandler) {
   const board = document.getElementById(containerId);
   if (!board) return;
-  // 메인 게임 보드만 팀모드에서 7x7. 드래프트 미리보기 등은 항상 5x5.
-  const is7x7 = S.isTeamMode && containerId === 'game-board';
+  // 팀모드에서 7x7: 게임 보드 + 배치 보드. 드래프트 미리보기는 항상 5x5.
+  const is7x7 = S.isTeamMode && (containerId === 'game-board' || containerId === 'placement-board');
   const totalSize = is7x7 ? 7 : 5;
   const cellPx = is7x7 ? 44 : 56;
   board.innerHTML = '';
