@@ -811,6 +811,19 @@ function transitionToTeamPlacement(room) {
   }
   for (const p of room.players) {
     if (!p.socketId) continue;
+    // 1v1과 동일하게 상대팀 양 플레이어의 full piece 정보(스킬·패시브 포함) 제공
+    const oppTeamId = 1 - p.teamId;
+    const opponents = (room.teams[oppTeamId] || []).map(i => ({
+      idx: i,
+      name: room.players[i].name,
+      pieces: room.players[i].pieces.map(pc => ({
+        type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+        hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag,
+        desc: pc.desc, subUnit: pc.subUnit,
+        hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+        passiveName: pc.passiveName, passives: pc.passives,
+      })),
+    }));
     io.to(p.socketId).emit('team_placement_phase', {
       myIdx: p.index,
       teamId: p.teamId,
@@ -823,6 +836,7 @@ function transitionToTeamPlacement(room) {
         name: room.players[i].name,
         pieces: pieceSummary(room.players[i].pieces),
       })),
+      opponents,
     });
   }
   startTimer(room, 'team_placement', () => teamPlacementTimeout(room));
@@ -1333,8 +1347,10 @@ function boardObjectsSummary(room, playerIdx) {
 // ── Damage Resolution Pipeline ──────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 
-function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg) {
-  const defender = room.players[1 - attackerIdx];
+function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
+  // 팀전: 실제 방어자 인덱스를 인자로 받음 / 1v1: 1-attackerIdx
+  const defenderIdx = (defIdx !== undefined && defIdx !== null) ? defIdx : (1 - attackerIdx);
+  const defender = room.players[defenderIdx];
   const attacker = room.players[attackerIdx];
   let dmg = baseDamage;
 
@@ -1379,18 +1395,18 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
-      const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', playerIdx: 1 - attackerIdx, msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.` });
-      emitToSpectators(room, 'spectator_log', { msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
+      const defName = room.players[defenderIdx].name;
+      emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', playerIdx: defenderIdx, msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.` });
+      emitToSpectators(room, 'spectator_log', { msg: `🛡 아이언 스킨: ${defName}의 갑주무사는 피해 0.5 감소.`, type: 'passive', playerIdx: defenderIdx });
     }
   }
 
   // Step 6: Monk being attacked by villain => damage = 0.5
   if (defenderPiece.type === 'monk' && attackerPiece.tag === 'villain') {
     dmg = 0.5;
-    const defName = room.players[1 - attackerIdx].name;
-    emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: 1 - attackerIdx, msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.` });
-    emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
+    const defName = room.players[defenderIdx].name;
+    emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: defenderIdx, msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.` });
+    emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: ${defName}의 수도승은 악인의 공격 피해가 0.5로 감소.`, type: 'passive', playerIdx: defenderIdx });
   }
 
   // Step 7: Count hit by tier 1 or 2 => -0.5
@@ -1398,9 +1414,9 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
-      const defName = room.players[1 - attackerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'count', playerIdx: 1 - attackerIdx, msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.` });
-      emitToSpectators(room, 'spectator_log', { msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.`, type: 'passive', playerIdx: 1 - attackerIdx });
+      const defName = room.players[defenderIdx].name;
+      emitToBoth(room, 'passive_alert', { type: 'count', playerIdx: defenderIdx, msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.` });
+      emitToSpectators(room, 'spectator_log', { msg: `🦇 폭정: ${defName}의 백작은 ${attackerPiece.tier}티어 공격 피해 0.5 감소.`, type: 'passive', playerIdx: defenderIdx });
     }
   }
 
@@ -1408,8 +1424,8 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   // 팀모드: 방어자의 팀 전체에서 호위무사 탐색 + 대상 왕실은 팀원 것도 가능
   if (defenderPiece.tag === 'royal' && defenderPiece.type !== 'bodyguard') {
     const defenderTeamIdx = (room.mode === 'team')
-      ? getAllyIndices(room, 1 - attackerIdx)  // 1v1에선 [1-attackerIdx], 팀모드엔 해당 팀 인덱스들
-      : [1 - attackerIdx];
+      ? getAllyIndices(room, defenderIdx)
+      : [defenderIdx];
     // 호위무사 탐색 (가장 먼저 찾은 것)
     let bodyguardPiece = null, bodyguardOwnerIdx = null;
     for (const bIdx of defenderTeamIdx) {
@@ -1532,69 +1548,78 @@ function detonateBomb(room, ownerIdx, bomb) {
 }
 
 function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
-  const defender = room.players[1 - attackerIdx];
   const attacker = room.players[attackerIdx];
   const baseDmg = (extraDamage !== undefined) ? extraDamage : atkPiece.atk;
   const hitResults = [];
   // #1: 호위무사 hit 사이드채널 초기화
   room._pendingBodyguardHits = [];
 
-  for (const cell of atkCells) {
-    for (let dpi = 0; dpi < defender.pieces.length; dpi++) {
-      const defPiece = defender.pieces[dpi];
-      if (defPiece.alive && defPiece.col === cell.col && defPiece.row === cell.row) {
-        const dmg = resolveDamage(room, atkPiece, defPiece, attackerIdx, baseDmg, false);
-        defPiece.hp = Math.max(0, defPiece.hp - dmg);
-        // #11: 피격 후 HP=1 이하로 내려가면 저주 즉시 해제
-        if (defPiece.alive && dmg > 0) {
-          checkCurseRemoval(room, defPiece, 1 - attackerIdx);
-        }
-        const destroyed = defPiece.hp <= 0;
-        if (destroyed) {
-          handleDeath(room, defPiece, 1 - attackerIdx);
-        }
-        hitResults.push({
-          col: cell.col, row: cell.row,
-          damage: dmg, newHp: defPiece.hp, destroyed,
-          revealedType: destroyed ? defPiece.type : undefined,
-          revealedName: destroyed ? defPiece.name : undefined,
-          revealedIcon: destroyed ? defPiece.icon : undefined,
-          hitName: defPiece.name,
-          hitIcon: defPiece.icon,
-          defPieceIdx: dpi,          // 피격 대상의 배열 인덱스 (프로필 애니메이션용)
-          attackerSub: atkPiece.subUnit || null,
-          attackerName: atkPiece.name,
-          attackerIcon: atkPiece.icon,
-        });
+  // 팀전: 적 = 내 팀이 아닌 모든 플레이어 / 1v1: 적 = 상대
+  const enemyIndices = (room.mode === 'team')
+    ? room.players.map(p => p.index).filter(i => !isTeammate(room, attackerIdx, i))
+    : [1 - attackerIdx];
 
-        // Post-damage: torturer passive mark
-        if (atkPiece.type === 'torturer' && !destroyed) {
-          // 호위 무사 패시브: 왕실 아군 상태이상도 대신 받음
-          let markTarget = defPiece;
-          if (defPiece.tag === 'royal' && defPiece.type !== 'bodyguard') {
-            const bg = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
-            if (bg) markTarget = bg;
+  for (const defIdx of enemyIndices) {
+    const defender = room.players[defIdx];
+    if (!defender) continue;
+    for (const cell of atkCells) {
+      for (let dpi = 0; dpi < defender.pieces.length; dpi++) {
+        const defPiece = defender.pieces[dpi];
+        if (defPiece.alive && defPiece.col === cell.col && defPiece.row === cell.row) {
+          const dmg = resolveDamage(room, atkPiece, defPiece, attackerIdx, baseDmg, false, defIdx);
+          defPiece.hp = Math.max(0, defPiece.hp - dmg);
+          // #11: 피격 후 HP=1 이하로 내려가면 저주 즉시 해제
+          if (defPiece.alive && dmg > 0) {
+            checkCurseRemoval(room, defPiece, defIdx);
           }
-          // 그림자 상태 면역: 표식 적용 안됨
-          if (markTarget.statusEffects.some(e => e.type === 'shadow')) {
-            // skip mark
-          } else if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
-            markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
-            const atkName = room.players[attackerIdx].name;
-            emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.` });
-            emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.`, type: 'passive', playerIdx: attackerIdx });
+          const destroyed = defPiece.hp <= 0;
+          if (destroyed) {
+            handleDeath(room, defPiece, defIdx);
           }
-        }
+          hitResults.push({
+            col: cell.col, row: cell.row,
+            damage: dmg, newHp: defPiece.hp, destroyed,
+            revealedType: destroyed ? defPiece.type : undefined,
+            revealedName: destroyed ? defPiece.name : undefined,
+            revealedIcon: destroyed ? defPiece.icon : undefined,
+            hitName: defPiece.name,
+            hitIcon: defPiece.icon,
+            defPieceIdx: dpi,          // 피격 대상의 배열 인덱스 (프로필 애니메이션용)
+            defOwnerIdx: defIdx,       // 팀모드: 어느 적 플레이어의 말인지
+            attackerSub: atkPiece.subUnit || null,
+            attackerName: atkPiece.name,
+            attackerIcon: atkPiece.icon,
+          });
 
-        // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
+          // Post-damage: torturer passive mark
+          if (atkPiece.type === 'torturer' && !destroyed) {
+            // 호위 무사 패시브: 왕실 아군 상태이상도 대신 받음
+            let markTarget = defPiece;
+            if (defPiece.tag === 'royal' && defPiece.type !== 'bodyguard') {
+              const bg = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
+              if (bg) markTarget = bg;
+            }
+            // 그림자 상태 면역: 표식 적용 안됨
+            if (markTarget.statusEffects.some(e => e.type === 'shadow')) {
+              // skip mark
+            } else if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
+              markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
+              const atkName = room.players[attackerIdx].name;
+              emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.` });
+              emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${atkName}의 고문 기술자가 ${markTarget.name}에게 표식을 새겼습니다.`, type: 'passive', playerIdx: attackerIdx });
+            }
+          }
 
-        // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
-        if (defPiece.type === 'wizard') {
-          room.instantSp[1 - attackerIdx] += 1;
-          emitSPUpdate(room);
-          const defName = room.players[1 - attackerIdx].name;
-          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1 - attackerIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.` });
-          emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: 1 - attackerIdx });
+          // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
+
+          // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
+          if (defPiece.type === 'wizard') {
+            room.instantSp[defIdx] += 1;
+            emitSPUpdate(room);
+            const defName = room.players[defIdx].name;
+            emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: defIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.` });
+            emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: defIdx });
+          }
         }
       }
     }
@@ -1622,15 +1647,17 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
     }
   }
 
-  // Destroy rats hit by attacks (opponent's rats) + spectator notify
+  // Destroy rats hit by attacks — 팀전 시 모든 적 플레이어의 쥐
   const destroyedRatCells = [];
-  for (const cell of atkCells) {
-    const before = room.rats[1 - attackerIdx].length;
-    room.rats[1 - attackerIdx] = room.rats[1 - attackerIdx].filter(
-      r => !(r.col === cell.col && r.row === cell.row)
-    );
-    if (room.rats[1 - attackerIdx].length < before) {
-      destroyedRatCells.push({ col: cell.col, row: cell.row });
+  for (const defIdx of enemyIndices) {
+    for (const cell of atkCells) {
+      const before = (room.rats[defIdx] || []).length;
+      room.rats[defIdx] = (room.rats[defIdx] || []).filter(
+        r => !(r.col === cell.col && r.row === cell.row)
+      );
+      if (room.rats[defIdx].length < before) {
+        destroyedRatCells.push({ col: cell.col, row: cell.row });
+      }
     }
   }
   if (destroyedRatCells.length > 0) {
@@ -3290,6 +3317,7 @@ io.on('connection', (socket) => {
   });
 
   // ── #9: 재접속 (새로고침/연결 끊김 복구) ──
+  // 새로고침 = 현재 페이즈 복원 (로비 이동 아님). 각 단계별로 해당 페이즈의 phase 이벤트 재전송.
   socket.on('reconnect_game', ({ roomId, sessionToken }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('reconnect_failed', { reason: 'room_not_found' }); return; }
@@ -3308,32 +3336,135 @@ io.on('connection', (socket) => {
     socket.data.sessionToken = sessionToken;
     socket.join(roomId);
 
-    // 현재 게임 상태 재전송
-    if (room.phase === 'game') {
+    const idx = player.index;
+    const phase = room.phase;
+
+    // ── 페이즈별 상태 재전송 ──
+    if (phase === 'game') {
       if (room.mode === 'team') {
-        const state = getTeamGameStateFor(room, player.index);
+        const state = getTeamGameStateFor(room, idx);
         socket.emit('team_game_start', { ...state, teams: room.teams, reconnected: true });
       } else {
-        const opp = room.players[1 - player.index];
+        const opp = room.players[1 - idx];
         socket.emit('game_start', {
           yourPieces: pieceSummary(player.pieces),
           oppPieces: oppPieceSummary(opp.pieces),
           currentPlayerIdx: room.currentPlayerIdx,
           turnNumber: room.turnNumber,
-          isYourTurn: room.currentPlayerIdx === player.index,
+          isYourTurn: room.currentPlayerIdx === idx,
           sp: room.sp,
           instantSp: room.instantSp,
           skillPoints: room.sp,
           boardBounds: room.boardBounds,
-          boardObjects: boardObjectsSummary(room, player.index),
+          boardObjects: boardObjectsSummary(room, idx),
           reconnected: true,
         });
       }
+    } else if (phase === 'waiting') {
+      if (room.mode === 'team') {
+        socket.emit('team_room_state', { players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })), teams: room.teams });
+      } else {
+        socket.emit('joined', { idx, roomId, characters: CHARACTERS, sessionToken, reconnected: true });
+      }
+    } else if (phase === 'team_draft') {
+      socket.emit('team_draft_start', {
+        myIdx: idx, teamId: player.teamId,
+        players: room.players.map(pl => ({ name: pl.name, idx: pl.index, teamId: pl.teamId })),
+        teams: room.teams, characters: CHARACTERS,
+      });
+      // 이미 골랐던 픽 복원
+      if (player.draft) {
+        socket.emit('team_draft_pick_update', { idx, draft: player.draft });
+      }
+    } else if (phase === 'team_hp') {
+      const teammates = getTeammates(room, idx);
+      const teammateDraft = teammates[0] != null ? room.players[teammates[0]].draft : null;
+      socket.emit('team_hp_phase', {
+        draft: player.draft,
+        hasTwins: player.draft?.pick1 === 'twins' || player.draft?.pick2 === 'twins',
+        teammateDraft,
+      });
+    } else if (phase === 'team_reveal') {
+      const allPlayerPieces = room.players.map(p => ({
+        idx: p.index, name: p.name, teamId: p.teamId,
+        pieces: p.pieces.map(pc => ({
+          type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+          hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag, desc: pc.desc,
+          subUnit: pc.subUnit, hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+          passiveName: pc.passiveName, passives: pc.passives,
+        })),
+      }));
+      socket.emit('team_reveal_phase', { myIdx: idx, teamId: player.teamId, teams: room.teams, allPlayerPieces });
+    } else if (phase === 'team_placement') {
+      const oppTeamId = 1 - player.teamId;
+      const opponents = (room.teams[oppTeamId] || []).map(i => ({
+        idx: i, name: room.players[i].name,
+        pieces: room.players[i].pieces.map(pc => ({
+          type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+          hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag, desc: pc.desc, subUnit: pc.subUnit,
+          hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+          passiveName: pc.passiveName, passives: pc.passives,
+        })),
+      }));
+      socket.emit('team_placement_phase', {
+        myIdx: idx, teamId: player.teamId, teams: room.teams,
+        boardBounds: room.boardBounds, zone: getTeamPlacementZone(player.teamId),
+        myPieces: pieceSummary(player.pieces),
+        teammates: getTeammates(room, idx).map(i => ({ idx: i, name: room.players[i].name, pieces: pieceSummary(room.players[i].pieces) })),
+        opponents,
+      });
+    } else if (phase === 'initial_reveal') {
+      const oppDraft = room.players[1 - idx].draft;
+      const oppChars = [
+        { ...findCharData(oppDraft.t1, 1), tier: 1 },
+        { ...findCharData(oppDraft.t2, 2), tier: 2 },
+        { ...findCharData(oppDraft.t3, 3), tier: 3 },
+      ];
+      socket.emit('initial_reveal_phase', { myDraft: player.draft, oppChars });
+    } else if (phase === 'exchange_draft') {
+      const available = {};
+      for (const tier of [1, 2, 3]) {
+        const myType = tier === 1 ? player.draft.t1 : tier === 2 ? player.draft.t2 : player.draft.t3;
+        available[tier] = CHARACTERS[tier]
+          .filter(c => c.type !== myType)
+          .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
+      }
+      socket.emit('exchange_draft_phase', {
+        myDraft: player.draft, available, oppDraft: room.players[1 - idx].draft,
+      });
+    } else if (phase === 'final_reveal') {
+      const oppDraft = room.players[1 - idx].draft;
+      const oppChars = [
+        { ...findCharData(oppDraft.t1, 1), tier: 1 },
+        { ...findCharData(oppDraft.t2, 2), tier: 2 },
+        { ...findCharData(oppDraft.t3, 3), tier: 3 },
+      ];
+      socket.emit('final_reveal_phase', { myDraft: player.draft, oppChars });
+    } else if (phase === 'hp_distribution') {
+      socket.emit('hp_phase', { draft: player.draft, hasTwins: player.draft.t1 === 'twins' });
+    } else if (phase === 'reveal') {
+      const oppPieces = room.players[1 - idx].pieces.map(pc => ({
+        type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+        hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag,
+        desc: pc.desc, subUnit: pc.subUnit,
+        hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+        passiveName: pc.passiveName, passives: pc.passives,
+      }));
+      socket.emit('reveal_phase', { yourPieces: pieceSummary(player.pieces), oppPieces });
+    } else if (phase === 'placement') {
+      const oppPieces = room.players[1 - idx].pieces.map(pc => ({
+        type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
+        hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, tag: pc.tag,
+        desc: pc.desc, subUnit: pc.subUnit,
+        hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
+        passiveName: pc.passiveName, passives: pc.passives,
+      }));
+      socket.emit('placement_phase', { pieces: pieceSummary(player.pieces), oppPieces });
     } else {
-      // 세팅 단계(드래프트/HP/배치/공개): 현재 단계에 맞게 재전송
-      socket.emit('reconnect_phase_resume', { phase: room.phase, idx: player.index });
+      // 그 외(드래프트 단일 단계 등) — 기본 resume 이벤트만
+      socket.emit('reconnect_phase_resume', { phase, idx });
     }
-    socket.emit('reconnect_ok', { idx: player.index, phase: room.phase });
+    socket.emit('reconnect_ok', { idx, phase });
   });
 
   // ── 방 입장 ──
@@ -4183,11 +4314,19 @@ io.on('connection', (socket) => {
     piece.col = col;
     piece.row = row;
 
-    // Check trap
-    const trapIdx = room.boardObjects[1 - idx].findIndex(o => o.type === 'trap' && o.col === col && o.row === row);
+    // Check trap (팀전: 모든 적팀 플레이어의 덫 확인)
+    const enemyIndicesForTrap = (room.mode === 'team')
+      ? room.players.map(p => p.index).filter(i => !isTeammate(room, idx, i))
+      : [1 - idx];
+    let trapIdx = -1, trapOwnerIdx = -1;
+    for (const eIdx of enemyIndicesForTrap) {
+      const arr = room.boardObjects[eIdx] || [];
+      const ti = arr.findIndex(o => o.type === 'trap' && o.col === col && o.row === row);
+      if (ti >= 0) { trapIdx = ti; trapOwnerIdx = eIdx; break; }
+    }
     if (trapIdx >= 0) {
-      room.boardObjects[1 - idx].splice(trapIdx, 1);
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, 1 - idx, 1, false);
+      room.boardObjects[trapOwnerIdx].splice(trapIdx, 1);
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, trapOwnerIdx, 1, false, idx);
       piece.hp = Math.max(0, piece.hp - dmg);
       // Wizard passive: SP on trap hit
       if (piece.type === 'wizard') {
@@ -4421,21 +4560,47 @@ io.on('connection', (socket) => {
         }
       }
     }
-    socket.emit('attack_result', {
-      pieceIdx, cellResults, anyHit: hitResults.length > 0,
-      oppPieces: oppPieceSummary(defender.pieces),
-      yourPieces: pieceSummary(player.pieces),
-    });
-
-    if (defender.socketId !== 'AI') {
-      io.to(defender.socketId).emit('being_attacked', {
-        atkCells,
-        hitPieces: hitResults.map(h => {
-          const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
-          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
-        }),
-        yourPieces: pieceSummary(defender.pieces),
+    if (room.mode === 'team') {
+      // 팀전: attack_result에 단일 oppPieces는 의미 없음 (team_game_update로 전체 동기)
+      socket.emit('attack_result', {
+        pieceIdx, cellResults, anyHit: hitResults.length > 0,
+        yourPieces: pieceSummary(player.pieces),
       });
+      // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
+      const defenderHitsByOwner = new Map();
+      for (const h of hitResults) {
+        if (h.defOwnerIdx === undefined) continue;
+        if (!defenderHitsByOwner.has(h.defOwnerIdx)) defenderHitsByOwner.set(h.defOwnerIdx, []);
+        defenderHitsByOwner.get(h.defOwnerIdx).push(h);
+      }
+      for (const [ownerIdx, hits] of defenderHitsByOwner.entries()) {
+        const defPlayer = room.players[ownerIdx];
+        if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
+        io.to(defPlayer.socketId).emit('being_attacked', {
+          atkCells,
+          hitPieces: hits.map(h => {
+            const dp = defPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
+            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+          }),
+          yourPieces: pieceSummary(defPlayer.pieces),
+        });
+      }
+    } else {
+      socket.emit('attack_result', {
+        pieceIdx, cellResults, anyHit: hitResults.length > 0,
+        oppPieces: oppPieceSummary(defender.pieces),
+        yourPieces: pieceSummary(player.pieces),
+      });
+      if (defender.socketId !== 'AI') {
+        io.to(defender.socketId).emit('being_attacked', {
+          atkCells,
+          hitPieces: hitResults.map(h => {
+            const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+          }),
+          yourPieces: pieceSummary(defender.pieces),
+        });
+      }
     }
 
     // 관전자 로그: 일반 공격 (쌍둥이는 각 공격자별로 메시지 분리)

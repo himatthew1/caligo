@@ -10,9 +10,9 @@ socket.on('connect', () => {
     const raw = sessionStorage.getItem('caligo_session');
     if (!raw) return;
     const sess = JSON.parse(raw);
-    // 10분 이상 지난 세션은 무시
     if (!sess || !sess.token || !sess.roomId) return;
-    if (Date.now() - (sess.ts || 0) > 10 * 60 * 1000) {
+    // 2시간 이상 지난 세션은 무시 (일반 게임 최대 한 판 기준)
+    if (Date.now() - (sess.ts || 0) > 2 * 60 * 60 * 1000) {
       sessionStorage.removeItem('caligo_session');
       return;
     }
@@ -1564,7 +1564,7 @@ S.teamPlacement = {
   confirmed: false,
 };
 
-socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, myPieces, teammates }) => {
+socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, myPieces, teammates, opponents }) => {
   S.playerIdx = myIdx;
   S.teamId = teamId;
   S.teamTeams = teams || S.teamTeams;
@@ -1572,8 +1572,9 @@ socket.on('team_placement_phase', ({ myIdx, teamId, teams, boardBounds, myPieces
   S.isTeamMode = true;
   S.teamPlacementMode = true;
   S.myPieces = myPieces || [];
-  S.oppPieces = [];  // 배치 단계에서 적 pieces 없음
+  S.oppPieces = [];  // 좌표는 숨김 (생존 여부만)
   S.teamPlacementTeammates = teammates || [];
+  S.teamPlacementEnemies = opponents || [];  // 1v1처럼 상대팀 양 플레이어의 full 정보
   // 1v1 placement UI 재활용
   buildPlacementUI();
   showScreen('screen-placement');
@@ -1771,10 +1772,22 @@ socket.on('team_game_start', (state) => {
 socket.on('team_game_update', (state) => {
   const wasMyTurn = S.isMyTurn;
   applyTeamGameState(state);
+  // 내 턴 새로 들어왔을 때 — 1v1의 your_turn처럼 액션 플래그 전체 리셋
+  // (이거 없으면 2라운드 이후 이동/공격 버튼이 계속 막힘)
+  if (S.isMyTurn && !wasMyTurn) {
+    S.action = null;
+    S.selectedPiece = null;
+    S.targetSelectMode = false;
+    S.actionDone = false;
+    S.moveDone = false;
+    S.actionUsedSkillReplace = false;
+    S.twinMovePending = false;
+    S.twinMovedSub = null;
+    S.skillsUsedThisTurn = [];
+    try { playTurnBell(); } catch (e) {}
+  }
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
-  // 내 턴 새로 들어왔을 때만 종소리
-  if (S.isMyTurn && !wasMyTurn) try { playTurnBell(); } catch (e) {}
   if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
 });
 
