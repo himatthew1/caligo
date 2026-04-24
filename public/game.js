@@ -1822,31 +1822,15 @@ socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => 
   }, 200);
 });
 
-// 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시
+// 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시 (턴 배너는 updateTurnBanner가 통일)
 function renderTeamGameSnapshot() {
   try {
     if (typeof renderGameBoard === 'function') renderGameBoard();
     renderTeamProfiles();  // 1v1의 renderMyPieces/renderOppPieces 대체
     if (typeof updateSPBar === 'function') updateSPBar();
+    updateTurnBanner();  // 1v1과 통일된 턴 배너 + 팀전 턴 오더 도트
   } catch (e) {
     console.error('[team render] error:', e);
-  }
-  // 턴 배너 — 현재 플레이어 + 팀 표시
-  const turnEl = document.getElementById('turn-banner');
-  if (turnEl && S.teamGamePlayers) {
-    const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
-    if (cur) {
-      const teamLabel = cur.teamId === 0 ? 'A팀' : 'B팀';
-      const color = cur.teamId === 0 ? '#60a5fa' : '#ef4444';
-      const isMine = cur.idx === S.playerIdx;
-      const isAlly = cur.teamId === S.teamId;
-      turnEl.innerHTML = `
-        <span style="color:${color};font-weight:800">[${teamLabel}]</span>
-        <strong style="color:${isMine ? 'var(--accent)' : 'var(--text)'}">${escapeHtmlGlobal(cur.name)}</strong>
-        ${isMine ? '<span style="color:var(--accent)">(당신의 턴!)</span>' : isAlly ? '<span style="color:#60a5fa">(팀원 턴)</span>' : '<span style="color:var(--danger)">(적 턴)</span>'}
-        <span class="muted">— ${S.turnNumber}턴</span>
-      `;
-    }
   }
 }
 
@@ -5294,11 +5278,37 @@ function refreshGameView() {
 function updateTurnBanner() {
   const banner = document.getElementById('turn-banner');
   if (!banner) return;
+
+  // 팀전: 1v1과 동일 포맷 + 팀 레이블 + 턴 오더 표시
+  if (S.isTeamMode && S.teamGamePlayers) {
+    const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
+    if (cur) {
+      const isMine = cur.idx === S.playerIdx;
+      const isAlly = cur.teamId === S.teamId;
+      // 1v1과 동일한 class: my-turn (내 차례) / opp-turn (상대팀 차례). 팀원 턴은 opp-turn으로 간주
+      banner.className = 'turn-banner ' + (isMine ? 'my-turn' : (!isAlly ? 'opp-turn' : ''));
+      const teamLabel = cur.teamId === 0 ? 'A팀' : 'B팀';
+      const whoseLabel = isMine ? '당신' : (isAlly ? `팀원 ${cur.name}` : cur.name);
+      banner.innerHTML = `
+        <div class="turn-banner-main">${S.turnNumber}턴 : [${teamLabel}] ${escapeHtmlGlobal(whoseLabel)}의 차례</div>
+        <div class="turn-order-row">${renderTurnOrderDots()}</div>
+      `;
+      // 타이머 색상 토글 (1v1과 동일)
+      const timerClock = document.querySelector('.timer-clock');
+      if (timerClock) {
+        timerClock.classList.toggle('my-turn-timer', isMine);
+        timerClock.classList.toggle('opp-turn-timer', !isAlly);
+      }
+    }
+    return;
+  }
+
+  // 1v1
   banner.className = 'turn-banner ' + (S.isMyTurn ? 'my-turn' : 'opp-turn');
   const whose = S.isMyTurn ? myN() : oppN();
   banner.textContent = `${S.turnNumber}턴 : ${whose}의 차례`;
 
-  // 현재 턴 플레이어 패널 강조
+  // 현재 턴 플레이어 패널 강조 (1v1 전용)
   const leftPanel = document.querySelector('.left-panel');
   const rightPanel = document.querySelector('.right-panel');
   if (leftPanel) leftPanel.classList.toggle('turn-active', S.isMyTurn);
@@ -5312,17 +5322,59 @@ function updateTurnBanner() {
   }
 }
 
+// 팀전 턴 오더 — A팀·B팀 지그재그 4명 점으로 표시. 현재 플레이어 강조.
+function renderTurnOrderDots() {
+  if (!S.teamGamePlayers || !S.teamTeams) return '';
+  const teamA = S.teamTeams[0] || [];
+  const teamB = S.teamTeams[1] || [];
+  const order = [];
+  const maxLen = Math.max(teamA.length, teamB.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (i < teamA.length) order.push(teamA[i]);
+    if (i < teamB.length) order.push(teamB[i]);
+  }
+  const parts = order.map(idx => {
+    const pl = S.teamGamePlayers.find(p => p.idx === idx);
+    if (!pl) return '';
+    const isCurrent = idx === S.currentPlayerIdx;
+    const isMe = idx === S.playerIdx;
+    const isAlly = pl.teamId === S.teamId;
+    const dead = pl.eliminated;
+    const teamCls = pl.teamId === 0 ? 'team-a' : 'team-b';
+    const cls = [
+      'turn-order-dot', teamCls,
+      isCurrent ? 'current' : '',
+      isMe ? 'me' : '',
+      dead ? 'eliminated' : '',
+    ].filter(Boolean).join(' ');
+    const suffix = isMe ? ' (나)' : isAlly ? '' : '';
+    return `<span class="${cls}" title="${escapeHtmlGlobal(pl.name)}">${escapeHtmlGlobal(pl.name)}${suffix}</span>`;
+  }).filter(Boolean);
+  // 화살표로 연결
+  return parts.join('<span class="turn-order-arrow">→</span>');
+}
+
 function updateSPBar() {
-  const mySP = S.sp[S.playerIdx] || 0;
-  const oppSP = S.sp[1 - S.playerIdx] || 0;
-  const myInstant = (S.instantSp && S.instantSp[S.playerIdx]) || 0;
-  const oppInstant = (S.instantSp && S.instantSp[1 - S.playerIdx]) || 0;
+  // 팀전: sp 배열이 [teamA풀, teamB풀] 이므로 teamId 기반으로 인덱싱
+  // 1v1: sp 배열이 [p0, p1] 이므로 playerIdx 기반 인덱싱
+  const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const oppSlot = 1 - mySlot;
+  const mySP = S.sp[mySlot] || 0;
+  const oppSP = S.sp[oppSlot] || 0;
+  const myInstant = (S.instantSp && S.instantSp[mySlot]) || 0;
+  const oppInstant = (S.instantSp && S.instantSp[oppSlot]) || 0;
   const total = mySP + oppSP || 1;
 
   const myInstantStr = myInstant > 0 ? ` (+${myInstant}✨)` : '';
   const oppInstantStr = oppInstant > 0 ? ` (+${oppInstant}✨)` : '';
-  document.getElementById('sp-my-label').textContent = `내 SP: ${mySP}${myInstantStr}`;
-  document.getElementById('sp-opp-label').textContent = `상대 SP: ${oppSP}${oppInstantStr}`;
+  const myLabel = S.isTeamMode
+    ? `우리팀 SP: ${mySP}${myInstantStr}`
+    : `내 SP: ${mySP}${myInstantStr}`;
+  const oppLabel = S.isTeamMode
+    ? `상대팀 SP: ${oppSP}${oppInstantStr}`
+    : `상대 SP: ${oppSP}${oppInstantStr}`;
+  document.getElementById('sp-my-label').textContent = myLabel;
+  document.getElementById('sp-opp-label').textContent = oppLabel;
   document.getElementById('sp-my-fill').style.width = `${(mySP / total) * 100}%`;
   document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
 
