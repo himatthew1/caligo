@@ -1784,6 +1784,8 @@ socket.on('team_game_update', (state) => {
     S.twinMovePending = false;
     S.twinMovedSub = null;
     S.skillsUsedThisTurn = [];
+    S.lastActionType = null;
+    S.lastActionPieceType = null;
     try { playTurnBell(); } catch (e) {}
   }
   renderTeamGameSnapshot();
@@ -2351,6 +2353,8 @@ socket.on('your_turn', (data) => {
   S.actionUsedSkillReplace = false;
   S.twinMovePending = false;
   S.twinMovedSub = null;
+  S.lastActionType = null;
+  S.lastActionPieceType = null;
 
   refreshGameView();
   showActionBar(true);
@@ -2398,6 +2402,8 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.twinMovePending = true;
     S.twinMovedSub = twinMovedSub;  // 이동 완료된 쪽 추적
     S.moveDone = true;  // 이동 시작됨 → 공격 차단
+    S.lastActionType = 'move';
+    S.lastActionPieceType = pc.type;
     renderGameBoard();
     renderMyPieces();
     const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
@@ -2410,6 +2416,8 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.twinMovedSub = null;
     S.moveDone = true;
     S.actionDone = true;
+    S.lastActionType = 'move';
+    S.lastActionPieceType = pc.type;
     renderGameBoard();
     renderMyPieces();
     showActionBar(true);
@@ -2514,6 +2522,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   S.selectedPiece = null;
   S.targetSelectMode = false;
   S.actionDone = true;
+  S.lastActionType = 'attack';
+  S.lastActionPieceType = pc ? pc.type : null;
 
   // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
   if (pc && pc.dualBladeAttacksLeft > 0) {
@@ -6429,6 +6439,35 @@ function openSkillModal() {
           twinsDisabled = true;
           singleDisabled = true;
           singleNote = ' (사용 불가)';
+        }
+      }
+      // 쌍검무: 이번 턴 공격 2회 — 이동 후 / 다른 유닛이 공격한 경우 사용 불가
+      if (pc.skillId === 'dualStrike') {
+        if (S.moveDone) {
+          singleDisabled = true;
+          singleNote = ' (이미 이동함 — 사용 불가)';
+        } else if (S.actionDone && pc.type !== 'dualBlade') {
+          // 본인이 공격한 경우만 OK, 다른 유닛이 공격했으면 차단
+          // (사실 pc.type === 'dualBlade'이지만 미래 호환을 위해 분리)
+          singleDisabled = true;
+          singleNote = ' (다른 유닛이 행동함 — 사용 불가)';
+        } else if (S.actionDone && S.lastActionPieceType && S.lastActionPieceType !== 'dualBlade') {
+          singleDisabled = true;
+          singleNote = ' (다른 유닛이 행동함 — 사용 불가)';
+        }
+      }
+      // 전령 질주: 누구든 공격 후 / 다른 유닛이 이동한 경우 사용 불가
+      if (pc.skillId === 'sprint') {
+        if (S.lastActionType === 'attack') {
+          singleDisabled = true;
+          singleNote = ' (이미 공격함 — 사용 불가)';
+        } else if (S.lastActionType === 'move' && S.lastActionPieceType && S.lastActionPieceType !== 'messenger') {
+          singleDisabled = true;
+          singleNote = ' (다른 유닛이 이동함 — 사용 불가)';
+        } else if (S.actionDone && pc.type !== 'messenger' && !pc.messengerSprintActive) {
+          // fallback: actionDone이지만 lastActionType 정보가 없으면 보수적으로 차단
+          singleDisabled = true;
+          singleNote = ' (행동 후 — 사용 불가)';
         }
       }
       const opt = document.createElement('div');

@@ -1832,6 +1832,7 @@ function processTurnStart(room) {
   player.actionUsedSkillReplace = false;
   player.skillsUsedBeforeAction = [];
   player.twinMovedSubs = [];
+  player._lastActionType = null;  // 'move' | 'attack' | null
 
   // Reset per-turn skill states for current player
   for (const p of player.pieces) {
@@ -2286,16 +2287,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── MESSENGER: 질주 — 이동권 +1회 (공격 후 사용 불가, 이미 이동했다면 1회 더만 가능) ──
+    // ── MESSENGER: 질주 — 이동권 +1회 ──
+    // 사용 가능: 아직 행동 없음 / 본인(전령) 이동 후
+    // 사용 불가: 누구든 공격함 / 다른 유닛이 이동함
     case 'messenger': {
-      // 이미 공격을 수행했으면 사용 불가
-      if (player.actionDone && !player.actionUsedSkillReplace) {
-        // actionDone 만 체크로는 이동한 경우도 포함되므로 별도 플래그로 구분 필요
-        // player.actionAttacked 같은 플래그가 있으면 활용. 없으면 예외 처리:
-        // 여기서는 최근 액션이 이동이면 허용, 공격이면 차단
-        if (player._lastActionType === 'attack') {
-          return { ok: false, msg: '공격 후에는 질주를 사용할 수 없습니다.' };
-        }
+      if (player._lastActionType === 'attack') {
+        return { ok: false, msg: '공격 후에는 질주를 사용할 수 없습니다.' };
+      }
+      if (player._lastActionType === 'move' &&
+          (player._lastActionPieceType !== 'messenger')) {
+        return { ok: false, msg: '다른 유닛이 이동했으므로 질주를 사용할 수 없습니다.' };
       }
       // 질주 활성화 — 이번 턴 이동권 1회 추가 제공
       piece.messengerSprintActive = true;
@@ -2412,7 +2413,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── DUAL BLADE: 쌍검무 (양손검객 공격권 +1 — 총 최대 2회) ──
     case 'dualBlade': {
-      // 이미 공격을 2회 마친 경우 사용 불가 (이론상)
+      // 가드: 이동 후 사용 불가 (이번 턴 공격 2회 — 이동 후엔 의미 없음)
+      if (player._lastActionType === 'move') {
+        return { ok: false, msg: '이미 이동했으므로 쌍검무를 사용할 수 없습니다.' };
+      }
+      // 가드: 다른 유닛이 공격했다면 사용 불가 (이 양손검객 본인은 OK)
+      if (player._lastActionType === 'attack' &&
+          (player._lastActionPieceType !== 'dualBlade')) {
+        return { ok: false, msg: '다른 유닛이 행동했으므로 쌍검무를 사용할 수 없습니다.' };
+      }
       piece.dualBladeAttacksLeft = 1;  // +1 공격권
       spendSP(room, playerIdx, cost);
       result.msg = `⚔ 쌍검무: 양손검객의 공격권 1회 추가. 총 최대 2회 공격.`;
@@ -4379,6 +4388,10 @@ io.on('connection', (socket) => {
     } else {
       player.actionDone = true;
     }
+    // 행동 추적 — 쌍검무/질주 가드용
+    player._lastActionType = 'move';
+    player._lastActionPieceType = piece.type;
+    player._lastActionSubUnit = piece.subUnit || null;
 
     socket.emit('move_ok', {
       pieceIdx, prev, col, row,
@@ -4678,13 +4691,13 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 쌍검무: 첫 번째 공격 후 추가 공격 남아있으면 actionDone 유지하되 공격 허용
-    if (atkPiece.dualBladeAttacksLeft > 0) {
-      atkPiece.dualBladeAttacksLeft--;
-      player.actionDone = true; // actionDone이지만 위 분기에서 추가 공격 허용
-    } else {
-      player.actionDone = true;
-    }
+    // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
+    // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
+    player.actionDone = true;
+    // 행동 추적
+    player._lastActionType = 'attack';
+    player._lastActionPieceType = atkPiece.type;
+    player._lastActionSubUnit = atkPiece.subUnit || null;
 
     if (room.mode === 'team') {
       // 팀모드: 공격 후 전체 상태 재브로드캐스트
