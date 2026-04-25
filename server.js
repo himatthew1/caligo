@@ -2305,8 +2305,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       // 공격은 금지 (actionUsedSkillReplace 로 막음)
       player.actionUsedSkillReplace = true;
       spendSP(room, playerIdx, cost);
-      result.msg = `📯 질주: 전령은 이번 턴 이동을 ${piece.messengerMovesLeft}회 할 수 있습니다.`;
-      result.oppMsg = `📯 질주: 상대 전령은 이번 턴 이동권 ${piece.messengerMovesLeft}회를 얻었습니다.`;
+      result.msg = `📯 질주: 전령은 이번 턴 2회 이동합니다.`;
+      result.oppMsg = `📯 질주: 상대 전령은 이번 턴 2회 이동합니다.`;
       break;
     }
 
