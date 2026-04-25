@@ -2424,8 +2424,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       piece.dualBladeAttacksLeft = 1;  // +1 공격권
       spendSP(room, playerIdx, cost);
-      result.msg = `⚔ 쌍검무: 양손검객의 공격권 1회 추가. 총 최대 2회 공격.`;
-      result.oppMsg = `⚔ 쌍검무: 상대 양손검객이 공격권을 얻었습니다.`;
+      // 시전자·상대팀·관전자 모두 동일한 문장 사용
+      result.msg = `⚔ 쌍검무: ${player.name}의 양손검객은 이번 턴 2회 공격합니다.`;
+      result.oppMsg = `⚔ 쌍검무: ${player.name}의 양손검객은 이번 턴 2회 공격합니다.`;
       break;
     }
 

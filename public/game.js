@@ -2525,12 +2525,6 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   S.lastActionType = 'attack';
   S.lastActionPieceType = pc ? pc.type : null;
 
-  // 쌍검무: 공격 횟수 남아있으면 추가 공격 가능
-  if (pc && pc.dualBladeAttacksLeft > 0) {
-    addLog(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다`, 'info');
-    showSkillToast(`⚔ 이번턴 양손검객은 추가 공격이 가능합니다.`);
-  }
-
   // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
   const oppHitIndices = [];
   for (const c of cellResults) {
