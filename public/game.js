@@ -3138,8 +3138,8 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('분신', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 한쪽의 위치를 다른 형제의 칸으로 합류시켜 업어옵니다.',
-    flavor: '피로 이어진 형제. 그 핏줄이 두 형제가 어디에 있든지 서로를 강하게 끌어당긴다.',
+    body: '스킬 사용 시 한쪽의 위치를 다른 쪽으로 합류시켜 업어옵니다.',
+    flavor: '피로 이어진 남매. 그 핏줄이 두 남매가 어디에 있든지 서로를 강하게 끌어당긴다.',
   },
   scout: {
     blocks: [
@@ -3706,9 +3706,9 @@ function updateDraftPreview(charData) {
       cell.className = 'cell';
       cell.innerHTML = '';
 
-      // 형 위치
+      // 누나 위치
       if (col === elderCol && row === elderRow) {
-        cell.innerHTML = `<span style="font-size:1rem">👦</span>`;
+        cell.innerHTML = `<span style="font-size:1rem">👧</span>`;
         cell.classList.add('has-piece');
       }
       // 동생 위치
@@ -4684,7 +4684,7 @@ function exUpdatePreview(charData) {
     board.querySelectorAll('.cell').forEach(cell => {
       const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
       cell.className = 'cell'; cell.innerHTML = '';
-      if (col === elderCol && row === elderRow) { cell.innerHTML = `<span style="font-size:1rem">👦</span>`; cell.classList.add('has-piece'); }
+      if (col === elderCol && row === elderRow) { cell.innerHTML = `<span style="font-size:1rem">👧</span>`; cell.classList.add('has-piece'); }
       if (col === youngerCol && row === youngerRow) { cell.innerHTML = `<span style="font-size:1rem">👦</span>`; cell.classList.add('has-piece'); }
       const inE = rangeE.some(c => c.col === col && c.row === row);
       const inY = rangeY.some(c => c.col === col && c.row === row);
