@@ -1479,10 +1479,10 @@ function renderTeamHp(hasTwins) {
   if (isTwinsP1 || isTwinsP2) {
     html += `<div class="team-hp-slot">
       <div class="team-hp-slot-row">
-        <span>👬 쌍둥이 내부 분배:</span>
+        <span>👫 남매 내부 분배:</span>
       </div>
       <div class="team-hp-slot-row">
-        <span>형:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
+        <span>누나:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
         <span>동생:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinYounger"><span>HP</span>
       </div>
     </div>`;
@@ -2411,8 +2411,8 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.lastActionPieceType = pc.type;
     renderGameBoard();
     renderMyPieces();
-    const otherSub = pc.subUnit === 'elder' ? '동생' : '형';
-    document.getElementById('action-hint').textContent = `👬 쌍둥이 ${otherSub}이 아직 이동하지 않았습니다.`;
+    const otherSub = pc.subUnit === 'elder' ? '동생' : '누나';
+    document.getElementById('action-hint').textContent = `👫 남매 ${otherSub}이 아직 이동하지 않았습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
@@ -4169,7 +4169,7 @@ function showTwinSplit(twinTierHp) {
   function render() {
     controls.innerHTML = `
       <div class="hp-twin-unit">
-        <strong>👬 형</strong>
+        <strong>👧 누나</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="elder" data-delta="-1">−</button>
           <span class="hp-value">${elderHp}</span>
@@ -4178,7 +4178,7 @@ function showTwinSplit(twinTierHp) {
       </div>
       <span style="font-size:1.2rem;color:var(--muted)">+</span>
       <div class="hp-twin-unit">
-        <strong>👬 동생</strong>
+        <strong>👦 동생</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="younger" data-delta="-1">−</button>
           <span class="hp-value">${youngerHp}</span>
@@ -4210,7 +4210,7 @@ function showTwinSplit(twinTierHp) {
   // HP 확인 버튼을 쌍둥이 분배 전송으로 변경
   const btn = document.getElementById('btn-hp-confirm');
   btn.disabled = false;
-  btn.textContent = '쌍둥이 분배 확정';
+  btn.textContent = '남매 분배 확정';
   btn.onclick = () => {
     const ev = S.teamHpMode ? 'team_hp_distribute' : 'distribute_hp';
     socket.emit(ev, { twinSplit: [elderHp, youngerHp] });
@@ -5605,10 +5605,19 @@ function renderGameBoard() {
       const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
       const lockedDim = (dualActive && pc !== dualActive) || (sprintActive && pc !== sprintActive);
       const dimClass = isTwinDimmed ? 'twin-board-dimmed' : (lockedDim ? 'locked-board-dim' : '');
+      // 남매(twins): 같은 칸에 누나·동생 둘 다 있으면 손잡은 이모지로 표시 + HP 합계
+      const isTwin = pc.subUnit === 'elder' || pc.subUnit === 'younger';
+      const otherTwin = isTwin ? S.myPieces.find(p => p.alive && p !== pc &&
+        (p.subUnit === 'elder' || p.subUnit === 'younger') &&
+        p.col === col && p.row === row) : null;
+      const displayIcon = otherTwin ? '👫' : pc.icon;
+      const hpText = otherTwin
+        ? `${pc.hp + otherTwin.hp}/${pc.maxHp + otherTwin.maxHp}`
+        : `${pc.hp}/${pc.maxHp}`;
       cell.innerHTML += `
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''}">
-          <span class="p-icon">${pc.icon}</span>
-          <span class="p-hp">${pc.hp}/${pc.maxHp}</span>
+          <span class="p-icon">${displayIcon}</span>
+          <span class="p-hp">${hpText}</span>
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       cell.classList.add('has-piece');
@@ -6231,7 +6240,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
 document.getElementById('btn-attack').addEventListener('click', () => {
   if (!S.isMyTurn) return;
   if (S.twinMovePending) {
-    document.getElementById('action-hint').textContent = '쌍둥이가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
+    document.getElementById('action-hint').textContent = '남매가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
     return;
   }
   S.action = 'attack';
@@ -6384,9 +6393,15 @@ function openSkillModal() {
   const totalSP = mySP + myInstant;
   let hasAnySkill = false;
 
+  // 남매(twins): 분신은 한 쌍에 1회만 표시 — 첫 번째 등장(주로 elder)에서만 출력
+  let twinSkillShown = false;
   for (let i = 0; i < S.myPieces.length; i++) {
     const pc = S.myPieces[i];
     if (!pc.alive || !pc.hasSkill) continue;
+    if (pc.type === 'twins_elder' || pc.type === 'twins_younger') {
+      if (twinSkillShown) continue;
+      twinSkillShown = true;
+    }
     hasAnySkill = true;
 
     // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
@@ -6708,18 +6723,24 @@ function showTwinsSkillUI(pieceIdx, pc) {
   document.getElementById('skill-modal-title').textContent = '분신 — 합류 방향';
   body.innerHTML = '';
 
-  const isElder = pc.subUnit === 'elder';
+  // 어느 쪽이 누구의 위치로 합류할지 — 두 방향 모두 표시
+  const elderIdx = S.myPieces.findIndex(p => p.subUnit === 'elder' && p.alive);
+  const youngerIdx = S.myPieces.findIndex(p => p.subUnit === 'younger' && p.alive);
   const options = [
-    { target: isElder ? 'younger' : 'elder', label: isElder ? '형 → 동생에게 이동' : '동생 → 형에게 이동' },
+    { target: 'younger', moverIdx: youngerIdx, label: '동생이 누나 위치로 합류' },
+    { target: 'elder',   moverIdx: elderIdx,   label: '누나가 동생 위치로 합류' },
   ];
 
   for (const o of options) {
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">👬 ${o.label}</div>`;
+    opt.innerHTML = `<div class="skill-name">👫 ${o.label}</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
-      socket.emit('use_skill', { pieceIdx, skillId: 'brothers', params: { target: o.target } });
+      // 서버는 params.target === 'elder' 면 elder가 mover.
+      // UI 라벨 "누나가 동생 위치로 합류" → mover=elder → params.target='elder'
+      // "동생이 누나 위치로 합류" → mover=younger → params.target='younger'
+      socket.emit('use_skill', { pieceIdx: o.moverIdx, skillId: 'brothers', params: { target: o.target } });
     });
     body.appendChild(opt);
   }
@@ -6764,12 +6785,12 @@ function handleGameCellClick(col, row) {
       if (pc) {
         // 쌍둥이 이동 중: 이미 이동한 쪽 차단
         if (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub) {
-          setActionHint('이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.', true);
+          setActionHint('이미 이동한 남매입니다. 다른 쪽을 이동하세요.', true);
           return;
         }
         // 쌍둥이 이동 중: 쌍둥이가 아닌 유닛 선택 차단
         if (S.twinMovePending && !pc.subUnit) {
-          setActionHint('쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.', true);
+          setActionHint('남매 이동 중입니다. 나머지 남매를 이동시키세요.', true);
           return;
         }
         // #7: 전령 질주 중 — 해당 전령만 이동 가능
@@ -9114,7 +9135,7 @@ const TUTORIAL_STEPS = [
     </div>
     <div class="tut-section">
       <div class="tut-section-title">⚠ 겹침 규칙</div>
-      <div class="tut-text">아군 유닛은 <strong>같은 칸에 있을 수 없습니다.</strong><br>단, <strong>쌍둥이 강도</strong>는 예외로 같은 칸에 위치할 수 있습니다.</div>
+      <div class="tut-text">아군 유닛은 <strong>같은 칸에 있을 수 없습니다.</strong><br>단, <strong>남매 강도</strong>는 예외로 같은 칸에 위치할 수 있습니다.</div>
     </div>
     <div class="tut-highlight">💡 이동으로 적의 공격 범위를 피하거나, 유리한 위치를 선점하세요!</div>
   `,
@@ -9297,7 +9318,7 @@ const TUTORIAL_STEPS = [
       <div style="margin-bottom:10px">
         <span class="tut-tag-demo tut-tag-action">행동소비형</span><br>
         <span class="tut-text">사용하면 그 턴의 <strong>행동을 소비</strong>합니다. 이동이나 공격 불가.</span><br>
-        <span class="tut-text" style="color:var(--muted)">예: 쌍둥이·분신, 마녀·저주, 인간사냥꾼·덫 설치</span>
+        <span class="tut-text" style="color:var(--muted)">예: 남매·분신, 마녀·저주, 인간사냥꾼·덫 설치</span>
       </div>
       <div style="margin-bottom:10px">
         <span class="tut-tag-demo tut-tag-once">자유시전·1회</span><br>
