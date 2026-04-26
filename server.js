@@ -1246,10 +1246,10 @@ function createPiece(type, tier, hp, extra) {
   let pieceName = c.name;
   if (extra?.subUnit === 'elder') {
     pieceIcon = '👧';
-    pieceName = '쌍둥이(누나)';
+    pieceName = '쌍둥이 강도 누나';
   } else if (extra?.subUnit === 'younger') {
     pieceIcon = '👦';
-    pieceName = '쌍둥이(동생)';
+    pieceName = '쌍둥이 강도 동생';
   }
 
   const base = {
