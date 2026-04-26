@@ -2411,8 +2411,10 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.lastActionPieceType = pc.type;
     renderGameBoard();
     renderMyPieces();
-    const otherSub = pc.subUnit === 'elder' ? '동생' : '누나';
-    document.getElementById('action-hint').textContent = `👫 남매 ${otherSub}이 아직 이동하지 않았습니다.`;
+    // pc.subUnit === 'elder' (누나) 가 이미 이동 → 동생이 남음
+    // pc.subUnit === 'younger' (동생) 가 이미 이동 → 누나가 남음
+    const otherFull = pc.subUnit === 'elder' ? '동생이' : '누나가';
+    document.getElementById('action-hint').textContent = `👫 쌍둥이 ${otherFull} 아직 이동하지 않았습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
@@ -4210,7 +4212,7 @@ function showTwinSplit(twinTierHp) {
   // HP 확인 버튼을 쌍둥이 분배 전송으로 변경
   const btn = document.getElementById('btn-hp-confirm');
   btn.disabled = false;
-  btn.textContent = '남매 분배 확정';
+  btn.textContent = '쌍둥이 분배 확정';
   btn.onclick = () => {
     const ev = S.teamHpMode ? 'team_hp_distribute' : 'distribute_hp';
     socket.emit(ev, { twinSplit: [elderHp, youngerHp] });
@@ -6240,7 +6242,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
 document.getElementById('btn-attack').addEventListener('click', () => {
   if (!S.isMyTurn) return;
   if (S.twinMovePending) {
-    document.getElementById('action-hint').textContent = '남매가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
+    document.getElementById('action-hint').textContent = '쌍둥이가 이동 중입니다. 나머지를 이동하거나 턴을 종료하세요.';
     return;
   }
   S.action = 'attack';
@@ -6785,12 +6787,12 @@ function handleGameCellClick(col, row) {
       if (pc) {
         // 쌍둥이 이동 중: 이미 이동한 쪽 차단
         if (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub) {
-          setActionHint('이미 이동한 남매입니다. 다른 쪽을 이동하세요.', true);
+          setActionHint('이미 이동한 쌍둥이입니다. 다른 쪽을 이동하세요.', true);
           return;
         }
         // 쌍둥이 이동 중: 쌍둥이가 아닌 유닛 선택 차단
         if (S.twinMovePending && !pc.subUnit) {
-          setActionHint('남매 이동 중입니다. 나머지 남매를 이동시키세요.', true);
+          setActionHint('쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.', true);
           return;
         }
         // #7: 전령 질주 중 — 해당 전령만 이동 가능
@@ -9135,7 +9137,7 @@ const TUTORIAL_STEPS = [
     </div>
     <div class="tut-section">
       <div class="tut-section-title">⚠ 겹침 규칙</div>
-      <div class="tut-text">아군 유닛은 <strong>같은 칸에 있을 수 없습니다.</strong><br>단, <strong>남매 강도</strong>는 예외로 같은 칸에 위치할 수 있습니다.</div>
+      <div class="tut-text">아군 유닛은 <strong>같은 칸에 있을 수 없습니다.</strong><br>단, <strong>쌍둥이 강도</strong>는 예외로 같은 칸에 위치할 수 있습니다.</div>
     </div>
     <div class="tut-highlight">💡 이동으로 적의 공격 범위를 피하거나, 유리한 위치를 선점하세요!</div>
   `,
@@ -9318,7 +9320,7 @@ const TUTORIAL_STEPS = [
       <div style="margin-bottom:10px">
         <span class="tut-tag-demo tut-tag-action">행동소비형</span><br>
         <span class="tut-text">사용하면 그 턴의 <strong>행동을 소비</strong>합니다. 이동이나 공격 불가.</span><br>
-        <span class="tut-text" style="color:var(--muted)">예: 남매·분신, 마녀·저주, 인간사냥꾼·덫 설치</span>
+        <span class="tut-text" style="color:var(--muted)">예: 쌍둥이·분신, 마녀·저주, 인간사냥꾼·덫 설치</span>
       </div>
       <div style="margin-bottom:10px">
         <span class="tut-tag-demo tut-tag-once">자유시전·1회</span><br>
@@ -9437,7 +9439,7 @@ const TUTORIAL_STEPS = [
           </tr>
           <tr><td style="padding:4px 14px;color:var(--text-dim)">40턴</td><td style="padding:4px 14px">⚠️ <strong>경고 표시</strong> — "10턴 후 보드가 축소됩니다!"</td></tr>
           <tr><td style="padding:4px 14px;color:var(--text-dim)">50턴</td><td style="padding:4px 14px">💥 <strong>테두리 파괴</strong> — 5×5 → 3×3으로 축소</td></tr>
-          <tr><td style="padding:4px 14px;color:var(--text-dim)">대치 시</td><td style="padding:4px 14px">⚔ <strong>1대1 대치</strong> — 양쪽 모두 1유닛만 남으면 5턴 후 즉시 보드가 축소됩니다.</td></tr>
+          <tr><td style="padding:4px 14px;color:var(--text-dim)">대치 시</td><td style="padding:4px 14px"><strong>1대1 대치 상황</strong> — 양쪽 모두 1유닛만 남으면 5턴 후 보드가 축소됩니다.</td></tr>
         </table>
       </div>
       <div class="tut-text" style="display:flex;gap:16px;justify-content:center;align-items:center;margin:10px 0">

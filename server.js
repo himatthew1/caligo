@@ -38,7 +38,7 @@ const CHARACTERS = {
     { type:'spearman', name:'창병', tier:1, atk:1, icon:'🔱', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
     { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'🐎', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'👁', tag:null, desc:'주변 8칸(자기제외)', skills:[] },
-    { type:'twins', name:'남매 강도', tier:1, atk:1, icon:'👫', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
+    { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'👫', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
       skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류합니다.'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'🔭', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
@@ -1241,15 +1241,15 @@ function createPiece(type, tier, hp, extra) {
   const hasSkill = skillList.length > 0;
   const firstSkill = skillList[0] || null;
 
-  // 남매 (twins): subUnit별 개별 아이콘/이름
+  // 쌍둥이: subUnit별 개별 아이콘/이름 (관계 설정은 남매 — 누나·동생)
   let pieceIcon = c.icon;
   let pieceName = c.name;
   if (extra?.subUnit === 'elder') {
     pieceIcon = '👧';
-    pieceName = '남매(누나)';
+    pieceName = '쌍둥이(누나)';
   } else if (extra?.subUnit === 'younger') {
     pieceIcon = '👦';
-    pieceName = '남매(동생)';
+    pieceName = '쌍둥이(동생)';
   }
 
   const base = {
@@ -2004,10 +2004,10 @@ function detectStalemateShrink(room) {
   room.stalemateShrinkTurn = room.turnNumber + 5;
   emitToBoth(room, 'turn_event', {
     type: 'stalemate_shrink',
-    msg: '⚔ 1대1 대치 — 5턴 후 보드 축소가 시작됩니다.',
+    msg: '1대1 대치 상황: 5턴 후 보드가 축소됩니다.',
   });
   emitToSpectators(room, 'spectator_log', {
-    msg: '⚔ 1대1 대치 — 5턴 후 보드 축소가 시작됩니다.',
+    msg: '1대1 대치 상황: 5턴 후 보드가 축소됩니다.',
     type: 'event',
   });
 }
@@ -2262,7 +2262,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     case 'twins_younger': {
       const elderTwin = player.pieces.find(p => p.subUnit === 'elder' && p.alive);
       const youngerTwin = player.pieces.find(p => p.subUnit === 'younger' && p.alive);
-      if (!elderTwin || !youngerTwin) return { ok: false, msg: '남매 중 하나가 쓰러져 분신을 사용할 수 없습니다.' };
+      if (!elderTwin || !youngerTwin) return { ok: false, msg: '쌍둥이 중 하나가 쓰러져 분신을 사용할 수 없습니다.' };
 
       const mover = params?.target === 'elder'
         ? player.pieces.find(p => p.subUnit === 'elder' && p.alive)
@@ -2277,11 +2277,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      const moverLabel = mover.subUnit === 'elder' ? '누나' : '동생';
-      const targetLabel = target.subUnit === 'elder' ? '누나' : '동생';
-      // ※ 문장 구조 그대로 유지 (쌍둥이 → 남매, 형 → 누나, 동생 → 동생, 아이콘 👬 → 👫)
-      result.msg = `👫 분신: 남매 ${moverLabel}이 남매 ${targetLabel}쪽으로 합류했습니다.`;
-      result.oppMsg = `👫 분신: 상대가 남매 ${moverLabel}을 남매 ${targetLabel}쪽으로 합류시켰습니다.`;
+      const moverSubject = mover.subUnit === 'elder' ? '누나가' : '동생이';
+      const moverObject  = mover.subUnit === 'elder' ? '누나를' : '동생을';
+      const targetLabel  = target.subUnit === 'elder' ? '누나' : '동생';
+      result.msg = `👫 분신: 쌍둥이 ${moverSubject} ${targetLabel}쪽으로 합류했습니다.`;
+      result.oppMsg = `👫 분신: 상대가 쌍둥이 ${moverObject} ${targetLabel}쪽으로 합류시켰습니다.`;
       break;
     }
 
@@ -3875,7 +3875,7 @@ io.on('connection', (socket) => {
       if (!Array.isArray(twinSplit) || twinSplit.length !== 2 ||
           twinSplit[0] < 1 || twinSplit[1] < 1 ||
           twinSplit[0] + twinSplit[1] !== twinSlotHp) {
-        socket.emit('err', { msg: `남매 HP 합계는 ${twinSlotHp}, 각 최소 1이어야 합니다.` }); return;
+        socket.emit('err', { msg: `쌍둥이 HP 합계는 ${twinSlotHp}, 각 최소 1이어야 합니다.` }); return;
       }
       player.hpDist = { ...player.hpDist, twinElder: twinSplit[0], twinYounger: twinSplit[1] };
       player.pieces = buildTeamPieces(draft, player.hpDist);
@@ -3898,7 +3898,7 @@ io.on('connection', (socket) => {
     }
     if (hasTwins) {
       const twinIdx = twinSlot === 'pick1' ? 0 : 1;
-      if (hps[twinIdx] < 2) { socket.emit('err', { msg: '남매는 최소 2 HP 필요합니다.' }); return; }
+      if (hps[twinIdx] < 2) { socket.emit('err', { msg: '쌍둥이는 최소 2 HP 필요합니다.' }); return; }
       player.hpDist = { pick1: hps[0], pick2: hps[1] };
       socket.emit('twin_split_needed', { twinTierHp: hps[twinIdx] });
       return;
@@ -4109,7 +4109,7 @@ io.on('connection', (socket) => {
       if (!Array.isArray(twinSplit) || twinSplit.length !== 2 ||
           twinSplit[0] < 1 || twinSplit[1] < 1 ||
           twinSplit[0] + twinSplit[1] !== twinTierHp) {
-        socket.emit('err', { msg: `남매 HP 합계는 ${twinTierHp}, 각 최소 1이어야 합니다.` }); return;
+        socket.emit('err', { msg: `쌍둥이 HP 합계는 ${twinTierHp}, 각 최소 1이어야 합니다.` }); return;
       }
 
       const d = player.draft;
@@ -4142,7 +4142,7 @@ io.on('connection', (socket) => {
         socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 8. (3개 필요)' }); return;
       }
       if (hps[0] < 2) {
-        socket.emit('err', { msg: '남매 티어는 최소 2 HP 필요합니다.' }); return;
+        socket.emit('err', { msg: '쌍둥이 티어는 최소 2 HP 필요합니다.' }); return;
       }
       player.hpDist = hps;
       // Request twin split
@@ -4346,7 +4346,7 @@ io.on('connection', (socket) => {
 
     // 쌍둥이 이동 중에는 쌍둥이만 이동 가능
     if (player.twinMovedSubs && player.twinMovedSubs.length > 0 && !piece.subUnit) {
-      socket.emit('err', { msg: '남매 이동 중입니다. 나머지 남매를 이동시키세요.' }); return;
+      socket.emit('err', { msg: '쌍둥이 이동 중입니다. 나머지 쌍둥이를 이동시키세요.' }); return;
     }
     // 전령 질주 중에는 해당 전령만 이동 가능
     const anySprintingMsg = player.pieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
@@ -4408,7 +4408,7 @@ io.on('connection', (socket) => {
       // 이미 이동한 쌍둥이인지 확인
       if (!player.twinMovedSubs) player.twinMovedSubs = [];
       if (player.twinMovedSubs.includes(piece.subUnit)) {
-        socket.emit('err', { msg: '이미 이동한 남매입니다. 다른 쪽을 이동시키세요.' }); return;
+        socket.emit('err', { msg: '이미 이동한 쌍둥이입니다. 다른 쪽을 이동시키세요.' }); return;
       }
       player.twinMovedSubs.push(piece.subUnit);
 
@@ -4542,7 +4542,7 @@ io.on('connection', (socket) => {
 
     // 쌍둥이 이동 중이면 공격 불가 (이동과 공격을 섞을 수 없음)
     if (player.twinMovedSubs && player.twinMovedSubs.length > 0) {
-      socket.emit('err', { msg: '남매가 이동 중입니다. 나머지 남매도 이동하거나 턴을 종료하세요.' }); return;
+      socket.emit('err', { msg: '쌍둥이가 이동 중입니다. 나머지 쌍둥이도 이동하거나 턴을 종료하세요.' }); return;
     }
 
     const attacker = player;
