@@ -1830,6 +1830,29 @@ body {
   pointer-events: none;
   cursor: not-allowed;
 }
+
+/* ── 행동 모드 시각 표시 ── */
+/* 선택된 행동 버튼: 글로우 + 외곽 강조 */
+.action-bar .btn.action-active {
+  position: relative;
+  box-shadow:
+    0 0 0 2px rgba(240,192,64,0.7),
+    0 0 18px 4px rgba(240,192,64,0.55);
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+  animation: actionPulse 1.4s ease-in-out infinite;
+}
+@keyframes actionPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(240,192,64,0.7), 0 0 14px 3px rgba(240,192,64,0.45); }
+  50%      { box-shadow: 0 0 0 2px rgba(240,192,64,0.95), 0 0 22px 6px rgba(240,192,64,0.7); }
+}
+/* 행동 모드 진입 시 다른 버튼은 비활성/잠금 표시 */
+.action-bar .btn.action-locked {
+  opacity: 0.32;
+  filter: grayscale(0.8);
+  pointer-events: none;
+  cursor: not-allowed;
+}
 .action-hint { font-size: 0.82rem; color: var(--muted); text-align: center; min-height: 20px; }
 .action-hint.urgent { color: var(--danger); font-weight: 700; font-size: 0.88rem; }
 

@@ -2057,6 +2057,11 @@ socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   // 관전자 전용 효과음: 메시지 내용으로 판단
   if (type === 'passive' && msg.includes('저주 상태의') && msg.includes('0.5 피해')) {
     playSfxCurseDamage();
+  } else if (type === 'passive') {
+    // 그 외 패시브는 전용 차임
+    playSfxPassive();
+  } else if (type === 'skill' && msg.startsWith('⛓ 악몽:')) {
+    playSfxNightmare();
   } else if (type === 'hit' && msg.includes('🪤')) {
     playSfxTrapSnap();
   } else if (type === 'hit' && msg.includes('💥')) {
@@ -2418,6 +2423,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.actionDone = true;
     S.lastActionType = 'move';
     S.lastActionPieceType = pc.type;
+    setActionButtonMode(null);
     renderGameBoard();
     renderMyPieces();
     showActionBar(true);
@@ -2498,9 +2504,11 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       showSkillToast(`⚔ ${myN()}의 ${pc.name}! 공격 빗나감.`);
     }
   } else {
-    for (const h of cellResults.filter(c => c.hit)) {
+    // 호위무사 가로채기·0데미지 비격파 hit은 토스트/로그 생략
+    // (호위무사의 충성 패시브 알림과 본체 피격 애니메이션이 별도로 표시됨)
+    const meaningfulHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
+    for (const h of meaningfulHits) {
       if (h.destroyed) playSfx('kill'); else playSfx('hit');
-      // 쌍둥이: 실제 공격자 이름 사용
       const atkName = h.attackerName || pc.name;
       const atkIcon = h.attackerIcon || pc.icon;
       const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
@@ -2508,8 +2516,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
         ? `⚔ ${myN()}의 ${atkName}! ${target} 격파함. 💀`
         : `⚔ ${myN()}의 ${atkName}! ${target}에 ${h.damage} 피해.`, 'hit');
     }
-    const hits = cellResults.filter(c => c.hit);
-    for (const h of hits) {
+    for (const h of meaningfulHits) {
       const atkName = h.attackerName || pc.name;
       const target = h.destroyed ? `${oppN()}의 ${h.revealedIcon||''}${h.revealedName||'유닛'}` : coord(h.col,h.row);
       showSkillToast(h.destroyed
@@ -2524,11 +2531,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   S.actionDone = true;
   S.lastActionType = 'attack';
   S.lastActionPieceType = pc ? pc.type : null;
+  setActionButtonMode(null);
 
-  // 피격 인덱스 수집: 상대 유닛 (서버에서 직접 전달받은 인덱스 사용)
+  // 피격 인덱스 수집: 상대 유닛 — 호위무사 가로채기는 본체 애니메이션 스킵
   const oppHitIndices = [];
   for (const c of cellResults) {
-    if (c.hit && c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) {
+    if (!c.hit || c.redirectedToBodyguard) continue;
+    if (c.damage === 0 && !c.destroyed) continue;
+    if (c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) {
       oppHitIndices.push(c.defPieceIdx);
     }
   }
@@ -2582,19 +2592,21 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   animateAttack([], hitCells);
 
   S.myPieces = yourPieces;
-  if (hitPieces.length === 0) {
+  // 호위무사 가로채기 / 0데미지 비격파 hit은 토스트·로그 생략
+  const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+  if (meaningfulHits.length === 0 && hitPieces.length === 0) {
     addLog(`⚔ ${oppN()}의 공격 빗나감.`, 'miss');
     showSkillToast(`⚔ ${oppN()}의 공격 빗나감.`, true);
   } else {
-    for (const h of hitPieces) {
+    for (const h of meaningfulHits) {
       if (h.destroyed) playSfx('kill'); else playSfx('hit');
       const unitName = h.icon && h.name ? `${myN()}의 ${h.icon}${h.name}` : coord(h.col,h.row);
       addLog(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, 'hit');
       showSkillToast(h.destroyed ? `⚔ ${unitName} 피격! 격파됨. 💀` : `⚔ ${unitName} 피격! ${h.damage} 피해.`, true);
     }
   }
-  // 피격 유닛 인덱스를 미리 수집 (renderMyPieces 전에 — 좌표 매칭)
-  const hitIndices = findPieceIndices(S.myPieces, hitPieces);
+  // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
+  const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
 
   renderGameBoard();
   renderMyPieces();
@@ -2719,10 +2731,17 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
-    playSfx('skill');
+    // 악몽(고문 기술자) 전용 사운드 우선
+    if (msg.startsWith('⛓ 악몽:')) {
+      playSfxNightmare();
+    } else {
+      playSfx('skill');
+    }
     addLog(msg, 'skill');
     showSkillToast(msg);
   }
+  // 스킬 시전 완료 — 액션 모드 글로우 해제
+  if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   // 힐 애니메이션: data.healedPieceIdxs 있으면 해당 카드 2초 초록 빛
   const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
   if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
@@ -2753,7 +2772,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
 socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed }) => {
-  playSfx('opp_skill');
+  // 악몽(상대) 전용 사운드 우선
+  if (msg && msg.startsWith('⛓ 악몽:')) {
+    playSfxNightmare();
+  } else {
+    playSfx('opp_skill');
+  }
 
   // 피해 감지용: 업데이트 전 HP 스냅샷
   const oldMyHps = S.myPieces.map(p => p.hp);
@@ -2865,6 +2889,10 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
 // ── 패시브 알림 ──
 socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   addLog(msg, 'skill');
+  // 패시브 전용 효과음 — 저주 틱은 별도 사운드라 제외
+  if (type !== 'curse_tick') {
+    playSfxPassive();
+  }
   if (type === 'bodyguard') {
     S._bodyguardIntercepted = true;
   }
@@ -6150,6 +6178,30 @@ function buildPieceTooltip(pc, side) {
 // ── 액션 버튼 ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+// 행동 모드별 액션 바 시각 표시 — 선택된 버튼은 글로우, 나머지는 잠금 표시
+function setActionButtonMode(mode) {
+  // mode: 'move' | 'attack' | 'skill' | null
+  const buttons = {
+    move:    document.getElementById('btn-move'),
+    attack:  document.getElementById('btn-attack'),
+    skill:   document.getElementById('btn-skill'),
+  };
+  const btnEnd = document.getElementById('btn-end-turn');
+  const btnCancel = document.getElementById('btn-cancel');
+  const btnSurrender = document.getElementById('btn-surrender');
+  for (const [key, btn] of Object.entries(buttons)) {
+    if (!btn) continue;
+    btn.classList.remove('action-active', 'action-locked');
+    if (mode === null) continue;
+    if (key === mode) btn.classList.add('action-active');
+    else btn.classList.add('action-locked');
+  }
+  if (btnEnd) btnEnd.classList.toggle('action-locked', mode !== null);
+  if (btnSurrender) btnSurrender.classList.toggle('action-locked', mode !== null);
+  // 취소 버튼도 함께 글로우 — 행동 모드 진입 표시
+  if (btnCancel) btnCancel.classList.toggle('action-active', mode !== null);
+}
+
 function resetAction() {
   S.action = null;
   S.selectedPiece = null;
@@ -6158,6 +6210,7 @@ function resetAction() {
   document.getElementById('btn-cancel').classList.add('hidden');
   const hint = document.getElementById('action-hint');
   if (hint) hint.textContent = '행동을 선택하세요.';
+  setActionButtonMode(null);
   renderGameBoard();
   renderMyPieces();
 }
@@ -6170,6 +6223,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.targetSelectMode = false;
   document.getElementById('btn-cancel').classList.remove('hidden');
   document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
+  setActionButtonMode('move');
   renderGameBoard();
 });
 
@@ -6185,12 +6239,14 @@ document.getElementById('btn-attack').addEventListener('click', () => {
   S.targetSelectMode = false;
   document.getElementById('btn-cancel').classList.remove('hidden');
   document.getElementById('action-hint').textContent = '공격할 말을 클릭하세요.';
+  setActionButtonMode('attack');
   renderGameBoard();
 });
 
 // 스킬 버튼
 document.getElementById('btn-skill').addEventListener('click', () => {
   if (!S.isMyTurn) return;
+  setActionButtonMode('skill');
   openSkillModal();
 });
 
@@ -6673,6 +6729,8 @@ function showTwinsSkillUI(pieceIdx, pc) {
 document.getElementById('skill-modal-close').addEventListener('click', () => {
   document.getElementById('skill-modal').classList.add('hidden');
   document.getElementById('skill-modal-title').textContent = '스킬 선택';
+  // 스킬 모달 취소 시 액션 모드 글로우 해제 (실제 시전 안 했으므로)
+  setActionButtonMode(null);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -8229,6 +8287,118 @@ function playTimerTick() {
 }
 
 // ── 턴 벨소리 (Web Audio) ──
+// ── 악몽(고문 기술자) 전용 효과음 — 쇠사슬 + 채찍 + 저음 임팩트 ──
+function playSfxNightmare() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 쇠사슬 짤랑임 — 짧고 빠른 메탈릭 노이즈 펄스 4회
+    for (let i = 0; i < 4; i++) {
+      const t = now + i * 0.06;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 4500;
+      bp.Q.value = 6;
+      src.connect(bp); bp.connect(g); g.connect(out);
+      src.start(t); src.stop(t + 0.05);
+    }
+
+    // ② 채찍 휘둘림 — 고음에서 낮게 떨어지는 노이즈 스윕
+    const whipStart = now + 0.28;
+    const whipBuf = ctx.createBuffer(1, ctx.sampleRate * 0.18, ctx.sampleRate);
+    const wd = whipBuf.getChannelData(0);
+    for (let j = 0; j < wd.length; j++) wd[j] = (Math.random() * 2 - 1);
+    const whip = ctx.createBufferSource();
+    whip.buffer = whipBuf;
+    const whipG = ctx.createGain();
+    whipG.gain.setValueAtTime(0.001, whipStart);
+    whipG.gain.linearRampToValueAtTime(0.22, whipStart + 0.05);
+    whipG.gain.exponentialRampToValueAtTime(0.001, whipStart + 0.18);
+    const whipFilter = ctx.createBiquadFilter();
+    whipFilter.type = 'bandpass';
+    whipFilter.frequency.setValueAtTime(8000, whipStart);
+    whipFilter.frequency.exponentialRampToValueAtTime(800, whipStart + 0.15);
+    whipFilter.Q.value = 3;
+    whip.connect(whipFilter); whipFilter.connect(whipG); whipG.connect(out);
+    whip.start(whipStart); whip.stop(whipStart + 0.18);
+
+    // ③ 저음 임팩트 — 무겁게 가라앉는 마무리
+    const boomStart = now + 0.42;
+    const boom = ctx.createOscillator();
+    const boomG = ctx.createGain();
+    boom.type = 'sawtooth';
+    boom.frequency.setValueAtTime(110, boomStart);
+    boom.frequency.exponentialRampToValueAtTime(40, boomStart + 0.45);
+    boomG.gain.setValueAtTime(0.22, boomStart);
+    boomG.gain.exponentialRampToValueAtTime(0.001, boomStart + 0.55);
+    boom.connect(boomG); boomG.connect(out);
+    boom.start(boomStart); boom.stop(boomStart + 0.55);
+
+    // ④ 어두운 마이너 화음 (지속 톤)
+    const chordT = now + 0.45;
+    const minorChord = [220, 261.63, 329.63];  // A3 / C4 / E4
+    for (const f of minorChord) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.06, chordT);
+      g.gain.exponentialRampToValueAtTime(0.001, chordT + 0.6);
+      o.connect(g); g.connect(out);
+      o.start(chordT); o.stop(chordT + 0.65);
+    }
+  } catch (e) {}
+}
+
+// ── 패시브 발동 전용 효과음 — 부드러운 2음 차임 ──
+function playSfxPassive() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+
+    // ① 작고 부드러운 두 음 (E5 → A5) — 알림 차임
+    const notes = [{ f: 659.25, t: 0 }, { f: 880, t: 0.08 }];
+    for (const n of notes) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = n.f;
+      g.gain.setValueAtTime(0.001, now + n.t);
+      g.gain.linearRampToValueAtTime(0.10, now + n.t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + n.t + 0.25);
+      o.connect(g); g.connect(out);
+      o.start(now + n.t); o.stop(now + n.t + 0.3);
+    }
+    // ② 살짝 스파클 (고역 노이즈 한 점)
+    const sparkleT = now + 0.04;
+    const sBuf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+    const sd = sBuf.getChannelData(0);
+    for (let j = 0; j < sd.length; j++) sd[j] = (Math.random() * 2 - 1);
+    const sp = ctx.createBufferSource();
+    sp.buffer = sBuf;
+    const sG = ctx.createGain();
+    sG.gain.setValueAtTime(0.04, sparkleT);
+    sG.gain.exponentialRampToValueAtTime(0.001, sparkleT + 0.05);
+    const sF = ctx.createBiquadFilter();
+    sF.type = 'highpass'; sF.frequency.value = 7000;
+    sp.connect(sF); sF.connect(sG); sG.connect(out);
+    sp.start(sparkleT); sp.stop(sparkleT + 0.05);
+  } catch (e) {}
+}
+
 function playTurnBell() {
   if (sfxMuted) return;
   try {

@@ -1566,7 +1566,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
       for (let dpi = 0; dpi < defender.pieces.length; dpi++) {
         const defPiece = defender.pieces[dpi];
         if (defPiece.alive && defPiece.col === cell.col && defPiece.row === cell.row) {
+          // 호위무사 가로채기 감지: resolveDamage 직전후 _pendingBodyguardHits 길이 비교
+          const bgBefore = (room._pendingBodyguardHits || []).length;
           const dmg = resolveDamage(room, atkPiece, defPiece, attackerIdx, baseDmg, false, defIdx);
+          const redirectedToBodyguard = ((room._pendingBodyguardHits || []).length > bgBefore);
           defPiece.hp = Math.max(0, defPiece.hp - dmg);
           // #11: 피격 후 HP=1 이하로 내려가면 저주 즉시 해제
           if (defPiece.alive && dmg > 0) {
@@ -1586,6 +1589,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
             hitIcon: defPiece.icon,
             defPieceIdx: dpi,          // 피격 대상의 배열 인덱스 (프로필 애니메이션용)
             defOwnerIdx: defIdx,       // 팀모드: 어느 적 플레이어의 말인지
+            // 호위무사가 대신 받음 — 클라에서 토스트·애니메이션 스킵
+            redirectedToBodyguard,
             attackerSub: atkPiece.subUnit || null,
             attackerName: atkPiece.name,
             attackerIcon: atkPiece.icon,
