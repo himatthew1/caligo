@@ -324,6 +324,8 @@ function createRoom(id, opts = {}) {
     boardBounds: mode === 'team' ? { min: 0, max: 6 } : { min: 0, max: 4 },
     boardShrunk: false,
     boardShrinkStage: 0,   // 0=초기, 1=첫 축소, 2=최종 축소
+    stalemateShrinkTriggered: false,
+    stalemateShrinkTurn: null,
     // Board objects: traps, bombs (per player arrays)
     boardObjects: Array(playerCount).fill(null).map(() => []),
     // Rats per player
@@ -1899,8 +1901,11 @@ function processTurnStart(room) {
     emitToSpectators(room, 'spectator_log', { msg: '⚡ 새로운 SP가 지급되었습니다.', type: 'event' });
   }
 
+  // 1대1 대치 감지 — 양측 1유닛 alive면 5턴 후 축소 예약
+  detectStalemateShrink(room);
+
   // ── 보드 축소 스케줄 ──
-  // 1v1: 40턴 경고 → 50턴 5x5→3x3
+  // 1v1: 40턴 경고 → 50턴 5x5→3x3 (또는 1대1 대치 시 +5턴 동적)
   // 팀전: 20턴 경고 → 25턴 7x7→5x5 / 45턴 경고 → 50턴 5x5→3x3
   const schedule = getBoardShrinkSchedule(room);
   for (const ev of schedule) {
@@ -1963,10 +1968,41 @@ function getBoardShrinkSchedule(room) {
       { stage: 2, warnTurn: 45, shrinkTurn: 50, newBounds: { min: 2, max: 4 }, final: true },   // 5x5 → 3x3
     ];
   }
-  // 1v1: 기존 로직 그대로
+  // 1v1: stalemate가 트리거됐으면 동적 스케줄, 아니면 기본 40턴 경고/50턴 축소
+  if (room.stalemateShrinkTriggered && room.stalemateShrinkTurn != null) {
+    return [{
+      stage: 1,
+      warnTurn: Math.max(0, room.stalemateShrinkTurn - 5),
+      shrinkTurn: room.stalemateShrinkTurn,
+      newBounds: { min: 1, max: 3 },
+      final: true,
+    }];
+  }
   return [
     { stage: 1, warnTurn: 40, shrinkTurn: 50, newBounds: { min: 1, max: 3 }, final: true },
   ];
+}
+
+// 1대1 대치 감지 — 양 플레이어 각 1유닛 alive 시 5턴 후 보드 축소 예약
+// 이미 축소 진행 중이거나 기존 경고가 시작됐다면 조용히 스킵
+function detectStalemateShrink(room) {
+  if (!room || room.mode === 'team') return;
+  if (room.boardShrinkStage > 0) return;       // 이미 축소 진행
+  if (room.stalemateShrinkTriggered) return;   // 이미 트리거됨
+  if (room.turnNumber >= 40) return;           // 기본 경고가 이미 시작됨 → 조용히 스킵
+  const a = room.players[0]?.pieces.filter(p => p.alive).length || 0;
+  const b = room.players[1]?.pieces.filter(p => p.alive).length || 0;
+  if (a !== 1 || b !== 1) return;
+  room.stalemateShrinkTriggered = true;
+  room.stalemateShrinkTurn = room.turnNumber + 5;
+  emitToBoth(room, 'turn_event', {
+    type: 'stalemate_shrink',
+    msg: '⚔ 1대1 대치 — 5턴 후 보드 축소가 시작됩니다.',
+  });
+  emitToSpectators(room, 'spectator_log', {
+    msg: '⚔ 1대1 대치 — 5턴 후 보드 축소가 시작됩니다.',
+    type: 'event',
+  });
 }
 
 function endTurn(room) {

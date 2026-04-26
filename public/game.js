@@ -9416,6 +9416,7 @@ const TUTORIAL_STEPS = [
           </tr>
           <tr><td style="padding:4px 14px;color:var(--text-dim)">40턴</td><td style="padding:4px 14px">⚠️ <strong>경고 표시</strong> — "10턴 후 보드가 축소됩니다!"</td></tr>
           <tr><td style="padding:4px 14px;color:var(--text-dim)">50턴</td><td style="padding:4px 14px">💥 <strong>테두리 파괴</strong> — 5×5 → 3×3으로 축소</td></tr>
+          <tr><td style="padding:4px 14px;color:var(--text-dim)">대치 시</td><td style="padding:4px 14px">⚔ <strong>1대1 대치</strong> — 양쪽 모두 1유닛만 남으면 5턴 후 즉시 보드가 축소됩니다.</td></tr>
         </table>
       </div>
       <div class="tut-text" style="display:flex;gap:16px;justify-content:center;align-items:center;margin:10px 0">
