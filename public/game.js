@@ -795,12 +795,98 @@ if (_btnRoomlist) {
   });
 }
 
+// 방목록·관전 모달 필터 상태
+S.roomListFilter = 'all';
+
+function applyRoomListFilter(items, render) {
+  const container = document.getElementById('spectate-room-list');
+  if (!items || items.length === 0) {
+    container.innerHTML = '<p class="muted">표시할 방이 없습니다.</p>';
+    return;
+  }
+  const filtered = items.filter(r => {
+    if (S.roomListFilter === 'all') return true;
+    return r.mode === S.roomListFilter;
+  });
+  if (filtered.length === 0) {
+    container.innerHTML = '<p class="muted">선택한 필터에 해당하는 방이 없습니다.</p>';
+    return;
+  }
+  render(filtered);
+}
+
+function renderRoomListFilterTabs(rawList, renderFn, afterRender) {
+  const container = document.getElementById('spectate-room-list');
+  const tabs = `
+    <div class="room-filter-tabs">
+      <button class="room-filter-tab${S.roomListFilter === 'all' ? ' active' : ''}" data-f="all">전체</button>
+      <button class="room-filter-tab${S.roomListFilter === 'ai' ? ' active' : ''}" data-f="ai">AI 대전</button>
+      <button class="room-filter-tab${S.roomListFilter === '1v1' ? ' active' : ''}" data-f="1v1">1대1</button>
+      <button class="room-filter-tab${S.roomListFilter === 'team' ? ' active' : ''}" data-f="team">2대2</button>
+    </div>
+    <div id="room-list-body"></div>`;
+  container.innerHTML = tabs;
+  container.querySelectorAll('.room-filter-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      S.roomListFilter = btn.dataset.f;
+      renderRoomListFilterTabs(rawList, renderFn, afterRender);
+    });
+  });
+  const body = document.getElementById('room-list-body');
+  const filtered = rawList.filter(r => S.roomListFilter === 'all' || r.mode === S.roomListFilter);
+  if (filtered.length === 0) {
+    body.innerHTML = '<p class="muted">선택한 필터에 해당하는 방이 없습니다.</p>';
+    return;
+  }
+  body.innerHTML = renderFn(filtered);
+  if (typeof afterRender === 'function') afterRender();
+}
+
+function attachWaitingRoomClicks() {
+  const container = document.getElementById('spectate-room-list');
+  container.querySelectorAll('.spectate-room-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const roomId = el.dataset.room;
+      const mode = el.dataset.mode;
+      const name = document.getElementById('input-name').value.trim();
+      if (!name) {
+        showSkillToast('닉네임을 먼저 입력하세요.', false, undefined, 'event');
+        return;
+      }
+      S.myName = name;
+      S.roomId = roomId;
+      document.getElementById('spectate-modal').classList.add('hidden');
+      if (mode === 'team') {
+        S.isTeamMode = true;
+        socket.emit('join_team_room', { roomId, playerName: name });
+      } else {
+        if (isDeckEmpty()) { showSkillToast('내 덱을 채워주세요.', false, undefined, 'event'); return; }
+        socket.emit('join_room', { roomId, playerName: name, deck: loadDeck() });
+      }
+    });
+  });
+}
+
 socket.on('waiting_room_list', (list) => {
   const container = document.getElementById('spectate-room-list');
   if (!list || list.length === 0) {
     container.innerHTML = '<p class="muted">현재 입장 가능한 방이 없습니다.</p>';
     return;
   }
+  const renderFn = (items) => items.map(r => {
+    const modeLabel = r.mode === 'team' ? '2v2 팀전' : '1v1';
+    return `
+    <div class="spectate-room-item" data-room="${r.roomId}" data-mode="${r.mode}">
+      <div class="spectate-room-players">${escapeHtmlGlobal(r.players.join(', ') || '빈 방')}</div>
+      <div class="spectate-room-meta">
+        <span class="spectate-phase">${modeLabel}</span>
+        <span class="spectate-viewers">${r.playerCount}/${r.maxPlayers}</span>
+      </div>
+    </div>
+  `;}).join('');
+  renderRoomListFilterTabs(list, renderFn, attachWaitingRoomClicks);
+  // 기존 함수 흐름은 여기서 종료
+  return;
   container.innerHTML = list.map(r => {
     const modeLabel = r.mode === 'team' ? '2v2 팀전' : '1v1';
     return `
@@ -835,23 +921,8 @@ socket.on('waiting_room_list', (list) => {
   });
 });
 
-socket.on('room_list', (list) => {
+function attachSpectateRoomClicks() {
   const container = document.getElementById('spectate-room-list');
-  if (!list || list.length === 0) {
-    container.innerHTML = '<p class="muted">현재 진행 중인 방이 없습니다.</p>';
-    return;
-  }
-  const phaseNames = { draft: '드래프트', hp_distribution: 'HP 분배', reveal: '캐릭터 공개', placement: '배치', game: '전투 중' };
-  container.innerHTML = list.map(r => `
-    <div class="spectate-room-item" data-room="${r.roomId}">
-      <div class="spectate-room-players">${escapeHtmlGlobal(r.p0Name)} <span class="spectate-vs">vs</span> ${escapeHtmlGlobal(r.p1Name)}</div>
-      <div class="spectate-room-meta">
-        <span class="spectate-phase">${phaseNames[r.phase] || r.phase}</span>
-        ${r.turnNumber > 0 ? `<span class="spectate-turn">턴 ${r.turnNumber}</span>` : ''}
-        <span class="spectate-viewers">👁 ${r.spectators}</span>
-      </div>
-    </div>
-  `).join('');
   container.querySelectorAll('.spectate-room-item').forEach(el => {
     el.addEventListener('click', () => {
       const roomId = el.dataset.room;
@@ -863,6 +934,29 @@ socket.on('room_list', (list) => {
       socket.emit('join_room', { roomId, playerName: name });
     });
   });
+}
+
+socket.on('room_list', (list) => {
+  const container = document.getElementById('spectate-room-list');
+  if (!list || list.length === 0) {
+    container.innerHTML = '<p class="muted">현재 진행 중인 방이 없습니다.</p>';
+    return;
+  }
+  const phaseNames = { draft: '드래프트', hp_distribution: 'HP 분배', reveal: '캐릭터 공개', placement: '배치', game: '전투 중' };
+  const renderFn = (items) => items.map(r => {
+    const modeLabel = r.mode === 'ai' ? '🤖 AI' : (r.mode === 'team' ? '👥 2v2' : '⚔ 1v1');
+    return `
+    <div class="spectate-room-item" data-room="${r.roomId}" data-mode="${r.mode || '1v1'}">
+      <div class="spectate-room-players">${escapeHtmlGlobal(r.p0Name)} <span class="spectate-vs">vs</span> ${escapeHtmlGlobal(r.p1Name)}</div>
+      <div class="spectate-room-meta">
+        <span class="spectate-mode">${modeLabel}</span>
+        <span class="spectate-phase">${phaseNames[r.phase] || r.phase}</span>
+        ${r.turnNumber > 0 ? `<span class="spectate-turn">턴 ${r.turnNumber}</span>` : ''}
+        <span class="spectate-viewers">👁 ${r.spectators}</span>
+      </div>
+    </div>
+  `;}).join('');
+  renderRoomListFilterTabs(list, renderFn, attachSpectateRoomClicks);
 });
 
 function escapeHtmlGlobal(str) {

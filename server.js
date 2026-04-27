@@ -5013,6 +5013,7 @@ io.on('connection', (socket) => {
     const list = [];
     for (const [id, room] of Object.entries(rooms)) {
       if (room.phase === 'game' || room.phase === 'draft' || room.phase === 'hp_distribution' || room.phase === 'reveal' || room.phase === 'placement') {
+        const mode = room.isAI ? 'ai' : (room.mode === 'team' ? 'team' : '1v1');
         list.push({
           roomId: id,
           p0Name: room.players[0]?.name || '?',
@@ -5020,6 +5021,7 @@ io.on('connection', (socket) => {
           phase: room.phase,
           spectators: (room.spectators || []).length,
           turnNumber: room.turnNumber || 0,
+          mode,  // 'ai' | '1v1' | 'team' — 클라 필터용
         });
       }
     }
@@ -5036,7 +5038,7 @@ io.on('connection', (socket) => {
       if (room.players.length >= max) continue;
       list.push({
         roomId: id,
-        mode: room.mode || 'pvp',
+        mode: room.mode === 'team' ? 'team' : '1v1',
         playerCount: room.players.length,
         maxPlayers: max,
         players: room.players.map(p => p.name),

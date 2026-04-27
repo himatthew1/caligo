@@ -2112,6 +2112,35 @@ body {
   text-shadow: 0 2px 8px rgba(0,0,0,0.8);
 }
 
+/* 방목록·관전 모달 필터 탭 */
+.room-filter-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.room-filter-tab {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.room-filter-tab:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.room-filter-tab.active {
+  background: var(--accent);
+  color: #1a1410;
+  font-weight: 700;
+  border-color: var(--accent);
+}
+
 /* 캐릭터 공개 화면 — 덱 이름 (닉네임 아래) */
 .reveal-deck-name {
   font-size: 0.78rem;
