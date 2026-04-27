@@ -1019,12 +1019,80 @@ function findCharData(type, tier) {
   return { type: ch.type, name: ch.name, icon: ch.icon, desc: ch.desc, tag: ch.tag, atk: ch.atk, range: ch.range, skills: ch.skills || [], passives: ch.passives || [] };
 }
 
+// ── AI 교환 드래프트 카운터픽 결정 ──
+// 상대 조합 분석 → 가장 가치 높은 카운터 1티어 결정. 없으면 null (교환 안 함)
+function aiDecideExchange(myDraft, oppDraft) {
+  if (!myDraft || !oppDraft) return null;
+  const opp = [oppDraft.t1, oppDraft.t2, oppDraft.t3];
+  const my = { 1: myDraft.t1, 2: myDraft.t2, 3: myDraft.t3 };
+  // 태그 매핑 (CHARACTERS 정의 기반)
+  const ROYAL = new Set(['spearman','cavalry','watchman','general','bodyguard','prince','princess','king','commander','monk']);
+  const VILLAIN = new Set(['twins','manhunter','witch','ratMerchant','shadowAssassin','torturer','count','slaughterHero','sulfurCauldron']);
+  const TANK = new Set(['bodyguard','armoredWarrior','count']);
+  const oppRoyal = opp.filter(t => ROYAL.has(t)).length;
+  const oppVillain = opp.filter(t => VILLAIN.has(t)).length;
+  const oppHasTank = opp.some(t => TANK.has(t));
+  const oppHasShadow = opp.includes('shadowAssassin');
+  const oppHasWizard = opp.includes('wizard');
+  const oppHasHerbalist = opp.includes('herbalist');
+  const oppHasMonk = opp.includes('monk');
+  const myAlready = (type) => my[1] === type || my[2] === type || my[3] === type;
+
+  const counters = [];
+  // 왕실 다수 → 마녀(저주) / 고문기술자(악몽)로 약화
+  if (oppRoyal >= 2) {
+    if (!myAlready('torturer'))   counters.push({ tier: 3, newType: 'torturer',   priority: 85 });
+    if (!myAlready('witch'))      counters.push({ tier: 2, newType: 'witch',      priority: 75 });
+  }
+  // 악인 다수 → 수도승(가호 패시브 + 악인 3 피해)
+  if (oppVillain >= 2) {
+    if (!myAlready('monk'))       counters.push({ tier: 3, newType: 'monk',       priority: 80 });
+  }
+  // 호위무사·갑주무사·백작 등 탱커 → 마녀(저주는 호위무사 우회) 또는 학살영웅
+  if (oppHasTank) {
+    if (!myAlready('witch'))      counters.push({ tier: 2, newType: 'witch',      priority: 70 });
+    if (!myAlready('slaughterHero')) counters.push({ tier: 3, newType: 'slaughterHero', priority: 60 });
+  }
+  // 그림자 암살자 → 수도승(상태이상 정화) 또는 약초전문가
+  if (oppHasShadow) {
+    if (!myAlready('monk'))       counters.push({ tier: 3, newType: 'monk',       priority: 65 });
+  }
+  // 약초전문가 보유 + 왕실 다수 → 고문기술자 표식+악몽 콤보 강함
+  if (oppHasHerbalist && oppRoyal >= 2) {
+    if (!myAlready('torturer'))   counters.push({ tier: 3, newType: 'torturer',   priority: 90 });
+  }
+  // 마법사 보유 → 직접 공격 자제 — 폭탄/덫처럼 우회 가능한 캐릭 픽
+  if (oppHasWizard) {
+    if (!myAlready('gunpowder'))  counters.push({ tier: 1, newType: 'gunpowder',  priority: 55 });
+    if (!myAlready('manhunter'))  counters.push({ tier: 1, newType: 'manhunter',  priority: 50 });
+  }
+  // 적 수도승 → 학살영웅(왕실 안 가림) 또는 폭탄/유황 (영역 공격)
+  if (oppHasMonk) {
+    if (!myAlready('sulfurCauldron')) counters.push({ tier: 3, newType: 'sulfurCauldron', priority: 60 });
+  }
+
+  if (counters.length === 0) return null;
+  counters.sort((a, b) => b.priority - a.priority);
+  // 우선순위 70 미만 카운터는 가끔 패스 (항상 교환 안 함)
+  const top = counters[0];
+  if (top.priority < 70 && Math.random() < 0.4) return null;
+  return { tier: top.tier, newType: top.newType };
+}
+
 // ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (90초) ──
 function transitionToExchangeDraft(room) {
   clearTimer(room);
   room.phase = 'exchange_draft';
   if (room.isAI) {
-    // AI는 교환하지 않음
+    // AI 교환 카운터픽
+    const aiPlayer = room.players[1];
+    const human = room.players[0];
+    const swap = aiDecideExchange(aiPlayer.draft, human.draft);
+    if (swap) {
+      const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
+      aiPlayer.draft[key] = swap.newType;
+      aiPlayer.deckName = aiGenerateDeckName(aiPlayer.draft);
+    }
     room.exchangeDone[1] = true;
   }
   room.players.forEach((p, i) => {
