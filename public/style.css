@@ -2112,6 +2112,24 @@ body {
   text-shadow: 0 2px 8px rgba(0,0,0,0.8);
 }
 
+/* 1대1 대치 풀스크린 — 빨간 위협적 톤 */
+.stalemate-overlay {
+  background: rgba(40,0,0,0.65) !important;
+}
+.stalemate-overlay .game-start-title {
+  text-shadow: 0 0 40px rgba(239,68,68,0.95), 0 4px 12px rgba(0,0,0,0.9) !important;
+  letter-spacing: 8px !important;
+}
+.stalemate-overlay.active {
+  animation: stalemateIn 2.2s cubic-bezier(.17,.67,.32,1.28) both !important;
+}
+@keyframes stalemateIn {
+  0%   { opacity: 0; transform: scale(1.4); filter: blur(12px); }
+  20%  { opacity: 1; transform: scale(1); filter: blur(0); }
+  80%  { opacity: 1; transform: scale(1); filter: blur(0); }
+  100% { opacity: 0; transform: scale(0.9); filter: blur(8px); }
+}
+
 /* 힐 플래시 — 2초간 초록 빛 (내 카드/상대 카드 양쪽) */
 .my-piece-card.heal-flash,
 .opp-piece-card.heal-flash {

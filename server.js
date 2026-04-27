@@ -2742,11 +2742,13 @@ function aiProcessAttackResult(brain, atkCells, hitResults) {
 }
 
 function boostHuntArea(brain, col, row) {
-  brain.probMap[row][col] = 2;
+  // 적중 셀: 최고 확신 — 상대가 도망가기 전까지 같은 칸 지속 공격
+  brain.probMap[row][col] = 9;
+  // 인접 4방: 상대가 도망갈 가능성 — 두번째 우선순위
   for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
     const nc = col + dc, nr = row + dr;
     if (nc >= 0 && nc < 5 && nr >= 0 && nr < 5) {
-      brain.probMap[nr][nc] = Math.max(brain.probMap[nr][nc], 8);
+      brain.probMap[nr][nc] = Math.max(brain.probMap[nr][nc], 6);
     }
   }
 }
@@ -3107,8 +3109,8 @@ function aiTakeTurn(room) {
     }
 
     // 반격 우선 판단 — 상대 유닛 위치를 추론하고 격파 가능하면 반격
-    // 1. HP 위험 (maxHp * 0.25 이하)은 도망 우선
-    const criticalHp = piece.hp <= Math.max(1, piece.maxHp * 0.25);
+    // 1. HP 2 이하면 도망 우선 (1까지 미루지 않음)
+    const criticalHp = piece.hp <= 2;
     // 2. 상대 위치 추론: probMap에서 가장 높은 셀이 공격 범위 내인지
     let canHitProbTarget = false;
     let probTargetScore = 0;

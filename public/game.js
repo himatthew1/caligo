@@ -2322,7 +2322,7 @@ function playGameStartAnimation(isMyTurn) {
   overlay.classList.remove('hidden');
   overlay.classList.add('active');
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const o = ctx.createOscillator(); const g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
     o.type = 'triangle';
@@ -2637,9 +2637,61 @@ socket.on('sp_update', ({ sp, instantSp }) => {
 // ── 턴 이벤트 알림 ──
 socket.on('turn_event', ({ type, msg }) => {
   if (S.isSpectator) return; // 관전자는 spectator_log 경로로 수신
+  // 1대1 대치는 풀스크린 알림 — 게임 시작 애니메이션 재활용
+  if (type === 'stalemate_shrink') {
+    addLog(msg, 'system');
+    playStalemateShrinkAlert(msg);
+    return;
+  }
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
+
+// 1대1 대치 풀스크린 알림 — 게임 시작 오버레이와 동일 스타일
+function playStalemateShrinkAlert(msg) {
+  let overlay = document.getElementById('stalemate-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'stalemate-overlay';
+    overlay.className = 'game-start-overlay stalemate-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="game-start-title" style="color:var(--danger)">⚔ 1대1 대치</div>
+    <div class="game-start-sub">5턴 후 보드가 축소됩니다.</div>
+  `;
+  overlay.classList.remove('hidden');
+  overlay.classList.add('active');
+  // 긴장감 있는 사운드 — 저음 임팩트 + 경고 톤
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 저음 임팩트
+    const boom = ctx.createOscillator(); const bg = ctx.createGain();
+    boom.type = 'sawtooth';
+    boom.frequency.setValueAtTime(150, now);
+    boom.frequency.exponentialRampToValueAtTime(60, now + 0.5);
+    bg.gain.setValueAtTime(0.25, now);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    boom.connect(bg); bg.connect(out);
+    boom.start(now); boom.stop(now + 0.6);
+    // 경고 트럼펫
+    const trumpet = ctx.createOscillator(); const tg = ctx.createGain();
+    trumpet.type = 'square';
+    trumpet.frequency.setValueAtTime(440, now + 0.2);
+    trumpet.frequency.setValueAtTime(660, now + 0.4);
+    trumpet.frequency.setValueAtTime(880, now + 0.6);
+    tg.gain.setValueAtTime(0.15, now + 0.2);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+    trumpet.connect(tg); tg.connect(out);
+    trumpet.start(now + 0.2); trumpet.stop(now + 1.0);
+  } catch (e) {}
+  setTimeout(() => {
+    overlay.classList.remove('active');
+    overlay.classList.add('hidden');
+  }, 2200);
+}
 
 // ── 보드 축소 경고 ──
 socket.on('board_shrink_warning', ({ turnsRemaining }) => {
@@ -2726,7 +2778,7 @@ function spawnHealSparkles(card) {
 function playBoardQuake() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     // 저주파 rumble
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -7908,7 +7960,7 @@ function animateAttack(atkCells, hitCells) {
 function playSfxRatDeath() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const sq = ctx.createOscillator();
@@ -7949,7 +8001,7 @@ function playSfxRatDeath() {
 function playSfxBombExplode() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const boom = ctx.createOscillator();
@@ -7990,7 +8042,7 @@ function playSfxBombExplode() {
 function playSfxTrapSnap() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const thud = ctx.createOscillator();
@@ -8053,7 +8105,7 @@ function playSfxCurseDamage() {
   playSfx('hit');
   // 레이어 2: 어두운 저주 속삭임
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const d1 = ctx.createOscillator();
@@ -8107,7 +8159,7 @@ function playSfxChat() {
   if (sfxMuted) return;
   if (chatMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const o = ctx.createOscillator();
@@ -8126,7 +8178,7 @@ function playSfxChat() {
 function playSfxCharSelect() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // 가벼운 C6 → G6 상승 딩
@@ -8155,7 +8207,7 @@ function playSfxCharSelect() {
 function playSfxDeckSave() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     const n1 = ctx.createOscillator();
@@ -8197,7 +8249,7 @@ function playSfxDeckSave() {
 function playSfxRevealAppear() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // ① 둥- 저음 임팩트
@@ -8227,7 +8279,7 @@ function playSfxRevealAppear() {
 function playSfxSwapBlink() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // ① 삐~ 고음 시작 → 로~ 하강 슬라이드
@@ -8258,7 +8310,7 @@ function playSfxSwapBlink() {
 function playSfxSwapReveal() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // ① 팝! 임팩트 (짧고 밝은 타격)
@@ -8311,7 +8363,7 @@ function playSfxSwapReveal() {
 function playTimerTick() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
 
@@ -8354,7 +8406,7 @@ function playTimerTick() {
 function playSfxHeal() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // ① 상승 아르페지오 (C5 → E5 → G5 → C6) — 따뜻한 화음
@@ -8404,7 +8456,7 @@ function playSfxHeal() {
 function playSfxSulfur() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
     // ① 끓어오르는 저음 (점점 커지는 sawtooth)
@@ -8450,7 +8502,7 @@ function playSfxSulfur() {
 function playSfxNightmare() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
 
@@ -8524,7 +8576,7 @@ function playSfxNightmare() {
 function playSfxPassive() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
     const out = ctx.destination;
 
@@ -8558,10 +8610,29 @@ function playSfxPassive() {
   } catch (e) {}
 }
 
+// ── 단일 공유 AudioContext (브라우저 autoplay 정책 회피 + 동시 재생 안정성) ──
+let _sharedAudioCtx = null;
+function getAudioCtx() {
+  if (!_sharedAudioCtx) {
+    try {
+      _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) { return null; }
+  }
+  // suspended 상태면 resume 시도 (사용자 제스처 후 호출되면 깨어남)
+  if (_sharedAudioCtx.state === 'suspended') {
+    try { _sharedAudioCtx.resume(); } catch (e) {}
+  }
+  return _sharedAudioCtx;
+}
+// 첫 사용자 인터랙션에서 컨텍스트 깨우기 (자동재생 정책)
+document.addEventListener('click', () => { getAudioCtx(); }, { once: false });
+document.addEventListener('keydown', () => { getAudioCtx(); }, { once: false });
+
 function playTurnBell() {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -8580,7 +8651,7 @@ function playTurnBell() {
 function playSfx(type) {
   if (sfxMuted) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioCtx(); if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
