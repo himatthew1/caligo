@@ -1527,7 +1527,9 @@ function handleDeath(room, deadPiece, ownerIdx) {
   }
 }
 
-function detonateBomb(room, ownerIdx, bomb) {
+function detonateBomb(room, ownerIdx, bomb, options) {
+  const opts = options || {};
+  const deferEmit = !!opts.deferEmit;
   const opponent = room.players[1 - ownerIdx];
   const hits = [];
   for (const ep of opponent.pieces) {
@@ -1548,7 +1550,10 @@ function detonateBomb(room, ownerIdx, bomb) {
       hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon });
     }
   }
-  emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits });
+  // 기폭 스킬에서 호출 시(deferEmit) bomb_detonated 는 skill_result 다음에 외부에서 emit
+  if (!deferEmit) {
+    emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits });
+  }
   const bombKilled = hits.filter(h => h.destroyed);
   if (bombKilled.length > 0) {
     setKillInfo(room, 'bomb', null, bombKilled.map(k => ({ name: k.name })));
@@ -2366,14 +2371,17 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         const bombs = room.boardObjects[playerIdx].filter(o => o.type === 'bomb');
         if (bombs.length === 0) return { ok: false, msg: '설치된 폭탄이 없습니다.' };
         const allHits = [];
+        const deferredBombEmits = [];  // skill_result 이후에 emit할 폭탄 데이터
         for (const bomb of bombs) {
-          const hits = detonateBomb(room, playerIdx, bomb);
+          const hits = detonateBomb(room, playerIdx, bomb, { deferEmit: true });
           allHits.push(...hits);
+          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits });
         }
         room.boardObjects[playerIdx] = room.boardObjects[playerIdx].filter(o => o.type !== 'bomb');
         result.msg = `💥 기폭: 모든 폭탄을 폭발시켰습니다.`;
         result.oppMsg = `💥 기폭: 상대의 모든 폭탄이 폭발했습니다.`;
         result.data.hits = allHits;
+        result.data.deferredBombEmits = deferredBombEmits;  // 외부에서 사용
         break;
       }
       // 시한폭탄 설치
@@ -4890,6 +4898,13 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: specSkillMsg, type: 'skill', playerIdx: idx });
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+
+    // 기폭 스킬: skill_result 이후에 bomb_detonated 이벤트 emit (피해 토스트 순서 보정)
+    if (result.data && Array.isArray(result.data.deferredBombEmits)) {
+      for (const bd of result.data.deferredBombEmits) {
+        emitToBoth(room, 'bomb_detonated', bd);
+      }
+    }
 
     // Check win after skill effects (모드별)
     if (room.mode === 'team') {

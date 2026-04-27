@@ -1645,7 +1645,17 @@ body {
 .piece-marker.opp-marked { opacity: 0.85; }
 .piece-marker.opp-marked .p-icon { filter: drop-shadow(0 0 4px #e05252); }
 .cell.has-piece:has(.opp-marked) { background: rgba(224,82,82,0.12); border-color: rgba(224,82,82,0.5); }
-.cell.selected-piece { border-color: var(--accent) !important; background: rgba(226,168,75,0.18) !important; box-shadow: 0 0 0 2px var(--accent); }
+/* 선택된 유닛 셀 — 배경 채움 대신 아이콘 글로우만 (공격범위 주황과 시각적 충돌 방지) */
+.cell.selected-piece .p-icon {
+  filter: drop-shadow(0 0 5px rgba(240,192,64,0.95))
+          drop-shadow(0 0 12px rgba(240,192,64,0.6));
+  text-shadow: 0 0 6px rgba(240,192,64,0.85);
+  animation: selectedPieceGlow 1.2s ease-in-out infinite;
+}
+@keyframes selectedPieceGlow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(240,192,64,0.85)) drop-shadow(0 0 10px rgba(240,192,64,0.5)); }
+  50%      { filter: drop-shadow(0 0 7px rgba(240,192,64,1))     drop-shadow(0 0 14px rgba(240,192,64,0.7)); }
+}
 .cell.attack-range { background: var(--range); border-color: rgba(226,168,75,0.5); }
 .cell.move-range   { background: var(--move-h); border-color: rgba(82,183,136,0.5); }
 .cell.hit-mark     { background: var(--hit); border: 2px solid #ef4444 !important; box-shadow: inset 0 0 8px rgba(239,68,68,0.4); }
@@ -1832,19 +1842,27 @@ body {
 }
 
 /* ── 행동 모드 시각 표시 ── */
-/* 선택된 행동 버튼: 글로우 + 외곽 강조 */
+/* 선택된 행동 버튼: 정적 글로우 (버튼 색상에 맞춰 색 다름) */
 .action-bar .btn.action-active {
   position: relative;
-  box-shadow:
-    0 0 0 2px rgba(240,192,64,0.7),
-    0 0 18px 4px rgba(240,192,64,0.55);
-  filter: brightness(1.15);
+  filter: brightness(1.12);
   transform: translateY(-1px);
-  animation: actionPulse 1.4s ease-in-out infinite;
 }
-@keyframes actionPulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(240,192,64,0.7), 0 0 14px 3px rgba(240,192,64,0.45); }
-  50%      { box-shadow: 0 0 0 2px rgba(240,192,64,0.95), 0 0 22px 6px rgba(240,192,64,0.7); }
+/* 이동(초록) */
+.action-bar #btn-move.action-active {
+  box-shadow: 0 0 0 1.5px rgba(34,197,94,0.85), 0 0 10px 2px rgba(34,197,94,0.55);
+}
+/* 공격(빨강) */
+.action-bar #btn-attack.action-active {
+  box-shadow: 0 0 0 1.5px rgba(239,68,68,0.85), 0 0 10px 2px rgba(239,68,68,0.55);
+}
+/* 스킬(보라) */
+.action-bar #btn-skill.action-active {
+  box-shadow: 0 0 0 1.5px rgba(167,139,250,0.85), 0 0 10px 2px rgba(167,139,250,0.55);
+}
+/* 취소(주황 — 행동 모드 진입 표시) */
+.action-bar #btn-cancel.action-active {
+  box-shadow: 0 0 0 1.5px rgba(240,192,64,0.85), 0 0 10px 2px rgba(240,192,64,0.55);
 }
 /* 행동 모드 진입 시 다른 버튼은 비활성/잠금 표시 */
 .action-bar .btn.action-locked {
@@ -1852,6 +1870,14 @@ body {
   filter: grayscale(0.8);
   pointer-events: none;
   cursor: not-allowed;
+}
+
+/* ── 선택된 유닛 아이콘 글로우 (이동/공격 행동 중) ──
+   기존 주황색 home indicator 대체 — 공격범위 색상과 충돌 방지 */
+.cell.selected-piece-glow .p-icon {
+  filter: drop-shadow(0 0 6px rgba(240,192,64,0.9))
+          drop-shadow(0 0 14px rgba(240,192,64,0.6));
+  text-shadow: 0 0 6px rgba(240,192,64,0.9);
 }
 .action-hint { font-size: 0.82rem; color: var(--muted); text-align: center; min-height: 20px; }
 .action-hint.urgent { color: var(--danger); font-weight: 700; font-size: 0.88rem; }

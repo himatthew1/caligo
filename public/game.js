@@ -2483,6 +2483,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   if (oppPieces) { S.oppPieces = oppPieces; }
   if (yourPieces) { S.myPieces = yourPieces; }
+  // 사망한 말의 추리 토큰 즉시 제거 (다음 렌더에서 사라지도록)
+  pruneDeductionTokens();
   const pc = S.myPieces[pieceIdx];
 
   for (const c of cellResults) {
@@ -2724,6 +2726,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 
   if (yourPieces) S.myPieces = yourPieces;
   if (oppPieces) S.oppPieces = oppPieces;
+  pruneDeductionTokens();
   if (sp) { S.sp = sp; }
   if (instantSp) { S.instantSp = instantSp; }
   if (sp || instantSp) { updateSPBar(); }
@@ -5947,6 +5950,13 @@ function renderStatusBadges(pc) {
   return html;
 }
 
+// 추리 토큰 청소 — 사망한 말의 토큰 즉시 제거 (보드/패널 렌더 직전에 호출)
+function pruneDeductionTokens() {
+  if (!S.oppPieces || !S.deductionTokens) return;
+  const aliveKeys = new Set(S.oppPieces.filter(p => p.alive).map(p => `${p.type}:${p.subUnit || ''}`));
+  S.deductionTokens = S.deductionTokens.filter(t => aliveKeys.has(t.pieceKey));
+}
+
 // ── 상대 말 정보 ─────────────────────────────────────────────
 function renderOppPieces() {
   const container = document.getElementById('opp-pieces-info');
@@ -5954,9 +5964,8 @@ function renderOppPieces() {
   container.innerHTML = '';
   if (!S.oppPieces) return;
 
-  // 추리 토큰 정리: 사망한 말의 토큰 제거
-  const aliveKeys = new Set(S.oppPieces.filter(p => p.alive).map(p => `${p.type}:${p.subUnit || ''}`));
-  S.deductionTokens = S.deductionTokens.filter(t => aliveKeys.has(t.pieceKey));
+  // 추리 토큰 정리 (renderGameBoard 보다 먼저 호출되었어야 하지만 보장 차원)
+  pruneDeductionTokens();
 
   for (let pi = 0; pi < S.oppPieces.length; pi++) {
     const pc = S.oppPieces[pi];
