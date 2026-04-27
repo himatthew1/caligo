@@ -52,7 +52,7 @@ const CHARACTERS = {
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발. 1 피해.'}
       ] },
     { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null, desc:'좌우 각2칸(자기제외)',
-      skills:[{id:'herb', name:'약초학', cost:3, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
+      skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'🎖', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -82,7 +82,7 @@ const CHARACTERS = {
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null, desc:'X대각선 4칸(자기제외)',
       skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환 (3HP, 십자5칸, ATK3)'}] },
     { type:'monk', name:'수도승', tier:3, atk:1, icon:'🙏', tag:null, desc:'상하 각1칸(자기제외)',
-      skills:[{id:'divine', name:'신성', cost:4, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거.'}],
+      skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거.'}],
       passives:['grace'] },
     { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'🪓', tag:'villain', desc:'3x3 전체 9칸',
       skills:[], passives:['betrayer'] },
@@ -2541,7 +2541,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const trapIdx2 = room.boardObjects[playerIdx].findIndex(o => o.type === 'trap' && o.col === destCol && o.row === destRow);
       if (trapIdx2 >= 0) {
         room.boardObjects[playerIdx].splice(trapIdx2, 1);
-        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 1, false);
+        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
         enemyPiece.hp = Math.max(0, enemyPiece.hp - dmg);
         if (enemyPiece.hp <= 0) handleDeath(room, enemyPiece, 1 - playerIdx);
         emitToBoth(room, 'trap_triggered', {
@@ -3264,7 +3264,7 @@ function aiExecuteMove(room, action) {
   const trapIdx = room.boardObjects[0].findIndex(o => o.type === 'trap' && o.col === action.col && o.row === action.row);
   if (trapIdx >= 0) {
     room.boardObjects[0].splice(trapIdx, 1);
-    const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: action.col, row: action.row }, piece, 0, 1, false);
+    const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: action.col, row: action.row }, piece, 0, 2, false);
     piece.hp = Math.max(0, piece.hp - dmg);
     if (piece.hp <= 0) {
       handleDeath(room, piece, 1);
@@ -4331,9 +4331,14 @@ io.on('connection', (socket) => {
 
     const player = room.players[idx];
 
-    // Check if action already done (unless messenger sprint is active)
-    if (player.actionDone && !player.pieces[pieceIdx]?.messengerSprintActive) {
-      socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
+    // Check if action already done (unless messenger sprint OR twin's other half not yet moved)
+    {
+      const _pc = player.pieces[pieceIdx];
+      const _twinSecondMove = _pc && (_pc.subUnit === 'elder' || _pc.subUnit === 'younger') &&
+        Array.isArray(player.twinMovedSubs) && !player.twinMovedSubs.includes(_pc.subUnit);
+      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove) {
+        socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
+      }
     }
 
     // Action-replace skill used => can't move
@@ -4383,7 +4388,7 @@ io.on('connection', (socket) => {
     }
     if (trapIdx >= 0) {
       room.boardObjects[trapOwnerIdx].splice(trapIdx, 1);
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, trapOwnerIdx, 1, false, idx);
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, trapOwnerIdx, 2, false, idx);
       piece.hp = Math.max(0, piece.hp - dmg);
       // Wizard passive: SP on trap hit
       if (piece.type === 'wizard') {
@@ -4403,29 +4408,14 @@ io.on('connection', (socket) => {
       });
     }
 
-    // ★ 쌍둥이 이동: 둘 다 살아있으면 각각 이동해야 행동 완료
+    // ★ 쌍둥이 이동: 한쪽만 이동해도 행동 완료. 같은 턴에 다른 쪽 이동은 옵션.
     if (piece.subUnit) {
-      // 이미 이동한 쌍둥이인지 확인
       if (!player.twinMovedSubs) player.twinMovedSubs = [];
       if (player.twinMovedSubs.includes(piece.subUnit)) {
         socket.emit('err', { msg: '이미 이동한 쌍둥이입니다. 다른 쪽을 이동시키세요.' }); return;
       }
       player.twinMovedSubs.push(piece.subUnit);
-
-      const otherSub = piece.subUnit === 'elder' ? 'younger' : 'elder';
-      const otherTwin = player.pieces.find(p => p.subUnit === otherSub && p.alive);
-      if (otherTwin) {
-        if (player.twinMovedSubs.length >= 2) {
-          // 둘 다 이동 완료
-          player.actionDone = true;
-          player.twinMovedSubs = [];
-        }
-        // 아직 1명만 이동 → actionDone 안 함
-      } else {
-        // 다른 쌍둥이 죽음 → 혼자 이동으로 행동 완료
-        player.actionDone = true;
-        player.twinMovedSubs = [];
-      }
+      player.actionDone = true;  // 첫 이동만으로 턴 종료 가능
     } else if (piece.messengerSprintActive && piece.messengerMovesLeft > 0) {
       // Messenger sprint: handle multi-move
       piece.messengerMovesLeft--;

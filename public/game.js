@@ -2401,20 +2401,19 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   showSkillToast(`🚶 ${pc.name}의 위치를 ${coord(col,row)}로 이동합니다.`);
 
   if (twinMovePending) {
-    // 쌍둥이 다른 쪽 이동 대기 — 이동 모드 유지
+    // 쌍둥이 첫 이동 — 행동 완료지만 같은 턴에 다른 쪽 이동도 옵션
     S.action = 'move';
     S.selectedPiece = null;
     S.twinMovePending = true;
-    S.twinMovedSub = twinMovedSub;  // 이동 완료된 쪽 추적
-    S.moveDone = true;  // 이동 시작됨 → 공격 차단
+    S.twinMovedSub = twinMovedSub;
+    S.moveDone = true;
+    S.actionDone = true;  // 첫 이동만으로 턴 종료 가능
     S.lastActionType = 'move';
     S.lastActionPieceType = pc.type;
     renderGameBoard();
     renderMyPieces();
-    // pc.subUnit === 'elder' (누나) 가 이미 이동 → 동생이 남음
-    // pc.subUnit === 'younger' (동생) 가 이미 이동 → 누나가 남음
-    const otherFull = pc.subUnit === 'elder' ? '동생이' : '누나가';
-    document.getElementById('action-hint').textContent = `👫 쌍둥이 ${otherFull} 아직 이동하지 않았습니다.`;
+    const otherFull = pc.subUnit === 'elder' ? '동생도' : '누나도';
+    document.getElementById('action-hint').textContent = `👫 쌍둥이 ${otherFull} 추가로 이동시키거나 턴을 종료할 수 있습니다.`;
     showActionBar(true);
   } else {
     S.action = null;
@@ -5512,9 +5511,10 @@ function showActionBar(enabled) {
 
     // ── 이동 가능 여부 ──
     // actionDone이면 이동 불가 (이미 이동 또는 공격함)
-    // 단, 전령 질주 활성 시 추가 이동 가능
+    // 단, 전령 질주 활성 또는 쌍둥이 한쪽만 이동했을 때 추가 이동 가능
     const hasSprintMove = alivePieces.some(p => p.messengerSprintActive && p.messengerMovesLeft > 0);
-    const canMove = hasAlive && (!S.actionDone || hasSprintMove) && !S.actionUsedSkillReplace;
+    const hasTwinPending = !!S.twinMovePending;
+    const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending) && !S.actionUsedSkillReplace;
     btnMove.disabled = !canMove;
     btnMove.classList.toggle('action-dimmed', !canMove);
 
@@ -6264,11 +6264,7 @@ document.getElementById('btn-skill').addEventListener('click', () => {
 // 턴 종료 버튼 (행동 없이 누르면 확인 모달)
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!S.isMyTurn) return;
-  // 쌍둥이 중 한명만 이동한 경우 확인
-  if (S.twinMovePending) {
-    document.getElementById('twin-endturn-modal').classList.remove('hidden');
-    return;
-  }
+  // 쌍둥이 한쪽만 이동해도 정상 턴 종료 — 모달 없음 (옵션이므로)
   // #3: 쌍검무 활성 + 추가 공격 남음
   const dualBladeLeft = S.myPieces && S.myPieces.some(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeLeft) {
