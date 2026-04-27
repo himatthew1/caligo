@@ -2306,21 +2306,19 @@ function renderTeamWaitingRoom() {
     startBtn.disabled = !ready;
     startBtn.textContent = '게임 시작';
   }
-  // 슬롯 렌더
+  // 슬롯 렌더 — slotPos 기반 정확한 자리 표시
   document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
     const teamId = parseInt(slotEl.dataset.team, 10);
     const pos = parseInt(slotEl.dataset.pos, 10);
-    const members = S.teamTeams[teamId] || [];
-    const occupantIdx = members[pos];
+    // teamId + slotPos 일치하는 플레이어 찾기
+    const player = (S.teamPlayers || []).find(p => p.teamId === teamId && (p.slotPos ?? -1) === pos);
     slotEl.classList.remove('filled', 'self');
-    if (occupantIdx !== undefined && occupantIdx !== null) {
-      const player = S.teamPlayers.find(p => p.idx === occupantIdx);
-      const name = player ? player.name : `플레이어 ${occupantIdx+1}`;
-      const isMe = occupantIdx === S.playerIdx;
+    if (player) {
+      const isMe = player.idx === S.playerIdx;
       slotEl.classList.add('filled');
       if (isMe) slotEl.classList.add('self');
       slotEl.innerHTML = `
-        <span class="slot-nickname">${escapeHtmlGlobal(name)}</span>
+        <span class="slot-nickname">${escapeHtmlGlobal(player.name)}</span>
         ${isMe ? '<span class="slot-you-badge">나</span>' : ''}
       `;
     } else {
@@ -2329,14 +2327,14 @@ function renderTeamWaitingRoom() {
   });
 }
 
-// 팀 슬롯 클릭 → 팀 변경 요청
+// 팀 슬롯 클릭 → 비어있는 어떤 슬롯이든 이동 (같은 팀 내 자리 이동도 가능)
 document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
   slotEl.addEventListener('click', () => {
     if (!S.isTeamMode) return;
     const teamId = parseInt(slotEl.dataset.team, 10);
     const pos = parseInt(slotEl.dataset.pos, 10);
-    // 이미 내 팀이면 무시
-    if (teamId === S.teamId) return;
+    // 차있는 슬롯 클릭은 무시 (자기 자신 슬롯도)
+    if (slotEl.classList.contains('filled')) return;
     socket.emit('team_change', { targetTeam: teamId, targetPos: pos });
   });
 });

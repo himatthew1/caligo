@@ -464,7 +464,7 @@ function broadcastTeamRoomState(room) {
   if (!room || room.mode !== 'team') return;
   const payload = {
     roomId: room.id,
-    players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })),
+    players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId, slotPos: p.slotPos ?? 0 })),
     teams: room.teams,
     count: room.players.length,
   };
@@ -4014,31 +4014,43 @@ io.on('connection', (socket) => {
     socket.data.sessionToken = sessionToken;
     socket.data.isTeamMode = true;
 
-    // 팀 자동 배정 — A팀이 덜 찼으면 A, 아니면 B
+    // 팀 자동 배정 — A팀이 덜 찼으면 A, 아니면 B. 자리는 첫 빈 슬롯.
     const teamACount = room.teams[0].length;
     const teamBCount = room.teams[1].length;
     const targetTeam = teamACount <= teamBCount ? 0 : 1;
+    const usedPos = new Set(room.teams[targetTeam].map(i => room.players[i]?.slotPos));
+    const slotPos = !usedPos.has(0) ? 0 : (!usedPos.has(1) ? 1 : 0);
     room.teams[targetTeam].push(idx);
     room.players[idx].teamId = targetTeam;
+    room.players[idx].slotPos = slotPos;
 
     socket.emit('team_joined', { idx, roomId, playerName, sessionToken });
     broadcastTeamRoomState(room);
   });
 
-  // 팀 변경 요청
+  // 팀 변경 요청 — targetPos가 비어있으면 그 자리로, 아니면 거절
   socket.on('team_change', ({ targetTeam, targetPos }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
     const idx = socket.data.idx;
     if (idx === undefined) return;
     if (targetTeam !== 0 && targetTeam !== 1) return;
+    const wantPos = (targetPos === 0 || targetPos === 1) ? targetPos : null;
+    // 같은 팀 내 같은 자리면 무시
+    if (room.players[idx].teamId === targetTeam && room.players[idx].slotPos === wantPos) return;
     // 현재 팀에서 제거
     for (let t = 0; t < 2; t++) {
       room.teams[t] = room.teams[t].filter(i => i !== idx);
     }
-    // 새 팀에 추가 (targetPos 있으면 해당 자리에 삽입, 이미 차있으면 거절)
-    if (room.teams[targetTeam].length >= 2) {
-      // 원래 팀으로 복구
+    // 가용 자리 검사
+    const occupiedSlots = new Set(room.teams[targetTeam].map(i => room.players[i]?.slotPos));
+    let assignedPos = wantPos;
+    if (assignedPos == null || occupiedSlots.has(assignedPos)) {
+      // wantPos가 비지 않았거나 미지정 → 첫 빈 자리 할당
+      assignedPos = !occupiedSlots.has(0) ? 0 : (!occupiedSlots.has(1) ? 1 : null);
+    }
+    if (assignedPos == null) {
+      // 양 자리 다 차있음 → 원복
       const original = room.players[idx].teamId;
       room.teams[original].push(idx);
       socket.emit('err', { msg: '해당 팀이 이미 가득 찼습니다.' });
@@ -4047,6 +4059,7 @@ io.on('connection', (socket) => {
     }
     room.teams[targetTeam].push(idx);
     room.players[idx].teamId = targetTeam;
+    room.players[idx].slotPos = assignedPos;
     broadcastTeamRoomState(room);
   });
 
