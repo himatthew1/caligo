@@ -2152,6 +2152,25 @@ function renderTeamProfiles() {
   };
   attachTooltips(myContainer, 'left');
   attachTooltips(oppContainer, 'right');
+
+  // 추리 토큰 드래그 — 적 카드(상대팀)에서만
+  oppContainer.querySelectorAll('[data-deduction-key]').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      const pieceKey = card.dataset.deductionKey;
+      const icon = card.dataset.deductionIcon;
+      const name = card.dataset.deductionName;
+      e.dataTransfer.setData('text/plain', JSON.stringify({ pieceKey, icon, name, fromBoard: false }));
+      e.dataTransfer.effectAllowed = 'move';
+      const ghost = document.createElement('div');
+      ghost.className = 'drag-ghost';
+      ghost.textContent = icon;
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 14, 14);
+      requestAnimationFrame(() => ghost.remove());
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => card.classList.remove('dragging'));
+  });
 }
 
 function renderTeamPlayerBlock(playerData, isAlly) {
@@ -2231,12 +2250,25 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       if (marked && pc.col != null) posText = `${coord(pc.col, pc.row)}`;
     }
 
-    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1">
+    // 적 카드 — 추리 토큰 드래그 소스 + 배지 (ownerIdx 포함된 unique key)
+    let placedBadge = '';
+    let dragAttrs = '';
+    if (!isAlly && pc.alive) {
+      const pieceKey = `${pc.type}:${pc.subUnit || ''}@${playerData.idx}`;
+      const placedToken = (S.deductionTokens || []).find(t => t.pieceKey === pieceKey);
+      if (placedToken) {
+        placedBadge = `<span class="deduction-badge" title="추리 토큰: ${coord(placedToken.col, placedToken.row)}">📌${coord(placedToken.col, placedToken.row)}</span>`;
+      }
+      dragAttrs = ` draggable="true" data-deduction-key="${pieceKey}" data-deduction-icon="${pc.icon || ''}" data-deduction-name="${escapeHtmlGlobal(pc.name || pc.type)}"`;
+    }
+
+    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1"${dragAttrs}>
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
         <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
         ${pc.tier ? `<span class="tier-badge">${pc.tier}T</span>` : ''}
         ${tagHtml}
+        ${placedBadge}
       </div>
       <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
@@ -6693,7 +6725,8 @@ function renderGameBoard() {
         e.preventDefault();
         S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== token.pieceKey);
         refreshDeductionTokens();
-        renderOppPieces();
+        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+        else renderOppPieces();
       });
       cell.appendChild(tokenEl);
     }
@@ -6710,7 +6743,8 @@ function renderGameBoard() {
         // 새 위치에 배치
         S.deductionTokens.push({ pieceKey: data.pieceKey, icon: data.icon, name: data.name, col, row });
         refreshDeductionTokens();
-        renderOppPieces();
+        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+        else renderOppPieces();
       } catch (err) { /* ignore */ }
     });
   });
@@ -6748,7 +6782,8 @@ function refreshDeductionTokens() {
       e.preventDefault();
       S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== token.pieceKey);
       refreshDeductionTokens();
-      renderOppPieces();
+      if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      else renderOppPieces();
     });
     cell.appendChild(tokenEl);
   }
@@ -6869,7 +6904,11 @@ function renderStatusBadges(pc) {
 // 추리 토큰 청소 — 사망한 말의 토큰 즉시 제거 (보드/패널 렌더 직전에 호출)
 function pruneDeductionTokens() {
   if (!S.oppPieces || !S.deductionTokens) return;
-  const aliveKeys = new Set(S.oppPieces.filter(p => p.alive).map(p => `${p.type}:${p.subUnit || ''}`));
+  // 팀모드: ownerIdx 포함된 키 / 1v1: 기존 키
+  const aliveKeys = new Set(S.oppPieces.filter(p => p.alive).map(p => {
+    const ownerSuffix = (p.ownerIdx != null) ? `@${p.ownerIdx}` : '';
+    return `${p.type}:${p.subUnit || ''}${ownerSuffix}`;
+  }));
   S.deductionTokens = S.deductionTokens.filter(t => aliveKeys.has(t.pieceKey));
 }
 
