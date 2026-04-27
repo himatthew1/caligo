@@ -2727,8 +2727,13 @@ body {
 
 /* 추천 조합 모달 스크롤바 — 상단 공용 커스텀 드래그바에서 처리 */
 
-/* 추천 조합 모달 — 가로 넉넉히 확대, 텍스트 겹침 방지 */
-.modal-wide { max-width: 1400px; width: 95%; overflow-x: hidden; }
+/* 추천 조합 모달 — 가로를 강제로 넓힘. 줄바꿈 절대 금지 */
+.modal-wide {
+  max-width: 98vw;
+  width: 98vw;
+  min-width: 1100px;     /* 좁은 화면에서도 1100px 이상 강제 확보 */
+  overflow-x: auto;       /* 그래도 좁으면 가로 스크롤 (줄바꿈은 절대 X) */
+}
 .recommend-combo {
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 10px; padding: 18px 22px;
@@ -2739,8 +2744,9 @@ body {
 .recommend-desc { display: block; color: var(--muted); font-size: 0.82rem; margin-top: 3px; }
 .recommend-picks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .recommend-pick {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 12px;
   font-size: 0.88rem;
+  flex-wrap: nowrap; white-space: nowrap;
 }
 .recommend-pick-tier { font-size: 0.72rem; color: var(--accent); font-weight: 700; min-width: 42px; flex-shrink: 0; }
 .recommend-pick-icon { font-size: 1.15rem; flex-shrink: 0; }
@@ -2748,13 +2754,13 @@ body {
   flex-shrink: 0; white-space: nowrap;
   min-width: 100px;
 }
-/* 사유 텍스트 — 길면 자연스럽게 줄바꿈 (겹침 방지) */
+/* 사유 텍스트 — 한 줄 유지 (줄바꿈 금지). 모달이 충분히 넓으므로 박스 안에 다 들어감. */
 .recommend-pick-reason {
   color: var(--muted); font-size: 0.8rem;
   margin-left: auto;
-  flex: 1 1 auto; min-width: 0;
+  flex-shrink: 0;
   text-align: right;
-  word-break: keep-all; white-space: normal;
+  white-space: nowrap;
   line-height: 1.4;
 }
 .recommend-apply-btn { font-size: 0.78rem !important; padding: 5px 14px !important; flex-shrink: 0; }
