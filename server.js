@@ -951,6 +951,10 @@ function transitionToInitialReveal(room) {
       io.to(p.socketId).emit('initial_reveal_phase', {
         myDraft: p.draft,
         oppChars,
+        myDeckName: p.deckName || '',
+        oppDeckName: room.players[1 - i].deckName || '',
+        myName: p.name,
+        oppName: room.players[1 - i].name,
       });
     }
   });
@@ -982,6 +986,30 @@ function validateDeck(deck) {
   const t2 = CHARACTERS[2].find(c => c.type === deck.t2) ? deck.t2 : randomPick(CHARACTERS[2]).type;
   const t3 = CHARACTERS[3].find(c => c.type === deck.t3) ? deck.t3 : randomPick(CHARACTERS[3]).type;
   return { t1, t2, t3 };
+}
+
+// AI 덱 이름 — 조합 분석해서 그럴싸한 별칭 생성
+function aiGenerateDeckName(draft) {
+  if (!draft) return '뉴비 정찰대';
+  const types = [draft.t1, draft.t2, draft.t3].filter(Boolean);
+  if (types.length === 0) return '미정 부대';
+  const chars = types.map((t, i) => findCharData(t, i + 1));
+  const tags = chars.map(c => c.tag).filter(Boolean);
+  const royalCount = tags.filter(t => t === 'royal').length;
+  const villainCount = tags.filter(t => t === 'villain').length;
+  const setHas = (xs) => types.some(t => xs.includes(t));
+  if (setHas(['gunpowder', 'sulfurCauldron'])) return '화염 분대';
+  if (setHas(['shadowAssassin', 'witch', 'torturer'])) return '암흑 첩보대';
+  if (setHas(['bodyguard', 'armoredWarrior'])) return '철벽 수비대';
+  if (setHas(['herbalist']) && setHas(['monk'])) return '신성 치유단';
+  if (setHas(['herbalist']) || setHas(['monk'])) return '서포트 부대';
+  if (royalCount >= 2) return '왕실 근위대';
+  if (villainCount >= 2) return '어둠의 패거리';
+  if (setHas(['cavalry', 'messenger', 'twins'])) return '기동 정찰대';
+  if (setHas(['ratMerchant', 'manhunter'])) return '음습한 사냥꾼';
+  if (setHas(['dragonTamer'])) return '드래곤의 군단';
+  if (setHas(['king', 'commander'])) return '지휘 사령부';
+  return '균형 부대';
 }
 
 // 캐릭터 데이터 조회 헬퍼
@@ -1054,6 +1082,10 @@ function transitionToFinalReveal(room) {
       io.to(p.socketId).emit('final_reveal_phase', {
         myDraft: p.draft,
         oppChars,
+        myDeckName: p.deckName || '',
+        oppDeckName: room.players[1 - i].deckName || '',
+        myName: p.name,
+        oppName: room.players[1 - i].name,
       });
     }
   });
@@ -3604,10 +3636,12 @@ io.on('connection', (socket) => {
 
     const idx = room.players.length;
     const playerDraft = validateDeck(deck);
+    const deckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
     const sessionToken = genSessionToken();
     room.players.push({
       socketId: socket.id, name: playerName, index: idx,
       pieces: [], draft: playerDraft, hpDist: null,
+      deckName,  // 캐릭터 공개 등에서 닉네임 아래 표시용
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
       sessionToken,  // #9: 재접속용
@@ -4015,9 +4049,11 @@ io.on('connection', (socket) => {
     // 덱 유효성 검사 후 드래프트로 사용
     const playerDraft = validateDeck(deck);
 
+    const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
     room.players.push({
       socketId: socket.id, name: playerName, index: 0,
       pieces: [], draft: playerDraft, hpDist: null,
+      deckName: humanDeckName,
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
     });
@@ -4028,6 +4064,7 @@ io.on('connection', (socket) => {
     room.players.push({
       socketId: 'AI', name: 'AI', index: 1,
       pieces: [], draft: null, hpDist: null,
+      deckName: aiGenerateDeckName(null),  // AI 덱 이름 — 드래프트 후 다시 갱신
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
     });
@@ -4037,6 +4074,7 @@ io.on('connection', (socket) => {
 
     const aiDraft = aiSelectPieces();
     room.players[1].draft = aiDraft;
+    room.players[1].deckName = aiGenerateDeckName(aiDraft);
     room.draftDone[0] = true;
     room.draftDone[1] = true;
 

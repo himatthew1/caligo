@@ -328,7 +328,16 @@ function loadDeck() {
     const raw = localStorage.getItem(DECK_STORAGE_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw);
-    if (d && typeof d === 'object') return { t1: d.t1 || null, t2: d.t2 || null, t3: d.t3 || null };
+    if (d && typeof d === 'object') {
+      // 덱 목록에서 동일 조합 매칭하여 이름 부여
+      let deckName = '';
+      try {
+        const list = loadDeckList();
+        const match = list.find(x => x && x.t1 === d.t1 && x.t2 === d.t2 && x.t3 === d.t3);
+        if (match && match.name) deckName = match.name;
+      } catch (e) {}
+      return { t1: d.t1 || null, t2: d.t2 || null, t3: d.t3 || null, deckName };
+    }
   } catch (e) {}
   return null;
 }
@@ -2224,11 +2233,14 @@ socket.on('reveal_phase', ({ yourPieces, oppPieces }) => {
 });
 
 // ── 초기 공개 (드래프트 직후) ──
-socket.on('initial_reveal_phase', ({ myDraft, oppChars }) => {
+socket.on('initial_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName }) => {
   S.phase = 'initial_reveal';
   S.myDraft = myDraft;
   S.oppRevealChars = oppChars;
+  S.myDeckName = myDeckName || '';
+  S.oppDeckName = oppDeckName || '';
   buildInitialRevealUI(myDraft, oppChars);
+  applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName);
   showScreen('screen-initial-reveal');
 });
 
@@ -2253,11 +2265,36 @@ socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
 });
 
 // ── 최종 공개 ──
-socket.on('final_reveal_phase', ({ myDraft, oppChars }) => {
+socket.on('final_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName }) => {
   S.phase = 'final_reveal';
+  S.myDeckName = myDeckName || S.myDeckName || '';
+  S.oppDeckName = oppDeckName || S.oppDeckName || '';
   buildFinalRevealUI(myDraft, oppChars);
+  applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, /*final=*/true);
   showScreen('screen-final-reveal');
 });
+
+// 캐릭터 공개 화면에 닉네임 + 덱 이름 표시
+function applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, isFinal) {
+  const screenId = isFinal ? 'screen-final-reveal' : 'screen-initial-reveal';
+  const screen = document.getElementById(screenId);
+  if (!screen) return;
+  // h3 .reveal-side-name (있으면 갱신, 없으면 buildXxxRevealUI가 만들어두므로 후행 갱신)
+  const sides = screen.querySelectorAll('.reveal-side');
+  if (sides.length >= 2) {
+    const renderSide = (sideEl, name, deckName) => {
+      let label = sideEl.querySelector('h3.reveal-side-name');
+      if (!label) {
+        label = sideEl.querySelector('h3');
+      }
+      if (label) {
+        label.innerHTML = `${escapeHtmlGlobal(name || '')}${deckName ? `<div class="reveal-deck-name">${escapeHtmlGlobal(deckName)}</div>` : ''}`;
+      }
+    };
+    renderSide(sides[0], myName || S.myName, myDeckName);
+    renderSide(sides[1], oppName || S.opponentName, oppDeckName);
+  }
+}
 
 // ── 배치 ──
 socket.on('placement_phase', ({ pieces, oppPieces }) => {

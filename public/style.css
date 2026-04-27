@@ -2112,6 +2112,16 @@ body {
   text-shadow: 0 2px 8px rgba(0,0,0,0.8);
 }
 
+/* 캐릭터 공개 화면 — 덱 이름 (닉네임 아래) */
+.reveal-deck-name {
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+
 /* 1대1 대치 풀스크린 — 빨간 위협적 톤 */
 .stalemate-overlay {
   background: rgba(40,0,0,0.65) !important;
