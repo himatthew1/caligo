@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CALIGO 효과음 테스트</title>
+  <style>
+    :root {
+      --bg: #1a1410;
+      --surface: #251c14;
+      --surface2: #2e2418;
+      --border: #3a2c1f;
+      --text: #f0e6d6;
+      --text-dim: #b8a78a;
+      --muted: #7a6a55;
+      --accent: #f0c040;
+      --danger: #ef4444;
+      --success: #22c55e;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+      margin: 0; padding: 24px;
+      min-height: 100vh;
+    }
+    h1 { color: var(--accent); margin: 0 0 8px; }
+    h2 { color: var(--text-dim); font-size: 0.95rem; font-weight: 500; margin: 0 0 24px; }
+    .group {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+    .group-title {
+      font-size: 0.9rem; font-weight: 700; color: var(--accent);
+      margin-bottom: 12px; letter-spacing: 0.5px;
+    }
+    .buttons {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+    }
+    .sfx-btn {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s;
+    }
+    .sfx-btn:hover {
+      background: rgba(240,192,64,0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .sfx-btn:active {
+      transform: scale(0.98);
+    }
+    .sfx-btn .label {
+      font-weight: 600;
+      display: block;
+    }
+    .sfx-btn .desc {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .info {
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+      padding: 10px 14px;
+      border-radius: 4px;
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+    .mute-toggle {
+      position: fixed; top: 16px; right: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+  <button class="mute-toggle" id="mute-toggle">🔔 효과음 켜짐</button>
+  <h1>🎵 CALIGO 효과음 테스트</h1>
+  <h2>버튼을 클릭하면 해당 효과음을 재생합니다.</h2>
+
+  <div class="info">
+    💡 첫 클릭 시 브라우저 오디오 컨텍스트가 깨어납니다. 페이지 진입 후 반드시 한 번 이상 클릭해주세요.
+  </div>
+
+  <div class="group">
+    <div class="group-title">⚔ 전투 — 기본 액션</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="turnBell"><span class="label">내 턴 종소리</span><span class="desc">880Hz → 1100Hz 사인웨이브</span></button>
+      <button class="sfx-btn" data-sfx="move"><span class="label">이동</span><span class="desc">400Hz → 500Hz 짧은 사인</span></button>
+      <button class="sfx-btn" data-sfx="attack"><span class="label">공격</span><span class="desc">200Hz → 100Hz sawtooth</span></button>
+      <button class="sfx-btn" data-sfx="hit"><span class="label">피격</span><span class="desc">300Hz → 150Hz square</span></button>
+      <button class="sfx-btn" data-sfx="kill"><span class="label">격파</span><span class="desc">400Hz → 80Hz 0.5초 sawtooth</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">✨ 스킬 — 일반</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="skill"><span class="label">기본 스킬 (시전자)</span><span class="desc">스파클 + 마법 화음</span></button>
+      <button class="sfx-btn" data-sfx="opp_skill"><span class="label">상대 스킬</span><span class="desc">어두운 마이너 + 바람 노이즈</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🌟 스킬 — 캐릭터 전용</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="nightmare"><span class="label">악몽 (고문 기술자)</span><span class="desc">쇠사슬 4회 + 채찍 휘둘림 + 저음 임팩트</span></button>
+      <button class="sfx-btn" data-sfx="heal"><span class="label">회복 (약초학 / 신성)</span><span class="desc">상승 아르페지오 + 따뜻한 G5 + 고역 반짝이</span></button>
+      <button class="sfx-btn" data-sfx="sulfur"><span class="label">유황범람 (유황솥)</span><span class="desc">끓어오름 + 저음 폭발 + 화염 노이즈</span></button>
+      <button class="sfx-btn" data-sfx="bombExplode"><span class="label">기폭 (화약상)</span><span class="desc">폭발 노이즈</span></button>
+      <button class="sfx-btn" data-sfx="trapSnap"><span class="label">덫 발동 (인간 사냥꾼)</span><span class="desc">철컥</span></button>
+      <button class="sfx-btn" data-sfx="curseDamage"><span class="label">저주 틱 피해 (마녀)</span><span class="desc">저주 효과음</span></button>
+      <button class="sfx-btn" data-sfx="ratDeath"><span class="label">쥐 격파 (쥐장수)</span><span class="desc">짧은 비명</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🔔 시스템 알림</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="passive"><span class="label">패시브 발동</span><span class="desc">부드러운 2음 차임 (E5 → A5)</span></button>
+      <button class="sfx-btn" data-sfx="sp"><span class="label">SP 지급</span><span class="desc">800-1000-1200Hz 상승</span></button>
+      <button class="sfx-btn" data-sfx="shrink"><span class="label">보드 축소</span><span class="desc">100→50Hz 1초 sawtooth</span></button>
+      <button class="sfx-btn" data-sfx="boardQuake"><span class="label">보드 흔들림 (저음 진동)</span><span class="desc">쿠구궁</span></button>
+      <button class="sfx-btn" data-sfx="btn_click"><span class="label">버튼 클릭</span><span class="desc">660 → 600Hz 짧은 사인</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🎮 UI 효과음</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="charSelect"><span class="label">캐릭터 선택</span><span class="desc">선택 효과음</span></button>
+      <button class="sfx-btn" data-sfx="deckSave"><span class="label">덱 저장</span><span class="desc">저장 완료</span></button>
+      <button class="sfx-btn" data-sfx="revealAppear"><span class="label">캐릭터 등장</span><span class="desc">공개 효과음</span></button>
+      <button class="sfx-btn" data-sfx="swapBlink"><span class="label">교환 깜빡임</span><span class="desc">교환 단계</span></button>
+      <button class="sfx-btn" data-sfx="swapReveal"><span class="label">교환 공개</span><span class="desc">교환 결과</span></button>
+      <button class="sfx-btn" data-sfx="chat"><span class="label">채팅 알림</span><span class="desc">메시지 도착</span></button>
+    </div>
+  </div>
+
+<script>
+let sfxMuted = false;
+let _sharedAudioCtx = null;
+function getAudioCtx() {
+  if (!_sharedAudioCtx) {
+    try { _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (_sharedAudioCtx.state === 'suspended') {
+    try { _sharedAudioCtx.resume(); } catch (e) {}
+  }
+  return _sharedAudioCtx;
+}
+
+// ── 모든 효과음 함수 — public/game.js 와 동일 ──
+
+function playTurnBell() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+  } catch (e) {}
+}
+
+function playSfx(type) {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    switch (type) {
+      case 'move':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.setValueAtTime(500, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
+        break;
+      case 'attack':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.25);
+        break;
+      case 'hit':
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(300, ctx.currentTime);
+        osc.frequency.setValueAtTime(150, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
+        break;
+      case 'kill':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(80, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+        break;
+      case 'skill': {
+        osc.type = 'sine'; osc.frequency.value = 0; gain.gain.value = 0;
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.01);
+        const now = ctx.currentTime;
+        const out = ctx.destination;
+        const sparkleNotes = [784, 988, 1175, 1397, 1568, 1760];
+        for (let i = 0; i < sparkleNotes.length; i++) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine'; o.frequency.value = sparkleNotes[i];
+          g.gain.setValueAtTime(0.12, now + i * 0.05);
+          g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.2);
+          o.connect(g); g.connect(out);
+          o.start(now + i * 0.05); o.stop(now + i * 0.05 + 0.25);
+        }
+        const chordTime = now + 0.3;
+        const chordFreqs = [523.25, 659.25, 783.99, 1046.5];
+        for (const freq of chordFreqs) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle'; o.frequency.value = freq;
+          g.gain.setValueAtTime(0.08, chordTime);
+          g.gain.linearRampToValueAtTime(0.06, chordTime + 0.15);
+          g.gain.exponentialRampToValueAtTime(0.001, chordTime + 0.7);
+          o.connect(g); g.connect(out);
+          o.start(chordTime); o.stop(chordTime + 0.75);
+        }
+        const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+        const nData = nBuf.getChannelData(0);
+        for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1);
+        const noise = ctx.createBufferSource();
+        noise.buffer = nBuf;
+        const nGain = ctx.createGain();
+        nGain.gain.setValueAtTime(0.06, now);
+        nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        const hpf = ctx.createBiquadFilter();
+        hpf.type = 'highpass'; hpf.frequency.value = 6000;
+        noise.connect(hpf); hpf.connect(nGain); nGain.connect(out);
+        noise.start(now); noise.stop(now + 0.15);
+        break;
+      }
+      case 'opp_skill': {
+        osc.type = 'sine'; osc.frequency.value = 0; gain.gain.value = 0;
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.01);
+        const now2 = ctx.currentTime;
+        const out2 = ctx.destination;
+        const boom = ctx.createOscillator();
+        const boomG = ctx.createGain();
+        boom.type = 'sawtooth';
+        boom.frequency.setValueAtTime(90, now2);
+        boom.frequency.exponentialRampToValueAtTime(35, now2 + 0.4);
+        boomG.gain.setValueAtTime(0.18, now2);
+        boomG.gain.exponentialRampToValueAtTime(0.001, now2 + 0.5);
+        boom.connect(boomG); boomG.connect(out2);
+        boom.start(now2); boom.stop(now2 + 0.5);
+        const darkNotes = [1175, 1047, 880, 784, 659, 587, 440];
+        for (let i = 0; i < darkNotes.length; i++) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'square'; o.frequency.value = darkNotes[i];
+          g.gain.setValueAtTime(0.07, now2 + i * 0.06);
+          g.gain.exponentialRampToValueAtTime(0.001, now2 + i * 0.06 + 0.25);
+          o.connect(g); g.connect(out2);
+          o.start(now2 + i * 0.06); o.stop(now2 + i * 0.06 + 0.3);
+        }
+        const darkChordT = now2 + 0.45;
+        const darkChord = [293.66, 349.23, 440, 587.33];
+        for (const freq of darkChord) {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'triangle'; o.frequency.value = freq;
+          g.gain.setValueAtTime(0.09, darkChordT);
+          g.gain.linearRampToValueAtTime(0.06, darkChordT + 0.2);
+          g.gain.exponentialRampToValueAtTime(0.001, darkChordT + 0.8);
+          o.connect(g); g.connect(out2);
+          o.start(darkChordT); o.stop(darkChordT + 0.85);
+        }
+        const windBuf = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+        const windData = windBuf.getChannelData(0);
+        for (let j = 0; j < windData.length; j++) windData[j] = (Math.random() * 2 - 1);
+        const wind = ctx.createBufferSource();
+        wind.buffer = windBuf;
+        const wGain = ctx.createGain();
+        wGain.gain.setValueAtTime(0.001, now2);
+        wGain.gain.linearRampToValueAtTime(0.08, now2 + 0.15);
+        wGain.gain.exponentialRampToValueAtTime(0.001, now2 + 0.3);
+        const wFilter = ctx.createBiquadFilter();
+        wFilter.type = 'bandpass'; wFilter.frequency.value = 3000; wFilter.Q.value = 1.5;
+        wind.connect(wFilter); wFilter.connect(wGain); wGain.connect(out2);
+        wind.start(now2); wind.stop(now2 + 0.3);
+        break;
+      }
+      case 'shrink':
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(50, ctx.currentTime + 0.8);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
+        break;
+      case 'sp':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.setValueAtTime(1000, ctx.currentTime + 0.08);
+        osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.16);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.25);
+        break;
+      case 'btn_click':
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(660, ctx.currentTime);
+        osc.frequency.setValueAtTime(600, ctx.currentTime + 0.04);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.1);
+        break;
+    }
+  } catch (e) {}
+}
+
+function playSfxNightmare() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    for (let i = 0; i < 4; i++) {
+      const t = now + i * 0.06;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = 4500; bp.Q.value = 6;
+      src.connect(bp); bp.connect(g); g.connect(out);
+      src.start(t); src.stop(t + 0.05);
+    }
+    const whipStart = now + 0.28;
+    const whipBuf = ctx.createBuffer(1, ctx.sampleRate * 0.18, ctx.sampleRate);
+    const wd = whipBuf.getChannelData(0);
+    for (let j = 0; j < wd.length; j++) wd[j] = (Math.random() * 2 - 1);
+    const whip = ctx.createBufferSource(); whip.buffer = whipBuf;
+    const whipG = ctx.createGain();
+    whipG.gain.setValueAtTime(0.001, whipStart);
+    whipG.gain.linearRampToValueAtTime(0.22, whipStart + 0.05);
+    whipG.gain.exponentialRampToValueAtTime(0.001, whipStart + 0.18);
+    const whipFilter = ctx.createBiquadFilter();
+    whipFilter.type = 'bandpass';
+    whipFilter.frequency.setValueAtTime(8000, whipStart);
+    whipFilter.frequency.exponentialRampToValueAtTime(800, whipStart + 0.15);
+    whipFilter.Q.value = 3;
+    whip.connect(whipFilter); whipFilter.connect(whipG); whipG.connect(out);
+    whip.start(whipStart); whip.stop(whipStart + 0.18);
+    const boomStart = now + 0.42;
+    const boom = ctx.createOscillator();
+    const boomG = ctx.createGain();
+    boom.type = 'sawtooth';
+    boom.frequency.setValueAtTime(110, boomStart);
+    boom.frequency.exponentialRampToValueAtTime(40, boomStart + 0.45);
+    boomG.gain.setValueAtTime(0.22, boomStart);
+    boomG.gain.exponentialRampToValueAtTime(0.001, boomStart + 0.55);
+    boom.connect(boomG); boomG.connect(out);
+    boom.start(boomStart); boom.stop(boomStart + 0.55);
+    const chordT = now + 0.45;
+    const minorChord = [220, 261.63, 329.63];
+    for (const f of minorChord) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.06, chordT);
+      g.gain.exponentialRampToValueAtTime(0.001, chordT + 0.6);
+      o.connect(g); g.connect(out);
+      o.start(chordT); o.stop(chordT + 0.65);
+    }
+  } catch (e) {}
+}
+
+function playSfxHeal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    for (let i = 0; i < notes.length; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = notes[i];
+      const t = now + i * 0.06;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.5);
+    }
+    const sus = ctx.createOscillator();
+    const sg = ctx.createGain();
+    sus.type = 'triangle'; sus.frequency.value = 783.99;
+    sg.gain.setValueAtTime(0.001, now + 0.1);
+    sg.gain.linearRampToValueAtTime(0.06, now + 0.25);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    sus.connect(sg); sg.connect(out);
+    sus.start(now + 0.1); sus.stop(now + 0.95);
+    for (let i = 0; i < 3; i++) {
+      const t = now + 0.05 + i * 0.12;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.05, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      const hpf = ctx.createBiquadFilter();
+      hpf.type = 'highpass'; hpf.frequency.value = 6500;
+      src.connect(hpf); hpf.connect(ng); ng.connect(out);
+      src.start(t); src.stop(t + 0.04);
+    }
+  } catch (e) {}
+}
+
+function playSfxSulfur() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const boil = ctx.createOscillator();
+    const bg = ctx.createGain();
+    boil.type = 'sawtooth';
+    boil.frequency.setValueAtTime(80, now);
+    boil.frequency.linearRampToValueAtTime(140, now + 0.4);
+    bg.gain.setValueAtTime(0.001, now);
+    bg.gain.linearRampToValueAtTime(0.18, now + 0.35);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    boil.connect(bg); bg.connect(out);
+    boil.start(now); boil.stop(now + 0.6);
+    const boomT = now + 0.42;
+    const boom = ctx.createOscillator();
+    const bog = ctx.createGain();
+    boom.type = 'sawtooth';
+    boom.frequency.setValueAtTime(150, boomT);
+    boom.frequency.exponentialRampToValueAtTime(50, boomT + 0.35);
+    bog.gain.setValueAtTime(0.28, boomT);
+    bog.gain.exponentialRampToValueAtTime(0.001, boomT + 0.5);
+    boom.connect(bog); bog.connect(out);
+    boom.start(boomT); boom.stop(boomT + 0.55);
+    const flameBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const fd = flameBuf.getChannelData(0);
+    for (let j = 0; j < fd.length; j++) fd[j] = (Math.random() * 2 - 1);
+    const flame = ctx.createBufferSource(); flame.buffer = flameBuf;
+    const fg = ctx.createGain();
+    fg.gain.setValueAtTime(0.001, now);
+    fg.gain.linearRampToValueAtTime(0.10, now + 0.3);
+    fg.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    const ff = ctx.createBiquadFilter();
+    ff.type = 'lowpass'; ff.frequency.value = 1200;
+    flame.connect(ff); ff.connect(fg); fg.connect(out);
+    flame.start(now); flame.stop(now + 0.5);
+  } catch (e) {}
+}
+
+function playSfxPassive() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const notes = [{ f: 659.25, t: 0 }, { f: 880, t: 0.08 }];
+    for (const n of notes) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = n.f;
+      g.gain.setValueAtTime(0.001, now + n.t);
+      g.gain.linearRampToValueAtTime(0.10, now + n.t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + n.t + 0.25);
+      o.connect(g); g.connect(out);
+      o.start(now + n.t); o.stop(now + n.t + 0.3);
+    }
+    const sparkleT = now + 0.04;
+    const sBuf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+    const sd = sBuf.getChannelData(0);
+    for (let j = 0; j < sd.length; j++) sd[j] = (Math.random() * 2 - 1);
+    const sp = ctx.createBufferSource(); sp.buffer = sBuf;
+    const sG = ctx.createGain();
+    sG.gain.setValueAtTime(0.04, sparkleT);
+    sG.gain.exponentialRampToValueAtTime(0.001, sparkleT + 0.05);
+    const sF = ctx.createBiquadFilter();
+    sF.type = 'highpass'; sF.frequency.value = 7000;
+    sp.connect(sF); sF.connect(sG); sG.connect(out);
+    sp.start(sparkleT); sp.stop(sparkleT + 0.05);
+  } catch (e) {}
+}
+
+function playSfxBombExplode() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const boomBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const bd = boomBuf.getChannelData(0);
+    for (let j = 0; j < bd.length; j++) bd[j] = (Math.random() * 2 - 1) * Math.pow(1 - j/bd.length, 2);
+    const boom = ctx.createBufferSource(); boom.buffer = boomBuf;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.4, now);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 800;
+    boom.connect(lpf); lpf.connect(bg); bg.connect(out);
+    boom.start(now); boom.stop(now + 0.5);
+  } catch (e) {}
+}
+
+function playSfxTrapSnap() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.3, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 8;
+    src.connect(bp); bp.connect(g); g.connect(out);
+    src.start(now); src.stop(now + 0.08);
+  } catch (e) {}
+}
+
+function playSfxCurseDamage() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(220, now);
+    o.frequency.linearRampToValueAtTime(110, now + 0.4);
+    g.gain.setValueAtTime(0.18, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.5);
+  } catch (e) {}
+}
+
+function playSfxRatDeath() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(2000, now);
+    o.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.18);
+  } catch (e) {}
+}
+
+function playBoardQuake() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(60, now);
+    o.frequency.linearRampToValueAtTime(40, now + 0.8);
+    g.gain.setValueAtTime(0.5, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 1.0);
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * 0.3;
+    const noise = ctx.createBufferSource(); noise.buffer = buf;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.2, now);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 200;
+    noise.connect(lpf); lpf.connect(ng); ng.connect(out);
+    noise.start(now); noise.stop(now + 0.8);
+  } catch (e) {}
+}
+
+// 추가 효과음 — UI / 캐릭터 선택 등
+function playSfxCharSelect() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(523, now);
+    o.frequency.setValueAtTime(659, now + 0.06);
+    o.frequency.setValueAtTime(784, now + 0.12);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.2);
+  } catch (e) {}
+}
+
+function playSfxDeckSave() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    for (let i = 0; i < 3; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = [440, 554, 659][i];
+      const t = now + i * 0.08;
+      g.gain.setValueAtTime(0.1, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.18);
+    }
+  } catch (e) {}
+}
+
+function playSfxRevealAppear() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(880, now);
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.linearRampToValueAtTime(0.12, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.45);
+  } catch (e) {}
+}
+
+function playSfxSwapBlink() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    for (let i = 0; i < 3; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = 1200;
+      const t = now + i * 0.1;
+      g.gain.setValueAtTime(0.08, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.06);
+    }
+  } catch (e) {}
+}
+
+function playSfxSwapReveal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, now);
+    o.frequency.linearRampToValueAtTime(880, now + 0.3);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.35);
+  } catch (e) {}
+}
+
+function playSfxChat() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, now);
+    o.frequency.setValueAtTime(660, now + 0.05);
+    g.gain.setValueAtTime(0.08, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    o.connect(g); g.connect(out);
+    o.start(now); o.stop(now + 0.15);
+  } catch (e) {}
+}
+
+// ── 버튼 바인딩 ──
+const sfxMap = {
+  turnBell: playTurnBell,
+  move: () => playSfx('move'),
+  attack: () => playSfx('attack'),
+  hit: () => playSfx('hit'),
+  kill: () => playSfx('kill'),
+  skill: () => playSfx('skill'),
+  opp_skill: () => playSfx('opp_skill'),
+  shrink: () => playSfx('shrink'),
+  sp: () => playSfx('sp'),
+  btn_click: () => playSfx('btn_click'),
+  nightmare: playSfxNightmare,
+  heal: playSfxHeal,
+  sulfur: playSfxSulfur,
+  passive: playSfxPassive,
+  bombExplode: playSfxBombExplode,
+  trapSnap: playSfxTrapSnap,
+  curseDamage: playSfxCurseDamage,
+  ratDeath: playSfxRatDeath,
+  boardQuake: playBoardQuake,
+  charSelect: playSfxCharSelect,
+  deckSave: playSfxDeckSave,
+  revealAppear: playSfxRevealAppear,
+  swapBlink: playSfxSwapBlink,
+  swapReveal: playSfxSwapReveal,
+  chat: playSfxChat,
+};
+document.querySelectorAll('.sfx-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const fn = sfxMap[btn.dataset.sfx];
+    if (fn) fn();
+  });
+});
+
+// 음소거 토글
+const muteBtn = document.getElementById('mute-toggle');
+muteBtn.addEventListener('click', () => {
+  sfxMuted = !sfxMuted;
+  muteBtn.textContent = sfxMuted ? '🔕 효과음 꺼짐' : '🔔 효과음 켜짐';
+});
+</script>
+</body>
+</html>
