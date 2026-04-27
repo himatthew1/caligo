@@ -1202,7 +1202,7 @@ function renderTeamDraftSlots() {
   const findChar = (t) => all.find(c => c.type === t);
 
   // 내 슬롯
-  const renderMine = (slotId, label, type) => {
+  const renderMine = (slotId, type) => {
     const el = document.getElementById(slotId);
     if (!el) return;
     const c = type ? findChar(type) : null;
@@ -1211,7 +1211,6 @@ function renderTeamDraftSlots() {
       el.classList.add('filled');
       const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
       el.innerHTML = `
-        <span class="slot-tier">${label}</span>
         <span class="slot-icon">${c.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${c.name} ${tagHtml}</span>
@@ -1230,12 +1229,12 @@ function renderTeamDraftSlots() {
       };
     } else {
       el.classList.add('empty');
-      el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
+      el.innerHTML = `<span class="slot-empty-text">미선택</span>`;
       el.onclick = null;
     }
   };
-  renderMine('draft-slot-1', '1번 캐릭터', S.teamDraft?.pick1);
-  renderMine('draft-slot-2', '2번 캐릭터', S.teamDraft?.pick2);
+  renderMine('draft-slot-1', S.teamDraft?.pick1);
+  renderMine('draft-slot-2', S.teamDraft?.pick2);
 
   // 팀원 픽 (사이드바 하단에 동적 추가)
   let tmContainer = document.getElementById('team-draft-teammate-slots');
@@ -1251,12 +1250,11 @@ function renderTeamDraftSlots() {
   if (tmContainer) {
     const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
     const tmName = tm ? tm.name : '팀원';
-    const renderTmSlot = (type, label) => {
+    const renderTmSlot = (type) => {
       const c = type ? findChar(type) : null;
       if (c) {
         const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
         return `<div class="draft-slot filled teammate-slot" data-tm-jump="${c.type}">
-          <span class="slot-tier">${label}</span>
           <span class="slot-icon">${c.icon}</span>
           <div class="slot-info">
             <span class="slot-name">${c.name} ${tagHtml}</span>
@@ -1265,14 +1263,13 @@ function renderTeamDraftSlots() {
         </div>`;
       }
       return `<div class="draft-slot empty teammate-slot">
-        <span class="slot-tier">${label}</span>
         <span class="slot-empty-text">미선택</span>
       </div>`;
     };
     tmContainer.innerHTML = `
       <h4 class="teammate-slots-title">${escapeHtmlGlobal(tmName)}의 조합</h4>
-      ${renderTmSlot(S.teamTeammatePicks?.pick1, '1번 캐릭터')}
-      ${renderTmSlot(S.teamTeammatePicks?.pick2, '2번 캐릭터')}
+      ${renderTmSlot(S.teamTeammatePicks?.pick1)}
+      ${renderTmSlot(S.teamTeammatePicks?.pick2)}
     `;
     // 팀원 슬롯 클릭 → 해당 캐릭터 슬라이드로 이동
     tmContainer.querySelectorAll('[data-tm-jump]').forEach(el => {
@@ -1395,13 +1392,14 @@ function renderTeamDraft() {
   });
 }
 
-function updateTeamDraftSlot(slotId, label, type) {
+function updateTeamDraftSlot(slotId, _label, type) {
+  // _label은 호환성 위해 받지만 사용 안 함 — 팀전 슬롯에는 N번 캐릭터 라벨 표시 X
   const el = document.getElementById(slotId);
   if (!el) return;
   if (!type) {
     el.classList.add('empty');
     el.classList.remove('filled');
-    el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
+    el.innerHTML = `<span class="slot-empty-text">미선택</span>`;
     return;
   }
   const all = [
@@ -1413,8 +1411,7 @@ function updateTeamDraftSlot(slotId, label, type) {
   if (!c) return;
   el.classList.remove('empty');
   el.classList.add('filled');
-  el.innerHTML = `<span class="slot-tier">${label}</span>
-    <span class="slot-icon-big">${c.icon || ''}</span>
+  el.innerHTML = `<span class="slot-icon-big">${c.icon || ''}</span>
     <span class="slot-name-sm">${escapeHtmlGlobal(c.name || c.type)}</span>`;
 }
 
@@ -1458,7 +1455,6 @@ function buildTeamHpUIOnSharedScreen() {
   const draft = S.teamDraft;
   S.hpValues = [5, 5];  // 2슬롯 합 10
   const types = [draft.pick1, draft.pick2];
-  const labels = ['1번 캐릭터', '2번 캐릭터'];
   const container = document.getElementById('hp-pieces');
   container.innerHTML = '';
   const rows = document.createElement('div');
@@ -1473,7 +1469,6 @@ function buildTeamHpUIOnSharedScreen() {
       <span class="char-icon">${charData.icon}</span>
       <div class="hp-piece-label">
         <strong>${charData.name}${tagHtml}</strong>
-        <span>${labels[i]}</span>
       </div>
       <div class="hp-input-group">
         <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
@@ -3311,16 +3306,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
-    // 악몽 / 회복 / 유황범람 전용 사운드, 그 외는 기본 'skill'
-    if (msg.startsWith('⛓ 악몽:')) {
-      playSfxNightmare();
-    } else if (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:')) {
-      if (typeof playSfxHeal === 'function') playSfxHeal(); else playSfx('skill');
-    } else if (msg.startsWith('🔥 유황범람:')) {
-      if (typeof playSfxSulfur === 'function') playSfxSulfur(); else playSfx('skill');
-    } else {
-      playSfx('skill');
-    }
+    // 메시지 prefix별 전용 효과음 매핑
+    const sfxRoute = pickSkillSfxByMsg(msg);
+    if (sfxRoute) sfxRoute(); else playSfx('skill');
     addLog(msg, 'skill');
     showSkillToast(msg);
   }
@@ -3356,15 +3344,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
 socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs }) => {
-  // 악몽(상대) 전용 사운드 우선, 회복은 회복 사운드, 그 외는 기본
-  const isHeal = msg && (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:'));
-  if (msg && msg.startsWith('⛓ 악몽:')) {
-    playSfxNightmare();
-  } else if (isHeal && typeof playSfxHeal === 'function') {
-    playSfxHeal();
-  } else {
-    playSfx('opp_skill');
-  }
+  // 메시지 기반 라우팅 (skill_result와 동일 매핑) — 폴백은 'opp_skill'
+  const sfxRoute = pickSkillSfxByMsg(msg);
+  if (sfxRoute) sfxRoute(); else playSfx('opp_skill');
 
   // 피해 감지용: 업데이트 전 HP 스냅샷
   const oldMyHps = S.myPieces.map(p => p.hp);
@@ -3407,7 +3389,7 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner }) => {
-  playSfx('skill');
+  if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
@@ -3420,7 +3402,7 @@ socket.on('rats_spawned', ({ rats, owner }) => {
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
-  playSfx('skill');
+  if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill');
   if (owner === S.playerIdx) {
     addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`, 'skill');
     showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤을 소환했습니다.`);
@@ -3507,9 +3489,10 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
 // ── 패시브 알림 ──
 socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   addLog(msg, 'skill');
-  // 패시브 전용 효과음 — 저주 틱은 별도 사운드라 제외
+  // 패시브 type별 전용 효과음 (저주 틱은 별도)
   if (type !== 'curse_tick') {
-    playSfxPassive();
+    const passiveSfx = pickPassiveSfxByType(type);
+    if (passiveSfx) passiveSfx(); else playSfxPassive();
   }
   if (type === 'bodyguard') {
     S._bodyguardIntercepted = true;
@@ -3681,10 +3664,9 @@ socket.on('err', ({ msg }) => {
   }
 });
 
-socket.on('wait_msg', ({ msg }) => {
-  // 현재 화면 유지 — 본인 작업 결과(HP 분배, 픽, 배치)는 계속 보여야 함
-  // 작은 토스트로만 알림. 절대 screen-waiting으로 전환하지 않음.
-  try { showSkillToast(msg, false, undefined, 'event'); } catch (e) {}
+socket.on('wait_msg', () => {
+  // 의미: 세팅 단계에서 본인 확정 후 다른 플레이어 대기 (재접속/턴과 무관)
+  // 사이드바의 n/4 진행도로 이미 충분히 표시됨 → UI는 변경하지 않음 (no-op)
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -9516,6 +9498,341 @@ function playSfxNightmare() {
       e.connect(eg); eg.connect(out);
       e.start(t); e.stop(t + 0.7);
     }
+  } catch (e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── 캐릭터별 전용 스킬/패시브 효과음 (Web Audio 절차 생성) ────
+// ═══════════════════════════════════════════════════════════════
+
+// ── 패시브 type → 전용 SFX 라우터 ──
+function pickPassiveSfxByType(type) {
+  switch (type) {
+    case 'monk_attack':
+    case 'monk_defend':
+      return playSfxMonkBlessing;
+    case 'wizard':       return playSfxWizardInstant;
+    case 'armoredWarrior':
+    case 'iron_skin':    return playSfxIronSkin;
+    case 'bodyguard':    return playSfxBodyguardLoyalty;
+    case 'count':        return playSfxCountTyranny;
+    case 'commander':    return playSfxCommanderWrath;
+    case 'butcher':
+    case 'slaughterHero': return playSfxButcherBetrayer;
+    case 'mark':
+    case 'torturer':     return playSfxTorturerMark;
+    default:             return null;
+  }
+}
+
+// ── 스킬 메시지 prefix → 전용 SFX 라우터 ──
+// 서버 result.msg / oppMsg 와 정확히 매칭
+function pickSkillSfxByMsg(msg) {
+  if (!msg || typeof msg !== 'string') return null;
+  if (msg.startsWith('⛓ 악몽:')) return playSfxNightmare;
+  if (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:')) return (typeof playSfxHeal === 'function' ? playSfxHeal : null);
+  if (msg.startsWith('🔥 유황범람:')) return (typeof playSfxSulfur === 'function' ? playSfxSulfur : null);
+  if (msg.startsWith('🏹 정비')) return playSfxArcherTune;       // 궁수 정비 (반전)
+  if (msg.startsWith('🔭 정찰')) return playSfxScout;            // 척후병 정찰
+  if (msg.startsWith('👫 분신')) return playSfxTwinsJoin;        // 쌍둥이 합체
+  if (msg.startsWith('🪤 덫 설치')) return playSfxBombPlace;     // 사냥꾼 덫 설치 (폭탄 설치와 톤 비슷)
+  if (msg.startsWith('📯 질주')) return playSfxMessengerSprint;  // 전령 질주
+  if (msg.startsWith('💣 폭탄 설치')) return playSfxBombPlace;   // 폭파병 폭탄 설치
+  if (msg.startsWith('💥 기폭')) return playSfxBombExplode;      // 폭파병 기폭 (이미 bomb_detonated에서도 호출됨)
+  if (msg.startsWith('🗡 그림자 숨기')) return playSfxShadowHide; // 그림자 암살자
+  if (msg.startsWith('🧙 저주')) return playSfxWitchCurse;       // 마녀 저주
+  if (msg.startsWith('⚔ 쌍검무')) return playSfxDualBlade;       // 양손검객
+  if (msg.startsWith('🐀 역병')) return playSfxRatSummon;        // 쥐 장수
+  if (msg.startsWith('⚒ 정비')) return playSfxArmorerTune;       // 무기상
+  if (msg.startsWith('♛ 절대복종')) return playSfxKingRing;      // 국왕
+  if (msg.startsWith('🐉 드래곤')) return playSfxDragonSummon;   // 드래곤 조련사
+  return null;
+}
+
+// 작은 헬퍼 — 짧은 톤
+function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, time);
+  if (glide) o.frequency.exponentialRampToValueAtTime(glide, time + dur);
+  g.gain.setValueAtTime(0.001, time);
+  g.gain.linearRampToValueAtTime(gain || 0.1, time + Math.min(0.02, dur * 0.2));
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(time); o.stop(time + dur + 0.02);
+}
+function _sfxNoise(ctx, time, dur, gain, hpFreq, lpFreq) {
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain || 0.1, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  let node = src;
+  if (hpFreq) { const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hpFreq; node.connect(f); node = f; }
+  if (lpFreq) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq; node.connect(f); node = f; }
+  node.connect(g); g.connect(ctx.destination);
+  src.start(time); src.stop(time + dur);
+}
+
+// ── 1. 궁수 정비 (공격범위 반전) — 기계 부품 회전 + 짧은 클릭 ──
+function playSfxArcherTune() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now, 800, 0.05, 'square', 0.08);
+    _sfxTone(ctx, now + 0.06, 1200, 0.05, 'square', 0.06);
+    _sfxTone(ctx, now + 0.18, 600, 0.18, 'sawtooth', 0.06, 1100);  // pitch slide up
+  } catch (e) {}
+}
+
+// ── 2. 척후병 척후 (정찰) — 레이더 핑 ──
+function playSfxScout() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now,        1800, 0.15, 'sine', 0.1);
+    _sfxTone(ctx, now + 0.18, 2200, 0.18, 'sine', 0.07);
+    _sfxNoise(ctx, now + 0.05, 0.06, 0.03, 4000);
+  } catch (e) {}
+}
+
+// ── 3. 쌍둥이 분신 (합체) — 조화로운 듀엣 ──
+function playSfxTwinsJoin() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now,        523, 0.4, 'sine', 0.08);  // C5
+    _sfxTone(ctx, now,        659, 0.4, 'sine', 0.08);  // E5 (3rd)
+    _sfxTone(ctx, now + 0.15, 784, 0.35, 'sine', 0.07); // G5 (5th)
+  } catch (e) {}
+}
+
+// ── 4. 전령 질주 — 빠른 발걸음 + 휘이익 ──
+function playSfxMessengerSprint() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 발걸음 3번
+    for (let i = 0; i < 3; i++) {
+      const t = now + i * 0.08;
+      _sfxNoise(ctx, t, 0.04, 0.08, 200, 800);
+    }
+    // 휘이익
+    _sfxTone(ctx, now + 0.05, 400, 0.3, 'sawtooth', 0.05, 1200);
+  } catch (e) {}
+}
+
+// ── 5. 폭파병 폭탄 설치 — 째깍거림 + 클릭 ──
+function playSfxBombPlace() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 똑딱 3번 (시한폭탄)
+    for (let i = 0; i < 3; i++) {
+      _sfxTone(ctx, now + i * 0.1, 1500, 0.04, 'square', 0.07);
+    }
+    // 무거운 설치 thud
+    _sfxTone(ctx, now + 0.32, 80, 0.18, 'sine', 0.15, 50);
+  } catch (e) {}
+}
+
+// ── 6. 장군 작전 — 전쟁 북 + 호각 ──
+function playSfxGeneralOrder() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 북소리 (저주파 노이즈 폭발)
+    _sfxNoise(ctx, now, 0.12, 0.2, 50, 250);
+    _sfxNoise(ctx, now + 0.18, 0.1, 0.16, 50, 250);
+    // 호각 (고음 톤)
+    _sfxTone(ctx, now + 0.28, 880, 0.25, 'square', 0.08);
+  } catch (e) {}
+}
+
+// ── 7. 그림자 암살자 그림자 숨기 — 휘이익 + 페이드 ──
+function playSfxShadowHide() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 그림자 휘이익 (하강 글라이드)
+    _sfxTone(ctx, now, 1400, 0.5, 'sine', 0.08, 200);
+    // 어두운 노이즈 layer
+    _sfxNoise(ctx, now, 0.5, 0.04, 80, 600);
+  } catch (e) {}
+}
+
+// ── 8. 마녀 저주 시전 — 신비로운 와류 + 보컬 톤 ──
+function playSfxWitchCurse() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 신비로운 글라이드 (하강)
+    _sfxTone(ctx, now, 600, 0.6, 'sawtooth', 0.06, 200);
+    // 보컬 같은 톤 (사인파 진동)
+    _sfxTone(ctx, now + 0.1, 350, 0.5, 'sine', 0.09);
+    // 어두운 종소리
+    _sfxTone(ctx, now + 0.3, 200, 0.4, 'triangle', 0.07);
+  } catch (e) {}
+}
+
+// ── 9. 양손검객 쌍검무 — 금속 두 번 ──
+function playSfxDualBlade() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 검 슬래시 1
+    _sfxNoise(ctx, now, 0.12, 0.16, 2000, 8000);
+    _sfxTone(ctx, now, 2400, 0.1, 'square', 0.05);
+    // 검 슬래시 2
+    _sfxNoise(ctx, now + 0.18, 0.12, 0.15, 2000, 8000);
+    _sfxTone(ctx, now + 0.18, 2800, 0.1, 'square', 0.05);
+  } catch (e) {}
+}
+
+// ── 10. 쥐 장수 역병의 자손들 — 쥐들 끽끽 ──
+function playSfxRatSummon() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 다수의 짧은 끽끽 소리
+    for (let i = 0; i < 5; i++) {
+      const t = now + i * 0.07;
+      const f = 1800 + Math.random() * 800;
+      _sfxTone(ctx, t, f, 0.06, 'square', 0.06);
+    }
+    // 긁히는 노이즈
+    _sfxNoise(ctx, now, 0.4, 0.04, 1500, 4000);
+  } catch (e) {}
+}
+
+// ── 11. 무기상 정비 (가로↔세로 전환) — 망치질 + 클릭 ──
+function playSfxArmorerTune() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 망치 두 번
+    _sfxNoise(ctx, now, 0.04, 0.18, 200, 1200);
+    _sfxTone(ctx, now, 180, 0.05, 'square', 0.1);
+    _sfxNoise(ctx, now + 0.12, 0.04, 0.14, 200, 1200);
+    _sfxTone(ctx, now + 0.12, 220, 0.05, 'square', 0.08);
+    // 끝 클릭
+    _sfxTone(ctx, now + 0.25, 1500, 0.04, 'square', 0.06);
+  } catch (e) {}
+}
+
+// ── 12. 국왕 절대복종 반지 — 웅장한 종소리 + 반지 광채 ──
+function playSfxKingRing() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 큰 종소리 (저음)
+    _sfxTone(ctx, now,       220, 0.8, 'sine', 0.12);
+    _sfxTone(ctx, now,       330, 0.6, 'sine', 0.08);  // 3rd harmonic
+    // 광채 (고음 떨림)
+    for (let i = 0; i < 4; i++) {
+      _sfxTone(ctx, now + 0.15 + i * 0.08, 1760 + i * 220, 0.12, 'sine', 0.05);
+    }
+  } catch (e) {}
+}
+
+// ── 13. 드래곤 조련사 드래곤 소환 — 깊은 으르렁 + 사이렌 ──
+function playSfxDragonSummon() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 깊은 으르렁 (저주파 sawtooth)
+    _sfxTone(ctx, now, 80, 0.8, 'sawtooth', 0.18, 50);
+    _sfxTone(ctx, now + 0.05, 100, 0.7, 'sawtooth', 0.12, 70);
+    // 고음 사이렌 (드래곤의 비명)
+    _sfxTone(ctx, now + 0.3, 400, 0.5, 'sawtooth', 0.08, 1200);
+    // 거대 노이즈 (날갯짓)
+    _sfxNoise(ctx, now + 0.4, 0.4, 0.08, 100, 800);
+  } catch (e) {}
+}
+
+// ──────── 패시브 SFX (8종) ────────
+
+// 14. 가호 (수도승) — 교회 종소리 한 점
+function playSfxMonkBlessing() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now, 880, 0.6, 'sine', 0.12);
+    _sfxTone(ctx, now, 1320, 0.5, 'sine', 0.06);  // 5th
+    _sfxTone(ctx, now + 0.05, 660, 0.4, 'sine', 0.05);  // 3rd
+  } catch (e) {}
+}
+// 15. 인스턴트 매직 (마법사) — 반짝이 상승음
+function playSfxWizardInstant() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now, 800, 0.3, 'sine', 0.08, 2400);  // glide up
+    _sfxTone(ctx, now + 0.1, 1600, 0.3, 'sine', 0.06, 3200);
+    _sfxNoise(ctx, now + 0.05, 0.2, 0.03, 6000);  // sparkle
+  } catch (e) {}
+}
+// 16. 아이언 스킨 (갑주무사) — 금속 둔탁한 깡
+function playSfxIronSkin() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxNoise(ctx, now, 0.05, 0.18, 800, 3000);
+    _sfxTone(ctx, now, 180, 0.25, 'square', 0.1, 100);
+  } catch (e) {}
+}
+// 17. 충성 (호위무사) — 방패 부딪힘 + 짧은 함성
+function playSfxBodyguardLoyalty() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxNoise(ctx, now, 0.08, 0.2, 400, 2000);
+    _sfxTone(ctx, now + 0.04, 200, 0.18, 'sawtooth', 0.1);
+    _sfxTone(ctx, now + 0.12, 350, 0.15, 'square', 0.06);
+  } catch (e) {}
+}
+// 18. 폭정 (백작) — 어두운 저음 + 음산
+function playSfxCountTyranny() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now, 110, 0.6, 'sawtooth', 0.1);
+    _sfxTone(ctx, now, 165, 0.5, 'sawtooth', 0.07);  // imperfect 5th
+    _sfxNoise(ctx, now, 0.5, 0.04, 50, 300);
+  } catch (e) {}
+}
+// 19. 사기증진 (지휘관) — 짧은 북 + 호른
+function playSfxCommanderWrath() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxNoise(ctx, now, 0.06, 0.15, 50, 200);  // 북
+    _sfxTone(ctx, now + 0.08, 392, 0.3, 'square', 0.08);  // 호른 G4
+    _sfxTone(ctx, now + 0.18, 587, 0.25, 'square', 0.07);  // D5
+  } catch (e) {}
+}
+// 20. 배반자 (학살영웅) — 어두운 슬래시 + 비명
+function playSfxButcherBetrayer() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxNoise(ctx, now, 0.15, 0.2, 1500, 5000);  // 슬래시
+    _sfxTone(ctx, now + 0.08, 200, 0.25, 'sawtooth', 0.1, 80);  // 어두운 비명
+  } catch (e) {}
+}
+// 21. 표식 (고문 기술자) — 사슬 짤랑 + 날카로운 클릭
+function playSfxTorturerMark() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 사슬
+    for (let i = 0; i < 4; i++) {
+      _sfxNoise(ctx, now + i * 0.04, 0.025, 0.07, 3000, 8000);
+    }
+    // 날카로운 클릭
+    _sfxTone(ctx, now + 0.2, 2200, 0.06, 'square', 0.1);
   } catch (e) {}
 }
 

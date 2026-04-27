@@ -119,13 +119,47 @@
   </div>
 
   <div class="group">
-    <div class="group-title">🌟 스킬 — 캐릭터 전용</div>
+    <div class="group-title">🌟 스킬 — 캐릭터 전용 (기존)</div>
     <div class="buttons">
       <button class="sfx-btn" data-sfx="heal"><span class="label">회복 (약초학 / 신성)</span><span class="desc">상승 아르페지오 + 따뜻한 G5 + 고역 반짝이</span></button>
       <button class="sfx-btn" data-sfx="bombExplode"><span class="label">기폭 (화약상)</span><span class="desc">폭발 노이즈</span></button>
       <button class="sfx-btn" data-sfx="trapSnap"><span class="label">덫 발동 (인간 사냥꾼)</span><span class="desc">철컥</span></button>
       <button class="sfx-btn" data-sfx="curseDamage"><span class="label">저주 틱 피해 (마녀)</span><span class="desc">저주 효과음</span></button>
       <button class="sfx-btn" data-sfx="ratDeath"><span class="label">쥐 격파 (쥐장수)</span><span class="desc">짧은 비명</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🆕 신규 스킬 전용 효과음 (13종)</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="archerTune"><span class="label">궁수 정비 (반전)</span><span class="desc">기계 부품 회전 + 클릭 + 피치 슬라이드</span></button>
+      <button class="sfx-btn" data-sfx="scout"><span class="label">척후병 척후</span><span class="desc">레이더 핑 (1800→2200Hz)</span></button>
+      <button class="sfx-btn" data-sfx="twinsJoin"><span class="label">쌍둥이 합체 (분신)</span><span class="desc">C5+E5+G5 화음 듀엣</span></button>
+      <button class="sfx-btn" data-sfx="messengerSprint"><span class="label">전령 질주</span><span class="desc">발걸음 3번 + 휘이익</span></button>
+      <button class="sfx-btn" data-sfx="bombPlace"><span class="label">폭탄 설치 (폭파병)</span><span class="desc">째깍 3회 + 무거운 thud</span></button>
+      <button class="sfx-btn" data-sfx="generalOrder"><span class="label">장군 작전</span><span class="desc">북 두번 + 호각</span></button>
+      <button class="sfx-btn" data-sfx="shadowHide"><span class="label">그림자 숨기 (암살자)</span><span class="desc">하강 글라이드 + 어두운 노이즈</span></button>
+      <button class="sfx-btn" data-sfx="witchCurse"><span class="label">저주 시전 (마녀)</span><span class="desc">신비로운 글라이드 + 보컬 톤 + 종</span></button>
+      <button class="sfx-btn" data-sfx="dualBlade"><span class="label">쌍검무 (양손검객)</span><span class="desc">금속 슬래시 2회</span></button>
+      <button class="sfx-btn" data-sfx="ratSummon"><span class="label">역병의 자손들 (쥐 장수)</span><span class="desc">끽끽 5회 + 긁히는 노이즈</span></button>
+      <button class="sfx-btn" data-sfx="armorerTune"><span class="label">무기상 정비 (전환)</span><span class="desc">망치질 2회 + 클릭</span></button>
+      <button class="sfx-btn" data-sfx="kingRing"><span class="label">국왕 절대복종 반지</span><span class="desc">웅장한 종 + 광채 떨림</span></button>
+      <button class="sfx-btn" data-sfx="dragonSummon"><span class="label">드래곤 소환 (조련사)</span><span class="desc">깊은 으르렁 + 사이렌 + 날갯짓</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🛡 패시브 전용 효과음 (8종)</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="passive"><span class="label">기본 패시브 (구버전)</span><span class="desc">참고용 — E5→A5 차임</span></button>
+      <button class="sfx-btn" data-sfx="monkBlessing"><span class="label">가호 (수도승)</span><span class="desc">교회 종 화음 (A5+C#6+E6)</span></button>
+      <button class="sfx-btn" data-sfx="wizardInstant"><span class="label">인스턴트 매직 (마법사)</span><span class="desc">반짝이 상승음 (800→3200Hz)</span></button>
+      <button class="sfx-btn" data-sfx="ironSkin"><span class="label">아이언 스킨 (갑주무사)</span><span class="desc">금속 둔탁 깡</span></button>
+      <button class="sfx-btn" data-sfx="bodyguardLoyalty"><span class="label">충성 (호위무사)</span><span class="desc">방패 부딪힘 + 짧은 함성</span></button>
+      <button class="sfx-btn" data-sfx="countTyranny"><span class="label">폭정 (백작)</span><span class="desc">어두운 저음 마이너 + 노이즈</span></button>
+      <button class="sfx-btn" data-sfx="commanderWrath"><span class="label">사기증진 (지휘관)</span><span class="desc">북 + 호른 (G4 → D5)</span></button>
+      <button class="sfx-btn" data-sfx="butcherBetrayer"><span class="label">배반자 (학살영웅)</span><span class="desc">어두운 슬래시 + 비명</span></button>
+      <button class="sfx-btn" data-sfx="torturerMark"><span class="label">표식 (고문 기술자)</span><span class="desc">사슬 짤랑 + 날카로운 클릭</span></button>
     </div>
   </div>
 
@@ -1543,6 +1577,55 @@ function playSfxChat() {
   } catch (e) {}
 }
 
+// ─── 신규 캐릭터 전용 SFX (game.js와 동일 구현) ───
+function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, time);
+  if (glide) o.frequency.exponentialRampToValueAtTime(glide, time + dur);
+  g.gain.setValueAtTime(0.001, time);
+  g.gain.linearRampToValueAtTime(gain || 0.1, time + Math.min(0.02, dur * 0.2));
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(time); o.stop(time + dur + 0.02);
+}
+function _sfxNoise(ctx, time, dur, gain, hpFreq, lpFreq) {
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain || 0.1, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  let node = src;
+  if (hpFreq) { const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hpFreq; node.connect(f); node = f; }
+  if (lpFreq) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq; node.connect(f); node = f; }
+  node.connect(g); g.connect(ctx.destination);
+  src.start(time); src.stop(time + dur);
+}
+function playSfxArcherTune() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 800, 0.05, 'square', 0.08); _sfxTone(ctx, now + 0.06, 1200, 0.05, 'square', 0.06); _sfxTone(ctx, now + 0.18, 600, 0.18, 'sawtooth', 0.06, 1100); } catch (e) {} }
+function playSfxScout() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 1800, 0.15, 'sine', 0.1); _sfxTone(ctx, now + 0.18, 2200, 0.18, 'sine', 0.07); _sfxNoise(ctx, now + 0.05, 0.06, 0.03, 4000); } catch (e) {} }
+function playSfxTwinsJoin() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 523, 0.4, 'sine', 0.08); _sfxTone(ctx, now, 659, 0.4, 'sine', 0.08); _sfxTone(ctx, now + 0.15, 784, 0.35, 'sine', 0.07); } catch (e) {} }
+function playSfxMessengerSprint() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 3; i++) { _sfxNoise(ctx, now + i * 0.08, 0.04, 0.08, 200, 800); } _sfxTone(ctx, now + 0.05, 400, 0.3, 'sawtooth', 0.05, 1200); } catch (e) {} }
+function playSfxBombPlace() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 3; i++) { _sfxTone(ctx, now + i * 0.1, 1500, 0.04, 'square', 0.07); } _sfxTone(ctx, now + 0.32, 80, 0.18, 'sine', 0.15, 50); } catch (e) {} }
+function playSfxGeneralOrder() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.12, 0.2, 50, 250); _sfxNoise(ctx, now + 0.18, 0.1, 0.16, 50, 250); _sfxTone(ctx, now + 0.28, 880, 0.25, 'square', 0.08); } catch (e) {} }
+function playSfxShadowHide() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 1400, 0.5, 'sine', 0.08, 200); _sfxNoise(ctx, now, 0.5, 0.04, 80, 600); } catch (e) {} }
+function playSfxWitchCurse() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 600, 0.6, 'sawtooth', 0.06, 200); _sfxTone(ctx, now + 0.1, 350, 0.5, 'sine', 0.09); _sfxTone(ctx, now + 0.3, 200, 0.4, 'triangle', 0.07); } catch (e) {} }
+function playSfxDualBlade() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.12, 0.16, 2000, 8000); _sfxTone(ctx, now, 2400, 0.1, 'square', 0.05); _sfxNoise(ctx, now + 0.18, 0.12, 0.15, 2000, 8000); _sfxTone(ctx, now + 0.18, 2800, 0.1, 'square', 0.05); } catch (e) {} }
+function playSfxRatSummon() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 5; i++) { const t = now + i * 0.07; const f = 1800 + Math.random() * 800; _sfxTone(ctx, t, f, 0.06, 'square', 0.06); } _sfxNoise(ctx, now, 0.4, 0.04, 1500, 4000); } catch (e) {} }
+function playSfxArmorerTune() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.04, 0.18, 200, 1200); _sfxTone(ctx, now, 180, 0.05, 'square', 0.1); _sfxNoise(ctx, now + 0.12, 0.04, 0.14, 200, 1200); _sfxTone(ctx, now + 0.12, 220, 0.05, 'square', 0.08); _sfxTone(ctx, now + 0.25, 1500, 0.04, 'square', 0.06); } catch (e) {} }
+function playSfxKingRing() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 220, 0.8, 'sine', 0.12); _sfxTone(ctx, now, 330, 0.6, 'sine', 0.08); for (let i = 0; i < 4; i++) { _sfxTone(ctx, now + 0.15 + i * 0.08, 1760 + i * 220, 0.12, 'sine', 0.05); } } catch (e) {} }
+function playSfxDragonSummon() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 80, 0.8, 'sawtooth', 0.18, 50); _sfxTone(ctx, now + 0.05, 100, 0.7, 'sawtooth', 0.12, 70); _sfxTone(ctx, now + 0.3, 400, 0.5, 'sawtooth', 0.08, 1200); _sfxNoise(ctx, now + 0.4, 0.4, 0.08, 100, 800); } catch (e) {} }
+// 패시브 8종
+function playSfxMonkBlessing() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 880, 0.6, 'sine', 0.12); _sfxTone(ctx, now, 1320, 0.5, 'sine', 0.06); _sfxTone(ctx, now + 0.05, 660, 0.4, 'sine', 0.05); } catch (e) {} }
+function playSfxWizardInstant() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 800, 0.3, 'sine', 0.08, 2400); _sfxTone(ctx, now + 0.1, 1600, 0.3, 'sine', 0.06, 3200); _sfxNoise(ctx, now + 0.05, 0.2, 0.03, 6000); } catch (e) {} }
+function playSfxIronSkin() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.05, 0.18, 800, 3000); _sfxTone(ctx, now, 180, 0.25, 'square', 0.1, 100); } catch (e) {} }
+function playSfxBodyguardLoyalty() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.08, 0.2, 400, 2000); _sfxTone(ctx, now + 0.04, 200, 0.18, 'sawtooth', 0.1); _sfxTone(ctx, now + 0.12, 350, 0.15, 'square', 0.06); } catch (e) {} }
+function playSfxCountTyranny() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 110, 0.6, 'sawtooth', 0.1); _sfxTone(ctx, now, 165, 0.5, 'sawtooth', 0.07); _sfxNoise(ctx, now, 0.5, 0.04, 50, 300); } catch (e) {} }
+function playSfxCommanderWrath() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.06, 0.15, 50, 200); _sfxTone(ctx, now + 0.08, 392, 0.3, 'square', 0.08); _sfxTone(ctx, now + 0.18, 587, 0.25, 'square', 0.07); } catch (e) {} }
+function playSfxButcherBetrayer() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.15, 0.2, 1500, 5000); _sfxTone(ctx, now + 0.08, 200, 0.25, 'sawtooth', 0.1, 80); } catch (e) {} }
+function playSfxTorturerMark() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 4; i++) { _sfxNoise(ctx, now + i * 0.04, 0.025, 0.07, 3000, 8000); } _sfxTone(ctx, now + 0.2, 2200, 0.06, 'square', 0.1); } catch (e) {} }
+
 // ── 버튼 바인딩 ──
 const sfxMap = {
   turnBell: playTurnBell,
@@ -1583,7 +1666,32 @@ const sfxMap = {
   swapBlink: playSfxSwapBlink,
   swapReveal: playSfxSwapReveal,
   chat: playSfxChat,
+  // 신규 스킬 13종
+  archerTune: playSfxArcherTune,
+  scout: playSfxScout,
+  twinsJoin: playSfxTwinsJoin,
+  messengerSprint: playSfxMessengerSprint,
+  bombPlace: playSfxBombPlace,
+  generalOrder: playSfxGeneralOrder,
+  shadowHide: playSfxShadowHide,
+  witchCurse: playSfxWitchCurse,
+  dualBlade: playSfxDualBlade,
+  ratSummon: playSfxRatSummon,
+  armorerTune: playSfxArmorerTune,
+  kingRing: playSfxKingRing,
+  dragonSummon: playSfxDragonSummon,
+  // 신규 패시브 8종
+  monkBlessing: playSfxMonkBlessing,
+  wizardInstant: playSfxWizardInstant,
+  ironSkin: playSfxIronSkin,
+  bodyguardLoyalty: playSfxBodyguardLoyalty,
+  countTyranny: playSfxCountTyranny,
+  commanderWrath: playSfxCommanderWrath,
+  butcherBetrayer: playSfxBodyguardLoyalty,  // (학살영웅 = 배반자, 별칭)
+  torturerMark: playSfxTorturerMark,
 };
+// 학살영웅 SFX 보정 — 위 oversight: 정확히 매핑
+sfxMap.butcherBetrayer = playSfxButcherBetrayer;
 document.querySelectorAll('.sfx-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const fn = sfxMap[btn.dataset.sfx];
