@@ -2727,19 +2727,37 @@ body {
 
 /* 추천 조합 모달 스크롤바 — 상단 공용 커스텀 드래그바에서 처리 */
 
-/* 추천 조합 모달 — 가로 넉넉히, 줄바꿈 방지 */
-.modal-wide { max-width: 1200px; width: 95%; overflow-x: hidden; }
-.recommend-combo { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; overflow: hidden; }
-.recommend-header { margin-bottom: 10px; }
+/* 추천 조합 모달 — 가로 넉넉히 확대, 텍스트 겹침 방지 */
+.modal-wide { max-width: 1400px; width: 95%; overflow-x: hidden; }
+.recommend-combo {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 22px;
+  margin-bottom: 14px; overflow: hidden;
+}
+.recommend-header { margin-bottom: 12px; }
 .recommend-header strong { font-size: 1rem; }
-.recommend-desc { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
-.recommend-picks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.recommend-pick { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; flex-wrap: nowrap; white-space: nowrap; }
-.recommend-pick > strong { flex-shrink: 0; white-space: nowrap; min-width: 88px; }
-.recommend-pick-tier { font-size: 0.7rem; color: var(--accent); font-weight: 600; min-width: 38px; flex-shrink: 0; }
-.recommend-pick-icon { font-size: 1.1rem; flex-shrink: 0; }
-.recommend-pick-reason { color: var(--muted); font-size: 0.78rem; margin-left: auto; white-space: nowrap; flex-shrink: 0; }
-.recommend-apply-btn { font-size: 0.75rem !important; padding: 4px 12px !important; }
+.recommend-desc { display: block; color: var(--muted); font-size: 0.82rem; margin-top: 3px; }
+.recommend-picks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.recommend-pick {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.88rem;
+}
+.recommend-pick-tier { font-size: 0.72rem; color: var(--accent); font-weight: 700; min-width: 42px; flex-shrink: 0; }
+.recommend-pick-icon { font-size: 1.15rem; flex-shrink: 0; }
+.recommend-pick > strong {
+  flex-shrink: 0; white-space: nowrap;
+  min-width: 100px;
+}
+/* 사유 텍스트 — 길면 자연스럽게 줄바꿈 (겹침 방지) */
+.recommend-pick-reason {
+  color: var(--muted); font-size: 0.8rem;
+  margin-left: auto;
+  flex: 1 1 auto; min-width: 0;
+  text-align: right;
+  word-break: keep-all; white-space: normal;
+  line-height: 1.4;
+}
+.recommend-apply-btn { font-size: 0.78rem !important; padding: 5px 14px !important; flex-shrink: 0; }
 
 /* ── 모달 ── */
 .modal {
