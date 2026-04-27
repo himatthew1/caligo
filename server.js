@@ -4801,7 +4801,7 @@ io.on('connection', (socket) => {
       twinMovedSub: piece.subUnit || null,  // 어느 쪽이 이동했는지
     });
     if (room.mode === 'team') {
-      // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용) → 그 다음 전체 상태 브로드캐스트
+      // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용)
       const moverPiece = piece;
       const allyIdxs = getAllyIndices(room, idx).filter(i => i !== idx);
       for (const alIdx of allyIdxs) {
@@ -4817,6 +4817,20 @@ io.on('connection', (socket) => {
             prevCol: prev.col, prevRow: prev.row,
             col, row,
           });
+        }
+      }
+      // 적팀에게도 표식된 이동 애니메이션용 opp_moved 전달 (마크된 경우만 클라가 표시)
+      const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
+      if (isMarked) {
+        const enemyIdxs = getEnemyIndices(room, idx);
+        for (const enIdx of enemyIdxs) {
+          const en = room.players[enIdx];
+          if (en && en.socketId && en.socketId !== 'AI') {
+            io.to(en.socketId).emit('opp_moved', {
+              msg: `${room.players[idx].name}의 표식된 ${piece.name}이(가) 이동했습니다.`,
+              prevCol: prev.col, prevRow: prev.row, col, row,
+            });
+          }
         }
       }
       broadcastTeamGameState(room);
