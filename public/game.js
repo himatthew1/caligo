@@ -1010,7 +1010,7 @@ socket.on('team_joined', ({ idx, roomId, playerName, sessionToken }) => {
     } catch (e) {}
   }
   const codeEl = document.getElementById('team-waiting-room-code');
-  if (codeEl) codeEl.textContent = `방 코드: ${roomId}`;
+  if (codeEl) codeEl.textContent = roomId;  // "방 코드" 라벨은 별도 div로 분리됨
   showScreen('screen-team-waiting');
 });
 
@@ -2291,22 +2291,20 @@ function renderTeamPlayerBlock(playerData, isAlly) {
 
 // 팀 대기실 렌더
 function renderTeamWaitingRoom() {
-  const statusCount = document.getElementById('team-status-count');
   const statusMsg = document.getElementById('team-status-msg');
   const startBtn = document.getElementById('btn-team-start');
   const total = (S.teamPlayers || []).length;
-  if (statusCount) statusCount.textContent = `${total} / 4`;
   const teamAOk = (S.teamTeams[0] || []).length === 2;
   const teamBOk = (S.teamTeams[1] || []).length === 2;
   const ready = total === 4 && teamAOk && teamBOk;
   if (statusMsg) {
-    if (total < 4) statusMsg.textContent = '참가자를 기다리는 중...';
-    else if (!ready) statusMsg.textContent = '각 팀에 2명씩 배정해야 시작할 수 있습니다.';
-    else statusMsg.textContent = '모두 준비 완료! 게임을 시작하세요.';
+    if (total < 4) statusMsg.textContent = '4명이 모이면 게임을 시작하세요.';
+    else if (!ready) statusMsg.textContent = '각 팀에 2명씩 배정해주세요.';
+    else statusMsg.textContent = '모두 준비 완료!';
   }
   if (startBtn) {
     startBtn.disabled = !ready;
-    startBtn.textContent = ready ? '게임 시작 (3초 카운트다운)' : `게임 시작 (${total}/4 필요)`;
+    startBtn.textContent = '게임 시작';
   }
   // 슬롯 렌더
   document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {

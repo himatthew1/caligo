@@ -107,9 +107,12 @@
 <!-- ── 4인 팀 대기실 ── -->
 <div id="screen-team-waiting" class="screen">
   <div class="team-waiting-box">
-    <h2>👥 2vs2 팀전 대기실</h2>
-    <p id="team-waiting-room-code" class="room-code-display"></p>
-    <p class="muted" style="margin-bottom:24px">팀 슬롯을 클릭해 팀을 변경할 수 있습니다. 4명이 모이면 게임을 시작하세요.</p>
+    <h2 class="team-waiting-title">팀전 대기실</h2>
+    <div class="team-room-code">
+      <div class="team-room-code-label">방 코드</div>
+      <div id="team-waiting-room-code" class="team-room-code-value"></div>
+    </div>
+    <p class="muted team-waiting-hint">팀 슬롯을 클릭해 팀을 변경할 수 있습니다.</p>
 
     <div class="team-rooms">
       <div class="team-room team-a">
@@ -133,13 +136,13 @@
       </div>
     </div>
 
-    <div class="team-status-bar">
-      <span id="team-status-count">0 / 4</span>
-      <span id="team-status-msg" class="muted">참가자를 기다리는 중...</span>
+    <div class="team-waiting-actions">
+      <button id="btn-team-leave" class="btn btn-muted btn-small">대기실 나가기</button>
+      <button id="btn-team-start" class="btn btn-primary" disabled>게임 시작</button>
     </div>
-
-    <button id="btn-team-start" class="btn btn-primary btn-large" disabled>게임 시작 (4/4 필요)</button>
-    <button id="btn-team-leave" class="btn btn-muted btn-small">대기실 나가기</button>
+    <div class="team-status-bar">
+      <span id="team-status-msg" class="muted">4명이 모이면 게임을 시작하세요.</span>
+    </div>
     <div id="team-countdown" class="team-countdown hidden"></div>
   </div>
 </div>

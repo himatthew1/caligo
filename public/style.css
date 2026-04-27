@@ -301,7 +301,42 @@ body {
   max-width: 640px; width: 100%;
   padding: 36px 32px; text-align: center;
 }
-.team-waiting-box h2 { font-size: 1.6rem; margin-bottom: 10px; color: var(--accent); }
+.team-waiting-box h2.team-waiting-title {
+  font-size: 2.2rem;
+  font-weight: 900;
+  margin-bottom: 18px;
+  color: var(--accent);
+  letter-spacing: 1px;
+}
+.team-room-code {
+  margin: 8px 0 18px 0;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.team-room-code-label {
+  font-size: 0.95rem;
+  color: var(--muted);
+  letter-spacing: 4px;
+}
+.team-room-code-value {
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 6px;
+}
+.team-waiting-hint {
+  font-size: 0.85rem;
+  margin-bottom: 22px;
+}
+.team-waiting-actions {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin-top: 18px;
+}
+.team-waiting-actions .btn {
+  min-width: 120px;
+  padding: 8px 18px;
+}
+.team-waiting-actions #btn-team-leave { font-size: 0.78rem; padding: 5px 14px; }
+.team-waiting-actions #btn-team-start { font-size: 0.95rem; padding: 10px 26px; }
 .team-rooms {
   display: flex; align-items: center; justify-content: center;
   gap: 24px; margin: 28px 0;
@@ -348,11 +383,10 @@ body {
   padding: 0 4px;
 }
 .team-status-bar {
-  display: flex; justify-content: center; align-items: center; gap: 14px;
-  margin-top: 12px; margin-bottom: 16px;
-  font-size: 0.9rem;
+  display: flex; justify-content: center; align-items: center;
+  margin-top: 8px;
+  font-size: 0.82rem;
 }
-#team-status-count { font-weight: 800; color: var(--accent); }
 .team-countdown {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
