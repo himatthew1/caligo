@@ -3731,6 +3731,53 @@ document.getElementById('btn-slide-prev').addEventListener('click', () => goToSl
 document.getElementById('btn-slide-next').addEventListener('click', () => goToSlide(slideIndex + 1));
 
 // 캐릭터 선택 버튼
+// 드래프트 — 선택 상태만 부분 업데이트 (캐릭터 슬라이드 콘텐츠는 그대로)
+function draftUpdateSelectionState() {
+  const step = S.draftStep;
+  const chars = S.characters?.[step];
+  if (!chars || !chars[slideIndex]) return;
+  const c = chars[slideIndex];
+
+  // 1) 선택 버튼 라벨/클래스
+  const selectBtn = document.getElementById('btn-draft-select');
+  if (selectBtn) {
+    let isAlreadySelected, teamLocked;
+    if (S.teamDraftMode) {
+      const tmPicks = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+      teamLocked = tmPicks.includes(c.type);
+      isAlreadySelected = S.teamDraft?.pick1 === c.type || S.teamDraft?.pick2 === c.type;
+    } else {
+      teamLocked = false;
+      isAlreadySelected = S.draftSelected[step] === c.type;
+    }
+    if (teamLocked) {
+      selectBtn.textContent = '🔒 팀원이 선택함';
+      selectBtn.className = 'btn btn-muted btn-select-char';
+      selectBtn.disabled = true;
+    } else if (isAlreadySelected) {
+      selectBtn.textContent = '✔ 선택됨 (해제)';
+      selectBtn.className = 'btn btn-select-char btn-current-select';
+      selectBtn.disabled = false;
+    } else {
+      selectBtn.textContent = '캐릭터 선택';
+      selectBtn.className = 'btn btn-accent btn-select-char';
+      selectBtn.disabled = false;
+    }
+  }
+
+  // 2) 팀 드래프트 슬라이드 잠금 표시 (팀원이 같은 캐릭터 픽 시)
+  const slideViewer = document.querySelector('#screen-draft .slide-viewer');
+  if (slideViewer && S.teamDraftMode) {
+    const tmPicks2 = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+    const thisLocked = tmPicks2.includes(c.type);
+    slideViewer.classList.toggle('team-dimmed', !!thisLocked);
+  }
+
+  // 3) 슬롯·확정 버튼 갱신 (가벼운 작업)
+  if (typeof renderTeamDraftSlots === 'function' && S.teamDraftMode) renderTeamDraftSlots();
+  if (typeof updateDraftConfirmBtn === 'function') updateDraftConfirmBtn();
+}
+
 document.getElementById('btn-draft-select').addEventListener('click', () => {
   const step = S.draftStep;
   const chars = S.characters[step];
@@ -3749,13 +3796,13 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     if (S.teamDraft.pick1 === c.type) {
       S.teamDraft.pick1 = null;
       socket.emit('team_draft_pick', { slot: 'pick1', type: null });
-      renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+      draftUpdateSelectionState();
       return;
     }
     if (S.teamDraft.pick2 === c.type) {
       S.teamDraft.pick2 = null;
       socket.emit('team_draft_pick', { slot: 'pick2', type: null });
-      renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+      draftUpdateSelectionState();
       return;
     }
     // 빈 슬롯에 할당
@@ -3768,16 +3815,16 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     socket.emit('team_draft_pick', { slot, type: c.type });
     playSfxCharSelect();
     showSkillToast(`${c.icon} ${c.name} 선택 완료.`, false, undefined, 'event');
-    renderSlide(); renderTeamDraftSlots(); updateDraftConfirmBtn();
+    draftUpdateSelectionState();
     return;
   }
 
-  // ── 1v1 모드 (기존) ──
+  // ── 1v1 모드 ──
   const isDuplicate = S.draftSelected[step] === c.type;
   S.draftSelected[step] = c.type;
   if (S.deckBuilderMode) S.deckSaved = false;
-  renderSlide();
-  updateDraftConfirmBtn();
+  // 슬라이드 콘텐츠는 그대로 — 선택 상태만 부분 업데이트
+  draftUpdateSelectionState();
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
   if (!isDuplicate) {
     playSfxCharSelect();
@@ -5010,6 +5057,53 @@ document.getElementById('btn-ex-slide-next').addEventListener('click', () => {
   exRenderSlide();
 });
 
+// 교환 드래프트 — 선택 상태만 부분 업데이트 (캐릭터 슬라이드는 그대로)
+function exUpdateSelectionState() {
+  const allChars = S._exAllChars;
+  if (!allChars || !allChars[exSlideIndex]) return;
+  const c = allChars[exSlideIndex];
+  const tier = exCurrentTier;
+  const myKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
+
+  // 1) dim 상태 (교체 완료 후 다른 티어 어둡게)
+  const slideViewer = document.querySelector('#screen-exchange .slide-viewer');
+  const iconIndex = document.getElementById('ex-icon-index');
+  const stepIndicator = document.getElementById('ex-step-indicator');
+  const isDimmedTier = S.exSwapped && S.exSwapped.tier !== tier;
+  if (slideViewer) slideViewer.classList.toggle('slide-dimmed', !!isDimmedTier);
+  if (iconIndex) iconIndex.classList.toggle('slide-dimmed', !!isDimmedTier);
+  if (stepIndicator) stepIndicator.classList.toggle('slide-dimmed', !!S.exSwapped);
+
+  // 2) 선택 버튼 라벨/클래스
+  const exSelectBtn = document.getElementById('btn-ex-select');
+  if (exSelectBtn) {
+    const isCurrentDraft = c.type === S.exMyDraft[myKey];
+    const isOriginal = c.type === S.exOriginalDraft[myKey];
+    const isCurrentSwap = S.exSwapped && S.exSwapped.tier === tier && S.exSwapped.newType === c.type;
+    const canSwap = !S.exSwapped || S.exSwapped.tier === tier;
+    exSelectBtn.style.opacity = '';
+    exSelectBtn.style.pointerEvents = '';
+    if (isCurrentDraft && !isCurrentSwap) {
+      exSelectBtn.textContent = '✔ 현재 선택';
+      exSelectBtn.className = 'btn btn-select-char btn-current-select';
+    } else if (isCurrentSwap) {
+      exSelectBtn.textContent = '✔ 교체 선택됨';
+      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+    } else if (canSwap) {
+      exSelectBtn.textContent = isOriginal ? '↩ 원래대로 되돌리기' : '🔄 이 캐릭터로 교체';
+      exSelectBtn.className = 'btn btn-accent btn-select-char';
+    } else {
+      exSelectBtn.textContent = '🔒 다른 티어 교체됨';
+      exSelectBtn.className = 'btn btn-accent btn-select-char';
+      exSelectBtn.style.opacity = '0.4';
+      exSelectBtn.style.pointerEvents = 'none';
+    }
+  }
+
+  // 3) 슬롯 표시 갱신 (1티어/2티어/3티어 카드 미리보기)
+  if (typeof exUpdateSlots === 'function') exUpdateSlots();
+}
+
 // 교환 드래프트 캐릭터 선택 버튼
 document.getElementById('btn-ex-select').addEventListener('click', () => {
   const allChars = S._exAllChars;
@@ -5023,19 +5117,18 @@ document.getElementById('btn-ex-select').addEventListener('click', () => {
   if (!canSwap && !isOriginal) return; // 다른 티어에서 교환 완료 — 불가
 
   if (isOriginal) {
-    // 원래 캐릭터로 되돌리기
     if (S.exSwapped && S.exSwapped.tier === tier) {
       S.exSwapped = null;
       S.exMyDraft[myKey] = S.exOriginalDraft[myKey];
       S.exchangeSelected = null;
     }
   } else {
-    // 새 캐릭터로 교체
     S.exSwapped = { tier, newType: c.type };
     S.exMyDraft[myKey] = c.type;
     S.exchangeSelected = { tier, newType: c.type };
   }
-  exRenderSlide();
+  // 슬라이드 콘텐츠는 그대로 — 선택 상태만 부분 업데이트
+  exUpdateSelectionState();
 });
 
 document.getElementById('btn-exchange-confirm').addEventListener('click', () => {
