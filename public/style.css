@@ -1762,7 +1762,16 @@ body {
 .team-block-label {
   font-weight: 700;
   font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
+/* 팀모드 my-piece-card 안의 캐릭터명 — 줄바꿈 금지 */
+.team-profile-block .my-piece-card .my-piece-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; display: inline-block; vertical-align: middle; }
+.team-profile-block .my-piece-header { flex-wrap: nowrap; }
+.team-profile-block .my-piece-header > * { flex-shrink: 0; }
+.team-profile-block .my-piece-header strong { flex-shrink: 1; }
 /* 라벨 컬러 — 팀 절대 기준 */
 .team-block-blue .team-block-label { color: #93c5fd; }
 .team-block-red .team-block-label { color: #fca5a5; }

@@ -3682,9 +3682,9 @@ socket.on('err', ({ msg }) => {
 });
 
 socket.on('wait_msg', ({ msg }) => {
-  document.getElementById('waiting-title').textContent = msg;
-  document.getElementById('waiting-sub').textContent = '';
-  showScreen('screen-waiting');
+  // 현재 화면 유지 — 본인 작업 결과(HP 분배, 픽, 배치)는 계속 보여야 함
+  // 작은 토스트로만 알림. 절대 screen-waiting으로 전환하지 않음.
+  try { showSkillToast(msg, false, undefined, 'event'); } catch (e) {}
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -7620,7 +7620,8 @@ function showKingSkillUI(pieceIdx) {
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
       S.action = 'skill_target';
-      S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type };
+      // 팀모드: ownerIdx 포함해 어느 적의 어떤 캐릭터인지 명확히
+      S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type, targetOwnerIdx: opc.ownerIdx };
       document.getElementById('btn-cancel').classList.remove('hidden');
       document.getElementById('action-hint').textContent = `♛ 대상을 강제 이동시킬 위치를 클릭하세요.`;
       renderGameBoard();
@@ -7652,7 +7653,18 @@ function showWitchCurseUI(pieceIdx) {
     if (!disabled) {
       opt.addEventListener('click', () => {
         modal.classList.add('hidden');
-        socket.emit('use_skill', { pieceIdx, skillId: 'curse', params: { targetPieceIdx: i } });
+        // 팀모드: ownerIdx + 해당 적 player의 pieces 배열 내 idx 찾아 전송
+        const params = { targetPieceIdx: i };
+        if (S.isTeamMode && opc.ownerIdx != null) {
+          const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === opc.ownerIdx);
+          if (ownerPlayer && Array.isArray(ownerPlayer.pieces)) {
+            const realIdx = ownerPlayer.pieces.findIndex(pp =>
+              pp.type === opc.type && (pp.subUnit || '') === (opc.subUnit || '') && pp.alive);
+            params.targetPieceIdx = realIdx >= 0 ? realIdx : i;
+            params.targetOwnerIdx = opc.ownerIdx;
+          }
+        }
+        socket.emit('use_skill', { pieceIdx, skillId: 'curse', params });
       });
     }
     body.appendChild(opt);
@@ -7756,7 +7768,9 @@ function handleGameCellClick(col, row) {
     } else if (data.type === 'dragon_place') {
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     } else if (data.type === 'king_move') {
-      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { targetName: data.targetName, col, row } });
+      const params = { targetName: data.targetName, col, row };
+      if (data.targetOwnerIdx != null) params.targetOwnerIdx = data.targetOwnerIdx;
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params });
     }
     resetAction();
     return;

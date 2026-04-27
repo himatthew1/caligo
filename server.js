@@ -2677,9 +2677,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── WITCH: 저주 (직접 대상 지정 — 턴당 0.5 피해 + 스킬 봉인) ──
     case 'witch': {
       const tIdx = params?.targetPieceIdx;
-      const opponent = room.players[1 - playerIdx];
-      if (tIdx === undefined || !opponent.pieces[tIdx]) {
+      // 팀모드: targetOwnerIdx로 적팀 멤버 식별, 1v1: 상대 단일
+      const targetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
+      const opponent = room.players[targetOwnerIdx];
+      if (!opponent || tIdx === undefined || !opponent.pieces[tIdx]) {
         return { ok: false, msg: '저주 대상을 선택하세요.' };
+      }
+      // 팀모드: 적팀 검증 (자신/팀원에는 못 검)
+      if (room.mode === 'team' && opponent.teamId === room.players[playerIdx].teamId) {
+        return { ok: false, msg: '같은 팀원에게는 저주를 걸 수 없습니다.' };
       }
       const target = opponent.pieces[tIdx];
       if (!target.alive || target.hp <= 1) {
@@ -2767,7 +2773,14 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '대상과 목적지를 지정하세요.' };
       }
       if (!inBounds(destCol, destRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
-      const enemyPiece = room.players[1 - playerIdx].pieces.find(p => p.alive && p.type === targetName);
+      // 팀모드: 양 적팀 멤버 모두 검색, 1v1: 단일 상대
+      const kingTargetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
+      const kingTargetOwner = room.players[kingTargetOwnerIdx];
+      if (!kingTargetOwner) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
+      if (room.mode === 'team' && kingTargetOwner.teamId === room.players[playerIdx].teamId) {
+        return { ok: false, msg: '같은 팀원은 강제 이동할 수 없습니다.' };
+      }
+      const enemyPiece = kingTargetOwner.pieces.find(p => p.alive && p.type === targetName);
       if (!enemyPiece) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
       if (enemyPiece.statusEffects.some(e => e.type === 'shadow')) {
         return { ok: false, msg: '그림자 상태인 적에게는 사용할 수 없습니다.' };
@@ -2785,14 +2798,14 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
         enemyPiece.hp = Math.max(0, enemyPiece.hp - dmg);
         const willDie2 = enemyPiece.hp <= 0;
-        if (willDie2) handleDeath(room, enemyPiece, 1 - playerIdx);
+        if (willDie2) handleDeath(room, enemyPiece, kingTargetOwnerIdx);
         emitToBoth(room, 'trap_triggered', {
           col: destCol, row: destRow,
           pieceInfo: { type: enemyPiece.type, name: enemyPiece.name, icon: enemyPiece.icon },
           damage: dmg,
           destroyed: willDie2,
           newHp: enemyPiece.hp,
-          victimOwnerIdx: 1 - playerIdx,
+          victimOwnerIdx: kingTargetOwnerIdx,
         });
       }
       break;
@@ -2865,18 +2878,22 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── TORTURER: 악몽 (damage all marked enemies) ──
+    // ── TORTURER: 악몽 (damage all marked enemies — 팀모드는 양 적팀 모두) ──
     case 'torturer': {
-      const enemies = room.players[1 - playerIdx].pieces.filter(p => p.alive);
-      const hasMarked = enemies.some(p => p.statusEffects.some(e => e.type === 'mark'));
+      // 팀모드: getEnemyIndices로 양 적팀 멤버 모두, 1v1: 단일 상대
+      const enemyIndices = (room.mode === 'team') ? getEnemyIndices(room, playerIdx) : [1 - playerIdx];
+      const enemyEntries = enemyIndices.map(ei => ({ idx: ei, pieces: room.players[ei].pieces.filter(p => p.alive) }));
+      const allEnemies = enemyEntries.flatMap(e => e.pieces);
+      const hasMarked = allEnemies.some(p => p.statusEffects.some(e => e.type === 'mark'));
       if (!hasMarked) return { ok: false, msg: '표식 상태의 적이 없어 악몽을 사용할 수 없습니다.' };
-      const marked = enemies.filter(p => p.statusEffects.some(e => e.type === 'mark'));
       const hits = [];
-      for (const m of marked) {
-        const dmg = resolveDamage(room, piece, m, playerIdx, 1, false);
-        m.hp = Math.max(0, m.hp - dmg);
-        if (m.hp <= 0) handleDeath(room, m, 1 - playerIdx);
-        hits.push({ col: m.col, row: m.row, damage: dmg, newHp: m.hp, destroyed: !m.alive, name: m.name });
+      for (const ee of enemyEntries) {
+        for (const m of ee.pieces.filter(p => p.statusEffects.some(e => e.type === 'mark'))) {
+          const dmg = resolveDamage(room, piece, m, playerIdx, 1, false);
+          m.hp = Math.max(0, m.hp - dmg);
+          if (m.hp <= 0) handleDeath(room, m, ee.idx);
+          hits.push({ col: m.col, row: m.row, damage: dmg, newHp: m.hp, destroyed: !m.alive, name: m.name, ownerIdx: ee.idx });
+        }
       }
       const nightmareKilled = hits.filter(h => h.destroyed);
       if (nightmareKilled.length > 0) {
