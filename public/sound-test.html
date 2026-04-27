@@ -121,13 +121,31 @@
   <div class="group">
     <div class="group-title">🌟 스킬 — 캐릭터 전용</div>
     <div class="buttons">
-      <button class="sfx-btn" data-sfx="nightmare"><span class="label">악몽 (고문 기술자)</span><span class="desc">쇠사슬 4회 + 채찍 휘둘림 + 저음 임팩트</span></button>
       <button class="sfx-btn" data-sfx="heal"><span class="label">회복 (약초학 / 신성)</span><span class="desc">상승 아르페지오 + 따뜻한 G5 + 고역 반짝이</span></button>
-      <button class="sfx-btn" data-sfx="sulfur"><span class="label">유황범람 (유황솥)</span><span class="desc">끓어오름 + 저음 폭발 + 화염 노이즈</span></button>
       <button class="sfx-btn" data-sfx="bombExplode"><span class="label">기폭 (화약상)</span><span class="desc">폭발 노이즈</span></button>
       <button class="sfx-btn" data-sfx="trapSnap"><span class="label">덫 발동 (인간 사냥꾼)</span><span class="desc">철컥</span></button>
       <button class="sfx-btn" data-sfx="curseDamage"><span class="label">저주 틱 피해 (마녀)</span><span class="desc">저주 효과음</span></button>
       <button class="sfx-btn" data-sfx="ratDeath"><span class="label">쥐 격파 (쥐장수)</span><span class="desc">짧은 비명</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🩸 악몽 (고문 기술자) — 사악한 후보들</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="nightmare"><span class="label">A: 현재 버전</span><span class="desc">쇠사슬 4회 + 채찍 + 저음 임팩트</span></button>
+      <button class="sfx-btn" data-sfx="nightmare2"><span class="label">B: 악마의 으르렁</span><span class="desc">로우패스 노이즈 → 트리톤 디소넌스 → 역재생 스웰</span></button>
+      <button class="sfx-btn" data-sfx="nightmare3"><span class="label">C: 심장박동 + 속삭임</span><span class="desc">저주파 펄스 박동 + 고역 속삭임 노이즈 + 종소리</span></button>
+      <button class="sfx-btn" data-sfx="nightmare4"><span class="label">D: 비명 + 다중 디소넌스</span><span class="desc">왜곡된 고음 비명 + 협화/불협 5음 + 깊은 우물 메아리</span></button>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-title">🌋 유황범람 (유황솥) — 화산 후보들</div>
+    <div class="buttons">
+      <button class="sfx-btn" data-sfx="sulfur"><span class="label">A: 현재 버전</span><span class="desc">끓어오름 + 저음 폭발 + 화염</span></button>
+      <button class="sfx-btn" data-sfx="sulfur2"><span class="label">B: 압력 빌드업 → 대폭발</span><span class="desc">상승 필터 스윕 + 큰 폭발 + 떨어지는 돌 패턴</span></button>
+      <button class="sfx-btn" data-sfx="sulfur3"><span class="label">C: 시네마틱 분화</span><span class="desc">긴 저음 럼블 + 다중 폭발 + 용암 쉭 소리</span></button>
+      <button class="sfx-btn" data-sfx="sulfur4"><span class="label">D: 깊은 지진 + 화산재</span><span class="desc">서브베이스 + 짧은 폭발 4회 + 지속 화염 + 흩어지는 입자</span></button>
     </div>
   </div>
 
@@ -402,6 +420,387 @@ function playSfxNightmare() {
       g.gain.exponentialRampToValueAtTime(0.001, chordT + 0.6);
       o.connect(g); g.connect(out);
       o.start(chordT); o.stop(chordT + 0.65);
+    }
+  } catch (e) {}
+}
+
+// ─── 악몽 후보 B: 악마의 으르렁 (Demonic Growl) ───
+function playSfxNightmare2() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 깊은 으르렁 — 로우패스 노이즈에 진폭 변조 (악마 목소리)
+    const growlBuf = ctx.createBuffer(1, ctx.sampleRate * 0.9, ctx.sampleRate);
+    const gd = growlBuf.getChannelData(0);
+    for (let j = 0; j < gd.length; j++) {
+      const t = j / ctx.sampleRate;
+      gd[j] = (Math.random() * 2 - 1) * (0.7 + 0.3 * Math.sin(2 * Math.PI * 28 * t));
+    }
+    const growl = ctx.createBufferSource(); growl.buffer = growlBuf;
+    const gg = ctx.createGain();
+    gg.gain.setValueAtTime(0.18, now);
+    gg.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 280; lpf.Q.value = 4;
+    growl.connect(lpf); lpf.connect(gg); gg.connect(out);
+    growl.start(now); growl.stop(now + 0.9);
+    // ② 트리톤 디소넌스 (B0+F1 — 디아볼러스 인 무지카)
+    const disChord = [61.74, 87.31];  // B1, F2 (Tritone) -- intentional dissonance
+    for (const f of disChord) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.001, now + 0.15);
+      g.gain.linearRampToValueAtTime(0.14, now + 0.4);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
+      o.connect(g); g.connect(out);
+      o.start(now + 0.15); o.stop(now + 1.15);
+    }
+    // ③ 역재생 스웰 (긴장감 — 점점 커지는 소리)
+    const swellT = now + 0.05;
+    const swellBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const sd = swellBuf.getChannelData(0);
+    for (let j = 0; j < sd.length; j++) {
+      const t = j / ctx.sampleRate;
+      sd[j] = (Math.random() * 2 - 1) * (t / 0.5);  // 점점 커지는 노이즈
+    }
+    const swell = ctx.createBufferSource(); swell.buffer = swellBuf;
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.15, swellT);
+    const swellFilter = ctx.createBiquadFilter();
+    swellFilter.type = 'bandpass';
+    swellFilter.frequency.setValueAtTime(800, swellT);
+    swellFilter.frequency.exponentialRampToValueAtTime(4000, swellT + 0.5);
+    swellFilter.Q.value = 2;
+    swell.connect(swellFilter); swellFilter.connect(sg); sg.connect(out);
+    swell.start(swellT); swell.stop(swellT + 0.5);
+    // ④ 마지막 임팩트
+    const impactT = now + 0.55;
+    const impact = ctx.createOscillator();
+    const ig = ctx.createGain();
+    impact.type = 'sawtooth';
+    impact.frequency.setValueAtTime(70, impactT);
+    impact.frequency.exponentialRampToValueAtTime(30, impactT + 0.3);
+    ig.gain.setValueAtTime(0.3, impactT);
+    ig.gain.exponentialRampToValueAtTime(0.001, impactT + 0.5);
+    impact.connect(ig); ig.connect(out);
+    impact.start(impactT); impact.stop(impactT + 0.5);
+  } catch (e) {}
+}
+
+// ─── 악몽 후보 C: 심장박동 + 속삭임 ───
+function playSfxNightmare3() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 심장박동 (저주파 더블 펄스 3회 — 두근두근)
+    for (let beat = 0; beat < 3; beat++) {
+      const baseT = now + beat * 0.4;
+      // 두근 1
+      const o1 = ctx.createOscillator();
+      const g1 = ctx.createGain();
+      o1.type = 'sine'; o1.frequency.value = 50;
+      g1.gain.setValueAtTime(0.001, baseT);
+      g1.gain.linearRampToValueAtTime(0.4, baseT + 0.02);
+      g1.gain.exponentialRampToValueAtTime(0.001, baseT + 0.15);
+      o1.connect(g1); g1.connect(out);
+      o1.start(baseT); o1.stop(baseT + 0.18);
+      // 두근 2 (살짝 늦게)
+      const o2 = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      o2.type = 'sine'; o2.frequency.value = 45;
+      g2.gain.setValueAtTime(0.001, baseT + 0.13);
+      g2.gain.linearRampToValueAtTime(0.32, baseT + 0.15);
+      g2.gain.exponentialRampToValueAtTime(0.001, baseT + 0.28);
+      o2.connect(g2); g2.connect(out);
+      o2.start(baseT + 0.13); o2.stop(baseT + 0.32);
+    }
+    // ② 고역 속삭임 노이즈 (불길한 속삭임)
+    const whisperBuf = ctx.createBuffer(1, ctx.sampleRate * 1.0, ctx.sampleRate);
+    const wd = whisperBuf.getChannelData(0);
+    for (let j = 0; j < wd.length; j++) {
+      const t = j / ctx.sampleRate;
+      wd[j] = (Math.random() * 2 - 1) * (0.4 + 0.6 * Math.sin(2 * Math.PI * 5 * t));
+    }
+    const whisper = ctx.createBufferSource(); whisper.buffer = whisperBuf;
+    const wg = ctx.createGain();
+    wg.gain.setValueAtTime(0.06, now);
+    wg.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+    const wFilter = ctx.createBiquadFilter();
+    wFilter.type = 'bandpass'; wFilter.frequency.value = 2500; wFilter.Q.value = 3;
+    whisper.connect(wFilter); wFilter.connect(wg); wg.connect(out);
+    whisper.start(now); whisper.stop(now + 1.0);
+    // ③ 종소리 (낮은 교회종, 죽음 알림)
+    const bellT = now + 0.6;
+    const bell = ctx.createOscillator();
+    const bg = ctx.createGain();
+    bell.type = 'triangle';
+    bell.frequency.setValueAtTime(110, bellT);  // A2 (어두운 종)
+    bg.gain.setValueAtTime(0.001, bellT);
+    bg.gain.linearRampToValueAtTime(0.18, bellT + 0.05);
+    bg.gain.exponentialRampToValueAtTime(0.001, bellT + 0.8);
+    bell.connect(bg); bg.connect(out);
+    bell.start(bellT); bell.stop(bellT + 0.85);
+    // 종 배음
+    const bell2 = ctx.createOscillator();
+    const bg2 = ctx.createGain();
+    bell2.type = 'sine';
+    bell2.frequency.value = 220;
+    bg2.gain.setValueAtTime(0.001, bellT);
+    bg2.gain.linearRampToValueAtTime(0.06, bellT + 0.05);
+    bg2.gain.exponentialRampToValueAtTime(0.001, bellT + 0.6);
+    bell2.connect(bg2); bg2.connect(out);
+    bell2.start(bellT); bell2.stop(bellT + 0.65);
+  } catch (e) {}
+}
+
+// ─── 악몽 후보 D: 비명 + 다중 디소넌스 ───
+function playSfxNightmare4() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 왜곡된 고음 비명 (필터된 톱니파)
+    const scream = ctx.createOscillator();
+    const sg = ctx.createGain();
+    scream.type = 'sawtooth';
+    scream.frequency.setValueAtTime(1400, now);
+    scream.frequency.linearRampToValueAtTime(1800, now + 0.2);
+    scream.frequency.linearRampToValueAtTime(900, now + 0.4);
+    sg.gain.setValueAtTime(0.001, now);
+    sg.gain.linearRampToValueAtTime(0.18, now + 0.05);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+    const distort = ctx.createWaveShaper();
+    const distCurve = new Float32Array(2048);
+    for (let i = 0; i < 2048; i++) {
+      const x = (i / 1024) - 1;
+      distCurve[i] = Math.tanh(x * 5);  // 강한 왜곡
+    }
+    distort.curve = distCurve;
+    scream.connect(distort); distort.connect(sg); sg.connect(out);
+    scream.start(now); scream.stop(now + 0.45);
+    // ② 5음 디소넌스 (불협 화음 클러스터)
+    const clusterT = now + 0.3;
+    const cluster = [110, 117, 138.59, 146.83, 165];  // 반음·증4도 클러스터
+    for (let i = 0; i < cluster.length; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = cluster[i];
+      const t = clusterT + i * 0.04;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.07, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.7);
+    }
+    // ③ 깊은 우물 메아리 (저음 + 딜레이 효과)
+    const echoT = now + 0.15;
+    const echo = ctx.createOscillator();
+    const eg = ctx.createGain();
+    echo.type = 'sine';
+    echo.frequency.setValueAtTime(85, echoT);
+    echo.frequency.exponentialRampToValueAtTime(40, echoT + 0.7);
+    eg.gain.setValueAtTime(0.25, echoT);
+    eg.gain.exponentialRampToValueAtTime(0.001, echoT + 0.85);
+    echo.connect(eg); eg.connect(out);
+    echo.start(echoT); echo.stop(echoT + 0.9);
+    // 메아리 반복
+    for (let r = 1; r <= 2; r++) {
+      const rT = echoT + r * 0.25;
+      const e2 = ctx.createOscillator();
+      const eg2 = ctx.createGain();
+      e2.type = 'sine'; e2.frequency.value = 85;
+      eg2.gain.setValueAtTime(0.25 * Math.pow(0.5, r), rT);
+      eg2.gain.exponentialRampToValueAtTime(0.001, rT + 0.5);
+      e2.connect(eg2); eg2.connect(out);
+      e2.start(rT); e2.stop(rT + 0.55);
+    }
+  } catch (e) {}
+}
+
+// ─── 유황범람 후보 B: 압력 빌드업 → 대폭발 + 낙석 ───
+function playSfxSulfur2() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 빌드업: 상승 필터 스윕 (압력 차오름)
+    const buildBuf = ctx.createBuffer(1, ctx.sampleRate * 0.7, ctx.sampleRate);
+    const bd = buildBuf.getChannelData(0);
+    for (let j = 0; j < bd.length; j++) {
+      const t = j / ctx.sampleRate;
+      bd[j] = (Math.random() * 2 - 1) * (0.3 + t * 1.0);
+    }
+    const build = ctx.createBufferSource(); build.buffer = buildBuf;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.05, now);
+    bg.gain.linearRampToValueAtTime(0.22, now + 0.7);
+    const buildFilter = ctx.createBiquadFilter();
+    buildFilter.type = 'lowpass';
+    buildFilter.frequency.setValueAtTime(200, now);
+    buildFilter.frequency.exponentialRampToValueAtTime(2500, now + 0.7);
+    buildFilter.Q.value = 4;
+    build.connect(buildFilter); buildFilter.connect(bg); bg.connect(out);
+    build.start(now); build.stop(now + 0.7);
+    // ② 대폭발 (다층 임팩트)
+    const blastT = now + 0.7;
+    // 저음 임팩트
+    const lowB = ctx.createOscillator();
+    const lbg = ctx.createGain();
+    lowB.type = 'sawtooth';
+    lowB.frequency.setValueAtTime(80, blastT);
+    lowB.frequency.exponentialRampToValueAtTime(25, blastT + 0.6);
+    lbg.gain.setValueAtTime(0.5, blastT);
+    lbg.gain.exponentialRampToValueAtTime(0.001, blastT + 0.7);
+    lowB.connect(lbg); lbg.connect(out);
+    lowB.start(blastT); lowB.stop(blastT + 0.7);
+    // 중역 폭발 노이즈
+    const blastBuf = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
+    const ed = blastBuf.getChannelData(0);
+    for (let j = 0; j < ed.length; j++) ed[j] = (Math.random() * 2 - 1) * Math.pow(1 - j/ed.length, 1.5);
+    const blast = ctx.createBufferSource(); blast.buffer = blastBuf;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.45, blastT);
+    eg.gain.exponentialRampToValueAtTime(0.001, blastT + 0.4);
+    const eFilter = ctx.createBiquadFilter();
+    eFilter.type = 'bandpass'; eFilter.frequency.value = 600; eFilter.Q.value = 0.8;
+    blast.connect(eFilter); eFilter.connect(eg); eg.connect(out);
+    blast.start(blastT); blast.stop(blastT + 0.4);
+    // ③ 떨어지는 돌 (랜덤 짧은 펄스 6회)
+    for (let i = 0; i < 6; i++) {
+      const t = blastT + 0.5 + Math.random() * 0.6;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = 100 + Math.random() * 200;
+      g.gain.setValueAtTime(0.15, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.1);
+    }
+  } catch (e) {}
+}
+
+// ─── 유황범람 후보 C: 시네마틱 분화 ───
+function playSfxSulfur3() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 긴 저음 럼블 (1초+)
+    const rumble = ctx.createOscillator();
+    const rg = ctx.createGain();
+    rumble.type = 'sawtooth';
+    rumble.frequency.setValueAtTime(40, now);
+    rumble.frequency.linearRampToValueAtTime(60, now + 1.2);
+    rg.gain.setValueAtTime(0.001, now);
+    rg.gain.linearRampToValueAtTime(0.32, now + 0.4);
+    rg.gain.linearRampToValueAtTime(0.32, now + 1.0);
+    rg.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    rumble.connect(rg); rg.connect(out);
+    rumble.start(now); rumble.stop(now + 1.3);
+    // ② 다중 폭발 (3회 시간차)
+    const blasts = [0.2, 0.45, 0.72];
+    for (const bt of blasts) {
+      const t = now + bt;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.4);
+      // 폭발 노이즈
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.18, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      const lpf = ctx.createBiquadFilter();
+      lpf.type = 'lowpass'; lpf.frequency.value = 1500;
+      src.connect(lpf); lpf.connect(ng); ng.connect(out);
+      src.start(t); src.stop(t + 0.25);
+    }
+    // ③ 용암 쉭 소리 (지속 화염)
+    const lavaT = now + 0.6;
+    const lavaBuf = ctx.createBuffer(1, ctx.sampleRate * 0.7, ctx.sampleRate);
+    const ld = lavaBuf.getChannelData(0);
+    for (let j = 0; j < ld.length; j++) ld[j] = (Math.random() * 2 - 1);
+    const lava = ctx.createBufferSource(); lava.buffer = lavaBuf;
+    const lg = ctx.createGain();
+    lg.gain.setValueAtTime(0.001, lavaT);
+    lg.gain.linearRampToValueAtTime(0.10, lavaT + 0.2);
+    lg.gain.exponentialRampToValueAtTime(0.001, lavaT + 0.7);
+    const lFilter = ctx.createBiquadFilter();
+    lFilter.type = 'bandpass'; lFilter.frequency.value = 4000; lFilter.Q.value = 1.5;
+    lava.connect(lFilter); lFilter.connect(lg); lg.connect(out);
+    lava.start(lavaT); lava.stop(lavaT + 0.7);
+  } catch (e) {}
+}
+
+// ─── 유황범람 후보 D: 깊은 지진 + 화산재 ───
+function playSfxSulfur4() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 서브베이스 지진 (매우 낮은 주파수)
+    const sub = ctx.createOscillator();
+    const subG = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.value = 30;
+    subG.gain.setValueAtTime(0.001, now);
+    subG.gain.linearRampToValueAtTime(0.4, now + 0.3);
+    subG.gain.linearRampToValueAtTime(0.4, now + 1.0);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 1.4);
+    sub.connect(subG); subG.connect(out);
+    sub.start(now); sub.stop(now + 1.4);
+    // ② 짧은 폭발 4회 (분화 분출)
+    for (let i = 0; i < 4; i++) {
+      const t = now + 0.15 + i * 0.18;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.pow(1 - j/d.length, 1.2);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.28, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass'; filter.frequency.value = 900;
+      src.connect(filter); filter.connect(g); g.connect(out);
+      src.start(t); src.stop(t + 0.15);
+    }
+    // ③ 지속 화염 노이즈
+    const flameT = now + 0.2;
+    const flameBuf = ctx.createBuffer(1, ctx.sampleRate * 1.0, ctx.sampleRate);
+    const fd = flameBuf.getChannelData(0);
+    for (let j = 0; j < fd.length; j++) fd[j] = (Math.random() * 2 - 1);
+    const flame = ctx.createBufferSource(); flame.buffer = flameBuf;
+    const fg = ctx.createGain();
+    fg.gain.setValueAtTime(0.001, flameT);
+    fg.gain.linearRampToValueAtTime(0.15, flameT + 0.3);
+    fg.gain.exponentialRampToValueAtTime(0.001, flameT + 1.0);
+    const flameFilter = ctx.createBiquadFilter();
+    flameFilter.type = 'bandpass'; flameFilter.frequency.value = 2500; flameFilter.Q.value = 2;
+    flame.connect(flameFilter); flameFilter.connect(fg); fg.connect(out);
+    flame.start(flameT); flame.stop(flameT + 1.0);
+    // ④ 흩어지는 입자 (고역 짧은 펄스 8회)
+    for (let i = 0; i < 8; i++) {
+      const t = now + 0.4 + Math.random() * 0.7;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = 800 + Math.random() * 1500;
+      g.gain.setValueAtTime(0.05, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.07);
     }
   } catch (e) {}
 }
@@ -740,8 +1139,14 @@ const sfxMap = {
   sp: () => playSfx('sp'),
   btn_click: () => playSfx('btn_click'),
   nightmare: playSfxNightmare,
+  nightmare2: playSfxNightmare2,
+  nightmare3: playSfxNightmare3,
+  nightmare4: playSfxNightmare4,
   heal: playSfxHeal,
   sulfur: playSfxSulfur,
+  sulfur2: playSfxSulfur2,
+  sulfur3: playSfxSulfur3,
+  sulfur4: playSfxSulfur4,
   passive: playSfxPassive,
   bombExplode: playSfxBombExplode,
   trapSnap: playSfxTrapSnap,
