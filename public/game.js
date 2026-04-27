@@ -9538,7 +9538,7 @@ function pickSkillSfxByMsg(msg) {
   if (msg.startsWith('🪤 덫 설치')) return playSfxBombPlace;     // 사냥꾼 덫 설치 (폭탄 설치와 톤 비슷)
   if (msg.startsWith('📯 질주')) return playSfxMessengerSprint;  // 전령 질주
   if (msg.startsWith('💣 폭탄 설치')) return playSfxBombPlace;   // 폭파병 폭탄 설치
-  if (msg.startsWith('💥 기폭')) return playSfxBombExplode;      // 폭파병 기폭 (이미 bomb_detonated에서도 호출됨)
+  if (msg.startsWith('💥 기폭')) return playSfxBombExplode;      // 폭파병 기폭
   if (msg.startsWith('🗡 그림자 숨기')) return playSfxShadowHide; // 그림자 암살자
   if (msg.startsWith('🧙 저주')) return playSfxWitchCurse;       // 마녀 저주
   if (msg.startsWith('⚔ 쌍검무')) return playSfxDualBlade;       // 양손검객
@@ -9635,19 +9635,6 @@ function playSfxBombPlace() {
     }
     // 무거운 설치 thud
     _sfxTone(ctx, now + 0.32, 80, 0.18, 'sine', 0.15, 50);
-  } catch (e) {}
-}
-
-// ── 6. 장군 작전 — 전쟁 북 + 호각 ──
-function playSfxGeneralOrder() {
-  if (sfxMuted) return;
-  try {
-    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 북소리 (저주파 노이즈 폭발)
-    _sfxNoise(ctx, now, 0.12, 0.2, 50, 250);
-    _sfxNoise(ctx, now + 0.18, 0.1, 0.16, 50, 250);
-    // 호각 (고음 톤)
-    _sfxTone(ctx, now + 0.28, 880, 0.25, 'square', 0.08);
   } catch (e) {}
 }
 
