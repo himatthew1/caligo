@@ -3250,6 +3250,24 @@ function flashHealPieces(indexes, opts) {
   }
 }
 
+// 저주 점멸: 회복과 동일한 스타일이지만 보라색 (파티클 없음)
+function flashCursePieces(indexes, opts) {
+  const o = opts || {};
+  const containerSelector = o.opp ? '#opp-pieces-info' : '#my-pieces-info';
+  const cardSelector = o.opp ? '.opp-piece-card' : '.my-piece-card';
+  const container = document.querySelector(containerSelector);
+  if (!container) return;
+  const cards = container.querySelectorAll(cardSelector);
+  for (const idx of indexes) {
+    const card = cards[idx];
+    if (!card) continue;
+    card.classList.remove('curse-flash');
+    void card.offsetWidth;  // 강제 리플로우 — 연속 발동 시 애니메이션 재생
+    card.classList.add('curse-flash');
+    setTimeout(() => card.classList.remove('curse-flash'), 2000);
+  }
+}
+
 // 회복 시 카드 위에 반짝이는 파티클 6개를 짧게 띄움
 function spawnHealSparkles(card) {
   const rect = card.getBoundingClientRect();
@@ -3497,17 +3515,16 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
   if (type === 'bodyguard') {
     S._bodyguardIntercepted = true;
   }
-  // 저주 틱 피해: 일반 피격 + 저주 사운드 레이어링 + 피격 애니메이션
+  // 저주 틱 피해: 저주 사운드 + 보라색 점멸 (회복과 같은 스타일이지만 색만 보라)
   if (type === 'curse_tick') {
     playSfxCurseDamage();
-    // 피격 애니메이션: msg에서 이름 추출 (예: "🧙 저주: 저주 상태의 궁수! 0.5 피해.")
     const nameMatch = msg.match(/저주 상태의\s+(.+?)!/);
     if (nameMatch) {
       const pname = nameMatch[1].trim();
       const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
       const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
-      if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
-      if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
+      if (myIdx >= 0) flashCursePieces([myIdx], { opp: false });
+      if (oppIdx >= 0) flashCursePieces([oppIdx], { opp: true });
     }
   }
   if (S.isSpectator) {
