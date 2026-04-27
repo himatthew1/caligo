@@ -8583,122 +8583,129 @@ function playSfxHeal() {
   } catch (e) {}
 }
 
-// ── 유황범람(유황이 끓는 솥) 전용 효과음 — 끓어오르는 저음 + 폭발 ──
+// ── 유황범람 — 시네마틱 분화 (긴 럼블 + 시간차 폭발 3회 + 용암 쉭) ──
 function playSfxSulfur() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return;
-    const now = ctx.currentTime;
-    const out = ctx.destination;
-    // ① 끓어오르는 저음 (점점 커지는 sawtooth)
-    const boil = ctx.createOscillator();
-    const bg = ctx.createGain();
-    boil.type = 'sawtooth';
-    boil.frequency.setValueAtTime(80, now);
-    boil.frequency.linearRampToValueAtTime(140, now + 0.4);
-    bg.gain.setValueAtTime(0.001, now);
-    bg.gain.linearRampToValueAtTime(0.18, now + 0.35);
-    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-    boil.connect(bg); bg.connect(out);
-    boil.start(now); boil.stop(now + 0.6);
-    // ② 폭발 (저음 임팩트)
-    const boomT = now + 0.42;
-    const boom = ctx.createOscillator();
-    const bog = ctx.createGain();
-    boom.type = 'sawtooth';
-    boom.frequency.setValueAtTime(150, boomT);
-    boom.frequency.exponentialRampToValueAtTime(50, boomT + 0.35);
-    bog.gain.setValueAtTime(0.28, boomT);
-    bog.gain.exponentialRampToValueAtTime(0.001, boomT + 0.5);
-    boom.connect(bog); bog.connect(out);
-    boom.start(boomT); boom.stop(boomT + 0.55);
-    // ③ 화염 노이즈 (지속)
-    const flameBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
-    const fd = flameBuf.getChannelData(0);
-    for (let j = 0; j < fd.length; j++) fd[j] = (Math.random() * 2 - 1);
-    const flame = ctx.createBufferSource();
-    flame.buffer = flameBuf;
-    const fg = ctx.createGain();
-    fg.gain.setValueAtTime(0.001, now);
-    fg.gain.linearRampToValueAtTime(0.10, now + 0.3);
-    fg.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-    const ff = ctx.createBiquadFilter();
-    ff.type = 'lowpass'; ff.frequency.value = 1200;
-    flame.connect(ff); ff.connect(fg); fg.connect(out);
-    flame.start(now); flame.stop(now + 0.5);
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 긴 저음 럼블 (1초+)
+    const rumble = ctx.createOscillator();
+    const rg = ctx.createGain();
+    rumble.type = 'sawtooth';
+    rumble.frequency.setValueAtTime(40, now);
+    rumble.frequency.linearRampToValueAtTime(60, now + 1.2);
+    rg.gain.setValueAtTime(0.001, now);
+    rg.gain.linearRampToValueAtTime(0.32, now + 0.4);
+    rg.gain.linearRampToValueAtTime(0.32, now + 1.0);
+    rg.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    rumble.connect(rg); rg.connect(out);
+    rumble.start(now); rumble.stop(now + 1.3);
+    // ② 다중 폭발 (3회 시간차)
+    const blasts = [0.2, 0.45, 0.72];
+    for (const bt of blasts) {
+      const t = now + bt;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.4);
+      // 폭발 노이즈
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.25, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.18, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      const lpf = ctx.createBiquadFilter();
+      lpf.type = 'lowpass'; lpf.frequency.value = 1500;
+      src.connect(lpf); lpf.connect(ng); ng.connect(out);
+      src.start(t); src.stop(t + 0.25);
+    }
+    // ③ 용암 쉭 소리 (지속 화염)
+    const lavaT = now + 0.6;
+    const lavaBuf = ctx.createBuffer(1, ctx.sampleRate * 0.7, ctx.sampleRate);
+    const ld = lavaBuf.getChannelData(0);
+    for (let j = 0; j < ld.length; j++) ld[j] = (Math.random() * 2 - 1);
+    const lava = ctx.createBufferSource(); lava.buffer = lavaBuf;
+    const lg = ctx.createGain();
+    lg.gain.setValueAtTime(0.001, lavaT);
+    lg.gain.linearRampToValueAtTime(0.10, lavaT + 0.2);
+    lg.gain.exponentialRampToValueAtTime(0.001, lavaT + 0.7);
+    const lFilter = ctx.createBiquadFilter();
+    lFilter.type = 'bandpass'; lFilter.frequency.value = 4000; lFilter.Q.value = 1.5;
+    lava.connect(lFilter); lFilter.connect(lg); lg.connect(out);
+    lava.start(lavaT); lava.stop(lavaT + 0.7);
   } catch (e) {}
 }
 
-// ── 악몽(고문 기술자) 전용 효과음 — 쇠사슬 + 채찍 + 저음 임팩트 ──
+// ── 악몽 — 서브베이스 드론 + 5음 디소넌스 + 깊은 종 + 우물 메아리 ──
 function playSfxNightmare() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return;
-    const now = ctx.currentTime;
-    const out = ctx.destination;
-
-    // ① 쇠사슬 짤랑임 — 짧고 빠른 메탈릭 노이즈 펄스 4회
-    for (let i = 0; i < 4; i++) {
-      const t = now + i * 0.06;
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.18, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 4500;
-      bp.Q.value = 6;
-      src.connect(bp); bp.connect(g); g.connect(out);
-      src.start(t); src.stop(t + 0.05);
-    }
-
-    // ② 채찍 휘둘림 — 고음에서 낮게 떨어지는 노이즈 스윕
-    const whipStart = now + 0.28;
-    const whipBuf = ctx.createBuffer(1, ctx.sampleRate * 0.18, ctx.sampleRate);
-    const wd = whipBuf.getChannelData(0);
-    for (let j = 0; j < wd.length; j++) wd[j] = (Math.random() * 2 - 1);
-    const whip = ctx.createBufferSource();
-    whip.buffer = whipBuf;
-    const whipG = ctx.createGain();
-    whipG.gain.setValueAtTime(0.001, whipStart);
-    whipG.gain.linearRampToValueAtTime(0.22, whipStart + 0.05);
-    whipG.gain.exponentialRampToValueAtTime(0.001, whipStart + 0.18);
-    const whipFilter = ctx.createBiquadFilter();
-    whipFilter.type = 'bandpass';
-    whipFilter.frequency.setValueAtTime(8000, whipStart);
-    whipFilter.frequency.exponentialRampToValueAtTime(800, whipStart + 0.15);
-    whipFilter.Q.value = 3;
-    whip.connect(whipFilter); whipFilter.connect(whipG); whipG.connect(out);
-    whip.start(whipStart); whip.stop(whipStart + 0.18);
-
-    // ③ 저음 임팩트 — 무겁게 가라앉는 마무리
-    const boomStart = now + 0.42;
-    const boom = ctx.createOscillator();
-    const boomG = ctx.createGain();
-    boom.type = 'sawtooth';
-    boom.frequency.setValueAtTime(110, boomStart);
-    boom.frequency.exponentialRampToValueAtTime(40, boomStart + 0.45);
-    boomG.gain.setValueAtTime(0.22, boomStart);
-    boomG.gain.exponentialRampToValueAtTime(0.001, boomStart + 0.55);
-    boom.connect(boomG); boomG.connect(out);
-    boom.start(boomStart); boom.stop(boomStart + 0.55);
-
-    // ④ 어두운 마이너 화음 (지속 톤)
-    const chordT = now + 0.45;
-    const minorChord = [220, 261.63, 329.63];  // A3 / C4 / E4
-    for (const f of minorChord) {
+    const now = ctx.currentTime, out = ctx.destination;
+    // ① 서브베이스 드론 (40Hz, 매우 깊음, 1.85초)
+    const sub = ctx.createOscillator();
+    const subG = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.value = 40;
+    subG.gain.setValueAtTime(0.001, now);
+    subG.gain.linearRampToValueAtTime(0.32, now + 0.4);
+    subG.gain.linearRampToValueAtTime(0.32, now + 1.4);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+    sub.connect(subG); subG.connect(out);
+    sub.start(now); sub.stop(now + 1.85);
+    // ② 5음 디소넌스 클러스터 (반음·증4도)
+    const cluster = [110, 117, 138.59, 146.83, 165];
+    for (let i = 0; i < cluster.length; i++) {
       const o = ctx.createOscillator();
       const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.06, chordT);
-      g.gain.exponentialRampToValueAtTime(0.001, chordT + 0.6);
+      o.type = 'square'; o.frequency.value = cluster[i];
+      const t = now + i * 0.05;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.06, t + 0.07);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
       o.connect(g); g.connect(out);
-      o.start(chordT); o.stop(chordT + 0.65);
+      o.start(t); o.stop(t + 0.9);
+    }
+    // ③ 깊은 종 1회 (D2 + 배음, 1.4초 잔향)
+    const bellT = now + 0.3;
+    const bell = ctx.createOscillator();
+    const bg = ctx.createGain();
+    bell.type = 'triangle';
+    bell.frequency.value = 73.42;  // D2
+    bg.gain.setValueAtTime(0.001, bellT);
+    bg.gain.linearRampToValueAtTime(0.22, bellT + 0.04);
+    bg.gain.exponentialRampToValueAtTime(0.001, bellT + 1.4);
+    bell.connect(bg); bg.connect(out);
+    bell.start(bellT); bell.stop(bellT + 1.45);
+    const bell2 = ctx.createOscillator();
+    const bg2 = ctx.createGain();
+    bell2.type = 'sine';
+    bell2.frequency.value = 146.83;
+    bg2.gain.setValueAtTime(0.001, bellT);
+    bg2.gain.linearRampToValueAtTime(0.06, bellT + 0.04);
+    bg2.gain.exponentialRampToValueAtTime(0.001, bellT + 1.0);
+    bell2.connect(bg2); bg2.connect(out);
+    bell2.start(bellT); bell2.stop(bellT + 1.05);
+    // ④ 우물 메아리 3회 (점점 약해짐)
+    for (let r = 0; r < 3; r++) {
+      const t = now + 0.5 + r * 0.32;
+      const e = ctx.createOscillator();
+      const eg = ctx.createGain();
+      e.type = 'sine';
+      e.frequency.setValueAtTime(82, t);
+      e.frequency.exponentialRampToValueAtTime(38, t + 0.55);
+      eg.gain.setValueAtTime(0.18 * Math.pow(0.6, r), t);
+      eg.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+      e.connect(eg); eg.connect(out);
+      e.start(t); e.stop(t + 0.7);
     }
   } catch (e) {}
 }
