@@ -486,11 +486,23 @@ body {
 .team-reveal-b { border-color: rgba(239,68,68,0.5); }
 .team-reveal-a h3 { color: #60a5fa; }
 .team-reveal-b h3 { color: #ef4444; }
-.reveal-player-block {
-  background: rgba(0,0,0,0.15); border: 1px solid var(--border);
-  border-radius: 10px; padding: 10px; margin-top: 10px;
+/* 플레이어 헤더 — 별도 박스 없이 라인 + 카드 (중첩 줄임) */
+.team-reveal-player-header {
+  margin: 14px 0 6px 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+  letter-spacing: 1px;
+  position: relative;
 }
-.reveal-player-block h4 { margin: 0 0 8px 0; font-size: 0.9rem; color: var(--text); }
+.team-reveal-player-header::before,
+.team-reveal-player-header::after {
+  content: ''; position: absolute; top: 50%;
+  width: 24%; height: 1px; background: var(--border);
+}
+.team-reveal-player-header::before { left: 6%; }
+.team-reveal-player-header::after  { right: 6%; }
+.team-reveal-player-header.is-me { color: var(--accent); font-weight: 700; }
 .reveal-pieces-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .reveal-piece {
   background: var(--surface); border: 1px solid var(--border);

@@ -1701,30 +1701,26 @@ function renderTeamReveal(allPlayerPieces) {
   const blue = allPlayerPieces.filter(p => p.teamId === 0);
   const red = allPlayerPieces.filter(p => p.teamId === 1);
 
-  // 플레이어 블록 컨테이너 만들고, 카드는 staggered 애니메이션으로 등장
-  const buildPlayerBlock = (pl, container, side) => {
-    const block = document.createElement('div');
-    block.className = 'reveal-player-block';
-    const head = document.createElement('h4');
+  // 플레이어 헤더(라인) + 카드 행 — 박스 중첩 없이 평탄한 구조
+  const buildPlayerSection = (pl, container) => {
+    const head = document.createElement('div');
+    head.className = 'team-reveal-player-header' + (pl.idx === S.playerIdx ? ' is-me' : '');
     head.textContent = `${pl.name}${pl.idx === S.playerIdx ? ' (나)' : ''}`;
-    block.appendChild(head);
+    container.appendChild(head);
     const row = document.createElement('div');
     row.className = 'reveal-pieces-row';
-    block.appendChild(row);
-    container.appendChild(block);
+    container.appendChild(row);
     return row;
   };
 
-  // 양쪽 팀 동시 staggered 렌더 — 1v1 final reveal과 동일한 톤
-  const blueRows = blue.map(pl => buildPlayerBlock(pl, aChars, 'left'));
-  const redRows = red.map(pl => buildPlayerBlock(pl, bChars, 'right'));
+  const blueRows = blue.map(pl => buildPlayerSection(pl, aChars));
+  const redRows = red.map(pl => buildPlayerSection(pl, bChars));
 
-  // 카드 등장 — 슬롯별 250ms 딜레이로 순차 등장 + 사운드
+  // 카드 등장 — 슬롯별 600ms 딜레이로 순차 등장 + 사운드
   const allCards = [];
   blue.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: blueRows[i], side: 'left', orderIdx: i*2 + j })));
   red.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: redRows[i], side: 'right', orderIdx: i*2 + j })));
 
-  // orderIdx 순서대로 — 같은 슬롯이면 양 팀 동시
   allCards.sort((a, b) => a.orderIdx - b.orderIdx);
   let curOrder = -1;
   for (const c of allCards) {
@@ -1734,7 +1730,7 @@ function renderTeamReveal(allPlayerPieces) {
         curOrder = c.orderIdx;
         try { playSfxRevealAppear(); } catch (e) {}
       }
-      // 1v1 final reveal과 동일 카드 — 미니 헤더 + 태그 도장 + 호버 툴팁 포함
+      // 1v1 최종 공개 카드 재사용 — 미니 헤더 + 왕실/악인 태그 + 호버 툴팁 포함
       const tooltipSide = c.side === 'left' ? 'right' : 'left';
       const card = createDraftRevealCard(c.pc, c.pc.tier, tooltipSide, '');
       card.style.animation = 'revealSlide 0.5s ease-out both';
