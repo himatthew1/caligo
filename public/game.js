@@ -4747,7 +4747,7 @@ const RECOMMENDED_COMBOS = [
     desc: '가로 세로 모두 긴 사거리로 안전하게 플레이하는 스타일',
     picks: [
       { tier: 1, type: 'spearman', reason: '세로줄 전체 관통 공격' },
-      { tier: 2, type: 'weaponSmith', reason: '자유로운 공격 범위 전환으로 유연한 사격 라인' },
+      { tier: 2, type: 'weaponSmith', reason: '자유로운 공격 범위 전환' },
       { tier: 3, type: 'prince', reason: '강력한 가로 공격' },
     ]
   },

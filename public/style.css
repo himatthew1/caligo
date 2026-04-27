@@ -2727,10 +2727,10 @@ body {
 
 /* 추천 조합 모달 스크롤바 — 상단 공용 커스텀 드래그바에서 처리 */
 
-/* 추천 조합 모달 — 원래 컴팩트한 1200px 유지 (specificity 결합으로 480px 덮음) */
+/* 추천 조합 모달 — 540px 컴팩트 (specificity 결합으로 .modal-content 480px 덮음) */
 .modal-content.modal-wide {
   width: 95%;
-  max-width: 1200px;
+  max-width: 540px;
   overflow-x: hidden;
 }
 .recommend-combo {
@@ -2742,23 +2742,30 @@ body {
 .recommend-header strong { font-size: 1rem; }
 .recommend-desc { display: block; color: var(--muted); font-size: 0.82rem; margin-top: 3px; }
 .recommend-picks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* 칼럼 정렬 — 그리드로 모든 행이 동일한 위치에서 시작 */
 .recommend-pick {
-  display: flex; align-items: center; gap: 12px;
+  display: grid;
+  grid-template-columns: 36px 24px 110px 1fr;
+  align-items: center;
+  column-gap: 8px;
   font-size: 0.88rem;
-  flex-wrap: nowrap; white-space: nowrap;
+  white-space: nowrap;
 }
-.recommend-pick-tier { font-size: 0.72rem; color: var(--accent); font-weight: 700; min-width: 42px; flex-shrink: 0; }
-.recommend-pick-icon { font-size: 1.15rem; flex-shrink: 0; }
+.recommend-pick-tier {
+  font-size: 0.72rem; color: var(--accent); font-weight: 700;
+  text-align: left;
+}
+.recommend-pick-icon {
+  font-size: 1.15rem;
+  text-align: center;
+}
 .recommend-pick > strong {
-  flex-shrink: 0; white-space: nowrap;
-  min-width: 100px;
+  white-space: nowrap;
+  text-align: left;
 }
-/* 사유 텍스트 — 한 줄 유지 (줄바꿈 금지). 모달이 충분히 넓으므로 박스 안에 다 들어감. */
 .recommend-pick-reason {
   color: var(--muted); font-size: 0.8rem;
-  margin-left: auto;
-  flex-shrink: 0;
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
   line-height: 1.4;
 }
