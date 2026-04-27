@@ -6530,8 +6530,12 @@ function setActionButtonMode(mode) {
   }
   if (btnEnd) btnEnd.classList.toggle('action-locked', mode !== null);
   if (btnSurrender) btnSurrender.classList.toggle('action-locked', mode !== null);
-  // 취소 버튼도 함께 글로우 — 행동 모드 진입 표시
-  if (btnCancel) btnCancel.classList.toggle('action-active', mode !== null);
+  // 취소 버튼: 활성 모드 색상에 맞춰 mode-X 클래스 토글
+  if (btnCancel) {
+    btnCancel.classList.remove('mode-move', 'mode-attack', 'mode-skill');
+    btnCancel.classList.toggle('action-active', mode !== null);
+    if (mode) btnCancel.classList.add('mode-' + mode);
+  }
 }
 
 function resetAction() {
