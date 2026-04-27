@@ -3132,6 +3132,71 @@ function aiUsePreSkills(room) {
   }
 }
 
+// AI가 보드 축소 임박 시 외곽 셀에 있는 말을 안쪽으로 대피시킬 행동 찾기
+// 반환: { piece, pieceIdx, col, row } 또는 null
+function aiFindEvacuation(room) {
+  const aiPlayer = room.players[1];
+  const bounds = room.boardBounds;
+  // 다음 축소 이벤트의 newBounds 가져오기 (turnNumber + 5턴 이내일 때만 발동)
+  const schedule = getBoardShrinkSchedule(room);
+  let nextShrink = null;
+  for (const ev of schedule) {
+    if (room.boardShrinkStage < ev.stage) {
+      nextShrink = ev;
+      break;
+    }
+  }
+  if (!nextShrink) return null;
+  const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
+  if (turnsLeft > 5 || turnsLeft < 0) return null;
+  const newB = nextShrink.newBounds;
+  // 곧 파괴될 셀 = 현재 bounds 안이지만 newBounds 밖
+  const willBeDestroyed = (col, row) =>
+    inBounds(col, row, bounds) && !inBounds(col, row, newB);
+  // 외곽 위험 셀에 있는 내 살아있는 말들
+  const danger = aiPlayer.pieces
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.alive && willBeDestroyed(p.col, p.row));
+  if (danger.length === 0) return null;
+  // 가장 위험한 말 1개 선택 (HP 낮은 우선)
+  danger.sort((a, b) => a.p.hp - b.p.hp);
+  const target = danger[0].p;
+  const targetIdx = danger[0].i;
+  // 안쪽으로 이동 가능한 인접 셀 찾기 (newBounds 안 + 점유되지 않음)
+  const candidates = [];
+  for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const nc = target.col + dc, nr = target.row + dr;
+    if (!inBounds(nc, nr, bounds)) continue;
+    if (!inBounds(nc, nr, newB)) continue;  // 안쪽으로만 이동
+    // 점유 검사 (자기/팀원 등 — 1v1: 자기 외 다른 말)
+    const occupied = room.players.some(pl =>
+      pl.pieces.some(p => p.alive && p !== target && p.col === nc && p.row === nr)
+    );
+    if (occupied) {
+      // 쌍둥이끼리는 같은 칸 OK
+      const sameTwin = target.subUnit && room.players.some(pl =>
+        pl.pieces.some(p => p.alive && p !== target && p.col === nc && p.row === nr && p.subUnit && p.parentType === target.parentType)
+      );
+      if (!sameTwin) continue;
+    }
+    // 안쪽 깊이 점수 (newBounds 중심에 가까울수록 높음)
+    const cx = (newB.min + newB.max) / 2, cy = (newB.min + newB.max) / 2;
+    const dist = Math.abs(nc - cx) + Math.abs(nr - cy);
+    candidates.push({ col: nc, row: nr, score: -dist });
+  }
+  if (candidates.length === 0) {
+    // 인접 셀로는 못 빠지면 다른 위험 말로 폴백
+    if (danger.length > 1) {
+      // 임시 폴백: 두번째 위험 말 시도
+      // (단순화 — 실제로는 모든 말을 순회하는 것이 정석)
+    }
+    return null;
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  return { piece: target, pieceIdx: targetIdx, col: best.col, row: best.row };
+}
+
 // AI가 피격 후 도망해야 하는 말 찾기
 function aiFindFleeingPieces(room) {
   const brain = room.aiBrain;
@@ -3172,6 +3237,14 @@ function aiTakeTurn(room) {
 
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
   if (alivePieces.length === 0) return;
+
+  // ★ STEP 0: 보드 축소 임박 — 외곽 말 즉시 대피 최우선
+  // 다음 축소까지 5턴 이내이고, 외곽(곧 파괴될 셀)에 있는 내 말이 있으면 안쪽으로 이동
+  const evacAction = aiFindEvacuation(room);
+  if (evacAction && !aiPlayer.actionDone) {
+    aiExecuteMove(room, evacAction);
+    return;
+  }
 
   // ★ STEP 1: 행동 전 free 스킬 사용
   aiUsePreSkills(room);

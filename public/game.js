@@ -3144,8 +3144,10 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
   stopClientTimer();
   // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 1초 대기 + 느린 페이드
+  // 보드 축소로 인한 종료: 축소 애니메이션(흔들림 + bounds 업데이트)이 완료된 후 표시
   const inGame = _isInGameScreen();
-  const delay = inGame ? 1000 : 0;
+  const isShrinkEnd = reason && reason.type === 'shrink';
+  const delay = inGame ? (isShrinkEnd ? 1800 : 1000) : 0;
   setTimeout(() => {
     _showGameOverScreen(!inGame);
     runGameOverRender();
@@ -6530,11 +6532,10 @@ function setActionButtonMode(mode) {
   }
   if (btnEnd) btnEnd.classList.toggle('action-locked', mode !== null);
   if (btnSurrender) btnSurrender.classList.toggle('action-locked', mode !== null);
-  // 취소 버튼: 활성 모드 색상에 맞춰 mode-X 클래스 토글
+  // 취소 버튼: 활성 행동이 있을 때만 표시 + 글로우. 모드 해제 시 숨김 (취소할 행동 없음)
   if (btnCancel) {
-    btnCancel.classList.remove('mode-move', 'mode-attack', 'mode-skill');
     btnCancel.classList.toggle('action-active', mode !== null);
-    if (mode) btnCancel.classList.add('mode-' + mode);
+    btnCancel.classList.toggle('hidden', mode === null);
   }
 }
 

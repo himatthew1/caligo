@@ -1855,18 +1855,9 @@ body {
 .action-bar #btn-skill.action-active {
   box-shadow: 0 0 0 1.5px rgba(167,139,250,0.85), 0 0 10px 2px rgba(167,139,250,0.55);
 }
-/* 취소 — 활성 모드 색상에 맞춰 동적 글로우. 기본은 주황(폴백). */
+/* 취소(btn-muted 톤 — 차분한 회색 글로우) */
 .action-bar #btn-cancel.action-active {
-  box-shadow: 0 0 0 1.5px rgba(240,192,64,0.85), 0 0 10px 2px rgba(240,192,64,0.55);
-}
-.action-bar #btn-cancel.action-active.mode-move {
-  box-shadow: 0 0 0 1.5px rgba(34,197,94,0.85), 0 0 10px 2px rgba(34,197,94,0.55);
-}
-.action-bar #btn-cancel.action-active.mode-attack {
-  box-shadow: 0 0 0 1.5px rgba(239,68,68,0.85), 0 0 10px 2px rgba(239,68,68,0.55);
-}
-.action-bar #btn-cancel.action-active.mode-skill {
-  box-shadow: 0 0 0 1.5px rgba(167,139,250,0.85), 0 0 10px 2px rgba(167,139,250,0.55);
+  box-shadow: 0 0 0 1.5px rgba(180,180,200,0.65), 0 0 8px 1.5px rgba(180,180,200,0.4);
 }
 /* 행동 모드 진입 시 다른 버튼은 비활성/잠금 표시 */
 .action-bar .btn.action-locked {
@@ -2196,14 +2187,14 @@ body {
   100% { opacity: 0; transform: translate(0,-40px) scale(0.6) rotate(300deg); }
 }
 
-/* 보드 흔들림 (축소 연출) — 더 빠르고 흔들림 폭은 더 작게 */
+/* 보드 흔들림 (축소 연출) — 빠르고 적당한 흔들림 폭 */
 .board.board-shake {
-  animation: boardQuake 0.6s cubic-bezier(.36,.07,.19,.97) both;
+  animation: boardQuake 0.65s cubic-bezier(.36,.07,.19,.97) both;
 }
 @keyframes boardQuake {
   0%, 100% { transform: translate3d(0,0,0); }
-  10%, 30%, 50%, 70%, 90% { transform: translate3d(-1.5px, 1px, 0) rotate(-0.2deg); }
-  20%, 40%, 60%, 80% { transform: translate3d(1.5px, -1px, 0) rotate(0.2deg); }
+  10%, 30%, 50%, 70%, 90% { transform: translate3d(-2.5px, 1.5px, 0) rotate(-0.3deg); }
+  20%, 40%, 60%, 80% { transform: translate3d(2.5px, -1.5px, 0) rotate(0.3deg); }
 }
 
 /* 게임오버 페이드인 (기본 1.5초 — 더 천천히) */
