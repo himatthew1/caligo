@@ -2686,15 +2686,39 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
 });
 
 // 힐 애니메이션: 지정된 인덱스의 piece 카드 2초간 초록 glow
-function flashHealPieces(indexes) {
-  const container = document.getElementById('my-pieces-info');
+function flashHealPieces(indexes, opts) {
+  const o = opts || {};
+  const containerSelector = o.opp ? '#opp-pieces-info' : '#my-pieces-info';
+  const cardSelector = o.opp ? '.opp-piece-card' : '.my-piece-card';
+  const container = document.querySelector(containerSelector);
   if (!container) return;
-  const cards = container.querySelectorAll('.my-piece-card');
+  const cards = container.querySelectorAll(cardSelector);
   for (const idx of indexes) {
     const card = cards[idx];
     if (!card) continue;
     card.classList.add('heal-flash');
     setTimeout(() => card.classList.remove('heal-flash'), 2000);
+    // 파티클 반짝이 추가
+    spawnHealSparkles(card);
+  }
+}
+
+// 회복 시 카드 위에 반짝이는 파티클 6개를 짧게 띄움
+function spawnHealSparkles(card) {
+  const rect = card.getBoundingClientRect();
+  const sparkleChars = ['✨', '✦', '★', '✧', '⭐', '✨'];
+  const count = 6;
+  for (let i = 0; i < count; i++) {
+    const sp = document.createElement('div');
+    sp.className = 'heal-sparkle';
+    sp.textContent = sparkleChars[i % sparkleChars.length];
+    const sx = rect.left + Math.random() * rect.width;
+    const sy = rect.top + Math.random() * rect.height;
+    sp.style.left = sx + 'px';
+    sp.style.top = sy + 'px';
+    sp.style.animationDelay = (Math.random() * 0.4) + 's';
+    document.body.appendChild(sp);
+    setTimeout(() => sp.remove(), 1500);
   }
 }
 
@@ -2735,9 +2759,13 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
-    // 악몽(고문 기술자) 전용 사운드 우선
+    // 악몽 / 회복 / 유황범람 전용 사운드, 그 외는 기본 'skill'
     if (msg.startsWith('⛓ 악몽:')) {
       playSfxNightmare();
+    } else if (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:')) {
+      if (typeof playSfxHeal === 'function') playSfxHeal(); else playSfx('skill');
+    } else if (msg.startsWith('🔥 유황범람:')) {
+      if (typeof playSfxSulfur === 'function') playSfxSulfur(); else playSfx('skill');
     } else {
       playSfx('skill');
     }
@@ -2775,10 +2803,13 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed }) => {
-  // 악몽(상대) 전용 사운드 우선
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs }) => {
+  // 악몽(상대) 전용 사운드 우선, 회복은 회복 사운드, 그 외는 기본
+  const isHeal = msg && (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:'));
   if (msg && msg.startsWith('⛓ 악몽:')) {
     playSfxNightmare();
+  } else if (isHeal && typeof playSfxHeal === 'function') {
+    playSfxHeal();
   } else {
     playSfx('opp_skill');
   }
@@ -2788,6 +2819,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
   if (yourPieces) S.myPieces = yourPieces;
   if (oppPieces) S.oppPieces = oppPieces;
+  pruneDeductionTokens();
   if (sp) { S.sp = sp; }
   if (instantSp) { S.instantSp = instantSp; }
   if (sp || instantSp) { updateSPBar(); }
@@ -2796,7 +2828,6 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     showSkillToast(msg, true);
     addLog(msg, 'skill-enemy');
   }
-  // skillUsed만 있거나 아무 정보도 없는 경우는 조용히 무시 (🚨 토스트 영구 삭제)
 
   // 상대 스킬로 내 유닛이 피해를 받았는지 감지
   const mySkillDmgIdx = [];
@@ -2809,6 +2840,10 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   renderOppPieces();
 
   applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+  // 상대가 사용한 회복 — 상대 카드에 초록 플래시 + 반짝이
+  if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
+    setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
+  }
 });
 
 // ── 정찰 결과 ──
@@ -8315,6 +8350,102 @@ function playTimerTick() {
 }
 
 // ── 턴 벨소리 (Web Audio) ──
+// ── 회복(약초학·신성) 전용 효과음 — 부드러운 상승 화음 + 반짝이 ──
+function playSfxHeal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // ① 상승 아르페지오 (C5 → E5 → G5 → C6) — 따뜻한 화음
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    for (let i = 0; i < notes.length; i++) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = notes[i];
+      const t = now + i * 0.06;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.5);
+    }
+    // ② 잔잔한 지속 톤 (G5) — 따뜻함
+    const sus = ctx.createOscillator();
+    const sg = ctx.createGain();
+    sus.type = 'triangle';
+    sus.frequency.value = 783.99;
+    sg.gain.setValueAtTime(0.001, now + 0.1);
+    sg.gain.linearRampToValueAtTime(0.06, now + 0.25);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+    sus.connect(sg); sg.connect(out);
+    sus.start(now + 0.1); sus.stop(now + 0.95);
+    // ③ 고역 반짝이 (짧은 노이즈 펄스 3회)
+    for (let i = 0; i < 3; i++) {
+      const t = now + 0.05 + i * 0.12;
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.05, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      const hpf = ctx.createBiquadFilter();
+      hpf.type = 'highpass'; hpf.frequency.value = 6500;
+      src.connect(hpf); hpf.connect(ng); ng.connect(out);
+      src.start(t); src.stop(t + 0.04);
+    }
+  } catch (e) {}
+}
+
+// ── 유황범람(유황이 끓는 솥) 전용 효과음 — 끓어오르는 저음 + 폭발 ──
+function playSfxSulfur() {
+  if (sfxMuted) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // ① 끓어오르는 저음 (점점 커지는 sawtooth)
+    const boil = ctx.createOscillator();
+    const bg = ctx.createGain();
+    boil.type = 'sawtooth';
+    boil.frequency.setValueAtTime(80, now);
+    boil.frequency.linearRampToValueAtTime(140, now + 0.4);
+    bg.gain.setValueAtTime(0.001, now);
+    bg.gain.linearRampToValueAtTime(0.18, now + 0.35);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    boil.connect(bg); bg.connect(out);
+    boil.start(now); boil.stop(now + 0.6);
+    // ② 폭발 (저음 임팩트)
+    const boomT = now + 0.42;
+    const boom = ctx.createOscillator();
+    const bog = ctx.createGain();
+    boom.type = 'sawtooth';
+    boom.frequency.setValueAtTime(150, boomT);
+    boom.frequency.exponentialRampToValueAtTime(50, boomT + 0.35);
+    bog.gain.setValueAtTime(0.28, boomT);
+    bog.gain.exponentialRampToValueAtTime(0.001, boomT + 0.5);
+    boom.connect(bog); bog.connect(out);
+    boom.start(boomT); boom.stop(boomT + 0.55);
+    // ③ 화염 노이즈 (지속)
+    const flameBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+    const fd = flameBuf.getChannelData(0);
+    for (let j = 0; j < fd.length; j++) fd[j] = (Math.random() * 2 - 1);
+    const flame = ctx.createBufferSource();
+    flame.buffer = flameBuf;
+    const fg = ctx.createGain();
+    fg.gain.setValueAtTime(0.001, now);
+    fg.gain.linearRampToValueAtTime(0.10, now + 0.3);
+    fg.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    const ff = ctx.createBiquadFilter();
+    ff.type = 'lowpass'; ff.frequency.value = 1200;
+    flame.connect(ff); ff.connect(fg); fg.connect(out);
+    flame.start(now); flame.stop(now + 0.5);
+  } catch (e) {}
+}
+
 // ── 악몽(고문 기술자) 전용 효과음 — 쇠사슬 + 채찍 + 저음 임팩트 ──
 function playSfxNightmare() {
   if (sfxMuted) return;

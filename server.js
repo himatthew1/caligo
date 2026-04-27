@@ -4497,6 +4497,8 @@ io.on('connection', (socket) => {
             revealedType: hit?.revealedType, revealedName: hit?.revealedName, revealedIcon: hit?.revealedIcon,
             hitName: hit?.hitName, hitIcon: hit?.hitIcon,
             defPieceIdx: hit?.defPieceIdx,
+            redirectedToBodyguard: hit?.redirectedToBodyguard || false,
+            bodyguardRedirect: hit?.bodyguardRedirect || false,
           };
         });
         socket.emit('attack_result', {
@@ -4615,6 +4617,9 @@ io.on('connection', (socket) => {
             hitName: hit.hitName, hitIcon: hit.hitIcon,
             defPieceIdx: hit.defPieceIdx,
             attackerSub: hit.attackerSub, attackerName: hit.attackerName, attackerIcon: hit.attackerIcon,
+            // 호위무사 가로채기 플래그 — 클라이언트 토스트/애니메이션 분기용
+            redirectedToBodyguard: hit.redirectedToBodyguard || false,
+            bodyguardRedirect: hit.bodyguardRedirect || false,
           });
         }
       }
@@ -4639,7 +4644,12 @@ io.on('connection', (socket) => {
           atkCells,
           hitPieces: hits.map(h => {
             const dp = defPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
-            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+            return {
+              col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+              name: dp?.name, icon: dp?.icon,
+              redirectedToBodyguard: h.redirectedToBodyguard || false,
+              bodyguardRedirect: h.bodyguardRedirect || false,
+            };
           }),
           yourPieces: pieceSummary(defPlayer.pieces),
         });
@@ -4655,7 +4665,12 @@ io.on('connection', (socket) => {
           atkCells,
           hitPieces: hitResults.map(h => {
             const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
-            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+            return {
+              col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+              name: dp?.name, icon: dp?.icon,
+              redirectedToBodyguard: h.redirectedToBodyguard || false,
+              bodyguardRedirect: h.bodyguardRedirect || false,
+            };
           }),
           yourPieces: pieceSummary(defender.pieces),
         });
@@ -4888,6 +4903,8 @@ io.on('connection', (socket) => {
           skillUsed: {
             icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
           },
+          // 상대 측에서도 회복 애니메이션 — 시전자 piece 인덱스 그대로 전달 (상대 oppPieces 동일 순서)
+          healedPieceIdxs: result.data?.healedPieceIdxs || null,
         });
       }
     }
