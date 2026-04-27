@@ -2727,11 +2727,10 @@ body {
 
 /* 추천 조합 모달 스크롤바 — 상단 공용 커스텀 드래그바에서 처리 */
 
-/* 추천 조합 모달 — 한 줄에 들어가는 최소 폭 (텍스트 겹침/줄바꿈 없는 선)
-   .modal-content가 max-width 480px로 덮으므로 specificity 높게 결합 */
+/* 추천 조합 모달 — 원래 컴팩트한 1200px 유지 (specificity 결합으로 480px 덮음) */
 .modal-content.modal-wide {
-  max-width: 1100px;
   width: 95%;
+  max-width: 1200px;
   overflow-x: hidden;
 }
 .recommend-combo {
