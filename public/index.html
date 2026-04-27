@@ -113,7 +113,7 @@
 
     <div class="team-rooms">
       <div class="team-room team-a">
-        <div class="team-room-title">A팀</div>
+        <div class="team-room-title">블루팀</div>
         <div class="team-slot" data-team="0" data-pos="0">
           <span class="team-slot-label">빈 슬롯</span>
         </div>
@@ -123,7 +123,7 @@
       </div>
       <div class="team-vs">VS</div>
       <div class="team-room team-b">
-        <div class="team-room-title">B팀</div>
+        <div class="team-room-title">레드팀</div>
         <div class="team-slot" data-team="1" data-pos="0">
           <span class="team-slot-label">빈 슬롯</span>
         </div>
@@ -173,7 +173,7 @@
                 <div id="slide-flavor" class="slide-flavor"></div>
                 <div class="slide-preview-tabs">
                   <button class="slide-preview-tab active" data-mode="attack">공격 범위</button>
-                  <button class="slide-preview-tab" data-mode="skill">스킬 범위</button>
+                  <button class="slide-preview-tab" data-mode="skill">스킬 미리보기</button>
                 </div>
                 <div id="slide-desc" class="slide-desc hidden"></div>
               </div>
@@ -294,12 +294,12 @@
     <p class="muted">4명 전원의 캐릭터가 공개됩니다.</p>
     <div class="team-reveal-layout">
       <div class="team-reveal-side team-reveal-a">
-        <h3>A팀</h3>
+        <h3>블루팀</h3>
         <div id="team-reveal-a-chars" class="reveal-pieces"></div>
       </div>
       <div class="reveal-vs">VS</div>
       <div class="team-reveal-side team-reveal-b">
-        <h3>B팀</h3>
+        <h3>레드팀</h3>
         <div id="team-reveal-b-chars" class="reveal-pieces"></div>
       </div>
     </div>
@@ -358,6 +358,10 @@
               </div>
               <div class="slide-right-col">
                 <div class="slide-preview-label">공격 범위 미리보기</div>
+                <div class="slide-preview-tabs ex-preview-tabs">
+                  <button class="slide-preview-tab active" data-mode="attack">공격 범위</button>
+                  <button class="slide-preview-tab" data-mode="skill">스킬 미리보기</button>
+                </div>
                 <div id="ex-preview-board" class="board preview-board"></div>
                 <div id="ex-preview-info" class="draft-preview-info"></div>
               </div>

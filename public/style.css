@@ -1645,6 +1645,163 @@ body {
 .piece-marker.opp-marked { opacity: 0.85; }
 .piece-marker.opp-marked .p-icon { filter: drop-shadow(0 0 2px #e05252); }
 .cell.has-piece:has(.opp-marked) { background: rgba(224,82,82,0.12); border-color: rgba(224,82,82,0.5); }
+/* 팀원 말 — 은은하게 딤 + 팀 절대 컬러 (블루/레드) */
+.piece-marker.teammate-piece {
+  opacity: 0.65;
+  filter: saturate(0.7);
+}
+.piece-marker.teammate-piece .p-icon { opacity: 0.85; }
+.piece-marker.teammate-piece .p-hp { opacity: 0.85; }
+/* 팀 절대 컬러 — 블루팀 */
+.piece-marker.piece-team-blue .p-icon { filter: drop-shadow(0 0 2px rgba(96,165,250,0.7)); }
+.piece-marker.piece-team-blue .p-hp { color: #93c5fd; }
+.cell.teammate-cell-blue { background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.40); }
+/* 팀 절대 컬러 — 레드팀 */
+.piece-marker.piece-team-red .p-icon { filter: drop-shadow(0 0 2px rgba(239,68,68,0.7)); }
+.piece-marker.piece-team-red .p-hp { color: #fca5a5; }
+.cell.teammate-cell-red { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.40); }
+/* 팀원의 상태 마크는 좀 더 작게 */
+.cell-mark.teammate-mark { opacity: 0.75; font-size: 0.55rem; }
+/* 보드 위 말 아이콘 피격 애니메이션 (쥐 모션과 동일 톤) */
+.piece-marker .p-icon.p-icon-hit {
+  animation: pIconHitAnim 0.7s ease-out;
+  display: inline-block;
+}
+@keyframes pIconHitAnim {
+  0%   { transform: scale(1) translateX(0); filter: drop-shadow(0 0 0 rgba(239,68,68,0)); }
+  15%  { transform: scale(1.18) translateX(-3px) rotate(-6deg); filter: drop-shadow(0 0 6px rgba(239,68,68,0.95)); }
+  35%  { transform: scale(0.92) translateX(3px) rotate(5deg); filter: drop-shadow(0 0 4px rgba(239,68,68,0.7)); }
+  55%  { transform: scale(1.12) translateX(-2px) rotate(-3deg); filter: drop-shadow(0 0 5px rgba(239,68,68,0.6)); }
+  75%  { transform: scale(0.98) translateX(2px) rotate(2deg); filter: drop-shadow(0 0 3px rgba(239,68,68,0.4)); }
+  100% { transform: scale(1) translateX(0) rotate(0); filter: drop-shadow(0 0 0 rgba(239,68,68,0)); }
+}
+/* 팀원 HP 분배 — 간략 한 줄 표시 (이모지·이름·태그·숫자만) */
+.teammate-hp-mini-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.teammate-hp-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+.teammate-hp-mini-icon { font-size: 1rem; }
+.teammate-hp-mini-name { flex: 1; color: var(--text); display: flex; align-items: center; gap: 4px; }
+.teammate-hp-mini-value {
+  min-width: 22px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--accent);
+}
+.teammate-hp-mini-total {
+  text-align: right;
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding: 2px 4px;
+}
+/* ── 팀전 프로필 블록 — 내/팀원/적 시각 구분 강화 ── */
+.team-profile-block {
+  margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(20,28,48,0.5);
+  transition: border-color 0.2s, background 0.2s;
+}
+/* 팀 절대 컬러 — 블루팀은 항상 파랑, 레드팀은 항상 빨강 (관점 무관) */
+.team-profile-block.team-block-blue {
+  border: 1px solid rgba(96,165,250,0.55);
+  border-left: 5px solid #60a5fa;
+  background: rgba(96,165,250,0.08);
+}
+.team-profile-block.team-block-red {
+  border: 1px solid rgba(239,68,68,0.55);
+  border-left: 5px solid #ef4444;
+  background: rgba(239,68,68,0.08);
+}
+/* 내 캐릭터 표식 — 팀 컬러 위에 황금 외곽 링만 추가 (배경/보더 컬러는 팀이 결정) */
+.team-profile-block.team-block-self-mark {
+  box-shadow: 0 0 0 2px rgba(226,168,75,0.5), 0 0 10px rgba(226,168,75,0.18);
+}
+/* 현재 턴 강조 — 외곽선 글로우 (자기 마크와 합쳐질 때도 자연스럽게) */
+.team-profile-block.is-current-turn {
+  box-shadow: 0 0 0 2px rgba(226,168,75,0.7), 0 0 14px rgba(226,168,75,0.4);
+}
+.team-profile-block.team-block-self-mark.is-current-turn {
+  box-shadow: 0 0 0 3px rgba(226,168,75,0.7), 0 0 16px rgba(226,168,75,0.45);
+}
+.team-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 0.86rem;
+}
+.team-profile-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.team-letter {
+  display: inline-block;
+  min-width: 18px;
+  padding: 2px 5px;
+  text-align: center;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.team-letter.team-blue { color: #60a5fa; background: rgba(96,165,250,0.18); }
+.team-letter.team-red  { color: #ef4444; background: rgba(239,68,68,0.18); }
+.team-block-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+/* 라벨 컬러 — 팀 절대 기준 */
+.team-block-blue .team-block-label { color: #93c5fd; }
+.team-block-red .team-block-label { color: #fca5a5; }
+/* 내 캐릭터 표식: 라벨에 황금 컬러 (블록 라벨은 이미 "내 캐릭터") */
+.team-block-self-mark .team-block-label { color: var(--accent); }
+.team-turn-mark {
+  font-size: 0.7rem;
+  color: var(--accent);
+  background: rgba(226,168,75,0.18);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.team-profile-alive {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+/* 팀원 공격 범위 오버레이 (토글) */
+.cell.teammate-range {
+  background: rgba(96,165,250,0.20) !important;
+  border-color: rgba(96,165,250,0.55) !important;
+  box-shadow: inset 0 0 4px rgba(96,165,250,0.3);
+}
+/* 팀원 이동 애니메이션 — 새 위치 강조, 옛 위치 잔상 */
+.cell.teammate-move-flash {
+  animation: teammateMoveFlash 0.8s ease-out;
+}
+@keyframes teammateMoveFlash {
+  0%   { box-shadow: 0 0 0 0 rgba(96,165,250,0); background: rgba(96,165,250,0.10); }
+  30%  { box-shadow: 0 0 14px 4px rgba(96,165,250,0.7); background: rgba(96,165,250,0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(96,165,250,0); background: rgba(96,165,250,0.10); }
+}
+.cell.teammate-move-trail {
+  animation: teammateMoveTrail 0.6s ease-out;
+}
+@keyframes teammateMoveTrail {
+  0%   { background: rgba(96,165,250,0.30); }
+  100% { background: transparent; }
+}
 /* 선택된 유닛 셀 — 배경 채움 대신 아이콘 글로우만 (정적, 깜빡임 X) */
 .cell.selected-piece .p-icon {
   filter: drop-shadow(0 0 3px rgba(240,192,64,0.85))
@@ -1738,6 +1895,9 @@ body {
 .sp-fill { height: 100%; transition: width 0.5s ease; }
 .sp-mine-fill { background: linear-gradient(90deg, #2563eb, #4ea8de); border-radius: 10px 0 0 10px; }
 .sp-opp-fill  { background: linear-gradient(90deg, #dc2626, #e05252); border-radius: 0 10px 10px 0; }
+/* 팀 절대 컬러 — 위치(좌/우)와 무관하게 색만 결정 */
+.sp-fill-blue { background: linear-gradient(90deg, #2563eb, #4ea8de) !important; }
+.sp-fill-red  { background: linear-gradient(90deg, #dc2626, #e05252) !important; }
 .sp-countdown {
   text-align: center;
   font-size: 0.72rem;
@@ -1789,6 +1949,11 @@ body {
 }
 .turn-banner.my-turn   { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12); }
 .turn-banner.opp-turn  { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.08); }
+/* 팀모드 절대 컬러 — 블루 / 레드 */
+.turn-banner.team-turn-blue { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12); }
+.turn-banner.team-turn-red  { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.10); }
+.timer-clock.timer-team-blue { color: #93c5fd; }
+.timer-clock.timer-team-red  { color: #fca5a5; }
 
 /* 팀전 턴 오더 바 — 현재 플레이어 강조 + A/B팀 색상 구분 */
 .turn-banner-main { font-weight: 700; }
@@ -1806,8 +1971,8 @@ body {
   transition: all 0.2s;
   opacity: 0.7;
 }
-.turn-order-dot.team-a { border-color: rgba(96,165,250,0.4); color: #93c5fd; }
-.turn-order-dot.team-b { border-color: rgba(239,68,68,0.4); color: #fca5a5; }
+.turn-order-dot.team-blue { border-color: rgba(96,165,250,0.5); color: #93c5fd; }
+.turn-order-dot.team-red  { border-color: rgba(239,68,68,0.5); color: #fca5a5; }
 .turn-order-dot.current {
   opacity: 1;
   font-weight: 700;
@@ -1871,7 +2036,7 @@ body {
 .action-hint { font-size: 0.82rem; color: var(--muted); text-align: center; min-height: 20px; }
 .action-hint.urgent { color: var(--danger); font-weight: 700; font-size: 0.88rem; }
 
-/* 스킬 범위 미리보기 탭 */
+/* 스킬 미리보기 탭 */
 .slide-preview-tabs {
   display: flex; gap: 4px;
   margin-bottom: 6px;
@@ -1896,11 +2061,15 @@ body {
 .slide-preview-tab:disabled {
   opacity: 0.35; cursor: not-allowed;
 }
-/* 스킬 범위 셀 하이라이트 */
-.preview-board .cell.skill-preview-heal { background: rgba(163, 230, 53, 0.40) !important; }  /* 연두 */
-.preview-board .cell.skill-preview-attack { background: rgba(167,139,250,0.35) !important; }  /* 보라 */
+/* 스킬 미리보기 셀 하이라이트 */
+.preview-board .cell.skill-preview-heal   { background: rgba(134, 239, 172, 0.22) !important; }  /* 은은한 연한 초록 — 회복/버프 */
+/* 공격 계열 — 실제 .attack-range와 동일 톤(--range: rgba(226,168,75,0.2)) */
+.preview-board .cell.skill-preview-attack { background: rgba(226, 168, 75, 0.22) !important; border-color: rgba(226,168,75,0.5) !important; }
+/* 설치 계열 — 폭탄·덫. 연보라(기존 톤) */
+.preview-board .cell.skill-preview-place  { background: rgba(167,139,250,0.32) !important; border-color: rgba(167,139,250,0.55) !important; }
 .preview-board .cell.skill-preview-target { background: rgba(251,191,36,0.30) !important; outline: 1px solid rgba(251,191,36,0.8); }
-.preview-board .cell.skill-preview-dragon { background: rgba(251, 113, 133, 0.35) !important; }  /* 드래곤 — 빨간주황 */
+/* dragon — 호환용. attack과 동일 톤 */
+.preview-board .cell.skill-preview-dragon { background: rgba(226, 168, 75, 0.22) !important; border-color: rgba(226,168,75,0.5) !important; }
 
 /* ── 내 말 정보 패널 ── */
 .my-piece-card {

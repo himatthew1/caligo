@@ -1132,8 +1132,61 @@ socket.on('team_draft_pick_update', ({ playerIdx, slot, type, teamDrafts }) => {
       };
     }
   }
-  if (S.teamDraftMode) { renderSlide(); renderTeamDraftSlots(); }
+  if (S.teamDraftMode) {
+    // 부분 갱신 — 슬라이드 전체 재렌더는 깜빡임을 만들기 때문에 잠금 상태/사이드바만 업데이트
+    if (typeof updateDraftLockState === 'function') updateDraftLockState();
+    renderTeamDraftSlots();
+  }
 });
+
+// 슬라이드 자체는 재렌더하지 않고 select 버튼 + 잠금 오버레이만 갱신
+function updateDraftLockState() {
+  if (!S.teamDraftMode || !S.characters) return;
+  const step = S.draftStep;
+  const chars = S.characters[step];
+  if (!chars || !chars.length) return;
+  const c = chars[slideIndex];
+  if (!c) return;
+  const selectBtn = document.getElementById('btn-draft-select');
+  if (selectBtn) {
+    const tmPicks = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+    const teamLocked = tmPicks.includes(c.type);
+    const isAlreadySelected = S.teamDraft?.pick1 === c.type || S.teamDraft?.pick2 === c.type;
+    if (teamLocked) {
+      selectBtn.textContent = '🔒 팀원이 선택함';
+      selectBtn.className = 'btn btn-muted btn-select-char';
+      selectBtn.disabled = true;
+    } else if (isAlreadySelected) {
+      selectBtn.textContent = '✔ 선택됨';
+      selectBtn.className = 'btn btn-select-char btn-current-select';
+      selectBtn.disabled = false;
+    } else {
+      selectBtn.textContent = '캐릭터 선택';
+      selectBtn.className = 'btn btn-accent btn-select-char';
+      selectBtn.disabled = false;
+    }
+  }
+  // 잠금 오버레이만 토글
+  const slideViewer = document.querySelector('#screen-draft .slide-viewer');
+  if (slideViewer) {
+    const tmPicks2 = [S.teamTeammatePicks?.pick1, S.teamTeammatePicks?.pick2].filter(Boolean);
+    const thisLocked = tmPicks2.includes(c.type);
+    slideViewer.classList.toggle('team-dimmed', !!thisLocked);
+    let badge = slideViewer.querySelector('.team-dim-overlay');
+    if (thisLocked) {
+      const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
+      const tmName = tm ? tm.name : '팀원';
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.className = 'team-dim-overlay';
+        slideViewer.appendChild(badge);
+      }
+      badge.textContent = `🔒 ${tmName}이(가) 선택한 캐릭터`;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+}
 
 socket.on('team_draft_confirmed', ({ pick1, pick2 }) => {
   S.teamDraft = { pick1, pick2 };
@@ -1202,7 +1255,7 @@ function renderTeamDraftSlots() {
       const c = type ? findChar(type) : null;
       if (c) {
         const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
-        return `<div class="draft-slot filled teammate-slot">
+        return `<div class="draft-slot filled teammate-slot" data-tm-jump="${c.type}">
           <span class="slot-tier">${label}</span>
           <span class="slot-icon">${c.icon}</span>
           <div class="slot-info">
@@ -1217,10 +1270,33 @@ function renderTeamDraftSlots() {
       </div>`;
     };
     tmContainer.innerHTML = `
-      <h4 class="teammate-slots-title">🤝 ${escapeHtmlGlobal(tmName)}의 선택</h4>
-      ${renderTmSlot(S.teamTeammatePicks?.pick1, '1번')}
-      ${renderTmSlot(S.teamTeammatePicks?.pick2, '2번')}
+      <h4 class="teammate-slots-title">${escapeHtmlGlobal(tmName)}의 조합</h4>
+      ${renderTmSlot(S.teamTeammatePicks?.pick1, '1번 캐릭터')}
+      ${renderTmSlot(S.teamTeammatePicks?.pick2, '2번 캐릭터')}
     `;
+    // 팀원 슬롯 클릭 → 해당 캐릭터 슬라이드로 이동
+    tmContainer.querySelectorAll('[data-tm-jump]').forEach(el => {
+      el.addEventListener('click', () => {
+        const targetType = el.dataset.tmJump;
+        // 모든 티어를 통합 검색
+        const allCh = [...(S.characters?.[1]||[]), ...(S.characters?.[2]||[]), ...(S.characters?.[3]||[])];
+        const targetIdx = allCh.findIndex(c => c.type === targetType);
+        if (targetIdx < 0) return;
+        // 어느 티어에 속하는지 결정 → draftStep 변경 후 슬라이드 인덱스 설정
+        let runIdx = targetIdx;
+        for (const tier of [1, 2, 3]) {
+          const tierChars = S.characters?.[tier] || [];
+          if (runIdx < tierChars.length) {
+            S.draftStep = tier;
+            slideIndex = runIdx;
+            break;
+          }
+          runIdx -= tierChars.length;
+        }
+        if (typeof buildDraftStepUI === 'function') buildDraftStepUI();
+        if (typeof renderSlide === 'function') renderSlide();
+      });
+    });
   }
 }
 
@@ -1469,28 +1545,22 @@ function updateTeammateHpPanel() {
   }
   const hps = (S.teamTeammateHps && S.teamTeammateHps[tm.idx]) || [0, 0];
   const total = hps.reduce((a, b) => a + b, 0);
-  // 내 HP 레이아웃과 동일한 행 구조 — +/- 버튼만 생략
+  // 간략 표시 — 이모지 / 이름·태그 / HP 숫자 한 줄
   const types = [S.teamTeammateDraft.pick1, S.teamTeammateDraft.pick2];
-  const labels = ['1번 캐릭터', '2번 캐릭터'];
   const rows = types.map((t, i) => {
     const c = findChar(t);
     if (!c) return '';
     const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
-    return `<div class="hp-piece-row hp-piece-row-readonly">
-      <span class="char-icon">${c.icon}</span>
-      <div class="hp-piece-label">
-        <strong>${c.name}${tagHtml}</strong>
-        <span>${labels[i]}</span>
-      </div>
-      <div class="hp-input-group hp-input-readonly">
-        <span class="hp-value">${hps[i]}</span>
-      </div>
+    return `<div class="teammate-hp-mini-row">
+      <span class="teammate-hp-mini-icon">${c.icon}</span>
+      <span class="teammate-hp-mini-name">${escapeHtmlGlobal(c.name)}${tagHtml}</span>
+      <span class="teammate-hp-mini-value">${hps[i]}</span>
     </div>`;
   }).join('');
   panel.innerHTML = `
     <h4 class="teammate-hp-title">${escapeHtmlGlobal(tm.name)}</h4>
-    <div class="hp-piece-rows">${rows}</div>
-    <div class="hp-total-bar teammate-total-bar">총합 <span>${total}</span> / 10</div>
+    <div class="teammate-hp-mini-rows">${rows}</div>
+    <div class="teammate-hp-mini-total">총합 ${total} / 10</div>
   `;
 }
 
@@ -1630,20 +1700,52 @@ function renderTeamReveal(allPlayerPieces) {
   const aChars = document.getElementById('team-reveal-a-chars');
   const bChars = document.getElementById('team-reveal-b-chars');
   if (!aChars || !bChars) return;
-  const pieceCard = (p) => `<div class="reveal-piece">
-    <div class="reveal-piece-icon">${p.icon || ''}</div>
-    <div class="reveal-piece-name">${escapeHtmlGlobal(p.name || p.type)}</div>
-    <div class="reveal-piece-hp">HP ${p.hp}/${p.maxHp}</div>
-  </div>`;
-  const playerCard = (pl) => {
-    const piecesHtml = (pl.pieces || []).map(pieceCard).join('');
-    return `<div class="reveal-player-block">
-      <h4>${escapeHtmlGlobal(pl.name)}${pl.idx === S.playerIdx ? ' (나)' : ''}</h4>
-      <div class="reveal-pieces-row">${piecesHtml}</div>
-    </div>`;
+  aChars.innerHTML = '';
+  bChars.innerHTML = '';
+
+  const blue = allPlayerPieces.filter(p => p.teamId === 0);
+  const red = allPlayerPieces.filter(p => p.teamId === 1);
+
+  // 플레이어 블록 컨테이너 만들고, 카드는 staggered 애니메이션으로 등장
+  const buildPlayerBlock = (pl, container, side) => {
+    const block = document.createElement('div');
+    block.className = 'reveal-player-block';
+    const head = document.createElement('h4');
+    head.textContent = `${pl.name}${pl.idx === S.playerIdx ? ' (나)' : ''}`;
+    block.appendChild(head);
+    const row = document.createElement('div');
+    row.className = 'reveal-pieces-row';
+    block.appendChild(row);
+    container.appendChild(block);
+    return row;
   };
-  aChars.innerHTML = allPlayerPieces.filter(p => p.teamId === 0).map(playerCard).join('');
-  bChars.innerHTML = allPlayerPieces.filter(p => p.teamId === 1).map(playerCard).join('');
+
+  // 양쪽 팀 동시 staggered 렌더 — 1v1 final reveal과 동일한 톤
+  const blueRows = blue.map(pl => buildPlayerBlock(pl, aChars, 'left'));
+  const redRows = red.map(pl => buildPlayerBlock(pl, bChars, 'right'));
+
+  // 카드 등장 — 슬롯별 250ms 딜레이로 순차 등장 + 사운드
+  const allCards = [];
+  blue.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: blueRows[i], side: 'left', orderIdx: i*2 + j })));
+  red.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: redRows[i], side: 'right', orderIdx: i*2 + j })));
+
+  // orderIdx 순서대로 — 같은 슬롯이면 양 팀 동시
+  allCards.sort((a, b) => a.orderIdx - b.orderIdx);
+  let curOrder = -1;
+  for (const c of allCards) {
+    const delay = 400 + c.orderIdx * 600;
+    setTimeout(() => {
+      if (c.orderIdx !== curOrder) {
+        curOrder = c.orderIdx;
+        try { playSfxRevealAppear(); } catch (e) {}
+      }
+      // 1v1 final reveal과 동일 카드 — 미니 헤더 + 태그 도장 + 호버 툴팁 포함
+      const tooltipSide = c.side === 'left' ? 'right' : 'left';
+      const card = createDraftRevealCard(c.pc, c.pc.tier, tooltipSide, '');
+      card.style.animation = 'revealSlide 0.5s ease-out both';
+      c.row.appendChild(card);
+    }, delay);
+  }
 }
 
 const _btnTeamRevealContinue = document.getElementById('btn-team-reveal-continue');
@@ -1731,7 +1833,7 @@ socket.on('team_placement_status', ({ placementDone, doneNames }) => {
 function renderTeamPlacement() {
   const titleEl = document.getElementById('team-placement-title');
   if (titleEl) {
-    const teamLabel = S.teamId === 0 ? 'A팀' : 'B팀';
+    const teamLabel = S.teamId === 0 ? '블루팀' : '레드팀';
     titleEl.textContent = `배치 — ${teamLabel}`;
   }
   // 보드 렌더 (7x7)
@@ -1905,26 +2007,90 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   addLog(txt, 'skill');
 });
 
-socket.on('team_game_over', ({ win, winnerTeamId, winners, losers, reason }) => {
+socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, winners, losers, reason, spectator }) => {
   stopClientTimer();
   const inGame = _isInGameScreen();
-  const delay = inGame ? 1000 : 0;
+  const isShrinkEnd = reason && reason.type === 'shrink';
+  const delay = inGame ? (isShrinkEnd ? 1800 : 1000) : 0;
   setTimeout(() => {
     _showGameOverScreen(!inGame);
+    if (!spectator) bgmPlay(win ? 'victory' : 'defeat');
+    const r = reason || {};
+    const W = winTeamLabel || (winnerTeamId === 0 ? '블루팀' : '레드팀');
+    const L = loseTeamLabel || (winnerTeamId === 0 ? '레드팀' : '블루팀');
+    const killer = r.killer || '';
+
     const iconEl = document.getElementById('gameover-icon');
     const titleEl = document.getElementById('gameover-title');
     const subEl = document.getElementById('gameover-sub');
-    if (iconEl) iconEl.textContent = win ? '🏆' : '💀';
-    if (titleEl) {
-      titleEl.textContent = win ? '팀 승리!' : '팀 패배';
-      titleEl.style.color = win ? 'var(--accent)' : 'var(--danger)';
+
+    // 무승부 (양 팀 동시 전멸)
+    if (r.type === 'draw') {
+      if (iconEl) iconEl.textContent = '🤝';
+      if (titleEl) { titleEl.textContent = '무승부'; titleEl.style.color = 'var(--muted)'; }
+      if (subEl) subEl.innerHTML = `보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.<br><span class="muted">🟦 블루팀: ${escapeHtmlGlobal((winners || []).join(', '))}<br>🟥 레드팀: ${escapeHtmlGlobal((losers || []).join(', '))}</span>`;
+      return;
+    }
+
+    const isSpec = spectator || S.isSpectator;
+    let sub = '';
+
+    if (isSpec) {
+      // 관전자 메시지 — 1v1 카피
+      if (iconEl) iconEl.textContent = '👁';
+      if (titleEl) { titleEl.textContent = '게임 종료'; titleEl.style.color = 'var(--accent)'; }
+      switch (r.type) {
+        case 'surrender': sub = `${L}의 기권으로, ${W}의 승리입니다!`; break;
+        case 'shrink': sub = `보드 축소로 ${L}의 말이 전멸해 ${W}의 승리입니다!`; break;
+        case 'trap': sub = `인간 사냥꾼의 덫으로 ${L}의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+        case 'bomb': sub = `화약병의 폭탄으로 ${L}의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+        case 'sulfur': sub = `${W}의 유황범람으로 ${L}의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+        case 'nightmare': sub = `${W}의 고문 기술자 악몽으로 ${L}의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`; break;
+        case 'attack': sub = killer
+          ? `${killer}의 공격으로 ${L}의 모든 유닛을 쓰러트려 ${W}의 승리입니다!`
+          : `${L}의 모든 유닛을 제거해 ${W}의 승리입니다.`; break;
+        default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
+      }
+    } else if (win) {
+      // 승리 메시지 — 1v1 카피 (상대 → 상대팀)
+      if (iconEl) iconEl.textContent = '🏆';
+      if (titleEl) { titleEl.textContent = '팀 승리!'; titleEl.style.color = 'var(--accent)'; }
+      switch (r.type) {
+        case 'surrender': sub = `${L}의 기권입니다!`; break;
+        case 'shrink': sub = `${L}이(가) 보드 축소를 피하지 못해 승리했습니다!`; break;
+        case 'trap': sub = `${L}이(가) 인간 사냥꾼의 덫에 걸려 승리했습니다!`; break;
+        case 'bomb': sub = `화약병의 폭탄으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        case 'sulfur': sub = `유황범람으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        case 'nightmare': sub = `고문 기술자의 악몽으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        case 'attack': sub = killer
+          ? `${killer}의 공격으로 ${L}의 모든 말을 제거해 승리했습니다!`
+          : `${L}의 모든 유닛을 제거해 승리했습니다.`; break;
+        default: sub = `${L}의 모든 말을 제거했습니다!`;
+      }
+    } else {
+      // 패배 메시지 — 1v1 카피
+      if (iconEl) iconEl.textContent = r.type === 'surrender' ? '🏳' : '💀';
+      if (titleEl) {
+        titleEl.textContent = r.type === 'surrender' ? '기권' : '팀 패배...';
+        titleEl.style.color = 'var(--danger)';
+      }
+      switch (r.type) {
+        case 'surrender': sub = `팀이 기권하여 패배했습니다.`; break;
+        case 'shrink': sub = `보드 축소를 피하지 못해 패배하였습니다.`; break;
+        case 'trap': sub = `인간 사냥꾼의 덫에 마지막 유닛이 걸려 패배하였습니다.`; break;
+        case 'bomb': sub = `화약병의 폭탄으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'sulfur': sub = `유황범람으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'nightmare': sub = `고문 기술자의 악몽으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'attack': sub = killer
+          ? `${killer}의 공격으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`
+          : `${L}에게 패배했습니다.`; break;
+        default: sub = `${L}에게 패배했습니다.`;
+      }
     }
     if (subEl) {
-      const winStr = (winners || []).join(', ');
-      const loseStr = (losers || []).join(', ');
-      subEl.innerHTML = `승리팀: <strong>${escapeHtmlGlobal(winStr)}</strong><br>패배팀: ${escapeHtmlGlobal(loseStr)}<br><span class="muted">${reason || ''}</span>`;
+      subEl.innerHTML = `${sub}<br><span class="muted">🟦 블루팀: ${escapeHtmlGlobal(winnerTeamId === 0 ? (winners || []).join(', ') : (losers || []).join(', '))}<br>🟥 레드팀: ${escapeHtmlGlobal(winnerTeamId === 0 ? (losers || []).join(', ') : (winners || []).join(', '))}</span>`;
     }
-  }, 200);
+  }, delay);
 });
 
 // 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시 (턴 배너는 updateTurnBanner가 통일)
@@ -1969,16 +2135,41 @@ function renderTeamProfiles() {
       renderTeamProfiles();
     });
   });
+
+  // 호버 시 공격범위 팝업 — data-player-idx로 각 블록을 식별하여 piece 객체 복원
+  const attachTooltips = (container, side) => {
+    container.querySelectorAll('.team-profile-block').forEach(block => {
+      const idxAttr = block.getAttribute('data-player-idx');
+      const playerIdx = idxAttr != null ? parseInt(idxAttr, 10) : null;
+      if (playerIdx == null) return;
+      const player = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+      if (!player) return;
+      block.querySelectorAll('[data-team-piece]').forEach((card, i) => {
+        const pc = player.pieces?.[i];
+        if (pc && pc.alive) card.appendChild(buildPieceTooltip(pc, side));
+      });
+    });
+  };
+  attachTooltips(myContainer, 'left');
+  attachTooltips(oppContainer, 'right');
 }
 
 function renderTeamPlayerBlock(playerData, isAlly) {
   const isMe = playerData.idx === S.playerIdx;
   const currentPlayer = playerData.idx === S.currentPlayerIdx;
-  const teamColor = playerData.teamId === 0 ? '#60a5fa' : '#ef4444';
   const pieces = playerData.pieces || [];
   const aliveCount = pieces.filter(p => p.alive).length;
-  const headerBg = currentPlayer ? 'rgba(226,168,75,0.15)' : 'transparent';
-  const headerBorder = currentPlayer ? '2px solid var(--accent)' : '1px solid var(--border)';
+
+  // 팀 컬러 절대 기준: 블루팀은 항상 파랑, 레드팀은 항상 빨강 (관점 무관)
+  const teamColorClass = playerData.teamId === 0 ? 'team-block-blue' : 'team-block-red';
+  const meClass = isMe ? 'team-block-self-mark' : '';
+  const blockClass = `${teamColorClass} ${meClass}`.trim();
+  const blockLabel = isMe ? '내 캐릭터' : (isAlly ? `팀원 — ${escapeHtmlGlobal(playerData.name)}` : escapeHtmlGlobal(playerData.name));
+  const teamLetter = playerData.teamId === 0 ? 'BLUE' : 'RED';
+
+  // 지휘관 버프 — 내 팀(나+팀원) 지휘관에 인접한 같은 팀 말이면 +1
+  const teamPlayers = (S.teamGamePlayers || []).filter(p => p.teamId === playerData.teamId);
+  const teamCommanders = teamPlayers.flatMap(p => (p.pieces || []).filter(pp => pp.alive && pp.type === 'commander'));
 
   const piecesHtml = pieces.map((pc, i) => {
     if (!pc.alive) {
@@ -1988,10 +2179,59 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
-    const tagHtml = pc.tag ? (pc.tag === 'royal' ? '<span class="tag-stamp stamp-royal">왕실</span>' : pc.tag === 'villain' ? '<span class="tag-stamp stamp-villain">악인</span>' : '') : '';
+    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
     const myPieceAttr = (isAlly && isMe) ? `data-my-piece-idx="${i}"` : '';
     const selectedClass = (isAlly && isMe && S.selectedPiece === i) ? 'active-piece' : '';
-    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr}>
+
+    // 스킬·패시브 (아군 노출, 적은 hidden — 추론 게임 보존)
+    let skillHtml = '', passiveHtml = '', directionHtml = '', moraleHtml = '', statusHtml = '';
+    if (isAlly) {
+      if (pc.hasSkill && pc.skillName) {
+        skillHtml = `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${escapeHtmlGlobal(pc.skillName)} (${pc.skillCost}SP)</div>`;
+      }
+      if (pc.passiveName) {
+        passiveHtml = `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${escapeHtmlGlobal(pc.passiveName)}</div>`;
+      }
+      if (pc.type === 'archer') {
+        const dir = pc.toggleState === 'right' ? '우측 대각선' : '좌측 대각선';
+        directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+      }
+      if (pc.type === 'weaponSmith') {
+        const dir = pc.toggleState === 'vertical' ? '세로' : '가로';
+        directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+      }
+      // 지휘관 사기증진 — 같은 팀 지휘관 인접 시
+      const commanderBuff = pc.type !== 'commander' && teamCommanders.some(cm =>
+        (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
+        (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col)
+      );
+      if (commanderBuff) {
+        moraleHtml = '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>';
+      }
+      statusHtml = renderStatusBadges(pc);
+    } else {
+      // 적: 추론 게임 보존 — 표식된 적이면 좌표 노출. 그 외는 좌표 없음.
+      // statusEffects는 표식만 표시
+      const marked = (pc.statusEffects || []).find(e => e.type === 'mark');
+      if (marked) {
+        statusHtml = '<div class="status-badges"><span class="status-badge mark">🎯 표식</span></div>';
+      }
+    }
+
+    const atkDisplay = (isAlly && pc.type !== 'commander' && teamCommanders.some(cm =>
+      (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
+      (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col)
+    )) ? `${pc.atk}<span style="color:#22c55e">+1</span>` : `${pc.atk}`;
+
+    // 위치 표시 — 아군은 항상 / 적은 표식만
+    let posText = '';
+    if (isAlly) posText = `${coord(pc.col, pc.row)}`;
+    else {
+      const marked = (pc.statusEffects || []).find(e => e.type === 'mark');
+      if (marked && pc.col != null) posText = `${coord(pc.col, pc.row)}`;
+    }
+
+    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1">
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
         <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
@@ -2000,22 +2240,22 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       </div>
       <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
-        <span>HP ${pc.hp}/${pc.maxHp} · ATK ${pc.atk}</span>
-        <span>${pc.col >= 0 ? coord(pc.col, pc.row) : ''}</span>
+        <span>HP ${pc.hp}/${pc.maxHp} · ATK ${atkDisplay}</span>
+        <span class="my-piece-pos">${posText}</span>
       </div>
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}
     </div>`;
   }).join('');
 
   return `
-    <div class="team-profile-block" style="margin-bottom:10px;padding:8px;border-radius:8px;background:${headerBg};border:${headerBorder}">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:0.85rem">
-        <div>
-          <span style="color:${teamColor};font-weight:800">${playerData.teamId === 0 ? 'A' : 'B'}</span>
-          <strong style="color:${isMe ? 'var(--accent)' : 'var(--text)'}">${escapeHtmlGlobal(playerData.name)}</strong>
-          ${isMe ? '<span style="font-size:0.7rem;color:var(--accent)">(나)</span>' : ''}
-          ${currentPlayer ? '<span style="font-size:0.7rem;color:var(--accent)">⏰ 턴</span>' : ''}
+    <div class="team-profile-block ${blockClass}${currentPlayer ? ' is-current-turn' : ''}" data-player-idx="${playerData.idx}">
+      <div class="team-profile-header">
+        <div class="team-profile-header-left">
+          <span class="team-letter team-${teamLetter.toLowerCase()}">${teamLetter}</span>
+          <span class="team-block-label">${blockLabel}</span>
+          ${currentPlayer ? '<span class="team-turn-mark">현재 차례</span>' : ''}
         </div>
-        <span class="muted" style="font-size:0.72rem">${aliveCount}/${pieces.length}</span>
+        <span class="team-profile-alive">${aliveCount}/${pieces.length}</span>
       </div>
       ${piecesHtml}
     </div>
@@ -2134,6 +2374,71 @@ socket.on('spectator_joined', ({ roomId, phase, gameState, draftState, hpState, 
     showScreen('screen-waiting');
   }
 });
+
+// ── 팀전 관전자 ──
+socket.on('team_spectator_joined', ({ roomId, phase, gameState, characters, players, teams }) => {
+  S.isSpectator = true;
+  S.isTeamMode = true;
+  S.playerIdx = -1;
+  S.teamId = 0;
+  if (characters) S.characters = characters;
+  S.teamPlayers = players || [];
+  S.teamTeams = teams || [[],[]];
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) chatInput.placeholder = '관전자 채팅 (관전자끼리만 보입니다)';
+
+  if (phase === 'game' && gameState) {
+    buildBoard('game-board', () => {});
+    applyTeamSpectatorState(gameState);
+    if (typeof renderTeamGameSnapshot === 'function') renderTeamGameSnapshot();
+    showScreen('screen-game');
+    showActionBar(false);
+  } else {
+    document.getElementById('waiting-title').textContent = `👁 팀전 관전 모드`;
+    document.getElementById('waiting-sub').textContent = phase === 'waiting'
+      ? '팀전이 아직 시작되지 않았습니다. 잠시 기다려주세요...'
+      : '팀전이 진행 중입니다. 잠시 기다려주세요...';
+    document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
+    showScreen('screen-waiting');
+  }
+});
+
+socket.on('team_spectator_update', (state) => {
+  if (!S.isSpectator || !S.isTeamMode) return;
+  const board = document.getElementById('game-board');
+  if (board && !board.querySelector('.cell')) buildBoard('game-board', () => {});
+  applyTeamSpectatorState(state);
+  if (!document.getElementById('screen-game').classList.contains('active')) {
+    showScreen('screen-game');
+  }
+  if (typeof renderTeamGameSnapshot === 'function') renderTeamGameSnapshot();
+  showActionBar(false);
+});
+
+function applyTeamSpectatorState(state) {
+  S.isSpectator = true;
+  S.isTeamMode = true;
+  S.isMyTurn = false;
+  S.playerIdx = -1;
+  S.teamId = 0;
+  S.turnNumber = state.turnNumber;
+  S.boardBounds = state.boardBounds;
+  S.sp = state.sp;
+  S.instantSp = state.instantSp;
+  S.currentPlayerIdx = state.currentPlayerIdx;
+  S.teamGamePlayers = state.players || [];
+  S.boardObjects = state.boardObjects || [];
+  S.teamTeams = state.teams || S.teamTeams;
+  // 관전자 보드 표시 — A팀=내팀 슬롯, B팀=상대 슬롯 (적 좌표는 marked로 모두 노출)
+  const teamA = (S.teamGamePlayers || []).filter(p => p.teamId === 0);
+  const teamB = (S.teamGamePlayers || []).filter(p => p.teamId === 1);
+  S.myPieces = teamA[0] ? teamA[0].pieces : [];
+  S.teammatePieces = teamA[1] ? teamA[1].pieces : [];
+  S.oppPieces = teamB.flatMap(p => (p.pieces || []).map(pc => ({
+    ...pc, marked: true,
+    ownerIdx: p.idx, ownerName: p.name, ownerTeamId: p.teamId,
+  })));
+}
 
 socket.on('spectator_update', (gameState) => {
   if (!S.isSpectator) return;
@@ -2562,6 +2867,36 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   }
 });
 
+// 팀모드: 팀원이 이동했을 때 실시간 애니메이션
+socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subUnit, prevCol, prevRow, col, row }) => {
+  if (!Array.isArray(S.teammatePieces)) return;
+  // S.teammatePieces 좌표 즉시 갱신 (broadcastTeamGameState 도착 직전 시각효과용)
+  let target = null;
+  if (subUnit) {
+    target = S.teammatePieces.find(p => p.alive && p.type === pieceType && p.subUnit === subUnit && p.col === prevCol && p.row === prevRow);
+  }
+  if (!target) {
+    target = S.teammatePieces.find(p => p.alive && p.type === pieceType && p.col === prevCol && p.row === prevRow);
+  }
+  if (target) { target.col = col; target.row = row; }
+  if (typeof renderGameBoard === 'function') renderGameBoard();
+  // 새 위치 셀 강조 + 이전 위치는 잔상
+  const boardEl = document.getElementById('game-board');
+  if (boardEl) {
+    const newCell = boardEl.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    const oldCell = boardEl.querySelector(`.cell[data-col="${prevCol}"][data-row="${prevRow}"]`);
+    if (newCell) {
+      newCell.classList.add('teammate-move-flash');
+      setTimeout(() => newCell.classList.remove('teammate-move-flash'), 800);
+    }
+    if (oldCell) {
+      oldCell.classList.add('teammate-move-trail');
+      setTimeout(() => oldCell.classList.remove('teammate-move-trail'), 600);
+    }
+  }
+  addLog(`🤝 팀원 ${moverName} — ${pieceIcon}${pieceName} ${coord(prevCol,prevRow)} → ${coord(col,row)}`, 'move');
+});
+
 socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
   // #10: 표식된 적이면 실시간 위치 업데이트 + 이동 애니메이션
   if (S.oppPieces && prevCol !== undefined && prevRow !== undefined && col !== undefined && row !== undefined) {
@@ -2839,33 +3174,35 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
 // ── 보드 축소 실행 ──
 socket.on('board_shrink', ({ bounds, eliminated }) => {
   playSfx('shrink');
-  // 쿠구궁 효과음 + 1초 흔들림
   try { playBoardQuake(); } catch (e) {}
+  // 외곽 파괴를 먼저 시각화한 뒤 흔들림 — 파괴된 셀이 보이는 채로 흔들리도록
+  S.boardBounds = bounds;
+  if (!S.isSpectator) {
+    showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
+    addLog(`🔥 보드 외곽 파괴`, 'shrink');
+  }
+  if (eliminated && eliminated.length > 0) {
+    for (const e of eliminated) {
+      addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
+      const ownerName = e.owner === S.playerIdx ? myN() : oppN();
+      showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
+    }
+  }
+  const sw = document.getElementById('shrink-warning');
+  if (sw) sw.classList.add('hidden');
+  renderGameBoard();
+  if (S.isTeamMode) {
+    if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
+  } else {
+    renderMyPieces();
+    renderOppPieces();
+  }
+  // 외곽이 destroyed 클래스로 보이는 상태에서 흔들림
   const boardEl = document.getElementById('game-board');
   if (boardEl) {
     boardEl.classList.add('board-shake');
     setTimeout(() => boardEl.classList.remove('board-shake'), 1000);
   }
-  // 1초 흔들림 후 bounds 업데이트 + 렌더 (외곽 파괴 시각 효과)
-  setTimeout(() => {
-    S.boardBounds = bounds;
-    if (!S.isSpectator) {
-      showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
-      addLog(`🔥 보드 외곽 파괴`, 'shrink');
-    }
-    if (eliminated && eliminated.length > 0) {
-      for (const e of eliminated) {
-        addLog(`💀 ${e.icon} ${e.name} 파괴`, 'shrink');
-        const ownerName = e.owner === S.playerIdx ? myN() : oppN();
-        showSkillToast(`💀 ${ownerName}의 ${e.icon}${e.name} 파괴`, e.owner !== S.playerIdx, undefined, 'event');
-      }
-    }
-    const sw = document.getElementById('shrink-warning');
-    if (sw) sw.classList.add('hidden');
-    renderGameBoard();
-    renderMyPieces();
-    renderOppPieces();
-  }, 1000);
 });
 
 // 힐 애니메이션: 지정된 인덱스의 piece 카드 2초간 초록 glow
@@ -3062,26 +3399,52 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 });
 
 // ── 함정 발동 ──
-socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
+socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, newHp, victimOwnerIdx }) => {
+  // 트랩 전용 사운드 + 일반 피격/격파 사운드 레이어링
   playSfxTrapSnap();
+  if (destroyed) playSfx('kill'); else playSfx('hit');
+
   const trapOwnerName = (owner !== undefined) ? (owner === S.playerIdx ? myN() : oppN()) : oppN();
   const dmg = (damage != null) ? damage : 1;
-  const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} ${dmg} 피해.`;
+  const baseMsg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name}`;
+  const msg = destroyed ? `${baseMsg} 격파됨. 💀` : `${baseMsg} ${dmg} 피해.`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
 
-  // 덫 피격 애니메이션: 이름으로만 매칭 (좌표 매칭하면 같은 자리의 다른 유닛이 잘못 매칭됨)
-  const trapHit = [{ name: pieceInfo.name }];
-  const myTrapIdx = findPieceIndices(S.myPieces, trapHit, false);
-  const oppTrapIdx = findPieceIndices(S.oppPieces, trapHit, false);
+  // HP 즉시 갱신 — 일반 피격과 동일하게 클라이언트에서 바로 반영
+  // 이름·좌표로 매칭 (트랩 발동 시점은 이동 직후라 좌표가 정확)
+  const updatePiece = (arr) => {
+    if (!Array.isArray(arr)) return -1;
+    let idx = arr.findIndex(p => p.alive && p.name === pieceInfo.name && p.col === col && p.row === row);
+    if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === pieceInfo.name);
+    if (idx >= 0) {
+      if (newHp != null) arr[idx].hp = newHp;
+      if (destroyed) arr[idx].alive = false;
+    }
+    return idx;
+  };
+  const myIdx = updatePiece(S.myPieces);
+  const oppIdx = updatePiece(S.oppPieces);
+  const tmIdx = updatePiece(S.teammatePieces);
+
+  // 사망 시 추리 토큰 즉시 제거
+  if (destroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
+
+  // 셀 + 보드 아이콘 피격 애니메이션 (일반 공격과 동일)
+  animateAttack([], [{ col, row }]);
 
   renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
+  if (S.isTeamMode) {
+    if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
+  } else {
+    renderMyPieces();
+    renderOppPieces();
+  }
 
-  applyProfileHitAnim('#my-pieces-info .my-piece-card', myTrapIdx);
-  applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppTrapIdx);
+  // 프로필 카드 흔들림 + 금색 플래시
+  if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
+  if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
 });
 
 // ── 폭탄 폭발 ──
@@ -3674,7 +4037,7 @@ function renderSlide() {
       selectBtn.className = 'btn btn-muted btn-select-char';
       selectBtn.disabled = true;
     } else if (isAlreadySelected) {
-      selectBtn.textContent = '✔ 선택됨 (해제)';
+      selectBtn.textContent = '✔ 선택됨';
       selectBtn.className = 'btn btn-select-char btn-current-select';
       selectBtn.disabled = false;
     } else {
@@ -3758,7 +4121,7 @@ function draftUpdateSelectionState() {
       selectBtn.className = 'btn btn-muted btn-select-char';
       selectBtn.disabled = true;
     } else if (isAlreadySelected) {
-      selectBtn.textContent = '✔ 선택됨 (해제)';
+      selectBtn.textContent = '✔ 선택됨';
       selectBtn.className = 'btn btn-select-char btn-current-select';
       selectBtn.disabled = false;
     } else {
@@ -3846,14 +4209,78 @@ document.addEventListener('keydown', (e) => {
 // 스킬별 미리보기 범위 데이터 — 중앙(2,2) 기준
 // category: 'heal' | 'attack' | 'target' | 'dragon'
 const SKILL_PREVIEW = {
-  gunpowder: { cells: surrounding8WithSelf, cat: 'attack', label: '폭탄 설치 가능 지역' },
-  herbalist: { cells: surrounding8, cat: 'heal', label: '약초학 회복 범위' },
-  manhunter: { cells: selfOnly, cat: 'attack', label: '덫 설치 가능 지역' },
-  sulfurCauldron: { cells: boardEdge, cat: 'attack', label: '유황범람 공격 범위' },
-  // 드래곤 조련사: 소환된 드래곤의 공격 범위(십자5칸) — 특수 렌더
-  dragonTamer: { cells: dragonCrossCells, cat: 'dragon', label: '드래곤 십자 5칸 공격', showDragon: true },
-  // 나머지 (수도승·국왕·마녀·고문기술자·척후병·쥐장수) — 미리보기 삭제
+  // ── 공격류 (주황) ──
+  archer:        { cells: archerReversedCells, cat: 'attack', label: '공격 범위 영구 반전' },
+  weaponSmith:   { cells: armorerToggledCells, cat: 'attack', label: '공격 범위 영구 전환' },
+  ratMerchant:   { cells: ratLordRandomCells,  cat: 'attack', label: '보드 위 랜덤 위치 쥐 소환', randomEachClick: true, showRats: true },
+  manhunter:     { cells: selfOnly,            cat: 'place',  label: '덫 설치 가능 지역' },
+  gunpowder:     { cells: surrounding8WithSelf,cat: 'place',  label: '폭탄 설치 가능 지역' },
+  sulfurCauldron:{ cells: boardEdge,           cat: 'attack', label: '유황범람 공격 범위' },
+  // 드래곤 조련사: 드래곤만 중앙(조련사 사라짐) + 십자 5칸
+  dragonTamer:   { cells: dragonOnlyCrossCells,cat: 'attack', label: '체력 3 / 공격력 3의 드래곤 소환', showDragonOnly: true },
+
+  // ── 회복/버프류 (연한 초록) ──
+  herbalist:     { cells: surrounding8,        cat: 'heal',   label: '약초학 회복 범위' },
+  commander:     { cells: commanderBuffCells,  cat: 'heal',   label: '사기증진 부여 범위' },
+
+  // ── 합류 (쌍둥이 전용 합체) ──
+  twins:         { cells: twinJoinedCells,     cat: 'attack', label: '누나와 동생의 위치 합류', joinedTwins: true },
 };
+// 궁수 — 반전된 대각선(/ 방향). 기본은 \ 방향이라 / 만 표시.
+function archerReversedCells(cc, cr) {
+  const out = [];
+  const d = cc - cr;
+  for (let c = 0; c < 5; c++) { const r = c - d; if (r >= 0 && r < 5) out.push({ col: c, row: r }); }
+  return out;
+}
+// 무기상 — 전환된 세로 3칸(자기+위아래)
+function armorerToggledCells(cc, cr) {
+  const out = [{ col: cc, row: cr }];
+  if (cr - 1 >= 0) out.push({ col: cc, row: cr - 1 });
+  if (cr + 1 < 5) out.push({ col: cc, row: cr + 1 });
+  return out;
+}
+// 쥐 장수 — 클릭마다 랜덤 3칸 + 본체 위치
+function ratLordRandomCells(cc, cr) {
+  const all = [];
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
+    if (c === cc && r === cr) continue;
+    all.push({ col: c, row: r });
+  }
+  // Fisher–Yates shuffle, take 3
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return [{ col: cc, row: cr }, ...all.slice(0, 3)];
+}
+// 드래곤 조련사 — 드래곤만 중앙(2,2) + 드래곤 십자 5칸
+function dragonOnlyCrossCells(cc, cr) {
+  const out = [{ col: cc, row: cr }];
+  for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const c = cc + dc, r = cr + dr;
+    if (c >= 0 && c < 5 && r >= 0 && r < 5) out.push({ col: c, row: r });
+  }
+  return out;
+}
+// 지휘관 — 사기증진 4방향 인접(자기 제외)
+function commanderBuffCells(cc, cr) {
+  const out = [];
+  for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const c = cc + dc, r = cr + dr;
+    if (c >= 0 && c < 5 && r >= 0 && r < 5) out.push({ col: c, row: r });
+  }
+  return out;
+}
+// 쌍둥이 합류 — 합체 시 자기+상하좌우 (가로3+세로3 합집합)
+function twinJoinedCells(cc, cr) {
+  const out = [{ col: cc, row: cr }];
+  for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+    const c = cc + dc, r = cr + dr;
+    if (c >= 0 && c < 5 && r >= 0 && r < 5) out.push({ col: c, row: r });
+  }
+  return out;
+}
 function surrounding8(cc, cr) {
   const out = [];
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
@@ -3903,12 +4330,13 @@ function hasSkillPreview(charData) {
 
 // 슬라이드 미리보기 모드 — 'attack' | 'skill'
 let slidePreviewMode = 'attack';
-// 탭 클릭 바인딩 (최초 1회)
+// 탭 클릭 바인딩 (최초 1회) — 드래프트 슬라이더 안의 탭만. exchange 쪽은 별도 핸들러에서 처리.
 document.querySelectorAll('.slide-preview-tab').forEach(tab => {
+  if (tab.closest('.ex-preview-tabs')) return;  // 교환 탭은 건너뜀 — 별도 핸들러
   tab.addEventListener('click', () => {
     if (tab.disabled) return;
     slidePreviewMode = tab.dataset.mode;
-    // 현재 슬라이드 재렌더
+    // 그리드만 부분 갱신 (다른 정보는 그대로)
     const step = S.draftStep;
     if (S.characters && S.characters[step]) {
       const chars = S.characters[step];
@@ -3930,30 +4358,56 @@ function updateDraftPreview(charData) {
     t.classList.toggle('active', m === slidePreviewMode && (m === 'attack' || hasSkill));
     if (m === 'skill') t.disabled = !hasSkill;
   });
-  // 스킬 범위 없으면 자동으로 attack 모드로 복귀
+  // 스킬 미리보기가 없으면 자동으로 attack 모드로 복귀
   const effectiveMode = (slidePreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
 
-  // 스킬 범위 모드
+  // 스킬 미리보기 모드
   if (effectiveMode === 'skill' && hasSkill) {
     const skill = SKILL_PREVIEW[charData.type];
     const centerCol = 2, centerRow = 2;
+    // 쌍둥이 합류 — 누나(가로 3칸)와 동생(세로 3칸) 색을 분리해서 표시. 겹침은 attack-range
+    if (skill.joinedTwins) {
+      const elderRange = getAttackCells('twins_elder', centerCol, centerRow);
+      const youngerRange = getAttackCells('twins_younger', centerCol, centerRow);
+      const elderSet = new Set(elderRange.map(c => `${c.col},${c.row}`));
+      const youngerSet = new Set(youngerRange.map(c => `${c.col},${c.row}`));
+      board.querySelectorAll('.cell').forEach(cell => {
+        const col = parseInt(cell.dataset.col);
+        const row = parseInt(cell.dataset.row);
+        cell.className = 'cell';
+        cell.innerHTML = '';
+        if (col === centerCol && row === centerRow) {
+          cell.innerHTML = `<span style="font-size:1.1rem">👫</span>`;
+          cell.classList.add('has-piece');
+        }
+        const inE = elderSet.has(`${col},${row}`);
+        const inY = youngerSet.has(`${col},${row}`);
+        if (inE && inY) cell.classList.add('attack-range');
+        else if (inE) cell.classList.add('attack-range');
+        else if (inY) cell.classList.add('skill-range');
+      });
+      document.getElementById('draft-preview-info').textContent = skill.label;
+      return;
+    }
     const cells = skill.cells(centerCol, centerRow);
     const cellsSet = new Set(cells.map(c => `${c.col},${c.row}`));
-    // 드래곤 소환 — 드래곤 아이콘 위치 (조련사 우측 인접)
-    const dragonCol = centerCol + 1, dragonRow = centerRow;
+    // 쥐 위치 (자기 제외)
+    const ratSet = skill.showRats
+      ? new Set(cells.filter(c => !(c.col === centerCol && c.row === centerRow)).map(c => `${c.col},${c.row}`))
+      : null;
     board.querySelectorAll('.cell').forEach(cell => {
       const col = parseInt(cell.dataset.col);
       const row = parseInt(cell.dataset.row);
       cell.className = 'cell';
       cell.innerHTML = '';
       if (col === centerCol && row === centerRow) {
-        cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
+        let centerIcon = charData.icon;
+        if (skill.showDragonOnly) centerIcon = '🐲';
+        cell.innerHTML = `<span style="font-size:1.1rem">${centerIcon}</span>`;
         cell.classList.add('has-piece');
-      }
-      // 드래곤 소환 특수: 드래곤 아이콘 표시
-      if (skill.showDragon && col === dragonCol && row === dragonRow) {
-        cell.innerHTML = `<span style="font-size:1.1rem">🐲</span>`;
-        cell.classList.add('has-piece');
+      } else if (ratSet && ratSet.has(`${col},${row}`)) {
+        // 실제 게임처럼 작게 + 우상단 코너에 배치
+        cell.innerHTML = `<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>`;
       }
       if (cellsSet.has(`${col},${row}`)) {
         cell.classList.add('skill-preview-' + skill.cat);
@@ -4942,10 +5396,94 @@ function exRenderSlide() {
   if (content) { content.style.animation = 'none'; content.offsetHeight; content.style.animation = ''; }
 }
 
+// 교환/팀전 슬라이드도 동일한 미리보기 모드(공격/스킬) 지원
+let exSlidePreviewMode = 'attack';
+(function bindExPreviewTabs(){
+  const tabs = document.querySelectorAll('.ex-preview-tabs .slide-preview-tab');
+  if (!tabs.length) return;
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.disabled) return;
+      exSlidePreviewMode = tab.dataset.mode;
+      // 그리드만 부분 갱신 — 슬라이드 전체 재렌더 X
+      try {
+        const all = [
+          ...(S.characters?.[1]||[]),
+          ...(S.characters?.[2]||[]),
+          ...(S.characters?.[3]||[]),
+        ];
+        const idx = (typeof exSlideIndex === 'number') ? exSlideIndex : 0;
+        const c = all[idx];
+        if (c) exUpdatePreview(c);
+      } catch (e) {}
+    });
+  });
+})();
 function exUpdatePreview(charData) {
   const board = document.getElementById('ex-preview-board');
   if (!board) return;
+  const infoEl = document.getElementById('ex-preview-info');
 
+  // 탭 상태 동기화
+  const tabs = document.querySelectorAll('.ex-preview-tabs .slide-preview-tab');
+  const hasSkill = hasSkillPreview(charData);
+  tabs.forEach(t => {
+    const m = t.dataset.mode;
+    t.classList.toggle('active', m === exSlidePreviewMode && (m === 'attack' || hasSkill));
+    if (m === 'skill') t.disabled = !hasSkill;
+  });
+  const effectiveMode = (exSlidePreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
+
+  // 스킬 미리보기 모드
+  if (effectiveMode === 'skill' && hasSkill) {
+    const skill = SKILL_PREVIEW[charData.type];
+    const centerCol = 2, centerRow = 2;
+    // 쌍둥이 합류 — 색 분리 (누나=공격, 동생=보라/스킬)
+    if (skill.joinedTwins) {
+      const elderRange = getAttackCells('twins_elder', centerCol, centerRow);
+      const youngerRange = getAttackCells('twins_younger', centerCol, centerRow);
+      const elderSet = new Set(elderRange.map(c => `${c.col},${c.row}`));
+      const youngerSet = new Set(youngerRange.map(c => `${c.col},${c.row}`));
+      board.querySelectorAll('.cell').forEach(cell => {
+        const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
+        cell.className = 'cell'; cell.innerHTML = '';
+        if (col === centerCol && row === centerRow) {
+          cell.innerHTML = `<span style="font-size:1rem">👫</span>`;
+          cell.classList.add('has-piece');
+        }
+        const inE = elderSet.has(`${col},${row}`);
+        const inY = youngerSet.has(`${col},${row}`);
+        if (inE && inY) cell.classList.add('attack-range');
+        else if (inE) cell.classList.add('attack-range');
+        else if (inY) cell.classList.add('skill-range');
+      });
+      infoEl.textContent = skill.label;
+      return;
+    }
+    const cells = skill.cells(centerCol, centerRow);
+    const cellsSet = new Set(cells.map(c => `${c.col},${c.row}`));
+    const ratSet = skill.showRats
+      ? new Set(cells.filter(c => !(c.col === centerCol && c.row === centerRow)).map(c => `${c.col},${c.row}`))
+      : null;
+    board.querySelectorAll('.cell').forEach(cell => {
+      const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
+      cell.className = 'cell'; cell.innerHTML = '';
+      if (col === centerCol && row === centerRow) {
+        let centerIcon = charData.icon;
+        if (skill.showDragonOnly) centerIcon = '🐲';
+        cell.innerHTML = `<span style="font-size:1rem">${centerIcon}</span>`;
+        cell.classList.add('has-piece');
+      } else if (ratSet && ratSet.has(`${col},${row}`)) {
+        // 실제 게임처럼 작게 + 우상단 코너에 배치
+        cell.innerHTML = `<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>`;
+      }
+      if (cellsSet.has(`${col},${row}`)) cell.classList.add('skill-preview-' + skill.cat);
+    });
+    infoEl.textContent = skill.label;
+    return;
+  }
+
+  // 공격 범위 — 쌍둥이는 누나/동생 분리
   if (charData.isTwin) {
     const elderCol = 1, elderRow = 2;
     const youngerCol = 3, youngerRow = 2;
@@ -4960,7 +5498,7 @@ function exUpdatePreview(charData) {
       const inY = rangeY.some(c => c.col === col && c.row === row);
       if (inE || inY) cell.classList.add(inE ? 'attack-range' : 'skill-range');
     });
-    document.getElementById('ex-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
+    infoEl.textContent = shouldShowDesc(charData) ? charData.desc : '';
     return;
   }
 
@@ -4975,7 +5513,7 @@ function exUpdatePreview(charData) {
     }
     if (range.some(c => c.col === col && c.row === row)) cell.classList.add('attack-range');
   });
-  document.getElementById('ex-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
+  infoEl.textContent = shouldShowDesc(charData) ? charData.desc : '';
 }
 
 function exUpdateSlots() {
@@ -5629,25 +6167,27 @@ function updateTurnBanner() {
   const banner = document.getElementById('turn-banner');
   if (!banner) return;
 
-  // 팀전: 1v1과 동일 포맷 + 팀 레이블 + 턴 오더 표시
+  // 팀전: 1v1과 동일 포맷 + 팀 레이블 + 턴 오더 표시. 색은 절대 팀 컬러로.
   if (S.isTeamMode && S.teamGamePlayers) {
     const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
     if (cur) {
       const isMine = cur.idx === S.playerIdx;
       const isAlly = cur.teamId === S.teamId;
-      // 1v1과 동일한 class: my-turn (내 차례) / opp-turn (상대팀 차례). 팀원 턴은 opp-turn으로 간주
-      banner.className = 'turn-banner ' + (isMine ? 'my-turn' : (!isAlly ? 'opp-turn' : ''));
-      const teamLabel = cur.teamId === 0 ? 'A팀' : 'B팀';
+      // 절대 팀 컬러 — 현재 차례 팀이 블루면 파랑, 레드면 빨강
+      const teamCls = cur.teamId === 0 ? 'team-turn-blue' : 'team-turn-red';
+      banner.className = 'turn-banner ' + teamCls;
+      const teamLabel = cur.teamId === 0 ? '블루팀' : '레드팀';
       const whoseLabel = isMine ? '당신' : (isAlly ? `팀원 ${cur.name}` : cur.name);
       banner.innerHTML = `
         <div class="turn-banner-main">${S.turnNumber}턴 : [${teamLabel}] ${escapeHtmlGlobal(whoseLabel)}의 차례</div>
         <div class="turn-order-row">${renderTurnOrderDots()}</div>
       `;
-      // 타이머 색상 토글 (1v1과 동일)
+      // 타이머 색상 — 절대 팀 컬러로
       const timerClock = document.querySelector('.timer-clock');
       if (timerClock) {
-        timerClock.classList.toggle('my-turn-timer', isMine);
-        timerClock.classList.toggle('opp-turn-timer', !isAlly);
+        timerClock.classList.toggle('timer-team-blue', cur.teamId === 0);
+        timerClock.classList.toggle('timer-team-red', cur.teamId === 1);
+        timerClock.classList.remove('my-turn-timer', 'opp-turn-timer');
       }
     }
     return;
@@ -5675,33 +6215,15 @@ function updateTurnBanner() {
 // 팀전 턴 오더 — A팀·B팀 지그재그 4명 점으로 표시. 현재 플레이어 강조.
 function renderTurnOrderDots() {
   if (!S.teamGamePlayers || !S.teamTeams) return '';
-  const teamA = S.teamTeams[0] || [];
-  const teamB = S.teamTeams[1] || [];
-  const order = [];
-  const maxLen = Math.max(teamA.length, teamB.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i < teamA.length) order.push(teamA[i]);
-    if (i < teamB.length) order.push(teamB[i]);
-  }
-  const parts = order.map(idx => {
-    const pl = S.teamGamePlayers.find(p => p.idx === idx);
-    if (!pl) return '';
-    const isCurrent = idx === S.currentPlayerIdx;
-    const isMe = idx === S.playerIdx;
-    const isAlly = pl.teamId === S.teamId;
-    const dead = pl.eliminated;
-    const teamCls = pl.teamId === 0 ? 'team-a' : 'team-b';
-    const cls = [
-      'turn-order-dot', teamCls,
-      isCurrent ? 'current' : '',
-      isMe ? 'me' : '',
-      dead ? 'eliminated' : '',
-    ].filter(Boolean).join(' ');
-    const suffix = isMe ? ' (나)' : isAlly ? '' : '';
-    return `<span class="${cls}" title="${escapeHtmlGlobal(pl.name)}">${escapeHtmlGlobal(pl.name)}${suffix}</span>`;
-  }).filter(Boolean);
-  // 화살표로 연결
-  return parts.join('<span class="turn-order-arrow">→</span>');
+  // 현재 차례인 플레이어만 표시 — 화살표·체인 없음
+  const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
+  if (!cur) return '';
+  const isMe = cur.idx === S.playerIdx;
+  const isAlly = cur.teamId === S.teamId;
+  const teamCls = cur.teamId === 0 ? 'team-blue' : 'team-red';
+  const cls = ['turn-order-dot', teamCls, 'current', isMe ? 'me' : ''].filter(Boolean).join(' ');
+  const suffix = isMe ? ' (나)' : '';
+  return `<span class="${cls}">${escapeHtmlGlobal(cur.name)}${suffix}</span>`;
 }
 
 function updateSPBar() {
@@ -5717,16 +6239,44 @@ function updateSPBar() {
 
   const myInstantStr = myInstant > 0 ? ` (+${myInstant}✨)` : '';
   const oppInstantStr = oppInstant > 0 ? ` (+${oppInstant}✨)` : '';
-  const myLabel = S.isTeamMode
-    ? `우리팀 SP: ${mySP}${myInstantStr}`
-    : `내 SP: ${mySP}${myInstantStr}`;
-  const oppLabel = S.isTeamMode
-    ? `상대팀 SP: ${oppSP}${oppInstantStr}`
-    : `상대 SP: ${oppSP}${oppInstantStr}`;
-  document.getElementById('sp-my-label').textContent = myLabel;
-  document.getElementById('sp-opp-label').textContent = oppLabel;
-  document.getElementById('sp-my-fill').style.width = `${(mySP / total) * 100}%`;
-  document.getElementById('sp-opp-fill').style.width = `${(oppSP / total) * 100}%`;
+  // 팀모드 라벨: 절대 팀 컬러 기준 — 블루팀/레드팀 명시 + 컬러 매핑
+  let myLabel, oppLabel;
+  if (S.isTeamMode) {
+    const myTeamName = S.teamId === 0 ? '블루팀' : '레드팀';
+    const oppTeamName = S.teamId === 0 ? '레드팀' : '블루팀';
+    myLabel = `${myTeamName} SP: ${mySP}${myInstantStr}`;
+    oppLabel = `${oppTeamName} SP: ${oppSP}${oppInstantStr}`;
+  } else {
+    myLabel = `내 SP: ${mySP}${myInstantStr}`;
+    oppLabel = `상대 SP: ${oppSP}${oppInstantStr}`;
+  }
+  const myLabelEl = document.getElementById('sp-my-label');
+  const oppLabelEl = document.getElementById('sp-opp-label');
+  myLabelEl.textContent = myLabel;
+  oppLabelEl.textContent = oppLabel;
+  // 팀모드: 라벨 컬러를 절대 팀 컬러로 (블루는 항상 파랑, 레드는 항상 빨강)
+  if (S.isTeamMode) {
+    myLabelEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
+    oppLabelEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
+  } else {
+    myLabelEl.style.color = '';
+    oppLabelEl.style.color = '';
+  }
+  const myFillEl = document.getElementById('sp-my-fill');
+  const oppFillEl = document.getElementById('sp-opp-fill');
+  myFillEl.style.width = `${(mySP / total) * 100}%`;
+  oppFillEl.style.width = `${(oppSP / total) * 100}%`;
+  // 팀모드: SP 바 fill 그라데이션을 절대 팀 컬러로 (블루팀=파랑, 레드팀=빨강)
+  // 위치(좌/우 둥근 모서리)는 그대로 두고 색만 변경
+  if (S.isTeamMode) {
+    myFillEl.classList.toggle('sp-fill-blue', S.teamId === 0);
+    myFillEl.classList.toggle('sp-fill-red', S.teamId === 1);
+    oppFillEl.classList.toggle('sp-fill-blue', S.teamId === 1);
+    oppFillEl.classList.toggle('sp-fill-red', S.teamId === 0);
+  } else {
+    myFillEl.classList.remove('sp-fill-blue', 'sp-fill-red');
+    oppFillEl.classList.remove('sp-fill-blue', 'sp-fill-red');
+  }
 
   // SP 카운트다운 표시
   const spCountdown = document.getElementById('sp-countdown');
@@ -5933,8 +6483,10 @@ function renderGameBoard() {
       const hpText = otherTwin
         ? `${pc.hp + otherTwin.hp}/${pc.maxHp + otherTwin.maxHp}`
         : `${pc.hp}/${pc.maxHp}`;
+      // 팀모드: 내 말도 팀 절대 컬러로 — 관전자/일관성을 위해
+      const myTeamColorCls = S.isTeamMode ? (S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red') : '';
       cell.innerHTML += `
-        <div class="piece-marker${dimClass ? ' ' + dimClass : ''}">
+        <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}">
           <span class="p-icon">${displayIcon}</span>
           <span class="p-hp">${hpText}</span>
         </div>`;
@@ -5946,13 +6498,45 @@ function renderGameBoard() {
       if (idx === S.selectedPiece) cell.classList.add('selected-piece');
     }
 
-    // 표식 상태인 적 — 위치 공개
+    // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
+    if (S.isTeamMode && Array.isArray(S.teammatePieces) && !pc) {
+      const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
+      if (tmPc) {
+        const isTwin = tmPc.subUnit === 'elder' || tmPc.subUnit === 'younger';
+        const otherTwin = isTwin ? S.teammatePieces.find(p => p.alive && p !== tmPc &&
+          (p.subUnit === 'elder' || p.subUnit === 'younger') &&
+          p.col === col && p.row === row) : null;
+        const tmDisplayIcon = otherTwin ? '👫' : tmPc.icon;
+        const tmHpText = otherTwin
+          ? `${tmPc.hp + otherTwin.hp}/${tmPc.maxHp + otherTwin.maxHp}`
+          : `${tmPc.hp}/${tmPc.maxHp}`;
+        const tmStatus = getStatusIcons(tmPc);
+        // 팀 절대 컬러: S.teamId === 0 → 블루, 1 → 레드
+        const teamColorCls = S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red';
+        cell.innerHTML += `
+          <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
+            <span class="p-icon">${tmDisplayIcon}</span>
+            <span class="p-hp">${tmHpText}</span>
+          </div>`;
+        if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
+        cell.classList.add('has-piece');
+        cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
+      }
+    }
+
+    // 표식 상태인 적 — 위치 공개. 팀모드에선 적 팀 컬러로 표시.
     const markedOpp = S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
     if (markedOpp && !pc) {
+      // 팀모드: 적 팀 절대 컬러로 (적 팀 = 내 팀의 반대)
+      let oppColorCls = '';
+      if (S.isTeamMode) {
+        const oppTeamId = S.teamId === 0 ? 1 : 0;
+        oppColorCls = oppTeamId === 0 ? 'piece-team-blue' : 'piece-team-red';
+      }
       cell.innerHTML += `
-        <div class="piece-marker opp-marked">
+        <div class="piece-marker opp-marked ${oppColorCls}">
           <span class="p-icon">${markedOpp.icon}</span>
-          <span class="p-hp" style="color:#e05252">${markedOpp.hp}/${markedOpp.maxHp}</span>
+          <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
         </div>`;
       cell.innerHTML += `<span class="cell-mark">🎯</span>`;
       cell.classList.add('has-piece');
@@ -6009,6 +6593,24 @@ function renderGameBoard() {
       if (selPc && isCrossAdjacent(selPc.col, selPc.row, col, row) &&
           col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
         cell.classList.add('move-range');
+      }
+    }
+
+    // 팀원 공격 범위 오버레이 (토글)
+    if (S.isTeamMode && S.teammateRangePiece) {
+      const tmPc = S.teammateRangePiece;
+      const extra = { toggleState: tmPc.toggleState };
+      let tmRange = getAttackCells(tmPc.type, tmPc.col, tmPc.row, extra);
+      if (tmPc.subUnit) {
+        const otherSub = tmPc.subUnit === 'elder' ? 'younger' : 'elder';
+        const ot = S.teammatePieces.find(p => p.subUnit === otherSub && p.alive);
+        if (ot) {
+          const otRange = getAttackCells(ot.type, ot.col, ot.row, extra);
+          for (const tc of otRange) if (!tmRange.some(c => c.col === tc.col && c.row === tc.row)) tmRange.push(tc);
+        }
+      }
+      if (tmRange.some(c => c.col === col && c.row === row)) {
+        cell.classList.add('teammate-range');
       }
     }
 
@@ -7083,9 +7685,29 @@ document.getElementById('skill-modal-close').addEventListener('click', () => {
 // ═══════════════════════════════════════════════════════════════
 
 function handleGameCellClick(col, row) {
-  if (!S.isMyTurn) return;
   const bounds = S.boardBounds;
   if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+
+  // ── 팀원 공격 범위 오버레이 토글 (턴/행동 무관, 단 내 행동 대상셀이 아닐 때만) ──
+  if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+    const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
+    const myAtCell = S.myPieces?.find(p => p.col === col && p.row === row && p.alive);
+    const isMyActionTargeting = S.isMyTurn && (S.action === 'attack' || S.action === 'skill_target' || S.action === 'move') && S.selectedPiece !== null;
+    if (tmPc && !myAtCell && !isMyActionTargeting) {
+      const key = `${tmPc.col},${tmPc.row}`;
+      if (S.teammateRangeKey === key) {
+        S.teammateRangeKey = null;
+        S.teammateRangePiece = null;
+      } else {
+        S.teammateRangeKey = key;
+        S.teammateRangePiece = tmPc;
+      }
+      renderGameBoard();
+      return;
+    }
+  }
+
+  if (!S.isMyTurn) return;
 
   // ── 스킬 대상 선택 모드 ──
   if (S.action === 'skill_target' && S.skillTargetData) {
@@ -8183,7 +8805,42 @@ function animateAttack(atkCells, hitCells) {
       setTimeout(() => { cell.style.background = ''; cell.style.animation = ''; }, 400);
     }
   }
+  // 보드 위 아이콘 피격 애니메이션 — 셀 안의 piece-marker .p-icon 흔들림+빨간 글로우
+  animateBoardIconHit(hitCells);
 }
+
+// 보드 위 말 아이콘 피격 모션 — 쥐와 동일한 톤의 애니메이션
+function animateBoardIconHit(cells) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  for (const c of cells) {
+    const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+    if (!cell) continue;
+    const icon = cell.querySelector('.piece-marker .p-icon');
+    if (icon) {
+      icon.classList.remove('p-icon-hit');
+      // 강제 리플로우 — 같은 셀 연속 피격에서도 애니메이션 재생
+      void icon.offsetWidth;
+      icon.classList.add('p-icon-hit');
+      setTimeout(() => icon.classList.remove('p-icon-hit'), 720);
+    }
+  }
+}
+
+// ── 팀모드: 팀원이 피격됨 ──
+socket.on('team_ally_hit', ({ atkCells, victimName, hitPieces }) => {
+  const hitCells = (hitPieces || []).map(h => ({ col: h.col, row: h.row }));
+  // 셀 + 아이콘 피격 애니메이션 (공격 범위는 표시하지 않음 — 흔들림만)
+  animateAttack([], hitCells);
+  // 의미 있는 피격(가로채기·0데미지 제외)
+  const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+  for (const h of meaningful) {
+    if (h.destroyed) playSfx('kill'); else playSfx('hit');
+    const unitName = h.icon && h.name ? `🤝 팀원 ${victimName}의 ${h.icon}${h.name}` : coord(h.col, h.row);
+    addLog(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, 'hit');
+    showSkillToast(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, true);
+  }
+});
 
 // ── 캐릭터 등장 사운드 (둥-) ──
 // ── 쥐 격파 사운드 (꽥!) ──

@@ -26,6 +26,28 @@ const server = http.createServer(app);
 const io = socketIo(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({ limit: '8mb' }));
+
+// 스크린샷 저장 엔드포인트 — 클라이언트가 보낸 dataURL을 screenshots/ 폴더에 저장
+const fs = require('fs');
+const screenshotDir = path.join(__dirname, 'screenshots');
+try { if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true }); } catch (e) {}
+app.post('/__save_shot', (req, res) => {
+  try {
+    const { name, data } = req.body || {};
+    if (!name || !data) return res.status(400).json({ ok: false, msg: 'name/data required' });
+    const safeName = String(name).replace(/[^a-zA-Z0-9_\-\.]/g, '_').slice(0, 80);
+    const m = String(data).match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
+    if (!m) return res.status(400).json({ ok: false, msg: 'invalid data URL' });
+    const buf = Buffer.from(m[2], 'base64');
+    const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+    const file = path.join(screenshotDir, `${safeName}.${ext}`);
+    fs.writeFileSync(file, buf);
+    res.json({ ok: true, path: file });
+  } catch (e) {
+    res.status(500).json({ ok: false, msg: e.message });
+  }
+});
 
 // ══════════════════════════════════════════════════════════════════
 // ── 캐릭터 데이터 (30 characters across 3 tiers) ────────────────
@@ -1025,58 +1047,106 @@ function aiDecideExchange(myDraft, oppDraft) {
   if (!myDraft || !oppDraft) return null;
   const opp = [oppDraft.t1, oppDraft.t2, oppDraft.t3];
   const my = { 1: myDraft.t1, 2: myDraft.t2, 3: myDraft.t3 };
-  // 태그 매핑 (CHARACTERS 정의 기반)
   const ROYAL = new Set(['spearman','cavalry','watchman','general','bodyguard','prince','princess','king','commander','monk']);
   const VILLAIN = new Set(['twins','manhunter','witch','ratMerchant','shadowAssassin','torturer','count','slaughterHero','sulfurCauldron']);
   const TANK = new Set(['bodyguard','armoredWarrior','count']);
+  const RANGED = new Set(['archer','spearman','cavalry','wizard','ratMerchant','dragonTamer','sulfurCauldron']);
+  const HEAL = new Set(['herbalist','monk']);
   const oppRoyal = opp.filter(t => ROYAL.has(t)).length;
   const oppVillain = opp.filter(t => VILLAIN.has(t)).length;
+  const oppRanged = opp.filter(t => RANGED.has(t)).length;
+  const oppHeal = opp.filter(t => HEAL.has(t)).length;
   const oppHasTank = opp.some(t => TANK.has(t));
   const oppHasShadow = opp.includes('shadowAssassin');
   const oppHasWizard = opp.includes('wizard');
   const oppHasHerbalist = opp.includes('herbalist');
   const oppHasMonk = opp.includes('monk');
+  const oppHasTwins = opp.includes('twins');
+  const oppHasRats = opp.includes('ratMerchant');
   const myAlready = (type) => my[1] === type || my[2] === type || my[3] === type;
 
+  // 후보 수집 — priority + variety boost (작은 무작위 가산점으로 같은 우선순위 후보 중 다양화)
   const counters = [];
-  // 왕실 다수 → 마녀(저주) / 고문기술자(악몽)로 약화
+  const addCounter = (tier, newType, basePriority) => {
+    if (myAlready(newType)) return;
+    if (my[tier] === newType) return;  // 안전망: 이미 같은 자리에 있는 캐릭터면 제외
+    const variety = Math.random() * 8;  // 0~8 랜덤 가산
+    counters.push({ tier, newType, priority: basePriority + variety, _base: basePriority });
+  };
+
+  // ── 왕실 다수 → 저주/악몽 콤보 ──
   if (oppRoyal >= 2) {
-    if (!myAlready('torturer'))   counters.push({ tier: 3, newType: 'torturer',   priority: 85 });
-    if (!myAlready('witch'))      counters.push({ tier: 2, newType: 'witch',      priority: 75 });
+    addCounter(3, 'torturer',     85);
+    addCounter(2, 'witch',        75);
+    addCounter(1, 'manhunter',    55);  // 덫으로 견제
   }
-  // 악인 다수 → 수도승(가호 패시브 + 악인 3 피해)
+  // ── 악인 다수 → 수도승 가호 ──
   if (oppVillain >= 2) {
-    if (!myAlready('monk'))       counters.push({ tier: 3, newType: 'monk',       priority: 80 });
+    addCounter(3, 'monk',         80);
+    addCounter(3, 'commander',    50);  // 사기증진
   }
-  // 호위무사·갑주무사·백작 등 탱커 → 마녀(저주는 호위무사 우회) 또는 학살영웅
+  // ── 탱커 보유 → 저주(우회) / 학살영웅 / 마법사(원거리) / 폭탄 ──
   if (oppHasTank) {
-    if (!myAlready('witch'))      counters.push({ tier: 2, newType: 'witch',      priority: 70 });
-    if (!myAlready('slaughterHero')) counters.push({ tier: 3, newType: 'slaughterHero', priority: 60 });
+    addCounter(2, 'witch',        70);
+    addCounter(3, 'slaughterHero',60);
+    addCounter(2, 'wizard',       55);
+    addCounter(1, 'gunpowder',    50);
   }
-  // 그림자 암살자 → 수도승(상태이상 정화) 또는 약초전문가
+  // ── 그림자 암살자 → 수도승/마녀(저주로 스킬봉인) ──
   if (oppHasShadow) {
-    if (!myAlready('monk'))       counters.push({ tier: 3, newType: 'monk',       priority: 65 });
+    addCounter(3, 'monk',         65);
+    addCounter(2, 'witch',        60);
   }
-  // 약초전문가 보유 + 왕실 다수 → 고문기술자 표식+악몽 콤보 강함
+  // ── 약초+왕실 → 표식+악몽 콤보 ──
   if (oppHasHerbalist && oppRoyal >= 2) {
-    if (!myAlready('torturer'))   counters.push({ tier: 3, newType: 'torturer',   priority: 90 });
+    addCounter(3, 'torturer',     90);
   }
-  // 마법사 보유 → 직접 공격 자제 — 폭탄/덫처럼 우회 가능한 캐릭 픽
+  // ── 마법사 → 우회/회피형 ──
   if (oppHasWizard) {
-    if (!myAlready('gunpowder'))  counters.push({ tier: 1, newType: 'gunpowder',  priority: 55 });
-    if (!myAlready('manhunter'))  counters.push({ tier: 1, newType: 'manhunter',  priority: 50 });
+    addCounter(1, 'gunpowder',    58);
+    addCounter(1, 'manhunter',    52);
+    addCounter(2, 'shadowAssassin', 50);
   }
-  // 적 수도승 → 학살영웅(왕실 안 가림) 또는 폭탄/유황 (영역 공격)
+  // ── 적 수도승 → 영역 공격 ──
   if (oppHasMonk) {
-    if (!myAlready('sulfurCauldron')) counters.push({ tier: 3, newType: 'sulfurCauldron', priority: 60 });
+    addCounter(3, 'sulfurCauldron', 65);
+    addCounter(1, 'gunpowder',    50);
   }
+  // ── 적 쌍둥이 → 영역 공격 (좁은 범위에 둘 다 잡을 수 있음) ──
+  if (oppHasTwins) {
+    addCounter(3, 'sulfurCauldron', 60);
+    addCounter(1, 'gunpowder',    55);
+  }
+  // ── 적 쥐 장수 → 표식/광역 (쥐 청소) ──
+  if (oppHasRats) {
+    addCounter(2, 'wizard',       55);
+    addCounter(3, 'sulfurCauldron', 50);
+  }
+  // ── 원거리 다수 → 그림자 암살자/전령 (기동) ──
+  if (oppRanged >= 2) {
+    addCounter(2, 'shadowAssassin', 55);
+    addCounter(1, 'messenger',    48);
+  }
+  // ── 적 회복 다수 → 학살영웅/유황 ──
+  if (oppHeal >= 1) {
+    addCounter(3, 'slaughterHero', 55);
+  }
+  // ── 일반적 강력 픽 (베이스라인 다양성) ──
+  addCounter(3, 'king',           35);  // 안정적 3티어
+  addCounter(2, 'armoredWarrior', 30);
+  addCounter(1, 'archer',         25);
 
   if (counters.length === 0) return null;
   counters.sort((a, b) => b.priority - a.priority);
-  // 우선순위 70 미만 카운터는 가끔 패스 (항상 교환 안 함)
-  const top = counters[0];
-  if (top.priority < 70 && Math.random() < 0.4) return null;
-  return { tier: top.tier, newType: top.newType };
+  // 상위 3개 중 가중 랜덤 — 항상 #1만 뽑지 않도록
+  const topN = counters.slice(0, Math.min(3, counters.length));
+  const totalWeight = topN.reduce((s, c) => s + c.priority, 0);
+  let r = Math.random() * totalWeight;
+  let pick = topN[0];
+  for (const c of topN) { r -= c.priority; if (r <= 0) { pick = c; break; } }
+  // 베이스 우선순위 50 미만 카운터는 35% 확률로 패스 (확실하지 않으면 안 바꿈)
+  if (pick._base < 50 && Math.random() < 0.35) return null;
+  return { tier: pick.tier, newType: pick.newType };
 }
 
 // ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (90초) ──
@@ -1084,14 +1154,22 @@ function transitionToExchangeDraft(room) {
   clearTimer(room);
   room.phase = 'exchange_draft';
   if (room.isAI) {
-    // AI 교환 카운터픽
+    // AI 교환 카운터픽 — 캐릭터만 바꾸고 덱 이름은 유지 (인간 플레이어와 동일하게)
     const aiPlayer = room.players[1];
     const human = room.players[0];
     const swap = aiDecideExchange(aiPlayer.draft, human.draft);
     if (swap) {
       const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
-      aiPlayer.draft[key] = swap.newType;
-      aiPlayer.deckName = aiGenerateDeckName(aiPlayer.draft);
+      // 안전망: 새 타입이 현재와 같거나 다른 슬롯에 이미 있으면 교환하지 않음
+      const currentType = aiPlayer.draft[key];
+      const conflictsOtherSlot =
+        (key !== 't1' && aiPlayer.draft.t1 === swap.newType) ||
+        (key !== 't2' && aiPlayer.draft.t2 === swap.newType) ||
+        (key !== 't3' && aiPlayer.draft.t3 === swap.newType);
+      if (currentType !== swap.newType && !conflictsOtherSlot) {
+        aiPlayer.draft[key] = swap.newType;
+      }
+      // 충돌하면 swap을 skip — 결과적으로 draft 변경 없음 → 교체 배지도 안 뜸
     }
     room.exchangeDone[1] = true;
   }
@@ -2076,8 +2154,8 @@ function processTurnStart(room) {
 function getBoardShrinkSchedule(room) {
   if (room.mode === 'team') {
     return [
-      { stage: 1, warnTurn: 20, shrinkTurn: 25, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5
-      { stage: 2, warnTurn: 45, shrinkTurn: 50, newBounds: { min: 2, max: 4 }, final: true },   // 5x5 → 3x3
+      { stage: 1, warnTurn: 20, shrinkTurn: 30, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5 (10턴 전부터 경고)
+      { stage: 2, warnTurn: 50, shrinkTurn: 60, newBounds: { min: 2, max: 4 }, final: true },   // 5x5 → 3x3
     ];
   }
   // 1v1: stalemate가 트리거됐으면 동적 스케줄, 아니면 기본 40턴 경고/50턴 축소
@@ -2244,6 +2322,49 @@ function broadcastTeamGameState(room, extra) {
     if (extra) Object.assign(state, extra);
     io.to(p.socketId).emit('team_game_update', state);
   }
+  // 관전자에게도 전체 정보 송신 (모든 팀의 정보 가시)
+  const specs = (room.spectators || []);
+  if (specs.length > 0) {
+    const specState = getTeamSpectatorGameState(room);
+    if (extra) Object.assign(specState, extra);
+    for (const s of specs) {
+      io.to(s.socketId).emit('team_spectator_update', specState);
+    }
+  }
+}
+
+// 팀전 관전자 — 4명 전원 풀데이터(좌표/상태/스킬 모두 가시)
+function getTeamSpectatorGameState(room) {
+  const players = room.players.map(p => ({
+    idx: p.index,
+    name: p.name,
+    teamId: p.teamId,
+    deckName: p.deckName || '',
+    pieces: pieceSummary(p.pieces),
+    actionDone: !!p.actionDone,
+    eliminated: isPlayerEliminated(room, p.index),
+  }));
+  const boardObjects = [];
+  for (let i = 0; i < room.players.length; i++) {
+    for (const o of (room.boardObjects[i] || [])) boardObjects.push({ ...o });
+    for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+  }
+  return {
+    currentPlayerIdx: room.currentPlayerIdx,
+    turnNumber: room.turnNumber,
+    sp: room.sp,
+    instantSp: room.instantSp,
+    boardBounds: room.boardBounds,
+    boardShrinkStage: room.boardShrinkStage,
+    players,
+    boardObjects,
+    isSpectator: true,
+    teams: room.teams,
+    p0Name: room.players[0]?.name || '',
+    p1Name: room.players[1]?.name || '',
+    p2Name: room.players[2]?.name || '',
+    p3Name: room.players[3]?.name || '',
+  };
 }
 
 // 팀전 게임 종료
@@ -2252,17 +2373,29 @@ function endTeamGame(room, winnerTeamId, reason) {
   room.phase = 'ended';
   const winners = (room.teams[winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
   const losers = (room.teams[1 - winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
+  // 1v1처럼 구조화된 reason 객체 (type/killer/victims) 전달
+  const killInfo = room.lastKillInfo || {};
+  const reasonObj = reason === 'surrender' ? { type: 'surrender' }
+    : reason === 'shrink' ? { type: 'shrink' }
+    : reason === 'draw' ? { type: 'draw' }
+    : reason === 'disconnect' ? { type: 'disconnect' }
+    : { type: killInfo.type || 'attack', killer: killInfo.killer || null, victims: killInfo.victims || [] };
+  // 팀 컬러 라벨
+  const winTeamLabel = winnerTeamId === 0 ? '블루팀' : '레드팀';
+  const loseTeamLabel = winnerTeamId === 0 ? '레드팀' : '블루팀';
   for (const p of room.players) {
     if (!p.socketId) continue;
     io.to(p.socketId).emit('team_game_over', {
       win: p.teamId === winnerTeamId,
       winnerTeamId,
+      winTeamLabel, loseTeamLabel,
       winners, losers,
-      reason: reason || 'eliminated',
+      reason: reasonObj,
     });
   }
   emitToSpectators(room, 'team_game_over', {
-    winnerTeamId, winners, losers, reason: reason || 'eliminated',
+    winnerTeamId, winTeamLabel, loseTeamLabel, winners, losers,
+    reason: reasonObj, spectator: true,
   });
 }
 
@@ -2651,11 +2784,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         room.boardObjects[playerIdx].splice(trapIdx2, 1);
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
         enemyPiece.hp = Math.max(0, enemyPiece.hp - dmg);
-        if (enemyPiece.hp <= 0) handleDeath(room, enemyPiece, 1 - playerIdx);
+        const willDie2 = enemyPiece.hp <= 0;
+        if (willDie2) handleDeath(room, enemyPiece, 1 - playerIdx);
         emitToBoth(room, 'trap_triggered', {
           col: destCol, row: destRow,
           pieceInfo: { type: enemyPiece.type, name: enemyPiece.name, icon: enemyPiece.icon },
           damage: dmg,
+          destroyed: willDie2,
+          newHp: enemyPiece.hp,
+          victimOwnerIdx: 1 - playerIdx,
         });
       }
       break;
@@ -3449,7 +3586,8 @@ function aiExecuteMove(room, action) {
     room.boardObjects[0].splice(trapIdx, 1);
     const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: action.col, row: action.row }, piece, 0, 2, false);
     piece.hp = Math.max(0, piece.hp - dmg);
-    if (piece.hp <= 0) {
+    const willDie3 = piece.hp <= 0;
+    if (willDie3) {
       handleDeath(room, piece, 1);
       setKillInfo(room, 'trap', null, [{ name: piece.name }]);
     }
@@ -3457,6 +3595,9 @@ function aiExecuteMove(room, action) {
       col: action.col, row: action.row,
       pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
       damage: dmg,
+      destroyed: willDie3,
+      newHp: piece.hp,
+      victimOwnerIdx: 1,
     });
   }
 
@@ -3717,14 +3858,25 @@ io.on('connection', (socket) => {
     if (!rooms[roomId]) rooms[roomId] = createRoom(roomId);
     const room = rooms[roomId];
 
-    // 이 방이 팀전 방이면 join_team_room 흐름으로 자동 전환
+    // 이 방이 팀전 방이면 join_team_room 흐름으로 자동 전환 — 게임 진행 중/만석은 관전자
     if (room.mode === 'team') {
-      if (room.phase !== 'waiting') {
-        socket.emit('err', { msg: '이 방은 이미 시작된 2v2 팀전 방입니다.' });
-        return;
-      }
-      if (room.players.length >= 4) {
-        socket.emit('err', { msg: '이 팀전 방이 가득 찼습니다. (4/4)' });
+      const teamFull = room.players.length >= 4;
+      const teamInProgress = room.phase !== 'waiting';
+      if (teamInProgress || teamFull) {
+        // 관전자로 입장
+        room.spectators = room.spectators || [];
+        room.spectators.push({ socketId: socket.id, name: playerName });
+        socket.join(roomId);
+        socket.data.roomId = roomId;
+        socket.data.isSpectator = true;
+        socket.emit('team_spectator_joined', {
+          roomId,
+          phase: room.phase,
+          gameState: room.phase === 'game' ? getTeamSpectatorGameState(room) : null,
+          characters: CHARACTERS,
+          players: room.players.map(p => ({ idx: p.index, name: p.name, teamId: p.teamId })),
+          teams: room.teams,
+        });
         return;
       }
       socket.emit('team_room_redirect', { roomId, playerName });
@@ -4071,7 +4223,7 @@ io.on('connection', (socket) => {
         hpDone: [...room.hpDone],
         doneNames: room.players.filter((_, i) => room.hpDone[i]).map(p => p.name),
       });
-      if (room.hpDone.every(d => d)) transitionToTeamPlacement(room);
+      if (room.hpDone.every(d => d)) transitionToTeamReveal(room);
       else socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
       return;
     }
@@ -4097,7 +4249,7 @@ io.on('connection', (socket) => {
       doneNames: room.players.filter((_, i) => room.hpDone[i]).map(p => p.name),
     });
     if (room.hpDone.every(d => d)) {
-      transitionToTeamPlacement(room);
+      transitionToTeamReveal(room);
     } else {
       socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
     }
@@ -4586,7 +4738,8 @@ io.on('connection', (socket) => {
         emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.` });
         emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: idx });
       }
-      if (piece.hp <= 0) {
+      const willDie = piece.hp <= 0;
+      if (willDie) {
         handleDeath(room, piece, idx);
         setKillInfo(room, 'trap', null, [{ name: piece.name }]);
       }
@@ -4594,6 +4747,9 @@ io.on('connection', (socket) => {
         col, row,
         pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
         damage: dmg,
+        destroyed: willDie,
+        newHp: piece.hp,
+        victimOwnerIdx: idx,
       });
     }
 
@@ -4628,7 +4784,24 @@ io.on('connection', (socket) => {
       twinMovedSub: piece.subUnit || null,  // 어느 쪽이 이동했는지
     });
     if (room.mode === 'team') {
-      // 팀모드: 이동 후 전체 상태 재브로드캐스트
+      // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용) → 그 다음 전체 상태 브로드캐스트
+      const moverPiece = piece;
+      const allyIdxs = getAllyIndices(room, idx).filter(i => i !== idx);
+      for (const alIdx of allyIdxs) {
+        const ally = room.players[alIdx];
+        if (ally && ally.socketId && ally.socketId !== 'AI') {
+          io.to(ally.socketId).emit('team_ally_moved', {
+            moverIdx: idx,
+            moverName: room.players[idx].name,
+            pieceType: moverPiece.type,
+            pieceIcon: moverPiece.icon,
+            pieceName: moverPiece.name,
+            subUnit: moverPiece.subUnit || null,
+            prevCol: prev.col, prevRow: prev.row,
+            col, row,
+          });
+        }
+      }
       broadcastTeamGameState(room);
     } else {
       const opp = room.players[1 - idx];
@@ -4834,6 +5007,28 @@ io.on('connection', (socket) => {
           }),
           yourPieces: pieceSummary(defPlayer.pieces),
         });
+      }
+      // 팀원 피격 알림 — 같은 팀의 다른 멤버에게 애니메이션용 이벤트
+      for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
+        const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+        for (const allyIdx of allyIdxs) {
+          const ally = room.players[allyIdx];
+          if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
+          io.to(ally.socketId).emit('team_ally_hit', {
+            atkCells,
+            victimIdx: defOwnerIdx,
+            victimName: room.players[defOwnerIdx].name,
+            hitPieces: hits.map(h => {
+              const dp = room.players[defOwnerIdx].pieces.find(p => p.col === h.col && p.row === h.row);
+              return {
+                col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+                name: dp?.name, icon: dp?.icon,
+                redirectedToBodyguard: h.redirectedToBodyguard || false,
+                bodyguardRedirect: h.bodyguardRedirect || false,
+              };
+            }),
+          });
+        }
       }
     } else {
       socket.emit('attack_result', {
@@ -5043,6 +5238,18 @@ io.on('connection', (socket) => {
       for (const p of room.players) {
         if (!p.socketId || p.index === idx) continue;
         io.to(p.socketId).emit('team_skill_notice', {
+          casterIdx: idx,
+          casterName: room.players[idx].name,
+          casterTeamId: room.players[idx].teamId,
+          skillUsed: {
+            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+          },
+          msg: result.oppMsg || result.msg || null,
+        });
+      }
+      // 관전자에게도 동일 알림
+      for (const s of (room.spectators || [])) {
+        io.to(s.socketId).emit('team_skill_notice', {
           casterIdx: idx,
           casterName: room.players[idx].name,
           casterTeamId: room.players[idx].teamId,
