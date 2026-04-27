@@ -3065,7 +3065,8 @@ socket.on('dragon_spawned', ({ dragon, owner }) => {
 socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner }) => {
   playSfxTrapSnap();
   const trapOwnerName = (owner !== undefined) ? (owner === S.playerIdx ? myN() : oppN()) : oppN();
-  const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} 1 피해.`;
+  const dmg = (damage != null) ? damage : 1;
+  const msg = `🪤 ${trapOwnerName}의 인간 사냥꾼 덫에 걸려 ${pieceInfo.icon}${pieceInfo.name} ${dmg} 피해.`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
@@ -3372,7 +3373,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 덫이 설치 된 칸을 밟으면 덫이 발동하여 1 피해를 입힙니다.',
+    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 덫이 설치 된 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다.',
     flavor: '소리 없는 사냥꾼. 당하기 전까지는 아무도 그의 함정을 눈치챌 수 없다.',
   },
   messenger: {
@@ -3391,7 +3392,7 @@ const CHAR_DETAILS = {
   },
   herbalist: {
     blocks: [
-      { ...mkSkillHead('약초학', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
+      { ...mkSkillHead('약초학', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa' },
     ],
     body: '스킬 사용 시 자신 주변 8칸 내에 위치한 모든 아군의 체력을 1 회복시킵니다. 약초전문가는 이 스킬로 스스로 회복할 수 없습니다.',
     flavor: '전장에서 피어나는 작은 희망. 그의 손끝이 스치면 곪은 상처도 아문다.',
@@ -3487,7 +3488,7 @@ const CHAR_DETAILS = {
   monk: {
     blocks: [
       { ...mkPassiveHead('가호'), color: '#f59e0b', desc: '악인 적을 공격할 때 공격력이 3으로 증가하며, 악인에게 받는 모든 공격 피해는 0.5로 감소합니다.' },
-      { ...mkSkillHead('신성', 'tag-free', '자유시전형'), sp: 4, color: '#a78bfa', desc: '스킬 사용 시 아군 1명을 선택합니다. 해당 아군의 체력을 2 회복시키고 상태 이상을 제거합니다. 수도승은 이 스킬로 스스로 회복할 수 없습니다.' },
+      { ...mkSkillHead('신성', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa', desc: '스킬 사용 시 아군 1명을 선택합니다. 해당 아군의 체력을 2 회복시키고 상태 이상을 제거합니다. 수도승은 이 스킬로 스스로 회복할 수 없습니다.' },
     ],
     flavor: '신의 뜻을 전하는 자. 악을 응징하고 선한 자를 치유하는 성스러운 손길.',
   },
