@@ -2252,14 +2252,17 @@ function renderTeamPlayerBlock(playerData, isAlly) {
   const teamCommanders = teamPlayers.flatMap(p => (p.pieces || []).filter(pp => pp.alive && pp.type === 'commander'));
 
   const piecesHtml = pieces.map((pc, i) => {
+    // 카드 베이스 클래스 — 1v1 대전과 동일하게 통일: 아군=my-piece-card, 적=opp-piece-card
+    const baseCardClass = isAlly ? 'my-piece-card' : 'opp-piece-card';
     if (!pc.alive) {
-      return `<div class="my-piece-card dead">
+      return `<div class="${baseCardClass} dead" data-team-piece="1" data-piece-idx="${i}">
         <div class="my-piece-header"><span class="p-icon">${pc.icon || '❔'}</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
         <div style="font-size:0.72rem;color:var(--muted)">💀 격파</div>
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
     const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const myPieceAttr = (isAlly && isMe) ? `data-my-piece-idx="${i}"` : '';
     const selectedClass = (isAlly && isMe && S.selectedPiece === i) ? 'active-piece' : '';
 
@@ -2323,7 +2326,11 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       dragAttrs = ` draggable="true" data-deduction-key="${pieceKey}" data-deduction-icon="${pc.icon || ''}" data-deduction-name="${escapeHtmlGlobal(pc.name || pc.type)}"`;
     }
 
-    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
+    // 위치/생존 표시 — 1v1과 동일: 아군은 좌표, 적은 '생존' 또는 표식 시 좌표
+    const posDisplayHtml = isAlly
+      ? `<span class="my-piece-pos">${posText}</span>`
+      : `<span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'};font-size:0.68rem">${posText ? `📍${posText}` : '생존'}</span>`;
+    return `<div class="${baseCardClass} ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
         <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
@@ -2331,10 +2338,11 @@ function renderTeamPlayerBlock(playerData, isAlly) {
         ${tagHtml}
         ${placedBadge}
       </div>
+      ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.hp}/${pc.maxHp} · ATK ${atkDisplay}</span>
-        <span class="my-piece-pos">${posText}</span>
+        ${posDisplayHtml}
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}
     </div>`;
@@ -7034,6 +7042,7 @@ function renderMyPieces() {
     const moraleHtml = commanderBuff ? '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>' : '';
 
     card.style.position = 'relative';
+    const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     card.innerHTML = `
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
@@ -7041,6 +7050,7 @@ function renderMyPieces() {
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
       </div>
+      ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${atkDisplay}</span>
@@ -7164,6 +7174,7 @@ function renderOppPieces() {
       ? `<span class="deduction-badge" title="추리 토큰: ${coord(placedToken.col, placedToken.row)}">📌${coord(placedToken.col, placedToken.row)}</span>`
       : '';
 
+    const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     card.innerHTML = `
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
@@ -7172,6 +7183,7 @@ function renderOppPieces() {
         ${tagHtml}
         ${placedBadge}
       </div>
+      ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div></div>
       <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
         <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>

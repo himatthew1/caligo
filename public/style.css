@@ -524,7 +524,12 @@ body {
 .team-reveal-player-header::before { left: 6%; }
 .team-reveal-player-header::after  { right: 6%; }
 .team-reveal-player-header.is-me { color: var(--accent); font-weight: 700; }
-.reveal-pieces-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.reveal-pieces-row {
+  display: flex; gap: 10px;
+  flex-wrap: nowrap;            /* 슬롯이 세로로 쌓이지 않도록 강제 — 가로 한 줄 유지 */
+  justify-content: center;
+  min-width: 0;
+}
 .reveal-piece {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 10px; padding: 10px;
@@ -2347,14 +2352,17 @@ body {
 
 /* 팀원 드래프트 슬롯 */
 .team-draft-teammate-slots {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;        /* 내 조합 슬롯 간격(.draft-sidebar gap)과 통일 */
 }
 .teammate-slots-title {
   font-size: 0.82rem;
   color: #60a5fa;
-  margin: 0 0 8px 0;
+  margin: 8px 0 0 0;     /* 내 조합과의 분리는 작은 위쪽 여백만 */
   font-weight: 700;
   letter-spacing: 0.5px;
 }
