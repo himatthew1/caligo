@@ -6175,7 +6175,7 @@ io.on('connection', (socket) => {
       if (surrenderedTeam === undefined || surrenderedTeam === null) return;
       const winnerTeamId = 1 - surrenderedTeam;
       if (room.phase === 'game' || teamSetupPhases.includes(room.phase)) {
-        emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다! ${surrenderedTeam === 0 ? 'A' : 'B'}팀 패배.`, type: 'system', playerIdx: idx });
+        emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다! ${surrenderedTeam === 0 ? '블루' : '레드'}팀 패배.`, type: 'system', playerIdx: idx });
         endTeamGame(room, winnerTeamId, 'surrender');
       }
       return;
