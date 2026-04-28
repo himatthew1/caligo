@@ -6237,23 +6237,50 @@ function buildPlacementOppPanel() {
   if (!container) return;
   const header = document.querySelector('#placement-opp-info h4');
 
-  // 팀 모드: 오른쪽 패널에 상대팀 유닛 (enemies)
+  // 팀 모드: 오른쪽 패널 — 상단에 팀원(블루/레드 컬러), 그 아래 상대팀(반대 컬러)
   if (S.teamPlacementMode) {
-    if (header) header.textContent = '상대팀 캐릭터';
+    if (header) header.textContent = '팀 / 상대 캐릭터';
     container.innerHTML = '';
+    const myTeamColor = S.teamId === 0 ? 'blue' : 'red';
+    const oppTeamColor = S.teamId === 0 ? 'red' : 'blue';
+    // 1) 팀원 블록 — 내 팀 컬러로 표시 (상단)
+    const teammates = S.teamPlacementTeammates || [];
+    for (const tm of teammates) {
+      const block = document.createElement('div');
+      block.className = `placement-enemy-block placement-team-block placement-team-${myTeamColor}`;
+      block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">🤝 ${escapeHtmlGlobal(tm.name)} (팀원)</h5>`;
+      for (const pc of (tm.pieces || [])) {
+        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+        const card = document.createElement('div');
+        card.className = `placement-opp-card placement-team-card placement-team-card-${myTeamColor}`;
+        card.style.position = 'relative';
+        const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${pc.hp}` : `HP ${pc.maxHp ?? pc.hp}`;
+        card.innerHTML = `
+          <span class="char-icon">${pc.icon}</span>
+          <div class="opp-info">
+            <strong>${pc.name}${tagHtml}</strong>
+            <span>T${pc.tier} · ATK ${pc.atk} · ${placedHp}</span>
+          </div>`;
+        const tooltip = buildPieceTooltip(pc, 'left');
+        card.appendChild(tooltip);
+        block.appendChild(card);
+      }
+      container.appendChild(block);
+    }
+    // 2) 상대팀 블록 — 반대 팀 컬러
     const enemies = S.teamPlacementEnemies || [];
-    if (enemies.length === 0) {
-      container.innerHTML = '<p class="muted" style="font-size:0.78rem">상대팀 정보 없음</p>';
+    if (enemies.length === 0 && teammates.length === 0) {
+      container.innerHTML = '<p class="muted" style="font-size:0.78rem">팀 정보 없음</p>';
       return;
     }
     for (const en of enemies) {
       const block = document.createElement('div');
-      block.className = 'placement-enemy-block';
-      block.innerHTML = `<h5 class="enemy-block-header">${escapeHtmlGlobal(en.name)}</h5>`;
+      block.className = `placement-enemy-block placement-team-block placement-team-${oppTeamColor}`;
+      block.innerHTML = `<h5 class="enemy-block-header team-color-${oppTeamColor}">⚔ ${escapeHtmlGlobal(en.name)}</h5>`;
       for (const pc of (en.pieces || [])) {
         const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
         const card = document.createElement('div');
-        card.className = 'placement-opp-card';
+        card.className = `placement-opp-card placement-team-card placement-team-card-${oppTeamColor}`;
         card.style.position = 'relative';
         card.innerHTML = `
           <span class="char-icon">${pc.icon}</span>
@@ -6313,31 +6340,7 @@ function updatePlacementUI() {
   // 내 pieces 렌더
   renderPlacementPieceCards(list, S.myPieces, /*interactive=*/true, null);
 
-  // 팀 모드: 내 프로필 아래에 팀원 pieces 추가 — 상대팀 카드와 동일한 간략 스타일
-  if (S.teamPlacementMode && S.teamPlacementTeammates) {
-    for (const tm of S.teamPlacementTeammates) {
-      const block = document.createElement('div');
-      block.className = 'placement-enemy-block placement-teammate-block-compact';
-      block.innerHTML = `<h5 class="enemy-block-header">${escapeHtmlGlobal(tm.name)}</h5>`;
-      for (const pc of (tm.pieces || [])) {
-        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
-        const card = document.createElement('div');
-        card.className = 'placement-opp-card';
-        card.style.position = 'relative';
-        const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${pc.hp}` : `HP ${pc.maxHp ?? pc.hp}`;
-        card.innerHTML = `
-          <span class="char-icon">${pc.icon}</span>
-          <div class="opp-info">
-            <strong>${pc.name}${tagHtml}</strong>
-            <span>T${pc.tier} · ATK ${pc.atk} · ${placedHp}</span>
-          </div>`;
-        const tooltip = buildPieceTooltip(pc, 'left');
-        card.appendChild(tooltip);
-        block.appendChild(card);
-      }
-      list.appendChild(block);
-    }
-  }
+  // 팀 모드: 팀원 pieces는 buildPlacementOppPanel에서 상대팀 위에 함께 표시됨 (내 패널 X)
 
   // 확정 버튼 상태 (내 것만)
   const allPlaced = S.myPieces.every(p => p.col >= 0);
