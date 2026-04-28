@@ -2176,37 +2176,40 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
         default: sub = `${W}이(가) ${L}에게 승리했습니다!`;
       }
     } else if (win) {
-      // 승리 메시지 — 1v1과 완전히 동일한 양식으로 통일
+      // 승리 메시지 — 기권은 1v1과 동일한 디자인(🏆 + 승리!), 그 외는 팀전 컨텍스트 유지
       if (iconEl) iconEl.textContent = '🏆';
-      if (titleEl) { titleEl.textContent = '승리!'; titleEl.style.color = 'var(--accent)'; }
+      if (titleEl) {
+        titleEl.textContent = r.type === 'surrender' ? '승리!' : '팀 승리!';
+        titleEl.style.color = 'var(--accent)';
+      }
       switch (r.type) {
         case 'surrender': sub = `${L}의 기권입니다!`; break;
-        case 'shrink': sub = `상대가 보드 축소를 피하지 못해 승리했습니다!`; break;
-        case 'trap': sub = `상대가 인간 사냥꾼의 덫에 걸려 승리했습니다!`; break;
-        case 'bomb': sub = `화약병의 폭탄으로 상대의 모든 말을 제거해 승리했습니다!`; break;
-        case 'sulfur': sub = `유황범람으로 상대의 모든 말을 제거해 승리했습니다!`; break;
-        case 'nightmare': sub = `고문 기술자의 악몽으로 상대의 모든 말을 제거해 승리했습니다!`; break;
+        case 'shrink': sub = `${L}이(가) 보드 축소를 피하지 못해 승리했습니다!`; break;
+        case 'trap': sub = `${L}이(가) 인간 사냥꾼의 덫에 걸려 승리했습니다!`; break;
+        case 'bomb': sub = `화약병의 폭탄으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        case 'sulfur': sub = `유황범람으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
+        case 'nightmare': sub = `고문 기술자의 악몽으로 ${L}의 모든 말을 제거해 승리했습니다!`; break;
         case 'attack': sub = killer
           ? `${killer}의 공격으로 ${L}의 모든 말을 제거해 승리했습니다!`
           : `${L}의 모든 유닛을 제거해 승리했습니다.`; break;
         default: sub = `${L}의 모든 말을 제거했습니다!`;
       }
     } else {
-      // 패배 메시지 — 1v1과 완전히 동일한 양식으로 통일
+      // 패배 메시지 — 기권은 1v1과 동일한 디자인(🏳 + 기권), 그 외는 팀전 컨텍스트 유지
       if (iconEl) iconEl.textContent = r.type === 'surrender' ? '🏳' : '💀';
       if (titleEl) {
-        titleEl.textContent = r.type === 'surrender' ? '기권' : '패배...';
+        titleEl.textContent = r.type === 'surrender' ? '기권' : '팀 패배...';
         titleEl.style.color = 'var(--danger)';
       }
       switch (r.type) {
         case 'surrender': sub = `기권하여 패배했습니다.`; break;
         case 'shrink': sub = `보드 축소를 피하지 못해 패배하였습니다.`; break;
         case 'trap': sub = `인간 사냥꾼의 덫에 마지막 유닛이 걸려 패배하였습니다.`; break;
-        case 'bomb': sub = `화약병의 폭탄으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
-        case 'sulfur': sub = `유황범람으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
-        case 'nightmare': sub = `고문 기술자의 악몽으로 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'bomb': sub = `화약병의 폭탄으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'sulfur': sub = `유황범람으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
+        case 'nightmare': sub = `고문 기술자의 악몽으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`; break;
         case 'attack': sub = killer
-          ? `${killer}의 공격으로 모든 유닛이 쓰러져 패배하였습니다.`
+          ? `${killer}의 공격으로 팀의 모든 유닛이 쓰러져 패배하였습니다.`
           : `${L}에게 패배했습니다.`; break;
         default: sub = `${L}에게 패배했습니다.`;
       }
