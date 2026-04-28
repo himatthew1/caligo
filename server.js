@@ -436,27 +436,31 @@ function isTeamEliminated(room, teamId) {
 //   단, 동일 팀의 살아남은 멤버가 탈락자 턴을 대신 수행
 function getNextPlayerIdx(room) {
   if (room.mode !== 'team') return 1 - room.currentPlayerIdx;
-  // 팀전 턴 순서: [A0, B0, A1, B1] 인덱스로 순환
-  const teamA = room.teams[0] || [];
-  const teamB = room.teams[1] || [];
-  const order = [];
-  const maxLen = Math.max(teamA.length, teamB.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i < teamA.length) order.push(teamA[i]);
-    if (i < teamB.length) order.push(teamB[i]);
+  // 팀전 턴 순서: 두 팀이 엄격히 교대 (A → B → A → B), 각 팀 내부는 round-robin.
+  // 한 명이 탈락해도 알터네이션 유지 — 같은 팀에서 다음 살아남은 멤버 사용.
+  const curTeam = getTeamOf(room, room.currentPlayerIdx);
+  if (curTeam < 0) return room.currentPlayerIdx;
+  const nextTeam = 1 - curTeam;
+
+  if (!room.teamRotationIdx) room.teamRotationIdx = [0, 0];
+
+  // 1) 적팀 우선 — 엄격한 팀 알터네이션 보장
+  const nextAlive = (room.teams[nextTeam] || []).filter(i => !isPlayerEliminated(room, i));
+  if (nextAlive.length > 0) {
+    const startIdx = room.teamRotationIdx[nextTeam] || 0;
+    const pos = startIdx % nextAlive.length;
+    const candidate = nextAlive[pos];
+    room.teamRotationIdx[nextTeam] = (pos + 1) % nextAlive.length;
+    return candidate;
   }
-  if (order.length === 0) return 0;
-  const curPos = order.indexOf(room.currentPlayerIdx);
-  const startPos = curPos >= 0 ? curPos : -1;
-  for (let offset = 1; offset <= order.length; offset++) {
-    const nextPos = (startPos + offset) % order.length;
-    const candidate = order[nextPos];
-    if (!isPlayerEliminated(room, candidate)) return candidate;
-    // 탈락자면 같은 팀의 살아남은 멤버로 대체
-    const teamOfCandidate = getTeamOf(room, candidate);
-    const replacement = (room.teams[teamOfCandidate] || []).find(i => !isPlayerEliminated(room, i));
-    if (replacement !== undefined) return replacement;
+
+  // 2) 적팀 전멸 — fallback: 같은 팀 내부 진행 (게임 종료 직전 상황)
+  const sameAlive = (room.teams[curTeam] || []).filter(i => !isPlayerEliminated(room, i));
+  if (sameAlive.length > 0) {
+    const i = sameAlive.indexOf(room.currentPlayerIdx);
+    return sameAlive[(i + 1) % sameAlive.length];
   }
+
   return room.currentPlayerIdx;  // fallback
 }
 // 팀전 대기실 상태 방송
@@ -478,19 +482,22 @@ function broadcastTeamRoomState(room) {
 // 이전 턴 플레이어 (오류 메시지/로그용)
 function getPrevPlayerIdx(room, curIdx) {
   if (room.mode !== 'team') return 1 - curIdx;
-  const teamA = room.teams[0] || [];
-  const teamB = room.teams[1] || [];
-  const order = [];
-  const maxLen = Math.max(teamA.length, teamB.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i < teamA.length) order.push(teamA[i]);
-    if (i < teamB.length) order.push(teamB[i]);
+  // 새 알터네이션 알고리즘에 맞춰 — 이전 턴은 다른 팀의 마지막 플레이어로 추정
+  const curTeam = getTeamOf(room, curIdx);
+  if (curTeam < 0) return curIdx;
+  const prevTeam = 1 - curTeam;
+  const prevAlive = (room.teams[prevTeam] || []).filter(i => !isPlayerEliminated(room, i));
+  if (prevAlive.length === 0) {
+    // 다른 팀이 전멸 — 같은 팀의 이전 멤버로 추정
+    const sameAlive = (room.teams[curTeam] || []).filter(i => !isPlayerEliminated(room, i));
+    if (sameAlive.length === 0) return curIdx;
+    const i = sameAlive.indexOf(curIdx);
+    return sameAlive[(i - 1 + sameAlive.length) % sameAlive.length];
   }
-  if (order.length === 0) return curIdx;
-  const curPos = order.indexOf(curIdx);
-  if (curPos < 0) return curIdx;
-  const prevPos = (curPos - 1 + order.length) % order.length;
-  return order[prevPos];
+  // 이전 팀의 가장 최근 플레이어 = 현재 rotation 직전 인덱스
+  const rotIdx = (room.teamRotationIdx?.[prevTeam] || 0);
+  const prevPos = (rotIdx - 1 + prevAlive.length) % prevAlive.length;
+  return prevAlive[prevPos];
 }
 
 function assignChatColor(room, socketId) {
@@ -929,9 +936,11 @@ function teamPlacementTimeout(room) {
 function startTeamGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
-  // 턴 순서: A팀 A1 먼저 (A1→B1→A2→B2 반복)
+  // 턴 순서: 블루팀 첫 멤버 먼저, 이후 엄격 알터네이션 (Blue→Red→Blue→Red)
   room.currentPlayerIdx = (room.teams[0] || [])[0] ?? 0;
   room.turnNumber = 1;
+  // 팀 내부 round-robin 인덱스 — 블루팀은 [0]을 이미 썼으니 1로 시작, 레드팀은 0으로 시작
+  room.teamRotationIdx = [1 % Math.max((room.teams[0] || []).length, 1), 0];
   // 첫 플레이어 턴 리셋
   const first = room.players[room.currentPlayerIdx];
   if (first) {
@@ -1746,10 +1755,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
   // #1: 호위무사 hit 사이드채널 초기화
   room._pendingBodyguardHits = [];
 
-  // 팀전: 적 = 내 팀이 아닌 모든 플레이어 / 1v1: 적 = 상대
-  const enemyIndices = (room.mode === 'team')
-    ? room.players.map(p => p.index).filter(i => !isTeammate(room, attackerIdx, i))
-    : [1 - attackerIdx];
+  // 팀전: 적 = 적팀 멤버만 / 1v1: 적 = 상대
+  // (이전 버그: !isTeammate(self,self)는 true이므로 공격자 본인이 enemy에 포함되어 friendly-fire 발생)
+  const enemyIndices = getEnemyIndices(room, attackerIdx);
 
   for (const defIdx of enemyIndices) {
     const defender = room.players[defIdx];

@@ -1303,8 +1303,8 @@ function renderTeamDraftSlots() {
 socket.on('team_draft_status', ({ draftDone, doneNames }) => {
   const statusEl = document.getElementById('team-draft-status');
   if (statusEl) {
-    const doneCount = (draftDone || []).filter(d => d).length;
-    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+    statusEl.classList.add('confirm-beads-wrap');
+    statusEl.innerHTML = renderConfirmBeads(draftDone);
   }
 });
 
@@ -1618,8 +1618,8 @@ function renderTeamHpUI(hasTwins) {
 socket.on('team_hp_status', ({ hpDone, doneNames }) => {
   const statusEl = document.getElementById('team-hp-status');
   if (statusEl) {
-    const doneCount = (hpDone || []).filter(d => d).length;
-    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+    statusEl.classList.add('confirm-beads-wrap');
+    statusEl.innerHTML = renderConfirmBeads(hpDone);
   }
 });
 
@@ -1725,10 +1725,40 @@ function renderTeamReveal(allPlayerPieces) {
   const blueRows = blue.map(pl => buildPlayerSection(pl, aChars));
   const redRows = red.map(pl => buildPlayerSection(pl, bChars));
 
+  // 쌍둥이 강도(elder+younger 두 piece)는 하나의 카드로 묶어서 표시 — 양식 통일
+  const groupTwins = (pieces) => {
+    const out = [];
+    const twinSeen = new Set();
+    for (const pc of (pieces || [])) {
+      const isTwin = pc.subUnit === 'elder' || pc.subUnit === 'younger';
+      if (isTwin) {
+        // 쌍둥이는 한 번만 — 합쳐진 표시 객체 생성
+        if (twinSeen.has('twins')) continue;
+        twinSeen.add('twins');
+        const elder = (pieces || []).find(p => p.subUnit === 'elder');
+        const younger = (pieces || []).find(p => p.subUnit === 'younger');
+        out.push({
+          ...pc,
+          type: 'twins',
+          name: '쌍둥이 강도',
+          icon: '👫',
+          atk: pc.atk,
+          tier: pc.tier,
+          tag: pc.tag,
+          isTwinGroup: true,
+          twinElder: elder,
+          twinYounger: younger,
+        });
+      } else {
+        out.push(pc);
+      }
+    }
+    return out;
+  };
   // 카드 등장 — 슬롯별 600ms 딜레이로 순차 등장 + 사운드
   const allCards = [];
-  blue.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: blueRows[i], side: 'left', orderIdx: i*2 + j })));
-  red.forEach((pl, i) => (pl.pieces || []).forEach((pc, j) => allCards.push({ pc, row: redRows[i], side: 'right', orderIdx: i*2 + j })));
+  blue.forEach((pl, i) => groupTwins(pl.pieces).forEach((pc, j) => allCards.push({ pc, row: blueRows[i], side: 'left', orderIdx: i*2 + j })));
+  red.forEach((pl, i) => groupTwins(pl.pieces).forEach((pc, j) => allCards.push({ pc, row: redRows[i], side: 'right', orderIdx: i*2 + j })));
 
   allCards.sort((a, b) => a.orderIdx - b.orderIdx);
   let curOrder = -1;
@@ -1740,7 +1770,8 @@ function renderTeamReveal(allPlayerPieces) {
         try { playSfxRevealAppear(); } catch (e) {}
       }
       // 1v1 최종 공개 카드 재사용 — 미니 헤더 + 왕실/악인 태그 + 호버 툴팁 포함
-      const tooltipSide = c.side === 'left' ? 'right' : 'left';
+      // 툴팁 방향: 화면 바깥쪽으로 (블루팀=왼쪽, 레드팀=오른쪽) — 중앙 VS 표시·반대편 카드에 가리지 않도록
+      const tooltipSide = c.side;  // 'left' | 'right'
       const card = createDraftRevealCard(c.pc, c.pc.tier, tooltipSide, '');
       card.style.animation = 'revealSlide 0.5s ease-out both';
       c.row.appendChild(card);
@@ -1800,7 +1831,8 @@ socket.on('team_placed_ok', ({ pieceIdx, col, row }) => {
     S.myPieces[pieceIdx].col = col;
     S.myPieces[pieceIdx].row = row;
   }
-  placementSelected = null;
+  // 선택 유지 — 사용자가 같은 캐릭터를 다른 칸으로 자유롭게 재배치할 수 있도록
+  // (이전 동작: placementSelected = null 으로 매번 캐릭터 재선택 강제)
   updatePlacementUI();
 });
 
@@ -1812,23 +1844,39 @@ socket.on('team_confirm_placement_ok', () => {
 });
 
 socket.on('team_placement_status', ({ placementDone, doneNames }) => {
-  // 하단에 상태 표시 (btn 근처)
+  // 하단에 구슬 UI로 확정 상태 표시 (블루 2 + 레드 2)
   let statusEl = document.getElementById('team-placement-status-bar');
   if (!statusEl) {
-    const panel = document.querySelector('#screen-placement .placement-board-wrap');
+    const panel = document.querySelector('#screen-placement .placement-board-wrap')
+      || document.querySelector('#screen-placement');
     if (panel) {
       statusEl = document.createElement('div');
       statusEl.id = 'team-placement-status-bar';
-      statusEl.className = 'muted';
-      statusEl.style = 'font-size:0.78rem;text-align:center;margin-top:8px';
+      statusEl.className = 'confirm-beads-wrap';
       panel.appendChild(statusEl);
     }
   }
   if (statusEl) {
-    const doneCount = (placementDone || []).filter(d => d).length;
-    statusEl.textContent = `확정 ${doneCount}/4${doneNames && doneNames.length ? ` — ${doneNames.join(', ')}` : ''}`;
+    statusEl.innerHTML = renderConfirmBeads(placementDone);
   }
 });
+
+// 4명 확정 상태를 구슬로 표시 — 블루 2개 + 레드 2개
+function renderConfirmBeads(doneArr) {
+  const teams = S.teamTeams || [[],[]];
+  const blueTeam = teams[0] || [];
+  const redTeam = teams[1] || [];
+  const beadHtml = (idx, color) => {
+    const done = !!(doneArr || [])[idx];
+    return `<span class="confirm-bead bead-${color}${done ? ' bead-done' : ''}" title="${done ? '확정 완료' : '대기 중'}">${done ? '✓' : ''}</span>`;
+  };
+  const blue = (blueTeam.length > 0 ? blueTeam : [-1, -1]).slice(0, 2).map(idx => beadHtml(idx, 'blue')).join('');
+  const red = (redTeam.length > 0 ? redTeam : [-1, -1]).slice(0, 2).map(idx => beadHtml(idx, 'red')).join('');
+  // 슬롯이 부족할 때 빈 구슬로 보충
+  const blueFill = '<span class="confirm-bead bead-blue"></span>'.repeat(Math.max(0, 2 - blueTeam.length));
+  const redFill = '<span class="confirm-bead bead-red"></span>'.repeat(Math.max(0, 2 - redTeam.length));
+  return `<div class="confirm-beads"><div class="confirm-beads-side">${blue}${blueFill}</div><div class="confirm-beads-divider">·</div><div class="confirm-beads-side">${red}${redFill}</div></div>`;
+}
 
 function renderTeamPlacement() {
   const titleEl = document.getElementById('team-placement-title');
@@ -6907,6 +6955,8 @@ function getStatusIcons(pc) {
 
 // ── 내 말 정보 패널 ──────────────────────────────────────────
 function renderMyPieces() {
+  // 팀 모드에서는 1v1 함수가 팀 프로필을 덮어쓰지 않도록 위임
+  if (S.isTeamMode && typeof renderTeamProfiles === 'function') { renderTeamProfiles(); return; }
   const container = document.getElementById('my-pieces-info');
   if (!container) return;
   container.innerHTML = '';
@@ -7019,6 +7069,8 @@ function pruneDeductionTokens() {
 
 // ── 상대 말 정보 ─────────────────────────────────────────────
 function renderOppPieces() {
+  // 팀 모드에서는 1v1 함수가 팀 프로필을 덮어쓰지 않도록 위임
+  if (S.isTeamMode && typeof renderTeamProfiles === 'function') { renderTeamProfiles(); return; }
   const container = document.getElementById('opp-pieces-info');
   if (!container) return;
   container.innerHTML = '';
@@ -10578,17 +10630,29 @@ function bgmDefeat(ctx, dest) {
     widget.classList.add('chat-collapsed');
   });
 
-  // 현재 선택된 채팅 범위 ('all' or 'team')
+  // 현재 선택된 채팅 범위 ('all' or 'team') — 분리된 메시지 컨테이너 사용
   let currentChatScope = 'all';
   const scopeTabs = document.getElementById('chat-scope-tabs');
   const scopeAllBtn = document.getElementById('chat-scope-all');
   const scopeTeamBtn = document.getElementById('chat-scope-team');
+  const msgBoxAll = document.getElementById('chat-messages');
+  const msgBoxTeam = document.getElementById('chat-messages-team');
+  function applyChatScopeView() {
+    if (currentChatScope === 'team') {
+      msgBoxAll?.classList.add('hidden');
+      msgBoxTeam?.classList.remove('hidden');
+    } else {
+      msgBoxAll?.classList.remove('hidden');
+      msgBoxTeam?.classList.add('hidden');
+    }
+  }
   function showChatScopeTabs() {
     if (scopeTabs) scopeTabs.classList.remove('hidden');
   }
   function hideChatScopeTabs() {
     if (scopeTabs) scopeTabs.classList.add('hidden');
     currentChatScope = 'all';
+    applyChatScopeView();
   }
   // 팀전 진입 시 탭 표시 (S.isTeamMode 변경 감지용 간이 polling)
   setInterval(() => {
@@ -10599,6 +10663,7 @@ function bgmDefeat(ctx, dest) {
     currentChatScope = 'all';
     scopeAllBtn.classList.add('active'); scopeTeamBtn?.classList.remove('active');
     if (input) input.placeholder = '메시지 입력 (전체)...';
+    applyChatScopeView();
   });
   if (scopeTeamBtn) scopeTeamBtn.addEventListener('click', () => {
     if (!S.isTeamMode) {
@@ -10608,6 +10673,7 @@ function bgmDefeat(ctx, dest) {
     currentChatScope = 'team';
     scopeTeamBtn.classList.add('active'); scopeAllBtn?.classList.remove('active');
     if (input) input.placeholder = '메시지 입력 (팀)...';
+    applyChatScopeView();
   });
 
   function sendMsg() {
@@ -10638,10 +10704,11 @@ function bgmDefeat(ctx, dest) {
       if (scope === 'team') scopeBadge = '<span class="scope-badge team">팀</span>';
       else scopeBadge = '<span class="scope-badge all">전체</span>';
     }
-    // 팀 표시 (A/B)
+    // 팀 표시 (BLUE/RED)
     let teamBadge = '';
     if (S.isTeamMode && (teamId === 0 || teamId === 1)) {
-      teamBadge = `<span class="scope-badge ${teamId === 0 ? 'all' : 'all'}" style="color:${teamId === 0 ? '#60a5fa' : '#ef4444'}">${teamId === 0 ? 'A' : 'B'}</span>`;
+      const isBlue = teamId === 0;
+      teamBadge = `<span class="scope-badge team-color-badge" style="color:${isBlue ? '#60a5fa' : '#ef4444'};border:1px solid ${isBlue ? '#60a5fa' : '#ef4444'}">${isBlue ? 'B' : 'R'}</span>`;
     }
 
     const senderLabel = senderIsSpec ? `${escapeHtml(sender)} (관전자)` : escapeHtml(sender);
@@ -10658,8 +10725,12 @@ function bgmDefeat(ctx, dest) {
       }
     }
     div.innerHTML = `${scopeBadge}${teamBadge}<span class="chat-sender" style="color:${senderColor}">${senderLabel}</span>${escapeHtml(text)}`;
-    msgBox.appendChild(div);
-    msgBox.scrollTop = msgBox.scrollHeight;
+    // 팀 채팅과 전체 채팅을 별도 컨테이너에 격리
+    const targetBox = (scope === 'team') ? msgBoxTeam : msgBoxAll;
+    if (targetBox) {
+      targetBox.appendChild(div);
+      targetBox.scrollTop = targetBox.scrollHeight;
+    }
 
     if (!isSelf) {
       playSfxChat();
