@@ -2241,7 +2241,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
   const teamColorClass = playerData.teamId === 0 ? 'team-block-blue' : 'team-block-red';
   const meClass = isMe ? 'team-block-self-mark' : '';
   const blockClass = `${teamColorClass} ${meClass}`.trim();
-  const blockLabel = isMe ? '내 캐릭터' : (isAlly ? `팀원 — ${escapeHtmlGlobal(playerData.name)}` : escapeHtmlGlobal(playerData.name));
+  const blockLabel = isMe ? '내 캐릭터' : escapeHtmlGlobal(playerData.name);
   const teamLetter = playerData.teamId === 0 ? 'BLUE' : 'RED';
 
   // 지휘관 버프 — 내 팀(나+팀원) 지휘관에 인접한 같은 팀 말이면 +1
