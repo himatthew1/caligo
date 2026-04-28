@@ -2058,9 +2058,8 @@ socket.on('team_game_update', (state) => {
     if (cur) {
       const isMine = cur.idx === S.playerIdx;
       const isAlly = cur.teamId === S.teamId && !isMine;
-      const teamColor = cur.teamId === 0 ? '🟦' : '🟥';
       const label = isMine ? `${myN() || cur.name}` : cur.name;
-      const turnMsg = `${teamColor} [턴 ${S.turnNumber}] ${label}의 차례`;
+      const turnMsg = `[턴 ${S.turnNumber}] ${label}의 차례`;
       addLog(turnMsg, 'system');
       if (isMine) {
         showSkillToast(`내 차례입니다!`, false, S.playerIdx, 'event');
