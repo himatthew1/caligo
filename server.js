@@ -801,25 +801,26 @@ function aiTeamHpDistribute(room, idx) {
   }
 }
 
-// AI 배치 — 전략적 배치: 공격형은 전진, 지원형은 후방, 종족 분산, 무작위 컬럼
+// AI 배치 — 전략적 배치 (적팀 공격범위 회피 + 시너지 형성)
+// 자동 배치 후에도 다른 플레이어 배치가 갱신되면 재평가 (확정 X — 보드 위 배치만)
 function aiTeamPlace(room, idx) {
   if (!room || room.phase !== 'team_placement') return;
   const p = room.players[idx];
   if (!p || p.socketId !== 'AI' || room.placementDone[idx]) return;
   const bounds = room.boardBounds || { min: 0, max: 6 };
   const teamId = p.teamId;
-  // 자기 팀 진영 (블루: 위 0~2, 레드: 아래 4~6) — 진영 안에서 무작위
+  const enemyIdxs = getEnemyIndices(room, idx);
+  const teammates = getTeammates(room, idx);
+  // 자기 팀 진영 (블루: 위 0~2, 레드: 아래 4~6)
   const zoneRows = teamId === 0
     ? [bounds.min, bounds.min + 1, bounds.min + 2]
     : [bounds.max, bounds.max - 1, bounds.max - 2];
-  // 진영 내 행 분류: front(중앙쪽), mid, back(가장자리)
-  const frontRow = zoneRows[2];   // 적 쪽으로 가장 가까운 행
+  const frontRow = zoneRows[2];
   const midRow = zoneRows[1];
-  const backRow = zoneRows[0];    // 가장자리 (안전)
+  const backRow = zoneRows[0];
 
-  // 점유된 칸 (팀원·자신) — 같은 자리 충돌 방지
+  // 점유된 칸
   const occupied = new Set();
-  const teammates = getTeammates(room, idx);
   for (const tIdx of [idx, ...teammates]) {
     const tp = room.players[tIdx];
     if (!tp) continue;
@@ -828,86 +829,121 @@ function aiTeamPlace(room, idx) {
     }
   }
 
-  // 캐릭터 역할 분류
-  const isAggressive = (pc) => {
-    const t = pc.type;
-    // 공격형 — 전선에서 압박
-    return ['archer','spearman','cavalry','knight','general','dualBlade','prince','princess','slaughterHero','shadowAssassin','torturer'].includes(t);
-  };
-  const isSupport = (pc) => {
-    const t = pc.type;
-    return ['herbalist','monk','watchman','scout','commander','wizard','ratMerchant','bodyguard','king','dragonTamer'].includes(t);
-  };
-  const isFragile = (pc) => pc.maxHp <= 2 || ['watchman','messenger','sulfurCauldron','herbalist'].includes(pc.type);
-
-  // 무작위 컬럼 후보 — 가장자리(0,6) 회피해서 1~5 우선 + 약간의 랜덤
-  const shuffleArr = (a) => a.slice().sort(() => Math.random() - 0.5);
-  const inneCols = [];
-  for (let c = bounds.min + 1; c <= bounds.max - 1; c++) inneCols.push(c);
-  const edgeCols = [bounds.min, bounds.max];
-
-  // piece별 우선 행 + 컬럼 후보 결정
-  for (let pi = 0; pi < p.pieces.length; pi++) {
-    const piece = p.pieces[pi];
-    if (piece.col >= 0) continue;
-    // 역할별 우선 행
-    let preferredRows;
-    if (isAggressive(piece)) {
-      preferredRows = [frontRow, midRow, backRow];
-    } else if (isSupport(piece) || isFragile(piece)) {
-      preferredRows = [backRow, midRow, frontRow];
-    } else {
-      preferredRows = [midRow, frontRow, backRow];
-    }
-    // 쌍둥이는 elder/younger 같은 칸 시작 안되게 — younger는 다른 행 우선
-    if (piece.subUnit === 'younger') {
-      preferredRows = preferredRows.slice().reverse();
-    }
-    // 컬럼은 무작위 + 가장자리는 후순위
-    const colTry = [...shuffleArr(inneCols), ...shuffleArr(edgeCols)];
-    let placed = false;
-    for (const r of preferredRows) {
-      if (r < bounds.min || r > bounds.max) continue;
-      for (const c of colTry) {
-        const key = `${c},${r}`;
-        if (occupied.has(key)) continue;
-        // 팀원 인접 회피 (같은 셀 옆, 십자 방향) — 가능한 한 분산
-        const tooClose = teammates.some(tIdx => {
-          const tp = room.players[tIdx];
-          if (!tp) return false;
-          return (tp.pieces || []).some(tpc =>
-            tpc.alive && tpc.col >= 0 &&
-            ((Math.abs(tpc.col - c) === 0 && Math.abs(tpc.row - r) <= 1) ||
-             (Math.abs(tpc.row - r) === 0 && Math.abs(tpc.col - c) <= 1))
-          );
-        });
-        if (tooClose) continue;
-        piece.col = c; piece.row = r;
-        occupied.add(key);
-        placed = true;
-        break;
-      }
-      if (placed) break;
-    }
-    // 분산 조건 못 채웠으면 — 인접 허용으로 재시도
-    if (!placed) {
-      for (const r of preferredRows) {
-        if (r < bounds.min || r > bounds.max) continue;
-        for (const c of colTry) {
-          const key = `${c},${r}`;
-          if (occupied.has(key)) continue;
-          piece.col = c; piece.row = r;
-          occupied.add(key);
-          placed = true;
-          break;
-        }
-        if (placed) break;
-      }
+  // 적팀 배치된 piece들의 공격 셀 합집합 — 회피 후보
+  const enemyAttackCells = new Set();
+  for (const ei of enemyIdxs) {
+    const ep = room.players[ei];
+    if (!ep) continue;
+    for (const epc of (ep.pieces || [])) {
+      if (epc.col < 0 || epc.row < 0) continue;
+      const cells = getAttackCells(epc.type, epc.col, epc.row, bounds, { toggleState: epc.toggleState });
+      for (const c of cells) enemyAttackCells.add(`${c.col},${c.row}`);
     }
   }
-  // 확정
+
+  const isAggressive = (pc) => ['archer','spearman','cavalry','knight','general','dualBlade','prince','princess','slaughterHero','shadowAssassin','torturer','dragonTamer'].includes(pc.type);
+  const isSupport = (pc) => ['herbalist','monk','watchman','scout','commander','wizard','ratMerchant','bodyguard','king'].includes(pc.type);
+  const isFragile = (pc) => pc.maxHp <= 2 || ['watchman','messenger','sulfurCauldron','herbalist','monk'].includes(pc.type);
+
+  // 셀 점수 — 높을수록 배치하기 좋음
+  const scoreCell = (piece, c, r) => {
+    if (occupied.has(`${c},${r}`)) return -Infinity;
+    if (r < bounds.min || r > bounds.max || c < bounds.min || c > bounds.max) return -Infinity;
+    let score = 0;
+    // 1. 적 공격범위 안에 있으면 페널티 (공격형은 약하게, 약한 유닛은 강하게)
+    const inEnemyRange = enemyAttackCells.has(`${c},${r}`);
+    if (inEnemyRange) {
+      if (isFragile(piece)) score -= 25;
+      else if (isAggressive(piece)) score -= 5;
+      else score -= 12;
+    }
+    // 2. 역할별 행 선호
+    const dRow = teamId === 0 ? r - bounds.min : bounds.max - r;
+    if (isAggressive(piece)) {
+      score += dRow * 6;  // 전진할수록 보상
+    } else if (isSupport(piece) || isFragile(piece)) {
+      score += (2 - Math.min(2, dRow)) * 8;  // 후방일수록 보상
+    } else {
+      score += dRow === 1 ? 5 : 2;  // 중간 우선
+    }
+    // 3. 가장자리 페널티 (보드 축소 대비)
+    if (c === bounds.min || c === bounds.max) score -= 4;
+    // 4. 팀원과 너무 인접하면 페널티 (AoE/덫에 휘말리지 않게)
+    for (const tIdx of teammates) {
+      const tp = room.players[tIdx];
+      if (!tp) continue;
+      for (const tpc of (tp.pieces || [])) {
+        if (!tpc.alive || tpc.col < 0) continue;
+        const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+        if (dist === 1) score -= 6;
+      }
+    }
+    // 5. 시너지 — commander 인접 (사기증진)
+    if (piece.tag === 'royal' || isAggressive(piece)) {
+      for (const tIdx of [...teammates, idx]) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (tpc.type === 'commander' && tpc.col >= 0) {
+            const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+            if (dist === 1) score += 8;
+          }
+        }
+      }
+    }
+    // 6. 약한 유닛은 호위무사 인접 보너스
+    if (isFragile(piece) && piece.tag === 'royal') {
+      for (const tIdx of [...teammates, idx]) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (tpc.type === 'bodyguard' && tpc.col >= 0) {
+            const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+            if (dist <= 2) score += 5;
+          }
+        }
+      }
+    }
+    // 7. 무작위 분산 — 같은 점수일 때 랜덤 선택
+    score += Math.random() * 2;
+    return score;
+  };
+
+  // 각 piece 별로 진영 내 모든 셀 점수 계산 후 최고점에 배치
+  // piece 처리 순서: 공격형 먼저 (앞 행 선점), 지원/약한 유닛 나중 (남은 자리에 안전 배치)
+  const piecesOrdered = p.pieces
+    .map((pc, pi) => ({ pc, pi }))
+    .filter(o => o.pc.col < 0)
+    .sort((a, b) => {
+      const aPri = isAggressive(a.pc) ? 0 : (isSupport(a.pc) || isFragile(a.pc) ? 2 : 1);
+      const bPri = isAggressive(b.pc) ? 0 : (isSupport(b.pc) || isFragile(b.pc) ? 2 : 1);
+      return aPri - bPri;
+    });
+
+  for (const { pc: piece, pi } of piecesOrdered) {
+    if (piece.col >= 0) continue;
+    let best = { col: -1, row: -1, score: -Infinity };
+    // 자기 진영 내 모든 셀 평가
+    for (const r of zoneRows) {
+      for (let c = bounds.min; c <= bounds.max; c++) {
+        const s = scoreCell(piece, c, r);
+        if (s > best.score) best = { col: c, row: r, score: s };
+      }
+    }
+    if (best.col >= 0) {
+      piece.col = best.col;
+      piece.row = best.row;
+      occupied.add(`${best.col},${best.row}`);
+    }
+  }
+  // 모든 piece 배치되면 — 즉시 확정 X. 다른 플레이어 배치 보고 한 번만 재평가하도록 placementDone은 늦게 셋
+  // 단, 모든 휴먼 + 다른 봇이 확정한 상태면 자기도 확정해야 게임이 진행됨
+  // → 배치 자체는 완료 표시하고, 일부 휴먼이 아직 배치 중이면 그들이 변경할 때마다 우리 placement도 재평가 가능
+  // 현재 구현: 즉시 확정 (이전 동작 유지) — 추후 reactive 재평가는 별도 hook
   if (p.pieces.every(pc => pc.col >= 0)) {
     room.placementDone[idx] = true;
+    // 팀 내부에 즉시 보이도록 broadcastTeamPlacementUpdate
+    if (typeof broadcastTeamPlacementUpdate === 'function') broadcastTeamPlacementUpdate(room, idx);
     io.to(room.id).emit('team_placement_status', {
       placementDone: [...room.placementDone],
       doneNames: room.players.filter((_, i) => room.placementDone[i]).map(p2 => p2.name),
@@ -2977,7 +3013,7 @@ function endTurn(room) {
       prevPlayer._lastActionType !== 'move' &&
       prevPlayer._lastActionType !== 'attack';
     if (noAction && prevPlayer.name) {
-      const msg = `${prevPlayer.name}은(는) 아무것도 하지 않았습니다.`;
+      const msg = `${prevPlayer.name}의 턴 스킵`;
       if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg });
       emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
     }
@@ -5275,6 +5311,20 @@ io.on('connection', (socket) => {
     piece.col = col; piece.row = row;
     socket.emit('team_placed_ok', { pieceIdx, col, row });
     broadcastTeamPlacementUpdate(room, idx);
+    // AI 봇 재평가 — 사람이 배치/이동할 때마다 미확정 봇이 더 좋은 자리로 재배치
+    // (확정한 봇은 건너뜀, 다른 휴먼이 배치 중인 동안 봇이 자기 자리 reactive 조정)
+    for (const p of room.players) {
+      if (p.socketId === 'AI' && !room.placementDone[p.index]) {
+        // 모든 piece 좌표 리셋해서 새로 점수 계산하도록 (간단한 reactive 재배치)
+        for (const pc of (p.pieces || [])) { pc.col = -1; pc.row = -1; }
+        // 약간 지연 후 재계산 (다른 사람의 동시 배치를 묶어서 처리)
+        setTimeout(() => {
+          if (room.phase === 'team_placement' && !room.placementDone[p.index]) {
+            aiTeamPlace(room, p.index);
+          }
+        }, 600);
+      }
+    }
   });
 
   socket.on('team_confirm_placement', () => {
