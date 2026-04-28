@@ -9672,10 +9672,9 @@ function playSfxWitchCurse() {
   } catch (e) {}
 }
 
-// ── 9. 양손검객 쌍검무 — 날카로운 파칭! 톤 (3개 후보 중 옵션 A) ──
+// ── 9. 양손검객 쌍검무 — 옵션 B (거친 파칭!) 적용 중 ──
 function playSfxDualBlade() {
-  // 옵션 A — 표준 적용 (옵션 B/C는 audition 전용)
-  playSfxDualBladeA();
+  playSfxDualBladeB();
 }
 // 후보 A: 묵직한 강철 슬래시 두 번 (저음 thud + 고음 슬래시)
 function playSfxDualBladeA() {
