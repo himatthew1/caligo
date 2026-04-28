@@ -2073,6 +2073,8 @@ socket.on('team_game_update', (state) => {
   }
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
+  // 보드 외곽 팀 컬러 갱신 (현재 차례 플레이어의 팀)
+  if (typeof setTurnBackground === 'function') setTurnBackground(S.isMyTurn);
   if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
   // 스냅샷 비교 — HP 줄어든 piece에 profile-hit, HP 회복된 piece에 heal flash
   if (changes && changes.length > 0) {
@@ -6646,15 +6648,28 @@ function updateTurnBanner() {
 // 팀전 턴 오더 — A팀·B팀 지그재그 4명 점으로 표시. 현재 플레이어 강조.
 function renderTurnOrderDots() {
   if (!S.teamGamePlayers || !S.teamTeams) return '';
-  // 현재 차례인 플레이어만 표시 — 화살표·체인 없음
-  const cur = S.teamGamePlayers.find(p => p.idx === S.currentPlayerIdx);
-  if (!cur) return '';
-  const isMe = cur.idx === S.playerIdx;
-  const isAlly = cur.teamId === S.teamId;
-  const teamCls = cur.teamId === 0 ? 'team-blue' : 'team-red';
-  const cls = ['turn-order-dot', teamCls, 'current', isMe ? 'me' : ''].filter(Boolean).join(' ');
-  const suffix = isMe ? ' (나)' : '';
-  return `<span class="${cls}">${escapeHtmlGlobal(cur.name)}${suffix}</span>`;
+  // 4명 모두 나열 — 블루팀 → 레드팀 알터네이션 순. 현재 차례는 강조, 나머지는 일반.
+  // 화살표 없이 가로 나열 (사용자 요청: 옛 양식 부활, 화살표 X)
+  const teams = S.teamTeams || [[],[]];
+  const order = [];
+  const blue = teams[0] || [];
+  const red = teams[1] || [];
+  const maxLen = Math.max(blue.length, red.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (blue[i] !== undefined) order.push(blue[i]);
+    if (red[i] !== undefined) order.push(red[i]);
+  }
+  const items = order.map(idx => {
+    const p = S.teamGamePlayers.find(pl => pl.idx === idx);
+    if (!p) return '';
+    const isMe = p.idx === S.playerIdx;
+    const isCurrent = p.idx === S.currentPlayerIdx;
+    const teamCls = p.teamId === 0 ? 'team-blue' : 'team-red';
+    const cls = ['turn-order-dot', teamCls, isCurrent ? 'current' : '', isMe ? 'me' : ''].filter(Boolean).join(' ');
+    const suffix = isMe ? ' (나)' : '';
+    return `<span class="${cls}">${escapeHtmlGlobal(p.name)}${suffix}</span>`;
+  });
+  return items.join('');
 }
 
 function updateSPBar() {
@@ -9195,14 +9210,24 @@ function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined, toastTy
 // ── 턴 보드 테두리 전환 ──
 function setTurnBackground(isMyTurn) {
   const board = document.getElementById('game-board');
-  if (board) {
-    board.style.transition = 'border-color 0.5s, box-shadow 0.5s';
-    board.style.borderColor = isMyTurn ? '#3b82f6' : '#ef4444';
+  if (!board) return;
+  board.style.transition = 'border-color 0.5s, box-shadow 0.5s';
+  // 팀모드: 현재 차례 플레이어의 팀 컬러로 — 1v1과 동등한 보드 외곽 강조
+  if (S.isTeamMode) {
+    const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
+    const isBlueTurn = cur ? cur.teamId === 0 : false;
+    board.style.borderColor = isBlueTurn ? '#60a5fa' : '#ef4444';
     board.style.borderWidth = '3px';
-    board.style.boxShadow = isMyTurn
-      ? '0 0 15px rgba(59,130,246,0.3), inset 0 0 10px rgba(59,130,246,0.05)'
-      : '0 0 15px rgba(239,68,68,0.3), inset 0 0 10px rgba(239,68,68,0.05)';
+    board.style.boxShadow = isBlueTurn
+      ? '0 0 15px rgba(96,165,250,0.4), inset 0 0 10px rgba(96,165,250,0.07)'
+      : '0 0 15px rgba(239,68,68,0.4), inset 0 0 10px rgba(239,68,68,0.07)';
+    return;
   }
+  board.style.borderColor = isMyTurn ? '#3b82f6' : '#ef4444';
+  board.style.borderWidth = '3px';
+  board.style.boxShadow = isMyTurn
+    ? '0 0 15px rgba(59,130,246,0.3), inset 0 0 10px rgba(59,130,246,0.05)'
+    : '0 0 15px rgba(239,68,68,0.3), inset 0 0 10px rgba(239,68,68,0.05)';
 }
 
 // ── 나의 턴 팝업: 더 이상 토스트 표시하지 않음 (턴 배너로 대체) ──

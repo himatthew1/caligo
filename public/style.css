@@ -1864,33 +1864,40 @@ body {
   color: var(--muted);
   padding: 2px 4px;
 }
-/* ── 팀전 프로필 블록 — 내/팀원/적 시각 구분 강화 ── */
+/* ── 팀전 프로필 블록 — 1v1처럼 깔끔한 프레임, 현재 턴만 팀컬러 강조 ── */
 .team-profile-block {
   margin-bottom: 12px;
   padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(20,28,48,0.5);
-  transition: border-color 0.2s, background 0.2s;
+  transition: opacity 0.25s, filter 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.2s;
+  /* 비-현재 턴 플레이어는 살짝 딤 (사용자 요청: 정말 살짝) */
+  opacity: 0.78;
+  filter: saturate(0.9);
 }
-/* 팀 절대 컬러 — 블루팀은 항상 파랑, 레드팀은 항상 빨강 (관점 무관) */
-.team-profile-block.team-block-blue {
-  border: 1px solid rgba(96,165,250,0.55);
-  border-left: 5px solid #60a5fa;
-  background: rgba(96,165,250,0.08);
-}
-.team-profile-block.team-block-red {
-  border: 1px solid rgba(239,68,68,0.55);
-  border-left: 5px solid #ef4444;
-  background: rgba(239,68,68,0.08);
-}
-/* 내 캐릭터 표식 — 팀 컬러 위에 황금 외곽 링만 추가 (배경/보더 컬러는 팀이 결정) */
-.team-profile-block.team-block-self-mark {
-  box-shadow: 0 0 0 2px rgba(226,168,75,0.5), 0 0 10px rgba(226,168,75,0.18);
-}
-/* 현재 턴 강조 — 외곽선 글로우 (자기 마크와 합쳐질 때도 자연스럽게) */
+/* 팀 절대 컬러 보더 제거 — 사용자 요청 */
+.team-profile-block.team-block-blue { border: 1px solid var(--border); background: rgba(20,28,48,0.5); }
+.team-profile-block.team-block-red { border: 1px solid var(--border); background: rgba(20,28,48,0.5); }
+/* 현재 턴 플레이어만 — 팀 컬러로 외곽선 + 글로우 + 풀 opacity (1v1 강조 방식 차용) */
 .team-profile-block.is-current-turn {
-  box-shadow: 0 0 0 2px rgba(226,168,75,0.7), 0 0 14px rgba(226,168,75,0.4);
+  opacity: 1;
+  filter: none;
+}
+.team-profile-block.is-current-turn.team-block-blue {
+  border: 2px solid #60a5fa;
+  background: rgba(96,165,250,0.10);
+  box-shadow: 0 0 0 2px rgba(96,165,250,0.55), 0 0 14px rgba(96,165,250,0.45);
+}
+.team-profile-block.is-current-turn.team-block-red {
+  border: 2px solid #ef4444;
+  background: rgba(239,68,68,0.10);
+  box-shadow: 0 0 0 2px rgba(239,68,68,0.55), 0 0 14px rgba(239,68,68,0.45);
+}
+/* 내 캐릭터 표식 — 작은 황금 점 또는 "내 캐릭터" 라벨로만 (보더 시각은 팀 컬러가 우선) */
+.team-profile-block.team-block-self-mark .team-block-label {
+  color: var(--accent);
+  font-weight: 800;
 }
 .team-profile-block.team-block-self-mark.is-current-turn {
   box-shadow: 0 0 0 3px rgba(226,168,75,0.7), 0 0 16px rgba(226,168,75,0.45);
@@ -2154,18 +2161,25 @@ body {
   background: rgba(255,255,255,0.04);
   color: var(--text-dim);
   transition: all 0.2s;
-  opacity: 0.7;
+  opacity: 0.55;
+  margin: 0 2px;
 }
-.turn-order-dot.team-blue { border-color: rgba(96,165,250,0.5); color: #93c5fd; }
-.turn-order-dot.team-red  { border-color: rgba(239,68,68,0.5); color: #fca5a5; }
-.turn-order-dot.current {
-  opacity: 1;
-  font-weight: 700;
-  transform: scale(1.08);
-  background: rgba(240,192,64,0.18);
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(240,192,64,0.25);
+.turn-order-dot.team-blue { border-color: rgba(96,165,250,0.45); color: #93c5fd; }
+.turn-order-dot.team-red  { border-color: rgba(239,68,68,0.45); color: #fca5a5; }
+/* 현재 차례 — 해당 팀 컬러로 강하게 강조 (1v1 양식 부활) */
+.turn-order-dot.current.team-blue {
+  opacity: 1; font-weight: 800; transform: scale(1.1);
+  background: rgba(96,165,250,0.22);
+  border-color: #60a5fa;
+  color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(96,165,250,0.5), 0 0 8px rgba(96,165,250,0.4);
+}
+.turn-order-dot.current.team-red {
+  opacity: 1; font-weight: 800; transform: scale(1.1);
+  background: rgba(239,68,68,0.22);
+  border-color: #ef4444;
+  color: #fca5a5;
+  box-shadow: 0 0 0 2px rgba(239,68,68,0.5), 0 0 8px rgba(239,68,68,0.4);
 }
 .turn-order-dot.me:not(.current) {
   border-style: dashed;
