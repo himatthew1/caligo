@@ -700,6 +700,304 @@ function transitionToTeamDraft(room) {
     });
   }
   startTimer(room, 'team_draft', () => teamDraftTimeout(room));
+  // AI 봇 자동 픽 (각 봇마다 1.5초 ~ 3.5초 사이 무작위 지연)
+  for (const p of room.players) {
+    if (p.socketId === 'AI') {
+      const delay = 1500 + Math.random() * 2000;
+      setTimeout(() => aiTeamDraftPick(room, p.index), delay);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ── 팀전 AI 자동 행동 ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+
+// AI 드래프트 — 팀원과 안 겹치는 캐릭터 2개 무작위 픽
+function aiTeamDraftPick(room, idx) {
+  if (!room || room.phase !== 'team_draft') return;
+  const p = room.players[idx];
+  if (!p || p.socketId !== 'AI' || room.draftDone[idx]) return;
+  const teammates = getTeammates(room, idx);
+  const forbidden = new Set();
+  for (const tIdx of teammates) {
+    const tmDraft = room.players[tIdx]?.draft || {};
+    if (tmDraft.pick1) forbidden.add(tmDraft.pick1);
+    if (tmDraft.pick2) forbidden.add(tmDraft.pick2);
+  }
+  // 모든 티어에서 후보 — 다양한 티어가 섞이도록
+  const allTypes = ALL_CHARS.map(c => c.type).filter(t => !forbidden.has(t));
+  const shuffled = allTypes.slice().sort(() => Math.random() - 0.5);
+  const pick1 = shuffled[0];
+  const pick2 = shuffled.find(t => t !== pick1);
+  if (!pick1 || !pick2) return;
+  p.draft = { pick1, pick2 };
+  // 팀원에게 진행 상황 브로드캐스트
+  const teamMembers = room.teams[p.teamId] || [];
+  const teamDrafts = teamMembers.map(i => ({
+    idx: i,
+    name: room.players[i]?.name,
+    draft: { pick1: room.players[i]?.draft?.pick1 || null, pick2: room.players[i]?.draft?.pick2 || null },
+    confirmed: !!room.draftDone[i],
+  }));
+  for (const tIdx of teamMembers) {
+    const tp = room.players[tIdx];
+    if (tp && tp.socketId && tp.socketId !== 'AI') {
+      io.to(tp.socketId).emit('team_draft_pick_update', { playerIdx: idx, slot: 'pick2', type: pick2, teamDrafts });
+    }
+  }
+  // 확정
+  room.draftDone[idx] = true;
+  io.to(room.id).emit('team_draft_status', {
+    draftDone: [...room.draftDone],
+    doneNames: room.players.filter((_, i) => room.draftDone[i]).map(p2 => p2.name),
+  });
+  // 모두 확정되면 다음 페이즈로
+  if (room.draftDone.every(d => d)) {
+    transitionToTeamHp(room);
+  }
+}
+
+// AI HP 분배 — 5/5 기본, 쌍둥이 있으면 그쪽 6/4
+function aiTeamHpDistribute(room, idx) {
+  if (!room || room.phase !== 'team_hp') return;
+  const p = room.players[idx];
+  if (!p || p.socketId !== 'AI' || room.hpDone[idx]) return;
+  const draft = p.draft || {};
+  const t1Twin = draft.pick1 === 'twins';
+  const t2Twin = draft.pick2 === 'twins';
+  let hps = [5, 5];
+  if (t1Twin) hps = [6, 4];
+  else if (t2Twin) hps = [4, 6];
+  p.hpDist = { pick1: hps[0], pick2: hps[1] };
+  // 쌍둥이 분할
+  if (t1Twin || t2Twin) {
+    const twinHp = t1Twin ? hps[0] : hps[1];
+    const elder = Math.ceil(twinHp / 2);
+    const younger = twinHp - elder;
+    p.hpDist.twinElder = elder;
+    p.hpDist.twinYounger = younger;
+  }
+  // 실제 pieces 생성 (이게 누락되면 alive=0으로 게임 시작됨)
+  p.pieces = buildTeamPieces(p.draft, p.hpDist);
+  room.hpDone[idx] = true;
+  io.to(room.id).emit('team_hp_status', {
+    hpDone: [...room.hpDone],
+    doneNames: room.players.filter((_, i) => room.hpDone[i]).map(p2 => p2.name),
+  });
+  if (room.hpDone.every(d => d)) {
+    transitionToTeamReveal(room);
+  }
+}
+
+// AI 배치 — 자기 슬롯에 해당하는 행에 가로로 배치
+function aiTeamPlace(room, idx) {
+  if (!room || room.phase !== 'team_placement') return;
+  const p = room.players[idx];
+  if (!p || p.socketId !== 'AI' || room.placementDone[idx]) return;
+  const bounds = room.boardBounds || { min: 0, max: 6 };
+  // 팀별 행 — 블루팀(0): 위쪽 0,2 / 레드팀(1): 아래쪽 6,4
+  const teamId = p.teamId;
+  const slotPos = p.slotPos ?? 0;
+  let myRow;
+  if (teamId === 0) myRow = slotPos === 0 ? bounds.min : bounds.min + 2;
+  else myRow = slotPos === 0 ? bounds.max : bounds.max - 2;
+  // 점유된 칸 피하기 (팀원·자신)
+  const occupied = new Set();
+  const teammates = getTeammates(room, idx);
+  for (const tIdx of [idx, ...teammates]) {
+    const tp = room.players[tIdx];
+    if (!tp) continue;
+    for (const pc of (tp.pieces || [])) {
+      if (pc.col >= 0 && pc.row >= 0) occupied.add(`${pc.col},${pc.row}`);
+    }
+  }
+  // 각 piece를 빈 칸에 배치 — myRow 우선, 부족하면 인접 행
+  const tryRows = [myRow, myRow + (teamId === 0 ? 1 : -1), myRow + (teamId === 0 ? 2 : -2)];
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const piece = p.pieces[pi];
+    if (piece.col >= 0) continue;
+    let placed = false;
+    for (const r of tryRows) {
+      if (r < bounds.min || r > bounds.max) continue;
+      for (let c = bounds.min; c <= bounds.max; c++) {
+        const key = `${c},${r}`;
+        if (occupied.has(key)) continue;
+        piece.col = c; piece.row = r;
+        occupied.add(key);
+        placed = true;
+        break;
+      }
+      if (placed) break;
+    }
+  }
+  // 확정
+  if (p.pieces.every(pc => pc.col >= 0)) {
+    room.placementDone[idx] = true;
+    io.to(room.id).emit('team_placement_status', {
+      placementDone: [...room.placementDone],
+      doneNames: room.players.filter((_, i) => room.placementDone[i]).map(p2 => p2.name),
+    });
+    if (room.placementDone.every(d => d)) {
+      startTeamGameFromRoom(room);
+    }
+  }
+}
+
+// AI 게임 턴 — 단순 휴리스틱: 공격 가능하면 공격, 아니면 무작위 이동
+function aiTeamTakeTurn(room, idx) {
+  if (!room || room.phase !== 'game') return;
+  if (room.currentPlayerIdx !== idx) return;
+  const p = room.players[idx];
+  if (!p || p.socketId !== 'AI') return;
+  const bounds = room.boardBounds;
+  const myAlive = p.pieces.filter(pc => pc.alive);
+  if (myAlive.length === 0) {
+    endTurn(room);
+    return;
+  }
+  // 적 좌표 (visible: 표식 상태이거나 공격 시 발견된 좌표는 col/row 채워져있음)
+  // 실 게임에선 적 위치는 안 보이지만, AI는 서버측이므로 모든 정보 접근 가능
+  const enemyIdxs = getEnemyIndices(room, idx);
+  const enemies = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
+    .map(pc => ({ ...pc, ownerIdx: ei }))
+    .filter(pc => pc.alive));
+  // 1) 공격 후보 검색 — 각 piece별로 공격 셀 안에 적이 있는지
+  let bestAttack = null;
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const piece = p.pieces[pi];
+    if (!piece.alive) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
+    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, rats: room.rats[idx] });
+    let hits = 0;
+    for (const c of atkCells) {
+      const e = enemies.find(en => en.col === c.col && en.row === c.row);
+      if (e) hits++;
+    }
+    if (hits > 0 && (!bestAttack || hits > bestAttack.hits)) {
+      bestAttack = { pieceIdx: pi, hits };
+    }
+  }
+  if (bestAttack) {
+    // 공격 실행 (시뮬레이션 헬퍼)
+    aiTeamExecuteAttack(room, idx, bestAttack.pieceIdx);
+    return;
+  }
+  // 2) 이동 — 랜덤 piece, 4방향 중 빈 칸으로 1칸
+  const occupied = new Set();
+  for (const pl of room.players) {
+    for (const pc of (pl.pieces || [])) {
+      if (pc.alive && pc.col >= 0) occupied.add(`${pc.col},${pc.row}`);
+    }
+  }
+  for (const r of (room.rats || []).flat()) {
+    if (r) occupied.add(`${r.col},${r.row}`);
+  }
+  const piecesToTry = myAlive.slice().sort(() => Math.random() - 0.5);
+  for (const piece of piecesToTry) {
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
+    for (const [dc, dr] of dirs) {
+      const nc = piece.col + dc, nr = piece.row + dr;
+      if (nc < bounds.min || nc > bounds.max || nr < bounds.min || nr > bounds.max) continue;
+      if (occupied.has(`${nc},${nr}`)) continue;
+      // 이동 적용
+      const prevCol = piece.col, prevRow = piece.row;
+      piece.col = nc; piece.row = nr;
+      p._lastActionType = 'move';
+      // 트랩 체크 (적팀의 트랩만)
+      for (const eIdx of getEnemyIndices(room, idx)) {
+        const arr = room.boardObjects[eIdx] || [];
+        const ti = arr.findIndex(o => o.type === 'trap' && o.col === nc && o.row === nr);
+        if (ti >= 0) {
+          arr.splice(ti, 1);
+          const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: nc, row: nr }, piece, eIdx, 2, false, idx);
+          piece.hp = Math.max(0, piece.hp - dmg);
+          if (piece.hp <= 0) handleDeath(room, piece, idx);
+          break;
+        }
+      }
+      p.actionDone = true;
+      // 같은 팀에게 이동 알림 (애니메이션용)
+      for (const tIdx of getTeammates(room, idx)) {
+        const tp = room.players[tIdx];
+        if (tp && tp.socketId && tp.socketId !== 'AI') {
+          io.to(tp.socketId).emit('team_ally_moved', {
+            moverName: p.name, pieceType: piece.type, pieceIcon: piece.icon, pieceName: piece.name,
+            subUnit: piece.subUnit, prevCol, prevRow, col: nc, row: nr,
+          });
+        }
+      }
+      // 적팀에게도 표식 상태인 경우 알림 — 단순화: 모두에게 broadcastTeamGameState로 갱신
+      broadcastTeamGameState(room);
+      // 1초 후 턴 종료
+      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+      return;
+    }
+  }
+  // 이동 실패 — 그냥 턴 종료
+  endTurn(room);
+}
+
+// AI 공격 헬퍼 — processAttack을 직접 호출
+function aiTeamExecuteAttack(room, idx, pieceIdx) {
+  const p = room.players[idx];
+  const piece = p.pieces[pieceIdx];
+  if (!piece || !piece.alive) { endTurn(room); return; }
+  const bounds = room.boardBounds;
+  const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, rats: room.rats[idx] });
+  const hitResults = processAttack(room, idx, piece, atkCells);
+  p.actionDone = true;
+  // 모든 인간에게 결과 브로드캐스트 (broadcastTeamGameState로 자연스럽게 갱신됨)
+  // 피격된 각 적 플레이어에게 being_attacked
+  const defenderHitsByOwner = new Map();
+  for (const h of hitResults) {
+    if (h.defOwnerIdx === undefined) continue;
+    if (!defenderHitsByOwner.has(h.defOwnerIdx)) defenderHitsByOwner.set(h.defOwnerIdx, []);
+    defenderHitsByOwner.get(h.defOwnerIdx).push(h);
+  }
+  for (const [ownerIdx, hits] of defenderHitsByOwner.entries()) {
+    const defPlayer = room.players[ownerIdx];
+    if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
+    io.to(defPlayer.socketId).emit('being_attacked', {
+      atkCells,
+      hitPieces: hits.map(h => {
+        const dp = defPlayer.pieces.find(pp => pp.col === h.col && pp.row === h.row);
+        return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+          name: dp?.name, icon: dp?.icon,
+          redirectedToBodyguard: h.redirectedToBodyguard || false,
+          bodyguardRedirect: h.bodyguardRedirect || false };
+      }),
+      yourPieces: pieceSummary(defPlayer.pieces),
+    });
+  }
+  // 같은 팀에게 team_ally_hit
+  for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
+    const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+    for (const allyIdx of allyIdxs) {
+      const ally = room.players[allyIdx];
+      if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
+      io.to(ally.socketId).emit('team_ally_hit', {
+        atkCells,
+        victimIdx: defOwnerIdx,
+        victimName: room.players[defOwnerIdx].name,
+        hitPieces: hits.map(h => {
+          const dp = room.players[defOwnerIdx].pieces.find(pp => pp.col === h.col && pp.row === h.row);
+          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+            name: dp?.name, icon: dp?.icon,
+            redirectedToBodyguard: h.redirectedToBodyguard || false,
+            bodyguardRedirect: h.bodyguardRedirect || false };
+        }),
+      });
+    }
+  }
+  emitToSpectators(room, 'spectator_log', {
+    msg: hitResults.length > 0
+      ? `⚔ ${p.name}의 ${piece.icon}${piece.name}! ${hitResults.length}곳 공격.`
+      : `⚔ ${p.name}의 ${piece.icon}${piece.name}! 공격 빗나감.`,
+    type: 'hit', playerIdx: idx,
+  });
+  // 1초 후 턴 종료
+  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 1000);
 }
 
 function teamDraftTimeout(room) {
@@ -748,6 +1046,13 @@ function transitionToTeamHp(room) {
     });
   }
   startTimer(room, 'team_hp', () => teamHpTimeout(room));
+  // AI 봇 자동 분배
+  for (const p of room.players) {
+    if (p.socketId === 'AI') {
+      const delay = 1500 + Math.random() * 1500;
+      setTimeout(() => aiTeamHpDistribute(room, p.index), delay);
+    }
+  }
 }
 
 function teamHpTimeout(room) {
@@ -804,6 +1109,10 @@ function transitionToTeamReveal(room) {
   clearTimer(room);
   room.phase = 'team_reveal';
   room.revealDone = Array(room.playerCount).fill(false);
+  // AI 봇은 즉시 자동 확인
+  for (const p of room.players) {
+    if (p.socketId === 'AI') room.revealDone[p.index] = true;
+  }
   // 4명의 모든 pieces를 전체 공개
   const allPlayerPieces = room.players.map(p => ({
     idx: p.index,
@@ -821,6 +1130,12 @@ function transitionToTeamReveal(room) {
     });
   }
   startTimer(room, 'team_reveal', () => teamRevealTimeout(room));
+  // 모두 봇이면 즉시 다음 페이즈로 (이론상 가능)
+  if (room.revealDone.every(d => d)) {
+    setTimeout(() => {
+      if (room.phase === 'team_reveal') transitionToTeamPlacement(room);
+    }, 3000);
+  }
 }
 
 function teamRevealTimeout(room) {
@@ -869,6 +1184,13 @@ function transitionToTeamPlacement(room) {
     });
   }
   startTimer(room, 'team_placement', () => teamPlacementTimeout(room));
+  // AI 봇 자동 배치
+  for (const p of room.players) {
+    if (p.socketId === 'AI') {
+      const delay = 2000 + Math.random() * 1500;
+      setTimeout(() => aiTeamPlace(room, p.index), delay);
+    }
+  }
 }
 
 // 팀 배치 구역
@@ -962,6 +1284,14 @@ function startTeamGameFromRoom(room) {
   emitToSpectators(room, 'spectator_log', { msg: `팀전 게임 시작! 선공: ${first?.name || '?'}`, type: 'event' });
   // 턴 타이머 시작
   startTimer(room, 'game', () => turnTimeout(room));
+  // 첫 플레이어가 AI라면 자동으로 턴 시작
+  if (first && first.socketId === 'AI') {
+    setTimeout(() => {
+      if (room.phase === 'game' && room.currentPlayerIdx === first.index) {
+        aiTeamTakeTurn(room, first.index);
+      }
+    }, 3000);
+  }
 }
 
 // ── 초기 공개: 드래프트 직후, 상대 캐릭터 타입 공개 ──
@@ -2236,8 +2566,15 @@ function endTurn(room) {
   if (room.mode === 'team') {
     broadcastTeamGameState(room, turnData);
     emitToSpectators(room, 'spectator_log', { msg: `[턴 ${room.turnNumber}] ${cur.name}의 차례`, type: 'system', playerIdx: curIdx });
-    // TODO: 팀전 관전자 상태 (Phase 5에서 보강)
     startTimer(room, 'game', () => turnTimeout(room));
+    // 현재 차례가 AI라면 자동 행동 트리거 (2.5초 지연)
+    if (cur && cur.socketId === 'AI') {
+      setTimeout(() => {
+        if (room.phase === 'game' && room.currentPlayerIdx === curIdx) {
+          aiTeamTakeTurn(room, curIdx);
+        }
+      }, 2500);
+    }
     return;
   }
 
@@ -4152,6 +4489,72 @@ io.on('connection', (socket) => {
     room.teams[targetTeam].push(idx);
     room.players[idx].teamId = targetTeam;
     room.players[idx].slotPos = assignedPos;
+    broadcastTeamRoomState(room);
+  });
+
+  // AI 봇 추가 — 빈 슬롯에 AI 플레이어 삽입 (혼자/소수 인원으로 4인 팀전 즐길 수 있게)
+  socket.on('team_add_bot', ({ targetTeam, targetPos } = {}) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
+    if (room.players.length >= 4) {
+      socket.emit('err', { msg: '방이 가득 찼습니다.' });
+      return;
+    }
+    // 어느 슬롯에 넣을지 결정 (지정 우선, 없으면 자동 균형)
+    let team, pos;
+    if (targetTeam === 0 || targetTeam === 1) {
+      team = targetTeam;
+      const occupied = new Set(room.teams[team].map(i => room.players[i]?.slotPos));
+      pos = (targetPos === 0 || targetPos === 1) && !occupied.has(targetPos)
+        ? targetPos
+        : (!occupied.has(0) ? 0 : (!occupied.has(1) ? 1 : null));
+      if (pos == null) {
+        socket.emit('err', { msg: '해당 팀에 빈 자리가 없습니다.' });
+        return;
+      }
+    } else {
+      team = (room.teams[0].length <= room.teams[1].length) ? 0 : 1;
+      const occupied = new Set(room.teams[team].map(i => room.players[i]?.slotPos));
+      pos = !occupied.has(0) ? 0 : (!occupied.has(1) ? 1 : null);
+      if (pos == null) team = 1 - team;
+      const occupied2 = new Set(room.teams[team].map(i => room.players[i]?.slotPos));
+      pos = !occupied2.has(0) ? 0 : (!occupied2.has(1) ? 1 : null);
+      if (pos == null) {
+        socket.emit('err', { msg: '빈 자리가 없습니다.' });
+        return;
+      }
+    }
+    const idx = room.players.length;
+    // 봇 이름 부여 — 팀 색상 + 슬롯 번호 (예: "블루봇 MK-1", "레드봇 MK-2")
+    const teamLabel = team === 0 ? '블루봇' : '레드봇';
+    const botName = `${teamLabel} MK-${pos + 1}`;
+    room.players.push({
+      socketId: 'AI', name: botName, index: idx,
+      pieces: [], draft: null, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: team, slotPos: pos,
+    });
+    room.teams[team].push(idx);
+    if (!room.aiBrain) room.aiBrain = initAiBrain();
+    broadcastTeamRoomState(room);
+  });
+
+  // AI 봇 제거 — 빈 슬롯에 다른 사람을 들이고 싶을 때
+  socket.on('team_remove_bot', ({ targetTeam, targetPos } = {}) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.mode !== 'team' || room.phase !== 'waiting') return;
+    if (targetTeam !== 0 && targetTeam !== 1) return;
+    const ti = (room.teams[targetTeam] || []).find(i =>
+      room.players[i]?.socketId === 'AI' && room.players[i]?.slotPos === targetPos
+    );
+    if (ti === undefined) return;
+    // 제거 + 인덱스 재정렬
+    room.players.splice(ti, 1);
+    for (let t = 0; t < 2; t++) {
+      room.teams[t] = room.teams[t].filter(i => i !== ti).map(i => i > ti ? i - 1 : i);
+    }
+    room.players.forEach((p, i) => { p.index = i; });
     broadcastTeamRoomState(room);
   });
 

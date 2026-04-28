@@ -2086,7 +2086,7 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
     if (r.type === 'draw') {
       if (iconEl) iconEl.textContent = '🤝';
       if (titleEl) { titleEl.textContent = '무승부'; titleEl.style.color = 'var(--muted)'; }
-      if (subEl) subEl.innerHTML = `보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.<br><span class="muted">🟦 블루팀: ${escapeHtmlGlobal((winners || []).join(', '))}<br>🟥 레드팀: ${escapeHtmlGlobal((losers || []).join(', '))}</span>`;
+      if (subEl) subEl.innerHTML = '보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.';
       return;
     }
 
@@ -2146,7 +2146,8 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
       }
     }
     if (subEl) {
-      subEl.innerHTML = `${sub}<br><span class="muted">🟦 블루팀: ${escapeHtmlGlobal(winnerTeamId === 0 ? (winners || []).join(', ') : (losers || []).join(', '))}<br>🟥 레드팀: ${escapeHtmlGlobal(winnerTeamId === 0 ? (losers || []).join(', ') : (winners || []).join(', '))}</span>`;
+      // 팀 구분(🟦 블루팀: ... 🟥 레드팀: ...) 중복 표시 제거 — 위 sub 문구만 노출
+      subEl.innerHTML = sub;
     }
   }, delay);
 });
@@ -2375,30 +2376,47 @@ function renderTeamWaitingRoom() {
   document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
     const teamId = parseInt(slotEl.dataset.team, 10);
     const pos = parseInt(slotEl.dataset.pos, 10);
-    // teamId + slotPos 일치하는 플레이어 찾기
     const player = (S.teamPlayers || []).find(p => p.teamId === teamId && (p.slotPos ?? -1) === pos);
-    slotEl.classList.remove('filled', 'self');
+    slotEl.classList.remove('filled', 'self', 'ai-bot');
     if (player) {
       const isMe = player.idx === S.playerIdx;
+      const isBot = (player.name || '').includes('🤖') || player.isAI;
       slotEl.classList.add('filled');
       if (isMe) slotEl.classList.add('self');
+      if (isBot) slotEl.classList.add('ai-bot');
       slotEl.innerHTML = `
         <span class="slot-nickname">${escapeHtmlGlobal(player.name)}</span>
         ${isMe ? '<span class="slot-you-badge">나</span>' : ''}
+        ${isBot ? '<button class="slot-bot-remove" data-bot-remove="1" title="AI 봇 제거">×</button>' : ''}
       `;
     } else {
-      slotEl.innerHTML = `<span class="team-slot-label">빈 슬롯</span>`;
+      slotEl.innerHTML = `
+        <span class="team-slot-label">빈 슬롯</span>
+        <button class="slot-add-bot" data-add-bot="1" title="이 자리에 AI 봇 추가">🤖 AI 봇 추가</button>
+      `;
     }
   });
 }
 
-// 팀 슬롯 클릭 → 비어있는 어떤 슬롯이든 이동 (같은 팀 내 자리 이동도 가능)
+// 팀 슬롯 클릭 — 빈 슬롯이면 자리 이동, AI 봇 추가/제거 버튼이면 별도 처리
 document.querySelectorAll('#screen-team-waiting .team-slot').forEach(slotEl => {
-  slotEl.addEventListener('click', () => {
+  slotEl.addEventListener('click', (e) => {
     if (!S.isTeamMode) return;
     const teamId = parseInt(slotEl.dataset.team, 10);
     const pos = parseInt(slotEl.dataset.pos, 10);
-    // 차있는 슬롯 클릭은 무시 (자기 자신 슬롯도)
+    // AI 봇 추가
+    if (e.target.dataset?.addBot === '1') {
+      e.stopPropagation();
+      socket.emit('team_add_bot', { targetTeam: teamId, targetPos: pos });
+      return;
+    }
+    // AI 봇 제거
+    if (e.target.dataset?.botRemove === '1') {
+      e.stopPropagation();
+      socket.emit('team_remove_bot', { targetTeam: teamId, targetPos: pos });
+      return;
+    }
+    // 차있는 슬롯 (사람) 클릭은 무시
     if (slotEl.classList.contains('filled')) return;
     socket.emit('team_change', { targetTeam: teamId, targetPos: pos });
   });
