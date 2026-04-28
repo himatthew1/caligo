@@ -5220,6 +5220,16 @@ function showTwinSplit(twinTierHp) {
   panel.classList.remove('hidden');
   const controls = document.getElementById('hp-twin-controls');
 
+  // 쌍둥이 분배 진입 시 — 메인 HP 분배 UI 잠금 (+/- 버튼·슬라이더 비활성, 시각적으로도 흐림)
+  const hpPiecesEl = document.getElementById('hp-pieces');
+  if (hpPiecesEl) {
+    hpPiecesEl.classList.add('hp-locked-during-twin');
+    hpPiecesEl.querySelectorAll('.hp-btn, .hp-slider').forEach(el => {
+      el.disabled = true;
+      el.setAttribute('data-twin-locked', '1');
+    });
+  }
+
   let elderHp = Math.ceil(twinTierHp / 2);
   let youngerHp = twinTierHp - elderHp;
 
@@ -5241,7 +5251,8 @@ function showTwinSplit(twinTierHp) {
           <span class="hp-value">${youngerHp}</span>
           <button class="hp-btn twin-btn" data-who="younger" data-delta="1">+</button>
         </div>
-      </div>`;
+      </div>
+      <button id="btn-twin-back" class="btn btn-muted btn-small" style="margin-top:8px">← 다시 분배</button>`;
 
     controls.querySelectorAll('.twin-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -5260,6 +5271,22 @@ function showTwinSplit(twinTierHp) {
         render();
       });
     });
+    // 뒤로 — 쌍둥이 분배 취소하고 메인 HP 분배로 돌아가기 (잠금 해제)
+    const backBtn = controls.querySelector('#btn-twin-back');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        unlockMainHpUI();
+        panel.classList.add('hidden');
+        // 확정 버튼 원래 동작 복원
+        const cBtn = document.getElementById('btn-hp-confirm');
+        cBtn.textContent = '확정';
+        cBtn.onclick = null;
+        cBtn.disabled = false;
+        // 메인 HP 합계가 10이 아니면 비활성화
+        if (typeof updateHpUI === 'function') updateHpUI();
+        if (typeof updateTeamHpUIShared === 'function') updateTeamHpUIShared();
+      });
+    }
   }
 
   render();
@@ -5273,7 +5300,19 @@ function showTwinSplit(twinTierHp) {
     socket.emit(ev, { twinSplit: [elderHp, youngerHp] });
     btn.disabled = true;
     btn.onclick = null;
+    unlockMainHpUI();   // 분배 확정 시에도 잠금 해제 (다음 화면 진입 전 상태 복원)
   };
+}
+
+// 쌍둥이 분배 종료 시 메인 HP UI 잠금 해제
+function unlockMainHpUI() {
+  const hpPiecesEl = document.getElementById('hp-pieces');
+  if (!hpPiecesEl) return;
+  hpPiecesEl.classList.remove('hp-locked-during-twin');
+  hpPiecesEl.querySelectorAll('[data-twin-locked="1"]').forEach(el => {
+    el.disabled = false;
+    el.removeAttribute('data-twin-locked');
+  });
 }
 
 document.getElementById('btn-hp-confirm').addEventListener('click', () => {

@@ -1447,6 +1447,25 @@ body {
 .hp-btn:hover { background: var(--accent); color: #1a1000; }
 .hp-value { font-size: 1.4rem; font-weight: 800; color: var(--accent); min-width: 30px; text-align: center; }
 .hp-total-bar { font-size: 1rem; color: var(--text-dim); margin-bottom: 16px; }
+/* 쌍둥이 HP 분배 중 — 메인 HP UI 잠금 (시각적으로 흐림 + 클릭 불가) */
+.hp-locked-during-twin {
+  opacity: 0.45;
+  filter: grayscale(0.4);
+  pointer-events: none;
+  position: relative;
+}
+.hp-locked-during-twin::after {
+  content: '🔒 쌍둥이 분배 중 — 다른 슬롯 수정 불가';
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(20, 24, 40, 0.92);
+  color: var(--accent);
+  font-size: 0.78rem; font-weight: 700;
+  padding: 6px 14px; border-radius: 999px;
+  border: 1px solid rgba(226, 168, 75, 0.4);
+  pointer-events: none;
+  white-space: nowrap;
+}
 .hp-total-bar #hp-remaining { color: var(--accent); font-weight: 800; font-size: 1.2rem; }
 
 /* 쌍둥이 HP 분배 */
