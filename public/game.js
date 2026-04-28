@@ -6936,7 +6936,9 @@ function showActionBar(enabled) {
     // ── 스킬 가능 여부 ──
     // 스킬 보유 말이 살아있어야 함
     // + 사용 가능한 스킬이 하나라도 남아있는지 확인
-    const mySp = (S.sp[S.playerIdx] || 0) + (S.instantSp[S.playerIdx] || 0);
+    // 팀모드: SP 풀이 [팀A, 팀B] 인덱싱이라 S.teamId 사용 / 1v1: S.playerIdx
+    const skSpSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+    const mySp = (S.sp[skSpSlot] || 0) + (S.instantSp[skSpSlot] || 0);
     let hasUsableSkill = false;
     for (const p of alivePieces) {
       if (!p.hasSkill && (!p.skills || p.skills.length === 0)) continue;
