@@ -486,7 +486,7 @@
       <div id="my-pieces-info"></div>
     </div>
 
-    <!-- 중앙: 보드 + 컨트롤 -->
+    <!-- 중앙: 보드 + 컨트롤 + 전투 로그 -->
     <div class="center-panel">
       <div class="turn-banner" id="turn-banner">...</div>
       <div id="game-board" class="board"></div>
@@ -499,18 +499,17 @@
         <button id="btn-surrender" class="btn btn-surrender" disabled>🏳 기권</button>
       </div>
       <div id="action-hint" class="action-hint"></div>
+      <!-- 전투 로그 — 보드 아래, 내부 스크롤만 -->
+      <div class="center-log-wrap">
+        <h3 class="center-log-title">전투 로그</h3>
+        <div id="game-log" class="game-log"></div>
+      </div>
     </div>
 
     <!-- 오른쪽: 상대 말 -->
     <div class="side-panel right-panel">
       <h3>상대방 말</h3>
       <div id="opp-pieces-info"></div>
-    </div>
-
-    <!-- 맨 오른쪽: 전투 로그 -->
-    <div class="side-panel log-panel">
-      <h3>전투 로그</h3>
-      <div id="game-log" class="game-log"></div>
     </div>
   </div>
 </div>

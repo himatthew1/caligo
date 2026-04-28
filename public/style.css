@@ -2816,7 +2816,26 @@ body {
 }
 
 /* ── 로그 ── */
-.game-log { display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto; }
+.game-log { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+/* 보드 아래 전투 로그 — 액션바·힌트 아래 위치, 내부 스크롤만 */
+.center-log-wrap {
+  width: 100%;
+  margin-top: 6px;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+.center-log-title {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--muted); margin: 0 0 8px 0; font-weight: 700;
+}
+.center-log-wrap .game-log {
+  max-height: 130px;       /* 짧게 — 페이지 스크롤 안 생기는 한계 */
+  overflow-y: auto;
+}
 /* (스크롤바 스타일은 상단 공용 커스텀 드래그바에서 처리) */
 .log-entry {
   background: var(--surface);
