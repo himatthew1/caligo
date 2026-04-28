@@ -823,6 +823,17 @@ body {
   display: flex; flex-direction: column; gap: 10px;
   padding-top: 8px;
 }
+/* 교환 드래프트는 6슬롯이 모두 보여야 하므로 살짝 컴팩트하게 */
+#screen-exchange .draft-sidebar { gap: 8px; }
+#screen-exchange .draft-slot { min-height: 68px; padding: 8px 10px; }
+#screen-exchange .draft-slot .slot-icon { font-size: 1.15rem; }
+#screen-exchange .draft-slot .slot-info .slot-name { font-size: 0.78rem; }
+#screen-exchange .draft-slot .slot-stats { font-size: 0.7rem; }
+#screen-exchange .sidebar-title { font-size: 0.85rem; margin-bottom: 2px; }
+#screen-exchange .exchange-opp-sidebar { margin-top: 8px; padding-top: 8px; }
+#screen-exchange #ex-opp-chars { gap: 8px; }
+#screen-exchange .draft-sidebar-btns { margin-top: 6px; }
+#screen-exchange .draft-sidebar-btns .btn-primary { padding: 9px; font-size: 0.85rem; }
 .sidebar-title {
   font-size: 0.9rem; font-weight: 700; color: var(--accent);
   text-align: center; margin-bottom: 4px;
@@ -2149,33 +2160,46 @@ body {
 .cell.twin-dimmed-cell,
 .cell.locked-dim-cell { pointer-events: none; }
 
-/* 팀전 HP 분배 — 팀원 패널 */
+/* 팀전 HP 분배 — 팀원 패널 (내 분배 영역과 동일 톤·정렬) */
 .team-hp-teammate-panel {
-  margin-top: 18px;
-  padding: 12px;
-  background: rgba(96,165,250,0.06);
+  margin-top: 24px;
+  padding: 16px;
+  background: rgba(96,165,250,0.05);
   border: 1px dashed rgba(96,165,250,0.4);
-  border-radius: 10px;
+  border-radius: 12px;
+  width: 100%;
+  box-sizing: border-box;
 }
 .teammate-hp-title {
-  margin: 0 0 6px 0;
-  font-size: 0.85rem;
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
   color: #60a5fa;
   font-weight: 700;
+  text-align: center;
 }
-.teammate-hp-row {
-  display: flex; gap: 12px; align-items: center;
-  font-size: 0.88rem;
+.team-hp-teammate-panel .hp-piece-rows {
+  margin: 0 0 12px 0;
+  gap: 12px;  /* 내 행보다 살짝 줄여 컴팩트 */
 }
-.teammate-hp-row .hp-slot {
-  padding: 4px 10px;
-  background: rgba(255,255,255,0.04);
-  border-radius: 6px;
+.team-hp-teammate-panel .hp-piece-row-readonly {
+  opacity: 0.92;
+  background: rgba(255,255,255,0.03);
+  padding: 12px 14px;  /* 내 행보다 약간 작게 */
 }
-.teammate-hp-row .hp-total {
-  margin-left: auto;
+.team-hp-teammate-panel .hp-input-readonly {
+  pointer-events: none;
+}
+.team-hp-teammate-panel .hp-value {
+  font-size: 1.4rem;
+  font-weight: 800;
   color: var(--accent);
-  font-weight: 700;
+  min-width: 24px;
+  text-align: center;
+}
+.teammate-hp-total {
+  text-align: right;
+  font-size: 0.82rem;
+  color: var(--muted);
 }
 
 /* 배치 페이즈 — 팀원 말 표시 (1v1 placement-board 재활용) */

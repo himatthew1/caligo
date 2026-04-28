@@ -1193,7 +1193,7 @@ socket.on('team_draft_confirmed', ({ pick1, pick2 }) => {
   S.teamDraftConfirmed = true;
   document.getElementById('btn-draft-confirm').disabled = true;
   document.getElementById('btn-draft-select').disabled = true;
-  showSkillToast('선택 확정. 다른 플레이어를 기다리는 중.', false, undefined, 'event');
+  // 대기 토스트 불필요 — 사이드바 진행도로 충분히 확인 가능
 });
 
 // 팀 드래프트 사이드바 — 내 2슬롯 + 팀원 2슬롯
@@ -1543,22 +1543,28 @@ function updateTeammateHpPanel() {
   }
   const hps = (S.teamTeammateHps && S.teamTeammateHps[tm.idx]) || [0, 0];
   const total = hps.reduce((a, b) => a + b, 0);
-  // 간략 표시 — 이모지 / 이름·태그 / HP 숫자 한 줄
+  // 내 HP 행과 동일 구조 — char-icon + hp-piece-label + 읽기전용 HP 값
   const types = [S.teamTeammateDraft.pick1, S.teamTeammateDraft.pick2];
+  const labels = ['1번 캐릭터', '2번 캐릭터'];
   const rows = types.map((t, i) => {
     const c = findChar(t);
     if (!c) return '';
     const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
-    return `<div class="teammate-hp-mini-row">
-      <span class="teammate-hp-mini-icon">${c.icon}</span>
-      <span class="teammate-hp-mini-name">${escapeHtmlGlobal(c.name)}${tagHtml}</span>
-      <span class="teammate-hp-mini-value">${hps[i]}</span>
+    return `<div class="hp-piece-row hp-piece-row-readonly">
+      <span class="char-icon">${c.icon}</span>
+      <div class="hp-piece-label">
+        <strong>${escapeHtmlGlobal(c.name)}${tagHtml}</strong>
+        <span>${labels[i]}</span>
+      </div>
+      <div class="hp-input-group hp-input-readonly">
+        <span class="hp-value">${hps[i]}</span>
+      </div>
     </div>`;
   }).join('');
   panel.innerHTML = `
     <h4 class="teammate-hp-title">${escapeHtmlGlobal(tm.name)}</h4>
-    <div class="teammate-hp-mini-rows">${rows}</div>
-    <div class="teammate-hp-mini-total">총합 ${total} / 10</div>
+    <div class="hp-piece-rows">${rows}</div>
+    <div class="teammate-hp-total">총합 ${total} / 10</div>
   `;
 }
 
@@ -1802,7 +1808,7 @@ socket.on('team_confirm_placement_ok', () => {
   S.teamPlacementConfirmed = true;
   document.getElementById('btn-placement-confirm').disabled = true;
   document.getElementById('btn-placement-confirm').textContent = '✅ 확정됨';
-  showSkillToast('배치 확정! 다른 플레이어를 기다리는 중...', false, undefined, 'event');
+  // 대기 토스트 불필요
 });
 
 socket.on('team_placement_status', ({ placementDone, doneNames }) => {
