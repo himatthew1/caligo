@@ -1202,7 +1202,7 @@ function renderTeamDraftSlots() {
   const findChar = (t) => all.find(c => c.type === t);
 
   // 내 슬롯
-  const renderMine = (slotId, type) => {
+  const renderMine = (slotId, label, type) => {
     const el = document.getElementById(slotId);
     if (!el) return;
     const c = type ? findChar(type) : null;
@@ -1211,6 +1211,7 @@ function renderTeamDraftSlots() {
       el.classList.add('filled');
       const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
       el.innerHTML = `
+        <span class="slot-tier">${label}</span>
         <span class="slot-icon">${c.icon}</span>
         <div class="slot-info">
           <span class="slot-name">${c.name} ${tagHtml}</span>
@@ -1229,12 +1230,12 @@ function renderTeamDraftSlots() {
       };
     } else {
       el.classList.add('empty');
-      el.innerHTML = `<span class="slot-empty-text">미선택</span>`;
+      el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
       el.onclick = null;
     }
   };
-  renderMine('draft-slot-1', S.teamDraft?.pick1);
-  renderMine('draft-slot-2', S.teamDraft?.pick2);
+  renderMine('draft-slot-1', '1번 캐릭터', S.teamDraft?.pick1);
+  renderMine('draft-slot-2', '2번 캐릭터', S.teamDraft?.pick2);
 
   // 팀원 픽 (사이드바 하단에 동적 추가)
   let tmContainer = document.getElementById('team-draft-teammate-slots');
@@ -1250,11 +1251,12 @@ function renderTeamDraftSlots() {
   if (tmContainer) {
     const tm = S.teamPlayers?.find(p => p.idx !== S.playerIdx && p.teamId === S.teamId);
     const tmName = tm ? tm.name : '팀원';
-    const renderTmSlot = (type) => {
+    const renderTmSlot = (type, label) => {
       const c = type ? findChar(type) : null;
       if (c) {
         const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
         return `<div class="draft-slot filled teammate-slot" data-tm-jump="${c.type}">
+          <span class="slot-tier">${label}</span>
           <span class="slot-icon">${c.icon}</span>
           <div class="slot-info">
             <span class="slot-name">${c.name} ${tagHtml}</span>
@@ -1263,13 +1265,14 @@ function renderTeamDraftSlots() {
         </div>`;
       }
       return `<div class="draft-slot empty teammate-slot">
+        <span class="slot-tier">${label}</span>
         <span class="slot-empty-text">미선택</span>
       </div>`;
     };
     tmContainer.innerHTML = `
       <h4 class="teammate-slots-title">${escapeHtmlGlobal(tmName)}의 조합</h4>
-      ${renderTmSlot(S.teamTeammatePicks?.pick1)}
-      ${renderTmSlot(S.teamTeammatePicks?.pick2)}
+      ${renderTmSlot(S.teamTeammatePicks?.pick1, '1번 캐릭터')}
+      ${renderTmSlot(S.teamTeammatePicks?.pick2, '2번 캐릭터')}
     `;
     // 팀원 슬롯 클릭 → 해당 캐릭터 슬라이드로 이동
     tmContainer.querySelectorAll('[data-tm-jump]').forEach(el => {
@@ -1392,14 +1395,13 @@ function renderTeamDraft() {
   });
 }
 
-function updateTeamDraftSlot(slotId, _label, type) {
-  // _label은 호환성 위해 받지만 사용 안 함 — 팀전 슬롯에는 N번 캐릭터 라벨 표시 X
+function updateTeamDraftSlot(slotId, label, type) {
   const el = document.getElementById(slotId);
   if (!el) return;
   if (!type) {
     el.classList.add('empty');
     el.classList.remove('filled');
-    el.innerHTML = `<span class="slot-empty-text">미선택</span>`;
+    el.innerHTML = `<span class="slot-tier">${label}</span><span class="slot-empty-text">미선택</span>`;
     return;
   }
   const all = [
@@ -1411,7 +1413,8 @@ function updateTeamDraftSlot(slotId, _label, type) {
   if (!c) return;
   el.classList.remove('empty');
   el.classList.add('filled');
-  el.innerHTML = `<span class="slot-icon-big">${c.icon || ''}</span>
+  el.innerHTML = `<span class="slot-tier">${label}</span>
+    <span class="slot-icon-big">${c.icon || ''}</span>
     <span class="slot-name-sm">${escapeHtmlGlobal(c.name || c.type)}</span>`;
 }
 
