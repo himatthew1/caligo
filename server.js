@@ -1048,7 +1048,29 @@ function aiTeamBestTargetCell(room, idx, piece) {
 // 팀전 AI 스킬 실행 — 1v1 aiExecSkill의 팀모드판 (idx를 받음)
 function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   const result = executeSkill(room, idx, pidx, skillId, params || {});
-  // executeSkill 내부에서 emit이 처리되지만 팀모드는 broadcastTeamGameState로 동기화
+  // 모든 비-AI 플레이어 + 관전자에게 스킬 사용 알림 (인간 use_skill 경로와 동일)
+  // 누락되면 팀원/적의 스킬 사용을 인지 불가 → 토스트·로그 누락
+  const skillPiece = room.players[idx]?.pieces[pidx];
+  if (skillPiece) {
+    const noticePayload = {
+      casterIdx: idx,
+      casterName: room.players[idx].name,
+      casterTeamId: room.players[idx].teamId,
+      skillUsed: {
+        icon: skillPiece.icon,
+        name: skillPiece.name,
+        skillName: skillPiece.skillName,
+      },
+      msg: (result && (result.oppMsg || result.msg)) || null,
+    };
+    for (const p of room.players) {
+      if (!p.socketId || p.socketId === 'AI' || p.index === idx) continue;
+      io.to(p.socketId).emit('team_skill_notice', noticePayload);
+    }
+    for (const s of (room.spectators || [])) {
+      io.to(s.socketId).emit('team_skill_notice', noticePayload);
+    }
+  }
   broadcastTeamGameState(room);
   return result;
 }
