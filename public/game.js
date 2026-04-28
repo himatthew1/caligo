@@ -2331,10 +2331,11 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     const posDisplayHtml = isAlly
       ? `<span class="my-piece-pos">${posText}</span>`
       : `<span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'};font-size:0.68rem">${posText ? `📍${posText}` : '생존'}</span>`;
+    const nameLenCls = getNameLengthClass(pc.name || pc.type);
     return `<div class="${baseCardClass} ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
-        <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
+        <strong class="${nameLenCls.trim()}">${escapeHtmlGlobal(pc.name || pc.type)}</strong>
         ${pc.tier ? `<span class="tier-badge">${pc.tier}T</span>` : ''}
         ${tagHtml}
         ${placedBadge}
@@ -7043,10 +7044,11 @@ function renderMyPieces() {
 
     card.style.position = 'relative';
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
+    const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
     card.innerHTML = `
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
-        <strong>${pc.name}</strong>
+        <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
       </div>
@@ -7082,6 +7084,15 @@ function renderMyPieces() {
 
     container.appendChild(card);
   }
+}
+
+// 이름 길이별 폰트 축소 클래스 — 한글 7+자면 살짝, 8+자면 더 줄임 (사이드 240px 한계 안에서 태그 잘림 방지)
+function getNameLengthClass(name) {
+  if (!name) return '';
+  const len = (name + '').length;
+  if (len >= 8) return ' name-vlong';
+  if (len >= 7) return ' name-long';
+  return '';
 }
 
 function renderStatusBadges(pc) {
@@ -7175,10 +7186,11 @@ function renderOppPieces() {
       : '';
 
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
+    const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
     card.innerHTML = `
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
-        <strong>${pc.name}</strong>
+        <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
         ${placedBadge}
