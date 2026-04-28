@@ -6759,8 +6759,7 @@ function renderTurnOrderDots() {
     const isCurrent = p.idx === S.currentPlayerIdx;
     const teamCls = p.teamId === 0 ? 'team-blue' : 'team-red';
     const cls = ['turn-order-dot', teamCls, isCurrent ? 'current' : '', isMe ? 'me' : ''].filter(Boolean).join(' ');
-    const suffix = isMe ? ' (나)' : '';
-    return `<span class="${cls}">${escapeHtmlGlobal(p.name)}${suffix}</span>`;
+    return `<span class="${cls}">${escapeHtmlGlobal(p.name)}</span>`;
   });
   return items.join('');
 }
