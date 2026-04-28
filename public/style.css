@@ -1918,11 +1918,15 @@ body {
   text-overflow: ellipsis;
   max-width: 200px;
 }
-/* 팀모드 my-piece-card 안의 캐릭터명 — 줄바꿈 금지 */
-.team-profile-block .my-piece-card .my-piece-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; display: inline-block; vertical-align: middle; }
+/* 팀모드 piece-card 안의 캐릭터명 — 줄바꿈 금지 (my/opp 둘 다 동일하게) */
+.team-profile-block .my-piece-card .my-piece-header strong,
+.team-profile-block .opp-piece-card .my-piece-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; display: inline-block; vertical-align: middle; }
 .team-profile-block .my-piece-header { flex-wrap: nowrap; }
 .team-profile-block .my-piece-header > * { flex-shrink: 0; }
 .team-profile-block .my-piece-header strong { flex-shrink: 1; }
+/* 미니헤더 줄바꿈 — 한 줄로 nowrap, overflow는 가로 스크롤 없이 ellipsis 효과 */
+.team-profile-block .piece-mini-headers { flex-wrap: nowrap; overflow: hidden; }
+.team-profile-block .piece-mini-headers .mini-header { flex-shrink: 0; }
 /* 라벨 컬러 — 팀 절대 기준 */
 .team-block-blue .team-block-label { color: #93c5fd; }
 .team-block-red .team-block-label { color: #fca5a5; }
@@ -2099,7 +2103,13 @@ body {
 .side-panel { width: 200px; flex-shrink: 0; }
 .log-panel { width: 220px; flex-shrink: 0; position: sticky; top: 60px; }
 .side-panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; }
-.center-panel { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+/* 보드 가운데, 사이드 프로필이 보드에 가까이 붙도록 — center-panel은 보드 폭만큼만 차지 */
+.game-layout { justify-content: center; gap: 12px; }
+.center-panel {
+  flex: 0 0 auto;
+  width: var(--board-w, auto);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
 
 .turn-banner {
   /* 보드 폭에 정확히 맞춤 — buildBoard가 --board-w 변수 설정 */
@@ -2107,9 +2117,9 @@ body {
   max-width: 100%;
   box-sizing: border-box;
   text-align: center;
-  padding: 10px 20px; border-radius: 8px;
+  padding: 5px 12px; border-radius: 6px;        /* 절반 사이즈 */
   background: var(--surface); border: 1px solid var(--border);
-  font-size: 0.95rem; font-weight: 600;
+  font-size: 0.78rem; font-weight: 600;          /* 절반 사이즈 */
 }
 .turn-banner.my-turn   { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12); }
 .turn-banner.opp-turn  { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.08); }
@@ -2821,25 +2831,29 @@ body {
 
 /* ── 로그 ── */
 .game-log { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
-/* 보드 아래 전투 로그 — 액션바·힌트 아래 위치, 내부 스크롤만 */
+/* 보드 아래 전투 로그 — 액션바·힌트 아래 위치, 내부 스크롤만 — 절반 사이즈로 컴팩트 */
 .center-log-wrap {
-  width: var(--board-w, 320px);  /* 보드 폭에 정확히 맞춤 */
+  width: var(--board-w, 320px);
   max-width: 100%;
-  margin-top: 6px;
+  margin-top: 4px;
   display: flex; flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 6px 8px;
   box-sizing: border-box;
 }
 .center-log-title {
-  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.2px;
-  color: var(--muted); margin: 0 0 8px 0; font-weight: 700;
+  font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); margin: 0 0 4px 0; font-weight: 700;
 }
 .center-log-wrap .game-log {
-  max-height: 130px;       /* 짧게 — 페이지 스크롤 안 생기는 한계 */
+  max-height: 70px;       /* 절반 — 짧고 내부 스크롤 */
   overflow-y: auto;
+  gap: 3px;
+}
+.center-log-wrap .log-entry {
+  font-size: 0.66rem; padding: 4px 6px; line-height: 1.3;
 }
 /* (스크롤바 스타일은 상단 공용 커스텀 드래그바에서 처리) */
 .log-entry {

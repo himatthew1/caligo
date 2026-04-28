@@ -2020,6 +2020,7 @@ function applyTeamGameState(state) {
 }
 
 socket.on('team_game_start', (state) => {
+  S.isTeamMode = true;          // buildBoard가 7x7로 그리도록 보장
   applyTeamGameState(state);
   if (typeof buildGameUI === 'function') {
     try { buildGameUI(); } catch (e) {}
