@@ -4141,10 +4141,24 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
       score += brain.probMap[cell.row][cell.col];
     }
   }
-  // Penalize edge cells if board shrink is approaching
-  if (room.turnNumber >= 35 && !room.boardShrunk) {
-    if (newCol === 0 || newCol === 4 || newRow === 0 || newRow === 4) {
-      score *= 0.3;
+  // 보드 축소 회피 — 다음 축소 영역(newBounds) 밖에 들어가면 강한 페널티 (팀모드와 동일 로직)
+  // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)
+  const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  for (const ev of schedule) {
+    if (room.boardShrinkStage >= ev.stage) continue;
+    const turnsToShrink = ev.shrinkTurn - room.turnNumber;
+    if (turnsToShrink > 10 || turnsToShrink < 0) continue;
+    const willBeOutside = newCol < ev.newBounds.min || newCol > ev.newBounds.max ||
+                          newRow < ev.newBounds.min || newRow > ev.newBounds.max;
+    if (willBeOutside) {
+      const urgency = Math.max(1, 11 - turnsToShrink);
+      score -= 25 * urgency;
+    }
+  }
+  // 일반 가장자리 페널티 (보드 축소 임박 안 해도)
+  if (room.turnNumber >= 25 && !room.boardShrunk) {
+    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) {
+      score *= 0.5;
     }
   }
 
