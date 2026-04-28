@@ -6912,12 +6912,12 @@ function showActionBar(enabled) {
   const myAllDead = S.myPieces && S.myPieces.length > 0 && S.myPieces.every(p => !p.alive);
   if (btnSurrender) {
     if (myAllDead) {
-      btnSurrender.textContent = '🚪 방 나가기';
+      btnSurrender.textContent = '방 나가기';
       btnSurrender.dataset.mode = 'leave';
       // 탈락 후엔 항상 활성화 (관전 중 아무때나 떠날 수 있게)
       btnSurrender.disabled = false;
     } else {
-      btnSurrender.textContent = '🏳 기권';
+      btnSurrender.textContent = '기권';
       btnSurrender.dataset.mode = 'surrender';
     }
   }
