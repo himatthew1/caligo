@@ -918,7 +918,206 @@ function aiTeamPlace(room, idx) {
   }
 }
 
-// AI 게임 턴 — 단순 휴리스틱: 공격 가능하면 공격, 아니면 무작위 이동
+// ── 팀전 AI 점수 헬퍼 (1v1 aiScoreAttack/aiScoreMove의 팀모드 적응판) ──
+// probMap 대신 실제 적 위치 + 가중치(HP, tier, 스킬 보유) 기반 점수
+function aiTeamCellThreatScore(room, idx, col, row) {
+  const enemyIdxs = getEnemyIndices(room, idx);
+  let score = 0;
+  for (const ei of enemyIdxs) {
+    for (const pc of (room.players[ei]?.pieces || [])) {
+      if (!pc.alive) continue;
+      if (pc.col === col && pc.row === row) {
+        // 적 piece 위치 — 공격 가치 = 9 + tier 가중 + HP 가중 (낮을수록 격파 가까움)
+        const tierW = (pc.tier || 1) * 1.5;
+        const hpW = Math.max(0, 4 - pc.hp);
+        const skillW = pc.hasSkill ? 2 : 0;
+        score += 9 + tierW + hpW + skillW;
+      }
+    }
+  }
+  return score;
+}
+function aiTeamScoreAttack(room, idx, piece, extra) {
+  const bounds = room.boardBounds;
+  const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
+  let score = 0;
+  for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row);
+  score *= (1 + (piece.atk || 1) * 0.1);
+  return score;
+}
+function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
+  const bounds = room.boardBounds;
+  const cells = getAttackCells(piece.type, newCol, newRow, bounds);
+  let score = 0;
+  for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row);
+  // 가장자리 회피 (보드 축소 대비)
+  if (room.turnNumber >= 25 && !room.boardShrunk) {
+    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) {
+      score *= 0.4;
+    }
+  }
+  // HP 낮은데 적 인접 → 멀어지면 보너스 (도망 장려)
+  if (piece.hp <= 2) {
+    const enemyIdxs = getEnemyIndices(room, idx);
+    let nearestE = Infinity;
+    for (const ei of enemyIdxs) {
+      for (const pc of (room.players[ei]?.pieces || [])) {
+        if (!pc.alive || pc.col == null) continue;
+        const d = Math.abs(pc.col - newCol) + Math.abs(pc.row - newRow);
+        if (d < nearestE) nearestE = d;
+      }
+    }
+    const curNearest = (() => {
+      let n = Infinity;
+      for (const ei of enemyIdxs) for (const pc of (room.players[ei]?.pieces || [])) {
+        if (!pc.alive || pc.col == null) continue;
+        const d = Math.abs(pc.col - piece.col) + Math.abs(pc.row - piece.row);
+        if (d < n) n = d;
+      }
+      return n;
+    })();
+    if (nearestE > curNearest) score += 20 * (3 - piece.hp);
+  }
+  return score;
+}
+function aiTeamBestTargetCell(room, idx, piece) {
+  const bounds = room.boardBounds;
+  let best = { col: piece.col, row: piece.row, score: -1 };
+  for (let r = bounds.min; r <= bounds.max; r++) {
+    for (let c = bounds.min; c <= bounds.max; c++) {
+      if (c === piece.col && r === piece.row) continue;
+      const sc = aiTeamCellThreatScore(room, idx, c, r);
+      if (sc > best.score) { best = { col: c, row: r, score: sc }; }
+    }
+  }
+  return best;
+}
+
+// 팀전 AI 스킬 실행 — 1v1 aiExecSkill의 팀모드판 (idx를 받음)
+function aiTeamExecSkill(room, idx, pidx, skillId, params) {
+  const result = executeSkill(room, idx, pidx, skillId, params || {});
+  // executeSkill 내부에서 emit이 처리되지만 팀모드는 broadcastTeamGameState로 동기화
+  broadcastTeamGameState(room);
+  return result;
+}
+
+// ── 팀전 AI 자유 스킬 사용 (그림자/정비/질주/약초학/정찰/기폭/신성/반지) ──
+function aiTeamUsePreSkills(room, idx) {
+  const p = room.players[idx];
+  if (!p || p.actionDone) return;
+  const allyIdxs = getAllyIndices(room, idx);
+  const enemyIdxs = getEnemyIndices(room, idx);
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const piece = p.pieces[pi];
+    if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
+    if ((room.sp[idx] + room.instantSp[idx]) < piece.skillCost) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
+    if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(piece.skillId)) continue;
+    // shadow — 적과 인접하면 시전
+    if (piece.skillId === 'shadow') {
+      const adjEnemy = enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(e =>
+        e.alive && e.col != null && Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row) <= 2));
+      if (adjEnemy) { aiTeamExecSkill(room, idx, pi, 'shadow'); return; }
+    }
+    // reform — 더 좋은 공격 점수 방향이면
+    if (piece.skillId === 'reform') {
+      const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState });
+      const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
+      const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
+      if (altScore > curScore + 8) { aiTeamExecSkill(room, idx, pi, 'reform'); return; }
+    }
+    // sprint — 적 격파 가능 위치로 이동하기 위해
+    if (piece.skillId === 'sprint') {
+      // 단순: SP 충분하고 적 인접 시 활성
+      if (Math.random() < 0.5) { aiTeamExecSkill(room, idx, pi, 'sprint'); return; }
+    }
+    // herb — 인접 아군 부상 시
+    if (piece.skillId === 'herb') {
+      const woundedAlly = allyIdxs.flatMap(ai => room.players[ai]?.pieces || [])
+        .some(a => a.alive && a !== piece && a.hp < a.maxHp &&
+          Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1);
+      if (woundedAlly) { aiTeamExecSkill(room, idx, pi, 'herb'); return; }
+    }
+    // recon — 무작위 적 정보 공개
+    if (piece.skillId === 'recon' && Math.random() < 0.4) {
+      aiTeamExecSkill(room, idx, pi, 'recon'); return;
+    }
+    // bomb — 폭탄 설치 (적 인접 셀 우선)
+    if (piece.skillId === 'bomb') {
+      const adj = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+      const cands = [];
+      for (const [dc, dr] of adj) {
+        const c = piece.col + dc, r = piece.row + dr;
+        if (!inBounds(c, r, room.boardBounds)) continue;
+        const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
+        if (occ) continue;
+        const hasBomb = (room.boardObjects[idx] || []).some(o => o.type === 'bomb' && o.col === c && o.row === r);
+        if (hasBomb) continue;
+        cands.push({ col: c, row: r });
+      }
+      if (cands.length > 0) {
+        const t = cands[Math.floor(Math.random() * cands.length)];
+        aiTeamExecSkill(room, idx, pi, 'bomb', { col: t.col, row: t.row }); return;
+      }
+    }
+    // detonate — 폭탄이 적 위치 위에 있으면
+    if (piece.skillId === 'detonate') {
+      const myBombs = (room.boardObjects[idx] || []).filter(o => o.type === 'bomb');
+      const enemyOnBomb = myBombs.some(b => enemyIdxs.some(ei =>
+        (room.players[ei]?.pieces || []).some(e => e.alive && e.col === b.col && e.row === b.row)));
+      if (enemyOnBomb) { aiTeamExecSkill(room, idx, pi, 'detonate'); return; }
+    }
+    // divine (수도승 신성) — 부상 아군에게
+    if (piece.skillId === 'divine') {
+      // 자기 외 아군 중 가장 부상자 우선
+      let target = null, targetIdx = -1, targetOwnerIdx = -1;
+      for (const ai of allyIdxs) {
+        const ap = room.players[ai];
+        for (let api = 0; api < (ap?.pieces || []).length; api++) {
+          const pc = ap.pieces[api];
+          if (!pc.alive || pc === piece) continue;
+          if (pc.hp >= pc.maxHp) continue;
+          if (!target || (pc.maxHp - pc.hp) > (target.maxHp - target.hp)) {
+            target = pc; targetIdx = api; targetOwnerIdx = ai;
+          }
+        }
+      }
+      if (target) {
+        aiTeamExecSkill(room, idx, pi, 'divine', { targetPieceIdx: targetIdx, targetOwnerIdx }); return;
+      }
+    }
+    // dragon — 5SP 충분하면 한 번 소환 (게임당 1회 시도)
+    if (piece.skillId === 'dragon' && (room.sp[idx] + room.instantSp[idx]) >= 5) {
+      // 자기 인접 빈 칸
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const c = piece.col + dc, r = piece.row + dr;
+        if (!inBounds(c, r, room.boardBounds)) continue;
+        const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
+        if (!occ) { aiTeamExecSkill(room, idx, pi, 'dragon', { col: c, row: r }); return; }
+      }
+    }
+    // ring (국왕) — 가장 위협적인 적을 외곽으로 밀어넣기
+    if (piece.skillId === 'ring') {
+      const enemies = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || []));
+      const target = enemies.find(e => e.alive && e.col != null);
+      if (target) {
+        const bounds = room.boardBounds;
+        // 외곽 빈 칸으로 이동
+        for (let r = bounds.min; r <= bounds.max; r += (bounds.max - bounds.min)) {
+          for (let c = bounds.min; c <= bounds.max; c++) {
+            const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
+            if (!occ) {
+              aiTeamExecSkill(room, idx, pi, 'ring', { targetName: target.name, col: c, row: r });
+              return;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// ── 팀전 AI 메인 턴 — 1v1과 동일한 STEP 구조 ──
 function aiTeamTakeTurn(room, idx) {
   if (!room || room.phase !== 'game') return;
   if (room.currentPlayerIdx !== idx) return;
@@ -926,99 +1125,190 @@ function aiTeamTakeTurn(room, idx) {
   if (!p || p.socketId !== 'AI') return;
   const bounds = room.boardBounds;
   const myAlive = p.pieces.filter(pc => pc.alive);
-  if (myAlive.length === 0) {
+  if (myAlive.length === 0) { endTurn(room); return; }
+  const enemyIdxs = getEnemyIndices(room, idx);
+
+  // ★ STEP 1: free 스킬 사용 (그림자/정비/질주/약초/정찰/폭탄·기폭/신성/반지/드래곤)
+  aiTeamUsePreSkills(room, idx);
+  if (p.actionDone) {
+    // pre-skill이 actionDone을 셋했으면 (드물지만 예외) — 턴 종료
+    setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+    return;
+  }
+
+  // ★ STEP 2: 행동 대체 스킬 (덫/저주/유황범람/분신)
+  for (const piece of myAlive) {
+    if (!piece.hasSkill || !piece.skillReplacesAction) continue;
+    if ((room.sp[idx] + room.instantSp[idx]) < piece.skillCost) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
+    const pi = p.pieces.indexOf(piece);
+
+    if (piece.type === 'manhunter') {
+      const enemies = enemyIdxs.flatMap(ei => room.players[ei]?.pieces || []).filter(e => e.alive);
+      const minDist = Math.min(...enemies.map(e => e.col != null ? Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row) : 99));
+      const prob = minDist <= 3 ? 0.7 : 0.3;
+      const hasTrap = (room.boardObjects[idx] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
+      if (!hasTrap && Math.random() < prob) {
+        aiTeamExecSkill(room, idx, pi, 'trap');
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        return;
+      }
+    }
+    if (piece.type === 'witch') {
+      const candidates = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
+        .map((pc, ti) => ({ pc, ownerIdx: ei, idxInOwner: ti }))
+        .filter(o => o.pc.alive && o.pc.hp > 1 && o.pc.type !== 'monk' &&
+          !o.pc.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')));
+      if (candidates.length > 0) {
+        candidates.sort((a, b) =>
+          (b.pc.hasSkill ? 1 : 0) - (a.pc.hasSkill ? 1 : 0) ||
+          b.pc.hp - a.pc.hp ||
+          (b.pc.tier || 0) - (a.pc.tier || 0));
+        const t = candidates[0];
+        aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        return;
+      }
+    }
+    if (piece.type === 'sulfurCauldron') {
+      const enemiesAll = enemyIdxs.flatMap(ei => room.players[ei]?.pieces || []).filter(e => e.alive && e.col != null);
+      const borderEnemies = enemiesAll.filter(e =>
+        e.col === bounds.min || e.col === bounds.max || e.row === bounds.min || e.row === bounds.max);
+      if (borderEnemies.length >= 2) {
+        aiTeamExecSkill(room, idx, pi, 'sulfurRiver');
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        return;
+      }
+    }
+    if (piece.type === 'twins_elder' || piece.type === 'twins_younger') {
+      const elder = p.pieces.find(pc => pc.subUnit === 'elder' && pc.alive);
+      const younger = p.pieces.find(pc => pc.subUnit === 'younger' && pc.alive);
+      if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
+        const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
+        aiTeamExecSkill(room, idx, pi, 'brothers', { target: moverSub });
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        return;
+      }
+    }
+  }
+
+  // ★ STEP 3: 공격 vs 이동 점수 비교 (dual-blade는 강제 공격)
+  let bestAction = null;
+  const dualPiece = myAlive.find(pc => pc.dualBladeAttacksLeft > 0);
+  if (dualPiece) {
+    const dpi = p.pieces.indexOf(dualPiece);
+    const sc = aiTeamScoreAttack(room, idx, dualPiece, { toggleState: dualPiece.toggleState });
+    bestAction = { type: 'attack', piece: dualPiece, pieceIdx: dpi, score: sc };
+  } else {
+    for (const piece of myAlive) {
+      if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
+      const pi = p.pieces.indexOf(piece);
+      const extra = { toggleState: piece.toggleState };
+      if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+        const bt = aiTeamBestTargetCell(room, idx, piece);
+        extra.tCol = bt.col; extra.tRow = bt.row;
+      }
+      // 공격 점수
+      const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
+      if (!bestAction || atkScore > bestAction.score) {
+        bestAction = { type: 'attack', piece, pieceIdx: pi, score: atkScore, extra };
+      }
+      // 이동 점수 (4방향 × 0.7 가중)
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        const nc = piece.col + dc, nr = piece.row + dr;
+        if (!inBounds(nc, nr, bounds)) continue;
+        // 점유 체크
+        const occupied = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === nc && pc.row === nr));
+        if (occupied) continue;
+        const moveScore = aiTeamScoreMove(room, idx, piece, nc, nr) * 0.7;
+        if (!bestAction || moveScore > bestAction.score) {
+          bestAction = { type: 'move', piece, pieceIdx: pi, score: moveScore, col: nc, row: nr };
+        }
+      }
+    }
+  }
+
+  if (!bestAction || bestAction.score <= 0) {
+    // 안전한 행동 없음 — 무작위 이동 (이전 폴백 유지)
+    const piecesToTry = myAlive.slice().sort(() => Math.random() - 0.5);
+    for (const piece of piecesToTry) {
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
+      for (const [dc, dr] of dirs) {
+        const nc = piece.col + dc, nr = piece.row + dr;
+        if (!inBounds(nc, nr, bounds)) continue;
+        const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === nc && pc.row === nr));
+        if (occ) continue;
+        aiTeamExecuteMove(room, idx, p.pieces.indexOf(piece), nc, nr);
+        return;
+      }
+    }
     endTurn(room);
     return;
   }
-  // 적 좌표 (visible: 표식 상태이거나 공격 시 발견된 좌표는 col/row 채워져있음)
-  // 실 게임에선 적 위치는 안 보이지만, AI는 서버측이므로 모든 정보 접근 가능
-  const enemyIdxs = getEnemyIndices(room, idx);
-  const enemies = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
-    .map(pc => ({ ...pc, ownerIdx: ei }))
-    .filter(pc => pc.alive));
-  // 1) 공격 후보 검색 — 각 piece별로 공격 셀 안에 적이 있는지
-  let bestAttack = null;
-  for (let pi = 0; pi < p.pieces.length; pi++) {
-    const piece = p.pieces[pi];
-    if (!piece.alive) continue;
-    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
-    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, rats: room.rats[idx] });
-    let hits = 0;
-    for (const c of atkCells) {
-      const e = enemies.find(en => en.col === c.col && en.row === c.row);
-      if (e) hits++;
-    }
-    if (hits > 0 && (!bestAttack || hits > bestAttack.hits)) {
-      bestAttack = { pieceIdx: pi, hits };
-    }
+
+  if (bestAction.type === 'move') {
+    aiTeamExecuteMove(room, idx, bestAction.pieceIdx, bestAction.col, bestAction.row);
+  } else {
+    aiTeamExecuteAttack(room, idx, bestAction.pieceIdx, bestAction.extra);
   }
-  if (bestAttack) {
-    // 공격 실행 (시뮬레이션 헬퍼)
-    aiTeamExecuteAttack(room, idx, bestAttack.pieceIdx);
-    return;
-  }
-  // 2) 이동 — 랜덤 piece, 4방향 중 빈 칸으로 1칸
-  const occupied = new Set();
-  for (const pl of room.players) {
-    for (const pc of (pl.pieces || [])) {
-      if (pc.alive && pc.col >= 0) occupied.add(`${pc.col},${pc.row}`);
-    }
-  }
-  for (const r of (room.rats || []).flat()) {
-    if (r) occupied.add(`${r.col},${r.row}`);
-  }
-  const piecesToTry = myAlive.slice().sort(() => Math.random() - 0.5);
-  for (const piece of piecesToTry) {
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
-    for (const [dc, dr] of dirs) {
-      const nc = piece.col + dc, nr = piece.row + dr;
-      if (nc < bounds.min || nc > bounds.max || nr < bounds.min || nr > bounds.max) continue;
-      if (occupied.has(`${nc},${nr}`)) continue;
-      // 이동 적용
-      const prevCol = piece.col, prevRow = piece.row;
-      piece.col = nc; piece.row = nr;
-      p._lastActionType = 'move';
-      // 트랩 체크 (적팀의 트랩만)
-      for (const eIdx of getEnemyIndices(room, idx)) {
-        const arr = room.boardObjects[eIdx] || [];
-        const ti = arr.findIndex(o => o.type === 'trap' && o.col === nc && o.row === nr);
-        if (ti >= 0) {
-          arr.splice(ti, 1);
-          const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: nc, row: nr }, piece, eIdx, 2, false, idx);
-          piece.hp = Math.max(0, piece.hp - dmg);
-          if (piece.hp <= 0) handleDeath(room, piece, idx);
-          break;
-        }
-      }
-      p.actionDone = true;
-      // 같은 팀에게 이동 알림 (애니메이션용)
-      for (const tIdx of getTeammates(room, idx)) {
-        const tp = room.players[tIdx];
-        if (tp && tp.socketId && tp.socketId !== 'AI') {
-          io.to(tp.socketId).emit('team_ally_moved', {
-            moverName: p.name, pieceType: piece.type, pieceIcon: piece.icon, pieceName: piece.name,
-            subUnit: piece.subUnit, prevCol, prevRow, col: nc, row: nr,
-          });
-        }
-      }
-      // 적팀에게도 표식 상태인 경우 알림 — 단순화: 모두에게 broadcastTeamGameState로 갱신
-      broadcastTeamGameState(room);
-      // 1초 후 턴 종료
-      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
-      return;
-    }
-  }
-  // 이동 실패 — 그냥 턴 종료
-  endTurn(room);
 }
 
-// AI 공격 헬퍼 — processAttack을 직접 호출
-function aiTeamExecuteAttack(room, idx, pieceIdx) {
+// 팀전 AI 이동 실행 — 1v1 aiExecuteMove의 팀모드판
+function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
+  const p = room.players[idx];
+  const piece = p.pieces[pieceIdx];
+  if (!piece || !piece.alive) { endTurn(room); return; }
+  const prevCol = piece.col, prevRow = piece.row;
+  piece.col = nc; piece.row = nr;
+  p._lastActionType = 'move';
+  // 트랩 체크 (적팀의 트랩만)
+  for (const eIdx of getEnemyIndices(room, idx)) {
+    const arr = room.boardObjects[eIdx] || [];
+    const ti = arr.findIndex(o => o.type === 'trap' && o.col === nc && o.row === nr);
+    if (ti >= 0) {
+      arr.splice(ti, 1);
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: nc, row: nr }, piece, eIdx, 2, false, idx);
+      piece.hp = Math.max(0, piece.hp - dmg);
+      const willDie = piece.hp <= 0;
+      if (willDie) handleDeath(room, piece, idx);
+      // trap_triggered emit — 1v1과 동일하게
+      emitToBoth(room, 'trap_triggered', {
+        col: nc, row: nr,
+        pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
+        damage: dmg,
+        destroyed: willDie,
+        newHp: piece.hp,
+        owner: eIdx,
+        victimOwnerIdx: idx,
+      });
+      break;
+    }
+  }
+  p.actionDone = true;
+  // 같은 팀에게 이동 알림 (팀원 애니메이션)
+  for (const tIdx of getTeammates(room, idx)) {
+    const tp = room.players[tIdx];
+    if (tp && tp.socketId && tp.socketId !== 'AI') {
+      io.to(tp.socketId).emit('team_ally_moved', {
+        moverName: p.name, pieceType: piece.type, pieceIcon: piece.icon, pieceName: piece.name,
+        subUnit: piece.subUnit, prevCol, prevRow, col: nc, row: nr,
+      });
+    }
+  }
+  broadcastTeamGameState(room);
+  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+}
+
+// AI 공격 헬퍼 — processAttack을 직접 호출 (extra: shadowAssassin/witch의 tCol/tRow + ratMerchant rats)
+function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const p = room.players[idx];
   const piece = p.pieces[pieceIdx];
   if (!piece || !piece.alive) { endTurn(room); return; }
   const bounds = room.boardBounds;
-  const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, rats: room.rats[idx] });
+  const atkExtra = extra || { toggleState: piece.toggleState };
+  if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
+  const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
   const hitResults = processAttack(room, idx, piece, atkCells);
   p.actionDone = true;
   // 모든 인간에게 결과 브로드캐스트 (broadcastTeamGameState로 자연스럽게 갱신됨)
@@ -1070,7 +1360,60 @@ function aiTeamExecuteAttack(room, idx, pieceIdx) {
       : `⚔ ${p.name}의 ${piece.icon}${piece.name}! 공격 빗나감.`,
     type: 'hit', playerIdx: idx,
   });
-  // 1초 후 턴 종료
+  // 전체 상태 동기화
+  broadcastTeamGameState(room);
+  // 쌍검무 — 두 번째 공격 (1v1과 동일하게 4초 딜레이)
+  if (piece.dualBladeAttacksLeft > 0 && piece.alive) {
+    const DUAL_BLADE_DELAY = 4000;
+    setTimeout(() => {
+      if (room.phase !== 'game' || room.currentPlayerIdx !== idx) return;
+      if (!piece.alive) { setTimeout(() => endTurn(room), 100); return; }
+      piece.dualBladeAttacksLeft--;
+      const extra2Cells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
+      const extra2Hits = processAttack(room, idx, piece, extra2Cells);
+      // 두 번째 공격 결과 emit
+      const hitsByOwner2 = new Map();
+      for (const h of extra2Hits) {
+        if (h.defOwnerIdx === undefined) continue;
+        if (!hitsByOwner2.has(h.defOwnerIdx)) hitsByOwner2.set(h.defOwnerIdx, []);
+        hitsByOwner2.get(h.defOwnerIdx).push(h);
+      }
+      for (const [ownerIdx, hits] of hitsByOwner2.entries()) {
+        const defPlayer = room.players[ownerIdx];
+        if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
+        io.to(defPlayer.socketId).emit('being_attacked', {
+          atkCells: extra2Cells,
+          hitPieces: hits.map(h => {
+            const dp = defPlayer.pieces.find(pp => pp.col === h.col && pp.row === h.row);
+            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+              name: dp?.name, icon: dp?.icon,
+              redirectedToBodyguard: h.redirectedToBodyguard || false };
+          }),
+          yourPieces: pieceSummary(defPlayer.pieces),
+        });
+      }
+      for (const [defOwnerIdx, hits] of hitsByOwner2.entries()) {
+        const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+        for (const allyIdx of allyIdxs) {
+          const ally = room.players[allyIdx];
+          if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
+          io.to(ally.socketId).emit('team_ally_hit', {
+            atkCells: extra2Cells, victimIdx: defOwnerIdx,
+            victimName: room.players[defOwnerIdx].name,
+            hitPieces: hits.map(h => {
+              const dp = room.players[defOwnerIdx].pieces.find(pp => pp.col === h.col && pp.row === h.row);
+              return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+                name: dp?.name, icon: dp?.icon,
+                redirectedToBodyguard: h.redirectedToBodyguard || false };
+            }),
+          });
+        }
+      }
+      broadcastTeamGameState(room);
+      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 1000);
+    }, DUAL_BLADE_DELAY);
+    return;
+  }
   setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 1000);
 }
 

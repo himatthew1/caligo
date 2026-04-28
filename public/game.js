@@ -3558,9 +3558,16 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner }) => {
   if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
-  if (owner === S.playerIdx) {
+  // 팀모드: 본인/팀원/적 구분
+  const isMine = owner === S.playerIdx;
+  const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
+  if (isMine) {
     addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리를 소환했습니다.`);
+  } else if (isAlly) {
+    const ownerName = (S.teamGamePlayers || []).find(p => p.idx === owner)?.name || '팀원';
+    addLog(`🐀 ${ownerName}이(가) 쥐 ${rats.length}마리를 소환했습니다.`, 'skill');
+    showSkillToast(`🐀 ${ownerName}이(가) 쥐 ${rats.length}마리를 소환했습니다.`);
   } else {
     addLog(`🐀 역병의 자손들: 상대가 쥐를 소환. 쥐는 공격으로 제거할 수 있습니다.`, 'skill');
     showSkillToast(`🐀 역병의 자손들: 상대가 쥐를 소환. 쥐는 공격으로 제거할 수 있습니다.`, true);
