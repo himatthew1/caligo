@@ -3349,12 +3349,24 @@ body {
   /* ── 배치 ── */
   .placement-container { padding: 12px 8px; }
   .placement-container h2 { font-size: 1.2rem; margin-bottom: 4px; }
-  .board {
+  body:not(.team-mode) .board {
     grid-template-columns: repeat(5, 42px);
     grid-template-rows: repeat(5, 42px);
     gap: 3px; padding: 6px;
   }
-  .cell { width: 42px; height: 42px; font-size: 0.55rem; }
+  body.team-mode .board,
+  body.team-mode .placement-board {
+    grid-template-columns: repeat(7, 1fr);
+    grid-template-rows: repeat(7, 1fr);
+    width: calc(100vw - 16px);
+    max-width: 360px;
+    gap: 3px; padding: 6px;
+  }
+  body:not(.team-mode) .cell { width: 42px; height: 42px; font-size: 0.55rem; }
+  body.team-mode .cell {
+    width: auto !important; height: auto !important;
+    aspect-ratio: 1; font-size: 0.55rem;
+  }
   .piece-card { padding: 8px; gap: 8px; }
   .piece-card .piece-icon { font-size: 1.3rem; }
   .piece-info strong { font-size: 0.8rem; }
@@ -3383,12 +3395,18 @@ body {
   .center-panel { gap: 8px; }
   .turn-banner { font-size: 0.82rem; padding: 8px 12px; }
 
-  /* 보드 fluid */
-  .board {
+  /* 보드 fluid — 1v1은 5x5, 팀전은 7x7 (body.team-mode 플래그) */
+  body:not(.team-mode) .board {
     grid-template-columns: repeat(5, 1fr) !important;
     grid-template-rows: repeat(5, 1fr) !important;
     width: calc(100vw - 32px) !important;
     max-width: 300px;
+  }
+  body.team-mode .board {
+    grid-template-columns: repeat(7, 1fr) !important;
+    grid-template-rows: repeat(7, 1fr) !important;
+    width: calc(100vw - 16px) !important;
+    max-width: 360px;
   }
   .cell {
     width: auto !important; height: auto !important;

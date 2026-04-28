@@ -2031,7 +2031,11 @@ socket.on('team_game_start', (state) => {
 
 socket.on('team_game_update', (state) => {
   const wasMyTurn = S.isMyTurn;
+  const prevSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
   applyTeamGameState(state);
+  // 스킬·패시브로 HP가 변한 piece에 hit/heal 애니메이션 — 1v1 skill_result/status_update와 동일
+  const currSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
+  const changes = (typeof detectTeamHpChanges === 'function') ? detectTeamHpChanges(prevSnap, currSnap) : [];
   // 내 턴 새로 들어왔을 때 — 1v1의 your_turn처럼 액션 플래그 전체 리셋
   // (이거 없으면 2라운드 이후 이동/공격 버튼이 계속 막힘)
   if (S.isMyTurn && !wasMyTurn) {
@@ -2051,6 +2055,36 @@ socket.on('team_game_update', (state) => {
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
   if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
+  // 스냅샷 비교 — HP 줄어든 piece에 profile-hit, HP 회복된 piece에 heal flash
+  if (changes && changes.length > 0) {
+    const damaged = changes.filter(c => !c.healed);
+    const healed = changes.filter(c => c.healed);
+    requestAnimationFrame(() => {
+      for (const ch of damaged) {
+        const isOwnTeam = (S.teamGamePlayers || []).find(p => p.idx === ch.playerIdx)?.teamId === S.teamId;
+        const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
+        const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
+        if (card) {
+          card.classList.remove('profile-hit');
+          void card.offsetWidth;
+          card.classList.add('profile-hit');
+          setTimeout(() => card.classList.remove('profile-hit'), 1800);
+        }
+      }
+      // 힐 효과 — 1v1 flashHealPieces와 동일하게 초록 플래시
+      for (const ch of healed) {
+        const isOwnTeam = (S.teamGamePlayers || []).find(p => p.idx === ch.playerIdx)?.teamId === S.teamId;
+        const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
+        const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
+        if (card) {
+          card.classList.remove('heal-flash');
+          void card.offsetWidth;
+          card.classList.add('heal-flash');
+          setTimeout(() => card.classList.remove('heal-flash'), 1800);
+        }
+      }
+    });
+  }
 });
 
 socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg }) => {
@@ -2058,9 +2092,44 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
   const txt = `${icon} ${casterName} — ${label}${msg ? ` (${msg})` : ''}`;
+  // SFX 라우팅 — 1v1 status_update와 동일하게 메시지 prefix 매핑, 폴백은 'opp_skill'/'skill'
+  const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
+  if (sfxRoute) sfxRoute();
+  else playSfx(myTeam ? 'skill' : 'opp_skill');
   showSkillToast(txt, !myTeam, casterIdx, 'skill');
   addLog(txt, 'skill');
+  // 후속 broadcastTeamGameState로 HP가 갱신되며 renderTeamProfiles가 호출되지만,
+  // 시각적 hit anim을 위해 broadcastTeamGameState 직전 스냅샷을 비교한다.
+  // 단순화: team_game_update 핸들러에서 HP 변화 감지해 hit anim 발동
 });
+
+// 팀 모드: HP 감소 감지를 위한 이전 상태 스냅샷
+S._prevTeamHpSnap = null;
+function snapshotTeamHps() {
+  if (!S.teamGamePlayers) return null;
+  return S.teamGamePlayers.map(p => ({
+    idx: p.idx,
+    hps: (p.pieces || []).map(pc => pc.hp),
+  }));
+}
+function detectTeamHpChanges(prev, curr) {
+  if (!prev || !curr) return [];
+  const changes = [];  // [{ playerIdx, pieceIdx, oldHp, newHp, healed }]
+  for (const pl of curr) {
+    const old = prev.find(p => p.idx === pl.idx);
+    if (!old) continue;
+    const ply = (S.teamGamePlayers || []).find(p => p.idx === pl.idx);
+    if (!ply) continue;
+    for (let i = 0; i < (pl.hps || []).length; i++) {
+      const newHp = pl.hps[i];
+      const oldHp = old.hps[i];
+      if (newHp !== oldHp && oldHp != null) {
+        changes.push({ playerIdx: pl.idx, pieceIdx: i, oldHp, newHp, healed: newHp > oldHp });
+      }
+    }
+  }
+  return changes;
+}
 
 socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, winners, losers, reason, spectator }) => {
   stopClientTimer();
@@ -3558,6 +3627,21 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   // 프로필 카드 흔들림 + 금색 플래시
   if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
   if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
+  // 팀모드: 팀원이 트랩에 걸렸으면 팀원 카드 hit 애니
+  if (tmIdx >= 0 && S.isTeamMode) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) {
+      requestAnimationFrame(() => {
+        const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${tmIdx}"]`);
+        if (card) {
+          card.classList.remove('profile-hit');
+          void card.offsetWidth;
+          card.classList.add('profile-hit');
+          setTimeout(() => card.classList.remove('profile-hit'), 1800);
+        }
+      });
+    }
+  }
 });
 
 // ── 폭탄 폭발 ──
@@ -3573,16 +3657,38 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
     S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
   }
 
-  // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두
+  // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두 (팀모드는 팀원도 포함)
   const myBombIdx = findPieceIndices(S.myPieces, hits);
   const oppBombIdx = findPieceIndices(S.oppPieces, hits);
+  const tmBombIdx = (S.isTeamMode && S.teammatePieces) ? findPieceIndices(S.teammatePieces, hits) : [];
 
   renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
+  if (S.isTeamMode && typeof renderTeamProfiles === 'function') {
+    renderTeamProfiles();
+  } else {
+    renderMyPieces();
+    renderOppPieces();
+  }
 
   applyProfileHitAnim('#my-pieces-info .my-piece-card', myBombIdx);
   applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppBombIdx);
+  // 팀모드: 팀원 카드 — data-piece-idx 기반 정확 매칭
+  if (tmBombIdx.length > 0 && S.isTeamMode) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) {
+      requestAnimationFrame(() => {
+        for (const i of tmBombIdx) {
+          const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${i}"]`);
+          if (card) {
+            card.classList.remove('profile-hit');
+            void card.offsetWidth;
+            card.classList.add('profile-hit');
+            setTimeout(() => card.classList.remove('profile-hit'), 1800);
+          }
+        }
+      });
+    }
+  }
 });
 
 // ── 패시브 알림 ──
@@ -8139,6 +8245,9 @@ function buildBoard(containerId, clickHandler) {
     const center = document.querySelector('#screen-game .center-panel');
     if (center) center.style.setProperty('--board-w', boardWidth + 'px');
   }
+  // 팀모드 플래그를 body에도 반영 — 모바일 CSS가 7x7을 인식하도록
+  if (S.isTeamMode) document.body.classList.add('team-mode');
+  else document.body.classList.remove('team-mode');
   for (let row = 0; row < totalSize; row++) {
     for (let col = 0; col < totalSize; col++) {
       const cell = document.createElement('div');
@@ -9110,7 +9219,7 @@ function animateBoardIconHit(cells) {
 }
 
 // ── 팀모드: 팀원이 피격됨 ──
-socket.on('team_ally_hit', ({ atkCells, victimName, hitPieces }) => {
+socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   const hitCells = (hitPieces || []).map(h => ({ col: h.col, row: h.row }));
   // 셀 + 아이콘 피격 애니메이션 (공격 범위는 표시하지 않음 — 흔들림만)
   animateAttack([], hitCells);
@@ -9121,6 +9230,36 @@ socket.on('team_ally_hit', ({ atkCells, victimName, hitPieces }) => {
     const unitName = h.icon && h.name ? `🤝 팀원 ${victimName}의 ${h.icon}${h.name}` : coord(h.col, h.row);
     addLog(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, 'hit');
     showSkillToast(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, true);
+  }
+  // 호위무사 가로채기 — 1v1과 동일한 명확한 알림
+  const bgRedirect = (hitPieces || []).some(h => h.redirectedToBodyguard);
+  if (bgRedirect) {
+    showSkillToast(`🛡 충성: ${victimName}의 호위무사가 대신 받음`, true, victimIdx, 'skill');
+  }
+  // 팀원 프로필 카드에 hit 애니메이션 — 1v1 being_attacked와 동일하게
+  if (typeof applyProfileHitAnim === 'function' && victimIdx != null) {
+    const tmPlayer = (S.teamGamePlayers || []).find(p => p.idx === victimIdx);
+    if (tmPlayer && tmPlayer.pieces) {
+      const hitIdxs = [];
+      for (let i = 0; i < tmPlayer.pieces.length; i++) {
+        const pc = tmPlayer.pieces[i];
+        if (hitPieces.some(h => h.col === pc.col && h.row === pc.row)) hitIdxs.push(i);
+      }
+      if (hitIdxs.length > 0) {
+        // data-piece-idx 기반 직접 셀렉터 — 1v1 .profile-hit 애니메이션과 동일
+        requestAnimationFrame(() => {
+          for (const i of hitIdxs) {
+            const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
+            if (card) {
+              card.classList.remove('profile-hit');
+              void card.offsetWidth;
+              card.classList.add('profile-hit');
+              setTimeout(() => card.classList.remove('profile-hit'), 1800);
+            }
+          }
+        });
+      }
+    }
   }
 });
 
