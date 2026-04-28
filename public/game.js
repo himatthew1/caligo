@@ -2063,11 +2063,11 @@ socket.on('team_game_update', (state) => {
       const turnMsg = `${teamColor} [턴 ${S.turnNumber}] ${label}의 차례`;
       addLog(turnMsg, 'system');
       if (isMine) {
-        showSkillToast(`▶ 내 차례입니다!`, false, S.playerIdx, 'event');
+        showSkillToast(`내 차례입니다!`, false, S.playerIdx, 'event');
       } else if (isAlly) {
-        showSkillToast(`🤝 팀원 ${cur.name}의 차례`, false, cur.idx, 'event');
+        showSkillToast(`팀원 ${cur.name}의 차례`, false, cur.idx, 'event');
       } else {
-        showSkillToast(`⚔ 적 ${cur.name}의 차례`, true, cur.idx, 'event');
+        showSkillToast(`적 ${cur.name}의 차례`, true, cur.idx, 'event');
       }
     }
   }
@@ -2169,11 +2169,14 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
     const titleEl = document.getElementById('gameover-title');
     const subEl = document.getElementById('gameover-sub');
 
-    // 무승부 (양 팀 동시 전멸)
-    if (r.type === 'draw') {
+    // 무승부 (양 팀 동시 전멸 또는 unreachable)
+    if (r.type === 'draw' || r.type === 'unreachable_draw') {
       if (iconEl) iconEl.textContent = '🤝';
       if (titleEl) { titleEl.textContent = '무승부'; titleEl.style.color = 'var(--muted)'; }
-      if (subEl) subEl.innerHTML = '보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.';
+      const subMsg = r.type === 'unreachable_draw'
+        ? '게임을 끝낼 수 없어 무승부입니다.'
+        : '보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.';
+      if (subEl) subEl.innerHTML = subMsg;
       return;
     }
 
@@ -3168,7 +3171,10 @@ socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subU
       setTimeout(() => oldCell.classList.remove('teammate-move-trail'), 600);
     }
   }
-  addLog(`🤝 팀원 ${moverName} — ${pieceIcon}${pieceName} ${coord(prevCol,prevRow)} → ${coord(col,row)}`, 'move');
+  // 토스트 + 로그 모두 표시 — 이전엔 로그만 있어서 사용자가 인지 불가
+  const moveMsg = `팀원 ${moverName} — ${pieceIcon}${pieceName} ${coord(prevCol,prevRow)} → ${coord(col,row)}`;
+  addLog(moveMsg, 'move');
+  showSkillToast(moveMsg, false, undefined, 'move');
 });
 
 socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
@@ -3455,9 +3461,10 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   try { playBoardQuake(); } catch (e) {}
   // 외곽 파괴를 먼저 시각화한 뒤 흔들림 — 파괴된 셀이 보이는 채로 흔들리도록
   S.boardBounds = bounds;
-  // 첫 보드 파괴는 화려한 풀스크린 연출 — 새로운 이벤트가 시작됐음을 알림
+  // 매 보드 축소 단계마다 화려한 풀스크린 연출 — 새로운 이벤트 시작 알림
+  // (사용자 요청 #24: 1v1 turn 70 마지막 외곽 파괴 등 새 단계마다 표시)
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
-  if (S._shrinkOccurredCount === 1 && !S.isSpectator) {
+  if (!S.isSpectator) {
     playBoardShrinkIntro();
   }
   if (!S.isSpectator) {
@@ -3880,12 +3887,15 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     return arr.join(', ');
   }
 
-  // ── 무승부 (보드 축소 양측 전멸) ──
+  // ── 무승부 (보드 축소 양측 전멸 또는 unreachable) ──
   if (draw) {
     document.getElementById('gameover-icon').textContent = '🤝';
     document.getElementById('gameover-title').textContent = '무승부';
     document.getElementById('gameover-title').style.color = 'var(--muted)';
-    document.getElementById('gameover-sub').textContent = '보드 축소로 양측 모든 말이 전멸해 무승부입니다.';
+    const drawMsg = (reason && reason.type === 'unreachable_draw')
+      ? '게임을 끝낼 수 없어 무승부입니다.'
+      : '보드 축소로 양측 모든 말이 전멸해 무승부입니다.';
+    document.getElementById('gameover-sub').textContent = drawMsg;
     return;
   }
 
@@ -6328,7 +6338,7 @@ function buildPlacementOppPanel() {
     for (const tm of teammates) {
       const block = document.createElement('div');
       block.className = `placement-enemy-block placement-team-block placement-team-${myTeamColor}`;
-      block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">🤝 ${escapeHtmlGlobal(tm.name)} (팀원)</h5>`;
+      block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">${escapeHtmlGlobal(tm.name)} (팀원)</h5>`;
       for (const pc of (tm.pieces || [])) {
         const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
         const card = document.createElement('div');
@@ -6356,7 +6366,7 @@ function buildPlacementOppPanel() {
     for (const en of enemies) {
       const block = document.createElement('div');
       block.className = `placement-enemy-block placement-team-block placement-team-${oppTeamColor}`;
-      block.innerHTML = `<h5 class="enemy-block-header team-color-${oppTeamColor}">⚔ ${escapeHtmlGlobal(en.name)}</h5>`;
+      block.innerHTML = `<h5 class="enemy-block-header team-color-${oppTeamColor}">${escapeHtmlGlobal(en.name)}</h5>`;
       for (const pc of (en.pieces || [])) {
         const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
         const card = document.createElement('div');
@@ -9438,9 +9448,10 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   for (const h of meaningful) {
     if (h.destroyed) playSfx('kill'); else playSfx('hit');
-    const unitName = h.icon && h.name ? `🤝 팀원 ${victimName}의 ${h.icon}${h.name}` : coord(h.col, h.row);
-    addLog(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, 'hit');
-    showSkillToast(h.destroyed ? `${unitName} 피격! 격파됨. 💀` : `${unitName} 피격! ${h.damage} 피해.`, true);
+    const logName = h.icon && h.name ? `팀원 ${victimName}의 ${h.icon}${h.name}` : coord(h.col, h.row);
+    const toastName = h.icon && h.name ? `팀원 ${victimName}의 ${h.icon}${h.name}` : coord(h.col, h.row);
+    addLog(h.destroyed ? `${logName} 피격! 격파됨. 💀` : `${logName} 피격! ${h.damage} 피해.`, 'hit');
+    showSkillToast(h.destroyed ? `${toastName} 피격! 격파됨. 💀` : `${toastName} 피격! ${h.damage} 피해.`, true);
   }
   // 호위무사 가로채기 — 1v1과 동일한 명확한 알림
   const bgRedirect = (hitPieces || []).some(h => h.redirectedToBodyguard);

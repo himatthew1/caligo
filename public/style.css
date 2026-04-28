@@ -502,7 +502,8 @@ body {
   display: flex; align-items: center; justify-content: center;
   gap: 20px; margin: 20px 0;
 }
-.team-reveal-side { flex: 1; background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 16px; }
+/* 사용자 요청: 가로 폭을 2/3로 축소 — 빈 여백 줄임 */
+.team-reveal-side { flex: 0 1 auto; width: 33%; max-width: 360px; background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 16px; }
 .team-reveal-a { border-color: rgba(96,165,250,0.5); }
 .team-reveal-b { border-color: rgba(239,68,68,0.5); }
 .team-reveal-a h3 { color: #60a5fa; }

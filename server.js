@@ -986,10 +986,26 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
   let score = 0;
   for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row);
-  // 가장자리 회피 (보드 축소 대비)
+  // 보드 축소 회피 — 다음 축소 예상 영역에 들어갔는지 강하게 페널티
+  // (사용자 요청 #20b: 축소 예고 중 AI가 외곽으로 나도는 바보짓 절대 금지)
+  const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  for (const ev of schedule) {
+    if (room.boardShrinkStage >= ev.stage) continue;  // 이미 거친 단계
+    const turnsToShrink = ev.shrinkTurn - room.turnNumber;
+    if (turnsToShrink > 10 || turnsToShrink < 0) continue;  // 10턴 이내만
+    // 새 위치가 곧 파괴될 영역(현재 bounds 밖이지만 ev.newBounds 안인 셀)인지
+    const willBeOutside = newCol < ev.newBounds.min || newCol > ev.newBounds.max ||
+                          newRow < ev.newBounds.min || newRow > ev.newBounds.max;
+    if (willBeOutside) {
+      // 임박할수록 강한 페널티 (10턴 전: -50, 1턴 전: -200)
+      const urgency = Math.max(1, 11 - turnsToShrink);
+      score -= 25 * urgency;
+    }
+  }
+  // 일반 가장자리 회피 (보드 축소 임박 안 해도)
   if (room.turnNumber >= 25 && !room.boardShrunk) {
     if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) {
-      score *= 0.4;
+      score *= 0.5;
     }
   }
   // HP 낮은데 적 인접 → 멀어지면 보너스 (도망 장려)
@@ -1035,6 +1051,49 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   // executeSkill 내부에서 emit이 처리되지만 팀모드는 broadcastTeamGameState로 동기화
   broadcastTeamGameState(room);
   return result;
+}
+
+// ── 팀전 AI 턴 종료 안전 스케줄러 ──
+// 기존 setTimeout(...endTurn..., 4000) 패턴은 4초 대기 중 다른 곳에서 endTurn이 먼저 호출되면
+// currentPlayerIdx가 바뀌어 조건이 false가 되고 게임이 멈출 위험이 있었다.
+// 이 헬퍼는 핸들을 추적해 중복 스케줄/취소를 안전하게 처리하고, 30초 워치독으로 강제 endTurn 보장.
+function scheduleAITurnEnd(room, idx, delayMs) {
+  if (!room) return;
+  if (!room._aiTurnEndHandle) room._aiTurnEndHandle = {};
+  if (!room._aiTurnEndWatchdog) room._aiTurnEndWatchdog = {};
+  // 이미 예약된 핸들이 있으면 취소 (중복 방지)
+  if (room._aiTurnEndHandle[idx]) {
+    clearTimeout(room._aiTurnEndHandle[idx]);
+    room._aiTurnEndHandle[idx] = null;
+  }
+  if (room._aiTurnEndWatchdog[idx]) {
+    clearTimeout(room._aiTurnEndWatchdog[idx]);
+    room._aiTurnEndWatchdog[idx] = null;
+  }
+  // 메인 endTurn 콜백
+  room._aiTurnEndHandle[idx] = setTimeout(() => {
+    room._aiTurnEndHandle[idx] = null;
+    if (!room || room.phase !== 'game') return;
+    if (room.currentPlayerIdx === idx) {
+      // 워치독 취소
+      if (room._aiTurnEndWatchdog[idx]) {
+        clearTimeout(room._aiTurnEndWatchdog[idx]);
+        room._aiTurnEndWatchdog[idx] = null;
+      }
+      endTurn(room);
+    }
+    // 다른 곳에서 endTurn이 먼저 호출됐다면 정상 — 그냥 종료 (워치독은 이미 무관)
+  }, delayMs);
+  // 워치독 — 메인 핸들의 2배 시간 후에도 currentPlayerIdx가 여전히 idx면 강제 endTurn
+  // (게임 멈춤 방지용 안전망)
+  room._aiTurnEndWatchdog[idx] = setTimeout(() => {
+    room._aiTurnEndWatchdog[idx] = null;
+    if (!room || room.phase !== 'game') return;
+    if (room.currentPlayerIdx === idx) {
+      console.warn('[AI watchdog] forcing endTurn for stalled AI', idx);
+      endTurn(room);
+    }
+  }, delayMs * 2 + 5000);
 }
 
 // ── 팀전 AI 자유 스킬 사용 (그림자/정비/질주/약초학/정찰/기폭/신성/반지) ──
@@ -1153,6 +1212,47 @@ function aiTeamUsePreSkills(room, idx) {
   }
 }
 
+// ── 팀전 AI 보드 축소 대피 ──
+// 다음 축소가 임박했고 외곽에 내 말이 있으면 안쪽으로 즉시 대피 (1v1 aiFindEvacuation과 동등)
+function aiTeamFindEvacuation(room, idx) {
+  const p = room.players[idx];
+  if (!p) return null;
+  const bounds = room.boardBounds;
+  const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  // 다음 축소 이벤트
+  const nextShrink = schedule.find(ev => room.boardShrinkStage < ev.stage && room.turnNumber < ev.shrinkTurn);
+  if (!nextShrink) return null;
+  const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
+  if (turnsLeft > 5) return null;  // 5턴 이내만 대피 모드
+  // 곧 파괴될 외곽에 있는 내 말 찾기
+  const newBounds = nextShrink.newBounds;
+  const myAlive = p.pieces.filter(pc => pc.alive && pc.col >= 0);
+  const trapped = myAlive.filter(pc => pc.col < newBounds.min || pc.col > newBounds.max ||
+                                       pc.row < newBounds.min || pc.row > newBounds.max);
+  if (trapped.length === 0) return null;
+  // 가장 임박한(보드 축소 영역 밖) 첫 piece부터 안쪽으로 1칸 이동
+  for (const piece of trapped) {
+    const pieceIdx = p.pieces.indexOf(piece);
+    const candidates = [];
+    for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+      const nc = piece.col + dc, nr = piece.row + dr;
+      if (!inBounds(nc, nr, bounds)) continue;
+      // 다른 piece 점유 체크
+      const occ = room.players.some(pl => (pl.pieces || []).some(pc =>
+        pc.alive && pc !== piece && pc.col === nc && pc.row === nr));
+      if (occ) continue;
+      // 새 위치가 안전 영역(newBounds) 안인지 우선
+      const inSafe = nc >= newBounds.min && nc <= newBounds.max &&
+                     nr >= newBounds.min && nr <= newBounds.max;
+      candidates.push({ col: nc, row: nr, score: inSafe ? 100 : 30 });
+    }
+    if (candidates.length === 0) continue;
+    candidates.sort((a, b) => b.score - a.score);
+    return { piece, pieceIdx, col: candidates[0].col, row: candidates[0].row };
+  }
+  return null;
+}
+
 // ── 팀전 AI 메인 턴 — 1v1과 동일한 STEP 구조 ──
 function aiTeamTakeTurn(room, idx) {
   if (!room || room.phase !== 'game') return;
@@ -1164,11 +1264,18 @@ function aiTeamTakeTurn(room, idx) {
   if (myAlive.length === 0) { endTurn(room); return; }
   const enemyIdxs = getEnemyIndices(room, idx);
 
+  // ★ STEP 0: 보드 축소 임박 시 외곽 말 대피 (최우선) — 1v1 aiFindEvacuation 동등
+  const evac = aiTeamFindEvacuation(room, idx);
+  if (evac && !p.actionDone) {
+    aiTeamExecuteMove(room, idx, evac.pieceIdx, evac.col, evac.row);
+    return;
+  }
+
   // ★ STEP 1: free 스킬 사용 (그림자/정비/질주/약초/정찰/폭탄·기폭/신성/반지/드래곤)
   aiTeamUsePreSkills(room, idx);
   if (p.actionDone) {
     // pre-skill이 actionDone을 셋했으면 (드물지만 예외) — 턴 종료
-    setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+    scheduleAITurnEnd(room, idx, 4000);
     return;
   }
 
@@ -1186,7 +1293,7 @@ function aiTeamTakeTurn(room, idx) {
       const hasTrap = (room.boardObjects[idx] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
       if (!hasTrap && Math.random() < prob) {
         aiTeamExecSkill(room, idx, pi, 'trap');
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+        scheduleAITurnEnd(room, idx, 4000);
         return;
       }
     }
@@ -1233,7 +1340,7 @@ function aiTeamTakeTurn(room, idx) {
           aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
           // 저주 시전 시점 기록 (해소 추적용 키 생성)
           p._lastCurseTarget = { key: targetKey, ownerIdx: t.ownerIdx, type: t.pc.type, subUnit: t.pc.subUnit, turnNumber: room.turnNumber };
-          setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+          scheduleAITurnEnd(room, idx, 4000);
           return;
         }
       }
@@ -1244,7 +1351,7 @@ function aiTeamTakeTurn(room, idx) {
         e.col === bounds.min || e.col === bounds.max || e.row === bounds.min || e.row === bounds.max);
       if (borderEnemies.length >= 2) {
         aiTeamExecSkill(room, idx, pi, 'sulfurRiver');
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+        scheduleAITurnEnd(room, idx, 4000);
         return;
       }
     }
@@ -1254,7 +1361,7 @@ function aiTeamTakeTurn(room, idx) {
       if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
         const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
         aiTeamExecSkill(room, idx, pi, 'brothers', { target: moverSub });
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+        scheduleAITurnEnd(room, idx, 4000);
         return;
       }
     }
@@ -1381,7 +1488,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
     }
   }
   broadcastTeamGameState(room);
-  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+  scheduleAITurnEnd(room, idx, 4000);
 }
 
 // AI 공격 헬퍼 — processAttack을 직접 호출 (extra: shadowAssassin/witch의 tCol/tRow + ratMerchant rats)
@@ -1494,11 +1601,11 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         }
       }
       broadcastTeamGameState(room);
-      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+      scheduleAITurnEnd(room, idx, 4000);
     }, DUAL_BLADE_DELAY);
     return;
   }
-  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+  scheduleAITurnEnd(room, idx, 4000);
 }
 
 function teamDraftTimeout(room) {
@@ -1759,11 +1866,17 @@ function teamPlacementTimeout(room) {
 function startTeamGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
-  // 턴 순서: 블루팀 첫 멤버 먼저, 이후 엄격 알터네이션 (Blue→Red→Blue→Red)
-  room.currentPlayerIdx = (room.teams[0] || [])[0] ?? 0;
+  // 선공 무작위 — 팀 / 팀 내 슬롯 모두 랜덤 (사용자 요청: 항상 블루팀이 먼저 X)
+  const startTeam = Math.random() < 0.5 ? 0 : 1;
+  const startTeamMembers = (room.teams[startTeam] || []);
+  const startSlot = startTeamMembers.length > 0 ? Math.floor(Math.random() * startTeamMembers.length) : 0;
+  room.currentPlayerIdx = startTeamMembers[startSlot] ?? 0;
   room.turnNumber = 1;
-  // 팀 내부 round-robin 인덱스 — 블루팀은 [0]을 이미 썼으니 1로 시작, 레드팀은 0으로 시작
-  room.teamRotationIdx = [1 % Math.max((room.teams[0] || []).length, 1), 0];
+  // 팀 내부 round-robin 인덱스 — 시작팀의 다음 멤버, 반대팀은 0번부터
+  const otherTeam = 1 - startTeam;
+  room.teamRotationIdx = [];
+  room.teamRotationIdx[startTeam] = (startSlot + 1) % Math.max(startTeamMembers.length, 1);
+  room.teamRotationIdx[otherTeam] = 0;
   // 첫 플레이어 턴 리셋
   const first = room.players[room.currentPlayerIdx];
   if (first) {
@@ -3000,19 +3113,82 @@ function processTurnStart(room) {
         if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
         if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
       }
+      // 마지막 축소(final) 후에도 양쪽이 살아있으면 — 남은 유닛들이 서로 공격 범위에 안 닿으면 무승부
+      // 사용자 요청 #24c: "게임을 끝낼 수 없어 무승부입니다"
+      if (ev.final && checkUnreachableDraw(room)) {
+        setKillInfo(room, 'unreachable', null, []);
+        if (room.mode === 'team') {
+          endTeamGame(room, 0, 'unreachable_draw');  // winnerTeamId 무시됨 (draw 처리)
+        } else {
+          endGame(room, -1, 'unreachable_draw');
+        }
+        return;
+      }
     }
   }
 }
 
+// 모든 살아있는 유닛이 서로의 공격 범위에 닿지 않는지 확인 (무승부 조건)
+// 모든 유닛의 공격 셀 합집합과 모든 적 유닛의 위치 비교
+function checkUnreachableDraw(room) {
+  const bounds = room.boardBounds;
+  // 각 팀(또는 1v1의 각 플레이어)별로 살아있는 유닛 수집
+  const groups = [];  // [{ ownerIdx, pieces }]
+  if (room.mode === 'team') {
+    for (let t = 0; t < 2; t++) {
+      const teamMembers = room.teams[t] || [];
+      const pieces = teamMembers.flatMap(i =>
+        (room.players[i]?.pieces || [])
+          .filter(p => p.alive && p.col != null && p.row != null && inBounds(p.col, p.row, bounds))
+          .map(p => ({ piece: p, ownerIdx: i }))
+      );
+      if (pieces.length > 0) groups.push({ teamId: t, pieces });
+    }
+  } else {
+    for (let i = 0; i < 2; i++) {
+      const pieces = (room.players[i]?.pieces || [])
+        .filter(p => p.alive && p.col != null && p.row != null && inBounds(p.col, p.row, bounds))
+        .map(p => ({ piece: p, ownerIdx: i }));
+      if (pieces.length > 0) groups.push({ teamId: i, pieces });
+    }
+  }
+  // 양쪽이 다 죽은 경우는 위에서 이미 처리, 한쪽만 살아있으면 그쪽 승리 (여기 도달 안 함)
+  if (groups.length < 2) return false;
+  // 각 그룹의 공격 셀 합집합 계산
+  for (let gi = 0; gi < groups.length; gi++) {
+    const myGroup = groups[gi];
+    const otherGroups = groups.filter((_, j) => j !== gi);
+    // 내 유닛들의 공격 셀 합집합
+    const myAttackCells = new Set();
+    for (const { piece } of myGroup.pieces) {
+      const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+      for (const c of cells) {
+        if (inBounds(c.col, c.row, bounds)) myAttackCells.add(`${c.col},${c.row}`);
+      }
+    }
+    // 적 유닛 중 하나라도 myAttackCells 안에 있으면 — 공격 가능 → 무승부 아님
+    for (const og of otherGroups) {
+      for (const { piece } of og.pieces) {
+        if (myAttackCells.has(`${piece.col},${piece.row}`)) return false;
+      }
+    }
+  }
+  // 양쪽 모두 서로의 공격 범위에 안 닿음 → 무승부
+  return true;
+}
+
 // 보드 축소 스케줄 (모드별)
+// 사용자 요청 (#24): 1v1은 70턴에 마지막 외곽 파괴, 10턴 전부터 카운트다운 경고
+//                   팀전은 80턴에 마지막 외곽 파괴 (60턴 첫 축소 후 더 좁혀짐)
 function getBoardShrinkSchedule(room) {
   if (room.mode === 'team') {
     return [
-      { stage: 1, warnTurn: 20, shrinkTurn: 30, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5 (10턴 전부터 경고)
-      { stage: 2, warnTurn: 50, shrinkTurn: 60, newBounds: { min: 2, max: 4 }, final: true },   // 5x5 → 3x3
+      { stage: 1, warnTurn: 20, shrinkTurn: 30, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5
+      { stage: 2, warnTurn: 50, shrinkTurn: 60, newBounds: { min: 2, max: 4 }, final: false },  // 5x5 → 3x3
+      { stage: 3, warnTurn: 70, shrinkTurn: 80, newBounds: { min: 3, max: 3 }, final: true },   // 3x3 → 1x1 (마지막)
     ];
   }
-  // 1v1: stalemate가 트리거됐으면 동적 스케줄, 아니면 기본 40턴 경고/50턴 축소
+  // 1v1: stalemate 트리거가 우선
   if (room.stalemateShrinkTriggered && room.stalemateShrinkTurn != null) {
     return [{
       stage: 1,
@@ -3022,8 +3198,10 @@ function getBoardShrinkSchedule(room) {
       final: true,
     }];
   }
+  // 1v1 기본: 40턴 경고 → 50턴 첫 축소 (3x3) → 60턴 경고 → 70턴 마지막 외곽 파괴 (1x1)
   return [
-    { stage: 1, warnTurn: 40, shrinkTurn: 50, newBounds: { min: 1, max: 3 }, final: true },
+    { stage: 1, warnTurn: 40, shrinkTurn: 50, newBounds: { min: 1, max: 3 }, final: false },
+    { stage: 2, warnTurn: 60, shrinkTurn: 70, newBounds: { min: 2, max: 2 }, final: true },
   ];
 }
 
@@ -3050,8 +3228,17 @@ function detectStalemateShrink(room) {
 }
 
 function endTurn(room) {
-  // 이전 플레이어가 행동·스킬 없이 턴을 종료했으면 안내 메시지 (모든 플레이어/관전자에게 동등하게 emit)
+  // AI 턴 종료 핸들 정리 — 이중 endTurn 호출이나 stale setTimeout 방지
   const prevPlayerIdx = room.currentPlayerIdx;
+  if (room._aiTurnEndHandle && room._aiTurnEndHandle[prevPlayerIdx]) {
+    clearTimeout(room._aiTurnEndHandle[prevPlayerIdx]);
+    room._aiTurnEndHandle[prevPlayerIdx] = null;
+  }
+  if (room._aiTurnEndWatchdog && room._aiTurnEndWatchdog[prevPlayerIdx]) {
+    clearTimeout(room._aiTurnEndWatchdog[prevPlayerIdx]);
+    room._aiTurnEndWatchdog[prevPlayerIdx] = null;
+  }
+  // 이전 플레이어가 행동·스킬 없이 턴을 종료했으면 안내 메시지 (모든 플레이어/관전자에게 동등하게 emit)
   const prevPlayer = room.players[prevPlayerIdx];
   if (prevPlayer && prevPlayer.alive !== false) {
     const noAction = !prevPlayer.actionDone &&
@@ -3255,6 +3442,7 @@ function endTeamGame(room, winnerTeamId, reason) {
   const reasonObj = reason === 'surrender' ? { type: 'surrender' }
     : reason === 'shrink' ? { type: 'shrink' }
     : reason === 'draw' ? { type: 'draw' }
+    : reason === 'unreachable_draw' ? { type: 'unreachable_draw' }
     : reason === 'disconnect' ? { type: 'disconnect' }
     : { type: killInfo.type || 'attack', killer: killInfo.killer || null, victims: killInfo.victims || [] };
   // 팀 컬러 라벨
@@ -3283,11 +3471,12 @@ function endGame(room, winnerIdx, reason) {
   const reasonObj = reason === 'surrender' ? { type: 'surrender' }
     : reason === 'shrink' ? { type: 'shrink' }
     : reason === 'draw' ? { type: 'draw' }
+    : reason === 'unreachable_draw' ? { type: 'unreachable_draw' }
     : reason === 'disconnect' ? { type: 'disconnect' }
     : { type: killInfo.type || 'attack', killer: killInfo.killer || null, victims: killInfo.victims || [] };
 
-  // Draw (both sides eliminated by board shrink)
-  if (reason === 'draw') {
+  // Draw (양 팀 전멸 또는 unreachable — 게임 끝낼 수 없음)
+  if (reason === 'draw' || reason === 'unreachable_draw') {
     for (let i = 0; i < 2; i++) {
       emitToPlayer(room, i, 'game_over', { win: null, draw: true, reason: reasonObj });
     }
