@@ -1296,6 +1296,22 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       });
     }
   }
+  // 적팀에게도 1v1처럼 이동 알림 (토스트/로그)
+  const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
+  for (const enIdx of getEnemyIndices(room, idx)) {
+    const en = room.players[enIdx];
+    if (en && en.socketId && en.socketId !== 'AI') {
+      io.to(en.socketId).emit('opp_moved', {
+        msg: isMarked
+          ? `${p.name}의 표식된 ${piece.name}이(가) 이동했습니다.`
+          : `${p.name}이(가) 이동했습니다.`,
+        prevCol: isMarked ? prevCol : undefined,
+        prevRow: isMarked ? prevRow : undefined,
+        col: isMarked ? nc : undefined,
+        row: isMarked ? nr : undefined,
+      });
+    }
+  }
   broadcastTeamGameState(room);
   setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
 }
@@ -5771,18 +5787,22 @@ io.on('connection', (socket) => {
           });
         }
       }
-      // 적팀에게도 표식된 이동 애니메이션용 opp_moved 전달 (마크된 경우만 클라가 표시)
+      // 적팀 모두에게 이동 알림 — 1v1과 동일한 토스트/로그 표시
+      const enemyIdxs = getEnemyIndices(room, idx);
       const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
-      if (isMarked) {
-        const enemyIdxs = getEnemyIndices(room, idx);
-        for (const enIdx of enemyIdxs) {
-          const en = room.players[enIdx];
-          if (en && en.socketId && en.socketId !== 'AI') {
-            io.to(en.socketId).emit('opp_moved', {
-              msg: `${room.players[idx].name}의 표식된 ${piece.name}이(가) 이동했습니다.`,
-              prevCol: prev.col, prevRow: prev.row, col, row,
-            });
-          }
+      for (const enIdx of enemyIdxs) {
+        const en = room.players[enIdx];
+        if (en && en.socketId && en.socketId !== 'AI') {
+          io.to(en.socketId).emit('opp_moved', {
+            msg: isMarked
+              ? `${room.players[idx].name}의 표식된 ${piece.name}이(가) 이동했습니다.`
+              : `${room.players[idx].name}이(가) 이동했습니다.`,
+            // 표식된 말은 좌표 노출 (애니메이션용), 일반 이동은 좌표 숨김
+            prevCol: isMarked ? prev.col : undefined,
+            prevRow: isMarked ? prev.row : undefined,
+            col: isMarked ? col : undefined,
+            row: isMarked ? row : undefined,
+          });
         }
       }
       broadcastTeamGameState(room);

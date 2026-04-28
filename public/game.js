@@ -2031,13 +2031,13 @@ socket.on('team_game_start', (state) => {
 
 socket.on('team_game_update', (state) => {
   const wasMyTurn = S.isMyTurn;
+  const prevTurnIdx = S.currentPlayerIdx;
   const prevSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
   applyTeamGameState(state);
   // 스킬·패시브로 HP가 변한 piece에 hit/heal 애니메이션 — 1v1 skill_result/status_update와 동일
   const currSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
   const changes = (typeof detectTeamHpChanges === 'function') ? detectTeamHpChanges(prevSnap, currSnap) : [];
   // 내 턴 새로 들어왔을 때 — 1v1의 your_turn처럼 액션 플래그 전체 리셋
-  // (이거 없으면 2라운드 이후 이동/공격 버튼이 계속 막힘)
   if (S.isMyTurn && !wasMyTurn) {
     S.action = null;
     S.selectedPiece = null;
@@ -2051,6 +2051,25 @@ socket.on('team_game_update', (state) => {
     S.lastActionType = null;
     S.lastActionPieceType = null;
     try { playTurnBell(); } catch (e) {}
+  }
+  // 턴이 바뀌었으면 — 1v1처럼 로그·토스트로 누구 차례인지 명확히 알림
+  if (prevTurnIdx !== S.currentPlayerIdx && S.currentPlayerIdx !== undefined) {
+    const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
+    if (cur) {
+      const isMine = cur.idx === S.playerIdx;
+      const isAlly = cur.teamId === S.teamId && !isMine;
+      const teamColor = cur.teamId === 0 ? '🟦' : '🟥';
+      const label = isMine ? `${myN() || cur.name}` : cur.name;
+      const turnMsg = `${teamColor} [턴 ${S.turnNumber}] ${label}의 차례`;
+      addLog(turnMsg, 'system');
+      if (isMine) {
+        showSkillToast(`▶ 내 차례입니다!`, false, S.playerIdx, 'event');
+      } else if (isAlly) {
+        showSkillToast(`🤝 팀원 ${cur.name}의 차례`, false, cur.idx, 'event');
+      } else {
+        showSkillToast(`⚔ 적 ${cur.name}의 차례`, true, cur.idx, 'event');
+      }
+    }
   }
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
