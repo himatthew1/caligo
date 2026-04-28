@@ -2100,7 +2100,7 @@ body {
   width: 100%;
   padding: 20px;
 }
-.side-panel { width: 200px; flex-shrink: 0; }
+.side-panel { width: 240px; flex-shrink: 0; }     /* 프로필 줄바꿈 방지 — 카드 내용물 fit하는 최소 폭 */
 .log-panel { width: 220px; flex-shrink: 0; position: sticky; top: 60px; }
 .side-panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; }
 /* 보드 가운데, 사이드 프로필이 보드에 가까이 붙도록 — center-panel은 보드 폭만큼만 차지 */
