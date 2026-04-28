@@ -1462,6 +1462,11 @@ body {
 .hp-twin-split {
   background: var(--surface); border: 1px solid var(--villain);
   border-radius: 10px; padding: 16px; margin: 16px 0;
+  position: relative;
+}
+.hp-twin-close {
+  position: absolute;
+  top: 8px; right: 8px;
 }
 .hp-twin-split h3 { font-size: 1rem; color: var(--villain); margin-bottom: 6px; }
 .hp-twin-controls { display: flex; gap: 16px; justify-content: center; align-items: center; margin-top: 12px; }

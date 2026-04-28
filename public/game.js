@@ -5372,6 +5372,28 @@ function showTwinSplit(twinTierHp) {
     });
   }
 
+  // 패널 우측 상단에 X 버튼 추가 (덱 슬롯과 동일 스타일) — 클릭 시 분배 취소하고 메인으로 복귀
+  let closeBtn = panel.querySelector('.hp-twin-close');
+  if (!closeBtn) {
+    closeBtn = document.createElement('button');
+    closeBtn.className = 'hp-twin-close deck-list-del';
+    closeBtn.type = 'button';
+    closeBtn.title = '쌍둥이 분배 취소';
+    closeBtn.textContent = '×';
+    panel.appendChild(closeBtn);
+  }
+  // 핸들러 갱신 (panel 매번 열릴 때 새로)
+  closeBtn.onclick = () => {
+    unlockMainHpUI();
+    panel.classList.add('hidden');
+    const cBtn = document.getElementById('btn-hp-confirm');
+    cBtn.textContent = '확정';
+    cBtn.onclick = null;
+    cBtn.disabled = false;
+    if (typeof updateHpUI === 'function') updateHpUI();
+    if (typeof updateTeamHpUIShared === 'function') updateTeamHpUIShared();
+  };
+
   let elderHp = Math.ceil(twinTierHp / 2);
   let youngerHp = twinTierHp - elderHp;
 
@@ -5393,8 +5415,7 @@ function showTwinSplit(twinTierHp) {
           <span class="hp-value">${youngerHp}</span>
           <button class="hp-btn twin-btn" data-who="younger" data-delta="1">+</button>
         </div>
-      </div>
-      <button id="btn-twin-back" class="btn btn-muted btn-small" style="margin-top:8px">← 다시 분배</button>`;
+      </div>`;
 
     controls.querySelectorAll('.twin-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -5413,22 +5434,6 @@ function showTwinSplit(twinTierHp) {
         render();
       });
     });
-    // 뒤로 — 쌍둥이 분배 취소하고 메인 HP 분배로 돌아가기 (잠금 해제)
-    const backBtn = controls.querySelector('#btn-twin-back');
-    if (backBtn) {
-      backBtn.addEventListener('click', () => {
-        unlockMainHpUI();
-        panel.classList.add('hidden');
-        // 확정 버튼 원래 동작 복원
-        const cBtn = document.getElementById('btn-hp-confirm');
-        cBtn.textContent = '확정';
-        cBtn.onclick = null;
-        cBtn.disabled = false;
-        // 메인 HP 합계가 10이 아니면 비활성화
-        if (typeof updateHpUI === 'function') updateHpUI();
-        if (typeof updateTeamHpUIShared === 'function') updateTeamHpUIShared();
-      });
-    }
   }
 
   render();
