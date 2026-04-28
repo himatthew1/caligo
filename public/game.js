@@ -2389,7 +2389,7 @@ function renderTeamWaitingRoom() {
     slotEl.classList.remove('filled', 'self', 'ai-bot');
     if (player) {
       const isMe = player.idx === S.playerIdx;
-      const isBot = (player.name || '').includes('🤖') || player.isAI;
+      const isBot = !!player.isAI || /^(블루봇|레드봇)/.test(player.name || '');
       slotEl.classList.add('filled');
       if (isMe) slotEl.classList.add('self');
       if (isBot) slotEl.classList.add('ai-bot');

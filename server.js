@@ -468,7 +468,7 @@ function broadcastTeamRoomState(room) {
   if (!room || room.mode !== 'team') return;
   const payload = {
     roomId: room.id,
-    players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId, slotPos: p.slotPos ?? 0 })),
+    players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId, slotPos: p.slotPos ?? 0, isAI: p.socketId === 'AI' })),
     teams: room.teams,
     count: room.players.length,
   };
