@@ -3460,12 +3460,10 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   try { playBoardQuake(); } catch (e) {}
   // 외곽 파괴를 먼저 시각화한 뒤 흔들림 — 파괴된 셀이 보이는 채로 흔들리도록
   S.boardBounds = bounds;
-  // 매 보드 축소 단계마다 화려한 풀스크린 연출 — 새로운 이벤트 시작 알림
+  // 매 보드 축소 단계마다 화려한 풀스크린 연출 — 관전자·탈락 플레이어 포함 모두에게 표시
   // (사용자 요청 #24: 1v1 turn 70 마지막 외곽 파괴 등 새 단계마다 표시)
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
-  if (!S.isSpectator) {
-    playBoardShrinkIntro();
-  }
+  playBoardShrinkIntro();
   if (!S.isSpectator) {
     showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
     addLog(`🔥 보드 외곽 파괴`, 'shrink');
