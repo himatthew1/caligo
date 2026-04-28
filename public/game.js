@@ -6908,13 +6908,27 @@ function showActionBar(enabled) {
 
   const btnSurrender = document.getElementById('btn-surrender');
 
+  // 탈락 상태 감지 — 내 모든 말이 죽으면 기권 버튼을 "방 나가기"로 변환
+  const myAllDead = S.myPieces && S.myPieces.length > 0 && S.myPieces.every(p => !p.alive);
+  if (btnSurrender) {
+    if (myAllDead) {
+      btnSurrender.textContent = '🚪 방 나가기';
+      btnSurrender.dataset.mode = 'leave';
+      // 탈락 후엔 항상 활성화 (관전 중 아무때나 떠날 수 있게)
+      btnSurrender.disabled = false;
+    } else {
+      btnSurrender.textContent = '🏳 기권';
+      btnSurrender.dataset.mode = 'surrender';
+    }
+  }
+
   if (!enabled) {
-    // 상대 턴 — 모두 비활성화
+    // 상대 턴 — 모두 비활성화 (단, 탈락한 경우 방 나가기는 가능)
     btnMove.disabled = true;
     btnAttack.disabled = true;
     btnSkill.disabled = true;
     btnEnd.disabled = true;
-    btnSurrender.disabled = true;
+    btnSurrender.disabled = !myAllDead;  // 탈락 시 항상 활성
     btnMove.classList.remove('action-dimmed');
     btnAttack.classList.remove('action-dimmed');
     btnSkill.classList.remove('action-dimmed');
@@ -7848,6 +7862,17 @@ if (sprintEndturnCancel) {
 
 // 기권 버튼
 document.getElementById('btn-surrender').addEventListener('click', () => {
+  const btn = document.getElementById('btn-surrender');
+  // 탈락 후 — '방 나가기' 모드
+  if (btn && btn.dataset.mode === 'leave') {
+    // 즉시 로비로 — 게임은 다른 플레이어들이 계속 진행
+    try { sessionStorage.removeItem('caligo_session'); } catch (e) {}
+    try { socket.disconnect(); } catch (e) {}
+    setTimeout(() => { try { socket.connect(); } catch (e) {} }, 200);
+    showScreen('screen-lobby');
+    return;
+  }
+  // 일반 — 기권 모달
   if (!S.isMyTurn) return;
   document.getElementById('surrender-modal').classList.remove('hidden');
 });
