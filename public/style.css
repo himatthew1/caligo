@@ -1074,12 +1074,12 @@ body {
   border-radius: 14px; padding: 24px 28px;
   /* 너비/높이 완전 고정: 콘텐츠 양에 상관없이 주변 레이아웃 절대 안 움직임 */
   width: 460px; max-width: 100%;
-  height: 540px;
+  height: 600px;          /* 540 → 600 — 스킬 박스에 더 많은 공간 확보 */
   text-align: center;
   animation: slideIn 0.25s ease;
   display: flex; flex-direction: column;
   box-sizing: border-box;
-  overflow-y: auto;   /* 넘치면 내부 스크롤 */
+  overflow-y: auto;
   overflow-x: hidden;
 }
 /* 공용 커스텀 드래그바 — 추천 모달, 전투 로그, 슬라이더, 모달 전부 이 스타일 사용 */
@@ -1191,12 +1191,14 @@ body {
   box-sizing: border-box;
 }
 
-/* 스킬 박스 — 하단 영역 */
+/* 스킬 박스 — 하단 영역. 다중 스킬(화약상/약초/등)도 스크롤 없이 들어가도록 충분한 최소 높이 */
 .slide-skill-box {
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   text-align: left;
-  flex: 1; overflow-y: auto;
+  flex: 1;
+  min-height: 200px;       /* 2개 스킬 블록(약초학+신성, 폭탄+기폭) 한 화면 보장 */
+  overflow-y: visible;     /* 내부 스크롤 X — slide-content가 전체 스크롤 처리 */
   margin-bottom: 10px;
 }
 .slide-head-line {
