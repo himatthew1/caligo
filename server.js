@@ -1127,7 +1127,7 @@ function aiTeamUsePreSkills(room, idx) {
   for (let pi = 0; pi < p.pieces.length; pi++) {
     const piece = p.pieces[pi];
     if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
-    if ((room.sp[idx] + room.instantSp[idx]) < piece.skillCost) continue;
+    if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
     if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(piece.skillId)) continue;
     // shadow — 적과 인접하면 시전
@@ -1204,7 +1204,7 @@ function aiTeamUsePreSkills(room, idx) {
       }
     }
     // dragon — 5SP 충분하면 한 번 소환 (게임당 1회 시도)
-    if (piece.skillId === 'dragon' && (room.sp[idx] + room.instantSp[idx]) >= 5) {
+    if (piece.skillId === 'dragon' && (room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) >= 5) {
       // 자기 인접 빈 칸
       for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
         const c = piece.col + dc, r = piece.row + dr;
@@ -1304,7 +1304,7 @@ function aiTeamTakeTurn(room, idx) {
   // ★ STEP 2: 행동 대체 스킬 (덫/저주/유황범람/분신)
   for (const piece of myAlive) {
     if (!piece.hasSkill || !piece.skillReplacesAction) continue;
-    if ((room.sp[idx] + room.instantSp[idx]) < piece.skillCost) continue;
+    if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
     const pi = p.pieces.indexOf(piece);
 
@@ -2707,13 +2707,20 @@ function detonateBomb(room, ownerIdx, bomb, options) {
       if (ep.hp <= 0) {
         handleDeath(room, ep, 1 - ownerIdx);
       }
-      // Wizard passive: SP on bomb hit
+      // Wizard passive: SP on bomb hit — 마법사 소속 플레이어/팀에 SP 추가
       if (ep.type === 'wizard') {
-        room.instantSp[1 - ownerIdx] += 1;
+        // ep는 적의 wizard. ep의 소유자 idx를 찾아야 함
+        let wizOwnerIdx = -1;
+        for (let pi = 0; pi < room.players.length; pi++) {
+          if (room.players[pi].pieces.includes(ep)) { wizOwnerIdx = pi; break; }
+        }
+        if (wizOwnerIdx < 0) wizOwnerIdx = 1 - ownerIdx;  // fallback
+        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, wizOwnerIdx) : wizOwnerIdx;
+        room.instantSp[wizSpSlot] += 1;
         emitSPUpdate(room);
-        const wizOwnerName = room.players[1 - ownerIdx].name;
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1 - ownerIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.` });
-        emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: 1 - ownerIdx });
+        const wizOwnerName = room.players[wizOwnerIdx].name;
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: wizOwnerIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.` });
+        emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${wizOwnerName}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: wizOwnerIdx });
       }
       hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon });
     }
@@ -2800,7 +2807,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
 
           // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
           if (defPiece.type === 'wizard') {
-            room.instantSp[defIdx] += 1;
+            const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, defIdx) : defIdx;
+            room.instantSp[wizSpSlot] += 1;
             emitSPUpdate(room);
             const defName = room.players[defIdx].name;
             emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: defIdx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${defName}은 인스턴트 SP를 1개 획득합니다.` });
@@ -2882,17 +2890,22 @@ function checkWin(room, defenderIdx) {
 // ══════════════════════════════════════════════════════════════════
 
 function spendSP(room, playerIdx, amount) {
-  const totalSp = room.sp[playerIdx] + room.instantSp[playerIdx];
+  // 팀모드: SP 풀은 [블루팀, 레드팀] = teamId로 인덱싱 / 1v1: [p0, p1] = playerIdx
+  const slot = (room.mode === 'team')
+    ? (getTeamOf(room, playerIdx))
+    : playerIdx;
+  const oppSlot = 1 - slot;
+  const totalSp = room.sp[slot] + room.instantSp[slot];
   if (totalSp < amount) return false;
   // Consume instant SP first (disappears permanently, no transfer to opponent)
   let remaining = amount;
-  const instantUsed = Math.min(room.instantSp[playerIdx], remaining);
-  room.instantSp[playerIdx] -= instantUsed;
+  const instantUsed = Math.min(room.instantSp[slot], remaining);
+  room.instantSp[slot] -= instantUsed;
   remaining -= instantUsed;
   // Then consume regular SP (transfers to opponent)
   if (remaining > 0) {
-    room.sp[playerIdx] -= remaining;
-    room.sp[1 - playerIdx] = Math.min(room.sp[1 - playerIdx] + remaining, 10);
+    room.sp[slot] -= remaining;
+    room.sp[oppSlot] = Math.min(room.sp[oppSlot] + remaining, 10);
   }
   emitSPUpdate(room);
   return true;
@@ -3540,8 +3553,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     if (matchedSkill) cost = matchedSkill.cost;
   }
 
-  // Check SP (regular + instant)
-  if ((room.sp[playerIdx] + room.instantSp[playerIdx]) < cost) return { ok: false, msg: 'SP가 부족합니다.' };
+  // Check SP (regular + instant) — 팀모드는 teamId 슬롯
+  const spSlot = (room.mode === 'team') ? getTeamOf(room, playerIdx) : playerIdx;
+  if ((room.sp[spSlot] + room.instantSp[spSlot]) < cost) return { ok: false, msg: 'SP가 부족합니다.' };
 
   // 턴당 1회 제한 체크 (oncePerTurn)
   const effectiveSkillId = skillId || piece.skillId;
@@ -6047,7 +6061,8 @@ io.on('connection', (socket) => {
       piece.hp = Math.max(0, piece.hp - dmg);
       // Wizard passive: SP on trap hit
       if (piece.type === 'wizard') {
-        room.instantSp[idx] += 1;
+        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, idx) : idx;
+        room.instantSp[wizSpSlot] += 1;
         emitSPUpdate(room);
         emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.` });
         emitToSpectators(room, 'spectator_log', { msg: `✨ 인스턴트 매직: 마법사 피격되어 ${player.name}은 인스턴트 SP를 1개 획득합니다.`, type: 'passive', playerIdx: idx });
