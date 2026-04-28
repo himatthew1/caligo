@@ -2492,6 +2492,24 @@ body {
   letter-spacing: 2px;
   text-shadow: 0 2px 8px rgba(0,0,0,0.8);
 }
+/* 보드 파괴 첫 발동 풀스크린 연출 — 위협적인 빨간 톤 + 진동 */
+.shrink-intro {
+  background: radial-gradient(ellipse at center, rgba(120, 30, 30, 0.85), rgba(0, 0, 0, 0.95));
+}
+.shrink-intro-title {
+  color: #fca5a5 !important;
+  text-shadow: 0 0 50px rgba(239, 68, 68, 0.95), 0 4px 14px rgba(0,0,0,0.95) !important;
+  animation: shrinkIntroPulse 0.6s ease-in-out 2;
+}
+.shrink-intro-sub {
+  color: #fed7d7 !important;
+  text-shadow: 0 0 18px rgba(239, 68, 68, 0.7), 0 2px 8px rgba(0,0,0,0.9) !important;
+}
+@keyframes shrinkIntroPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
 
 /* 방목록·관전 모달 필터 탭 */
 .room-filter-tabs {

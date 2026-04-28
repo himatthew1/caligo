@@ -2383,12 +2383,35 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       }
       statusHtml = renderStatusBadges(pc);
     } else {
-      // 적: 추론 게임 보존 — 표식된 적이면 좌표 노출. 그 외는 좌표 없음.
-      // statusEffects는 표식만 표시
-      const marked = (pc.statusEffects || []).find(e => e.type === 'mark');
-      if (marked) {
-        statusHtml = '<div class="status-badges"><span class="status-badge mark">🎯 표식</span></div>';
+      // 적 — 1v1 opp-piece-card와 동등한 정보 표시 (방향·사기증진·스킬·패시브 등 누락 없이)
+      // 스킬·패시브 — 적도 1v1처럼 보임
+      if (pc.hasSkill && pc.skillName) {
+        skillHtml = `<div style="font-size:0.7rem;color:#a78bfa;margin-top:2px">스킬: ${escapeHtmlGlobal(pc.skillName)} (${pc.skillCost || '?'}SP)</div>`;
       }
+      if (pc.passiveName) {
+        passiveHtml = `<div style="font-size:0.68rem;color:#f59e0b;margin-top:1px">패시브: ${escapeHtmlGlobal(pc.passiveName)}</div>`;
+      }
+      // 궁수·무기상 공격 방향 — 1v1에서 보이는 것과 동일하게
+      if (pc.type === 'archer') {
+        const dir = pc.toggleState === 'right' ? '우측 대각선' : '좌측 대각선';
+        directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+      }
+      if (pc.type === 'weaponSmith') {
+        const dir = pc.toggleState === 'vertical' ? '세로' : '가로';
+        directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
+      }
+      // 적팀 사기증진 — 적팀 지휘관 인접한 같은 적팀 piece에 표시
+      if (pc.type !== 'commander' && pc.col != null) {
+        const oppTeamCommanders = teamPlayers.flatMap(pp => (pp.pieces || []).filter(p => p.alive && p.type === 'commander' && p.col != null));
+        const enemyMorale = oppTeamCommanders.some(cm =>
+          (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
+          (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col));
+        if (enemyMorale) {
+          moraleHtml = '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>';
+        }
+      }
+      // 표식 + 기타 상태이상도 표시 (그림자·저주는 적에게 보임)
+      statusHtml = renderStatusBadges(pc);
     }
 
     const atkDisplay = (isAlly && pc.type !== 'commander' && teamCommanders.some(cm =>
@@ -2953,6 +2976,42 @@ socket.on('game_start', (data) => {
   }
 });
 
+// 보드 파괴 첫 발동 풀스크린 연출 — 게임 시작과 비슷한 임팩트
+function playBoardShrinkIntro() {
+  let overlay = document.getElementById('board-shrink-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'board-shrink-overlay';
+    overlay.className = 'game-start-overlay shrink-intro';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `
+    <div class="game-start-title shrink-intro-title">⚠ 보드 파괴 시작</div>
+    <div class="game-start-sub shrink-intro-sub">외곽이 무너지기 시작합니다 — 안쪽으로 대피하세요!</div>
+  `;
+  overlay.classList.remove('hidden');
+  overlay.classList.add('active');
+  // 사운드 — 보드 흔들림 SFX 보강 (오버레이용 톤 다운된 베이스)
+  try {
+    const ctx = getAudioCtx(); if (ctx) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(110, ctx.currentTime);
+      o.frequency.linearRampToValueAtTime(55, ctx.currentTime + 0.7);
+      g.gain.setValueAtTime(0, ctx.currentTime);
+      g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.05);
+      g.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+      o.start(ctx.currentTime);
+      o.stop(ctx.currentTime + 0.85);
+    }
+  } catch (e) {}
+  setTimeout(() => {
+    overlay.classList.remove('active');
+    overlay.classList.add('hidden');
+  }, 2200);
+}
+
 // 게임 시작 애니메이션 — 오버레이 "FIGHT!" + 1.2초 scale-up 페이드
 function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
   let overlay = document.getElementById('game-start-overlay');
@@ -3396,6 +3455,11 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
   try { playBoardQuake(); } catch (e) {}
   // 외곽 파괴를 먼저 시각화한 뒤 흔들림 — 파괴된 셀이 보이는 채로 흔들리도록
   S.boardBounds = bounds;
+  // 첫 보드 파괴는 화려한 풀스크린 연출 — 새로운 이벤트가 시작됐음을 알림
+  S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
+  if (S._shrinkOccurredCount === 1 && !S.isSpectator) {
+    playBoardShrinkIntro();
+  }
   if (!S.isSpectator) {
     showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
     addLog(`🔥 보드 외곽 파괴`, 'shrink');
