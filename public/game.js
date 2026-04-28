@@ -3925,6 +3925,108 @@ const CHAR_DETAILS = {
   },
 };
 
+// ══════════════════════════════════════════════════════════════════
+// ── 캐릭터 스탯 그래프 (오각형 레이더) ─────────────────────────
+// ══════════════════════════════════════════════════════════════════
+// 5개 축 (1~5): 공격(ATK) / 견제(PRS) / 생존(DUR) / 지원(UTL) / 기동(MOB)
+const CHAR_STATS = {
+  // 1티어
+  archer:        { atk: 4, prs: 2, dur: 2, utl: 3, mob: 2 },
+  spearman:      { atk: 4, prs: 3, dur: 2, utl: 1, mob: 2 },
+  cavalry:       { atk: 4, prs: 3, dur: 2, utl: 1, mob: 2 },
+  watchman:      { atk: 1, prs: 2, dur: 2, utl: 5, mob: 2 },
+  twins:         { atk: 3, prs: 3, dur: 3, utl: 2, mob: 5 },
+  scout:         { atk: 3, prs: 2, dur: 2, utl: 5, mob: 2 },
+  manhunter:     { atk: 3, prs: 5, dur: 2, utl: 2, mob: 2 },
+  messenger:     { atk: 1, prs: 1, dur: 2, utl: 3, mob: 5 },
+  gunpowder:     { atk: 3, prs: 5, dur: 2, utl: 3, mob: 2 },
+  herbalist:     { atk: 2, prs: 1, dur: 4, utl: 5, mob: 2 },
+  // 2티어
+  general:       { atk: 5, prs: 3, dur: 3, utl: 1, mob: 2 },
+  knight:        { atk: 5, prs: 3, dur: 3, utl: 1, mob: 2 },
+  shadowAssassin:{ atk: 4, prs: 3, dur: 5, utl: 2, mob: 3 },
+  wizard:        { atk: 4, prs: 4, dur: 2, utl: 4, mob: 2 },
+  armoredWarrior:{ atk: 3, prs: 2, dur: 5, utl: 1, mob: 2 },
+  witch:         { atk: 3, prs: 5, dur: 2, utl: 3, mob: 2 },
+  dualBlade:     { atk: 5, prs: 3, dur: 2, utl: 2, mob: 3 },
+  ratMerchant:   { atk: 3, prs: 4, dur: 3, utl: 4, mob: 2 },
+  weaponSmith:   { atk: 4, prs: 3, dur: 2, utl: 3, mob: 2 },
+  bodyguard:     { atk: 2, prs: 2, dur: 4, utl: 5, mob: 2 },
+  // 3티어
+  prince:        { atk: 5, prs: 3, dur: 4, utl: 1, mob: 2 },
+  princess:      { atk: 5, prs: 3, dur: 4, utl: 1, mob: 2 },
+  king:          { atk: 2, prs: 5, dur: 3, utl: 5, mob: 2 },
+  dragonTamer:   { atk: 4, prs: 5, dur: 3, utl: 4, mob: 3 },
+  monk:          { atk: 1, prs: 1, dur: 4, utl: 5, mob: 2 },
+  slaughterHero: { atk: 5, prs: 4, dur: 4, utl: 1, mob: 2 },
+  commander:     { atk: 3, prs: 2, dur: 3, utl: 5, mob: 2 },
+  sulfurCauldron:{ atk: 1, prs: 5, dur: 3, utl: 3, mob: 1 },
+  torturer:      { atk: 4, prs: 5, dur: 3, utl: 3, mob: 2 },
+  count:         { atk: 4, prs: 3, dur: 5, utl: 2, mob: 2 },
+};
+
+// 오각형 레이더 SVG 생성 — 5축, 값 1~5
+function buildStatRadarSVG(stats) {
+  if (!stats) return '';
+  const W = 170, H = 116;          // 슬라이드 좌측 컬럼 빈 공간에 들어가는 크기
+  const cx = W / 2, cy = H / 2 + 2;
+  const R = 44;                     // 최대 반경
+  // 축 정의: top → top-right → bottom-right → bottom-left → top-left (시계방향)
+  const axes = [
+    { key: 'atk', label: '공격', angle: -Math.PI/2 },
+    { key: 'prs', label: '견제', angle: -Math.PI/2 + (2*Math.PI*1/5) },
+    { key: 'dur', label: '생존', angle: -Math.PI/2 + (2*Math.PI*2/5) },
+    { key: 'utl', label: '지원', angle: -Math.PI/2 + (2*Math.PI*3/5) },
+    { key: 'mob', label: '기동', angle: -Math.PI/2 + (2*Math.PI*4/5) },
+  ];
+  const point = (axis, val) => {
+    const r = R * (val / 5);
+    return [cx + r*Math.cos(axis.angle), cy + r*Math.sin(axis.angle)];
+  };
+  // 배경 격자 (1~5단계)
+  let grid = '';
+  for (let lv = 1; lv <= 5; lv++) {
+    const pts = axes.map(a => {
+      const r = R * (lv / 5);
+      return [cx + r*Math.cos(a.angle), cy + r*Math.sin(a.angle)];
+    });
+    const d = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const op = lv === 5 ? 0.35 : 0.15;
+    grid += `<polygon points="${d}" fill="none" stroke="#94a3b8" stroke-opacity="${op}" stroke-width="1"/>`;
+  }
+  // 축선
+  let spokes = '';
+  axes.forEach(a => {
+    const [ex, ey] = [cx + R*Math.cos(a.angle), cy + R*Math.sin(a.angle)];
+    spokes += `<line x1="${cx}" y1="${cy}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="#94a3b8" stroke-opacity="0.18" stroke-width="1"/>`;
+  });
+  // 데이터 폴리곤
+  const dataPts = axes.map(a => point(a, stats[a.key] || 0));
+  const dataD = dataPts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  // 라벨
+  let labels = '';
+  axes.forEach(a => {
+    const labelR = R + 12;
+    const lx = cx + labelR*Math.cos(a.angle);
+    const ly = cy + labelR*Math.sin(a.angle);
+    const anchor = Math.abs(Math.cos(a.angle)) < 0.2 ? 'middle' : (Math.cos(a.angle) > 0 ? 'start' : 'end');
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly+3).toFixed(1)}" font-size="9" fill="#cbd5e1" text-anchor="${anchor}" font-weight="700">${a.label}</text>`;
+  });
+  return `<svg class="stat-radar-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    ${grid}${spokes}
+    <polygon points="${dataD}" fill="rgba(226,168,75,0.28)" stroke="#e2a84b" stroke-width="1.6" stroke-linejoin="round"/>
+    ${dataPts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="#e2a84b"/>`).join('')}
+    ${labels}
+  </svg>`;
+}
+
+function renderStatRadar(charType, container) {
+  if (!container) return;
+  const stats = CHAR_STATS[charType];
+  if (!stats) { container.innerHTML = ''; return; }
+  container.innerHTML = buildStatRadarSVG(stats);
+}
+
 /* ── 슬라이드 인덱스 ── */
 let slideIndex = 0;
 
@@ -4014,6 +4116,8 @@ function renderSlide() {
   // 좌측 컬럼 플레이버 텍스트 (이름+ATK 아래)
   const flavorEl = document.getElementById('slide-flavor');
   if (flavorEl) flavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
+  // 캐릭터 개성 그래프 (오각형 레이더)
+  renderStatRadar(c.type, document.getElementById('slide-stat-radar'));
 
   if (detail) {
     const hasPerBlockDesc = detail.blocks.some(b => b.desc);
@@ -5250,7 +5354,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
 
 function exBuildStepUI() {
   const tier = exCurrentTier;
-  document.getElementById('ex-draft-sub').textContent = `상대방 말을 견제할 주요 전력을 하나 교체할 수 있습니다!`;
+  document.getElementById('ex-draft-sub').textContent = `상대방 말을 견제할 주요 전력을\n    하나 교체 할 수 있습니다!`;
 
   // 스텝 인디케이터
   const steps = document.querySelectorAll('#ex-step-indicator .step');
@@ -5338,6 +5442,8 @@ function exRenderSlide() {
   // 좌측 컬럼 플레이버 텍스트 (교환 드래프트)
   const exFlavorEl = document.getElementById('ex-slide-flavor');
   if (exFlavorEl) exFlavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
+  // 캐릭터 개성 그래프 (오각형 레이더)
+  renderStatRadar(c.type, document.getElementById('ex-slide-stat-radar'));
 
   if (detail) {
     const hasPerBlockDesc = detail.blocks.some(b => b.desc);

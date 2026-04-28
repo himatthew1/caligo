@@ -834,6 +834,17 @@ body {
 #screen-exchange #ex-opp-chars { gap: 8px; }
 #screen-exchange .draft-sidebar-btns { margin-top: 6px; }
 #screen-exchange .draft-sidebar-btns .btn-primary { padding: 9px; font-size: 0.85rem; }
+/* 교환 드래프트 — 한 화면에 다 들어가도록 상하단 여백 컴팩트화 (스크롤 제거) */
+#screen-exchange .progress-stepper { margin-bottom: 4px; padding: 8px 16px; }
+#screen-exchange .draft-layout { margin: 6px 0; padding: 8px 16px; }
+/* 안내 문구 — 주황 글로우로 살짝 강조 */
+#screen-exchange #ex-draft-sub {
+  margin-top: 10px;
+  color: var(--accent);
+  text-shadow: 0 0 6px rgba(226,168,75,0.35);
+  font-weight: 600;
+  white-space: pre-line;
+}
 .sidebar-title {
   font-size: 0.9rem; font-weight: 700; color: var(--accent);
   text-align: center; margin-bottom: 4px;
@@ -1085,7 +1096,7 @@ body {
   border-radius: 14px; padding: 24px 28px;
   /* 너비/높이 완전 고정: 콘텐츠 양에 상관없이 주변 레이아웃 절대 안 움직임 */
   width: 460px; max-width: 100%;
-  height: 540px;
+  height: 568px;
   text-align: center;
   animation: slideIn 0.25s ease;
   display: flex; flex-direction: column;
@@ -1275,6 +1286,26 @@ body {
   word-break: keep-all;
 }
 .slide-info-col .slide-flavor:empty { display: none; }
+/* 캐릭터 개성 그래프 — 오각형 레이더 */
+/* 캐릭터 개성 그래프 — 양식 무시하고 좌측 컬럼 하단에 절대배치 후 살짝 내려둠 */
+.slide-top-row { position: relative; }
+.slide-stat-radar {
+  position: absolute;
+  left: 0;
+  bottom: 14px;          /* 양식 안쪽으로 살짝 띄움 (in-flow 위치와 -6px의 중간) */
+  width: calc((100% - 14px) / 2);   /* 좌측 컬럼 폭과 일치 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: none;
+  margin: 0;
+}
+.slide-stat-radar:empty { display: none; }
+.stat-radar-svg {
+  width: 170px;
+  height: 116px;
+  display: block;
+}
 .slide-detail-body {
   font-size: 0.78rem; color: #c9cad0; line-height: 1.5;
   margin-top: 6px; white-space: pre-line; text-align: left;
@@ -1534,8 +1565,7 @@ body {
   color: #fff !important;
   box-shadow: 0 0 12px rgba(59,130,246,0.5);
   pointer-events: none;
-  font-weight: 800;
-  letter-spacing: 0.3px;
+  /* 폰트 두께/자간을 base와 동일하게 유지 — 버튼 크기가 변하지 않도록 */
 }
 
 /* ── 교환 드래프트 ── */
