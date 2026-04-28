@@ -4423,9 +4423,20 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '이미 게임이 시작된 방입니다.' });
       return;
     }
+    // 방이 꽉 찼는데 AI 봇이 있으면 — 사람이 자리를 가져갈 수 있도록 봇 하나 자동 퇴장
     if (room.players.length >= 4) {
-      socket.emit('err', { msg: '방이 가득 찼습니다. (4/4)' });
-      return;
+      const botIdx = room.players.findIndex(p => p.socketId === 'AI');
+      if (botIdx >= 0) {
+        // 봇 제거 + 팀/인덱스 재정렬
+        room.players.splice(botIdx, 1);
+        for (let t = 0; t < 2; t++) {
+          room.teams[t] = room.teams[t].filter(i => i !== botIdx).map(i => i > botIdx ? i - 1 : i);
+        }
+        room.players.forEach((p, i) => { p.index = i; });
+      } else {
+        socket.emit('err', { msg: '방이 가득 찼습니다. (4/4)' });
+        return;
+      }
     }
     const idx = room.players.length;
     const sessionToken = genSessionToken();
