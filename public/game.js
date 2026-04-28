@@ -1720,7 +1720,7 @@ function renderTeamReveal(allPlayerPieces) {
   const buildPlayerSection = (pl, container) => {
     const head = document.createElement('div');
     head.className = 'team-reveal-player-header' + (pl.idx === S.playerIdx ? ' is-me' : '');
-    head.textContent = `${pl.name}${pl.idx === S.playerIdx ? ' (나)' : ''}`;
+    head.textContent = pl.name;
     container.appendChild(head);
     const row = document.createElement('div');
     row.className = 'reveal-pieces-row';
