@@ -1074,7 +1074,7 @@ body {
   border-radius: 14px; padding: 24px 28px;
   /* 너비/높이 완전 고정: 콘텐츠 양에 상관없이 주변 레이아웃 절대 안 움직임 */
   width: 460px; max-width: 100%;
-  height: 600px;          /* 540 → 600 — 스킬 박스에 더 많은 공간 확보 */
+  height: 540px;
   text-align: center;
   animation: slideIn 0.25s ease;
   display: flex; flex-direction: column;
@@ -1531,6 +1531,8 @@ body {
 .exchange-layout .draft-sidebar { gap: 8px; }
 .exchange-opp-sidebar { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .exchange-opp-sidebar h3 { margin-bottom: 8px; }
+/* 상대 조합 슬롯들 사이 간격 — 내 조합 (draft-sidebar gap 10px)과 통일 */
+#ex-opp-chars { display: flex; flex-direction: column; gap: 10px; }
 .opp-slot { border-color: rgba(239,68,68,0.4) !important; cursor: pointer !important; }
 .opp-slot:hover { background: rgba(239,68,68,0.08); }
 .draft-slot.swapped {
