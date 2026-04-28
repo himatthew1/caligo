@@ -5986,12 +5986,22 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '상하좌우 1칸만 이동할 수 있습니다.' }); return;
     }
 
-    // Block friendly unit stacking (except twins)
+    // Block friendly unit stacking (except twins of the SAME player)
     const friendlyOccupant = player.pieces.find(p => p.alive && p.col === col && p.row === row);
     if (friendlyOccupant) {
       const bothAreTwins = piece.subUnit && friendlyOccupant.subUnit;
       if (!bothAreTwins) {
         socket.emit('err', { msg: '아군이 있는 칸으로는 이동할 수 없습니다.' }); return;
+      }
+    }
+    // 팀모드: 팀원의 말도 같은 칸에 있으면 이동 차단 (쌍둥이는 같은 플레이어 한정 — 팀원 쌍둥이와는 공유 X)
+    if (room.mode === 'team') {
+      for (const tIdx of getTeammates(room, idx)) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        if ((tp.pieces || []).some(p => p.alive && p.col === col && p.row === row)) {
+          socket.emit('err', { msg: '팀원이 있는 칸으로는 이동할 수 없습니다.' }); return;
+        }
       }
     }
 

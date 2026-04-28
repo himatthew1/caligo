@@ -3179,8 +3179,9 @@ socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subU
       setTimeout(() => oldCell.classList.remove('teammate-move-trail'), 600);
     }
   }
-  // 토스트 + 로그 모두 표시 — 이전엔 로그만 있어서 사용자가 인지 불가
-  const moveMsg = `팀원 ${moverName} — ${pieceIcon}${pieceName} ${coord(prevCol,prevRow)} → ${coord(col,row)}`;
+  // 토스트 + 로그 — 자기 이동 / 관전자 로그와 동일한 문체
+  // (자기: '🚶 [piece]의 위치를 [coord]로 이동합니다.', 관전자: '🚶 [name], [piece]의 위치를 [coord]로 이동합니다.')
+  const moveMsg = `🚶 팀원 ${moverName}, ${pieceIcon}${pieceName}의 위치를 ${coord(col,row)}로 이동합니다.`;
   addLog(moveMsg, 'move');
   showSkillToast(moveMsg, false, undefined, 'move');
 });
