@@ -1994,22 +1994,23 @@ function transitionToExchangeDraft(room) {
   clearTimer(room);
   room.phase = 'exchange_draft';
   if (room.isAI) {
-    // AI 교환 카운터픽 — 캐릭터만 바꾸고 덱 이름은 유지 (인간 플레이어와 동일하게)
+    // AI 교환 카운터픽 — 결정만 미리 저장하고, 실제 교환은 final_reveal 직전에 적용
+    // (사용자에게는 교체되기 전 조합으로 보이도록 — final_reveal에서 변경 결과 공개)
     const aiPlayer = room.players[1];
     const human = room.players[0];
+    aiPlayer._exchangeOriginal = { ...aiPlayer.draft };
     const swap = aiDecideExchange(aiPlayer.draft, human.draft);
     if (swap) {
       const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
-      // 안전망: 새 타입이 현재와 같거나 다른 슬롯에 이미 있으면 교환하지 않음
       const currentType = aiPlayer.draft[key];
       const conflictsOtherSlot =
         (key !== 't1' && aiPlayer.draft.t1 === swap.newType) ||
         (key !== 't2' && aiPlayer.draft.t2 === swap.newType) ||
         (key !== 't3' && aiPlayer.draft.t3 === swap.newType);
       if (currentType !== swap.newType && !conflictsOtherSlot) {
-        aiPlayer.draft[key] = swap.newType;
+        // pending swap만 저장. 실제 적용은 transitionToFinalReveal에서.
+        aiPlayer._pendingSwap = { tier: swap.tier, key, newType: swap.newType };
       }
-      // 충돌하면 swap을 skip — 결과적으로 draft 변경 없음 → 교체 배지도 안 뜸
     }
     room.exchangeDone[1] = true;
   }
@@ -2055,6 +2056,13 @@ function transitionToFinalReveal(room) {
   clearTimer(room);
   room.phase = 'final_reveal';
   if (room.isAI) {
+    // 보류된 AI 교체를 여기서 적용 — 사용자가 본 exchange_draft_phase는 교체 전 조합
+    const aiPlayer = room.players[1];
+    if (aiPlayer && aiPlayer._pendingSwap) {
+      aiPlayer.draft[aiPlayer._pendingSwap.key] = aiPlayer._pendingSwap.newType;
+      delete aiPlayer._pendingSwap;
+    }
+    delete aiPlayer._exchangeOriginal;
     room.finalRevealDone[1] = true;
   }
   room.players.forEach((p, i) => {

@@ -7869,8 +7869,10 @@ function openSkillModal() {
   const body = document.getElementById('skill-modal-body');
   body.innerHTML = '';
 
-  const mySP = S.sp[S.playerIdx] || 0;
-  const myInstant = (S.instantSp && S.instantSp[S.playerIdx]) || 0;
+  // 팀모드: SP 풀이 [팀A, 팀B]로 인덱싱됨 → S.teamId / 1v1: [p0, p1] → S.playerIdx
+  const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const mySP = S.sp[spSlot] || 0;
+  const myInstant = (S.instantSp && S.instantSp[spSlot]) || 0;
   const totalSP = mySP + myInstant;
   let hasAnySkill = false;
 
