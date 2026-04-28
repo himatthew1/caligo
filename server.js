@@ -1132,7 +1132,7 @@ function aiTeamTakeTurn(room, idx) {
   aiTeamUsePreSkills(room, idx);
   if (p.actionDone) {
     // pre-skill이 actionDone을 셋했으면 (드물지만 예외) — 턴 종료
-    setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+    setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
     return;
   }
 
@@ -1150,7 +1150,7 @@ function aiTeamTakeTurn(room, idx) {
       const hasTrap = (room.boardObjects[idx] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
       if (!hasTrap && Math.random() < prob) {
         aiTeamExecSkill(room, idx, pi, 'trap');
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
         return;
       }
     }
@@ -1166,7 +1166,7 @@ function aiTeamTakeTurn(room, idx) {
           (b.pc.tier || 0) - (a.pc.tier || 0));
         const t = candidates[0];
         aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
         return;
       }
     }
@@ -1176,7 +1176,7 @@ function aiTeamTakeTurn(room, idx) {
         e.col === bounds.min || e.col === bounds.max || e.row === bounds.min || e.row === bounds.max);
       if (borderEnemies.length >= 2) {
         aiTeamExecSkill(room, idx, pi, 'sulfurRiver');
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
         return;
       }
     }
@@ -1186,7 +1186,7 @@ function aiTeamTakeTurn(room, idx) {
       if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
         const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
         aiTeamExecSkill(room, idx, pi, 'brothers', { target: moverSub });
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
         return;
       }
     }
@@ -1297,7 +1297,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
     }
   }
   broadcastTeamGameState(room);
-  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 800);
+  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
 }
 
 // AI 공격 헬퍼 — processAttack을 직접 호출 (extra: shadowAssassin/witch의 tCol/tRow + ratMerchant rats)
@@ -1410,11 +1410,11 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         }
       }
       broadcastTeamGameState(room);
-      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 1000);
+      setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
     }, DUAL_BLADE_DELAY);
     return;
   }
-  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 1000);
+  setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
 }
 
 function teamDraftTimeout(room) {
@@ -2951,6 +2951,22 @@ function detectStalemateShrink(room) {
 }
 
 function endTurn(room) {
+  // 이전 플레이어가 행동·스킬 없이 턴을 종료했으면 안내 메시지 (모든 플레이어/관전자에게 동등하게 emit)
+  const prevPlayerIdx = room.currentPlayerIdx;
+  const prevPlayer = room.players[prevPlayerIdx];
+  if (prevPlayer && prevPlayer.alive !== false) {
+    const noAction = !prevPlayer.actionDone &&
+      !prevPlayer.actionUsedSkillReplace &&
+      !(prevPlayer.skillsUsedBeforeAction && prevPlayer.skillsUsedBeforeAction.length > 0) &&
+      prevPlayer._lastActionType !== 'move' &&
+      prevPlayer._lastActionType !== 'attack';
+    if (noAction && prevPlayer.name) {
+      const msg = `${prevPlayer.name}은(는) 아무것도 하지 않았습니다.`;
+      if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg });
+      emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
+    }
+  }
+
   room.currentPlayerIdx = getNextPlayerIdx(room);
   room.turnNumber++;
 

@@ -2920,13 +2920,20 @@ socket.on('game_start', (data) => {
   refreshGameView();
   showActionBar(S.isMyTurn);
   updateSPBar();
-  addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
-  // 게임 시작 애니메이션
-  playGameStartAnimation(S.isMyTurn);
+  // 재접속 (data.reconnect 또는 turnNumber > 1) — 다른 안내 메시지
+  const isReconnect = !!data.reconnect || (data.turnNumber && data.turnNumber > 1);
+  if (isReconnect) {
+    const turnOwnerName = S.isMyTurn ? (myN() || '나') : (oppN() || '상대');
+    addLog(`🔌 재접속! ${turnOwnerName}의 턴`, 'system');
+    playGameStartAnimation(S.isMyTurn, true, turnOwnerName);
+  } else {
+    addLog(`${S.isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}`, 'system');
+    playGameStartAnimation(S.isMyTurn);
+  }
 });
 
 // 게임 시작 애니메이션 — 오버레이 "FIGHT!" + 1.2초 scale-up 페이드
-function playGameStartAnimation(isMyTurn) {
+function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
   let overlay = document.getElementById('game-start-overlay');
   if (!overlay) {
     overlay = document.createElement('div');
@@ -2934,9 +2941,13 @@ function playGameStartAnimation(isMyTurn) {
     overlay.className = 'game-start-overlay';
     document.body.appendChild(overlay);
   }
+  const title = isReconnect ? '재접속' : '게임 시작';
+  const sub = isReconnect
+    ? `${turnOwnerName || (isMyTurn ? '나' : '상대')}의 턴`
+    : (isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.');
   overlay.innerHTML = `
-    <div class="game-start-title">게임 시작</div>
-    <div class="game-start-sub">${isMyTurn ? '선공! 먼저 시작합니다.' : '후공! 상대가 먼저 시작합니다.'}</div>
+    <div class="game-start-title">${title}</div>
+    <div class="game-start-sub">${sub}</div>
   `;
   overlay.classList.remove('hidden');
   overlay.classList.add('active');
@@ -3281,6 +3292,13 @@ socket.on('sp_update', ({ sp, instantSp }) => {
 });
 
 // ── 턴 이벤트 알림 ──
+// 행동 없이 턴 종료한 플레이어 알림 — 모든 플레이어/관전자에게 동등하게 표시
+socket.on('no_action_notice', ({ playerIdx, name, msg }) => {
+  if (!msg) return;
+  addLog(msg, 'event');
+  showSkillToast(msg, false, playerIdx, 'event');
+});
+
 socket.on('turn_event', ({ type, msg }) => {
   if (S.isSpectator) return; // 관전자는 spectator_log 경로로 수신
   // 1대1 대치는 풀스크린 알림 — 게임 시작 애니메이션 재활용
@@ -4291,6 +4309,8 @@ function renderSlide() {
   const chars = S.characters[step];
   if (!chars || !chars.length) return;
   const c = chars[slideIndex];
+  // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
+  slidePreviewMode = 'attack';
 
   // 아이콘 & 이름 + 태그
   document.getElementById('slide-icon').textContent = c.icon;
@@ -5657,6 +5677,8 @@ function exRenderSlide() {
   const tier = exCurrentTier;
   const myKey = tier === 1 ? 't1' : tier === 2 ? 't2' : 't3';
   const isCurrentPick = c.type === S.exMyDraft[myKey];
+  // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
+  if (typeof exSlidePreviewMode !== 'undefined') exSlidePreviewMode = 'attack';
 
   document.getElementById('ex-slide-icon').textContent = c.icon;
   const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
@@ -7748,6 +7770,8 @@ function openSkillModal() {
 
     // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
     const skillList = pc.skills && pc.skills.length > 1 ? pc.skills : null;
+    // 저주 상태이면 모든 스킬 차단 — 1v1·팀전 양쪽 동일하게 적용
+    const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
 
     if (skillList) {
       // 다중 스킬: 각 스킬을 별도 옵션으로 표시
@@ -7758,6 +7782,10 @@ function openSkillModal() {
         // 행동소비형인데 이미 행동했으면 비활성화
         let extraDisabled = false;
         let extraNote = '';
+        if (isCursed) {
+          extraDisabled = true;
+          extraNote = ' (저주 상태 — 사용 불가)';
+        }
         if (sk.replacesAction && S.actionDone) {
           extraDisabled = true;
           extraNote = ' (행동 이미 소비됨)';
@@ -7811,6 +7839,11 @@ function openSkillModal() {
       const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
       let singleDisabled = false;
       let singleNote = '';
+      // 저주 상태이면 모든 스킬 차단
+      if (isCursed) {
+        singleDisabled = true;
+        singleNote = ' (저주 상태 — 사용 불가)';
+      }
       if (pc.skillReplacesAction && S.actionDone) {
         singleDisabled = true;
         singleNote = ' (행동 이미 소비됨)';
