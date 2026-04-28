@@ -1552,10 +1552,8 @@ function updateTeammateHpPanel() {
     return;
   }
   const hps = (S.teamTeammateHps && S.teamTeammateHps[tm.idx]) || [0, 0];
-  const total = hps.reduce((a, b) => a + b, 0);
-  // 내 HP 행과 동일 구조 — char-icon + hp-piece-label + 읽기전용 HP 값
+  // 내 HP 행과 동일 구조 — char-icon + hp-piece-label + 읽기전용 HP 값 (라벨/총합 제거)
   const types = [S.teamTeammateDraft.pick1, S.teamTeammateDraft.pick2];
-  const labels = ['1번 캐릭터', '2번 캐릭터'];
   const rows = types.map((t, i) => {
     const c = findChar(t);
     if (!c) return '';
@@ -1564,7 +1562,6 @@ function updateTeammateHpPanel() {
       <span class="char-icon">${c.icon}</span>
       <div class="hp-piece-label">
         <strong>${escapeHtmlGlobal(c.name)}${tagHtml}</strong>
-        <span>${labels[i]}</span>
       </div>
       <div class="hp-input-group hp-input-readonly">
         <span class="hp-value">${hps[i]}</span>
@@ -1574,7 +1571,6 @@ function updateTeammateHpPanel() {
   panel.innerHTML = `
     <h4 class="teammate-hp-title">${escapeHtmlGlobal(tm.name)}</h4>
     <div class="hp-piece-rows">${rows}</div>
-    <div class="teammate-hp-total">총합 ${total} / 10</div>
   `;
 }
 
@@ -6119,14 +6115,29 @@ function updatePlacementUI() {
   // 내 pieces 렌더
   renderPlacementPieceCards(list, S.myPieces, /*interactive=*/true, null);
 
-  // 팀 모드: 내 프로필 아래에 팀원 pieces 추가 (읽기 전용)
+  // 팀 모드: 내 프로필 아래에 팀원 pieces 추가 — 상대팀 카드와 동일한 간략 스타일
   if (S.teamPlacementMode && S.teamPlacementTeammates) {
     for (const tm of S.teamPlacementTeammates) {
-      const sep = document.createElement('div');
-      sep.className = 'placement-teammate-separator';
-      sep.innerHTML = `<span class="teammate-sep-label">${escapeHtmlGlobal(tm.name)}</span>`;
-      list.appendChild(sep);
-      renderPlacementPieceCards(list, tm.pieces || [], /*interactive=*/false, tm.name);
+      const block = document.createElement('div');
+      block.className = 'placement-enemy-block placement-teammate-block-compact';
+      block.innerHTML = `<h5 class="enemy-block-header">${escapeHtmlGlobal(tm.name)}</h5>`;
+      for (const pc of (tm.pieces || [])) {
+        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+        const card = document.createElement('div');
+        card.className = 'placement-opp-card';
+        card.style.position = 'relative';
+        const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${pc.hp}` : `HP ${pc.maxHp ?? pc.hp}`;
+        card.innerHTML = `
+          <span class="char-icon">${pc.icon}</span>
+          <div class="opp-info">
+            <strong>${pc.name}${tagHtml}</strong>
+            <span>T${pc.tier} · ATK ${pc.atk} · ${placedHp}</span>
+          </div>`;
+        const tooltip = buildPieceTooltip(pc, 'left');
+        card.appendChild(tooltip);
+        block.appendChild(card);
+      }
+      list.appendChild(block);
     }
   }
 

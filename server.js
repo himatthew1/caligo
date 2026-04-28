@@ -780,6 +780,17 @@ function aiTeamHpDistribute(room, idx) {
   }
   // 실제 pieces 생성 (이게 누락되면 alive=0으로 게임 시작됨)
   p.pieces = buildTeamPieces(p.draft, p.hpDist);
+  // 팀원 HP 패널이 실시간 갱신되도록 — 팀 멤버에게 team_hp_browse 전송
+  const teammates = getTeammates(room, idx);
+  for (const tIdx of teammates) {
+    const tp = room.players[tIdx];
+    if (tp && tp.socketId && tp.socketId !== 'AI') {
+      io.to(tp.socketId).emit('team_hp_browse', {
+        playerIdx: idx,
+        hps: [hps[0], hps[1]],
+      });
+    }
+  }
   room.hpDone[idx] = true;
   io.to(room.id).emit('team_hp_status', {
     hpDone: [...room.hpDone],
@@ -790,19 +801,23 @@ function aiTeamHpDistribute(room, idx) {
   }
 }
 
-// AI 배치 — 자기 슬롯에 해당하는 행에 가로로 배치
+// AI 배치 — 전략적 배치: 공격형은 전진, 지원형은 후방, 종족 분산, 무작위 컬럼
 function aiTeamPlace(room, idx) {
   if (!room || room.phase !== 'team_placement') return;
   const p = room.players[idx];
   if (!p || p.socketId !== 'AI' || room.placementDone[idx]) return;
   const bounds = room.boardBounds || { min: 0, max: 6 };
-  // 팀별 행 — 블루팀(0): 위쪽 0,2 / 레드팀(1): 아래쪽 6,4
   const teamId = p.teamId;
-  const slotPos = p.slotPos ?? 0;
-  let myRow;
-  if (teamId === 0) myRow = slotPos === 0 ? bounds.min : bounds.min + 2;
-  else myRow = slotPos === 0 ? bounds.max : bounds.max - 2;
-  // 점유된 칸 피하기 (팀원·자신)
+  // 자기 팀 진영 (블루: 위 0~2, 레드: 아래 4~6) — 진영 안에서 무작위
+  const zoneRows = teamId === 0
+    ? [bounds.min, bounds.min + 1, bounds.min + 2]
+    : [bounds.max, bounds.max - 1, bounds.max - 2];
+  // 진영 내 행 분류: front(중앙쪽), mid, back(가장자리)
+  const frontRow = zoneRows[2];   // 적 쪽으로 가장 가까운 행
+  const midRow = zoneRows[1];
+  const backRow = zoneRows[0];    // 가장자리 (안전)
+
+  // 점유된 칸 (팀원·자신) — 같은 자리 충돌 방지
   const occupied = new Set();
   const teammates = getTeammates(room, idx);
   for (const tIdx of [idx, ...teammates]) {
@@ -812,23 +827,82 @@ function aiTeamPlace(room, idx) {
       if (pc.col >= 0 && pc.row >= 0) occupied.add(`${pc.col},${pc.row}`);
     }
   }
-  // 각 piece를 빈 칸에 배치 — myRow 우선, 부족하면 인접 행
-  const tryRows = [myRow, myRow + (teamId === 0 ? 1 : -1), myRow + (teamId === 0 ? 2 : -2)];
+
+  // 캐릭터 역할 분류
+  const isAggressive = (pc) => {
+    const t = pc.type;
+    // 공격형 — 전선에서 압박
+    return ['archer','spearman','cavalry','knight','general','dualBlade','prince','princess','slaughterHero','shadowAssassin','torturer'].includes(t);
+  };
+  const isSupport = (pc) => {
+    const t = pc.type;
+    return ['herbalist','monk','watchman','scout','commander','wizard','ratMerchant','bodyguard','king','dragonTamer'].includes(t);
+  };
+  const isFragile = (pc) => pc.maxHp <= 2 || ['watchman','messenger','sulfurCauldron','herbalist'].includes(pc.type);
+
+  // 무작위 컬럼 후보 — 가장자리(0,6) 회피해서 1~5 우선 + 약간의 랜덤
+  const shuffleArr = (a) => a.slice().sort(() => Math.random() - 0.5);
+  const inneCols = [];
+  for (let c = bounds.min + 1; c <= bounds.max - 1; c++) inneCols.push(c);
+  const edgeCols = [bounds.min, bounds.max];
+
+  // piece별 우선 행 + 컬럼 후보 결정
   for (let pi = 0; pi < p.pieces.length; pi++) {
     const piece = p.pieces[pi];
     if (piece.col >= 0) continue;
+    // 역할별 우선 행
+    let preferredRows;
+    if (isAggressive(piece)) {
+      preferredRows = [frontRow, midRow, backRow];
+    } else if (isSupport(piece) || isFragile(piece)) {
+      preferredRows = [backRow, midRow, frontRow];
+    } else {
+      preferredRows = [midRow, frontRow, backRow];
+    }
+    // 쌍둥이는 elder/younger 같은 칸 시작 안되게 — younger는 다른 행 우선
+    if (piece.subUnit === 'younger') {
+      preferredRows = preferredRows.slice().reverse();
+    }
+    // 컬럼은 무작위 + 가장자리는 후순위
+    const colTry = [...shuffleArr(inneCols), ...shuffleArr(edgeCols)];
     let placed = false;
-    for (const r of tryRows) {
+    for (const r of preferredRows) {
       if (r < bounds.min || r > bounds.max) continue;
-      for (let c = bounds.min; c <= bounds.max; c++) {
+      for (const c of colTry) {
         const key = `${c},${r}`;
         if (occupied.has(key)) continue;
+        // 팀원 인접 회피 (같은 셀 옆, 십자 방향) — 가능한 한 분산
+        const tooClose = teammates.some(tIdx => {
+          const tp = room.players[tIdx];
+          if (!tp) return false;
+          return (tp.pieces || []).some(tpc =>
+            tpc.alive && tpc.col >= 0 &&
+            ((Math.abs(tpc.col - c) === 0 && Math.abs(tpc.row - r) <= 1) ||
+             (Math.abs(tpc.row - r) === 0 && Math.abs(tpc.col - c) <= 1))
+          );
+        });
+        if (tooClose) continue;
         piece.col = c; piece.row = r;
         occupied.add(key);
         placed = true;
         break;
       }
       if (placed) break;
+    }
+    // 분산 조건 못 채웠으면 — 인접 허용으로 재시도
+    if (!placed) {
+      for (const r of preferredRows) {
+        if (r < bounds.min || r > bounds.max) continue;
+        for (const c of colTry) {
+          const key = `${c},${r}`;
+          if (occupied.has(key)) continue;
+          piece.col = c; piece.row = r;
+          occupied.add(key);
+          placed = true;
+          break;
+        }
+        if (placed) break;
+      }
     }
   }
   // 확정

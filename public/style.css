@@ -2273,7 +2273,7 @@ body {
   margin-top: 24px;
   padding: 16px;
   background: rgba(96,165,250,0.05);
-  border: 1px dashed rgba(96,165,250,0.4);
+  border: 1px solid rgba(96,165,250,0.3);   /* 점선 → 실선 */
   border-radius: 12px;
   width: 100%;
   box-sizing: border-box;
