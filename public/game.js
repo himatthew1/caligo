@@ -6753,27 +6753,24 @@ function updateTurnBanner() {
 
 // 팀전 턴 오더 — A팀·B팀 지그재그 4명 점으로 표시. 현재 플레이어 강조.
 function renderTurnOrderDots() {
-  if (!S.teamGamePlayers || !S.teamTeams) return '';
-  // 4명 모두 나열 — 블루팀 → 레드팀 알터네이션 순. 현재 차례는 강조, 나머지는 일반.
-  // 화살표 없이 가로 나열 (사용자 요청: 옛 양식 부활, 화살표 X)
-  const teams = S.teamTeams || [[],[]];
-  const order = [];
-  const blue = teams[0] || [];
-  const red = teams[1] || [];
-  const maxLen = Math.max(blue.length, red.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (blue[i] !== undefined) order.push(blue[i]);
-    if (red[i] !== undefined) order.push(red[i]);
-  }
-  const items = order.map(idx => {
-    const p = S.teamGamePlayers.find(pl => pl.idx === idx);
-    if (!p) return '';
+  if (!S.teamGamePlayers) return '';
+  // 위치(slotPos) 기반 4-자리 순서 — 화면 분할 1-2-3-4 위치와 일치
+  //   pos1 = teamId 0, slot 0 (좌상)
+  //   pos2 = teamId 1, slot 0 (우상)
+  //   pos3 = teamId 0, slot 1 (좌하)
+  //   pos4 = teamId 1, slot 1 (우하)
+  // 정방향(1→2→3→4) 고정, 선이 누구든 wrap-around로 진행.
+  const slotMap = [[0,0],[1,0],[0,1],[1,1]];
+  const items = [];
+  for (const [teamId, slotPos] of slotMap) {
+    const p = (S.teamGamePlayers || []).find(pl => pl.teamId === teamId && (pl.slotPos ?? 0) === slotPos);
+    if (!p) continue;
     const isMe = p.idx === S.playerIdx;
     const isCurrent = p.idx === S.currentPlayerIdx;
     const teamCls = p.teamId === 0 ? 'team-blue' : 'team-red';
     const cls = ['turn-order-dot', teamCls, isCurrent ? 'current' : '', isMe ? 'me' : ''].filter(Boolean).join(' ');
-    return `<span class="${cls}">${escapeHtmlGlobal(p.name)}</span>`;
-  });
+    items.push(`<span class="${cls}">${escapeHtmlGlobal(p.name)}</span>`);
+  }
   return items.join('');
 }
 

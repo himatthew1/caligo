@@ -434,28 +434,40 @@ function isTeamEliminated(room, teamId) {
 // 1v1: 단순 토글
 // 팀전: A1 → B1 → A2 → B2 → A1 ... 순서로 순환, 탈락자 스킵
 //   단, 동일 팀의 살아남은 멤버가 탈락자 턴을 대신 수행
+// 위치 기반 4인 턴 순환 — 화면 분할 좌표 기준
+//   pos 1 (좌상): teamId=0, slotPos=0
+//   pos 2 (우상): teamId=1, slotPos=0
+//   pos 3 (좌하): teamId=0, slotPos=1
+//   pos 4 (우하): teamId=1, slotPos=1
+// 이 4-자리 배열을 정방향(1→2→3→4→1)으로 순환. 선이 누구든 wrap-around로 진행.
+function buildTeamTurnOrder(room) {
+  const slots = [
+    [0, 0],  // pos 1
+    [1, 0],  // pos 2
+    [0, 1],  // pos 3
+    [1, 1],  // pos 4
+  ];
+  const order = [];
+  for (const [teamId, slotPos] of slots) {
+    const p = room.players.find(pl => pl.teamId === teamId && (pl.slotPos ?? 0) === slotPos);
+    if (p) order.push(p.index);
+  }
+  return order;
+}
+
 function getNextPlayerIdx(room) {
   if (room.mode !== 'team') return 1 - room.currentPlayerIdx;
-  // 팀전 턴 순서: 클라이언트 턴오더 표시와 동일한 정방향 순환 (좌→우, blue1→red1→blue2→red2)
-  // 사용자 요청: 역순환 금지, 누가 선이든 무조건 정방향 진행
-  const teamA = room.teams[0] || [];
-  const teamB = room.teams[1] || [];
-  const order = [];
-  const maxLen = Math.max(teamA.length, teamB.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i < teamA.length) order.push(teamA[i]);
-    if (i < teamB.length) order.push(teamB[i]);
-  }
+  const order = buildTeamTurnOrder(room);
   if (order.length === 0) return room.currentPlayerIdx;
   const curPos = order.indexOf(room.currentPlayerIdx);
   const startPos = curPos >= 0 ? curPos : -1;
-  // 정방향으로 다음 살아있는 플레이어를 찾는다 (탈락자 건너뜀)
+  // 정방향(1→2→3→4)으로 다음 살아있는 플레이어 (탈락자 건너뜀)
   for (let offset = 1; offset <= order.length; offset++) {
     const nextPos = (startPos + offset) % order.length;
     const candidate = order[nextPos];
     if (!isPlayerEliminated(room, candidate)) return candidate;
   }
-  return room.currentPlayerIdx;  // 모두 탈락 (이론상 도달 안 함)
+  return room.currentPlayerIdx;
 }
 // 팀전 대기실 상태 방송
 function broadcastTeamRoomState(room) {
@@ -476,15 +488,7 @@ function broadcastTeamRoomState(room) {
 // 이전 턴 플레이어 (오류 메시지/로그용)
 function getPrevPlayerIdx(room, curIdx) {
   if (room.mode !== 'team') return 1 - curIdx;
-  // 정방향 순환과 동일한 order 배열로 역방향(prev) 계산
-  const teamA = room.teams[0] || [];
-  const teamB = room.teams[1] || [];
-  const order = [];
-  const maxLen = Math.max(teamA.length, teamB.length);
-  for (let i = 0; i < maxLen; i++) {
-    if (i < teamA.length) order.push(teamA[i]);
-    if (i < teamB.length) order.push(teamB[i]);
-  }
+  const order = buildTeamTurnOrder(room);
   if (order.length === 0) return curIdx;
   const curPos = order.indexOf(curIdx);
   if (curPos < 0) return curIdx;
@@ -3376,6 +3380,7 @@ function getTeamGameStateFor(room, viewerIdx) {
       idx: p.index,
       name: p.name,
       teamId: p.teamId,
+      slotPos: p.slotPos ?? 0,  // 위치 기반 턴오더용
       pieces: isAlly ? pieceSummary(p.pieces) : oppPieceSummary(p.pieces),
       actionDone: !!p.actionDone,
       eliminated: isPlayerEliminated(room, p.index),
@@ -3434,6 +3439,7 @@ function getTeamSpectatorGameState(room) {
     idx: p.index,
     name: p.name,
     teamId: p.teamId,
+    slotPos: p.slotPos ?? 0,
     deckName: p.deckName || '',
     pieces: pieceSummary(p.pieces),
     actionDone: !!p.actionDone,
