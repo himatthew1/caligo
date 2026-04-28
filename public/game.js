@@ -1301,7 +1301,17 @@ function renderTeamDraftSlots() {
 }
 
 socket.on('team_draft_status', ({ draftDone, doneNames }) => {
-  const statusEl = document.getElementById('team-draft-status');
+  // 1v1 드래프트 화면(screen-draft)을 재활용 — 사이드바에 구슬 컨테이너 동적 추가
+  let statusEl = document.getElementById('team-draft-status');
+  if (!statusEl) {
+    const sidebar = document.querySelector('#screen-draft .draft-sidebar');
+    if (sidebar) {
+      statusEl = document.createElement('div');
+      statusEl.id = 'team-draft-status';
+      statusEl.className = 'confirm-beads-wrap';
+      sidebar.appendChild(statusEl);
+    }
+  }
   if (statusEl) {
     statusEl.classList.add('confirm-beads-wrap');
     statusEl.innerHTML = renderConfirmBeads(draftDone);
@@ -2192,8 +2202,10 @@ function renderTeamProfiles() {
       if (playerIdx == null) return;
       const player = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
       if (!player) return;
-      block.querySelectorAll('[data-team-piece]').forEach((card, i) => {
-        const pc = player.pieces?.[i];
+      // data-piece-idx로 정확한 인덱스 매핑 (죽은 piece가 있을 때 querySelectorAll 인덱스는 어긋남)
+      block.querySelectorAll('[data-team-piece]').forEach(card => {
+        const pcIdx = parseInt(card.getAttribute('data-piece-idx'), 10);
+        const pc = (!isNaN(pcIdx)) ? player.pieces?.[pcIdx] : null;
         if (pc && pc.alive) card.appendChild(buildPieceTooltip(pc, side));
       });
     });
@@ -2310,7 +2322,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       dragAttrs = ` draggable="true" data-deduction-key="${pieceKey}" data-deduction-icon="${pc.icon || ''}" data-deduction-name="${escapeHtmlGlobal(pc.name || pc.type)}"`;
     }
 
-    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1"${dragAttrs}>
+    return `<div class="my-piece-card ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
         <strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong>
