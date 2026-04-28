@@ -3459,6 +3459,11 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
     el.classList.remove('hidden');
     el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
   }
+  // 카운트다운이 10턴 남았을 때 — 화려한 풀스크린 인트로 강제 재생 (사용자 요청: 누락 방지)
+  // 관전자·탈락 플레이어 포함 모두에게 표시
+  if (turnsRemaining === 10) {
+    playBoardShrinkIntro();
+  }
   if (S.isSpectator) return;
   showSkillToast(`외곽 파괴까지 ${turnsRemaining}턴`, false, undefined, 'event');
   addLog(`외곽 파괴까지 ${turnsRemaining}턴`, 'shrink');
