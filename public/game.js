@@ -8109,6 +8109,13 @@ function buildBoard(containerId, clickHandler) {
   board.innerHTML = '';
   board.style.gridTemplateColumns = `repeat(${totalSize}, ${cellPx}px)`;
   board.style.gridTemplateRows = `repeat(${totalSize}, ${cellPx}px)`;
+  // 게임 보드의 실제 폭 (cell + gap + padding + border)을 CSS 변수로 노출 — 턴 배너·전투 로그가 이를 따라 폭 맞춤
+  if (containerId === 'game-board') {
+    const gap = 4, padding = 8, border = 2;
+    const boardWidth = totalSize * cellPx + (totalSize - 1) * gap + padding * 2 + border * 2;
+    const center = document.querySelector('#screen-game .center-panel');
+    if (center) center.style.setProperty('--board-w', boardWidth + 'px');
+  }
   for (let row = 0; row < totalSize; row++) {
     for (let col = 0; col < totalSize; col++) {
       const cell = document.createElement('div');
