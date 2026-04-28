@@ -3165,28 +3165,31 @@ function aiExecSkill(room, pidx, skillId, params) {
 }
 
 // AI 스킬 사용 판단 (free skills — 행동 전에 사용)
+// 적극적 사용: 명백한 이득이 있으면 사용. SP 보존보다 스킬 가치 우선.
 function aiUsePreSkills(room) {
   const aiPlayer = room.players[1];
+  const human = room.players[0];
   const brain = room.aiBrain;
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
+  const bounds = room.boardBounds;
 
   for (const piece of alivePieces) {
     if (!piece.hasSkill || piece.skillReplacesAction || (room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
     const pidx = aiPlayer.pieces.indexOf(piece);
 
     switch (piece.type) {
-      // 그림자 암살자: 피격 기억 있거나 HP 낮으면 그림자 사용
+      // 그림자 암살자: 피격 기억 있거나 HP 낮으면 그림자 (1 SP, 거의 무조건)
       case 'shadowAssassin': {
         const mem = brain.hitMemory[piece.type];
         const recentlyHit = mem && brain.turnCount - mem.turn <= 2;
-        if (!piece.statusEffects.some(e => e.type === 'shadow') && (recentlyHit || piece.hp <= piece.maxHp * 0.5)) {
-          aiExecSkill(room, pidx, );
+        const hasShadow = piece.statusEffects.some(e => e.type === 'shadow');
+        if (!hasShadow && (recentlyHit || piece.hp <= piece.maxHp * 0.6 || Math.random() < 0.4)) {
+          aiExecSkill(room, pidx, 'shadow');
         }
         break;
       }
-      // 호위무사: 패시브 — 스킬 핸들러 불필요
-      // 마녀: replacesAction=true이므로 aiUseActionSkills에서 처리
-      // 궁수/무기상: 현재 공격 범위가 실질적으로 나쁠 때만 토글 (SP 낭비 방지)
+      // 궁수/무기상: 대안 공격범위가 더 좋으면 토글 (SP 1 — 자유롭게)
       case 'archer':
       case 'weaponSmith': {
         const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
@@ -3198,86 +3201,160 @@ function aiUsePreSkills(room) {
         const altCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: altState });
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
-        // 조건 강화: 1) 대안 점수가 1.5배 이상 + 2) alt 점수 자체가 6 이상 + 3) 현재 점수 3 미만 (공격이 실질적으로 나쁠 때만)
-        if (altScore > curScore * 1.5 && altScore >= 6 && curScore < 3) {
-          aiExecSkill(room, pidx, );
+        if (altScore > curScore * 1.3 && altScore >= 4) {
+          aiExecSkill(room, pidx, 'reform');
         }
         break;
       }
-      // 전령: 도망 필요 시 스프린트
+      // 전령: 피격 기억 있으면 질주 (1 SP)
       case 'messenger': {
         const mem = brain.hitMemory[piece.type];
         if (mem && brain.turnCount - mem.turn <= 1) {
-          aiExecSkill(room, pidx, );
+          aiExecSkill(room, pidx, 'sprint');
         }
         break;
       }
-      // 척후병: 정찰 사용
+      // 척후병: 정찰 자주 사용 (SP 2 — scan 모드일 때 70%)
       case 'scout': {
-        if (brain.mode === 'scan' && Math.random() < 0.6) {
-          aiExecSkill(room, pidx, );
+        if (brain.mode === 'scan' && Math.random() < 0.7) {
+          aiExecSkill(room, pidx, 'recon');
         }
         break;
       }
-      // 약초전문가: 인접 아군이 다쳐 있으면 치유
+      // 약초전문가: 인접 아군 부상 시 적극적으로 회복 (SP 2)
       case 'herbalist': {
         const nearbyInjured = alivePieces.filter(a =>
           a !== piece && a.hp < a.maxHp &&
           Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1
         );
         if (nearbyInjured.length >= 1) {
-          aiExecSkill(room, pidx, );
+          aiExecSkill(room, pidx, 'herb');
         }
         break;
       }
-      // 쥐장수: 쥐가 적으면 소환
+      // 쥐장수: 쥐가 적으면 적극 소환 (SP 2)
       case 'ratMerchant': {
-        if (room.rats[1].length < 2) {
-          aiExecSkill(room, pidx, );
+        if (room.rats[1].length < 3 && Math.random() < 0.85) {
+          aiExecSkill(room, pidx, 'rats');
         }
         break;
       }
-      // 고문기술자: 표식 적이 있으면 악몽
+      // 고문기술자: 표식된 적 있으면 즉시 악몽 (SP 3)
       case 'torturer': {
-        const marked = room.players[0].pieces.filter(p => p.alive && p.statusEffects.some(e => e.type === 'mark'));
+        const marked = human.pieces.filter(p => p.alive && p.statusEffects.some(e => e.type === 'mark'));
         if (marked.length >= 1) {
-          aiExecSkill(room, pidx, );
+          aiExecSkill(room, pidx, 'nightmare');
         }
         break;
       }
-      // 양손검객: 공격 예정이면 쌍검무 활성화 (공격 전에 사용)
+      // 양손검객: 인접 적이 있고 SP 충분하면 거의 항상 (SP 2)
       case 'dualBlade': {
-        if (Math.random() < 0.7) {
-          aiExecSkill(room, pidx, );
+        // 인접 4방향에 적이 있으면 90% 확률, 아니면 60%
+        const adjEnemy = human.pieces.some(p => p.alive &&
+          ((Math.abs(p.col - piece.col) === 1 && p.row === piece.row) ||
+           (Math.abs(p.row - piece.row) === 1 && p.col === piece.col)));
+        if (adjEnemy ? Math.random() < 0.9 : Math.random() < 0.6) {
+          aiExecSkill(room, pidx, 'dualStrike');
         }
         break;
       }
-      // 수도승: 아군 중 HP 낮은 유닛 치유
+      // 수도승: 아군 부상 시 신성 (SP 3) — 회복 + 상태이상 제거
       case 'monk': {
         const injured = alivePieces.filter(a => a !== piece && a.hp < a.maxHp).sort((a, b) => a.hp - b.hp);
-        if (injured.length > 0 && injured[0].hp <= injured[0].maxHp * 0.5) {
-          const targetIdx = aiPlayer.pieces.indexOf(injured[0]);
-          aiExecSkill(room, pidx, );
+        const cursed = alivePieces.filter(a => a.statusEffects.some(e => e.type === 'curse' || e.type === 'mark'));
+        const target = cursed[0] || injured[0];
+        if (target && (cursed.length > 0 || target.hp <= target.maxHp * 0.6)) {
+          const targetIdx = aiPlayer.pieces.indexOf(target);
+          aiExecSkill(room, pidx, 'divine', { targetPieceIdx: targetIdx });
         }
         break;
       }
-      // 드래곤 조련사: SP 충분하고 보드 위 드래곤 없으면
+      // 국왕: 절대복종 반지 (SP 3) — 적을 덫/폭탄/유리한 위치로 강제 이동
+      case 'king': {
+        // 적이 있고 SP 3+ 있으면 50% 확률로 사용 (적을 덫 위치로 끌어들이기)
+        const enemies = human.pieces.filter(p => p.alive);
+        if (enemies.length === 0) break;
+        // 내 덫 위치 탐색
+        const myTraps = (room.boardObjects[1] || []).filter(o => o.type === 'trap');
+        let target = null, destCol, destRow;
+        if (myTraps.length > 0) {
+          // HP 가장 높은 적을 덫으로
+          const trap = myTraps[0];
+          target = enemies.sort((a, b) => b.hp - a.hp)[0];
+          destCol = trap.col; destRow = trap.row;
+        } else if (Math.random() < 0.4) {
+          // 덫이 없어도 가끔 사용 — 적을 보드 가장자리(축소 위험 지역)로
+          target = enemies.sort((a, b) => b.hp - a.hp)[0];
+          // 가장자리 칸 중 비어있는 곳
+          for (let r = bounds.min; r <= bounds.max && !destCol; r++) {
+            for (let c = bounds.min; c <= bounds.max; c++) {
+              const isBorder = r === bounds.min || r === bounds.max || c === bounds.min || c === bounds.max;
+              if (!isBorder) continue;
+              const occ = room.players.some(pl => pl.pieces.some(p => p.alive && p.col === c && p.row === r));
+              if (!occ) { destCol = c; destRow = r; break; }
+            }
+          }
+        }
+        if (target && destCol != null && destRow != null) {
+          aiExecSkill(room, pidx, 'ring', { targetName: target.type, col: destCol, row: destRow });
+        }
+        break;
+      }
+      // 드래곤 조련사: SP 5 충분하면 적극 소환
       case 'dragonTamer': {
-        const aiHasDragon = room.players[1].pieces.some(p => p.isDragon && p.alive);
+        const aiHasDragon = aiPlayer.pieces.some(p => p.isDragon && p.alive);
         if (!aiHasDragon && (room.sp[1] + room.instantSp[1]) >= 5) {
-          // 빈 칸 찾기
-          const b = room.boardBounds;
+          // 적과 가까운 빈 칸 우선
           const emptyCells = [];
-          for (let r = b.min; r <= b.max; r++)
-            for (let c = b.min; c <= b.max; c++) {
-              let occ = false;
-              for (const pl of room.players)
-                if (pl.pieces.some(p => p.alive && p.col === c && p.row === r)) { occ = true; break; }
+          for (let r = bounds.min; r <= bounds.max; r++)
+            for (let c = bounds.min; c <= bounds.max; c++) {
+              const occ = room.players.some(pl => pl.pieces.some(p => p.alive && p.col === c && p.row === r));
               if (!occ) emptyCells.push({ col: c, row: r });
             }
           if (emptyCells.length > 0) {
-            const pos = randomPick(emptyCells);
-            aiExecSkill(room, pidx, );
+            // 적 평균 위치에서 거리 계산해 가까운 곳 우선
+            const enemies = human.pieces.filter(p => p.alive && p.col != null);
+            const avgC = enemies.length ? enemies.reduce((s, e) => s + e.col, 0) / enemies.length : 2;
+            const avgR = enemies.length ? enemies.reduce((s, e) => s + e.row, 0) / enemies.length : 2;
+            emptyCells.sort((a, b) => (Math.abs(a.col - avgC) + Math.abs(a.row - avgR)) - (Math.abs(b.col - avgC) + Math.abs(b.row - avgR)));
+            const pos = emptyCells[0];
+            aiExecSkill(room, pidx, 'dragon', { col: pos.col, row: pos.row });
+          }
+        }
+        break;
+      }
+      // 화약상: 폭탄 설치 (replacesAction=false 분리 — 행동 후에도 사용 가능)
+      case 'gunpowder': {
+        // 기폭이 우선 — 설치된 폭탄 있고 적이 폭탄 인접 시 즉시 기폭
+        const myBombs = (room.boardObjects[1] || []).filter(o => o.type === 'bomb');
+        if (myBombs.length > 0) {
+          // 적이 폭탄 영향권에 있는지 확인
+          let enemiesInBlast = 0;
+          for (const b of myBombs) {
+            for (const e of human.pieces) {
+              if (!e.alive) continue;
+              if (Math.abs(e.col - b.col) <= 1 && Math.abs(e.row - b.row) <= 1) enemiesInBlast++;
+            }
+          }
+          if (enemiesInBlast >= 1) {
+            aiExecSkill(room, pidx, 'detonate');
+            break;
+          }
+        }
+        // 신규 설치 — 인접 8칸 중 적 있을 가능성 높은 위치
+        if ((room.sp[1] + room.instantSp[1]) >= 2) {
+          let bestCell = null, bestScore = -1;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              const nc = piece.col + dc, nr = piece.row + dr;
+              if (!inBounds(nc, nr, bounds)) continue;
+              if (room.boardObjects[1].some(o => o.col === nc && o.row === nr)) continue;
+              const score = brain.probMap[nr]?.[nc] || 0;
+              if (score > bestScore) { bestScore = score; bestCell = { col: nc, row: nr }; }
+            }
+          }
+          if (bestCell && bestScore >= 2) {
+            aiExecSkill(room, pidx, 'bomb', { col: bestCell.col, row: bestCell.row });
           }
         }
         break;
@@ -3436,23 +3513,23 @@ function aiTakeTurn(room) {
     }
 
     // 반격 우선 판단 — 상대 유닛 위치를 추론하고 격파 가능하면 반격
-    // 1. HP 2 이하면 도망 우선 (1까지 미루지 않음)
     const criticalHp = piece.hp <= 2;
-    // 2. 상대 위치 추론: probMap에서 가장 높은 셀이 공격 범위 내인지
+    // 상대 위치 추론: probMap에서 가장 높은 셀이 공격 범위 내인지
     let canHitProbTarget = false;
     let probTargetScore = 0;
+    let sureHit = false;  // 9점 셀 (확정에 가까운 적 위치) 공격 가능 여부
     const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
     for (const c of atkCells) {
       const v = brain.probMap[c.row]?.[c.col] || 0;
-      if (v >= 6) {  // 6 이상이면 상대 유닛이 있을 가능성 높음
-        canHitProbTarget = true;
-        probTargetScore += v;
-      }
+      if (v >= 9) sureHit = true;
+      if (v >= 6) { canHitProbTarget = true; probTargetScore += v; }
     }
-    // 3. 반격 vs 도망 점수 비교 (완화: 1.3x → 1.05x, 최소 점수 8 → 4)
-    const shouldCounterAttack = !criticalHp && (
-      canHitProbTarget ||  // 상대 위치 추론 가능하면 무조건 반격 시도
-      (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
+    // 확정 격파 가능 (probMap=9 셀 공격 가능)이면 HP 위험 무시하고 공격 — 적의 사망이 더 가치 있음
+    const shouldCounterAttack = sureHit || (
+      !criticalHp && (
+        canHitProbTarget ||
+        (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
+      )
     );
 
     if (shouldCounterAttack) {
@@ -3465,66 +3542,72 @@ function aiTakeTurn(room) {
     }
   }
 
-  // ★ STEP 3: 행동 대체 스킬 사용 (manhunter 덫, gunpowder 폭탄, sulfurCauldron)
+  // ★ STEP 3: 행동 대체 스킬 사용 (manhunter 덫, witch 저주, sulfurCauldron 유황범람)
+  // 적극적 사용: 명백한 이득이 있으면 즉시 시전.
   if (!aiPlayer.actionDone) {
     for (const piece of alivePieces) {
       if (!piece.hasSkill || !piece.skillReplacesAction || (room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
+      if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
       const pidx = aiPlayer.pieces.indexOf(piece);
 
       if (piece.type === 'manhunter') {
-        // 확률적 상으로 덫 설치
-        if (Math.random() < 0.4) {
-          aiExecSkill(room, pidx, );
+        // 덫 설치 — 자기 자리에. 적이 가까이 있으면 더 적극적
+        const nearestEnemyDist = Math.min(...room.players[0].pieces.filter(p => p.alive && p.col != null)
+          .map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row)));
+        const prob = nearestEnemyDist <= 3 ? 0.7 : 0.4;
+        // 같은 자리에 이미 덫이 있으면 X
+        const hasTrap = (room.boardObjects[1] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
+        if (!hasTrap && Math.random() < prob) {
+          aiExecSkill(room, pidx, 'trap');
           aiPlayer.actionDone = true;
           aiEndTurn(room);
           return;
         }
       }
-      if (piece.type === 'gunpowder') {
-        // 기존 폭탄이 있으면 기폭 우선 고려 (SP 0)
-        const existingBombs = room.boardObjects[1].filter(o => o.type === 'bomb');
-        if (existingBombs.length > 0 && Math.random() < 0.6) {
-          aiExecSkill(room, pidx, );
-        } else if (Math.random() < 0.5 && (room.sp[1] + room.instantSp[1]) >= 2) {
-          // 인접 8칸 중 확률이 가장 높은 위치에 폭탄 설치
-          let bestBombCell = null, bestBombScore = -1;
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-              const nc = piece.col + dc, nr = piece.row + dr;
-              if (!inBounds(nc, nr, bounds)) continue;
-              const score = brain.probMap[nr]?.[nc] || 0;
-              if (score > bestBombScore) { bestBombScore = score; bestBombCell = { col: nc, row: nr }; }
-            }
-          }
-          if (bestBombCell && bestBombScore > 3) {
-            aiExecSkill(room, pidx, );
-            aiPlayer.actionDone = true;
-            aiEndTurn(room);
-            return;
-          }
-        }
-      }
       if (piece.type === 'witch') {
-        // 마녀: 저주할 적 선택 (HP 높은 스킬 보유자 우선)
-        const enemies = room.players[0].pieces.filter(p => p.alive && !p.statusEffects.some(e => e.type === 'curse') && p.type !== 'monk');
-        if (enemies.length > 0 && Math.random() < 0.5) {
-          // 스킬 보유자나 고HP 대상 우선
-          enemies.sort((a, b) => (b.hasSkill ? 1 : 0) - (a.hasSkill ? 1 : 0) || b.hp - a.hp);
+        // 저주: 스킬 보유자/고HP 대상 우선. 수도승은 가호 패시브로 0.5 받으니 일단 제외.
+        const enemies = room.players[0].pieces.filter(p => p.alive && p.hp > 1 &&
+          !p.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow') &&
+          p.type !== 'monk');
+        if (enemies.length > 0) {
+          // 우선순위: 스킬 보유 > HP 높음 > 티어 높음
+          enemies.sort((a, b) =>
+            (b.hasSkill ? 1 : 0) - (a.hasSkill ? 1 : 0) ||
+            b.hp - a.hp ||
+            (b.tier || 0) - (a.tier || 0)
+          );
           const target = enemies[0];
           const tIdx = room.players[0].pieces.indexOf(target);
-          aiExecSkill(room, pidx, );
+          aiExecSkill(room, pidx, 'curse', { targetPieceIdx: tIdx });
           aiPlayer.actionDone = true;
           aiEndTurn(room);
           return;
         }
       }
       if (piece.type === 'sulfurCauldron' && (room.sp[1] + room.instantSp[1]) >= piece.skillCost) {
-        // 적이 테두리에 있을 확률이 높으면 사용
+        // 보드 외곽에 적 있을 확률 높거나, 외곽이 좁아져 적이 외곽으로 몰릴 때
         const borderCells = getBorderCells(bounds);
         let borderScore = 0;
         for (const c of borderCells) borderScore += brain.probMap[c.row]?.[c.col] || 0;
-        if (borderScore > 20) {
-          aiExecSkill(room, pidx, );
+        // 외곽에 실제로 보이는 적이 있는지도 체크 (확실한 가치)
+        const visibleBorderEnemies = room.players[0].pieces.filter(p => p.alive && p.col != null &&
+          (p.col === bounds.min || p.col === bounds.max || p.row === bounds.min || p.row === bounds.max)
+        ).length;
+        if (visibleBorderEnemies >= 1 || borderScore >= 12) {
+          aiExecSkill(room, pidx, 'sulfurRiver');
+          aiPlayer.actionDone = true;
+          aiEndTurn(room);
+          return;
+        }
+      }
+      if (piece.type === 'twins_elder' || piece.type === 'twins_younger') {
+        // 분신: 거의 안 쓰는 게 좋음 — HP 한쪽이 매우 낮을 때만 합류
+        const elder = aiPlayer.pieces.find(p => p.subUnit === 'elder' && p.alive);
+        const younger = aiPlayer.pieces.find(p => p.subUnit === 'younger' && p.alive);
+        if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
+          // 약한 쪽이 강한 쪽 위치로 합류
+          const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
+          aiExecSkill(room, pidx, 'brothers', { target: moverSub });
           aiPlayer.actionDone = true;
           aiEndTurn(room);
           return;
@@ -3665,8 +3748,9 @@ function aiExecuteAttack(room, action) {
     return;
   }
 
-  // ★ 공격 후 dualBlade 추가 공격 (쌍검무 활성화된 경우 2번째 공격) — #4: 3초 딜레이
+  // ★ 공격 후 dualBlade 추가 공격 — 3초 딜레이 (사용자 인지 충분)
   if (piece.dualBladeAttacksLeft > 0) {
+    const DUAL_BLADE_DELAY = 3000;
     setTimeout(() => {
       if (room.phase !== 'game') return;
       if (!piece.alive) { aiPlayer.actionDone = true; aiEndTurn(room); return; }
@@ -3688,7 +3772,7 @@ function aiExecuteAttack(room, action) {
       if (checkWin(room, 0)) { endGame(room, 1); return; }
       aiPlayer.actionDone = true;
       aiEndTurn(room);
-    }, AI_ACTION_DELAY);
+    }, DUAL_BLADE_DELAY);
     return;  // setTimeout 콜백에서 턴 종료 처리
   }
 
@@ -4712,13 +4796,13 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Action-replace skill used => can't move
-    if (player.actionUsedSkillReplace) {
-      socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 이동할 수 없습니다.' }); return;
-    }
-
     const piece = player.pieces[pieceIdx];
     if (!piece || !piece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
+
+    // Action-replace skill used => can't move (질주는 예외 — 이동을 위한 스킬이므로)
+    if (player.actionUsedSkillReplace && !piece.messengerSprintActive) {
+      socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 이동할 수 없습니다.' }); return;
+    }
 
     // 쌍둥이 이동 중에는 쌍둥이만 이동 가능
     if (player.twinMovedSubs && player.twinMovedSubs.length > 0 && !piece.subUnit) {
@@ -5113,7 +5197,7 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: `⚔ ${player.name}의 ${atkPiece.icon}${atkPiece.name}! 공격 빗나감.`, type: 'miss', playerIdx: idx });
     }
 
-    // AI 피격 기억 + 공격자 위치 추론
+    // AI 피격 기억 + 공격자 위치 추론 (실제 적 타입·ATK 기반 후보 좁히기)
     if (room.isAI && 1 - idx === 1 && room.aiBrain) {
       for (const h of hitResults) {
         const hitPiece = defender.pieces.find(p => p.col === h.col && p.row === h.row && p.alive);
@@ -5121,42 +5205,78 @@ io.on('connection', (socket) => {
           aiRecordHit(room.aiBrain, hitPiece);
         }
       }
-      // ── 공격자 위치 역산 ──
-      // 각 hit 셀에 대해 해당 셀을 공격할 수 있는 상대 유닛의 후보 위치를 probMap에 반영
+      // ── 공격자 위치 역산 (스마트 버전) ──
+      // 적 유닛 타입은 초기공개로 이미 알고 있음 → 그 타입들이 실제로 hit 셀을 공격할 수 있는 후보 위치만 가산
       if (hitResults.length > 0) {
-        const bSize = 5;  // AI 모드는 1v1 5x5 고정
-        for (const h of hitResults) {
-          // 같은 행/열 (창병, 기마병, 장군 가로/세로 계열)
-          for (let c = 0; c < bSize; c++) {
-            if (c !== h.col) room.aiBrain.probMap[h.row][c] = Math.max(room.aiBrain.probMap[h.row][c], 5);
-          }
-          for (let r = 0; r < bSize; r++) {
-            if (r !== h.row) room.aiBrain.probMap[r][h.col] = Math.max(room.aiBrain.probMap[r][h.col], 5);
-          }
-          // 대각선 (궁수, 기사, 백작)
-          for (let d = -bSize; d <= bSize; d++) {
-            if (d === 0) continue;
-            const p1 = { c: h.col + d, r: h.row + d };
-            const p2 = { c: h.col + d, r: h.row - d };
-            if (p1.c >= 0 && p1.c < bSize && p1.r >= 0 && p1.r < bSize) {
-              room.aiBrain.probMap[p1.r][p1.c] = Math.max(room.aiBrain.probMap[p1.r][p1.c], 5);
-            }
-            if (p2.c >= 0 && p2.c < bSize && p2.r >= 0 && p2.r < bSize) {
-              room.aiBrain.probMap[p2.r][p2.c] = Math.max(room.aiBrain.probMap[p2.r][p2.c], 5);
-            }
-          }
-          // 인접 8칸 (암살자, 파수꾼, 수도승)
-          for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
+        const bSize = 5;  // AI 1v1
+        const opp = room.players[0];
+        // 적 살아있는 유닛 타입 목록 (각 타입의 ATK도 함께)
+        const aliveEnemyTypes = (opp.pieces || []).filter(p => p.alive).map(p => ({ type: p.type, atk: p.atk, toggleState: p.toggleState }));
+        if (aliveEnemyTypes.length === 0) {
+          // 폴백 — 기존 방식
+          for (const h of hitResults) {
+            for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
               if (dr === 0 && dc === 0) continue;
               const nc = h.col + dc, nr = h.row + dr;
-              if (nc < 0 || nc >= bSize || nr < 0 || nr >= bSize) continue;
-              room.aiBrain.probMap[nr][nc] = Math.max(room.aiBrain.probMap[nr][nc], 6);
+              if (nc >= 0 && nc < bSize && nr >= 0 && nr < bSize)
+                room.aiBrain.probMap[nr][nc] = Math.max(room.aiBrain.probMap[nr][nc], 5);
             }
+          }
+        } else {
+          // 각 hit별 후보 셀 집합 (이번 공격에서 가능한 공격자 위치들)
+          const newCandidates = new Set();
+          for (const h of hitResults) {
+            // ATK 값으로 추가 필터 — damage가 일치하는 유닛만 (commander 버프 ±1, monk vs 악인 = 3 등 변수 있어 완전 필터링은 안 함)
+            const hitDamage = h.damage;
+            for (const et of aliveEnemyTypes) {
+              // 가능 공격자 셀 — 그 타입이 어디서든 hit 셀을 공격 범위에 포함하는지
+              for (let r = 0; r < bSize; r++) for (let c = 0; c < bSize; c++) {
+                // 자기 자리(AI 말 위치)는 적이 있을 수 없음
+                if (room.players[1].pieces.some(p => p.alive && p.col === c && p.row === r)) continue;
+                // 그 타입 기준 공격 셀
+                const extra = et.toggleState ? { toggleState: et.toggleState } : {};
+                let cells;
+                try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
+                if (cells.some(cc => cc.col === h.col && cc.row === h.row)) {
+                  newCandidates.add(`${c},${r}`);
+                }
+              }
+            }
+          }
+          // 후보 집합에 가산 — 후보 수가 적을수록 신뢰도 ↑
+          const candList = [...newCandidates];
+          const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
+          // 회피 후 재피격 추론: brain.lastHitCandidates와 교집합 시 신뢰도 +1
+          const prevCands = room.aiBrain.lastHitCandidates;
+          if (prevCands && prevCands.size > 0) {
+            const intersect = candList.filter(k => prevCands.has(k));
+            if (intersect.length > 0 && intersect.length <= 4) {
+              // 교집합이 작으면 거의 확정 → 9
+              for (const key of intersect) {
+                const [c, r] = key.split(',').map(Number);
+                room.aiBrain.probMap[r][c] = 9;
+              }
+            }
+          }
+          // 일반 후보 가산
+          for (const key of candList) {
+            const [c, r] = key.split(',').map(Number);
+            room.aiBrain.probMap[r][c] = Math.max(room.aiBrain.probMap[r][c], baseConf);
+          }
+          // 다음 회피 후 재피격 추론용 저장
+          room.aiBrain.lastHitCandidates = newCandidates;
+          room.aiBrain.lastHitTurn = room.aiBrain.turnCount;
+        }
+      } else {
+        // 빗나감 — 직전 후보군 기억 유지하되 회피 성공으로 약간 감쇠
+        if (room.aiBrain.lastHitCandidates) {
+          for (const key of room.aiBrain.lastHitCandidates) {
+            const [c, r] = key.split(',').map(Number);
+            room.aiBrain.probMap[r][c] = Math.max(0, (room.aiBrain.probMap[r][c] || 0) * 0.7);
           }
         }
       }
-      // 공격 범위 셀 자체도 적이 있을 수 있음 (자기포함 공격: 척후, 왕자, 공주 등)
+      // 공격 범위 셀 자체도 적이 있을 수 있음
       if (atkCells.length > 0) {
         for (const c of atkCells) {
           if (c.row >= 0 && c.row < 5 && c.col >= 0 && c.col < 5) {

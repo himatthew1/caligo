@@ -2917,24 +2917,21 @@ socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subU
 });
 
 socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
-  // #10: 표식된 적이면 실시간 위치 업데이트 + 이동 애니메이션
+  // 표식된 적이면 실시간 위치 업데이트 + 이동 애니메이션 (팝업/로그 없이 시각적 강조만)
   if (S.oppPieces && prevCol !== undefined && prevRow !== undefined && col !== undefined && row !== undefined) {
     const markedMover = S.oppPieces.find(p => p.marked && p.alive && p.col === prevCol && p.row === prevRow);
     if (markedMover) {
-      // 실시간 위치 업데이트 후 이동 애니메이션
       markedMover.col = col;
       markedMover.row = row;
       renderGameBoard();
       renderOppPieces();
-      // 시각적 하이라이트 (이동 후 셀 강조)
       const boardEl = document.getElementById('game-board');
       const cellEl = boardEl && boardEl.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (cellEl) {
         cellEl.classList.add('marked-move-flash');
         setTimeout(() => cellEl.classList.remove('marked-move-flash'), 700);
       }
-      addLog(`🎯 표식된 적이 ${coord(prevCol,prevRow)}에서 ${coord(col,row)}로 이동했습니다.`, 'move');
-      showSkillToast(`🎯 표식된 적이 ${coord(col,row)}로 이동!`, true);
+      // 팝업/로그 제거 — 시각 효과(셀 플래시)만 유지
       return;
     }
   }
@@ -3529,6 +3526,8 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
 
 // ── 게임 오버 ──
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
+  // 게임 간 stale 데이터 차단 — 다음 게임의 교환 배지 오탐 방지
+  S.oppRevealChars = null;
   stopClientTimer();
   // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 1초 대기 + 느린 페이드
   // 보드 축소로 인한 종료: 축소 애니메이션(흔들림 + bounds 업데이트)이 완료된 후 표시
@@ -9673,17 +9672,61 @@ function playSfxWitchCurse() {
   } catch (e) {}
 }
 
-// ── 9. 양손검객 쌍검무 — 금속 두 번 ──
+// ── 9. 양손검객 쌍검무 — 날카로운 파칭! 톤 (3개 후보 중 옵션 A) ──
 function playSfxDualBlade() {
+  // 옵션 A — 표준 적용 (옵션 B/C는 audition 전용)
+  playSfxDualBladeA();
+}
+// 후보 A: 묵직한 강철 슬래시 두 번 (저음 thud + 고음 슬래시)
+function playSfxDualBladeA() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 검 슬래시 1
-    _sfxNoise(ctx, now, 0.12, 0.16, 2000, 8000);
-    _sfxTone(ctx, now, 2400, 0.1, 'square', 0.05);
-    // 검 슬래시 2
-    _sfxNoise(ctx, now + 0.18, 0.12, 0.15, 2000, 8000);
-    _sfxTone(ctx, now + 0.18, 2800, 0.1, 'square', 0.05);
+    // 첫 번째 슬래시 — "차앙!"
+    _sfxNoise(ctx, now, 0.04, 0.18, 4000, 12000);  // 날카로운 메탈
+    _sfxTone(ctx, now, 3200, 0.15, 'square', 0.08, 1600);  // 고음 → 저음 글라이드
+    _sfxNoise(ctx, now + 0.02, 0.18, 0.08, 200, 600);  // 저음 thud
+    // 두 번째 슬래시 — "차아앙!" (180ms 후, 약간 더 높은 톤)
+    _sfxNoise(ctx, now + 0.18, 0.05, 0.20, 4000, 12000);
+    _sfxTone(ctx, now + 0.18, 3600, 0.18, 'square', 0.09, 1800);
+    _sfxNoise(ctx, now + 0.20, 0.20, 0.09, 200, 600);
+    _sfxTone(ctx, now + 0.18, 180, 0.25, 'sine', 0.06);  // 잔향
+  } catch (e) {}
+}
+// 후보 B: 전기톱 같은 거친 파칭! (sawtooth dominant)
+function playSfxDualBladeB() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 첫 슬래시 — sawtooth "파칭!"
+    _sfxTone(ctx, now, 2000, 0.12, 'sawtooth', 0.12, 4000);
+    _sfxNoise(ctx, now, 0.08, 0.15, 3000, 10000);
+    _sfxTone(ctx, now, 120, 0.18, 'sine', 0.08);  // 저음 충격
+    // 두 번째 슬래시 — 한 옥타브 위
+    _sfxTone(ctx, now + 0.15, 2400, 0.14, 'sawtooth', 0.13, 5000);
+    _sfxNoise(ctx, now + 0.15, 0.1, 0.16, 3000, 10000);
+    _sfxTone(ctx, now + 0.15, 140, 0.22, 'sine', 0.09);
+    // 끝 잔향
+    _sfxTone(ctx, now + 0.32, 800, 0.3, 'triangle', 0.06, 200);
+  } catch (e) {}
+}
+// 후보 C: 웅장한 파칭! — 종소리 같은 잔향 + 검 슬래시
+function playSfxDualBladeC() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 첫 슬래시 — 종소리 chime
+    _sfxNoise(ctx, now, 0.03, 0.18, 5000, 14000);
+    _sfxTone(ctx, now, 1760, 0.5, 'sine', 0.10);   // 종 (A6)
+    _sfxTone(ctx, now, 2640, 0.4, 'sine', 0.07);   // 5th
+    _sfxTone(ctx, now, 880, 0.3, 'sine', 0.05);    // 옥타브 아래
+    // 두 번째 슬래시
+    _sfxNoise(ctx, now + 0.20, 0.04, 0.20, 5000, 14000);
+    _sfxTone(ctx, now + 0.20, 2349, 0.6, 'sine', 0.10);  // D7 (위)
+    _sfxTone(ctx, now + 0.20, 3520, 0.45, 'sine', 0.08); // 5th 위
+    _sfxTone(ctx, now + 0.20, 1175, 0.35, 'sine', 0.06); // 옥타브 아래
+    // 굵은 저음 woom
+    _sfxTone(ctx, now, 80, 0.6, 'sine', 0.10);
   } catch (e) {}
 }
 

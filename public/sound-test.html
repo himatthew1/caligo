@@ -139,7 +139,9 @@
       <button class="sfx-btn" data-sfx="bombPlace"><span class="label">폭탄 설치 (폭파병)</span><span class="desc">째깍 3회 + 무거운 thud</span></button>
       <button class="sfx-btn" data-sfx="shadowHide"><span class="label">그림자 숨기 (암살자)</span><span class="desc">하강 글라이드 + 어두운 노이즈</span></button>
       <button class="sfx-btn" data-sfx="witchCurse"><span class="label">저주 시전 (마녀)</span><span class="desc">신비로운 글라이드 + 보컬 톤 + 종</span></button>
-      <button class="sfx-btn" data-sfx="dualBlade"><span class="label">쌍검무 (양손검객)</span><span class="desc">금속 슬래시 2회</span></button>
+      <button class="sfx-btn" data-sfx="dualBladeA"><span class="label">쌍검무 — 옵션 A (날카로운 차앙!)</span><span class="desc">고음 메탈+저음 thud (적용 중)</span></button>
+      <button class="sfx-btn" data-sfx="dualBladeB"><span class="label">쌍검무 — 옵션 B (거친 파칭!)</span><span class="desc">sawtooth 글라이드+잔향</span></button>
+      <button class="sfx-btn" data-sfx="dualBladeC"><span class="label">쌍검무 — 옵션 C (웅장한 종소리)</span><span class="desc">메탈+옥타브 chime+저음 woom</span></button>
       <button class="sfx-btn" data-sfx="ratSummon"><span class="label">역병의 자손들 (쥐 장수)</span><span class="desc">끽끽 5회 + 긁히는 노이즈</span></button>
       <button class="sfx-btn" data-sfx="armorerTune"><span class="label">무기상 정비 (전환)</span><span class="desc">망치질 2회 + 클릭</span></button>
       <button class="sfx-btn" data-sfx="kingRing"><span class="label">국왕 절대복종 반지</span><span class="desc">웅장한 종 + 광채 떨림</span></button>
@@ -1609,7 +1611,10 @@ function playSfxMessengerSprint() { try { const ctx = getAudioCtx(); if (!ctx) r
 function playSfxBombPlace() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 3; i++) { _sfxTone(ctx, now + i * 0.1, 1500, 0.04, 'square', 0.07); } _sfxTone(ctx, now + 0.32, 80, 0.18, 'sine', 0.15, 50); } catch (e) {} }
 function playSfxShadowHide() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 1400, 0.5, 'sine', 0.08, 200); _sfxNoise(ctx, now, 0.5, 0.04, 80, 600); } catch (e) {} }
 function playSfxWitchCurse() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 600, 0.6, 'sawtooth', 0.06, 200); _sfxTone(ctx, now + 0.1, 350, 0.5, 'sine', 0.09); _sfxTone(ctx, now + 0.3, 200, 0.4, 'triangle', 0.07); } catch (e) {} }
-function playSfxDualBlade() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.12, 0.16, 2000, 8000); _sfxTone(ctx, now, 2400, 0.1, 'square', 0.05); _sfxNoise(ctx, now + 0.18, 0.12, 0.15, 2000, 8000); _sfxTone(ctx, now + 0.18, 2800, 0.1, 'square', 0.05); } catch (e) {} }
+function playSfxDualBladeA() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.04, 0.18, 4000, 12000); _sfxTone(ctx, now, 3200, 0.15, 'square', 0.08, 1600); _sfxNoise(ctx, now + 0.02, 0.18, 0.08, 200, 600); _sfxNoise(ctx, now + 0.18, 0.05, 0.20, 4000, 12000); _sfxTone(ctx, now + 0.18, 3600, 0.18, 'square', 0.09, 1800); _sfxNoise(ctx, now + 0.20, 0.20, 0.09, 200, 600); _sfxTone(ctx, now + 0.18, 180, 0.25, 'sine', 0.06); } catch (e) {} }
+function playSfxDualBladeB() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 2000, 0.12, 'sawtooth', 0.12, 4000); _sfxNoise(ctx, now, 0.08, 0.15, 3000, 10000); _sfxTone(ctx, now, 120, 0.18, 'sine', 0.08); _sfxTone(ctx, now + 0.15, 2400, 0.14, 'sawtooth', 0.13, 5000); _sfxNoise(ctx, now + 0.15, 0.1, 0.16, 3000, 10000); _sfxTone(ctx, now + 0.15, 140, 0.22, 'sine', 0.09); _sfxTone(ctx, now + 0.32, 800, 0.3, 'triangle', 0.06, 200); } catch (e) {} }
+function playSfxDualBladeC() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.03, 0.18, 5000, 14000); _sfxTone(ctx, now, 1760, 0.5, 'sine', 0.10); _sfxTone(ctx, now, 2640, 0.4, 'sine', 0.07); _sfxTone(ctx, now, 880, 0.3, 'sine', 0.05); _sfxNoise(ctx, now + 0.20, 0.04, 0.20, 5000, 14000); _sfxTone(ctx, now + 0.20, 2349, 0.6, 'sine', 0.10); _sfxTone(ctx, now + 0.20, 3520, 0.45, 'sine', 0.08); _sfxTone(ctx, now + 0.20, 1175, 0.35, 'sine', 0.06); _sfxTone(ctx, now, 80, 0.6, 'sine', 0.10); } catch (e) {} }
+function playSfxDualBlade() { playSfxDualBladeA(); }
 function playSfxRatSummon() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; for (let i = 0; i < 5; i++) { const t = now + i * 0.07; const f = 1800 + Math.random() * 800; _sfxTone(ctx, t, f, 0.06, 'square', 0.06); } _sfxNoise(ctx, now, 0.4, 0.04, 1500, 4000); } catch (e) {} }
 function playSfxArmorerTune() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxNoise(ctx, now, 0.04, 0.18, 200, 1200); _sfxTone(ctx, now, 180, 0.05, 'square', 0.1); _sfxNoise(ctx, now + 0.12, 0.04, 0.14, 200, 1200); _sfxTone(ctx, now + 0.12, 220, 0.05, 'square', 0.08); _sfxTone(ctx, now + 0.25, 1500, 0.04, 'square', 0.06); } catch (e) {} }
 function playSfxKingRing() { try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime; _sfxTone(ctx, now, 220, 0.8, 'sine', 0.12); _sfxTone(ctx, now, 330, 0.6, 'sine', 0.08); for (let i = 0; i < 4; i++) { _sfxTone(ctx, now + 0.15 + i * 0.08, 1760 + i * 220, 0.12, 'sine', 0.05); } } catch (e) {} }
@@ -1673,6 +1678,9 @@ const sfxMap = {
   shadowHide: playSfxShadowHide,
   witchCurse: playSfxWitchCurse,
   dualBlade: playSfxDualBlade,
+  dualBladeA: playSfxDualBladeA,
+  dualBladeB: playSfxDualBladeB,
+  dualBladeC: playSfxDualBladeC,
   ratSummon: playSfxRatSummon,
   armorerTune: playSfxArmorerTune,
   kingRing: playSfxKingRing,
