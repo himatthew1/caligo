@@ -1191,19 +1191,51 @@ function aiTeamTakeTurn(room, idx) {
       }
     }
     if (piece.type === 'witch') {
+      // 학습 메모리 — 같은 타겟에 저주가 계속 해소되면 회피
+      // p._curseHistory: { 'ownerIdx:type:subUnit': cleansedCount }
+      if (!p._curseHistory) p._curseHistory = {};
+      // 적팀에 신성 시전자(수도승)·정화 가능 유닛이 있으면 저주가 무력화될 가능성 높음
+      const enemyHasMonk = enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(e =>
+        e.alive && (e.type === 'monk' || (e.skills && e.skills.some(s => s.id === 'divine')))));
+
       const candidates = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
         .map((pc, ti) => ({ pc, ownerIdx: ei, idxInOwner: ti }))
         .filter(o => o.pc.alive && o.pc.hp > 1 && o.pc.type !== 'monk' &&
           !o.pc.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')));
+
+      // 우선순위: 신성 시전자(monk) 자신을 먼저 표적
+      // — 단, 신성 시전자가 살아있는 동안은 저주가 계속 풀리니까 monk 죽을 때까지 monk 노리기
+      if (enemyHasMonk) {
+        // monk를 후보에 추가 — 저주는 못 걸지만, 마녀의 일반 공격으로 monk를 죽이는 것이 우선
+        // 이 케이스는 일반 공격 점수가 높을 테니 여기서 저주 스킵 (false 반환과 유사하게 다음으로 진행)
+        // 하지만 SP가 충분하고 다른 좋은 타겟이 있으면 저주는 시도
+      }
+
       if (candidates.length > 0) {
-        candidates.sort((a, b) =>
-          (b.pc.hasSkill ? 1 : 0) - (a.pc.hasSkill ? 1 : 0) ||
-          b.pc.hp - a.pc.hp ||
-          (b.pc.tier || 0) - (a.pc.tier || 0));
+        // 정렬: cleanse 메모리 적은 것 → 스킬 보유 → HP 높음 → tier 높음
+        candidates.sort((a, b) => {
+          const ka = `${a.ownerIdx}:${a.pc.type}:${a.pc.subUnit || ''}`;
+          const kb = `${b.ownerIdx}:${b.pc.type}:${b.pc.subUnit || ''}`;
+          const ca = p._curseHistory[ka] || 0;
+          const cb = p._curseHistory[kb] || 0;
+          if (ca !== cb) return ca - cb;  // 정화 횟수 적은 쪽이 우선
+          if ((b.pc.hasSkill ? 1 : 0) !== (a.pc.hasSkill ? 1 : 0)) return (b.pc.hasSkill ? 1 : 0) - (a.pc.hasSkill ? 1 : 0);
+          if (b.pc.hp !== a.pc.hp) return b.pc.hp - a.pc.hp;
+          return (b.pc.tier || 0) - (a.pc.tier || 0);
+        });
         const t = candidates[0];
-        aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
-        setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
-        return;
+        const targetKey = `${t.ownerIdx}:${t.pc.type}:${t.pc.subUnit || ''}`;
+        const cleansedTimes = p._curseHistory[targetKey] || 0;
+        // 같은 타겟이 2회 이상 정화됐고 적팀에 monk가 있으면 — 저주 시전 포기 (헛수고)
+        if (cleansedTimes >= 2 && enemyHasMonk) {
+          // 저주 스킵 — 다음 행동 후보로 넘어감
+        } else {
+          aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
+          // 저주 시전 시점 기록 (해소 추적용 키 생성)
+          p._lastCurseTarget = { key: targetKey, ownerIdx: t.ownerIdx, type: t.pc.type, subUnit: t.pc.subUnit, turnNumber: room.turnNumber };
+          setTimeout(() => { if (room.phase === 'game' && room.currentPlayerIdx === idx) endTurn(room); }, 4000);
+          return;
+        }
       }
     }
     if (piece.type === 'sulfurCauldron') {
@@ -2475,6 +2507,13 @@ function checkCurseRemoval(room, piece, ownerIdx) {
     const reason = !sourceWitch ? '마녀가 사망해' : '체력 고갈로';
     emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: ownerIdx, msg: `🧙 저주: ${reason} ${piece.name}의 저주가 해제되었습니다.` });
     emitToSpectators(room, 'spectator_log', { msg: `🧙 저주: ${reason} ${piece.name}의 저주가 해제되었습니다.`, type: 'passive', playerIdx: ownerIdx });
+    // AI 마녀 학습 — 같은 대상에 저주가 정화될 때마다 _curseHistory 카운트 증가 → 다음 시전 시 회피
+    const witchOwner = room.players[sourceIdx];
+    if (witchOwner && witchOwner.socketId === 'AI') {
+      if (!witchOwner._curseHistory) witchOwner._curseHistory = {};
+      const key = `${ownerIdx}:${piece.type}:${piece.subUnit || ''}`;
+      witchOwner._curseHistory[key] = (witchOwner._curseHistory[key] || 0) + 1;
+    }
   }
 }
 
@@ -3682,6 +3721,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (!target || !target.alive) return { ok: false, msg: '대상이 없습니다.' };
       if (target === piece) return { ok: false, msg: '자신은 치유할 수 없습니다.' };
       target.hp = Math.min(target.maxHp, target.hp + 2);
+      // AI 마녀 학습 — 신성으로 저주 정화 시 시전자 마녀의 _curseHistory 카운트 증가
+      const hadCurse = (target.statusEffects || []).find(e => e.type === 'curse');
+      if (hadCurse) {
+        const witchOwner = room.players[hadCurse.source];
+        if (witchOwner && witchOwner.socketId === 'AI') {
+          if (!witchOwner._curseHistory) witchOwner._curseHistory = {};
+          const key = `${playerIdx}:${target.type}:${target.subUnit || ''}`;
+          witchOwner._curseHistory[key] = (witchOwner._curseHistory[key] || 0) + 1;
+        }
+      }
       target.statusEffects = [];
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = [targetIdx2];

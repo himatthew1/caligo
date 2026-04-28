@@ -3761,6 +3761,22 @@ socket.on('passive_alert', ({ type, msg, playerIdx }) => {
       const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === pname) ?? -1;
       if (myIdx >= 0) flashCursePieces([myIdx], { opp: false });
       if (oppIdx >= 0) flashCursePieces([oppIdx], { opp: true });
+      // 팀 모드 — team-profile-block 안의 카드에도 보라 플래시
+      if (S.isTeamMode) {
+        for (const pl of (S.teamGamePlayers || [])) {
+          const idxInPl = (pl.pieces || []).findIndex(p => p.alive && p.name === pname);
+          if (idxInPl < 0) continue;
+          requestAnimationFrame(() => {
+            const card = document.querySelector(`.team-profile-block[data-player-idx="${pl.idx}"] [data-piece-idx="${idxInPl}"]`);
+            if (card) {
+              card.classList.remove('curse-flash');
+              void card.offsetWidth;
+              card.classList.add('curse-flash');
+              setTimeout(() => card.classList.remove('curse-flash'), 2000);
+            }
+          });
+        }
+      }
     }
   }
   if (S.isSpectator) {
