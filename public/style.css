@@ -1895,14 +1895,12 @@ body {
   background: rgba(239,68,68,0.10);
   box-shadow: 0 0 0 2px rgba(239,68,68,0.55), 0 0 14px rgba(239,68,68,0.45);
 }
-/* 내 캐릭터 표식 — 작은 황금 점 또는 "내 캐릭터" 라벨로만 (보더 시각은 팀 컬러가 우선) */
+/* 내 캐릭터 표식 — 라벨 골드 컬러만 유지, 외곽 글로우/링은 제거 (사용자 요청: 팀 컬러로 충분) */
 .team-profile-block.team-block-self-mark .team-block-label {
   color: var(--accent);
   font-weight: 800;
 }
-.team-profile-block.team-block-self-mark.is-current-turn {
-  box-shadow: 0 0 0 3px rgba(226,168,75,0.7), 0 0 16px rgba(226,168,75,0.45);
-}
+/* 내 캐릭터 + 현재 차례가 겹쳐도 황금 외곽 추가 X — 팀 컬러 글로우만 */
 .team-profile-header {
   display: flex;
   align-items: center;
@@ -2182,9 +2180,7 @@ body {
   color: #fca5a5;
   box-shadow: 0 0 0 2px rgba(239,68,68,0.5), 0 0 8px rgba(239,68,68,0.4);
 }
-.turn-order-dot.me:not(.current) {
-  border-style: dashed;
-}
+/* 사용자 요청: 내 점선 표시 제거 — 다른 플레이어들과 동일 스타일 유지 */
 .turn-order-dot.eliminated {
   opacity: 0.35;
   text-decoration: line-through;
@@ -2313,8 +2309,24 @@ body {
   gap: 12px;  /* 내 행보다 살짝 줄여 컴팩트 */
 }
 /* 배치 페이즈 — 팀원/상대팀 카드 컬러 구분 */
-.placement-team-block.placement-team-blue { border-left: 3px solid #60a5fa; padding-left: 8px; }
-.placement-team-block.placement-team-red  { border-left: 3px solid #ef4444; padding-left: 8px; }
+/* 팀모드 배치: 큰 외곽 테두리 제거 — 플레이어별 블록만 분리해서 깔끔하게 */
+.team-placement-mode .placement-opp-panel,
+body.team-mode .placement-opp-panel {
+  background: transparent;
+  border: none;
+  padding: 0;
+  max-width: 260px;
+}
+.placement-team-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 10px;
+  margin-bottom: 14px;
+}
+.placement-team-block.placement-team-blue { border-left: 3px solid #60a5fa; }
+.placement-team-block.placement-team-red  { border-left: 3px solid #ef4444; }
+.placement-team-block:last-child { margin-bottom: 0; }
 .enemy-block-header.team-color-blue { color: #93c5fd; }
 .enemy-block-header.team-color-red  { color: #fca5a5; }
 .placement-team-card-blue { border-color: rgba(96,165,250,0.45) !important; background: rgba(96,165,250,0.07) !important; }

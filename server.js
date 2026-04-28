@@ -1792,10 +1792,10 @@ function transitionToTeamPlacement(room) {
     });
   }
   startTimer(room, 'team_placement', () => teamPlacementTimeout(room));
-  // AI 봇 자동 배치
+  // AI 봇 자동 배치 — 즉시 (사용자 요청: 내가 배치할 때까지 기다리지 말 것)
   for (const p of room.players) {
     if (p.socketId === 'AI') {
-      const delay = 2000 + Math.random() * 1500;
+      const delay = 300 + Math.random() * 400;
       setTimeout(() => aiTeamPlace(room, p.index), delay);
     }
   }
@@ -5557,18 +5557,19 @@ io.on('connection', (socket) => {
     piece.col = col; piece.row = row;
     socket.emit('team_placed_ok', { pieceIdx, col, row });
     broadcastTeamPlacementUpdate(room, idx);
-    // AI 봇 재평가 — 사람이 배치/이동할 때마다 미확정 봇이 더 좋은 자리로 재배치
-    // (확정한 봇은 건너뜀, 다른 휴먼이 배치 중인 동안 봇이 자기 자리 reactive 조정)
+    // 사용자 요청: AI 봇은 진입 즉시 자기 자리에 배치하고 그대로 유지 (인간 행동마다 wipe 금지).
+    // 봇이 아직 배치되지 않은 상태(col<0)인 경우만 한 번 더 재시도 — 그 외에는 그대로 둠.
     for (const p of room.players) {
       if (p.socketId === 'AI' && !room.placementDone[p.index]) {
-        // 모든 piece 좌표 리셋해서 새로 점수 계산하도록 (간단한 reactive 재배치)
-        for (const pc of (p.pieces || [])) { pc.col = -1; pc.row = -1; }
-        // 약간 지연 후 재계산 (다른 사람의 동시 배치를 묶어서 처리)
-        setTimeout(() => {
-          if (room.phase === 'team_placement' && !room.placementDone[p.index]) {
-            aiTeamPlace(room, p.index);
-          }
-        }, 600);
+        const allPlaced = (p.pieces || []).every(pc => pc.col >= 0);
+        if (!allPlaced) {
+          // 아직 배치 안 된 piece가 남아있으면 즉시 재시도 (긴 대기 X)
+          setTimeout(() => {
+            if (room.phase === 'team_placement' && !room.placementDone[p.index]) {
+              aiTeamPlace(room, p.index);
+            }
+          }, 200);
+        }
       }
     }
   });

@@ -2025,8 +2025,17 @@ socket.on('team_game_start', (state) => {
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
   if (S.isMyTurn) try { playTurnBell(); } catch (e) {}
-  // 팀전 시작 애니메이션
-  playGameStartAnimation(S.isMyTurn);
+  // 재접속 vs 신규 게임 시작 구분 — 1v1과 동일하게 turnNumber > 1 또는 reconnect 플래그
+  const isReconnect = !!state.reconnect || (state.turnNumber && state.turnNumber > 1);
+  if (isReconnect) {
+    const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
+    const turnOwnerName = cur ? (cur.idx === S.playerIdx ? (myN() || cur.name) : cur.name) : '?';
+    addLog(`🔌 재접속! ${turnOwnerName}의 턴`, 'system');
+    playGameStartAnimation(S.isMyTurn, true, turnOwnerName);
+  } else {
+    // 팀전 시작 애니메이션
+    playGameStartAnimation(S.isMyTurn);
+  }
 });
 
 socket.on('team_game_update', (state) => {
@@ -6326,7 +6335,8 @@ function buildPlacementOppPanel() {
 
   // 팀 모드: 오른쪽 패널 — 상단에 팀원(블루/레드 컬러), 그 아래 상대팀(반대 컬러)
   if (S.teamPlacementMode) {
-    if (header) header.textContent = '팀 / 상대 캐릭터';
+    if (header) header.textContent = '';
+    if (header) header.style.display = 'none';
     container.innerHTML = '';
     const myTeamColor = S.teamId === 0 ? 'blue' : 'red';
     const oppTeamColor = S.teamId === 0 ? 'red' : 'blue';
@@ -6335,7 +6345,7 @@ function buildPlacementOppPanel() {
     for (const tm of teammates) {
       const block = document.createElement('div');
       block.className = `placement-enemy-block placement-team-block placement-team-${myTeamColor}`;
-      block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">${escapeHtmlGlobal(tm.name)} (팀원)</h5>`;
+      block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">${escapeHtmlGlobal(tm.name)}</h5>`;
       for (const pc of (tm.pieces || [])) {
         const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
         const card = document.createElement('div');
