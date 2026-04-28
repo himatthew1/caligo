@@ -3749,8 +3749,9 @@ function aiExecuteAttack(room, action) {
   }
 
   // ★ 공격 후 dualBlade 추가 공격 — 3초 딜레이 (사용자 인지 충분)
+  // 첫 공격 처리 + 클라이언트 애니메이션이 ~1초 걸리므로, 클라이언트 시점에서 약 3초 갭 보장하려면 4초 필요
   if (piece.dualBladeAttacksLeft > 0) {
-    const DUAL_BLADE_DELAY = 3000;
+    const DUAL_BLADE_DELAY = 4000;
     setTimeout(() => {
       if (room.phase !== 'game') return;
       if (!piece.alive) { aiPlayer.actionDone = true; aiEndTurn(room); return; }
