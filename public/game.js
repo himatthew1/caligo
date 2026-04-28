@@ -754,7 +754,6 @@ document.getElementById('btn-join-team').addEventListener('click', () => {
     roomId = 'T' + Math.random().toString(36).substr(2, 5).toUpperCase();
     const roomInput = document.getElementById('input-room');
     if (roomInput) roomInput.value = roomId;
-    showSkillToast(`방 코드 [${roomId}] 생성됨. 팀원과 공유하세요.`, false, undefined, 'event');
   }
   S.myName = name; S.roomId = roomId; S.isTeamMode = true;
   socket.emit('join_team_room', { roomId, playerName: name });
