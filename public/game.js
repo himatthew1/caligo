@@ -2357,7 +2357,6 @@ function renderTeamPlayerBlock(playerData, isAlly) {
           <span class="team-block-label">${blockLabel}</span>
           ${currentPlayer ? '<span class="team-turn-mark">현재 차례</span>' : ''}
         </div>
-        <span class="team-profile-alive">${aliveCount}/${pieces.length}</span>
       </div>
       ${piecesHtml}
     </div>

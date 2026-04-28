@@ -1918,9 +1918,10 @@ body {
   text-overflow: ellipsis;
   max-width: 200px;
 }
-/* 팀모드 piece-card 안의 캐릭터명 — 줄바꿈 금지 (my/opp 둘 다 동일하게) */
+/* 팀모드 piece-card 안의 캐릭터명 — 줄바꿈 금지 (my/opp 둘 다 동일하게)
+   max-width 풀어서 긴 이름(쌍둥이 강도 동생/누나 등)도 잘리지 않게 */
 .team-profile-block .my-piece-card .my-piece-header strong,
-.team-profile-block .opp-piece-card .my-piece-header strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; display: inline-block; vertical-align: middle; }
+.team-profile-block .opp-piece-card .my-piece-header strong { white-space: nowrap; overflow: visible; text-overflow: clip; max-width: none; display: inline-block; vertical-align: middle; }
 .team-profile-block .my-piece-header { flex-wrap: nowrap; }
 .team-profile-block .my-piece-header > * { flex-shrink: 0; }
 .team-profile-block .my-piece-header strong { flex-shrink: 1; }
