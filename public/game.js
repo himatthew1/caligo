@@ -9704,6 +9704,11 @@ function applyProtectedAnim(card) {
   void card.offsetWidth;
   card.classList.add('profile-protected', PROTECTED_VARIANT);
   setTimeout(() => card.classList.remove('profile-protected', PROTECTED_VARIANT), PROTECTED_DURATIONS[PROTECTED_VARIANT] || 1100);
+  // SFX (PROTECTED_SFX 상수로 변종 선택)
+  try {
+    const sfxFn = (typeof PROTECTED_SFX_FUNCS !== 'undefined') && PROTECTED_SFX_FUNCS[PROTECTED_SFX];
+    if (sfxFn) sfxFn();
+  } catch (e) {}
 }
 // 1v1 — querySelectorAll + 인덱스
 function applyProtectedAnimByIndex(selector, indices) {
@@ -9853,6 +9858,151 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
 
 // ── 캐릭터 등장 사운드 (둥-) ──
 // ── 쥐 격파 사운드 (꽥!) ──
+// ── 보호됨 SFX 5종 ──
+// 사용자가 미리 듣고 고를 수 있도록 5개 변종 제공.
+// 게임 실제 발화 시점은 applyProtectedAnim 안에서 호출 (PROTECTED_SFX 상수로 선택).
+
+// SFX1 — 팅! (날카로운 금속 튕김. 칼날 막아낸 듯한 짧고 깔끔한 톤)
+function playSfxProtected1Ting() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const o1 = ctx.createOscillator(); const g1 = ctx.createGain();
+    o1.type = 'triangle';
+    o1.frequency.setValueAtTime(2400, now);
+    o1.frequency.exponentialRampToValueAtTime(1700, now + 0.5);
+    g1.gain.setValueAtTime(0.0001, now);
+    g1.gain.linearRampToValueAtTime(0.28, now + 0.005);
+    g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+    o1.connect(g1); g1.connect(out);
+    o1.start(now); o1.stop(now + 0.6);
+    // 금속성 하모닉
+    const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+    o2.type = 'sine';
+    o2.frequency.setValueAtTime(3800, now);
+    o2.frequency.exponentialRampToValueAtTime(2400, now + 0.4);
+    g2.gain.setValueAtTime(0.0001, now);
+    g2.gain.linearRampToValueAtTime(0.13, now + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+    o2.connect(g2); g2.connect(out);
+    o2.start(now); o2.stop(now + 0.5);
+  } catch (e) {}
+}
+
+// SFX2 — 유리 반짝임 (빠른 상승 sparkle 5음)
+function playSfxProtected2Shimmer() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    const freqs = [2600, 3200, 3900, 3300, 4500];  // 상승+반짝
+    freqs.forEach((f, i) => {
+      const t = now + i * 0.05;
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.11, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.25);
+    });
+  } catch (e) {}
+}
+
+// SFX3 — 둔둔 (저음 더블 임팩트. 단단함·묵직함 강조)
+function playSfxProtected3Solid() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 1번째 둔
+    const o1 = ctx.createOscillator(); const g1 = ctx.createGain();
+    o1.type = 'triangle';
+    o1.frequency.setValueAtTime(140, now);
+    o1.frequency.exponentialRampToValueAtTime(60, now + 0.28);
+    g1.gain.setValueAtTime(0.0001, now);
+    g1.gain.linearRampToValueAtTime(0.42, now + 0.01);
+    g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    o1.connect(g1); g1.connect(out);
+    o1.start(now); o1.stop(now + 0.35);
+    // 2번째 둔 (살짝 약함)
+    const t2 = now + 0.16;
+    const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+    o2.type = 'triangle';
+    o2.frequency.setValueAtTime(120, t2);
+    o2.frequency.exponentialRampToValueAtTime(55, t2 + 0.25);
+    g2.gain.setValueAtTime(0.0001, t2);
+    g2.gain.linearRampToValueAtTime(0.32, t2 + 0.01);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.3);
+    o2.connect(g2); g2.connect(out);
+    o2.start(t2); o2.stop(t2 + 0.35);
+  } catch (e) {}
+}
+
+// SFX4 — 마법 차임 (벨 + 하모닉. 마법 방어막 같은 느낌)
+function playSfxProtected4Chime() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 벨 — fundamental + 비조화 하모닉으로 차임 특유의 톤
+    const fundamental = 880;
+    const harmonics = [
+      { mult: 1.0,  gain: 0.20, len: 0.9 },
+      { mult: 2.76, gain: 0.11, len: 0.7 },
+      { mult: 5.40, gain: 0.06, len: 0.5 },
+    ];
+    harmonics.forEach(h => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = fundamental * h.mult;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.linearRampToValueAtTime(h.gain, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + h.len);
+      o.connect(g); g.connect(out);
+      o.start(now); o.stop(now + h.len + 0.05);
+    });
+  } catch (e) {}
+}
+
+// SFX5 — 차르륵 (크리스탈 캐스케이드. 8개 빠른 sparkle 무작위 톤)
+function playSfxProtected5Crystal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    for (let i = 0; i < 8; i++) {
+      const t = now + i * 0.045;
+      const f = 1800 + Math.random() * 2400;
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.12);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.085, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      o.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.18);
+    }
+  } catch (e) {}
+}
+
+const PROTECTED_SFX_FUNCS = {
+  1: playSfxProtected1Ting,
+  2: playSfxProtected2Shimmer,
+  3: playSfxProtected3Solid,
+  4: playSfxProtected4Chime,
+  5: playSfxProtected5Crystal,
+};
+const PROTECTED_SFX = 1;  // 기본값 — animation-test.html 에서 비교 후 변경
+
 function playSfxRatDeath() {
   if (sfxMuted) return;
   try {

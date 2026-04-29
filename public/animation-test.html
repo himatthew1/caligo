@@ -197,14 +197,10 @@
         <button class="anim-btn" data-play="heal">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">profile-protected (보호됨) — 4 옵션</div>
+        <div class="label">profile-protected (보호됨) — 애니메이션 4 옵션</div>
         <div class="desc">
           공격 받았으나 0 피해 — 호위무사 가로채기·아이언스킨·폭정 등.<br>
-          <strong>v1</strong>: 1회 sweep (1s, 깔끔함)<br>
-          <strong>v2</strong>: 2회 sweep (1.5s, 두 번 슥슥)<br>
-          <strong>v3</strong>: 1회 sweep + 둔둔 펄스 (단단함 강조)<br>
-          <strong>v4</strong>: 2회 sweep + 둔둔 펄스 (가장 화려)<br>
-          ※ 둔둔 펄스 = scale 1.025 → 1.018 두 번 미세하게 부풀림
+          <strong>v1</strong>: 1회 sweep / <strong>v2</strong>: 2회 sweep / <strong>v3</strong>: 1회 + 둔둔 (현재 기본) / <strong>v4</strong>: 2회 + 둔둔
         </div>
         <div class="anim-stage" data-stage="protected"></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -212,6 +208,34 @@
           <button class="anim-btn" data-play="protected-v2">▶ v2: 2회</button>
           <button class="anim-btn" data-play="protected-v3">▶ v3: 1회 + 둔둔</button>
           <button class="anim-btn" data-play="protected-v4">▶ v4: 2회 + 둔둔</button>
+        </div>
+      </div>
+
+      <div class="anim-card">
+        <div class="label">보호됨 SFX — 5 옵션</div>
+        <div class="desc">
+          애니메이션과 어울리는 효과음 5가지. 미리 듣고 골라보세요.<br>
+          <strong>SFX1 팅!</strong>: 날카로운 금속 튕김 (칼 막음)<br>
+          <strong>SFX2 반짝</strong>: 유리 sparkle 5음 상승<br>
+          <strong>SFX3 둔둔</strong>: 저음 더블 임팩트 (단단함)<br>
+          <strong>SFX4 차임</strong>: 마법 방어막 벨톤<br>
+          <strong>SFX5 크리스탈</strong>: 8개 빠른 캐스케이드<br>
+          ※ "▶ v3 + SFX#" 버튼은 현재 기본 v3 애니와 함께 들어볼 수 있는 통합 미리보기
+        </div>
+        <div class="anim-stage" data-stage="protected-sfx"></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="anim-btn" data-play="sfx-only-1">🔊 SFX1만</button>
+          <button class="anim-btn" data-play="sfx-only-2">🔊 SFX2만</button>
+          <button class="anim-btn" data-play="sfx-only-3">🔊 SFX3만</button>
+          <button class="anim-btn" data-play="sfx-only-4">🔊 SFX4만</button>
+          <button class="anim-btn" data-play="sfx-only-5">🔊 SFX5만</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <button class="anim-btn secondary" data-play="combo-1">🎬 v3 + SFX1</button>
+          <button class="anim-btn secondary" data-play="combo-2">🎬 v3 + SFX2</button>
+          <button class="anim-btn secondary" data-play="combo-3">🎬 v3 + SFX3</button>
+          <button class="anim-btn secondary" data-play="combo-4">🎬 v3 + SFX4</button>
+          <button class="anim-btn secondary" data-play="combo-5">🎬 v3 + SFX5</button>
         </div>
       </div>
       <div class="anim-card">
@@ -400,7 +424,7 @@
     // ── 초기 카드 배치 ──
     function init() {
       // ① 프로필 효과
-      ['hit', 'heal', 'protected', 'curse-active'].forEach(name => {
+      ['hit', 'heal', 'protected', 'protected-sfx', 'curse-active'].forEach(name => {
         const stage = getStage(name);
         if (!stage) return;
         const card = buildMiniCard({ cursed: name === 'curse-active' });
@@ -492,6 +516,16 @@
       'protected-v2'() { playProtectedVariant('v2', 1550); },
       'protected-v3'() { playProtectedVariant('v3', 1050); },
       'protected-v4'() { playProtectedVariant('v4', 1550); },
+      'sfx-only-1'() { playSfxOnly(1); },
+      'sfx-only-2'() { playSfxOnly(2); },
+      'sfx-only-3'() { playSfxOnly(3); },
+      'sfx-only-4'() { playSfxOnly(4); },
+      'sfx-only-5'() { playSfxOnly(5); },
+      'combo-1'() { playCombo(1); },
+      'combo-2'() { playCombo(2); },
+      'combo-3'() { playCombo(3); },
+      'combo-4'() { playCombo(4); },
+      'combo-5'() { playCombo(5); },
       'curse-active'() {
         const card = getStage('curse-active').querySelector('.mini-card');
         card.classList.toggle('curse-active');
@@ -632,13 +666,130 @@
     }
 
     // 보호됨 variant 재생 헬퍼
-    function playProtectedVariant(variant, durationMs) {
-      const card = getStage('protected').querySelector('.mini-card');
-      // 모든 v* 클래스 제거 + 강제 리플로우 + 새 클래스 추가
+    function playProtectedVariant(variant, durationMs, stageName) {
+      const stageKey = stageName || 'protected';
+      const card = getStage(stageKey).querySelector('.mini-card');
+      if (!card) return;
       card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
       void card.offsetWidth;
       card.classList.add('profile-protected', variant);
       setTimeout(() => card.classList.remove('profile-protected', variant), durationMs);
+    }
+
+    // ── 보호됨 SFX 5종 (Web Audio 절차 생성) ──
+    let _testAudioCtx = null;
+    function getTestAudioCtx() {
+      if (!_testAudioCtx) {
+        try { _testAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { return null; }
+      }
+      if (_testAudioCtx.state === 'suspended') _testAudioCtx.resume();
+      return _testAudioCtx;
+    }
+    function sfx1Ting() {
+      const ctx = getTestAudioCtx(); if (!ctx) return;
+      const now = ctx.currentTime, out = ctx.destination;
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+      o1.type = 'triangle';
+      o1.frequency.setValueAtTime(2400, now);
+      o1.frequency.exponentialRampToValueAtTime(1700, now + 0.5);
+      g1.gain.setValueAtTime(0.0001, now);
+      g1.gain.linearRampToValueAtTime(0.28, now + 0.005);
+      g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+      o1.connect(g1); g1.connect(out);
+      o1.start(now); o1.stop(now + 0.6);
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o2.type = 'sine';
+      o2.frequency.setValueAtTime(3800, now);
+      o2.frequency.exponentialRampToValueAtTime(2400, now + 0.4);
+      g2.gain.setValueAtTime(0.0001, now);
+      g2.gain.linearRampToValueAtTime(0.13, now + 0.005);
+      g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+      o2.connect(g2); g2.connect(out);
+      o2.start(now); o2.stop(now + 0.5);
+    }
+    function sfx2Shimmer() {
+      const ctx = getTestAudioCtx(); if (!ctx) return;
+      const now = ctx.currentTime, out = ctx.destination;
+      const freqs = [2600, 3200, 3900, 3300, 4500];
+      freqs.forEach((f, i) => {
+        const t = now + i * 0.05;
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.11, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+        o.connect(g); g.connect(out);
+        o.start(t); o.stop(t + 0.25);
+      });
+    }
+    function sfx3Solid() {
+      const ctx = getTestAudioCtx(); if (!ctx) return;
+      const now = ctx.currentTime, out = ctx.destination;
+      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+      o1.type = 'triangle';
+      o1.frequency.setValueAtTime(140, now);
+      o1.frequency.exponentialRampToValueAtTime(60, now + 0.28);
+      g1.gain.setValueAtTime(0.0001, now);
+      g1.gain.linearRampToValueAtTime(0.42, now + 0.01);
+      g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      o1.connect(g1); g1.connect(out);
+      o1.start(now); o1.stop(now + 0.35);
+      const t2 = now + 0.16;
+      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+      o2.type = 'triangle';
+      o2.frequency.setValueAtTime(120, t2);
+      o2.frequency.exponentialRampToValueAtTime(55, t2 + 0.25);
+      g2.gain.setValueAtTime(0.0001, t2);
+      g2.gain.linearRampToValueAtTime(0.32, t2 + 0.01);
+      g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.3);
+      o2.connect(g2); g2.connect(out);
+      o2.start(t2); o2.stop(t2 + 0.35);
+    }
+    function sfx4Chime() {
+      const ctx = getTestAudioCtx(); if (!ctx) return;
+      const now = ctx.currentTime, out = ctx.destination;
+      const fundamental = 880;
+      const harmonics = [
+        { mult: 1.0,  gain: 0.20, len: 0.9 },
+        { mult: 2.76, gain: 0.11, len: 0.7 },
+        { mult: 5.40, gain: 0.06, len: 0.5 },
+      ];
+      harmonics.forEach(h => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = fundamental * h.mult;
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(h.gain, now + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + h.len);
+        o.connect(g); g.connect(out);
+        o.start(now); o.stop(now + h.len + 0.05);
+      });
+    }
+    function sfx5Crystal() {
+      const ctx = getTestAudioCtx(); if (!ctx) return;
+      const now = ctx.currentTime, out = ctx.destination;
+      for (let i = 0; i < 8; i++) {
+        const t = now + i * 0.045;
+        const f = 1800 + Math.random() * 2400;
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(f, t);
+        o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.12);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.085, t + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+        o.connect(g); g.connect(out);
+        o.start(t); o.stop(t + 0.18);
+      }
+    }
+    const SFX_FUNCS = { 1: sfx1Ting, 2: sfx2Shimmer, 3: sfx3Solid, 4: sfx4Chime, 5: sfx5Crystal };
+    function playSfxOnly(n) { SFX_FUNCS[n] && SFX_FUNCS[n](); }
+    function playCombo(n) {
+      // v3 애니 + 해당 SFX 동시 재생 (sfx-protected 스테이지 사용)
+      playProtectedVariant('v3', 1050, 'protected-sfx');
+      SFX_FUNCS[n] && SFX_FUNCS[n]();
     }
 
     // 이벤트 바인딩
