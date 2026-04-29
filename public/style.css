@@ -2102,18 +2102,37 @@ body {
   background: rgba(82, 183, 136, 0.12) !important;
 }
 
-/* ── 보드 축소 경고 ── */
+/* ── 보드 축소 경고 — 강조 (토스트 제거 대신 보드 상단 텍스트 부각) ── */
 .shrink-warning {
   width: 100%;
-  text-align: center; padding: 8px 16px;
-  background: rgba(220,80,80,0.1); border: 1px solid var(--danger);
+  text-align: center; padding: 11px 18px;
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.22), rgba(185, 28, 28, 0.32));
+  border: 2px solid #ef4444;
   border-radius: 8px; margin-top: 4px;
-  font-size: 0.85rem; font-weight: 600; color: var(--danger);
-  animation: pulse-warn 2s ease-in-out infinite;
+  font-size: 1.05rem; font-weight: 800; letter-spacing: 0.06em;
+  color: #fff5f5;
+  text-shadow: 0 0 6px rgba(239, 68, 68, 0.85), 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 0 12px rgba(239, 68, 68, 0.55),
+    0 0 24px rgba(239, 68, 68, 0.35),
+    inset 0 0 8px rgba(239, 68, 68, 0.25);
+  animation: pulse-warn 1.2s ease-in-out infinite;
 }
 @keyframes pulse-warn {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  0%, 100% {
+    opacity: 1;
+    box-shadow:
+      0 0 12px rgba(239, 68, 68, 0.55),
+      0 0 24px rgba(239, 68, 68, 0.35),
+      inset 0 0 8px rgba(239, 68, 68, 0.25);
+  }
+  50% {
+    opacity: 0.92;
+    box-shadow:
+      0 0 18px rgba(239, 68, 68, 0.85),
+      0 0 36px rgba(239, 68, 68, 0.6),
+      inset 0 0 14px rgba(239, 68, 68, 0.4);
+  }
 }
 
 /* ── 게임 화면 ── */
@@ -2521,16 +2540,11 @@ body.team-mode .placement-opp-panel {
 .shrink-intro-title {
   color: #fca5a5 !important;
   text-shadow: 0 0 50px rgba(239, 68, 68, 0.95), 0 4px 14px rgba(0,0,0,0.95) !important;
-  animation: shrinkIntroPulse 0.6s ease-in-out 2;
+  /* 사용자 요청: 1대1 대치·전투 개시와 동일한 톤. 타이틀 자체 펄스 제거 — 오버레이의 gameStartIn 페이드만 */
 }
 .shrink-intro-sub {
   color: #fed7d7 !important;
   text-shadow: 0 0 18px rgba(239, 68, 68, 0.7), 0 2px 8px rgba(0,0,0,0.9) !important;
-}
-@keyframes shrinkIntroPulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.08); }
-  100% { transform: scale(1); }
 }
 
 /* 방목록·관전 모달 필터 탭 */
@@ -2602,17 +2616,7 @@ body.team-mode .placement-opp-panel {
   100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); background: rgba(34,197,94,0); }
 }
 
-/* 저주 점멸 — 회복 애니메이션과 동일 스타일, 색만 보라색 (턴당 0.5 피해 시) */
-.my-piece-card.curse-flash,
-.opp-piece-card.curse-flash {
-  animation: curseFlash 2s ease-out;
-}
-@keyframes curseFlash {
-  0%   { box-shadow: 0 0 0 0 rgba(167,139,250,0); background: rgba(167,139,250,0); }
-  15%  { box-shadow: 0 0 18px 4px rgba(167,139,250,0.7); background: rgba(167,139,250,0.22); }
-  50%  { box-shadow: 0 0 14px 3px rgba(167,139,250,0.5); background: rgba(167,139,250,0.15); }
-  100% { box-shadow: 0 0 0 0 rgba(167,139,250,0); background: rgba(167,139,250,0); }
-}
+/* 저주 점멸(curse-flash) 제거됨 — 보라 도장 + 상시 배경(curse-active)으로 대체 */
 
 /* 회복 반짝이 파티클 */
 .heal-sparkle {
@@ -2669,8 +2673,123 @@ body.team-mode .placement-opp-panel {
 .my-piece-header .p-icon { font-size: 1.4rem; }
 .my-piece-header strong { font-size: 0.9rem; }
 .my-piece-header .tier-badge { font-size: 0.65rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
-.hp-bar-bg { height: 6px; background: var(--border); border-radius: 3px; margin: 4px 0; }
+.hp-bar-bg { height: 6px; background: var(--border); border-radius: 3px; margin: 4px 0; position: relative; overflow: hidden; }
 .hp-bar    { height: 6px; background: var(--success); border-radius: 3px; transition: width 0.3s; }
+/* 이번 턴 받은 데미지 — HP 바 위 빨간 오버레이. 현재 HP 위치에서 시작해 시작 HP까지 펼쳐짐 */
+.hp-bar-damage {
+  position: absolute;
+  top: 0; height: 6px;
+  background: rgba(220, 38, 38, 0.85);
+  border-radius: 0 3px 3px 0;
+  pointer-events: none;
+  animation: hp-damage-pulse 1.4s ease-out 1;
+}
+@keyframes hp-damage-pulse {
+  0%   { opacity: 0; transform: scaleX(0.85); transform-origin: left; }
+  35%  { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0.85; transform: scaleX(1); }
+}
+
+/* 데미지 도장 — 프로필 카드 우상단 사선 빨간 도장 */
+.dmg-stamp {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(220, 38, 38, 0.95);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  transform: rotate(-12deg);
+  z-index: 10;
+  pointer-events: none;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  animation: dmg-stamp-in 0.4s ease-out 1;
+}
+/* 저주 데미지 도장 — 빨강 대신 보라 */
+.dmg-stamp.curse {
+  background: rgba(139, 92, 246, 0.95);
+  border-color: rgba(245, 232, 255, 0.9);
+  animation: dmg-stamp-in 0.4s ease-out 1, dmg-stamp-fade-out 0.5s ease-in 2.5s 1 forwards;
+}
+@keyframes dmg-stamp-in {
+  0%   { opacity: 0; transform: rotate(-25deg) scale(1.6); }
+  50%  { opacity: 1; transform: rotate(-8deg)  scale(0.92); }
+  100% { opacity: 1; transform: rotate(-12deg) scale(1); }
+}
+@keyframes dmg-stamp-fade-out {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 저주 상태 — 프로필 상시 진한 보라색 배경 + 도트 스타일 파티클 (날아다님) */
+.my-piece-card.curse-active,
+.opp-piece-card.curse-active {
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.55), rgba(139, 92, 246, 0.42));
+  border-color: rgba(192, 132, 252, 0.95);
+  box-shadow:
+    0 0 18px rgba(139, 92, 246, 0.55),
+    0 0 30px rgba(168, 85, 247, 0.35),
+    inset 0 0 14px rgba(168, 85, 247, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+/* 화염 불씨 스타일 — 카드 바닥에서 도트들이 떠올라 카드 위로 사라짐, 끝없이 반복 */
+/* 핵심 아이디어:
+   - pseudo-element 가 카드 전체를 덮고
+   - radial-gradient 로 카드 BOTTOM(Y=100%) 에 작은 도트들 배치
+   - translateY 로 pseudo 전체를 위로 밀어올려 도트도 함께 상승 */
+/* 저주 파티클 — JS가 랜덤 시점에 spawnCurseParticle() 로 동적 생성 */
+/* CSS는 한 입자의 모양·움직임만 정의하고, JS가 위치·크기·색·키프레임·--rise 를 부여 */
+/* --rise = 카드 높이(px). translate Y 는 calc(var(--rise) * -계수) 로 카드 전체를 가로지름 */
+.curse-particle {
+  position: absolute;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+  border-radius: 0;       /* 정사각형 픽셀 도트 */
+  image-rendering: pixelated;
+  --rise: 100px;          /* JS가 카드 높이로 덮어씀 */
+  /* width / height / left / background / animation 은 인라인 스타일로 부여 */
+}
+@keyframes curse-rise-a {
+  0%   { transform: translateX(0)    translateY(0);                              opacity: 0; }
+  10%  { transform: translateX(-2px) translateY(calc(var(--rise) * -0.08));      opacity: 1; }
+  25%  { transform: translateX(3px)  translateY(calc(var(--rise) * -0.22));      opacity: 1; }
+  45%  { transform: translateX(-4px) translateY(calc(var(--rise) * -0.45));      opacity: 0.95; }
+  65%  { transform: translateX(2px)  translateY(calc(var(--rise) * -0.65));      opacity: 0.75; }
+  85%  { transform: translateX(-2px) translateY(calc(var(--rise) * -0.85));      opacity: 0.4; }
+  100% { transform: translateX(1px)  translateY(calc(var(--rise) * -1.05 - 8px)); opacity: 0; }
+}
+@keyframes curse-rise-b {
+  0%   { transform: translateX(0)    translateY(0);                              opacity: 0; }
+  12%  { transform: translateX(3px)  translateY(calc(var(--rise) * -0.12));      opacity: 1; }
+  30%  { transform: translateX(-3px) translateY(calc(var(--rise) * -0.30));      opacity: 1; }
+  50%  { transform: translateX(4px)  translateY(calc(var(--rise) * -0.50));      opacity: 0.9; }
+  70%  { transform: translateX(-3px) translateY(calc(var(--rise) * -0.70));      opacity: 0.65; }
+  90%  { transform: translateX(2px)  translateY(calc(var(--rise) * -0.90));      opacity: 0.3; }
+  100% { transform: translateX(-1px) translateY(calc(var(--rise) * -1.05 - 8px)); opacity: 0; }
+}
+@keyframes curse-rise-c {
+  0%   { transform: translateX(0)    translateY(0);                              opacity: 0; }
+  10%  { transform: translateX(2px)  translateY(calc(var(--rise) * -0.10));      opacity: 1; }
+  35%  { transform: translateX(-4px) translateY(calc(var(--rise) * -0.32));      opacity: 1; }
+  55%  { transform: translateX(3px)  translateY(calc(var(--rise) * -0.55));      opacity: 0.85; }
+  75%  { transform: translateX(-2px) translateY(calc(var(--rise) * -0.78));      opacity: 0.55; }
+  95%  { transform: translateX(1px)  translateY(calc(var(--rise) * -1.0));       opacity: 0.15; }
+  100% { transform: translateX(0)    translateY(calc(var(--rise) * -1.05 - 8px)); opacity: 0; }
+}
+
+/* 턴 종료 버튼 부드러운 강조 — 행동 모두 막혔을 때 클릭 유도 (펄스 아님, scale 변화 없음) */
+.pulse-end-turn {
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.45);
+  filter: brightness(1.08);
+}
 .my-piece-pos { font-size: 0.72rem; color: var(--muted); }
 
 /* 상태효과 뱃지 */
@@ -2944,6 +3063,22 @@ body.team-mode .placement-opp-panel {
 .log-entry.skill-enemy { border-left: 3px solid var(--danger); color: #fca5a5; background: rgba(220,50,50,0.08); }
 .log-entry.shrink { border-left: 3px solid var(--danger); color: var(--danger); font-weight: 600; }
 .log-entry .turn-num { color: var(--muted); font-size: 0.7rem; }
+
+/* ── 메시지 미니 헤더: "{icon} {name}: {body}" 패턴의 헤더부 강조 ── */
+/* 콜론은 렌더 단계에서 시각적으로 제거됨 (formatMsgMiniHeader). */
+.msg-skill-head {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fde68a;
+  padding-right: 4px;
+  margin-right: 2px;
+  border-right: 1px solid rgba(253, 230, 138, 0.35);
+}
+/* 적 스킬 로그에서는 따뜻한 노랑이 잘 안보이니 살짝 톤 조정 */
+.log-entry.skill-enemy .msg-skill-head {
+  color: #fecaca;
+  border-right-color: rgba(254, 202, 202, 0.4);
+}
 
 /* ── 드래프트 버튼 행 ── */
 .draft-btn-row { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; margin-top: 10px; }
