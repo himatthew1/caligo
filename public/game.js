@@ -9693,21 +9693,14 @@ function applyProfileHitAnim(selector, indices) {
   });
 }
 
-// ── 보호됨 애니메이션 — 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정·그림자 등) ──
-// 카드에 청록 글로우 + 방패 아이콘 팝업
+// ── 보호됨 애니메이션 — 유리에 사선 빛이 훑고 지나가는 sheen sweep ──
+// 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정 등)
 function applyProtectedAnim(card) {
   if (!card) return;
   card.classList.remove('profile-protected');
-  void card.offsetWidth;
+  void card.offsetWidth;  // 강제 리플로우 — 연속 발동 시 애니 재시작
   card.classList.add('profile-protected');
-  setTimeout(() => card.classList.remove('profile-protected'), 1500);
-  // 방패 아이콘 스폰 (1.2s 자동 제거)
-  const shield = document.createElement('div');
-  shield.className = 'protected-shield';
-  shield.textContent = '🛡';
-  if (getComputedStyle(card).position === 'static') card.style.position = 'relative';
-  card.appendChild(shield);
-  setTimeout(() => { if (shield.parentNode) shield.remove(); }, 1300);
+  setTimeout(() => card.classList.remove('profile-protected'), 1050);
 }
 // 1v1 — querySelectorAll + 인덱스
 function applyProtectedAnimByIndex(selector, indices) {

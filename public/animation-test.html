@@ -198,7 +198,7 @@
       </div>
       <div class="anim-card">
         <div class="label">profile-protected (보호됨)</div>
-        <div class="desc">공격 받았으나 0 피해 — 호위무사 가로채기·아이언스킨·폭정·그림자 등. 청록 글로우 + 방패 아이콘 (1.5s)</div>
+        <div class="desc">공격 받았으나 0 피해 — 호위무사 가로채기·아이언스킨·폭정 등. 유리 표면에 사선 빛이 한 번 훑고 지나감 (1s)</div>
         <div class="anim-stage" data-stage="protected"></div>
         <button class="anim-btn" data-play="protected">▶ 재생</button>
       </div>
@@ -481,13 +481,7 @@
         card.classList.remove('profile-protected');
         void card.offsetWidth;
         card.classList.add('profile-protected');
-        setTimeout(() => card.classList.remove('profile-protected'), 1500);
-        // 방패 아이콘
-        const shield = document.createElement('div');
-        shield.className = 'protected-shield';
-        shield.textContent = '🛡';
-        card.appendChild(shield);
-        setTimeout(() => { if (shield.parentNode) shield.remove(); }, 1300);
+        setTimeout(() => card.classList.remove('profile-protected'), 1050);
       },
       'curse-active'() {
         const card = getStage('curse-active').querySelector('.mini-card');
