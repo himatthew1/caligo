@@ -9693,14 +9693,17 @@ function applyProfileHitAnim(selector, indices) {
   });
 }
 
-// ── 보호됨 애니메이션 — 유리에 사선 빛이 훑고 지나가는 sheen sweep ──
+// ── 보호됨 애니메이션 — 유리 표면 사선 빛 sheen sweep ──
 // 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정 등)
+// 현재 default = v1 (1회 sweep, 1s). animation-test.html 에서 v1~v4 비교 가능.
+const PROTECTED_VARIANT = 'v1';
+const PROTECTED_DURATIONS = { v1: 1050, v2: 1550, v3: 1250, v4: 1550 };
 function applyProtectedAnim(card) {
   if (!card) return;
-  card.classList.remove('profile-protected');
-  void card.offsetWidth;  // 강제 리플로우 — 연속 발동 시 애니 재시작
-  card.classList.add('profile-protected');
-  setTimeout(() => card.classList.remove('profile-protected'), 1050);
+  card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
+  void card.offsetWidth;
+  card.classList.add('profile-protected', PROTECTED_VARIANT);
+  setTimeout(() => card.classList.remove('profile-protected', PROTECTED_VARIANT), PROTECTED_DURATIONS[PROTECTED_VARIANT] || 1100);
 }
 // 1v1 — querySelectorAll + 인덱스
 function applyProtectedAnimByIndex(selector, indices) {

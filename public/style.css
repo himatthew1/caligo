@@ -2618,14 +2618,16 @@ body.team-mode .placement-opp-panel {
 
 /* 저주 점멸(curse-flash) 제거됨 — 보라 도장 + 상시 배경(curse-active)으로 대체 */
 
-/* ── 보호됨 애니메이션 — 유리 표면을 사선의 빛이 한 번 훑고 지나감 ── */
-/* 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정 등) — "끄떡없다"는 sheen sweep */
+/* ── 보호됨 애니메이션 — 유리 표면 사선 빛 sheen sweep ── */
+/* 4가지 옵션: -v1(1회 sweep), -v2(2회 sweep), -v3(1회 sweep + 둔둔 펄스), -v4(2회 sweep + 둔둔 펄스) */
 .my-piece-card.profile-protected,
 .opp-piece-card.profile-protected,
 .team-profile-block [data-team-piece].profile-protected {
   position: relative;
   overflow: hidden;
 }
+
+/* sheen 띠 — 모든 v* 공통 */
 .my-piece-card.profile-protected::after,
 .opp-piece-card.profile-protected::after,
 .team-profile-block [data-team-piece].profile-protected::after {
@@ -2645,16 +2647,60 @@ body.team-mode .placement-opp-panel {
     transparent 100%
   );
   transform: skewX(-18deg);
-  animation: protectedShine 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
   z-index: 10;
   filter: blur(0.5px);
 }
-@keyframes protectedShine {
+
+/* v1 — 1회 sweep (1s) */
+.profile-protected.v1::after {
+  animation: protectedShine1 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes protectedShine1 {
   0%   { left: -80%; opacity: 0; }
   10%  { opacity: 1; }
   85%  { opacity: 1; }
   100% { left: 180%; opacity: 0; }
+}
+
+/* v2 — 2회 sweep (1.5s, 첫 번째 강하고 두 번째 미세하게) */
+.profile-protected.v2::after {
+  animation: protectedShine2 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes protectedShine2 {
+  0%   { left: -80%; opacity: 0; }
+  6%   { opacity: 1; }
+  35%  { left: 180%; opacity: 0.9; }
+  40%  { left: -80%; opacity: 0; }
+  50%  { opacity: 0.65; }
+  90%  { left: 180%; opacity: 0.55; }
+  100% { left: 180%; opacity: 0; }
+}
+
+/* v3 — 1회 sweep + 둔둔 펄스 (1.2s) */
+.profile-protected.v3::after {
+  animation: protectedShine1 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.profile-protected.v3 {
+  animation: protectedFirmPulse 1.2s ease-in-out forwards;
+}
+
+/* v4 — 2회 sweep + 둔둔 펄스 (1.5s) */
+.profile-protected.v4::after {
+  animation: protectedShine2 1.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.profile-protected.v4 {
+  animation: protectedFirmPulse 1.5s ease-in-out forwards;
+}
+
+/* 둔- 둔- 펄스 — 두 번 짧게 미세 scale up 단단함 자랑 */
+@keyframes protectedFirmPulse {
+  0%   { transform: scale(1); }
+  15%  { transform: scale(1.025); }   /* 첫 번째 둔 */
+  30%  { transform: scale(1); }
+  45%  { transform: scale(1.018); }   /* 두 번째 둔 (살짝 약하게) */
+  60%  { transform: scale(1); }
+  100% { transform: scale(1); }
 }
 
 /* 회복 반짝이 파티클 */
