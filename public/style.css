@@ -2677,12 +2677,12 @@ body.team-mode .placement-opp-panel {
   100% { left: 180%; opacity: 0; }
 }
 
-/* v3 — 1회 sweep + 둔둔 펄스 (1.2s) */
+/* v3 — 1회 sweep + 둔둔 펄스 (1s, 펄스가 빠르고 반경 큼) */
 .profile-protected.v3::after {
   animation: protectedShine1 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 .profile-protected.v3 {
-  animation: protectedFirmPulse 1.2s ease-in-out forwards;
+  animation: protectedFirmPulse 1s ease-in-out forwards;
 }
 
 /* v4 — 2회 sweep + 둔둔 펄스 (1.5s) */
@@ -2693,13 +2693,13 @@ body.team-mode .placement-opp-panel {
   animation: protectedFirmPulse 1.5s ease-in-out forwards;
 }
 
-/* 둔- 둔- 펄스 — 두 번 짧게 미세 scale up 단단함 자랑 */
+/* 둔- 둔- 펄스 — 두 번 빠르고 큰 폭으로 scale up. 단단함 자랑 */
 @keyframes protectedFirmPulse {
   0%   { transform: scale(1); }
-  15%  { transform: scale(1.025); }   /* 첫 번째 둔 */
-  30%  { transform: scale(1); }
-  45%  { transform: scale(1.018); }   /* 두 번째 둔 (살짝 약하게) */
-  60%  { transform: scale(1); }
+  8%   { transform: scale(1.055); }   /* 첫 번째 둔 — 빠르고 크게 */
+  18%  { transform: scale(1); }
+  26%  { transform: scale(1.045); }   /* 두 번째 둔 — 살짝 약하게 */
+  36%  { transform: scale(1); }
   100% { transform: scale(1); }
 }
 

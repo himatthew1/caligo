@@ -9695,9 +9695,9 @@ function applyProfileHitAnim(selector, indices) {
 
 // ── 보호됨 애니메이션 — 유리 표면 사선 빛 sheen sweep ──
 // 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정 등)
-// 현재 default = v1 (1회 sweep, 1s). animation-test.html 에서 v1~v4 비교 가능.
-const PROTECTED_VARIANT = 'v1';
-const PROTECTED_DURATIONS = { v1: 1050, v2: 1550, v3: 1250, v4: 1550 };
+// 현재 default = v3 (1회 sweep + 둔둔 펄스, 1s). animation-test.html 에서 v1~v4 비교 가능.
+const PROTECTED_VARIANT = 'v3';
+const PROTECTED_DURATIONS = { v1: 1050, v2: 1550, v3: 1050, v4: 1550 };
 function applyProtectedAnim(card) {
   if (!card) return;
   card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
