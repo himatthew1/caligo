@@ -6041,7 +6041,7 @@ function exRenderSlide() {
     } else if (isCurrentSwap) {
       // 이미 이 캐릭터로 교체한 상태
       exSelectBtn.textContent = '✔ 교체 선택됨';
-      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+      exSelectBtn.className = 'btn btn-select-char btn-current-select';
     } else if (isOriginal && S.exSwapped && S.exSwapped.tier === tier) {
       // 다른 캐릭터로 교체한 상태에서 원래 캐릭터 보기 → "원래대로 되돌리기"
       exSelectBtn.textContent = '↩ 원래대로 되돌리기';
@@ -6299,7 +6299,7 @@ function exUpdateSelectionState() {
       exSelectBtn.className = 'btn btn-select-char btn-current-select';
     } else if (isCurrentSwap) {
       exSelectBtn.textContent = '✔ 교체 선택됨';
-      exSelectBtn.className = 'btn btn-accent btn-select-char selected';
+      exSelectBtn.className = 'btn btn-select-char btn-current-select';
     } else if (canSwap) {
       exSelectBtn.textContent = isOriginal ? '↩ 원래대로 되돌리기' : '🔄 이 캐릭터로 교체';
       exSelectBtn.className = 'btn btn-accent btn-select-char';
