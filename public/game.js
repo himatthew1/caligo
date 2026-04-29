@@ -3303,9 +3303,20 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   // 피격 인덱스 수집: 상대 유닛 — 호위무사 가로채기는 본체 애니메이션 스킵
   const oppHitIndices = [];
+  // 보호됨 인덱스 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자 등)
+  const oppProtectedIndices = [];
   for (const c of cellResults) {
-    if (!c.hit || c.redirectedToBodyguard) continue;
-    if (c.damage === 0 && !c.destroyed) continue;
+    if (!c.hit) continue;
+    const isProtected = (c.damage === 0 && !c.destroyed);
+    if (isProtected) {
+      // redirectedToBodyguard 인 경우: 원래 표적이 보호됨, defPieceIdx 사용
+      // 일반 0 피해 hit 도 동일 — 표적이 보호됨
+      if (c.defPieceIdx !== undefined && !oppProtectedIndices.includes(c.defPieceIdx)) {
+        oppProtectedIndices.push(c.defPieceIdx);
+      }
+      continue;
+    }
+    if (c.redirectedToBodyguard) continue;
     if (c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) {
       oppHitIndices.push(c.defPieceIdx);
     }
@@ -3325,6 +3336,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   if (!S.isTeamMode) {
     applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
     applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
+    applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', oppProtectedIndices);
   }
 
   // 쥐 격파 피드백
@@ -3390,6 +3402,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   }
   // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
   const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
+  // 보호됨 유닛 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자)
+  const protectedHits = hitPieces.filter(h => h.damage === 0 && !h.destroyed);
+  const protectedIndices = findPieceIndices(S.myPieces, protectedHits);
 
   renderGameBoard();
   renderMyPieces();
@@ -3398,6 +3413,12 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   // 팀모드에서는 #my-pieces-info 가 팀원 카드까지 포함하므로 인덱스가 어긋남 → team_game_update 의 player-idx 기반 처리가 담당. 1v1 만 적용
   if (!S.isTeamMode) {
     applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
+    applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
+  } else {
+    // 팀모드 — being_attacked 의 victim 은 항상 본인. 본인 player-idx + piece-idx 로 정확 매칭
+    for (const i of protectedIndices) {
+      applyProtectedAnimTeam(S.playerIdx, i);
+    }
   }
 
   // 쥐 격파 피드백
@@ -9665,6 +9686,40 @@ function applyProfileHitAnim(selector, indices) {
   });
 }
 
+// ── 보호됨 애니메이션 — 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정·그림자 등) ──
+// 카드에 청록 글로우 + 방패 아이콘 팝업
+function applyProtectedAnim(card) {
+  if (!card) return;
+  card.classList.remove('profile-protected');
+  void card.offsetWidth;
+  card.classList.add('profile-protected');
+  setTimeout(() => card.classList.remove('profile-protected'), 1500);
+  // 방패 아이콘 스폰 (1.2s 자동 제거)
+  const shield = document.createElement('div');
+  shield.className = 'protected-shield';
+  shield.textContent = '🛡';
+  if (getComputedStyle(card).position === 'static') card.style.position = 'relative';
+  card.appendChild(shield);
+  setTimeout(() => { if (shield.parentNode) shield.remove(); }, 1300);
+}
+// 1v1 — querySelectorAll + 인덱스
+function applyProtectedAnimByIndex(selector, indices) {
+  if (!indices || indices.length === 0) return;
+  requestAnimationFrame(() => {
+    const cards = document.querySelectorAll(selector);
+    for (const idx of indices) {
+      if (cards[idx]) applyProtectedAnim(cards[idx]);
+    }
+  });
+}
+// 팀모드 — data-player-idx + data-piece-idx 셀렉터
+function applyProtectedAnimTeam(playerIdx, pieceIdx) {
+  requestAnimationFrame(() => {
+    const card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${pieceIdx}"]`);
+    if (card) applyProtectedAnim(card);
+  });
+}
+
 // 좌표/이름으로 피스 배열에서 인덱스 찾기 (살아있는 유닛만)
 function findPieceIndices(pieces, hitList, matchByCoord = true) {
   const indices = [];
@@ -9759,12 +9814,15 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
     const tmPlayer = (S.teamGamePlayers || []).find(p => p.idx === victimIdx);
     if (tmPlayer && tmPlayer.pieces) {
       const hitIdxs = [];
+      const protectedIdxs = [];
+      // 보호됨: 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자)
+      const protectedHits = (hitPieces || []).filter(h => h.damage === 0 && !h.destroyed);
       for (let i = 0; i < tmPlayer.pieces.length; i++) {
         const pc = tmPlayer.pieces[i];
         if (meaningful.some(h => h.col === pc.col && h.row === pc.row)) hitIdxs.push(i);
+        if (protectedHits.some(h => h.col === pc.col && h.row === pc.row)) protectedIdxs.push(i);
       }
       if (hitIdxs.length > 0) {
-        // data-piece-idx 기반 직접 셀렉터 — 1v1 .profile-hit 애니메이션과 동일
         requestAnimationFrame(() => {
           for (const i of hitIdxs) {
             const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
@@ -9776,6 +9834,10 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
             }
           }
         });
+      }
+      // 보호됨 애니메이션 — 좌·우 컨테이너 모두 적용 (팀원이 어느 쪽이든)
+      for (const i of protectedIdxs) {
+        applyProtectedAnimTeam(victimIdx, i);
       }
     }
   }

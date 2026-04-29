@@ -2618,6 +2618,46 @@ body.team-mode .placement-opp-panel {
 
 /* 저주 점멸(curse-flash) 제거됨 — 보라 도장 + 상시 배경(curse-active)으로 대체 */
 
+/* ── 보호됨 애니메이션 — 공격 받았으나 0 피해 (호위무사 가로채기·아이언스킨·폭정·그림자 등) ── */
+.my-piece-card.profile-protected,
+.opp-piece-card.profile-protected,
+.team-profile-block [data-team-piece].profile-protected {
+  animation: profileProtected 1.5s ease-out;
+  position: relative;
+}
+@keyframes profileProtected {
+  0%   { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); background-color: transparent; }
+  18%  {
+    box-shadow: 0 0 24px 6px rgba(56, 189, 248, 0.85),
+                inset 0 0 18px rgba(125, 211, 252, 0.4);
+    background-color: rgba(56, 189, 248, 0.22);
+  }
+  55%  {
+    box-shadow: 0 0 14px 3px rgba(56, 189, 248, 0.5),
+                inset 0 0 10px rgba(125, 211, 252, 0.18);
+    background-color: rgba(56, 189, 248, 0.10);
+  }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); background-color: transparent; }
+}
+
+/* 카드 위에 잠시 떠오르는 방패 아이콘 (JS 가 .protected-shield 요소를 스폰) */
+.protected-shield {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(0.4);
+  font-size: 2.2rem;
+  pointer-events: none;
+  z-index: 12;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.95), 0 2px 6px rgba(0, 0, 0, 0.7);
+  animation: protectedShieldPop 1.2s ease-out forwards;
+}
+@keyframes protectedShieldPop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-30deg); }
+  25%  { opacity: 1; transform: translate(-50%, -50%) scale(1.4) rotate(8deg); }
+  55%  { opacity: 0.95; transform: translate(-50%, -50%) scale(1.05) rotate(-2deg); }
+  100% { opacity: 0; transform: translate(-50%, -55%) scale(1.4) rotate(0); }
+}
+
 /* 회복 반짝이 파티클 */
 .heal-sparkle {
   position: fixed;
