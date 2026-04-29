@@ -3303,16 +3303,19 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   // 피격 인덱스 수집: 상대 유닛 — 호위무사 가로채기는 본체 애니메이션 스킵
   const oppHitIndices = [];
-  // 보호됨 인덱스 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자 등)
+  // 보호됨 인덱스 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 등)
+  // 단, 그림자 상태인 piece 는 피격 정보 자체가 숨겨져야 하므로 보호 애니 제외
   const oppProtectedIndices = [];
   for (const c of cellResults) {
     if (!c.hit) continue;
     const isProtected = (c.damage === 0 && !c.destroyed);
     if (isProtected) {
-      // redirectedToBodyguard 인 경우: 원래 표적이 보호됨, defPieceIdx 사용
-      // 일반 0 피해 hit 도 동일 — 표적이 보호됨
-      if (c.defPieceIdx !== undefined && !oppProtectedIndices.includes(c.defPieceIdx)) {
-        oppProtectedIndices.push(c.defPieceIdx);
+      if (c.defPieceIdx !== undefined) {
+        const piece = S.oppPieces?.[c.defPieceIdx];
+        const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
+        if (!isShadow && !oppProtectedIndices.includes(c.defPieceIdx)) {
+          oppProtectedIndices.push(c.defPieceIdx);
+        }
       }
       continue;
     }
@@ -3402,8 +3405,12 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   }
   // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
   const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
-  // 보호됨 유닛 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자)
-  const protectedHits = hitPieces.filter(h => h.damage === 0 && !h.destroyed);
+  // 보호됨 유닛 — 0 피해 + !destroyed. 그림자 상태는 피격 정보 자체를 숨기므로 제외
+  const isShadowMine = (h) => {
+    const p = (S.myPieces || []).find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
+    return p && (p.statusEffects || []).some(e => e.type === 'shadow');
+  };
+  const protectedHits = hitPieces.filter(h => h.damage === 0 && !h.destroyed && !isShadowMine(h));
   const protectedIndices = findPieceIndices(S.myPieces, protectedHits);
 
   renderGameBoard();
@@ -9815,8 +9822,13 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
     if (tmPlayer && tmPlayer.pieces) {
       const hitIdxs = [];
       const protectedIdxs = [];
-      // 보호됨: 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 / 그림자)
-      const protectedHits = (hitPieces || []).filter(h => h.damage === 0 && !h.destroyed);
+      // 보호됨: 0 피해 + !destroyed. 그림자 상태는 피격 정보 숨김이므로 제외
+      const protectedHits = (hitPieces || []).filter(h => {
+        if (!(h.damage === 0 && !h.destroyed)) return false;
+        const p = tmPlayer.pieces.find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
+        const isShadow = p && (p.statusEffects || []).some(e => e.type === 'shadow');
+        return !isShadow;
+      });
       for (let i = 0; i < tmPlayer.pieces.length; i++) {
         const pc = tmPlayer.pieces[i];
         if (meaningful.some(h => h.col === pc.col && h.row === pc.row)) hitIdxs.push(i);
