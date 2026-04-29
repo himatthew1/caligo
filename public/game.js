@@ -10001,7 +10001,7 @@ const PROTECTED_SFX_FUNCS = {
   4: playSfxProtected4Chime,
   5: playSfxProtected5Crystal,
 };
-const PROTECTED_SFX = 1;  // 기본값 — animation-test.html 에서 비교 후 변경
+const PROTECTED_SFX = 4;  // 마법 차임 (벨톤) — 사용자 선택
 
 function playSfxRatDeath() {
   if (sfxMuted) return;
