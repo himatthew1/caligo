@@ -3342,16 +3342,22 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   for (const c of cellResults) {
     S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
   }
-  // 충성(호위무사 대신 받음) 데미지 누적 — opp 호위무사 카드에 별도 파란 도장 표시
+  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류 (HP delta 가 아닌 별도 트래킹)
   for (const c of cellResults) {
-    if (!c.hit || !c.bodyguardRedirect) continue;
+    if (!c.hit) continue;
     const dmg = (typeof c.damage === 'number') ? c.damage : 0;
     if (dmg <= 0 || c.defPieceIdx === undefined) continue;
-    if (S.isTeamMode && c.defOwnerIdx !== undefined) {
-      addLoyaltyDamage(`${c.defOwnerIdx}:${c.defPieceIdx}`, dmg);
-    } else {
-      addLoyaltyDamage(`opp:${c.defPieceIdx}`, dmg);
+    const key = (S.isTeamMode && c.defOwnerIdx !== undefined)
+      ? `${c.defOwnerIdx}:${c.defPieceIdx}`
+      : `opp:${c.defPieceIdx}`;
+    if (c.bodyguardRedirect) {
+      // 호위무사가 대신 받음 → 파란 충성 도장 (BG 카드)
+      addLoyaltyDamage(key, dmg);
+    } else if (!c.redirectedToBodyguard) {
+      // 본체에 직접 들어간 피해 → 빨간 도장 (피격 카드)
+      addBodyDamage(key, dmg);
     }
+    // c.redirectedToBodyguard === true: 본체는 0 피해라 도장 없음 (BG 가 받음)
   }
 
   if (!anyHit) {
@@ -3497,43 +3503,50 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   animateAttack([], hitCells);
 
   S.myPieces = yourPieces;
-  // 충성(호위무사 대신 받음) 데미지 누적 — 본인 호위무사 카드에 파란 도장
+  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
   for (const h of hitPieces) {
-    if (!h.bodyguardRedirect) continue;
     const dmg = (typeof h.damage === 'number') ? h.damage : 0;
     if (dmg <= 0) continue;
-    // 본인 측 호위무사: defPieceIdx 또는 좌표 매칭으로 인덱스 결정
-    let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
-    if (bgIdx < 0) {
-      bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
+    if (h.bodyguardRedirect) {
+      // 호위무사가 대신 받은 1 피해 → 파란 충성 도장 (BG 카드)
+      let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
+      if (bgIdx < 0) {
+        bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
+      }
+      if (bgIdx < 0) continue;
+      addLoyaltyDamage(`my:${bgIdx}`, dmg);
+    } else if (!h.redirectedToBodyguard) {
+      // 본체 직접 피해 → 빨간 도장 (피격 카드)
+      let pieceIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
+      if (pieceIdx < 0) {
+        pieceIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row);
+      }
+      if (pieceIdx < 0) continue;
+      addBodyDamage(`my:${pieceIdx}`, dmg);
     }
-    if (bgIdx < 0) continue;
-    addLoyaltyDamage(`my:${bgIdx}`, dmg);
   }
   // 호위무사 가로채기 / 0데미지 비격파 hit은 토스트·로그 생략
   const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
-  // 메시지 출력은 호위무사 가로채기로 인한 hit도 제외 (passive_alert가 따로 알림)
-  // 단, 호위무사가 격파됐을 경우는 사망 알림은 노출
-  const messageHits = meaningfulHits.filter(h => !h.bodyguardRedirect || h.destroyed);
-  if (messageHits.length === 0 && hitPieces.length === 0) {
-    // 인벤토리 C1 상대 셀: "[name] 공격 빗나감"
+  // ★ directHits = 본체로 직접 피해를 받은 hit (호위무사 가로채기 제외).
+  //    "공격받았습니다!" 토스트는 본체 직접 피격이 있을 때만 출력.
+  //    호위무사가 모두 가로챈 경우는 passive_alert("🛡 충성: ...") 가 알림 담당.
+  const directHits = meaningfulHits.filter(h => !h.bodyguardRedirect);
+  if (hitPieces.length === 0) {
     addLog(`${oppN()} 공격 빗나감`, 'miss');
     showSkillToast(`${oppN()} 공격 빗나감`, true);
-  } else {
-    // 사용자 요청: 모든 공격 반응의 원인은 공격 자체이므로,
-    //   "공격받았습니다!" 가 항상 먼저, 그 후 0.8초 텀 두고 사망 알림이 따름.
-    const killedSelf = messageHits.filter(h => h.destroyed);
-    const hitOnlySelf = messageHits.filter(h => !h.destroyed);
+  } else if (directHits.length > 0) {
+    // 본체에 직접 피격 발생 → 공격받았습니다 즉시, 사망 알림 0.8초 텀 후
+    const killedSelf = directHits.filter(h => h.destroyed);
+    const hitOnlySelf = directHits.filter(h => !h.destroyed);
     if (killedSelf.length > 0) playSfx('kill');
     else if (hitOnlySelf.length > 0) playSfx('hit');
-    // ① 공격받았습니다 — 즉시 (사망/피격 무관)
+    // ① 공격받았습니다 — 항상 먼저 (사망/피격 무관)
     showSkillToast(`공격받았습니다!`, true);
-    // ① 로그 — 생존자만 (사망자는 별도 사망 로그)
     if (hitOnlySelf.length > 0) {
       const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
-    // ② 사망 — 본인 유닛 사망은 카드에서 명확히 보이므로 토스트 생략, 로그만 (사용자 요청)
+    // ② 사망 — 본인 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만
     if (killedSelf.length > 0) {
       const killedLabels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       setTimeout(() => {
@@ -3541,9 +3554,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
       }, 800);
     }
   }
-  // '공격받았습니다!' 출력 후 — 버퍼에 쌓인 방어형 패시브 알림(충성·폭정·아이언스킨·가호 등) flush
-  // #19: 격파가 발생했다면 데미지 감소형 패시브 토스트는 생략(로그만)
-  const _selfKilled = (hitPieces || []).some(h => h.destroyed);
+  // ★ "공격받았습니다!" (있으면) 출력 후 → 방어형 패시브 알림(충성·폭정·아이언스킨·가호) flush.
+  //   directHits 가 0 일 때는 (BG-only intercept) 위에서 토스트 안 나갔지만 패시브는 여전히 flush.
+  const _selfKilled = directHits.some(h => h.destroyed);
   if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _selfKilled });
   // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
   const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
@@ -4771,6 +4784,13 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   const oppIdx = updatePiece(S.oppPieces);
   const tmIdx = updatePiece(S.teammatePieces);
 
+  // 본체 직접 피해 추적 (덫은 본체에 직접 들어가는 피해)
+  if (damage > 0) {
+    if (myIdx >= 0) addBodyDamage(`my:${myIdx}`, damage);
+    else if (oppIdx >= 0) addBodyDamage(`opp:${oppIdx}`, damage);
+    else if (tmIdx >= 0 && victimOwnerIdx != null) addBodyDamage(`${victimOwnerIdx}:${tmIdx}`, damage);
+  }
+
   // 사망 시 추리 토큰 즉시 제거
   if (destroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
 
@@ -5144,15 +5164,14 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
   }  // end runGameOverRender
 });
 
-// #15: 패배 화면 — 상대 마지막 배치 그리드 렌더
+// #15: 패배 화면 — 상대 마지막 배치 그리드 렌더 (인게임 보드와 동일한 셀 스타일·마크업)
 function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
   const wrap = document.getElementById('gameover-replay');
   const board = document.getElementById('gameover-replay-board');
   if (!wrap || !board) return;
   wrap.classList.remove('hidden');
-  // 보드 사이즈 — bounds.max-min+1 (1v1=5, 팀=7 가능)
   const total = (bounds.max - bounds.min + 1);
-  const cellPx = total >= 7 ? 40 : 50;
+  const cellPx = 56;  // 인게임 .cell 과 동일 사이즈
   board.innerHTML = '';
   board.style.gridTemplateColumns = `repeat(${total}, ${cellPx}px)`;
   board.style.gridTemplateRows = `repeat(${total}, ${cellPx}px)`;
@@ -5164,15 +5183,13 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
       const realRow = bounds.min + r;
       cell.dataset.col = realCol;
       cell.dataset.row = realRow;
-      // 상대 piece (살아있는 것만) — 위치에 표시
       const pcs = (winnerPieces || []).filter(p => p.alive && p.col === realCol && p.row === realRow);
       if (pcs.length > 0) {
         const pc = pcs[0];
-        cell.innerHTML = `<span style="font-size:1.2rem">${pc.icon}</span><span style="position:absolute;bottom:0;right:2px;font-size:0.55rem;color:var(--success);font-weight:700">${pc.hp}</span>`;
         cell.classList.add('has-piece');
-        cell.style.position = 'relative';
+        // 인게임 piece-marker 와 동일 마크업
+        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pc.icon}</span><span class="p-hp">${pc.hp}</span></div>`;
       }
-      // 오브젝트 (덫·폭탄·쥐)
       const objHere = (objects || []).find(o => o.col === realCol && o.row === realRow);
       if (objHere) {
         if (objHere.type === 'trap') cell.classList.add('has-trap');
@@ -8714,6 +8731,7 @@ function snapshotTurnStartHps(preCurseHps) {
   }
   S.turnStartHps = snap;
   S.loyaltyDamageThisTurn = {};
+  S.bodyDamageThisTurn = {};   // 본체 직접 피해 — 매 턴 초기화
   // 저주 데미지: preHps 가 주어졌으면 새로운 턴이라 이전 누적을 버리고 newCurseDmg 로 덮어씀.
   // preHps 없이 호출된 경우(게임 시작 등)는 그대로 비움.
   S.curseDamageThisTurn = newCurseDmg;
@@ -8728,6 +8746,13 @@ function addCurseDamageStampValue(key, dmg) {
   if (!S.curseDamageThisTurn) S.curseDamageThisTurn = {};
   S.curseDamageThisTurn[key] = (S.curseDamageThisTurn[key] || 0) + dmg;
 }
+// 직접 피격(공격/스킬/덫/폭탄) 으로 본체가 받은 데미지를 누적.
+// HP delta 에서 끌어내지 않고 명시적으로 분류 — 빨간 도장이 충성/저주 데미지를 흡수해
+// 가로채는 일이 없도록 (사용자 요청: 정보처리 자체를 막아 가로채지 못하게).
+function addBodyDamage(key, dmg) {
+  if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
+  S.bodyDamageThisTurn[key] = (S.bodyDamageThisTurn[key] || 0) + dmg;
+}
 // 데미지(이번 턴 기준): 시작 HP − 현재 HP. 음수면 0(회복 등).
 function getTurnDamage(key, currentHp) {
   if (!S.turnStartHps || !(key in S.turnStartHps)) return 0;
@@ -8737,35 +8762,34 @@ function getTurnDamage(key, currentHp) {
   return d > 0 ? d : 0;
 }
 // 데미지 도장 + HP 바 빨간 오버레이 HTML 빌더
-// 도장 구성 (3가지만):
-//   ① 본체만 맞은 경우: 빨강 (저주 데미지도 포함 — 새 피해가 오면 빨강이 최신화)
-//   ② 대신 맞은 경우(호위무사 충성): 파랑 + '충성' 태그
-//   ③ 본체 + 동료(충성) 동시: 빨강 + 파랑 (위치 분리)
-//   ※ 저주 데미지가 단독으로만 들어온 경우(턴 시작 직후·다른 피해 없음): 보라 → 후속 피해 들어오면 빨강으로 자연스럽게 최신화됨
+// 도장 구성 — 사용자 요청 (정보처리 자체를 분리해 빨강이 충성/저주를 가로채지 못하게):
+//   ① 빨강(dmg-stamp) — 본체 직접 피해 (S.bodyDamageThisTurn)
+//   ② 보라(dmg-stamp curse) — 본체 직접 피해가 0 이고 저주 데미지만 있는 경우
+//   ③ 파랑(dmg-stamp loyalty) — 충성(호위무사 대신 받음). 빨강·보라와 공존 가능.
+// 각 도장의 데이터는 명시적 add* 함수로만 누적되며 HP delta 에서 추론하지 않음.
 function buildDamageOverlay(key, hp, maxHp) {
-  const totalDmg = getTurnDamage(key, hp);
+  const bodyDmg    = (S.bodyDamageThisTurn    && S.bodyDamageThisTurn[key])    || 0;
   const loyaltyDmg = (S.loyaltyDamageThisTurn && S.loyaltyDamageThisTurn[key]) || 0;
-  const curseDmg = (S.curseDamageThisTurn && S.curseDamageThisTurn[key]) || 0;
-  // 본체 직접 피해 = 전체 − 충성으로 대신 받은 것 (저주는 본체 피해에 포함됨)
-  const bodyDmg = Math.max(0, totalDmg - loyaltyDmg);
+  const curseDmg   = (S.curseDamageThisTurn   && S.curseDamageThisTurn[key])   || 0;
   const fmt = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
   let stamp = '';
   if (bodyDmg > 0) {
-    // 저주만 들어왔고 그 외 다른 피해가 없으면 보라색, 그 외엔 빨강
-    const onlyCurse = (curseDmg > 0 && Math.abs(bodyDmg - curseDmg) < 0.001);
-    const cls = onlyCurse ? 'dmg-stamp curse' : 'dmg-stamp';
-    stamp = `<div class="${cls}">${fmt(bodyDmg)}</div>`;
+    // 본체 피해가 있으면 빨강이 우선 — 저주는 빨강에 흡수되지 않고 단순히 표시 안 됨 (이번 턴 시각화)
+    stamp += `<div class="dmg-stamp">${fmt(bodyDmg)}</div>`;
+  } else if (curseDmg > 0) {
+    // 본체 피해 없이 저주만 들어온 경우 — 보라
+    stamp += `<div class="dmg-stamp curse">${fmt(curseDmg)}</div>`;
   }
-  // 충성 도장 — 별도 슬롯 (본체 도장과 위치 분리)
+  // 충성 도장 — 빨강/보라와 별도 위치(top: 32px)에 항상 표시 가능
   if (loyaltyDmg > 0) {
     stamp += `<div class="dmg-stamp loyalty">${fmt(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
   }
-  // HP 바 빨간 오버레이 — 시작 HP 위치에서 현재 HP 위치까지의 구간
+  // HP 바 빨간 오버레이 — 시각적 HP delta (도장 분류와 무관, 단순 시각화)
   const startHp = S.turnStartHps?.[key] ?? hp;
   const startPct = Math.max(0, Math.min(100, (startHp / maxHp) * 100));
   const curPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
   const widthPct = Math.max(0, startPct - curPct);
-  const barOverlay = (widthPct > 0 && totalDmg > 0)
+  const barOverlay = (widthPct > 0 && (startHp - hp) > 0)
     ? `<div class="hp-bar-damage" style="left:${curPct}%;width:${widthPct}%"></div>`
     : '';
   return { stamp, barOverlay };
@@ -11128,35 +11152,35 @@ function animateBoardIconHit(cells) {
 socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   // 적 공격 휘두름 SFX — 팀원이 공격 받을 때 관전 시점에서도 들림
   try { playSfx('attack'); } catch (e) {}
-  // #5: 충성(호위무사 대신 받음) — 팀모드 팀원 시점에서도 파란 도장 누적
+  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
   for (const h of (hitPieces || [])) {
-    if (!h.bodyguardRedirect) continue;
     const dmg = (typeof h.damage === 'number') ? h.damage : 0;
     if (dmg <= 0 || h.defPieceIdx == null) continue;
-    // victimIdx 가 호위무사 owner. 키 형식 = `${ownerIdx}:${pieceIdx}`
-    addLoyaltyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
+    if (h.bodyguardRedirect) {
+      addLoyaltyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
+    } else if (!h.redirectedToBodyguard) {
+      addBodyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
+    }
   }
   // 호위무사 가로채기·0데미지 비격파는 본체 흔들림 제외 (1v1 being_attacked와 동일)
   const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
   animateAttack([], hitCells);
-  // 메시지는 호위무사 가로채기로 인한 hit도 제외 (passive_alert가 따로 알림)
-  // 단, 호위무사가 격파됐을 경우 사망 알림은 노출
-  const messageMeaningful = meaningful.filter(h => !h.bodyguardRedirect || h.destroyed);
-  // 사용자 요청: 한 번만 출력. 격파 대상 + 그 외 피격 분리 처리
-  const killedAlly = messageMeaningful.filter(h => h.destroyed);
-  const hitAlly = messageMeaningful.filter(h => !h.destroyed);
+  // ★ directHits = 본체로 직접 피해 받은 hit (호위무사 가로채기 제외) — "공격받았습니다!" 트리거 기준
+  const directHits = meaningful.filter(h => !h.bodyguardRedirect);
+  const killedAlly = directHits.filter(h => h.destroyed);
+  const hitAlly = directHits.filter(h => !h.destroyed);
   if (killedAlly.length > 0) playSfx('kill');
   else if (hitAlly.length > 0) playSfx('hit');
-  // ① 공격받았습니다 — 사망/피격 무관 즉시 (사용자 요청: 공격이 모든 반응의 원인)
-  if (messageMeaningful.length > 0) {
+  // ① 공격받았습니다 — 본체 직접 피격이 있을 때만 (BG-only intercept 는 passive_alert 가 처리)
+  if (directHits.length > 0) {
     showSkillToast(`공격받았습니다!`, true);
     if (hitAlly.length > 0) {
       const hitLabels = hitAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
   }
-  // ② 사망 — 우리 편(팀원) 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만 (사용자 요청)
+  // ② 사망 — 우리 편(팀원) 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만
   if (killedAlly.length > 0) {
     const labels = killedAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
     setTimeout(() => {

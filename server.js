@@ -6973,11 +6973,12 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 세팅 단계(초기공개/교환/최종공개/HP/배치)에서 나가기 — 상대 승리
+    // 세팅 단계(초기공개/교환/최종공개/HP/배치)에서 나가기 — 상대 승리.
+    // 사용자 요청: 게임 시작 전 이탈은 그리드 화면 출력 안 함, 해골 화면(=기권 처리)으로 송출.
     const setupPhases = ['initial_reveal','exchange_draft','final_reveal','hp_distribution','placement'];
     if (setupPhases.includes(room.phase)) {
       emitToSpectators(room, 'spectator_log', { msg: `🚪 ${room.players[idx].name}이(가) 게임을 나갔습니다.`, type: 'system', playerIdx: idx });
-      endGame(room, 1 - idx, 'disconnect');
+      endGame(room, 1 - idx, 'surrender');  // surrender 처리 → 해골 화면 + 그리드 미노출
       return;
     }
     // 게임 중 기권
