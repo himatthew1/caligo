@@ -3528,16 +3528,15 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     else if (hitOnlySelf.length > 0) playSfx('hit');
     // ① 공격받았습니다 — 즉시 (사망/피격 무관)
     showSkillToast(`공격받았습니다!`, true);
-    // ① 로그 — 사망/피격 모두 한 줄로 라벨 포함
+    // ① 로그 — 생존자만 (사망자는 별도 사망 로그)
     if (hitOnlySelf.length > 0) {
       const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
-    // ② 사망 알림 — 공격받았습니다 이후 0.8초 텀
+    // ② 사망 — 본인 유닛 사망은 카드에서 명확히 보이므로 토스트 생략, 로그만 (사용자 요청)
     if (killedSelf.length > 0) {
       const killedLabels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       setTimeout(() => {
-        showSkillToast(`${killedLabels} 사망`, true);
         addLog(`${killedLabels} 사망`, 'hit');
       }, 800);
     }
@@ -11157,12 +11156,11 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
       addLog(`${hitLabels} 피격`, 'hit');
     }
   }
-  // ② 사망 알림 — 0.8초 텀 후
+  // ② 사망 — 우리 편(팀원) 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만 (사용자 요청)
   if (killedAlly.length > 0) {
     const labels = killedAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
     setTimeout(() => {
       addLog(`${labels} 사망`, 'hit');
-      showSkillToast(`${labels} 사망`, true);
     }, 800);
   }
   // 호위무사 가로채기 — passive_alert가 메시지 담당 (중복 토스트 제거)
