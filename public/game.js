@@ -2163,26 +2163,19 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   startSkillCastDim(casterCard);
   try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
 
-  const SP_ATTN_MS = 2000;
-  const SKILL_GAP_MS = 500;
-  const skillAnimMs = 700;
+  const TOAST_DELAY_MS = 1500;
 
-  // 2단계 — 2s 후 dim 해제 + sp 동기화
+  // T+1500: dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
   setTimeout(() => {
     endSkillCastDim(casterCard);
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { try { updateSPBar(); } catch (e) {} }
-  }, SP_ATTN_MS);
-
-  // 3단계 — 2.5+0.7s 후 토스트/로그 출력 (HP/보드 변화는 후속 team_game_update 가 처리)
-  // msg 가 비어있으면 출력 안 함 (정찰 등 scout_result 가 별도 안내하는 케이스)
-  if (hasMsg) {
-    setTimeout(() => {
+    if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
       addLog(msg, 'skill');
-    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
-  }
+    }
+  }, TOAST_DELAY_MS);
 });
 
 // 팀 모드: HP 감소 감지를 위한 이전 상태 스냅샷
@@ -2741,6 +2734,33 @@ socket.on('spectator_update', (gameState) => {
   if (!document.getElementById('screen-game').classList.contains('active')) {
     showScreen('screen-game');
   }
+});
+
+// ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
+// 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
+// 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed }) => {
+  if (!S.isSpectator) return;
+
+  const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
+  const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
+
+  // 1v1 관전자 화면: P0 카드는 #my-pieces-info, P1 카드는 #opp-pieces-info
+  const containerSel = (casterIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+  const cardSel = (casterIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+  const casterCard = (typeof casterPieceIdx === 'number')
+    ? document.querySelectorAll(`${containerSel} ${cardSel}`)[casterPieceIdx]
+    : null;
+  startSkillCastDim(casterCard);
+  try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+
+  const SP_ATTN_MS = 2000;
+  setTimeout(() => {
+    endSkillCastDim(casterCard);
+    if (sp) S.sp = sp;
+    if (instantSp) S.instantSp = instantSp;
+    if (sp || instantSp) try { updateSPBar(); } catch (e) {}
+  }, SP_ATTN_MS);
 });
 
 // ── 관전자 전투 로그 ──
@@ -3600,19 +3620,21 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   }
   if (!oldSp || !newSp) return;
   // 가드 ON — 애니 진행 중 외부 updateSPBar 가 큰 숫자/pip 트레이를 NEW 값으로 덮어쓰지 못하게.
-  // SP_ATTN_MS(2000) 이후 외부에서 실제 동기화. 안전하게 2.5s 후 자동 해제.
+  // SP_ATTN_MS(1500) 이후 외부에서 실제 동기화. 안전하게 2s 후 자동 해제.
   S._spAnimGuard = true;
   if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
-  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2500);
+  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2000);
 
   const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
   const oppSlot = 1 - mySlot;
   const myDelta = (newSp[mySlot] || 0) - (oldSp[mySlot] || 0);
   const oppDelta = (newSp[oppSlot] || 0) - (oldSp[oppSlot] || 0);
   const myInstantDelta = ((newInstantSp || [])[mySlot] || 0) - ((oldInstantSp || [])[mySlot] || 0);
+  const oppInstantDelta = ((newInstantSp || [])[oppSlot] || 0) - ((oldInstantSp || [])[oppSlot] || 0);
   const regularConsumed = myDelta < 0 ? -myDelta : 0;
   const transferToOpp = oppDelta > 0 ? Math.min(oppDelta, regularConsumed) : 0;
   const instantConsumed = myInstantDelta < 0 ? -myInstantDelta : 0;
+  const oppInstantConsumed = oppInstantDelta < 0 ? -oppInstantDelta : 0;  // 상대(시전자) 측 인스턴트 소비 — 1v1 상대/관전 시점에서 보임
   const oppCastedRegular = oppDelta < 0 ? -oppDelta : 0;
   const transferToMe = (myDelta > 0 && oppCastedRegular > 0) ? Math.min(myDelta, oppCastedRegular) : 0;
 
@@ -3636,7 +3658,7 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   const tickUp   = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up'); };
 
   let nextMs = 80;
-  // ① 인스턴트 SP 소비 — 트레이의 가장 안쪽(숫자에 가까운) pip 가 숫자 쪽으로 빨려 들어감
+  // ① 인스턴트 SP 소비 (mine 측) — 트레이의 가장 안쪽(숫자에 가까운) pip 가 숫자 쪽으로 빨려 들어감
   for (let i = 0; i < instantConsumed; i++) {
     const t = nextMs;
     setTimeout(() => {
@@ -3658,8 +3680,29 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
     }, t);
     nextMs += 130;
   }
+  // ①' 인스턴트 SP 소비 (opp 측) — 상대/관전 시점에서 시전자가 사용한 instant SP 시각화
+  for (let i = 0; i < oppInstantConsumed; i++) {
+    const t = nextMs;
+    setTimeout(() => {
+      const trayId = 'sp-instant-tray-opp';
+      const tray = document.getElementById(trayId);
+      // 가장 안쪽 pip = 숫자에 가까운 (opp: 마지막)
+      const pips = tray ? tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)') : [];
+      const targetPip = pips.length > 0 ? pips[pips.length - 1] : null;
+      let from = opp;
+      if (targetPip) {
+        const r = targetPip.getBoundingClientRect();
+        from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        targetPip.classList.add('sp-pip-consume');
+        setTimeout(() => { if (targetPip.parentNode) targetPip.remove(); }, 420);
+      }
+      spawnSpOrbFlight(from, opp, 'instant');
+      try { playSfxInstantConsume(); } catch (e) {}
+    }, t);
+    nextMs += 130;
+  }
   // ② 인스턴트 소비 후 0.5초 텀
-  if (instantConsumed > 0) nextMs += 500;
+  if (instantConsumed > 0 || oppInstantConsumed > 0) nextMs += 500;
   // ③ 일반 SP 마법구 비행 — 출발 시점에 시전자 -1, 도착 시점에 상대 +1
   if (transferToOpp > 0) {
     for (let i = 0; i < transferToOpp; i++) {
@@ -4520,84 +4563,78 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
-  const SP_ATTN_MS = 2000;     // 마법구 비행
-  const SKILL_GAP_MS = 500;    // 화면 복귀 후 스킬 시전까지 텀
+  // 새 시퀀스 (사용자 요청):
+  //   T+0     : 마법구 비행 시작 + 시전자 카드 spotlight (긴장감 빌드업, 1.5s)
+  //   T+1500  : 스킬 효과(HP/보드) + 토스트/로그 + dim 해제 — 모두 한 번에
+  const TOAST_DELAY_MS = 1500;
   const isDetonate = data && Array.isArray(data.deferredBombEmits) && data.deferredBombEmits.length > 0;
-  const skillAnimMs = isDetonate ? 2500 : 700;
 
-  // 2단계 — SP 강조 끝(2s) 직후: dim 해제 (화면 복귀)
+  // 2단계 — T+1500: 스킬 효과 + 토스트·로그 + dim 해제 (모두 동시)
   setTimeout(() => {
     endSkillCastDim(casterCard);
-    // SP 숫자도 이 시점에 최신값으로 동기화 (마법구 도착 tick 으로 이미 반영되었지만 안전장치)
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { updateSPBar(); }
-  }, SP_ATTN_MS);
 
-  // 3단계 — dim 해제 0.5초 후: 실제 스킬 효과 (HP/보드 업데이트 + 렌더 + 애니메이션)
-  setTimeout(() => {
-    if (yourPieces) S.myPieces = yourPieces;
-    if (oppPieces) S.oppPieces = oppPieces;
-    pruneDeductionTokens();
-    if (boardObjects) S.boardObjects = boardObjects;
+    // 스킬 효과 적용 — 기폭은 별도 detonation_intro/bomb_detonated 흐름이라 HP 업데이트 스킵
+    if (!isDetonate) {
+      if (yourPieces) S.myPieces = yourPieces;
+      if (oppPieces) S.oppPieces = oppPieces;
+      pruneDeductionTokens();
+      if (boardObjects) S.boardObjects = boardObjects;
 
-    // 피해 감지
-    const oppSkillDmgIdx = [];
-    if (S.oppPieces) {
-      for (let i = 0; i < S.oppPieces.length; i++) {
-        if (i < oldOppHps.length && S.oppPieces[i].hp < oldOppHps[i]) oppSkillDmgIdx.push(i);
+      const oppSkillDmgIdx = [];
+      if (S.oppPieces) {
+        for (let i = 0; i < S.oppPieces.length; i++) {
+          if (i < oldOppHps.length && S.oppPieces[i].hp < oldOppHps[i]) oppSkillDmgIdx.push(i);
+        }
       }
-    }
-    const mySkillDmgIdx = [];
-    for (let i = 0; i < S.myPieces.length; i++) {
-      if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
-    }
+      const mySkillDmgIdx = [];
+      for (let i = 0; i < S.myPieces.length; i++) {
+        if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
+      }
 
-    renderGameBoard();
-    renderMyPieces();
-    renderOppPieces();
-    if (S.isMyTurn) showActionBar(true);
+      renderGameBoard();
+      renderMyPieces();
+      renderOppPieces();
+      if (S.isMyTurn) showActionBar(true);
 
-    if (!S.isTeamMode) {
-      applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
-      applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
-    }
+      if (!S.isTeamMode) {
+        applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
+        applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+      }
 
-    // 힐 애니메이션
-    const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
-    if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
-      setTimeout(() => flashHealPieces(healedIdxs), 50);
-    }
+      const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
+      if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
+        setTimeout(() => flashHealPieces(healedIdxs), 50);
+      }
 
-    // 광역 스킬(유황범람·악몽 등) — 피격 위치 시각 표시
-    const hitsData = data && Array.isArray(data.hits) ? data.hits : null;
-    if (hitsData && hitsData.length > 0) {
-      const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-      if (cells.length > 0) animateAttack([], cells);
-      // 단일 살아있는 hit이면 추리 토큰 자동 배치 (#10)
-      const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
-      if (aliveHits.length === 1 && !S.isTeamMode) {
-        const c = aliveHits[0];
-        const piece = S.oppPieces?.[c.defPieceIdx];
-        if (piece) {
-          const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
-          try {
-            S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
-            S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
-            renderGameBoard();
-          } catch (e) {}
+      const hitsData = data && Array.isArray(data.hits) ? data.hits : null;
+      if (hitsData && hitsData.length > 0) {
+        const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+        if (cells.length > 0) animateAttack([], cells);
+        const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
+        if (aliveHits.length === 1 && !S.isTeamMode) {
+          const c = aliveHits[0];
+          const piece = S.oppPieces?.[c.defPieceIdx];
+          if (piece) {
+            const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+            try {
+              S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+              S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+              renderGameBoard();
+            } catch (e) {}
+          }
         }
       }
     }
-  }, SP_ATTN_MS + SKILL_GAP_MS);   // 화면 복귀 후 0.5초 텀 → 실제 스킬 시전
 
-  // 4단계 — 스킬 애니 종료 후: 메시지(토스트·로그)
-  if (msg) {
-    setTimeout(() => {
+    // 토스트·로그 — 스킬 효과와 동시
+    if (msg) {
       addLog(msg, 'skill');
       showSkillToast(msg);
-    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
-  }
+    }
+  }, TOAST_DELAY_MS);
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
@@ -4620,20 +4657,15 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   // SP 마법구 비행 — opp 측이 SP 를 소비해 본인 측으로 transfer 되므로 transferToMe 경로(빨간 마법구)가 발동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
 
-  const SP_ATTN_MS = 2000;
-  const SKILL_GAP_MS = 500;
-  const skillAnimMs = 700;
+  const TOAST_DELAY_MS = 1500;
 
-  // 2단계 — 2s 후 dim 해제 + sp/instantSp 동기화
+  // T+1500: dim 해제 + sp 동기화 + HP/보드 + 토스트·로그 (모두 동시)
   setTimeout(() => {
     endSkillCastDim(oppCasterCard);
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { updateSPBar(); }
-  }, SP_ATTN_MS);
 
-  // 3단계 — 2.5s 후 HP/보드 업데이트 + 렌더 + 피격 애니
-  setTimeout(() => {
     if (yourPieces) S.myPieces = yourPieces;
     if (oppPieces) S.oppPieces = oppPieces;
     pruneDeductionTokens();
@@ -4651,19 +4683,15 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     if (!S.isTeamMode) {
       applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
     }
-    // 상대가 사용한 회복 — 상대 카드에 초록 플래시
     if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
       setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
     }
-  }, SP_ATTN_MS + SKILL_GAP_MS);
 
-  // 4단계 — 스킬 애니 종료 후: 토스트 + 로그 (msg 가 명시적으로 비어있으면 출력 안 함)
-  if (msg) {
-    setTimeout(() => {
+    if (msg) {
       showSkillToast(msg, true);
       addLog(msg, 'skill-enemy');
-    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
-  }
+    }
+  }, TOAST_DELAY_MS);
 });
 
 // ── 정찰 결과 ──

@@ -1112,27 +1112,75 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   // 누락되면 팀원/적의 스킬 사용을 인지 불가 → 토스트·로그 누락
   const skillPiece = room.players[idx]?.pieces[pidx];
   if (skillPiece) {
-    const noticePayload = {
+    const basePayload = {
       casterIdx: idx,
       casterName: room.players[idx].name,
       casterTeamId: room.players[idx].teamId,
+      casterPieceIdx: pidx,                 // 시전자 카드 spotlight 용
+      sp: room.sp,                           // 마법구 비행 애니용
+      instantSp: room.instantSp,
       skillUsed: {
         icon: skillPiece.icon,
         name: skillPiece.name,
         skillName: skillPiece.skillName,
       },
-      msg: (result && (result.oppMsg || result.msg)) || null,
     };
+    // 본인/팀원/적 분기 (use_skill 핸들러의 explicitAlly/explicitOpp 와 동일 로직)
+    const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
+    const explicitOpp  = (result.oppMsg  !== undefined) ? result.oppMsg  : (result.msg || null);
+    // 반드시 broadcastTeamGameState 보다 먼저 보냄 — 그래야 클라가 oldSpSnap 캡처 후 마법구 비행 가능
     for (const p of room.players) {
       if (!p.socketId || p.socketId === 'AI' || p.index === idx) continue;
-      io.to(p.socketId).emit('team_skill_notice', noticePayload);
+      const isAlly = (p.teamId === room.players[idx].teamId);
+      io.to(p.socketId).emit('team_skill_notice', { ...basePayload, msg: isAlly ? explicitAlly : explicitOpp });
     }
     for (const s of (room.spectators || [])) {
-      io.to(s.socketId).emit('team_skill_notice', noticePayload);
+      io.to(s.socketId).emit('team_skill_notice', { ...basePayload, msg: explicitOpp });
     }
   }
+  // 마지막에 전체 상태 브로드캐스트 (팀_skill_notice 가 먼저 도착해야 마법구 애니 동작)
   broadcastTeamGameState(room);
+  // AI 토스트 추적 — 스킬은 ~7.6s 동안 표시
+  aiTrackToastEnd(room, 'skill');
   return result;
+}
+
+// AI 토스트 추적기 — 두 시점 추적:
+//   ① _aiNextActionEarliest : 토스트가 *나타나는* 시점 — AI의 다음 행동(intra-turn) 이 이 전에는 안 됨.
+//                              그래야 발생 순서대로 토스트가 줄지어 표시됨.
+//   ② _aiEndTurnEarliest    : 토스트가 *사라지는* 시점 — AI의 endTurn 이 이 시각 + 0.5s 버퍼까지 지연.
+//                              그래야 다음 플레이어 턴오버 토스트가 직전 토스트보다 먼저 오지 않음.
+function aiTrackToast(room, kind) {
+  // 토스트 노출 시점 (appear) — 새 시퀀스 기준:
+  //   skill: T+1500ms (마법구 비행 1.5s 끝나면 스킬 효과 + 토스트 동시 노출)
+  //   attack/move/passive: 즉시 (~100ms)
+  //   detonation: 1.5s + 폭탄 애니(0.95s) ≈ 2500ms
+  //   sp_grant: 풀스크린 애니
+  // 토스트 종료 시점 (disappear) — appear + TOAST_DURATION(4000) + fade(350).
+  let appearMs = 100;
+  let totalMs  = 4500;
+  if (kind === 'skill')          { appearMs = 1500; totalMs = 5900; }
+  else if (kind === 'detonation') { appearMs = 2500; totalMs = 7000; }
+  else if (kind === 'sp_grant')   { appearMs = 0;    totalMs = 6000; }
+  const now = Date.now();
+  const appearAt = now + appearMs;
+  const finishAt = now + totalMs;
+  if (!room._aiNextActionEarliest || appearAt > room._aiNextActionEarliest) {
+    room._aiNextActionEarliest = appearAt;
+  }
+  if (!room._aiEndTurnEarliest || finishAt > room._aiEndTurnEarliest) {
+    room._aiEndTurnEarliest = finishAt;
+  }
+}
+// 호환용 별칭 — aiTeamExecSkill 등 기존 호출처가 사용
+function aiTrackToastEnd(room, kind) { aiTrackToast(room, kind); }
+// AI 인트라 턴 다음 행동까지 대기할 시간 (ms) — 토스트가 나타날 때까지 + 작은 마진
+function aiNextActionWaitMs(room, fallbackMs) {
+  const now = Date.now();
+  const earliest = room._aiNextActionEarliest || 0;
+  const remain = Math.max(0, earliest - now);
+  // 토스트 출력 직후 최소 200ms 마진 — 사용자가 토스트를 인지할 시간
+  return Math.max(fallbackMs || 0, remain + 200);
 }
 
 // ── 팀전 AI 턴 종료 안전 스케줄러 ──
@@ -1152,6 +1200,12 @@ function scheduleAITurnEnd(room, idx, delayMs) {
     clearTimeout(room._aiTurnEndWatchdog[idx]);
     room._aiTurnEndWatchdog[idx] = null;
   }
+  // 사용자 요청: 토스트가 모두 사라지고 0.5초 버퍼까지 대기 후 endTurn.
+  //   호출자가 넘긴 delayMs 와 _aiEndTurnEarliest 중 더 큰 값 적용.
+  const now = Date.now();
+  const earliest = room._aiEndTurnEarliest || 0;
+  const remainingToastMs = Math.max(0, earliest - now);
+  const finalDelay = Math.max(delayMs, remainingToastMs + 500);
   // 메인 endTurn 콜백
   room._aiTurnEndHandle[idx] = setTimeout(() => {
     room._aiTurnEndHandle[idx] = null;
@@ -1162,20 +1216,22 @@ function scheduleAITurnEnd(room, idx, delayMs) {
         clearTimeout(room._aiTurnEndWatchdog[idx]);
         room._aiTurnEndWatchdog[idx] = null;
       }
+      room._aiEndTurnEarliest = 0;
       endTurn(room);
     }
     // 다른 곳에서 endTurn이 먼저 호출됐다면 정상 — 그냥 종료 (워치독은 이미 무관)
-  }, delayMs);
-  // 워치독 — 메인 핸들의 2배 시간 후에도 currentPlayerIdx가 여전히 idx면 강제 endTurn
+  }, finalDelay);
+  // 워치독 — 최종 delay의 2배 시간 후에도 currentPlayerIdx가 여전히 idx면 강제 endTurn
   // (게임 멈춤 방지용 안전망)
   room._aiTurnEndWatchdog[idx] = setTimeout(() => {
     room._aiTurnEndWatchdog[idx] = null;
     if (!room || room.phase !== 'game') return;
     if (room.currentPlayerIdx === idx) {
       console.warn('[AI watchdog] forcing endTurn for stalled AI', idx);
+      room._aiEndTurnEarliest = 0;
       endTurn(room);
     }
-  }, delayMs * 2 + 5000);
+  }, finalDelay * 2 + 5000);
 }
 
 // ── 팀전 AI 자유 스킬 사용 (그림자/정비/질주/약초학/정찰/기폭/신성/반지) ──
@@ -2839,6 +2895,10 @@ function handleDeath(room, deadPiece, ownerIdx) {
 function detonateBomb(room, ownerIdx, bomb, options) {
   const opts = options || {};
   const deferEmit = !!opts.deferEmit;
+  // 기폭 스킬에서 호출 시(=deferEmit) sp_update 가 skill_result 보다 먼저 도착해
+  // 시전자의 마법구 비행 애니가 무동작이 되므로, 이 경우엔 sp_update emit 을 생략하고
+  // 후속 skill_result 가 sp/instantSp 를 일괄 전달.
+  const suppressSpUpdate = deferEmit;
   const opponent = room.players[1 - ownerIdx];
   const hits = [];
   for (const ep of opponent.pieces) {
@@ -2858,7 +2918,7 @@ function detonateBomb(room, ownerIdx, bomb, options) {
         if (wizOwnerIdx < 0) wizOwnerIdx = 1 - ownerIdx;  // fallback
         const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, wizOwnerIdx) : wizOwnerIdx;
         room.instantSp[wizSpSlot] += 1;
-        emitSPUpdate(room);
+        if (!suppressSpUpdate) emitSPUpdate(room);
         const wizOwnerName = room.players[wizOwnerIdx].name;
         emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: wizOwnerIdx, msg: `🧙 인스턴트 매직 : SP 획득` });
 
@@ -2879,9 +2939,12 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   return hits;
 }
 
-function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
+function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts) {
   const attacker = room.players[attackerIdx];
   const baseDmg = (extraDamage !== undefined) ? extraDamage : atkPiece.atk;
+  // 스킬(유황범람 등)에서 호출 시 sp_update 가 후속 skill_result 보다 먼저 가지 않도록 suppress.
+  const suppressSpUpdate = !!(opts && opts.suppressSpUpdate);
+  room._suppressSpUpdate = suppressSpUpdate;
   const hitResults = [];
   // #1: 호위무사 hit 사이드채널 초기화
   room._pendingBodyguardHits = [];
@@ -2952,7 +3015,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
           if (defPiece.type === 'wizard') {
             const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, defIdx) : defIdx;
             room.instantSp[wizSpSlot] += 1;
-            emitSPUpdate(room);
+            // 스킬 컨텍스트에서는 sp_update suppress (skill_result 가 일괄 sp/instantSp 전달)
+            if (!room._suppressSpUpdate) emitSPUpdate(room);
             const defName = room.players[defIdx].name;
             emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: defIdx, msg: `🧙 인스턴트 매직 : SP 획득` });
 
@@ -2979,7 +3043,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
             if (allyPiece.type === 'wizard') {
               const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, aIdx) : aIdx;
               room.instantSp[wizSpSlot] += 1;
-              emitSPUpdate(room);
+              if (!room._suppressSpUpdate) emitSPUpdate(room);
               emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: aIdx, msg: `🧙 인스턴트 매직 : SP 획득` });
               emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: aIdx });
             }
@@ -3038,6 +3102,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage) {
     hitResults.push(...room._pendingBodyguardHits);
     room._pendingBodyguardHits = [];
   }
+  // sp_update suppress 플래그 정리
+  room._suppressSpUpdate = false;
 
   return hitResults;
 }
@@ -4102,7 +4168,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         if (enemyPiece.type === 'wizard' && dmg > 0) {
           const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, kingTargetOwnerIdx) : kingTargetOwnerIdx;
           room.instantSp[wizSpSlot] += 1;
-          emitSPUpdate(room);
+          // ❌ emitSPUpdate(room) 제거 — executeSkill 안이라 skill_result 가 sp/instantSp 를 자동 전달.
+          //    여기서 sp_update 가 먼저 가면 시전자의 마법구 비행 애니가 delta=0 으로 무동작이 됨.
           emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: kingTargetOwnerIdx, msg: `🧙 인스턴트 매직 : SP 획득` });
 
           emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: kingTargetOwnerIdx });
@@ -4184,7 +4251,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── SULFUR CAULDRON: 유황의 강 (border attack, dmg 3) ──
     case 'sulfurCauldron': {
       const borderCells = getBorderCells(bounds);
-      const hits = processAttack(room, playerIdx, { ...piece, atk: 2, type: 'sulfurCauldron' }, borderCells, 2);
+      // suppressSpUpdate=true — 시전자 마법구 비행 애니가 race 안 나도록
+      const hits = processAttack(room, playerIdx, { ...piece, atk: 2, type: 'sulfurCauldron' }, borderCells, 2, { suppressSpUpdate: true });
       const sulfurKilled = hits.filter(h => h.destroyed);
       if (sulfurKilled.length > 0) {
         setKillInfo(room, 'sulfur', null, sulfurKilled.map(k => ({ name: k.revealedName })));
@@ -4216,7 +4284,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           if (m.type === 'wizard' && dmg > 0) {
             const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, ee.idx) : ee.idx;
             room.instantSp[wizSpSlot] += 1;
-            emitSPUpdate(room);
+            // ❌ emitSPUpdate 제거 — skill_result 가 sp/instantSp 를 자동 전달함.
             emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ee.idx, msg: `🧙 인스턴트 매직 : SP 획득` });
 
             emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ee.idx });
@@ -4492,7 +4560,7 @@ function aiRecordHit(brain, piece) {
 function aiNotifySkill(room, pieceIdx, result) {
   if (!result || !result.ok) return;
   const piece = room.players[1].pieces[pieceIdx];
-  // 플레이어에게 status_update
+  // 플레이어에게 status_update — 시전자 카드 spotlight + 마법구 비행 트리거
   const human = room.players[0];
   if (human.socketId !== 'AI') {
     io.to(human.socketId).emit('status_update', {
@@ -4507,14 +4575,28 @@ function aiNotifySkill(room, pieceIdx, result) {
         name: piece.name,
         skillName: piece.skillName || '',
       },
+      casterPieceIdx: pieceIdx,
     });
   }
-  // 관전자에게 로그
+  // 1v1 관전자: 마법구 비행 + spotlight 전용 이벤트
+  for (const s of (room.spectators || [])) {
+    io.to(s.socketId).emit('spectator_skill_anim', {
+      casterIdx: 1,
+      casterName: 'AI',
+      casterPieceIdx: pieceIdx,
+      sp: room.sp,
+      instantSp: room.instantSp,
+      skillUsed: { icon: piece.icon, name: piece.name, skillName: piece.skillName || '' },
+    });
+  }
+  // 관전자 로그
   if (!result.skipLog && result.msg) {
     const specMsg = buildSpectatorSkillMsg('AI', piece, result);
     emitToSpectators(room, 'spectator_log', { msg: specMsg, type: 'skill', playerIdx: 1 });
   }
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+  // AI 토스트 추적 — 1v1 AI 스킬도 인트라 턴 행동 순서 보장
+  aiTrackToast(room, 'skill');
 }
 
 // AI executeSkill wrapper — 실행 후 알림
@@ -4812,9 +4894,17 @@ function aiFindFleeingPieces(room) {
 
 const AI_ACTION_DELAY = 3000;
 function aiEndTurn(room) {
+  // 사용자 요청: AI 는 자신의 턴에 발생한 모든 토스트가 사라진 후 0.5초 버퍼까지 대기 후 endTurn.
+  //   - 토스트 발생 순서대로 표시되어야 하고,
+  //   - 다음 플레이어의 턴오더 토스트가 직전 스킬/공격 토스트보다 먼저 오는 일이 없도록.
+  const now = Date.now();
+  const earliest = room._aiEndTurnEarliest || 0;
+  const remainingToastMs = Math.max(0, earliest - now);
+  const delay = Math.max(AI_ACTION_DELAY, remainingToastMs + 500);
   setTimeout(() => {
     if (room.phase === 'game') endTurn(room);
-  }, AI_ACTION_DELAY);
+  }, delay);
+  room._aiEndTurnEarliest = 0;  // 다음 AI 턴 위해 리셋
 }
 
 function aiTakeTurn(room) {
@@ -4838,16 +4928,18 @@ function aiTakeTurn(room) {
   }
 
   // ★ STEP 1: 행동 전 free 스킬 사용
-  // 사용자 요청: 행동 사이 3초 딜레이 — pre-skill 썼으면 3초 후 재진입
+  // pre-skill 썼으면 토스트가 출력될 때까지 + 200ms 마진 후 재진입.
+  //   이렇게 해야 다음 행동의 토스트가 스킬 토스트보다 먼저 안 나옴 (사용자 요청).
   const preLenBefore = (aiPlayer.skillsUsedBeforeAction || []).length;
   aiUsePreSkills(room);
   const usedPreSkill = ((aiPlayer.skillsUsedBeforeAction || []).length > preLenBefore);
   if (usedPreSkill) {
+    const waitMs = aiNextActionWaitMs(room, 2500);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === 1) {
         aiTakeTurn(room);
       }
-    }, 3000);
+    }, waitMs);
     return;
   }
 
@@ -5086,6 +5178,7 @@ function aiExecuteMove(room, action) {
   emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
+  aiTrackToast(room, 'move');
   aiPlayer.actionDone = true;
   aiEndTurn(room);
 }
@@ -5123,6 +5216,8 @@ function aiExecuteAttack(room, action) {
     emitToSpectators(room, 'spectator_log', { msg: `AI 공격 빗나감`, type: 'miss', playerIdx: 1 });
   }
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+
+  aiTrackToast(room, 'attack');
 
   if (checkWin(room, 0)) {
     endGame(room, 1);
@@ -7034,6 +7129,19 @@ io.on('connection', (socket) => {
       }
     }
 
+    // 1v1 관전자에게도 마법구 비행 + 시전자 spotlight 트리거 (팀모드는 위 team_skill_notice 가 이미 처리)
+    if (room.mode !== 'team') {
+      for (const s of (room.spectators || [])) {
+        io.to(s.socketId).emit('spectator_skill_anim', {
+          casterIdx: idx,
+          casterName: room.players[idx].name,
+          casterPieceIdx: pieceIdx,
+          sp: room.sp,
+          instantSp: room.instantSp,
+          skillUsed: { icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName },
+        });
+      }
+    }
     // 관전자에게 상세 스킬 로그 전송
     if (!result.skipLog) {
       const specSkillMsg = buildSpectatorSkillMsg(room.players[idx].name, skillPiece, result);
