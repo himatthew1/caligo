@@ -3364,25 +3364,27 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     const meaningfulHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
     // 메시지는 호위무사 가로채기 hit도 제외 (passive_alert가 따로 알림). 호위무사 격파 시는 사망 알림만 노출.
     const messageHits = meaningfulHits.filter(c => !c.bodyguardRedirect || c.destroyed);
-    // 사용자 요청: 명중·격파 토스트는 몇 명이 맞았든 한 번만 출력
-    // 격파된 대상은 격파 라벨로, 격파 없으면 단순 "명중!"
+    // 사용자 요청: 모든 공격 반응의 원인은 공격이므로 "명중!" 이 항상 먼저,
+    //   그 후 0.8초 텀 두고 격파 알림이 따름. (공격받았습니다와 동일 패턴, 대칭)
     const killed = messageHits.filter(h => h.destroyed);
     const hitOnly = messageHits.filter(h => !h.destroyed);
     if (killed.length > 0) playSfx('kill');
     else if (hitOnly.length > 0) playSfx('hit');
-    // #9: 토스트는 간결, 로그는 좌표 정보 보강 — 한 문장에 여러 hit 합쳐서 한 번만 출력
-    if (killed.length > 0) {
-      const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
-      showSkillToast(`${labels} 격파!`);
-      // 로그: 좌표들과 격파 대상 한 줄로
-      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
-      addLog(`${coords} ${labels} 격파`, 'hit');
-    }
+    // ① 명중! — 즉시 (격파/명중 무관)
+    showSkillToast(`명중!`);
+    // ① 로그 — 명중 좌표 (생존자만 — 격파는 별도 알림)
     if (hitOnly.length > 0) {
-      showSkillToast(`명중!`);
-      // 로그: 모든 명중 좌표 한 줄에
       const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
       addLog(`${coords} 명중`, 'hit');
+    }
+    // ② 격파 알림 — 명중 이후 0.8초 텀
+    if (killed.length > 0) {
+      const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
+      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
+      setTimeout(() => {
+        showSkillToast(`${labels} 격파!`);
+        addLog(`${coords} ${labels} 격파`, 'hit');
+      }, 800);
     }
   }
   // 공격자 측에도 동일 — '명중!/격파!' 출력 후 방어형 패시브(충성 등) flush
@@ -3518,21 +3520,26 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     addLog(`${oppN()} 공격 빗나감`, 'miss');
     showSkillToast(`${oppN()} 공격 빗나감`, true);
   } else {
-    // 사용자 요청: 토스트 한 번만 출력. 격파 대상이 있으면 격파 라벨, 그 외는 "공격받았습니다!"
+    // 사용자 요청: 모든 공격 반응의 원인은 공격 자체이므로,
+    //   "공격받았습니다!" 가 항상 먼저, 그 후 0.8초 텀 두고 사망 알림이 따름.
     const killedSelf = messageHits.filter(h => h.destroyed);
     const hitOnlySelf = messageHits.filter(h => !h.destroyed);
     if (killedSelf.length > 0) playSfx('kill');
     else if (hitOnlySelf.length > 0) playSfx('hit');
-    // #9: 토스트는 간결, 로그는 어떤 유닛이 맞았는지 — 좌표는 빼고 한 줄에 모두
-    if (killedSelf.length > 0) {
-      const labels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      showSkillToast(`${labels} 사망`, true);
-      addLog(`${labels} 사망`, 'hit');
-    }
+    // ① 공격받았습니다 — 즉시 (사망/피격 무관)
+    showSkillToast(`공격받았습니다!`, true);
+    // ① 로그 — 사망/피격 모두 한 줄로 라벨 포함
     if (hitOnlySelf.length > 0) {
-      const labels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      showSkillToast(`공격받았습니다!`, true);
-      addLog(`${labels} 피격`, 'hit');
+      const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
+      addLog(`${hitLabels} 피격`, 'hit');
+    }
+    // ② 사망 알림 — 공격받았습니다 이후 0.8초 텀
+    if (killedSelf.length > 0) {
+      const killedLabels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
+      setTimeout(() => {
+        showSkillToast(`${killedLabels} 사망`, true);
+        addLog(`${killedLabels} 사망`, 'hit');
+      }, 800);
     }
   }
   // '공격받았습니다!' 출력 후 — 버퍼에 쌓인 방어형 패시브 알림(충성·폭정·아이언스킨·가호 등) flush
@@ -11142,14 +11149,21 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   const hitAlly = messageMeaningful.filter(h => !h.destroyed);
   if (killedAlly.length > 0) playSfx('kill');
   else if (hitAlly.length > 0) playSfx('hit');
+  // ① 공격받았습니다 — 사망/피격 무관 즉시 (사용자 요청: 공격이 모든 반응의 원인)
+  if (messageMeaningful.length > 0) {
+    showSkillToast(`공격받았습니다!`, true);
+    if (hitAlly.length > 0) {
+      const hitLabels = hitAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
+      addLog(`${hitLabels} 피격`, 'hit');
+    }
+  }
+  // ② 사망 알림 — 0.8초 텀 후
   if (killedAlly.length > 0) {
     const labels = killedAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-    addLog(`${labels} 사망`, 'hit');
-    showSkillToast(`${labels} 사망`, true);
-  }
-  if (hitAlly.length > 0) {
-    addLog(`공격받았습니다!`, 'hit');
-    showSkillToast(`공격받았습니다!`, true);
+    setTimeout(() => {
+      addLog(`${labels} 사망`, 'hit');
+      showSkillToast(`${labels} 사망`, true);
+    }, 800);
   }
   // 호위무사 가로채기 — passive_alert가 메시지 담당 (중복 토스트 제거)
   // 팀원 프로필 카드에 hit 애니메이션 — 호위무사 가로채기 시 본체 카드는 제외
