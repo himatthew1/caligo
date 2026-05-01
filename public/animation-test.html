@@ -3,409 +3,491 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CALIGO 애니메이션 테스트</title>
+  <title>CALIGO 애니메이션 미리보기</title>
   <link rel="stylesheet" href="style.css">
   <style>
     :root {
-      --bg: #1a1410;
-      --surface: #251c14;
-      --surface2: #2e2418;
-      --border: #3a2c1f;
-      --text: #f0e6d6;
-      --text-dim: #b8a78a;
-      --muted: #7a6a55;
-      --accent: #f0c040;
-      --danger: #ef4444;
-      --success: #22c55e;
+      --tbg: #1a1410;
+      --tsurf: #251c14;
+      --tsurf2: #2e2418;
+      --tborder: #3a2c1f;
+      --ttext: #f0e6d6;
+      --ttext-dim: #b8a78a;
+      --tmuted: #7a6a55;
+      --taccent: #f0c040;
+      --tdanger: #ef4444;
+      --tsuccess: #22c55e;
     }
     body {
-      background: var(--bg); color: var(--text);
+      background: var(--tbg); color: var(--ttext);
       font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-      margin: 0; padding: 24px;
-      min-height: 100vh;
+      margin: 0; padding: 20px 24px 60px;
     }
-    h1 { color: var(--accent); margin: 0 0 8px; }
-    h2 { color: var(--text-dim); font-size: 0.95rem; font-weight: 500; margin: 0 0 24px; }
+    h1 { color: var(--taccent); margin: 0 0 6px; font-size: 1.4rem; }
+    .subtitle { color: var(--ttext-dim); font-size: 0.85rem; margin: 0 0 18px; }
+    .nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(26,20,16,0.96);
+      backdrop-filter: blur(6px);
+      padding: 10px 14px;
+      margin: 0 -24px 20px;
+      border-bottom: 1px solid var(--tborder);
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .nav a {
+      color: var(--ttext); background: var(--tsurf);
+      padding: 5px 12px; border-radius: 6px; text-decoration: none;
+      font-size: 0.78rem; border: 1px solid var(--tborder);
+      transition: all 0.15s;
+    }
+    .nav a:hover { background: rgba(240,192,64,0.12); border-color: var(--taccent); color: var(--taccent); }
+    .nav a.external { color: var(--tsuccess); border-color: var(--tsuccess); }
+
     .group {
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: var(--tsurf);
+      border: 1px solid var(--tborder);
       border-radius: 10px;
-      padding: 16px 18px;
-      margin-bottom: 16px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
     }
     .group-title {
-      font-size: 0.95rem; font-weight: 700; color: var(--accent);
-      margin-bottom: 12px; letter-spacing: 0.5px;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 8px;
+      font-size: 0.95rem; font-weight: 700;
+      color: var(--taccent);
+      margin: 0 0 10px;
+      letter-spacing: 0.5px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--tborder);
     }
     .anim-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
     }
     .anim-card {
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      background: var(--tsurf2);
+      border: 1px solid var(--tborder);
       border-radius: 8px;
-      padding: 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      padding: 10px;
+      display: flex; flex-direction: column; gap: 8px;
     }
     .anim-card .label {
-      font-weight: 700;
-      font-size: 0.92rem;
-      color: var(--accent);
+      font-weight: 700; font-size: 0.88rem; color: var(--taccent);
     }
     .anim-card .desc {
-      font-size: 0.75rem;
-      color: var(--muted);
-      line-height: 1.45;
+      font-size: 0.72rem; color: var(--tmuted); line-height: 1.45;
     }
     .anim-stage {
       background: #0f0c08;
-      border: 1px solid var(--border);
+      border: 1px solid var(--tborder);
       border-radius: 6px;
-      min-height: 110px;
-      padding: 12px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      overflow: hidden;
+      min-height: 100px;
+      padding: 10px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
     }
-    .anim-stage.compact { min-height: 80px; }
-    .anim-stage.tall { min-height: 200px; }
+    .anim-stage.compact { min-height: 70px; }
+    .anim-stage.tall { min-height: 180px; }
     .anim-btn {
-      background: var(--accent);
-      color: #1a1410;
-      border: none;
-      border-radius: 6px;
-      padding: 8px 12px;
-      font-size: 0.82rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: all 0.15s;
+      background: var(--taccent); color: #1a1410; border: none;
+      border-radius: 5px; padding: 6px 10px;
+      font-size: 0.78rem; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
     }
     .anim-btn:hover { background: #ffd860; }
     .anim-btn:active { transform: scale(0.97); }
-    .anim-btn.secondary {
-      background: transparent;
-      color: var(--accent);
-      border: 1px solid var(--accent);
+    .anim-btn.alt {
+      background: transparent; color: var(--taccent); border: 1px solid var(--taccent);
     }
-    .info {
-      background: var(--surface2);
-      border-left: 3px solid var(--accent);
-      padding: 10px 14px;
-      border-radius: 4px;
-      font-size: 0.82rem;
-      color: var(--text-dim);
-      margin-bottom: 16px;
-    }
-    /* 미니 카드 (프로필) — 실제 게임 카드와 동일한 양식 */
+    .btn-row { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    /* 미니 카드 (프로필 미리보기용) */
     .mini-card {
       width: 220px;
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: var(--tsurf);
+      border: 1px solid var(--tborder);
       border-radius: 8px;
       padding: 10px 12px;
       position: relative;
     }
     .mini-card .my-piece-header {
       display: flex; align-items: center; gap: 6px;
-      font-size: 0.85rem; font-weight: 600;
+      font-size: 0.85rem; font-weight: 600; margin-bottom: 6px;
     }
     .mini-card .p-icon { font-size: 1.4rem; }
     .mini-card .hp-bar-bg {
-      height: 6px; background: var(--border); border-radius: 3px;
-      margin: 6px 0 4px; position: relative; overflow: hidden;
+      height: 14px; background: var(--tborder); border-radius: 4px;
+      position: relative; overflow: hidden; margin: 4px 0;
     }
-    .mini-card .hp-bar { height: 6px; background: var(--success); border-radius: 3px; }
-    .mini-card .stats { font-size: 0.72rem; color: var(--muted); display: flex; justify-content: space-between; }
+    .mini-card .hp-bar { height: 14px; background: var(--tsuccess); border-radius: 4px; }
+    .mini-card .stats {
+      display: flex; justify-content: space-between; font-size: 0.72rem;
+      color: var(--tmuted);
+    }
     /* 미니 보드 셀 */
     .mini-cell {
       width: 56px; height: 56px;
-      background: rgba(80, 60, 40, 0.4);
-      border: 1px solid var(--border);
+      background: var(--tsurf);
+      border: 1px solid var(--tborder);
       border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 1.6rem;
+      font-size: 1.4rem;
       position: relative;
     }
-    /* 풀스크린 오버레이는 스테이지 안에서 보여주기 위해 absolute 로 */
-    .preview-overlay {
-      position: absolute !important;
-      inset: 0 !important;
-      width: 100% !important; height: 100% !important;
-      display: flex !important; flex-direction: column;
-      align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.85);
-      pointer-events: none;
+
+    /* SP 마법구 비행 모킹 — sp-bar-mock */
+    .sp-bar-mock {
+      display: flex; align-items: center; gap: 12px;
+      padding: 6px 18px;
+      background: var(--tsurf2);
+      border: 1px solid var(--tborder);
+      border-radius: 8px;
     }
-    .nav {
-      display: flex; gap: 8px; flex-wrap: wrap;
-      margin-bottom: 18px;
+    .mock-num { font-size: 1.6rem; font-weight: 900; line-height: 1; }
+    .mock-num-mine { color: #4ea8de; text-shadow: 0 0 10px #4ea8de; }
+    .mock-num-opp  { color: #ef4444; text-shadow: 0 0 10px #ef4444; }
+    .mock-bar { width: 100px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); }
+
+    /* 패배 그리드 미니 미리보기용 */
+    .preview-board-grid {
+      display: grid; gap: 2px;
+      padding: 4px; background: rgba(0,0,0,0.4); border-radius: 4px;
     }
-    .nav a {
-      background: var(--surface2);
-      color: var(--accent);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 10px;
-      font-size: 0.78rem;
-      text-decoration: none;
+    .preview-board-grid .cell {
+      background: rgba(40,36,50,0.8);
+      border: 1px solid rgba(80,80,100,0.5);
+      border-radius: 3px;
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem;
     }
-    .nav a:hover { background: rgba(240,192,64,0.12); border-color: var(--accent); }
   </style>
 </head>
 <body>
-  <h1>🎬 CALIGO 애니메이션 테스트</h1>
-  <h2>모든 시각 효과 미리보기 — 버튼을 눌러 재생</h2>
+  <h1>🎬 CALIGO 애니메이션 미리보기</h1>
+  <p class="subtitle">버튼을 눌러 효과를 재생하세요. 카드·셀은 실제 게임 컴포넌트와 동일한 마크업입니다.</p>
 
-  <div class="info">
-    좌측 카드는 실제 게임의 컴포넌트(프로필 카드 / 보드 셀 등) 와 동일한 마크업을 사용합니다.
-    재생 버튼을 누르면 해당 애니메이션 클래스가 적용되었다 사라집니다.
-  </div>
-
-  <div class="nav">
-    <a href="#profile">프로필 효과</a>
+  <nav class="nav">
+    <a href="#profile">프로필</a>
     <a href="#stamp">데미지 도장</a>
-    <a href="#hp">HP 바</a>
-    <a href="#status">상태이상 (저주·회복)</a>
     <a href="#cell">보드 셀</a>
-    <a href="#overlay">풀스크린 오버레이</a>
-    <a href="#misc">기타</a>
-    <a href="sound-test.html">→ 사운드 테스트</a>
-  </div>
+    <a href="#board">보드 전체</a>
+    <a href="#skill">스킬 연출</a>
+    <a href="#fullscreen">풀스크린</a>
+    <a href="#gameover">게임 종료</a>
+    <a href="#protected">보호됨 옵션</a>
+    <a class="external" href="sound-test.html">🔊 사운드 테스트 →</a>
+  </nav>
 
-  <!-- ── 프로필 카드 효과 ────────────────────────────────────────────── -->
-  <div class="group" id="profile">
-    <div class="group-title">① 프로필 카드 효과</div>
+  <!-- A. 프로필 카드 효과 -->
+  <section class="group" id="profile">
+    <div class="group-title">A. 프로필 카드 효과</div>
     <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">profile-hit (피격)</div>
-        <div class="desc">유닛이 공격 받았을 때 — 빨간 흔들림 + 금색 플래시 (1.8s)</div>
+        <div class="label">profile-hit · 피격</div>
+        <div class="desc">유닛이 공격받았을 때 — 빨간 흔들림 + 금색 플래시 (1.8s)</div>
         <div class="anim-stage" data-stage="hit"></div>
         <button class="anim-btn" data-play="hit">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">heal-flash (회복)</div>
+        <div class="label">heal-flash · 회복</div>
         <div class="desc">신성·약초학 회복 — 초록 플래시 (1.8s)</div>
         <div class="anim-stage" data-stage="heal"></div>
         <button class="anim-btn" data-play="heal">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">profile-protected (보호됨) — 애니메이션 4 옵션</div>
-        <div class="desc">
-          공격 받았으나 0 피해 — 호위무사 가로채기·아이언스킨·폭정 등.<br>
-          <strong>v1</strong>: 1회 sweep / <strong>v2</strong>: 2회 sweep / <strong>v3</strong>: 1회 + 둔둔 (현재 기본) / <strong>v4</strong>: 2회 + 둔둔
-        </div>
+        <div class="label">profile-protected · 보호됨</div>
+        <div class="desc">공격이 들어왔지만 0 피해(호위무사 가로채기 / 아이언스킨 / 폭정 등). 기본은 v3 (1회 sweep + 둔둔 펄스).</div>
         <div class="anim-stage" data-stage="protected"></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="anim-btn" data-play="protected-v1">▶ v1: 1회</button>
-          <button class="anim-btn" data-play="protected-v2">▶ v2: 2회</button>
-          <button class="anim-btn" data-play="protected-v3">▶ v3: 1회 + 둔둔</button>
-          <button class="anim-btn" data-play="protected-v4">▶ v4: 2회 + 둔둔</button>
-        </div>
-      </div>
-
-      <div class="anim-card">
-        <div class="label">보호됨 SFX — 5 옵션</div>
-        <div class="desc">
-          애니메이션과 어울리는 효과음 5가지. 미리 듣고 골라보세요.<br>
-          <strong>SFX1 팅!</strong>: 날카로운 금속 튕김 (칼 막음)<br>
-          <strong>SFX2 반짝</strong>: 유리 sparkle 5음 상승<br>
-          <strong>SFX3 둔둔</strong>: 저음 더블 임팩트 (단단함)<br>
-          <strong>SFX4 차임</strong>: 마법 방어막 벨톤<br>
-          <strong>SFX5 크리스탈</strong>: 8개 빠른 캐스케이드<br>
-          ※ "▶ v3 + SFX#" 버튼은 현재 기본 v3 애니와 함께 들어볼 수 있는 통합 미리보기
-        </div>
-        <div class="anim-stage" data-stage="protected-sfx"></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="anim-btn" data-play="sfx-only-1">🔊 SFX1만</button>
-          <button class="anim-btn" data-play="sfx-only-2">🔊 SFX2만</button>
-          <button class="anim-btn" data-play="sfx-only-3">🔊 SFX3만</button>
-          <button class="anim-btn" data-play="sfx-only-4">🔊 SFX4만</button>
-          <button class="anim-btn" data-play="sfx-only-5">🔊 SFX5만</button>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-          <button class="anim-btn secondary" data-play="combo-1">🎬 v3 + SFX1</button>
-          <button class="anim-btn secondary" data-play="combo-2">🎬 v3 + SFX2</button>
-          <button class="anim-btn secondary" data-play="combo-3">🎬 v3 + SFX3</button>
-          <button class="anim-btn secondary" data-play="combo-4">🎬 v3 + SFX4</button>
-          <button class="anim-btn secondary" data-play="combo-5">🎬 v3 + SFX5</button>
-        </div>
+        <button class="anim-btn" data-play="protected">▶ 재생 (v3)</button>
       </div>
       <div class="anim-card">
-        <div class="label">curse-active (저주 상시)</div>
-        <div class="desc">저주 상태 캐릭터 — 진한 보라 배경 + 화염 불씨 파티클 (아래에서 위로 떠오르며 페이드아웃)</div>
+        <div class="label">curse-active · 저주 상시</div>
+        <div class="desc">저주 상태 캐릭터 — 진한 보라 배경 + 화염 불씨 파티클 상승</div>
         <div class="anim-stage tall" data-stage="curse-active"></div>
         <button class="anim-btn" data-play="curse-active">▶ 토글</button>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ── 데미지 도장 ─────────────────────────────────────────────────── -->
-  <div class="group" id="stamp">
-    <div class="group-title">② 데미지 도장</div>
+  <!-- B. 데미지 도장 -->
+  <section class="group" id="stamp">
+    <div class="group-title">B. 데미지 도장 (3종)</div>
     <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">dmg-stamp (일반 데미지)</div>
-        <div class="desc">피격 시 카드 우상단 빨간 사선 도장. 다음 턴 시작까지 유지</div>
+        <div class="label">dmg-stamp · 빨강 (직접 피해)</div>
+        <div class="desc">일반 피격 — 카드 우상단 빨간 사선 도장. 턴 시작까지 유지.</div>
         <div class="anim-stage" data-stage="stamp"></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="anim-btn" data-play="stamp1">▶ 1 데미지</button>
-          <button class="anim-btn" data-play="stamp1.5">▶ 1.5 데미지</button>
-          <button class="anim-btn" data-play="stamp3">▶ 3 데미지</button>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="stamp1">1 데미지</button>
+          <button class="anim-btn" data-play="stamp1.5">1.5 데미지</button>
+          <button class="anim-btn" data-play="stamp3">3 데미지</button>
         </div>
       </div>
       <div class="anim-card">
-        <div class="label">dmg-stamp.curse (저주 데미지)</div>
-        <div class="desc">저주 지속 데미지 — 보라 도장. 3초 후 자동 페이드 아웃</div>
+        <div class="label">dmg-stamp.curse · 보라 (저주 지속)</div>
+        <div class="desc">저주 상태에서 매턴 0.5씩 누적. 턴 동안 유지.</div>
         <div class="anim-stage" data-stage="stamp-curse"></div>
-        <button class="anim-btn" data-play="stamp-curse">▶ 0.5 저주 데미지</button>
+        <button class="anim-btn" data-play="stamp-curse">▶ 0.5 저주</button>
       </div>
-    </div>
-  </div>
-
-  <!-- ── HP 바 ──────────────────────────────────────────────────────── -->
-  <div class="group" id="hp">
-    <div class="group-title">③ HP 바</div>
-    <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">hp-bar-damage (이번 턴 감소분)</div>
-        <div class="desc">이번 턴에 받은 데미지를 빨간 오버레이로 표시 — 펄스 애니메이션 1.4s</div>
+        <div class="label">dmg-stamp.loyalty · 파랑 (충성 대신 받음)</div>
+        <div class="desc">호위무사가 왕실 아군 대신 받은 피해. 작은 '충성' 태그 부착.</div>
+        <div class="anim-stage" data-stage="stamp-loyalty"></div>
+        <button class="anim-btn" data-play="stamp-loyalty">▶ 1 충성</button>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ 본체 + 충성 동시 — 빨강 + 파랑</div>
+        <div class="desc">본체도 직접 맞고 동시에 동료 대신 받은 케이스. 두 도장 위치 분리됨.</div>
+        <div class="anim-stage" data-stage="stamp-combo"></div>
+        <button class="anim-btn" data-play="stamp-combo">▶ 직접 2 + 충성 1</button>
+      </div>
+      <div class="anim-card">
+        <div class="label">hp-bar-damage · HP 바 빨간 오버레이</div>
+        <div class="desc">이번 턴 받은 피해를 HP 바 위 빨간 슬라이스로 표시.</div>
         <div class="anim-stage" data-stage="hpbar"></div>
-        <button class="anim-btn" data-play="hpbar">▶ HP 5→3 (2 데미지)</button>
+        <button class="anim-btn" data-play="hpbar">▶ HP 5→3</button>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ── 상태이상 (curse·shadow 등) ─────────────────────────────────── -->
-  <div class="group" id="status">
-    <div class="group-title">④ 상태이상 효과</div>
+  <!-- C. 보드 셀 -->
+  <section class="group" id="cell">
+    <div class="group-title">C. 보드 셀 효과</div>
     <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">heal-sparkle (회복 파티클)</div>
-        <div class="desc">회복 시 카드 위 반짝이 6개</div>
-        <div class="anim-stage" data-stage="sparkle"></div>
-        <button class="anim-btn" data-play="sparkle">▶ 재생</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── 보드 셀 ────────────────────────────────────────────────────── -->
-  <div class="group" id="cell">
-    <div class="group-title">⑤ 보드 셀 효과</div>
-    <div class="anim-grid">
-      <div class="anim-card">
-        <div class="label">cell-hit-shake (셀 흔들림)</div>
-        <div class="desc">공격 받은 셀 좌우 흔들림</div>
+        <div class="label">cell-hit-shake · 셀 흔들림</div>
+        <div class="desc">공격 받은 셀 좌우 흔들림.</div>
         <div class="anim-stage compact" data-stage="cellhit"></div>
         <button class="anim-btn" data-play="cellhit">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">marked-move-flash (표식 적 이동)</div>
-        <div class="desc">표식된 적이 이동했을 때 도착 셀 노란 플래시</div>
+        <div class="label">marked-move-flash · 표식 적 이동</div>
+        <div class="desc">표식된 적이 이동했을 때 도착 셀 노란 플래시.</div>
         <div class="anim-stage compact" data-stage="markedmove"></div>
         <button class="anim-btn" data-play="markedmove">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">teammate-move-flash (팀원 이동 도착)</div>
-        <div class="desc">팀원이 이동한 도착 셀 강조</div>
+        <div class="label">teammate-move-flash · 팀원 이동 도착</div>
+        <div class="desc">팀원이 이동한 도착 셀 강조.</div>
         <div class="anim-stage compact" data-stage="tmflash"></div>
         <button class="anim-btn" data-play="tmflash">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">teammate-move-trail (팀원 이동 잔상)</div>
-        <div class="desc">팀원이 떠난 자리에 보라 잔상</div>
+        <div class="label">teammate-move-trail · 팀원 이동 잔상</div>
+        <div class="desc">팀원이 떠난 자리에 보라 잔상.</div>
         <div class="anim-stage compact" data-stage="tmtrail"></div>
         <button class="anim-btn" data-play="tmtrail">▶ 재생</button>
       </div>
+    </div>
+  </section>
+
+  <!-- D. 보드 전체 -->
+  <section class="group" id="board">
+    <div class="group-title">D. 보드 전체 효과</div>
+    <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">board-shake (보드 전체 흔들림)</div>
-        <div class="desc">보드 축소 실행 시 전체 흔들림 1초</div>
+        <div class="label">board-shake · 보드 축소 흔들림</div>
+        <div class="desc">보드 축소 실행 시 1초 흔들림.</div>
         <div class="anim-stage" data-stage="boardshake"></div>
         <button class="anim-btn" data-play="boardshake">▶ 재생</button>
       </div>
+      <div class="anim-card">
+        <div class="label">shrink-warning · 외곽 파괴 카운트다운 배너</div>
+        <div class="desc">상단 빨간 배너 펄스 (1.2s).</div>
+        <div class="anim-stage" data-stage="warn"></div>
+        <button class="anim-btn" data-play="warn">▶ 재생</button>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ── 풀스크린 오버레이 ──────────────────────────────────────────── -->
-  <div class="group" id="overlay">
-    <div class="group-title">⑥ 풀스크린 오버레이</div>
+  <!-- E. 스킬 연출 -->
+  <section class="group" id="skill">
+    <div class="group-title">E. 스킬 연출 (NEW)</div>
     <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">game-start (전투 개시)</div>
-        <div class="desc">게임 시작 시 큰 텍스트 페이드 인 / 아웃 (1.8s)</div>
+        <div class="label">⭐ detonation · 기폭 (3단계)</div>
+        <div class="desc">설치된 폭탄이 ① 서서히 노출 → ② 빨간 박동(arming) → ③ 폭발 플래시. 총 ~2.5s. 메시지·피해는 애니메이션 종료 후.</div>
+        <div class="anim-stage tall" data-stage="detonation"></div>
+        <button class="anim-btn" data-play="detonation">▶ 재생 (3개 폭탄)</button>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ sp-spend-attn · SP 차감 집중 (섹션 글로우, 2s)</div>
+        <div class="desc">스킬 시전 시 SP 섹션이 부드럽게 박동(파랑→보라). 메인 연출은 마법구 비행이며, 섹션 글로우는 보조 강조용.</div>
+        <div class="anim-stage" data-stage="sp-spend"></div>
+        <button class="anim-btn" data-play="sp-spend">▶ 재생</button>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ sp-orb-transfer · 마법구 비행 + 숫자 tick</div>
+        <div class="desc">출발 시 시전자 -1 / 도착 시 상대 +1. 페어리 트레일 더스트 + tick 효과음. 인스턴트는 위로 흩날림.</div>
+        <div class="anim-stage" data-stage="sp-orb-transfer">
+          <div class="sp-bar-mock">
+            <span class="mock-num mock-num-mine" id="mock-mine">5</span>
+            <span class="mock-bar"></span>
+            <span class="mock-num mock-num-opp" id="mock-opp">3</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="sp-orb-1">▶ 1 SP 이전</button>
+          <button class="anim-btn" data-play="sp-orb-3">▶ 3 SP 이전</button>
+          <button class="anim-btn alt" data-play="sp-orb-reset">↺ 리셋 (5/3)</button>
+        </div>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ instant-consume · 인스턴트 SP 사용 (위로 흩날림)</div>
+        <div class="desc">스킬 시전 시 인스턴트 SP가 먼저 사라지고 0.5초 텀 후 일반 SP 마법구 비행 시작. 4가지 SFX 옵션.</div>
+        <div class="anim-stage" data-stage="instant-consume"></div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="instant-consume">▶ 1개 소멸</button>
+          <button class="anim-btn alt" data-play="ic-sfx-1">SFX1</button>
+          <button class="anim-btn alt" data-play="ic-sfx-2">SFX2</button>
+          <button class="anim-btn alt" data-play="ic-sfx-3">SFX3</button>
+          <button class="anim-btn alt" data-play="ic-sfx-4">SFX4</button>
+        </div>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ instant-gain · 인스턴트 매직 (마법사 SP 합류)</div>
+        <div class="desc">마법사 인스턴트 매직 발동 시 황금 마법구가 SP 숫자로 합류 → 도착 흡수. 4가지 SFX 옵션.</div>
+        <div class="anim-stage" data-stage="instant-gain">
+          <div class="sp-bar-mock">
+            <span class="mock-num mock-num-mine" id="mock-gain-mine">5</span>
+            <span class="mock-bar"></span>
+            <span class="mock-num mock-num-opp">3</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="instant-gain">▶ 마법구 합류</button>
+          <button class="anim-btn alt" data-play="ig-sfx-1">SFX1</button>
+          <button class="anim-btn alt" data-play="ig-sfx-2">SFX2</button>
+          <button class="anim-btn alt" data-play="ig-sfx-3">SFX3</button>
+          <button class="anim-btn alt" data-play="ig-sfx-4">SFX4</button>
+        </div>
+      </div>
+      <div class="anim-card">
+        <div class="label">⭐ orb-sfx · 마법구 출발/도착 SFX 4가지</div>
+        <div class="desc">시전자 → 상대 마법구 출발/도착 효과음. 4가지 변형 미리듣기.</div>
+        <div class="anim-stage" data-stage="orb-sfx" style="min-height:60px"></div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="orb-sfx-1">SFX1 페어리</button>
+          <button class="anim-btn" data-play="orb-sfx-2">SFX2 글래스</button>
+          <button class="anim-btn" data-play="orb-sfx-3">SFX3 깃털</button>
+          <button class="anim-btn" data-play="orb-sfx-4">SFX4 종</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- F. 풀스크린 오버레이 -->
+  <section class="group" id="fullscreen">
+    <div class="group-title">F. 풀스크린 오버레이</div>
+    <div class="anim-grid">
+      <div class="anim-card">
+        <div class="label">game-start · 전투 개시</div>
+        <div class="desc">큰 텍스트 페이드 인/아웃 (1.8s).</div>
         <div class="anim-stage tall" data-stage="gameStart"></div>
         <button class="anim-btn" data-play="gameStart">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">shrink-intro (보드 파괴 시작)</div>
-        <div class="desc">보드 축소 카운트다운 10턴 시점 — 빨간 위협 톤 (2.2s)</div>
+        <div class="label">shrink-intro · 보드 파괴 카운트다운</div>
+        <div class="desc">10턴 시점 빨간 위협 톤 (2.2s).</div>
         <div class="anim-stage tall" data-stage="shrinkIntro"></div>
         <button class="anim-btn" data-play="shrinkIntro">▶ 재생</button>
       </div>
       <div class="anim-card">
-        <div class="label">stalemate (1대1 대치)</div>
-        <div class="desc">양쪽 1유닛만 남았을 때 — 5턴 후 축소 안내</div>
+        <div class="label">stalemate · 1대1 대치</div>
+        <div class="desc">양쪽 1유닛만 남았을 때 — 5턴 후 축소 안내.</div>
         <div class="anim-stage tall" data-stage="stalemate"></div>
         <button class="anim-btn" data-play="stalemate">▶ 재생</button>
       </div>
+      <div class="anim-card">
+        <div class="label">⭐ sp-grant · SP 지급 풀스크린 (4 변형)</div>
+        <div class="desc">
+          마법 구슬 두 개가 좌우 대칭 페어리 동선으로 입장 → 텍스트 프레임 형성 → 각 SP 숫자로 분리 비행.<br>
+          <strong>V1 사이드</strong>: 좌우 측면에서 부드러운 곡선 입장 (현재 기본)<br>
+          <strong>V2 코너</strong>: 모서리에서 나선형으로 모임<br>
+          <strong>V3 웨이브</strong>: 사인 파형으로 입장 후 figure-8 궤도<br>
+          <strong>V4 호버</strong>: 화면 아래에서 부드럽게 떠오르며 입장
+        </div>
+        <div class="anim-stage tall" data-stage="sp-grant"></div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="sp-grant-v1">▶ V1 사이드 (기본)</button>
+          <button class="anim-btn alt" data-play="sp-grant-v2">▶ V2 코너</button>
+          <button class="anim-btn alt" data-play="sp-grant-v3">▶ V3 웨이브</button>
+          <button class="anim-btn alt" data-play="sp-grant-v4">▶ V4 호버</button>
+        </div>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <!-- ── 기타 ──────────────────────────────────────────────────────── -->
-  <div class="group" id="misc">
-    <div class="group-title">⑦ 기타</div>
+  <!-- G. 게임 종료 -->
+  <section class="group" id="gameover">
+    <div class="group-title">G. 게임 종료</div>
     <div class="anim-grid">
       <div class="anim-card">
-        <div class="label">shrink-warning (보드 상단 경고)</div>
-        <div class="desc">"외곽 파괴까지 N턴" — 펄스 강조 (1.2s)</div>
-        <div class="anim-stage" data-stage="warn"></div>
-      </div>
-      <div class="anim-card">
-        <div class="label">pulse-end-turn (턴 종료 부드러운 강조)</div>
-        <div class="desc">행동 모두 막힌 상태에서 턴 종료 버튼이 부드러운 노란 글로우 (펄스 애니메이션 없음)</div>
-        <div class="anim-stage" data-stage="endturn"></div>
-      </div>
-      <div class="anim-card">
-        <div class="label">profile-hit-pulse-end-turn (위 효과 한꺼번에)</div>
-        <div class="desc">N턴 경고 + 턴 종료 강조 — 동시에 보이는 모습</div>
-        <div class="anim-stage" data-stage="combined"></div>
+        <div class="label">⭐ defeat-replay · 패배 시 상대 마지막 배치</div>
+        <div class="desc">해골 거대 이모지 제거. 상대의 살아있는 piece 위치 + 보드 오브젝트(덫·폭탄·쥐) 그대로 그리드 노출.</div>
+        <div class="anim-stage tall" data-stage="defeat-replay"></div>
+        <button class="anim-btn" data-play="defeat-replay">▶ 미리보기</button>
       </div>
     </div>
-  </div>
+  </section>
+
+  <!-- H. 보호됨 옵션 (변형 + SFX 5종) -->
+  <section class="group" id="protected">
+    <div class="group-title">H. 보호됨 — 4 변형 × 5 SFX (참고)</div>
+    <div class="anim-grid">
+      <div class="anim-card">
+        <div class="label">애니메이션 4 변형</div>
+        <div class="desc">v1: 1회 sweep / v2: 2회 sweep / v3: 1회 + 둔둔 (현재 기본) / v4: 2회 + 둔둔</div>
+        <div class="anim-stage" data-stage="protected-variants"></div>
+        <div class="btn-row">
+          <button class="anim-btn" data-play="protected-v1">v1</button>
+          <button class="anim-btn" data-play="protected-v2">v2</button>
+          <button class="anim-btn" data-play="protected-v3">v3 (기본)</button>
+          <button class="anim-btn" data-play="protected-v4">v4</button>
+        </div>
+      </div>
+      <div class="anim-card">
+        <div class="label">SFX 5종 — 단독 듣기</div>
+        <div class="desc">SFX1 팅(금속) / SFX2 반짝(유리 5음) / SFX3 둔둔(저음 더블) / SFX4 차임(벨톤, 현재 기본) / SFX5 크리스탈(8음 캐스케이드)</div>
+        <div class="anim-stage compact" data-stage="protected-sfx"></div>
+        <div class="btn-row">
+          <button class="anim-btn alt" data-play="sfx-only-1">SFX1</button>
+          <button class="anim-btn alt" data-play="sfx-only-2">SFX2</button>
+          <button class="anim-btn alt" data-play="sfx-only-3">SFX3</button>
+          <button class="anim-btn alt" data-play="sfx-only-4">SFX4 (기본)</button>
+          <button class="anim-btn alt" data-play="sfx-only-5">SFX5</button>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <script>
-    // ── 미니 프로필 카드 빌더 ──
+    // ── 미니 카드 빌더 ──
+    // 인게임 동일 구조: 도장은 카드 최상단(card 직속) 배치 — position:absolute로 카드 우상단 모서리 기준
     function buildMiniCard(opts) {
       opts = opts || {};
       const card = document.createElement('div');
       card.className = 'mini-card my-piece-card';
-      const isCursed = opts.cursed;
-      if (isCursed) card.classList.add('curse-active');
+      if (opts.cursed) card.classList.add('curse-active');
+      const dmg = opts.dmgOverlay || '';
       card.innerHTML = `
+        ${dmg}
         <div class="my-piece-header">
           <span class="p-icon">${opts.icon || '🛡'}</span>
           <strong>${opts.name || '호위 무사'}</strong>
         </div>
-        <div class="hp-bar-bg">
+        <div class="hp-bar-bg hp-bar-with-text">
           <div class="hp-bar" style="width:${opts.hpPct != null ? opts.hpPct : 100}%"></div>
-          ${opts.dmgOverlay || ''}
+          <span class="hp-bar-text">${opts.hp != null ? opts.hp : 5}/5</span>
         </div>
-        <div class="stats">
-          <span>HP ${opts.hp != null ? opts.hp : 5}/5</span>
-          <span>D4</span>
+        <div class="piece-stat-row">
+          <span class="piece-stat-atk"><span class="stat-label">ATK</span> 1</span>
         </div>
       `;
       return card;
     }
 
-    // ── 미니 보드 셀 빌더 ──
+    // ── 미니 셀 빌더 ──
     function buildMiniCell(icon) {
       const cell = document.createElement('div');
       cell.className = 'mini-cell cell';
@@ -413,222 +495,734 @@
       return cell;
     }
 
-    // ── 스테이지 초기화 ──
-    function getStage(name) {
-      return document.querySelector(`[data-stage="${name}"]`);
-    }
-    function clearStage(stage) {
-      stage.innerHTML = '';
-    }
+    // ── 스테이지 헬퍼 ──
+    const $stage = (n) => document.querySelector(`[data-stage="${n}"]`);
 
     // ── 초기 카드 배치 ──
     function init() {
-      // ① 프로필 효과
-      ['hit', 'heal', 'protected', 'protected-sfx', 'curse-active'].forEach(name => {
-        const stage = getStage(name);
+      ['hit', 'heal', 'protected', 'curse-active', 'stamp', 'stamp-curse', 'stamp-loyalty',
+       'stamp-combo', 'hpbar', 'sp-spend', 'protected-variants'].forEach(name => {
+        const stage = $stage(name);
         if (!stage) return;
         const card = buildMiniCard({ cursed: name === 'curse-active' });
         stage.appendChild(card);
       });
-
-      // ② 데미지 도장
-      const stampStage = getStage('stamp');
-      stampStage.appendChild(buildMiniCard());
-      const stampCurseStage = getStage('stamp-curse');
-      stampCurseStage.appendChild(buildMiniCard({ cursed: true }));
-
-      // ③ HP 바
-      const hpStage = getStage('hpbar');
-      hpStage.appendChild(buildMiniCard({ hp: 5, hpPct: 100 }));
-
-      // ④ 회복 파티클
-      const sparkleStage = getStage('sparkle');
-      sparkleStage.appendChild(buildMiniCard());
-
-      // ⑤ 보드 셀들
       ['cellhit', 'markedmove', 'tmflash', 'tmtrail'].forEach(n => {
-        const stage = getStage(n);
+        const stage = $stage(n);
         if (!stage) return;
         stage.appendChild(buildMiniCell('🛡'));
       });
-
-      // 보드 흔들림 — 3x3 미니 보드
-      const boardStage = getStage('boardshake');
-      const board = document.createElement('div');
-      board.id = 'preview-board';
-      board.className = 'board';  // .board.board-shake 셀렉터를 위한 .board 클래스 추가
-      board.style.cssText = 'display:grid;grid-template-columns:repeat(3,40px);gap:2px;padding:6px;background:rgba(80,60,40,0.3);border-radius:4px;';
-      for (let i = 0; i < 9; i++) {
-        const c = document.createElement('div');
-        c.style.cssText = 'width:40px;height:40px;background:rgba(100,80,50,0.4);border:1px solid var(--border);border-radius:3px;';
-        if (i === 4) c.textContent = '🛡', c.style.cssText += 'display:flex;align-items:center;justify-content:center;font-size:1.2rem;';
-        board.appendChild(c);
+      // 기폭 미리보기 — 5x5 미니 보드, 폭탄 3개 위치에 .has-bomb 클래스(작은 💣 표시)
+      const detoStage = $stage('detonation');
+      if (detoStage) {
+        const board = document.createElement('div');
+        board.className = 'preview-board-grid';
+        board.style.gridTemplateColumns = 'repeat(5, 1fr)';
+        const bombPos = new Set(['1,1', '2,3', '4,0']);
+        for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.col = c; cell.dataset.row = r;
+          if (bombPos.has(`${c},${r}`)) cell.classList.add('has-bomb');
+          board.appendChild(cell);
+        }
+        detoStage.appendChild(board);
       }
-      boardStage.appendChild(board);
+      // 보드 흔들림 — 3x3 미니
+      const bs = $stage('boardshake');
+      if (bs) {
+        const board = document.createElement('div');
+        board.className = 'preview-board-grid';
+        board.style.gridTemplateColumns = 'repeat(3, 1fr)';
+        for (let i = 0; i < 9; i++) {
+          const c = document.createElement('div');
+          c.className = 'cell';
+          board.appendChild(c);
+        }
+        bs.appendChild(board);
+      }
+      // 외곽 경고 — 텍스트 박스
+      const wr = $stage('warn');
+      if (wr) {
+        const banner = document.createElement('div');
+        banner.className = 'shrink-warning';
+        banner.style.padding = '8px 14px';
+        banner.style.background = 'rgba(220,38,38,0.16)';
+        banner.style.border = '1px solid var(--tdanger)';
+        banner.style.borderRadius = '6px';
+        banner.style.color = 'var(--tdanger)';
+        banner.style.fontWeight = '700';
+        banner.textContent = '⚠ 외곽 파괴까지 5턴 — 위험';
+        wr.appendChild(banner);
+      }
+      // 풀스크린 — 단순 placeholder
+      ['gameStart', 'shrinkIntro', 'stalemate', 'sp-grant'].forEach(name => {
+        const stage = $stage(name);
+        if (!stage) return;
+        const ph = document.createElement('div');
+        ph.style.color = 'var(--tmuted)';
+        ph.textContent = '재생 시 화면 전체 오버레이로 표시됨';
+        stage.appendChild(ph);
+      });
+      // 패배 그리드 미리보기
+      const dr = $stage('defeat-replay');
+      if (dr) {
+        const board = document.createElement('div');
+        board.className = 'preview-board-grid';
+        board.style.gridTemplateColumns = 'repeat(5, 1fr)';
+        const sample = [
+          { col: 0, row: 0, icon: '🏹', hp: 3 },
+          { col: 2, row: 1, icon: '🎖', hp: 5 },
+          { col: 4, row: 4, icon: '👑', hp: 6 },
+          { col: 1, row: 3, type: 'trap' },
+          { col: 3, row: 0, type: 'rat' },
+        ];
+        for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          const pc = sample.find(s => s.col === c && s.row === r);
+          if (pc) {
+            if (pc.type === 'trap') cell.classList.add('has-trap');
+            else if (pc.type === 'rat') cell.classList.add('has-rat');
+            else {
+              cell.style.background = 'rgba(220,38,38,0.18)';
+              cell.style.borderColor = 'rgba(220,38,38,0.6)';
+              cell.innerHTML = `${pc.icon}`;
+            }
+          }
+          board.appendChild(cell);
+        }
+        dr.appendChild(board);
+      }
+      // SFX 단독 — 작은 placeholder
+      const sf = $stage('protected-sfx');
+      if (sf) sf.innerHTML = '<div style="color:var(--tmuted);font-size:0.78rem">버튼 클릭으로 듣기</div>';
+    }
+    init();
 
-      // ⑦ 기타 — 정적 표시
-      const warnStage = getStage('warn');
-      const warn = document.createElement('div');
-      warn.className = 'shrink-warning';
-      warn.style.maxWidth = '380px';
-      warn.textContent = '외곽 파괴까지 9턴';
-      warnStage.appendChild(warn);
-
-      const endturnStage = getStage('endturn');
-      const btn = document.createElement('button');
-      btn.className = 'pulse-end-turn';
-      btn.textContent = '턴 종료';
-      btn.style.cssText = 'background:#f59e0b;color:#1a1410;border:none;padding:10px 20px;font-weight:700;font-size:0.95rem;border-radius:6px;cursor:pointer;';
-      endturnStage.appendChild(btn);
-
-      const combinedStage = getStage('combined');
-      const cwarn = document.createElement('div');
-      cwarn.className = 'shrink-warning';
-      cwarn.style.maxWidth = '380px';
-      cwarn.textContent = '외곽 파괴까지 9턴';
-      const cbtn = document.createElement('button');
-      cbtn.className = 'pulse-end-turn';
-      cbtn.textContent = '턴 종료';
-      cbtn.style.cssText = 'background:#f59e0b;color:#1a1410;border:none;padding:10px 20px;font-weight:700;font-size:0.95rem;border-radius:6px;cursor:pointer;margin-top:10px;';
-      combinedStage.style.flexDirection = 'column';
-      combinedStage.style.gap = '12px';
-      combinedStage.appendChild(cwarn);
-      combinedStage.appendChild(cbtn);
+    // ── 도장/오버레이 빌더 ──
+    function dmgOverlay(dmg, kind) {
+      const txt = Number.isInteger(dmg) ? `${dmg} 데미지` : `${dmg.toFixed(1)} 데미지`;
+      let cls = 'dmg-stamp';
+      let extra = '';
+      if (kind === 'curse') cls += ' curse';
+      if (kind === 'loyalty') { cls += ' loyalty'; extra = '<span class="loyalty-tag">충성</span>'; }
+      return `<div class="${cls}">${txt}${extra}</div>`;
+    }
+    function refreshStampStage(name, dmg, kind) {
+      const stage = $stage(name);
+      if (!stage) return;
+      stage.innerHTML = '';
+      stage.appendChild(buildMiniCard({ dmgOverlay: dmgOverlay(dmg, kind), hpPct: 60, hp: 3 }));
     }
 
-    // ── 트리거 함수들 ──
-    const triggers = {
-      hit() {
-        const card = getStage('hit').querySelector('.mini-card');
-        card.classList.remove('profile-hit');
-        void card.offsetWidth;
-        card.classList.add('profile-hit');
-        setTimeout(() => card.classList.remove('profile-hit'), 1800);
+    // ── SFX (게임 코드와 동일 generator) ──
+    let _ctx = null;
+    function ctx() {
+      if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
+      return _ctx;
+    }
+    function playProtectedSFX(n) {
+      const c = ctx(); const now = c.currentTime; const out = c.destination;
+      const osc = (type, freq, duration, gain, glide) => {
+        const o = c.createOscillator(); const g = c.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(freq, now);
+        if (glide) o.frequency.exponentialRampToValueAtTime(glide, now + duration);
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(gain, now + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + duration + 0.1);
+      };
+      const sparkle = (freqs) => freqs.forEach((f, i) => setTimeout(() => osc('triangle', f, 0.18, 0.15), i * 40));
+      if (n === 1) { osc('triangle', 2400, 0.55, 0.28, 1700); osc('sine', 3800, 0.4, 0.12); }
+      else if (n === 2) { sparkle([1800, 2400, 3000, 3600, 4200]); }
+      else if (n === 3) { osc('sine', 220, 0.18, 0.32); setTimeout(() => osc('sine', 180, 0.22, 0.32), 130); }
+      else if (n === 4) { osc('sine', 1320, 0.7, 0.22, 880); osc('triangle', 2640, 0.5, 0.1); }
+      else if (n === 5) { sparkle([1500, 2200, 2800, 3300, 3800, 4400, 5000, 5600]); }
+    }
+
+    // ── 액션 라우터 ──
+    const actions = {
+      hit:  () => triggerCardClass('hit', 'profile-hit', 1800),
+      heal: () => {
+        triggerCardClass('heal', 'heal-flash', 1800);
+        // 인게임 spawnHealSparkles 와 동일 — 6개 반짝이 파티클
+        const stage = $stage('heal');
+        const card = stage && stage.querySelector('.mini-card');
+        if (card) spawnHealSparklesPreview(card);
       },
-      heal() {
-        const card = getStage('heal').querySelector('.mini-card');
-        card.classList.remove('heal-flash');
-        void card.offsetWidth;
-        card.classList.add('heal-flash');
-        setTimeout(() => card.classList.remove('heal-flash'), 1800);
-      },
-      'protected-v1'() { playProtectedVariant('v1', 1050); },
-      'protected-v2'() { playProtectedVariant('v2', 1550); },
-      'protected-v3'() { playProtectedVariant('v3', 1050); },
-      'protected-v4'() { playProtectedVariant('v4', 1550); },
-      'sfx-only-1'() { playSfxOnly(1); },
-      'sfx-only-2'() { playSfxOnly(2); },
-      'sfx-only-3'() { playSfxOnly(3); },
-      'sfx-only-4'() { playSfxOnly(4); },
-      'sfx-only-5'() { playSfxOnly(5); },
-      'combo-1'() { playCombo(1); },
-      'combo-2'() { playCombo(2); },
-      'combo-3'() { playCombo(3); },
-      'combo-4'() { playCombo(4); },
-      'combo-5'() { playCombo(5); },
-      'curse-active'() {
-        const card = getStage('curse-active').querySelector('.mini-card');
-        card.classList.toggle('curse-active');
-      },
-      stamp1() { addStamp('stamp', 1, false); },
-      'stamp1.5'() { addStamp('stamp', 1.5, false); },
-      stamp3() { addStamp('stamp', 3, false); },
-      'stamp-curse'() { addStamp('stamp-curse', 0.5, true); },
-      hpbar() {
-        const card = getStage('hpbar').querySelector('.mini-card');
-        const bar = card.querySelector('.hp-bar');
-        const bg = card.querySelector('.hp-bar-bg');
-        // 기존 도장·오버레이 제거
-        bg.querySelectorAll('.hp-bar-damage').forEach(e => e.remove());
-        card.querySelectorAll('.dmg-stamp').forEach(e => e.remove());
-        // HP 5→3 (2 데미지) 시뮬: 시작 100% 폭, 현재 60% 폭, 빨간 오버레이 60%~100%
-        bar.style.transition = 'width 0.4s';
-        bar.style.width = '60%';
+      protected: () => triggerCardClass('protected', 'profile-protected v3', 1100),
+      'protected-v1': () => triggerCardClass('protected-variants', 'profile-protected v1', 1100),
+      'protected-v2': () => triggerCardClass('protected-variants', 'profile-protected v2', 1100),
+      'protected-v3': () => triggerCardClass('protected-variants', 'profile-protected v3', 1100),
+      'protected-v4': () => triggerCardClass('protected-variants', 'profile-protected v4', 1100),
+      'curse-active': () => toggleCardClass('curse-active', 'curse-active'),
+      stamp1:   () => refreshStampStage('stamp', 1),
+      'stamp1.5': () => refreshStampStage('stamp', 1.5),
+      stamp3:   () => refreshStampStage('stamp', 3),
+      'stamp-curse':   () => refreshStampStage('stamp-curse', 0.5, 'curse'),
+      'stamp-loyalty': () => refreshStampStage('stamp-loyalty', 1, 'loyalty'),
+      hpbar:    () => {
+        const s = $stage('hpbar'); s.innerHTML = '';
+        const ov = `<div class="hp-bar-damage" style="left:60%;width:40%"></div>`;
+        s.appendChild(buildMiniCard({ dmgOverlay: dmgOverlay(2), hpPct: 60, hp: 3 }));
         const overlay = document.createElement('div');
         overlay.className = 'hp-bar-damage';
-        overlay.style.left = '60%';
-        overlay.style.width = '40%';
-        bg.appendChild(overlay);
-        // HP 텍스트 갱신
-        const stats = card.querySelector('.stats span');
-        if (stats) stats.textContent = 'HP 3/5';
-        // 도장도 같이
-        const stamp = document.createElement('div');
-        stamp.className = 'dmg-stamp';
-        stamp.textContent = '2 데미지';
-        card.appendChild(stamp);
-        setTimeout(() => {
-          bar.style.width = '100%';
-          if (stats) stats.textContent = 'HP 5/5';
-          overlay.remove();
-          stamp.remove();
-        }, 3500);
+        overlay.style.cssText = 'left:60%;width:40%;position:absolute;top:0;height:14px;background:rgba(220,38,38,0.85);border-radius:0 4px 4px 0;animation:hp-bar-damage-pulse 1.4s ease-out 1';
+        s.querySelector('.hp-bar-bg').appendChild(overlay);
       },
-      sparkle() {
-        const card = getStage('sparkle').querySelector('.mini-card');
-        spawnHealSparkles(card);
-      },
-      cellhit() {
-        const cell = getStage('cellhit').querySelector('.mini-cell');
-        cell.classList.remove('cell-hit-shake');
-        void cell.offsetWidth;
-        cell.classList.add('cell-hit-shake');
-        setTimeout(() => cell.classList.remove('cell-hit-shake'), 700);
-      },
-      markedmove() {
-        const cell = getStage('markedmove').querySelector('.mini-cell');
-        cell.classList.remove('marked-move-flash');
-        void cell.offsetWidth;
-        cell.classList.add('marked-move-flash');
-        setTimeout(() => cell.classList.remove('marked-move-flash'), 700);
-      },
-      tmflash() {
-        const cell = getStage('tmflash').querySelector('.mini-cell');
-        cell.classList.remove('teammate-move-flash');
-        void cell.offsetWidth;
-        cell.classList.add('teammate-move-flash');
-        setTimeout(() => cell.classList.remove('teammate-move-flash'), 800);
-      },
-      tmtrail() {
-        const cell = getStage('tmtrail').querySelector('.mini-cell');
-        cell.classList.remove('teammate-move-trail');
-        void cell.offsetWidth;
-        cell.classList.add('teammate-move-trail');
-        setTimeout(() => cell.classList.remove('teammate-move-trail'), 600);
-      },
-      boardshake() {
-        const board = document.getElementById('preview-board');
+      cellhit: () => triggerCellClass('cellhit', 'cell-hit-shake', 600),
+      markedmove: () => triggerCellClass('markedmove', 'marked-move-flash', 1200),
+      tmflash: () => triggerCellClass('tmflash', 'teammate-move-flash', 800),
+      tmtrail: () => triggerCellClass('tmtrail', 'teammate-move-trail', 600),
+      boardshake: () => {
+        const s = $stage('boardshake'); const board = s.querySelector('.preview-board-grid');
+        if (!board) return;
         board.classList.remove('board-shake');
         void board.offsetWidth;
         board.classList.add('board-shake');
         setTimeout(() => board.classList.remove('board-shake'), 1000);
       },
-      gameStart() { showOverlay('gameStart', '전투 개시', '선공'); },
-      shrinkIntro() { showOverlay('shrinkIntro', '보드 파괴 시작', '안쪽으로 대피하세요.'); },
-      stalemate() { showOverlay('stalemate', '1대1 대치', '5턴 후 보드가 축소됩니다.'); },
+      warn: () => {
+        const s = $stage('warn'); const b = s.querySelector('.shrink-warning');
+        if (!b) return;
+        b.style.animation = 'none'; void b.offsetWidth;
+        b.style.animation = 'shrink-warn-pulse 1.2s ease-in-out 2';
+      },
+      'sp-spend': () => {
+        const s = $stage('sp-spend');
+        s.classList.remove('sp-section', 'sp-spend-attn');
+        void s.offsetWidth;
+        s.classList.add('sp-section', 'sp-spend-attn');
+        setTimeout(() => s.classList.remove('sp-spend-attn'), 1100);
+      },
+      'sp-grant': () => playSpGrantPreview('v1'),
+      'sp-grant-v1': () => playSpGrantPreview('v1'),
+      'sp-grant-v2': () => playSpGrantPreview('v2'),
+      'sp-grant-v3': () => playSpGrantPreview('v3'),
+      'sp-grant-v4': () => playSpGrantPreview('v4'),
+      'sp-orb-1': () => playSpOrbTransfer(1),
+      'sp-orb-3': () => playSpOrbTransfer(3),
+      'sp-orb-reset': () => { _mockMyVal = 5; _mockOppVal = 3; refreshMock(); },
+      'instant-consume': () => playSpOrbInstantVanish(),
+      'instant-gain': () => playInstantGainPreview(),
+      'ic-sfx-1': () => { SP_INSTANT_CONSUME_VAR = 1; playSfxInstantConsume(1); },
+      'ic-sfx-2': () => { SP_INSTANT_CONSUME_VAR = 2; playSfxInstantConsume(2); },
+      'ic-sfx-3': () => { SP_INSTANT_CONSUME_VAR = 3; playSfxInstantConsume(3); },
+      'ic-sfx-4': () => { SP_INSTANT_CONSUME_VAR = 4; playSfxInstantConsume(4); },
+      'ig-sfx-1': () => { SP_INSTANT_GAIN_VAR = 1; playSfxInstantGain(1); },
+      'ig-sfx-2': () => { SP_INSTANT_GAIN_VAR = 2; playSfxInstantGain(2); },
+      'ig-sfx-3': () => { SP_INSTANT_GAIN_VAR = 3; playSfxInstantGain(3); },
+      'ig-sfx-4': () => { SP_INSTANT_GAIN_VAR = 4; playSfxInstantGain(4); },
+      'orb-sfx-1': () => { SP_ORB_VAR = 1; playSfxOrbDepart(1); setTimeout(() => playSfxOrbArrive(1), 700); },
+      'orb-sfx-2': () => { SP_ORB_VAR = 2; playSfxOrbDepart(2); setTimeout(() => playSfxOrbArrive(2), 700); },
+      'orb-sfx-3': () => { SP_ORB_VAR = 3; playSfxOrbDepart(3); setTimeout(() => playSfxOrbArrive(3), 700); },
+      'orb-sfx-4': () => { SP_ORB_VAR = 4; playSfxOrbDepart(4); setTimeout(() => playSfxOrbArrive(4), 700); },
+      'stamp-combo': () => {
+        const stage = $stage('stamp-combo');
+        if (!stage) return;
+        stage.innerHTML = '';
+        const combo = dmgOverlay(2) + dmgOverlay(1, 'loyalty');
+        stage.appendChild(buildMiniCard({ dmgOverlay: combo, hpPct: 50, hp: 2 }));
+      },
+      gameStart: () => spawnFullscreenOverlay('gameStart', 1800),
+      shrinkIntro: () => spawnFullscreenOverlay('shrinkIntro', 2200),
+      stalemate: () => spawnFullscreenOverlay('stalemate', 2200),
+      detonation: () => playDetonation(),
+      'defeat-replay': () => alert('패배 화면 그리드 미리보기 — 실제 게임에서는 게임오버 화면에 표시됩니다.'),
+      'sfx-only-1': () => playProtectedSFX(1),
+      'sfx-only-2': () => playProtectedSFX(2),
+      'sfx-only-3': () => playProtectedSFX(3),
+      'sfx-only-4': () => playProtectedSFX(4),
+      'sfx-only-5': () => playProtectedSFX(5),
     };
 
-    function addStamp(stageName, dmg, isCurse) {
-      const stage = getStage(stageName);
-      const card = stage.querySelector('.mini-card');
-      const old = card.querySelector(`.dmg-stamp${isCurse ? '.curse' : ':not(.curse)'}`);
-      if (old) old.remove();
-      const stamp = document.createElement('div');
-      stamp.className = 'dmg-stamp' + (isCurse ? ' curse' : '');
-      const txt = Number.isInteger(dmg) ? `${dmg} 데미지` : `${dmg.toFixed(1)} 데미지`;
-      stamp.textContent = txt;
-      card.appendChild(stamp);
-      if (isCurse) {
-        // 저주 도장은 3초 후 사라짐
-        setTimeout(() => stamp.remove(), 3000);
+    function triggerCardClass(stageName, cls, dur) {
+      const s = $stage(stageName);
+      const card = s && s.querySelector('.mini-card');
+      if (!card) return;
+      const classes = cls.split(' ');
+      classes.forEach(c => card.classList.remove(c));
+      void card.offsetWidth;
+      classes.forEach(c => card.classList.add(c));
+      setTimeout(() => classes.forEach(c => card.classList.remove(c)), dur);
+    }
+    function toggleCardClass(stageName, cls) {
+      const s = $stage(stageName);
+      const card = s && s.querySelector('.mini-card');
+      if (!card) return;
+      card.classList.toggle(cls);
+    }
+    function triggerCellClass(stageName, cls, dur) {
+      const s = $stage(stageName);
+      const cell = s && s.querySelector('.mini-cell');
+      if (!cell) return;
+      cell.classList.remove(cls);
+      void cell.offsetWidth;
+      cell.classList.add(cls);
+      setTimeout(() => cell.classList.remove(cls), dur);
+    }
+
+    function spawnFullscreenOverlay(kind, duration) {
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none;
+      `;
+      let inner = '';
+      if (kind === 'gameStart') {
+        overlay.style.background = 'radial-gradient(ellipse at center, rgba(0,0,0,0.55), rgba(0,0,0,0.85))';
+        inner = `<div style="font-size:4rem;font-weight:900;color:#f0c040;text-shadow:0 0 24px rgba(240,192,64,0.85);animation:fadeInScale 0.6s">전투 개시</div>`;
+      } else if (kind === 'shrinkIntro') {
+        overlay.style.background = 'radial-gradient(ellipse at center, rgba(80,0,0,0.55), rgba(0,0,0,0.92))';
+        inner = `<div style="font-size:3rem;font-weight:900;color:#ef4444;text-shadow:0 0 24px rgba(239,68,68,0.95);animation:fadeInScale 0.6s">⚠ 보드 파괴 임박</div>`;
+      } else if (kind === 'stalemate') {
+        overlay.style.background = 'radial-gradient(ellipse at center, rgba(40,40,80,0.55), rgba(0,0,0,0.85))';
+        inner = `<div style="font-size:2.4rem;font-weight:900;color:#fbbf24;text-shadow:0 0 18px rgba(251,191,36,0.9);animation:fadeInScale 0.6s">⚔ 1대1 대치</div>`;
+      } else if (kind === 'sp-grant') {
+        overlay.className = 'sp-grant-overlay';
+        overlay.innerHTML = `
+          <div class="sp-grant-content">
+            <div class="sp-grant-rays"></div>
+            <div class="sp-grant-title">SP 지급</div>
+            <div class="sp-grant-glyph">⚡</div>
+            <div class="sp-grant-sub">새로운 SP가 지급되었습니다</div>
+          </div>`;
+        document.body.classList.add('sp-granting');
+      }
+      if (kind !== 'sp-grant') overlay.innerHTML = inner;
+      document.body.appendChild(overlay);
+      setTimeout(() => {
+        overlay.remove();
+        document.body.classList.remove('sp-granting');
+      }, duration);
+    }
+
+    // ── SP 마법구 비행 (시전자 → 상대 SP 숫자, 인게임 spendSPAttention 미러) ──
+    let _mockMyVal = 5, _mockOppVal = 3, _mockInstVal = 0;
+    function refreshMock() {
+      const m = document.getElementById('mock-mine');
+      const o = document.getElementById('mock-opp');
+      if (m) m.textContent = String(_mockMyVal);
+      if (o) o.textContent = String(_mockOppVal);
+    }
+    function playSpOrbTransfer(count) {
+      const my = document.getElementById('mock-mine');
+      const opp = document.getElementById('mock-opp');
+      if (!my || !opp) return;
+      const mr = my.getBoundingClientRect();
+      const or = opp.getBoundingClientRect();
+      const from = { x: mr.left + mr.width / 2, y: mr.top + mr.height / 2 };
+      const to   = { x: or.left + or.width / 2, y: or.top + or.height / 2 };
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => {
+          // 출발 시점 — 시전자 -1 + 효과음
+          if (_mockMyVal > 0) { _mockMyVal--; refreshMock(); }
+          try { playSfxOrbDepart(SP_ORB_VAR); } catch (e) {}
+          // 비행 + 도착
+          spawnPreviewOrbFlight(from, to, () => {
+            _mockOppVal++; refreshMock();
+            try { playSfxOrbArrive(SP_ORB_VAR); } catch (e) {}
+          });
+        }, 200 + i * 200);
+      }
+    }
+    function playSpOrbInstantVanish() {
+      const my = document.getElementById('mock-mine');
+      if (!my) return;
+      const r = my.getBoundingClientRect();
+      const from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      spawnPreviewOrbVanish(from);
+      try { playSfxInstantConsume(SP_INSTANT_CONSUME_VAR); } catch (e) {}
+    }
+    function playInstantGainPreview() {
+      const my = document.getElementById('mock-mine');
+      if (!my) return;
+      const r = my.getBoundingClientRect();
+      const to = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      const fromX = to.x - 80, fromY = to.y - 80;
+      const orb = document.createElement('div');
+      orb.className = 'sp-orb sp-orb-instant';
+      orb.style.left = fromX + 'px';
+      orb.style.top = fromY + 'px';
+      document.body.appendChild(orb);
+      const dur = 700;
+      const startT = performance.now();
+      const mid = { x: (fromX + to.x) / 2, y: (fromY + to.y) / 2 - 40 };
+      function step(now) {
+        const t = Math.min(1, (now - startT) / dur);
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = (1 - e) * (1 - e) * fromX + 2 * (1 - e) * e * mid.x + e * e * to.x;
+        const y = (1 - e) * (1 - e) * fromY + 2 * (1 - e) * e * mid.y + e * e * to.y;
+        const wobble = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+        orb.style.left = (x + wobble) + 'px';
+        orb.style.top = (y - wobble) + 'px';
+        if (t < 1) requestAnimationFrame(step);
+        else {
+          orb.classList.add('sp-orb-arrive');
+          try { playSfxInstantGain(SP_INSTANT_GAIN_VAR); } catch (e) {}
+          setTimeout(() => orb.remove(), 320);
+        }
+      }
+      requestAnimationFrame(step);
+    }
+    function spawnPreviewOrbFlight(from, to, onArrive) {
+      const orb = document.createElement('div');
+      orb.className = 'sp-orb sp-orb-mine';
+      document.body.appendChild(orb);
+      const dur = 700;
+      const startT = performance.now();
+      const dx = to.x - from.x;
+      const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - Math.abs(dx) * 0.2 - 30 };
+      // 트레일 더스트
+      const trailIv = setInterval(() => {
+        const r = orb.getBoundingClientRect();
+        const dust = document.createElement('div');
+        dust.className = 'sp-dust sp-dust-mine';
+        dust.style.left = (r.left + r.width / 2) + 'px';
+        dust.style.top = (r.top + r.height / 2) + 'px';
+        document.body.appendChild(dust);
+        setTimeout(() => dust.remove(), 700);
+      }, 35);
+      function step(now) {
+        const t = Math.min(1, (now - startT) / dur);
+        const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const x = (1 - e) * (1 - e) * from.x + 2 * (1 - e) * e * mid.x + e * e * to.x;
+        const y = (1 - e) * (1 - e) * from.y + 2 * (1 - e) * e * mid.y + e * e * to.y;
+        const wobble = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+        orb.style.left = (x + wobble) + 'px';
+        orb.style.top = (y - wobble) + 'px';
+        if (t < 1) requestAnimationFrame(step);
+        else {
+          clearInterval(trailIv);
+          orb.classList.add('sp-orb-arrive');
+          if (typeof onArrive === 'function') onArrive();
+          setTimeout(() => orb.remove(), 320);
+        }
+      }
+      requestAnimationFrame(step);
+    }
+    function spawnPreviewOrbVanish(from) {
+      const orb = document.createElement('div');
+      orb.className = 'sp-orb sp-orb-instant';
+      orb.style.left = from.x + 'px';
+      orb.style.top = from.y + 'px';
+      document.body.appendChild(orb);
+      requestAnimationFrame(() => {
+        orb.style.transition = 'top 0.7s ease-out, opacity 0.7s ease-out, transform 0.7s ease-out';
+        orb.style.top = (from.y - 60) + 'px';
+        orb.style.opacity = '0';
+        orb.style.transform = 'scale(0.4)';
+      });
+      setTimeout(() => orb.remove(), 750);
+    }
+
+    // ── SFX 변형 4 종 (depart/arrive/instant-consume/instant-gain) ──
+    let SP_ORB_VAR = 1, SP_INSTANT_CONSUME_VAR = 1, SP_INSTANT_GAIN_VAR = 1;
+    function _ctxNow() { const c = ctx(); return { c, now: c.currentTime, out: c.destination }; }
+    function playSfxOrbDepart(v) {
+      const { c, now, out } = _ctxNow();
+      if (v === 1) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(700, now); o.frequency.exponentialRampToValueAtTime(1300, now + 0.18);
+        g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.16, now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.25);
+      } else if (v === 2) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(1800, now);
+        g.gain.setValueAtTime(0.16, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+      } else if (v === 3) {
+        const buf = c.createBuffer(1, c.sampleRate * 0.18, c.sampleRate);
+        const d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.15 * (1 - i / d.length);
+        const src = c.createBufferSource(); src.buffer = buf; src.connect(out); src.start(now);
+      } else {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(990, now);
+        g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.18, now + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.28);
+      }
+    }
+    function playSfxOrbArrive(v) {
+      const { c, now, out } = _ctxNow();
+      if (v === 1) {
+        const o1 = c.createOscillator(), g1 = c.createGain();
+        o1.type = 'triangle'; o1.frequency.setValueAtTime(1568, now);
+        g1.gain.setValueAtTime(0.0001, now); g1.gain.linearRampToValueAtTime(0.20, now + 0.02); g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+        o1.connect(g1); g1.connect(out); o1.start(now); o1.stop(now + 0.5);
+        const o2 = c.createOscillator(), g2 = c.createGain();
+        o2.type = 'sine'; o2.frequency.setValueAtTime(2349, now + 0.04);
+        g2.gain.setValueAtTime(0.0001, now + 0.04); g2.gain.linearRampToValueAtTime(0.10, now + 0.06); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        o2.connect(g2); g2.connect(out); o2.start(now + 0.04); o2.stop(now + 0.36);
+      } else if (v === 2) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(1500, now);
+        g.gain.setValueAtTime(0.22, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.35);
+      } else if (v === 3) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'square'; o.frequency.setValueAtTime(420, now); o.frequency.exponentialRampToValueAtTime(180, now + 0.1);
+        g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+      } else {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(220, now);
+        g.gain.setValueAtTime(0.20, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+        const o2 = c.createOscillator(), g2 = c.createGain();
+        o2.type = 'triangle'; o2.frequency.setValueAtTime(2640, now);
+        g2.gain.setValueAtTime(0.10, now); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        o2.connect(g2); g2.connect(out); o2.start(now); o2.stop(now + 0.2);
+      }
+    }
+    function playSfxInstantConsume(v) {
+      const { c, now, out } = _ctxNow();
+      if (v === 1) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(2200, now); o.frequency.exponentialRampToValueAtTime(900, now + 0.25);
+        g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.32);
+      } else if (v === 2) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(1320, now);
+        g.gain.setValueAtTime(0.16, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+      } else if (v === 3) {
+        [1800, 2400, 3000].forEach((f, i) => {
+          const o = c.createOscillator(), g = c.createGain();
+          const t = now + i * 0.04;
+          o.type = 'sine'; o.frequency.setValueAtTime(f, t);
+          g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+          o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.22);
+        });
+      } else {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(800, now); o.frequency.exponentialRampToValueAtTime(2200, now + 0.18);
+        g.gain.setValueAtTime(0.10, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.25);
+      }
+    }
+    function playSfxInstantGain(v) {
+      const { c, now, out } = _ctxNow();
+      if (v === 1) {
+        [1047, 1319, 1568].forEach((f, i) => {
+          const o = c.createOscillator(), g = c.createGain();
+          const t = now + i * 0.05;
+          o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+          g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.16, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+          o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.5);
+        });
+      } else if (v === 2) {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(1760, now);
+        g.gain.setValueAtTime(0.20, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.4);
+      } else if (v === 3) {
+        [1500, 1800, 2200, 2700, 3300].forEach((f, i) => {
+          const o = c.createOscillator(), g = c.createGain();
+          const t = now + i * 0.045;
+          o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+          g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.14, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+          o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.27);
+        });
+      } else {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(440, now);
+        g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+        o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.5);
+        const o2 = c.createOscillator(), g2 = c.createGain();
+        o2.type = 'triangle'; o2.frequency.setValueAtTime(1760, now + 0.05);
+        g2.gain.setValueAtTime(0.0001, now + 0.05); g2.gain.linearRampToValueAtTime(0.12, now + 0.07); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+        o2.connect(g2); g2.connect(out); o2.start(now + 0.05); o2.stop(now + 0.35);
       }
     }
 
-    // 회복 파티클 — 실제 game.js spawnHealSparkles 동등 구현
-    function spawnHealSparkles(card) {
+    // ── SP 지급 4변형 풀스크린 미리보기 ──
+    function playSpGrantPreview(variant) {
+      // overlay + orbs + text 동적 생성 (인게임과 동일 마크업)
+      const old = document.getElementById('sp-grant-preview');
+      if (old) old.remove();
+      const overlay = document.createElement('div');
+      overlay.id = 'sp-grant-preview';
+      overlay.className = 'sp-grant-overlay';
+      overlay.innerHTML = `
+        <div class="sp-grant-content">
+          <div class="sp-grant-orb"></div>
+          <div class="sp-grant-orb sp-grant-orb-right"></div>
+          <div class="sp-grant-text">
+            <div class="sp-grant-title">SP 지급</div>
+            <div class="sp-grant-sub">새로운 SP가 지급됩니다</div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const orbL = overlay.querySelectorAll('.sp-grant-orb')[0];
+      const orbR = overlay.querySelectorAll('.sp-grant-orb')[1];
+      const textBox = overlay.querySelector('.sp-grant-text');
+
+      const W = window.innerWidth, H = window.innerHeight;
+      const cx = W / 2, cy = H / 2;
+      const orbitR = 130;
+      const ENTRY_MS = 900, ORBIT_MS = 1400, DISPATCH_MS = 700;
+      const t0 = performance.now();
+
+      const setPos = (el, x, y) => { el.style.left = x + 'px'; el.style.top = y + 'px'; };
+      const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+      const easeInOutCubic = (t) => t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      // 변형별 입장 동선 함수 — t in [0,1] 반환 {lx, ly, rx, ry}
+      const entryFns = {
+        v1: (t) => {
+          // 사이드 입장 — 곡선 (현재 기본)
+          const e = easeOutCubic(t);
+          return {
+            lx: -40 + (cx - orbitR + 40) * e,
+            ly: cy + Math.sin(t * Math.PI * 2) * 26 * (1 - t * 0.5),
+            rx: W + 40 - (W + 40 - (cx + orbitR)) * e,
+            ry: cy - Math.sin(t * Math.PI * 2) * 26 * (1 - t * 0.5),
+          };
+        },
+        v2: (t) => {
+          // 코너에서 나선형으로 모임 (좌상단·우상단 미러)
+          const e = easeOutCubic(t);
+          // 좌: 시작 (50, 80) → 종료 (cx-orbitR, cy). 회전하면서 접근.
+          const sx1 = 50, sy1 = 80, ex1 = cx - orbitR, ey1 = cy;
+          const angle1 = (1 - t) * Math.PI * 1.5;  // 270도 회전
+          const radius1 = (1 - e) * 200;
+          const lx = lerp(sx1, ex1, e) + Math.cos(angle1) * radius1 * 0.3;
+          const ly = lerp(sy1, ey1, e) + Math.sin(angle1) * radius1 * 0.3;
+          // 우: 미러
+          const sx2 = W - 50, sy2 = 80, ex2 = cx + orbitR, ey2 = cy;
+          const angle2 = (1 - t) * Math.PI * 1.5;
+          const rx = lerp(sx2, ex2, e) - Math.cos(angle2) * radius1 * 0.3;
+          const ry = lerp(sy2, ey2, e) + Math.sin(angle2) * radius1 * 0.3;
+          return { lx, ly, rx, ry };
+        },
+        v3: (t) => {
+          // 사인 웨이브로 입장 (사이드, 진폭 큼)
+          const e = easeOutCubic(t);
+          const lx = -40 + (cx - orbitR + 40) * e;
+          const ly = cy + Math.sin(t * Math.PI * 4) * 80 * (1 - t);
+          const rx = W + 40 - (W + 40 - (cx + orbitR)) * e;
+          const ry = cy - Math.sin(t * Math.PI * 4) * 80 * (1 - t);
+          return { lx, ly, rx, ry };
+        },
+        v4: (t) => {
+          // 화면 아래에서 부드럽게 떠오름 (대칭)
+          const e = easeOutCubic(t);
+          const sx1 = cx - 280, sy1 = H + 50, ex1 = cx - orbitR, ey1 = cy;
+          const lx = lerp(sx1, ex1, e);
+          const ly = lerp(sy1, ey1, e) - Math.sin(t * Math.PI) * 40;
+          const sx2 = cx + 280, sy2 = H + 50, ex2 = cx + orbitR, ey2 = cy;
+          const rx = lerp(sx2, ex2, e);
+          const ry = lerp(sy2, ey2, e) - Math.sin(t * Math.PI) * 40;
+          return { lx, ly, rx, ry };
+        },
+      };
+      const entryFn = entryFns[variant] || entryFns.v1;
+
+      let dispatchStart = null;
+      function step() {
+        const elapsed = performance.now() - t0;
+        if (elapsed < ENTRY_MS) {
+          const t = elapsed / ENTRY_MS;
+          const p = entryFn(t);
+          setPos(orbL, p.lx, p.ly);
+          setPos(orbR, p.rx, p.ry);
+          orbL.style.opacity = String(Math.min(1, t * 2));
+          orbR.style.opacity = String(Math.min(1, t * 2));
+          requestAnimationFrame(step);
+        } else if (elapsed < ENTRY_MS + ORBIT_MS) {
+          if (!textBox.classList.contains('show')) textBox.classList.add('show');
+          const t = (elapsed - ENTRY_MS) / ORBIT_MS;
+          // V3 는 figure-8 궤도, 그 외는 타원
+          let lx, ly, rx, ry;
+          if (variant === 'v3') {
+            const a = t * Math.PI * 2;
+            lx = cx + Math.sin(Math.PI + a) * orbitR;
+            ly = cy + Math.sin(2 * (Math.PI + a)) * orbitR * 0.4;
+            rx = cx + Math.sin(a) * orbitR;
+            ry = cy + Math.sin(2 * a) * orbitR * 0.4;
+          } else {
+            const a = t * Math.PI * 2;
+            lx = cx + Math.cos(Math.PI + a) * orbitR;
+            ly = cy + Math.sin(Math.PI + a) * orbitR * 0.55;
+            rx = cx + Math.cos(a) * orbitR;
+            ry = cy + Math.sin(a) * orbitR * 0.55;
+          }
+          setPos(orbL, lx, ly);
+          setPos(orbR, rx, ry);
+          requestAnimationFrame(step);
+        } else if (elapsed < ENTRY_MS + ORBIT_MS + DISPATCH_MS) {
+          // 분리 비행 — 좌·우 화면 끝쪽으로 (미리보기에선 SP 바 없으므로 화면 양 끝으로)
+          if (!dispatchStart) dispatchStart = { l: { x: cx - orbitR, y: cy }, r: { x: cx + orbitR, y: cy } };
+          const target1 = { x: 80, y: 60 };
+          const target2 = { x: W - 80, y: 60 };
+          const t = (elapsed - ENTRY_MS - ORBIT_MS) / DISPATCH_MS;
+          const e = easeInOutCubic(t);
+          const lift = -Math.sin(t * Math.PI) * 50;
+          setPos(orbL, lerp(dispatchStart.l.x, target1.x, e), lerp(dispatchStart.l.y, target1.y, e) + lift);
+          setPos(orbR, lerp(dispatchStart.r.x, target2.x, e), lerp(dispatchStart.r.y, target2.y, e) + lift);
+          if (t > 0.6) textBox.style.opacity = String(1 - (t - 0.6) / 0.4);
+          requestAnimationFrame(step);
+        } else {
+          orbL.style.opacity = '0';
+          orbR.style.opacity = '0';
+          setTimeout(() => overlay.remove(), 300);
+        }
+      }
+      requestAnimationFrame(step);
+
+      // 차임 효과음 (페어리)
+      try {
+        const c = ctx(); const now = c.currentTime; const out = c.destination;
+        const notes = [523, 659, 784, 1047, 1319];
+        notes.forEach((freq, i) => {
+          const o = c.createOscillator(); const g = c.createGain();
+          o.type = 'triangle';
+          o.frequency.setValueAtTime(freq, now + i * 0.18);
+          g.gain.setValueAtTime(0.0001, now + i * 0.18);
+          g.gain.linearRampToValueAtTime(0.16, now + i * 0.18 + 0.04);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.18 + 0.7);
+          o.connect(g); g.connect(out);
+          o.start(now + i * 0.18); o.stop(now + i * 0.18 + 0.8);
+        });
+      } catch (e) {}
+    }
+
+    function playDetonation() {
+      const s = $stage('detonation');
+      const board = s && s.querySelector('.preview-board-grid');
+      if (!board) return;
+      const positions = [{c:1,r:1},{c:2,r:3},{c:4,r:0}];
+      const cells = positions.map(p => board.querySelector(`.cell[data-col="${p.c}"][data-row="${p.r}"]`)).filter(Boolean);
+      // 인게임과 동일한 0.95s 압축 타이밍 — 빨강 → 즉시 폭발
+      cells.forEach(c => c.classList.remove('bomb-reveal','bomb-arming','bomb-blast'));
+      void board.offsetWidth;
+      cells.forEach(c => c.classList.add('bomb-reveal'));
+      setTimeout(() => cells.forEach(c => c.classList.add('bomb-arming')), 450);
+      setTimeout(() => cells.forEach(c => c.classList.add('bomb-blast')), 550);
+      setTimeout(() => cells.forEach(c => c.classList.remove('bomb-reveal','bomb-arming','bomb-blast')), 950);
+    }
+
+    // 동적 keyframes (오버레이 fade 등)
+    const dynStyle = document.createElement('style');
+    dynStyle.textContent = `
+      @keyframes fadeInScale {
+        0%   { opacity: 0; transform: scale(0.8); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+    `;
+    document.head.appendChild(dynStyle);
+
+    // ── 회복 반짝이 파티클 (인게임 spawnHealSparkles 와 동일) ──
+    function spawnHealSparklesPreview(card) {
       const rect = card.getBoundingClientRect();
       const sparkleChars = ['✨', '✦', '★', '✧', '⭐', '✨'];
-      for (let i = 0; i < 6; i++) {
+      const count = 6;
+      for (let i = 0; i < count; i++) {
         const sp = document.createElement('div');
         sp.className = 'heal-sparkle';
         sp.textContent = sparkleChars[i % sparkleChars.length];
@@ -642,165 +1236,7 @@
       }
     }
 
-    function showOverlay(type, title, sub) {
-      const stage = getStage(type);
-      // 기존 오버레이 제거
-      stage.querySelectorAll('.preview-overlay').forEach(e => e.remove());
-      const overlay = document.createElement('div');
-      overlay.className = 'preview-overlay game-start-overlay active';
-      if (type === 'shrinkIntro') overlay.classList.add('shrink-intro');
-      const titleEl = document.createElement('div');
-      titleEl.className = 'game-start-title' + (type === 'shrinkIntro' ? ' shrink-intro-title' : '');
-      if (type === 'stalemate') titleEl.style.color = 'var(--danger)';
-      titleEl.textContent = title;
-      titleEl.style.fontSize = '1.6rem';
-      const subEl = document.createElement('div');
-      subEl.className = 'game-start-sub' + (type === 'shrinkIntro' ? ' shrink-intro-sub' : '');
-      subEl.textContent = sub;
-      subEl.style.fontSize = '0.9rem';
-      subEl.style.marginTop = '8px';
-      overlay.appendChild(titleEl);
-      overlay.appendChild(subEl);
-      stage.appendChild(overlay);
-      setTimeout(() => overlay.remove(), 2000);
-    }
-
-    // 보호됨 variant 재생 헬퍼
-    function playProtectedVariant(variant, durationMs, stageName) {
-      const stageKey = stageName || 'protected';
-      const card = getStage(stageKey).querySelector('.mini-card');
-      if (!card) return;
-      card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
-      void card.offsetWidth;
-      card.classList.add('profile-protected', variant);
-      setTimeout(() => card.classList.remove('profile-protected', variant), durationMs);
-    }
-
-    // ── 보호됨 SFX 5종 (Web Audio 절차 생성) ──
-    let _testAudioCtx = null;
-    function getTestAudioCtx() {
-      if (!_testAudioCtx) {
-        try { _testAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-        catch (e) { return null; }
-      }
-      if (_testAudioCtx.state === 'suspended') _testAudioCtx.resume();
-      return _testAudioCtx;
-    }
-    function sfx1Ting() {
-      const ctx = getTestAudioCtx(); if (!ctx) return;
-      const now = ctx.currentTime, out = ctx.destination;
-      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
-      o1.type = 'triangle';
-      o1.frequency.setValueAtTime(2400, now);
-      o1.frequency.exponentialRampToValueAtTime(1700, now + 0.5);
-      g1.gain.setValueAtTime(0.0001, now);
-      g1.gain.linearRampToValueAtTime(0.28, now + 0.005);
-      g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
-      o1.connect(g1); g1.connect(out);
-      o1.start(now); o1.stop(now + 0.6);
-      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
-      o2.type = 'sine';
-      o2.frequency.setValueAtTime(3800, now);
-      o2.frequency.exponentialRampToValueAtTime(2400, now + 0.4);
-      g2.gain.setValueAtTime(0.0001, now);
-      g2.gain.linearRampToValueAtTime(0.13, now + 0.005);
-      g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
-      o2.connect(g2); g2.connect(out);
-      o2.start(now); o2.stop(now + 0.5);
-    }
-    function sfx2Shimmer() {
-      const ctx = getTestAudioCtx(); if (!ctx) return;
-      const now = ctx.currentTime, out = ctx.destination;
-      const freqs = [2600, 3200, 3900, 3300, 4500];
-      freqs.forEach((f, i) => {
-        const t = now + i * 0.05;
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.setValueAtTime(f, t);
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.11, t + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-        o.connect(g); g.connect(out);
-        o.start(t); o.stop(t + 0.25);
-      });
-    }
-    function sfx3Solid() {
-      const ctx = getTestAudioCtx(); if (!ctx) return;
-      const now = ctx.currentTime, out = ctx.destination;
-      const o1 = ctx.createOscillator(), g1 = ctx.createGain();
-      o1.type = 'triangle';
-      o1.frequency.setValueAtTime(140, now);
-      o1.frequency.exponentialRampToValueAtTime(60, now + 0.28);
-      g1.gain.setValueAtTime(0.0001, now);
-      g1.gain.linearRampToValueAtTime(0.42, now + 0.01);
-      g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
-      o1.connect(g1); g1.connect(out);
-      o1.start(now); o1.stop(now + 0.35);
-      const t2 = now + 0.16;
-      const o2 = ctx.createOscillator(), g2 = ctx.createGain();
-      o2.type = 'triangle';
-      o2.frequency.setValueAtTime(120, t2);
-      o2.frequency.exponentialRampToValueAtTime(55, t2 + 0.25);
-      g2.gain.setValueAtTime(0.0001, t2);
-      g2.gain.linearRampToValueAtTime(0.32, t2 + 0.01);
-      g2.gain.exponentialRampToValueAtTime(0.0001, t2 + 0.3);
-      o2.connect(g2); g2.connect(out);
-      o2.start(t2); o2.stop(t2 + 0.35);
-    }
-    function sfx4Chime() {
-      const ctx = getTestAudioCtx(); if (!ctx) return;
-      const now = ctx.currentTime, out = ctx.destination;
-      const fundamental = 880;
-      const harmonics = [
-        { mult: 1.0,  gain: 0.20, len: 0.9 },
-        { mult: 2.76, gain: 0.11, len: 0.7 },
-        { mult: 5.40, gain: 0.06, len: 0.5 },
-      ];
-      harmonics.forEach(h => {
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = fundamental * h.mult;
-        g.gain.setValueAtTime(0.0001, now);
-        g.gain.linearRampToValueAtTime(h.gain, now + 0.01);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + h.len);
-        o.connect(g); g.connect(out);
-        o.start(now); o.stop(now + h.len + 0.05);
-      });
-    }
-    function sfx5Crystal() {
-      const ctx = getTestAudioCtx(); if (!ctx) return;
-      const now = ctx.currentTime, out = ctx.destination;
-      for (let i = 0; i < 8; i++) {
-        const t = now + i * 0.045;
-        const f = 1800 + Math.random() * 2400;
-        const o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine';
-        o.frequency.setValueAtTime(f, t);
-        o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.12);
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.085, t + 0.006);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-        o.connect(g); g.connect(out);
-        o.start(t); o.stop(t + 0.18);
-      }
-    }
-    const SFX_FUNCS = { 1: sfx1Ting, 2: sfx2Shimmer, 3: sfx3Solid, 4: sfx4Chime, 5: sfx5Crystal };
-    function playSfxOnly(n) { SFX_FUNCS[n] && SFX_FUNCS[n](); }
-    function playCombo(n) {
-      // v3 애니 + 해당 SFX 동시 재생 (sfx-protected 스테이지 사용)
-      playProtectedVariant('v3', 1050, 'protected-sfx');
-      SFX_FUNCS[n] && SFX_FUNCS[n]();
-    }
-
-    // 이벤트 바인딩
-    document.querySelectorAll('[data-play]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const name = btn.dataset.play;
-        if (triggers[name]) triggers[name]();
-      });
-    });
-
-    // ── 저주 파티클 (실제 게임과 동일) ──
+    // ── 저주 파티클 자동 스폰 (인게임과 동일 로직) ──
     const CURSE_PARTICLE_COLORS = ['#d8b4fe', '#c084fc', '#a855f7', '#e9d5ff', '#c4b5fd'];
     const CURSE_RISE_KEYFRAMES = ['curse-rise-a', 'curse-rise-b', 'curse-rise-c'];
     function spawnCurseParticle(card) {
@@ -821,14 +1257,20 @@
       card.appendChild(p);
       setTimeout(() => { if (p.parentNode) p.remove(); }, dur * 1000 + 100);
     }
-    setInterval(() => {
-      document.querySelectorAll('.my-piece-card.curse-active, .opp-piece-card.curse-active').forEach(card => {
+    function curseParticleTick() {
+      document.querySelectorAll('.mini-card.curse-active').forEach(card => {
         if (Math.random() < 0.6) spawnCurseParticle(card);
       });
-    }, 200);
+    }
+    setInterval(curseParticleTick, 200);
 
-    // 초기화
-    init();
+    // ── 버튼 이벤트 위임 ──
+    document.body.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-play]');
+      if (!btn) return;
+      const k = btn.dataset.play;
+      if (actions[k]) actions[k]();
+    });
   </script>
 </body>
 </html>

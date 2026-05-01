@@ -104,7 +104,7 @@ function shouldShowDesc(typeOrObj) {
 }
 
 function ratDestroyMsg(rats, mine) {
-  const suffix = mine ? '격파됨.' : '격파함.';
+  const suffix = mine ? '격파됨' : '격파함';
   const coords = rats.map(r => coord(r.col, r.row));
   return `${coords.join(', ')}의 쥐 ${suffix}`;
 }
@@ -245,6 +245,8 @@ function isActiveGamePhase() {
 }
 
 socket.on('timer_start', ({ seconds }) => {
+  // 게임 종료 후 도착한 stale timer_start 차단 (무승부 시 타이머 계속 울리는 버그 방지)
+  if (S._gameEnded) return;
   if (!isActiveGamePhase()) return;
   startClientTimer(seconds);
 });
@@ -2056,6 +2058,8 @@ socket.on('team_game_update', (state) => {
     S.actionUsedSkillReplace = false;
     S.twinMovePending = false;
     S.twinMovedSub = null;
+    S.twinElderSkipped = false;
+    S.twinYoungerSkipped = false;
     S.skillsUsedThisTurn = [];
     S.lastActionType = null;
     S.lastActionPieceType = null;
@@ -2076,7 +2080,8 @@ socket.on('team_game_update', (state) => {
       }
     }
     // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (팀모드 turn change 시점)
-    if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps();
+    // preCurseHps (서버 제공) 로 startHp 캡처해 저주 보라 도장 표시 가능
+    if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(state.preCurseHps);
   }
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
@@ -2134,21 +2139,50 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
-  // 사용자 요청: msg(원문 스킬 메시지)만 표시. msg 가 없을 때만 폴백.
-  const txt = msg || `${icon} ${casterName} — ${label}`;
-  // SFX 라우팅 — 1v1 status_update와 동일하게 메시지 prefix 매핑, 폴백은 'opp_skill'/'skill'
+  // msg 가 명시적으로 빈 문자열/null 이면 텍스트 출력 차단 (애니메이션만)
+  // 사용자 요청: '[이름] - 스킬명' 같은 자동 폴백 메시지 출력 금지
+  const hasMsg = !!msg;
   const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
   if (sfxRoute) sfxRoute();
   else playSfx(myTeam ? 'skill' : 'opp_skill');
-  showSkillToast(txt, !myTeam, casterIdx, 'skill');
-  addLog(txt, 'skill');
-  // 후속 broadcastTeamGameState로 HP가 갱신되며 renderTeamProfiles가 호출되지만,
-  // 시각적 hit anim을 위해 broadcastTeamGameState 직전 스냅샷을 비교한다.
-  // 단순화: team_game_update 핸들러에서 HP 변화 감지해 hit anim 발동
+
+  // 마법구 비행 + dim 시퀀스 (skill_result/status_update 와 동일)
+  const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
+  const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
+  const newSp = sp || S.sp;
+  const newInstant = instantSp || S.instantSp;
+
+  // 시전자 카드 찾기 — 팀 모드 프로필 마크업 [data-player-idx][data-piece-idx]
+  const casterCard = (typeof casterPieceIdx === 'number')
+    ? document.querySelector(`.team-profile-block[data-player-idx="${casterIdx}"] [data-piece-idx="${casterPieceIdx}"]`)
+    : null;
+  startSkillCastDim(casterCard);
+  try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
+
+  const SP_ATTN_MS = 2000;
+  const SKILL_GAP_MS = 500;
+  const skillAnimMs = 700;
+
+  // 2단계 — 2s 후 dim 해제 + sp 동기화
+  setTimeout(() => {
+    endSkillCastDim(casterCard);
+    if (sp) { S.sp = sp; }
+    if (instantSp) { S.instantSp = instantSp; }
+    if (sp || instantSp) { try { updateSPBar(); } catch (e) {} }
+  }, SP_ATTN_MS);
+
+  // 3단계 — 2.5+0.7s 후 토스트/로그 출력 (HP/보드 변화는 후속 team_game_update 가 처리)
+  // msg 가 비어있으면 출력 안 함 (정찰 등 scout_result 가 별도 안내하는 케이스)
+  if (hasMsg) {
+    setTimeout(() => {
+      showSkillToast(msg, !myTeam, casterIdx, 'skill');
+      addLog(msg, 'skill');
+    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
+  }
 });
 
 // 팀 모드: HP 감소 감지를 위한 이전 상태 스냅샷
@@ -2437,7 +2471,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     const atkDisplay = (isAlly && pc.type !== 'commander' && teamCommanders.some(cm =>
       (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
       (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col)
-    )) ? `${pc.atk}<span style="color:#22c55e">+1</span>` : `${pc.atk}`;
+    )) ? `<span style="color:#22c55e;font-weight:800">${(pc.atk || 0) + 1}</span>` : `${pc.atk}`;
 
     // 위치 표시 — 아군은 항상 / 적은 표식만
     let posText = '';
@@ -2469,7 +2503,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       ? buildDamageOverlay(`${playerData.idx}:${i}`, pc.alive ? (pc.hp ?? 0) : 0, pc.maxHp || 1)
       : { stamp: '', barOverlay: '' };
     return `<div class="${baseCardClass} ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
-      ${pc.alive ? dmgOv.stamp : ''}
+      ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon || ''}</span>
         <strong class="${nameLenCls.trim()}">${escapeHtmlGlobal(pc.name || pc.type)}</strong>
@@ -2478,9 +2512,13 @@ function renderTeamPlayerBlock(playerData, isAlly) {
         ${placedBadge}
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
-      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div>${pc.alive ? dmgOv.barOverlay : ''}</div>
-      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
-        <span>HP ${pc.hp}/${pc.maxHp} · ATK ${atkDisplay}</span>
+      <div class="hp-bar-bg hp-bar-with-text">
+        <div class="hp-bar" style="width:${hpPct}%"></div>
+        ${pc.alive ? dmgOv.barOverlay : ''}
+        <span class="hp-bar-text">${pc.hp}/${pc.maxHp}</span>
+      </div>
+      <div class="piece-stat-row">
+        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         ${posDisplayHtml}
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}
@@ -2967,6 +3005,7 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
 
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
+  S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
   S.myPieces = data.yourPieces || [];
   S.oppPieces = data.oppPieces || [];
   S.turnNumber = data.turnNumber;
@@ -3036,7 +3075,7 @@ function playBoardShrinkIntro() {
   setTimeout(() => {
     overlay.classList.remove('active');
     overlay.classList.add('hidden');
-  }, 2200);
+  }, 3000);
 }
 
 // 게임 시작 애니메이션 — 오버레이 "FIGHT!" + 1.2초 scale-up 페이드
@@ -3095,10 +3134,12 @@ socket.on('your_turn', (data) => {
   S.actionUsedSkillReplace = false;
   S.twinMovePending = false;
   S.twinMovedSub = null;
+  S.twinElderSkipped = false;
+  S.twinYoungerSkipped = false;
   S.lastActionType = null;
   S.lastActionPieceType = null;
-  // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화
-  if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps();
+  // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (preCurseHps 로 저주 보라 도장 표시)
+  if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(data.preCurseHps);
 
   refreshGameView();
   showActionBar(true);
@@ -3120,8 +3161,8 @@ socket.on('opp_turn', (data) => {
   S.boardObjects = data.boardObjects || S.boardObjects;
   S.action = null;
   S.selectedPiece = null;
-  // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화
-  if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps();
+  // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (preCurseHps 로 저주 보라 도장 표시)
+  if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(data.preCurseHps);
 
   refreshGameView();
   showActionBar(false);
@@ -3151,6 +3192,10 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
     S.actionDone = true;  // 첫 이동만으로 턴 종료 가능
     S.lastActionType = 'move';
     S.lastActionPieceType = pc.type;
+    // 누나가 이미 이동했으면 누나 이동 넘기기 버튼은 의미 없음 — 숨김
+    // (동생에는 적용되지 않음 — 동생 이동 후엔 더 이동할 쌍둥이가 없으므로 비표시 유지)
+    const skipBtn = document.getElementById('btn-twin-skip-elder');
+    if (skipBtn) skipBtn.classList.add('hidden');
     renderGameBoard();
     renderMyPieces();
     const otherFull = pc.subUnit === 'elder' ? '동생도' : '누나도';
@@ -3241,13 +3286,25 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
       const rat = S.boardObjects.find(o => o.type === 'rat' && o.owner !== S.playerIdx && o.col === c.col && o.row === c.row);
       if (rat) destroyedRats.push({ col: rat.col, row: rat.row });
     }
-    // 로컬에서 파괴된 쥐 제거 (서버에서는 이미 제거됨)
     for (const dr of destroyedRats) {
       S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.owner !== S.playerIdx && o.col === dr.col && o.row === dr.row));
     }
   }
 
-  // 공격 모션 애니메이션
+  // 그림자 상태의 적은 공격자 입장에서도 빈 셀 — hit 정보 자체를 숨김 (피격 셀 흔들림 X)
+  const isShadowAtOpp = (col, row) => {
+    const p = (S.oppPieces || []).find(pc => pc.alive && pc.col === col && pc.row === row);
+    return !!(p && (p.statusEffects || []).some(e => e.type === 'shadow'));
+  };
+  cellResults = (cellResults || []).map(c => {
+    if (c.hit && isShadowAtOpp(c.col, c.row)) {
+      // 빈 셀처럼 — hit=false 로 변경 (피격 표식·셀 흔들림·로그 전부 차단)
+      return { ...c, hit: false, damage: 0, destroyed: false };
+    }
+    return c;
+  });
+
+  // 공격 모션 애니메이션 (그림자 셀은 위에서 hit=false 로 처리되어 흔들림 X)
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
   animateAttack(atkCells, hitCells);
@@ -3264,6 +3321,17 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 
   for (const c of cellResults) {
     S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
+  }
+  // 충성(호위무사 대신 받음) 데미지 누적 — opp 호위무사 카드에 별도 파란 도장 표시
+  for (const c of cellResults) {
+    if (!c.hit || !c.bodyguardRedirect) continue;
+    const dmg = (typeof c.damage === 'number') ? c.damage : 0;
+    if (dmg <= 0 || c.defPieceIdx === undefined) continue;
+    if (S.isTeamMode && c.defOwnerIdx !== undefined) {
+      addLoyaltyDamage(`${c.defOwnerIdx}:${c.defPieceIdx}`, dmg);
+    } else {
+      addLoyaltyDamage(`opp:${c.defPieceIdx}`, dmg);
+    }
   }
 
   if (!anyHit) {
@@ -3282,14 +3350,38 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     const hitOnly = messageHits.filter(h => !h.destroyed);
     if (killed.length > 0) playSfx('kill');
     else if (hitOnly.length > 0) playSfx('hit');
+    // #9: 토스트는 간결, 로그는 좌표 정보 보강 — 한 문장에 여러 hit 합쳐서 한 번만 출력
     if (killed.length > 0) {
       const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
-      addLog(`${labels} 격파!`, 'hit');
       showSkillToast(`${labels} 격파!`);
+      // 로그: 좌표들과 격파 대상 한 줄로
+      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
+      addLog(`${coords} ${labels} 격파`, 'hit');
     }
     if (hitOnly.length > 0) {
-      addLog(`명중!`, 'hit');
       showSkillToast(`명중!`);
+      // 로그: 모든 명중 좌표 한 줄에
+      const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
+      addLog(`${coords} 명중`, 'hit');
+    }
+  }
+  // 공격자 측에도 동일 — '명중!/격파!' 출력 후 방어형 패시브(충성 등) flush
+  // #19: 격파가 있었다면 데미지 감소형 패시브(폭정·가호·아이언스킨)는 토스트 생략(로그만)
+  const _attackKilled = (cellResults || []).some(c => c.hit && c.destroyed);
+  if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _attackKilled });
+
+  // #10: 단일 피격이라면 추리 토큰 자동 배치 (위치 확인 — 토스트·로그 없음)
+  // 단, 격파된 대상은 자연스럽게 사라지므로 토큰 생성 의미 없음 → 살아있는 hit 만 카운트
+  const _aliveHits = (cellResults || []).filter(c => c.hit && !c.destroyed && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
+  if (_aliveHits.length === 1 && !S.isTeamMode) {
+    const c = _aliveHits[0];
+    const piece = S.oppPieces?.[c.defPieceIdx];
+    if (piece) {
+      const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+      try {
+        S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+        S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+      } catch (e) {}
     }
   }
 
@@ -3355,11 +3447,16 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
-  // #1: 호위무사 가로채기 — 원래 대상(damage=0)은 필터링, 호위무사(bodyguardRedirect)는 유지하여 애니메이션 발동
   if (S._bodyguardIntercepted) {
-    hitPieces = hitPieces.filter(h => h.damage > 0 || h.bodyguardRedirect);
     S._bodyguardIntercepted = false;
   }
+
+  // 그림자 상태 유닛은 빈 셀처럼 취급 — hitPieces 에서 완전 제거 (피격 셀 흔들림·도장·로그 모두 안 나옴)
+  const isShadowAt = (col, row) => {
+    const p = (S.myPieces || []).find(pc => pc.alive && pc.col === col && pc.row === row);
+    return !!(p && (p.statusEffects || []).some(e => e.type === 'shadow'));
+  };
+  hitPieces = (hitPieces || []).filter(h => !isShadowAt(h.col, h.row));
 
   // 쥐 격파 감지: 상대 공격 범위에 있던 내 쥐
   const myDestroyedRats = [];
@@ -3373,11 +3470,24 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     }
   }
 
-  // 피격 셀만 흔들림 (상대 공격 범위는 표시하지 않음 — 추론 게임)
+  // 피격 셀만 흔들림 (그림자 상태 유닛 셀은 위에서 hitPieces 에서 제거되어 흔들림도 X)
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
   animateAttack([], hitCells);
 
   S.myPieces = yourPieces;
+  // 충성(호위무사 대신 받음) 데미지 누적 — 본인 호위무사 카드에 파란 도장
+  for (const h of hitPieces) {
+    if (!h.bodyguardRedirect) continue;
+    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+    if (dmg <= 0) continue;
+    // 본인 측 호위무사: defPieceIdx 또는 좌표 매칭으로 인덱스 결정
+    let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
+    if (bgIdx < 0) {
+      bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
+    }
+    if (bgIdx < 0) continue;
+    addLoyaltyDamage(`my:${bgIdx}`, dmg);
+  }
   // 호위무사 가로채기 / 0데미지 비격파 hit은 토스트·로그 생략
   const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   // 메시지 출력은 호위무사 가로채기로 인한 hit도 제외 (passive_alert가 따로 알림)
@@ -3393,16 +3503,22 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
     const hitOnlySelf = messageHits.filter(h => !h.destroyed);
     if (killedSelf.length > 0) playSfx('kill');
     else if (hitOnlySelf.length > 0) playSfx('hit');
+    // #9: 토스트는 간결, 로그는 어떤 유닛이 맞았는지 — 좌표는 빼고 한 줄에 모두
     if (killedSelf.length > 0) {
       const labels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      addLog(`${labels} 사망`, 'hit');
       showSkillToast(`${labels} 사망`, true);
+      addLog(`${labels} 사망`, 'hit');
     }
     if (hitOnlySelf.length > 0) {
-      addLog(`공격받았습니다!`, 'hit');
+      const labels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       showSkillToast(`공격받았습니다!`, true);
+      addLog(`${labels} 피격`, 'hit');
     }
   }
+  // '공격받았습니다!' 출력 후 — 버퍼에 쌓인 방어형 패시브 알림(충성·폭정·아이언스킨·가호 등) flush
+  // #19: 격파가 발생했다면 데미지 감소형 패시브 토스트는 생략(로그만)
+  const _selfKilled = (hitPieces || []).some(h => h.destroyed);
+  if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _selfKilled });
   // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
   const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
   // 보호됨 유닛 — 0 피해 + !destroyed. 그림자 상태는 피격 정보 자체를 숨기므로 제외
@@ -3455,15 +3571,688 @@ socket.on('no_action_notice', ({ playerIdx, name, msg }) => {
 
 socket.on('turn_event', ({ type, msg }) => {
   if (S.isSpectator) return; // 관전자는 spectator_log 경로로 수신
-  // 1대1 대치는 풀스크린 알림 — 게임 시작 애니메이션 재활용
+  // 1대1 대치는 풀스크린 알림 — 페이드 인 1s + 유지 1s + 페이드 아웃 1s
   if (type === 'stalemate_shrink') {
     addLog(msg, 'system');
-    playStalemateShrinkAlert(msg);
+    runFullscreenLocked(() => playStalemateShrinkAlert(msg), 3000);
+    return;
+  }
+  // SP 지급 — 풀스크린 애니(4.4s) + 1.5s 버퍼 = 5.9s 동안 모든 토스트/로그 차단
+  if (type === 'sp_grant') {
+    addLog(msg, 'system');
+    runFullscreenLocked(() => playSpGrantAnimation(), 6000);
     return;
   }
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
+
+// 스킬 시전 시 SP 차감 집중 연출 — SP 바 위에서 마법 구슬이 시전자 → 상대 숫자로 이동
+// 순서: 인스턴트 SP 먼저 소멸 → 0.5s 간격 → 일반 SP 마법구 비행
+// 비행/소멸마다 카운터 숫자가 한 칸씩 변화 (시각적 tick + 효과음)
+function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
+  const sec = document.querySelector('.sp-section');
+  if (sec) {
+    sec.classList.remove('sp-spend-attn');
+    void sec.offsetWidth;
+    sec.classList.add('sp-spend-attn');
+    setTimeout(() => sec.classList.remove('sp-spend-attn'), 2000);
+  }
+  if (!oldSp || !newSp) return;
+  // 가드 ON — 애니 진행 중 외부 updateSPBar 가 큰 숫자/pip 트레이를 NEW 값으로 덮어쓰지 못하게.
+  // SP_ATTN_MS(2000) 이후 외부에서 실제 동기화. 안전하게 2.5s 후 자동 해제.
+  S._spAnimGuard = true;
+  if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
+  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2500);
+
+  const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const oppSlot = 1 - mySlot;
+  const myDelta = (newSp[mySlot] || 0) - (oldSp[mySlot] || 0);
+  const oppDelta = (newSp[oppSlot] || 0) - (oldSp[oppSlot] || 0);
+  const myInstantDelta = ((newInstantSp || [])[mySlot] || 0) - ((oldInstantSp || [])[mySlot] || 0);
+  const regularConsumed = myDelta < 0 ? -myDelta : 0;
+  const transferToOpp = oppDelta > 0 ? Math.min(oppDelta, regularConsumed) : 0;
+  const instantConsumed = myInstantDelta < 0 ? -myInstantDelta : 0;
+  const oppCastedRegular = oppDelta < 0 ? -oppDelta : 0;
+  const transferToMe = (myDelta > 0 && oppCastedRegular > 0) ? Math.min(myDelta, oppCastedRegular) : 0;
+
+  const myNumEl = document.getElementById('sp-my-num');
+  const oppNumEl = document.getElementById('sp-opp-num');
+  if (!myNumEl || !oppNumEl) return;
+
+  const rectCenter = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  const my = rectCenter(myNumEl);
+  const opp = rectCenter(oppNumEl);
+
+  // 표시되는 숫자(displayed)를 OLD 값으로 보유 — 마법구 도착마다 1씩 변경
+  let displayMyNum = oldSp[mySlot] || 0;
+  let displayOppNum = oldSp[oppSlot] || 0;
+  myNumEl.textContent = String(displayMyNum);
+  oppNumEl.textContent = String(displayOppNum);
+  const tickDown = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick'); void el.offsetWidth; el.classList.add('sp-num-tick'); };
+  const tickUp   = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up'); };
+
+  let nextMs = 80;
+  // ① 인스턴트 SP 소비 — 트레이의 가장 안쪽(숫자에 가까운) pip 가 숫자 쪽으로 빨려 들어감
+  for (let i = 0; i < instantConsumed; i++) {
+    const t = nextMs;
+    setTimeout(() => {
+      const trayId = 'sp-instant-tray-mine';
+      const tray = document.getElementById(trayId);
+      // 가장 안쪽 pip = 숫자에 가까운 (mine: 첫번째)
+      const targetPip = tray && tray.querySelector('.sp-instant-pip:not(.sp-pip-consume)');
+      let from = my;
+      if (targetPip) {
+        const r = targetPip.getBoundingClientRect();
+        from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        // pip 즉시 consume 애니 + 제거
+        targetPip.classList.add('sp-pip-consume');
+        setTimeout(() => { if (targetPip.parentNode) targetPip.remove(); }, 420);
+      }
+      // pip 위치에서 출발해 SP 숫자로 비행
+      spawnSpOrbFlight(from, my, 'instant');
+      try { playSfxInstantConsume(); } catch (e) {}
+    }, t);
+    nextMs += 130;
+  }
+  // ② 인스턴트 소비 후 0.5초 텀
+  if (instantConsumed > 0) nextMs += 500;
+  // ③ 일반 SP 마법구 비행 — 출발 시점에 시전자 -1, 도착 시점에 상대 +1
+  if (transferToOpp > 0) {
+    for (let i = 0; i < transferToOpp; i++) {
+      const t = nextMs;
+      setTimeout(() => {
+        // 출발 시점: 시전자 카운트 -1 + 효과음
+        displayMyNum = Math.max(0, displayMyNum - 1);
+        tickDown(myNumEl, displayMyNum);
+        try { playSfxSpOrbDepart(); } catch (e) {}
+        // 비행 (0.7s) 후 도착
+        spawnSpOrbFlight(my, opp, 'mine', () => {
+          displayOppNum = displayOppNum + 1;
+          tickUp(oppNumEl, displayOppNum);
+          try { playSfxSpOrbArrive(); } catch (e) {}
+        });
+      }, t);
+      nextMs += 200;
+    }
+  }
+  // ④ 상대가 시전한 경우 (opp → my 방향)
+  if (transferToMe > 0) {
+    for (let i = 0; i < transferToMe; i++) {
+      const t = nextMs;
+      setTimeout(() => {
+        displayOppNum = Math.max(0, displayOppNum - 1);
+        tickDown(oppNumEl, displayOppNum);
+        try { playSfxSpOrbDepart(); } catch (e) {}
+        spawnSpOrbFlight(opp, my, 'opp', () => {
+          displayMyNum = displayMyNum + 1;
+          tickUp(myNumEl, displayMyNum);
+          try { playSfxSpOrbArrive(); } catch (e) {}
+        });
+      }, t);
+      nextMs += 200;
+    }
+  }
+}
+
+// 인스턴트 SP 트레이 동기화 — count 만큼 .sp-instant-pip 유지
+// 새로 추가되는 pip 은 .sp-pip-spawn 으로 등장 애니. 줄어들 때는 spendSPAttention 측에서 별도 비행 처리.
+function syncInstantTray(trayId, count) {
+  const tray = document.getElementById(trayId);
+  if (!tray) return;
+  const cur = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)').length;
+  if (cur < count) {
+    // 부족한 pip 추가 (등장 애니)
+    for (let i = 0; i < count - cur; i++) {
+      const pip = document.createElement('div');
+      pip.className = 'sp-instant-pip sp-pip-spawn';
+      tray.appendChild(pip);
+    }
+  } else if (cur > count) {
+    // 많은 pip 제거 (consume 애니가 이미 적용된 것은 제외)
+    const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)');
+    const overflow = cur - count;
+    for (let i = 0; i < overflow; i++) {
+      // 가장 안쪽(숫자 가까운) pip 부터 제거 — mine: 첫 번째, opp: 마지막
+      const idx = (trayId.endsWith('-mine')) ? 0 : pips.length - 1 - i;
+      const pip = pips[idx + (trayId.endsWith('-mine') ? i : 0)];
+      if (pip) pip.remove();
+    }
+  }
+}
+
+// 인스턴트 SP 획득 (마법사 인스턴트 매직 발동) — 황금 마법구가 마법사 프로필 카드에서 출발 → SP 숫자 옆 트레이 슬롯으로 합류
+function spawnInstantGainOrb(targetSlot) {
+  const isMine = (targetSlot === 'mine');
+  // 출발지: 해당 플레이어의 마법사 프로필 카드
+  const fromPos = getWizardCardCenter(isMine) || (() => {
+    // 마법사 카드 못찾을 때 — SP 숫자 위쪽으로 폴백
+    const numEl = isMine ? document.getElementById('sp-my-num') : document.getElementById('sp-opp-num');
+    if (!numEl) return null;
+    const r = numEl.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 - 80 };
+  })();
+  if (!fromPos) return;
+  // 도착지: 트레이의 다음 슬롯 위치 (현재 pip 개수 기준)
+  const trayId = isMine ? 'sp-instant-tray-mine' : 'sp-instant-tray-opp';
+  const tray = document.getElementById(trayId);
+  if (!tray) return;
+  // sp_update가 이미 도착해 새 pip 이 트레이에 추가되어 있을 가능성 — 가장 최근 pip(=새로 추가된 것) 위치 사용
+  const lastPip = isMine
+    ? tray.lastElementChild
+    : tray.firstElementChild;
+  let toPos;
+  if (lastPip) {
+    // pip 위치를 비행 도착지로 사용 + 비행 동안 잠시 숨김
+    const r = lastPip.getBoundingClientRect();
+    toPos = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    lastPip.style.opacity = '0';
+  } else {
+    // 트레이가 비어있으면 트레이 자체 중심으로 (sp_update 가 아직 안 옴)
+    const r = tray.getBoundingClientRect();
+    toPos = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  // 비행 — 페어리 트레일 포함
+  const orb = document.createElement('div');
+  orb.className = 'sp-orb sp-orb-instant';
+  orb.style.left = fromPos.x + 'px';
+  orb.style.top = fromPos.y + 'px';
+  document.body.appendChild(orb);
+  const dur = 800;
+  const startT = performance.now();
+  const mid = { x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2 - 50 };
+  // 트레일 더스트
+  const trailIv = setInterval(() => {
+    const r = orb.getBoundingClientRect();
+    const dust = document.createElement('div');
+    dust.className = 'sp-dust sp-dust-instant';
+    dust.style.left = (r.left + r.width / 2) + 'px';
+    dust.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(dust);
+    setTimeout(() => dust.remove(), 700);
+  }, 35);
+  function step(now) {
+    const t = Math.min(1, (now - startT) / dur);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const x = (1 - e) * (1 - e) * fromPos.x + 2 * (1 - e) * e * mid.x + e * e * toPos.x;
+    const y = (1 - e) * (1 - e) * fromPos.y + 2 * (1 - e) * e * mid.y + e * e * toPos.y;
+    const wobble = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+    orb.style.left = (x + wobble) + 'px';
+    orb.style.top = (y - wobble) + 'px';
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      clearInterval(trailIv);
+      orb.classList.add('sp-orb-arrive');
+      try { playSfxInstantGain(); } catch (e) {}
+      // pip 노출 + 등장 애니 재시작
+      if (lastPip) {
+        lastPip.style.opacity = '1';
+        lastPip.classList.remove('sp-pip-spawn');
+        void lastPip.offsetWidth;
+        lastPip.classList.add('sp-pip-spawn');
+      }
+      setTimeout(() => orb.remove(), 320);
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ── 스킬 시전 dim 오버레이 — 화면 어둡게, SP 바·시전자 프로필만 spotlight ──
+function startSkillCastDim(casterCard) {
+  const dim = document.getElementById('skill-cast-dim');
+  if (dim) dim.classList.remove('hidden');
+  const sec = document.querySelector('.sp-section');
+  if (sec) sec.classList.add('caster-spotlight');
+  if (casterCard) casterCard.classList.add('caster-spotlight');
+  // 다음 endSkillCastDim 에서 동일 카드 reference 사용을 위해 저장
+  S._castSpotlightCard = casterCard || null;
+}
+function endSkillCastDim(casterCard) {
+  const dim = document.getElementById('skill-cast-dim');
+  if (dim) dim.classList.add('hidden');
+  const sec = document.querySelector('.sp-section');
+  if (sec) sec.classList.remove('caster-spotlight');
+  const card = casterCard || S._castSpotlightCard;
+  if (card) card.classList.remove('caster-spotlight');
+  S._castSpotlightCard = null;
+}
+
+// 마법사 카드 위치 찾기 (instant gain 출발지)
+function getWizardCardCenter(isMine) {
+  const containerSel = isMine ? '#my-pieces-info' : '#opp-pieces-info';
+  const cardSel = isMine ? '.my-piece-card' : '.opp-piece-card';
+  const pieces = isMine ? S.myPieces : S.oppPieces;
+  if (!pieces) return null;
+  const wizIdx = pieces.findIndex(p => p && p.alive && p.type === 'wizard');
+  if (wizIdx < 0) return null;
+  const cards = document.querySelectorAll(`${containerSel} ${cardSel}`);
+  const card = cards[wizIdx];
+  if (!card) return null;
+  const r = card.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+// 마법 구슬 — 두 점 사이를 부드러운 곡선으로 비행 (요정처럼)
+// onArrive 콜백 — 도착 시 SP 숫자 tick 등을 호출
+function spawnSpOrbFlight(from, to, kind, onArrive) {
+  const orb = document.createElement('div');
+  orb.className = 'sp-orb sp-orb-' + (kind || 'mine');
+  document.body.appendChild(orb);
+  const dur = 700;
+  const startT = performance.now();
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - Math.abs(dx) * 0.2 - 30 };
+  // 페어리 더스트 — 비행 경로를 따라 작은 입자 흩뿌림
+  const trailIv = setInterval(() => {
+    const r = orb.getBoundingClientRect();
+    const dust = document.createElement('div');
+    dust.className = 'sp-dust sp-dust-' + (kind || 'mine');
+    dust.style.left = (r.left + r.width / 2) + 'px';
+    dust.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(dust);
+    setTimeout(() => dust.remove(), 700);
+  }, 35);
+  function step(now) {
+    const t = Math.min(1, (now - startT) / dur);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const x = (1 - e) * (1 - e) * from.x + 2 * (1 - e) * e * mid.x + e * e * to.x;
+    const y = (1 - e) * (1 - e) * from.y + 2 * (1 - e) * e * mid.y + e * e * to.y;
+    const wobble = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+    orb.style.left = (x + wobble) + 'px';
+    orb.style.top = (y - wobble) + 'px';
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      clearInterval(trailIv);
+      orb.classList.add('sp-orb-arrive');
+      setTimeout(() => orb.remove(), 320);
+      if (typeof onArrive === 'function') onArrive();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// 인스턴트 SP 소멸 — 위로 떠오르며 페이드아웃
+function spawnSpOrbVanish(from, kind) {
+  const orb = document.createElement('div');
+  orb.className = 'sp-orb sp-orb-' + (kind || 'instant');
+  orb.style.left = from.x + 'px';
+  orb.style.top = from.y + 'px';
+  document.body.appendChild(orb);
+  requestAnimationFrame(() => {
+    orb.style.transition = 'top 0.7s ease-out, opacity 0.7s ease-out, transform 0.7s ease-out';
+    orb.style.top = (from.y - 60) + 'px';
+    orb.style.opacity = '0';
+    orb.style.transform = 'scale(0.4)';
+  });
+  setTimeout(() => orb.remove(), 750);
+}
+
+// SP 지급 풀스크린 애니메이션 — 통합 스파이럴 모션 (수영하듯이 매끄럽게)
+// 한 RAF 안에서 angle 과 radius 가 함께 변화 → 페이즈 사이 멈칫 없음, 빠른 템포, 2회 회전
+function playSpGrantAnimation() {
+  const overlay = document.getElementById('sp-grant-overlay');
+  const orbL = document.getElementById('sp-grant-orb-left');
+  const orbR = document.getElementById('sp-grant-orb-right');
+  const textBox = overlay && overlay.querySelector('.sp-grant-text');
+  if (!overlay || !orbL || !orbR || !textBox) return;
+  document.body.classList.add('sp-granting');
+  overlay.classList.remove('hidden', 'fading-out');
+  textBox.classList.remove('show');
+  textBox.style.opacity = '';
+
+  const W = window.innerWidth, H = window.innerHeight;
+  const cx = W / 2, cy = H / 2;
+  const orbitR = 130;
+
+  // 페이즈 비율 (전체 t in [0,1])
+  const tEntryEnd = 0.20;     // 0~20%   진입 (반경 large → orbitR, 0.5바퀴)
+  const tOrbitEnd = 0.78;     // 20~78%  궤도 (orbitR 유지, 2바퀴 회전)
+  // 78~100% 분리 비행 (orbitR → SP 숫자)
+  const TOTAL_MS = 2400;       // 더 빠르게 (이전 3500ms → 2400ms)
+
+  // 좌 마법구 base angle = π, 우 = 0. 둘 다 시계방향 회전 (angle 양의 방향).
+  const angleEntrySweep = Math.PI;     // 진입에서 절반 바퀴 (180°)
+  const angleOrbits = Math.PI * 4;     // 2 회전 (720°)
+  const angleDispatchSweep = Math.PI * 0.5;  // 분리에서 90° 추가
+  const totalAngleSweep = angleEntrySweep + angleOrbits + angleDispatchSweep;
+
+  const myNumEl = document.getElementById('sp-my-num');
+  const oppNumEl = document.getElementById('sp-opp-num');
+
+  setOrbPos(orbL, cx - W * 0.6, cy);  // 멀리 좌측
+  setOrbPos(orbR, cx + W * 0.6, cy);  // 멀리 우측
+  orbL.style.opacity = '0';
+  orbR.style.opacity = '0';
+
+  // 트레일 더스트 — 비행 내내
+  let trailIv = setInterval(() => {
+    [[orbL, 'sp-dust-grant-l'], [orbR, 'sp-dust-grant-r']].forEach(([orb, cls]) => {
+      if (orb.style.opacity === '0' || orb.style.opacity === '') return;
+      const r = orb.getBoundingClientRect();
+      // 메인 dust 1개 + 작은 sparkle 1~2개 (팅커벨 느낌)
+      for (let k = 0; k < 2; k++) {
+        const dust = document.createElement('div');
+        dust.className = 'sp-dust ' + cls;
+        if (k === 1) dust.style.transform = 'translate(-50%, -50%) scale(0.55)';
+        dust.style.left = (r.left + r.width / 2 + (Math.random() - 0.5) * 8) + 'px';
+        dust.style.top = (r.top + r.height / 2 + (Math.random() - 0.5) * 8) + 'px';
+        document.body.appendChild(dust);
+        setTimeout(() => dust.remove(), 700);
+      }
+    });
+  }, 28);
+
+  const t0 = performance.now();
+  let dispatchTargetL = null, dispatchTargetR = null;
+  let dispatchStartL = null, dispatchStartR = null;
+
+  function animate() {
+    const elapsed = performance.now() - t0;
+    const t = Math.min(1, elapsed / TOTAL_MS);
+
+    // 통합 angle progression — easeInOutCubic 으로 부드럽게 가속/감속
+    // 진입 부분은 빠른 가속으로 시작 (수영의 발차기처럼)
+    const eAngle = easeInOutCubic(t);
+    const angle = eAngle * totalAngleSweep;
+
+    // 페이즈 결정 (radius 와 dispatch 처리)
+    let radius;
+    let blendDispatch = 0;
+    if (t < tEntryEnd) {
+      const sub = t / tEntryEnd;
+      radius = lerp(W * 0.6, orbitR, easeOutCubic(sub));
+      // 텍스트는 진입 후반부터 페이드인
+      if (sub > 0.6 && !textBox.classList.contains('show')) textBox.classList.add('show');
+      // 페이드 인 (0~50% 구간)
+      const fadeT = Math.min(1, sub / 0.5);
+      orbL.style.opacity = String(fadeT);
+      orbR.style.opacity = String(fadeT);
+    } else if (t < tOrbitEnd) {
+      radius = orbitR;
+      orbL.style.opacity = '1';
+      orbR.style.opacity = '1';
+      if (!textBox.classList.contains('show')) textBox.classList.add('show');
+    } else {
+      // 분리 비행 — radius 그대로 유지하면서 target 으로 블렌드
+      radius = orbitR;
+      const sub = (t - tOrbitEnd) / (1 - tOrbitEnd);
+      blendDispatch = easeInOutCubic(sub);
+      if (sub > 0.6) textBox.style.opacity = String(1 - (sub - 0.6) / 0.4);
+    }
+
+    // 궤도 위치 (각도 + 반경)
+    const baseLeft = Math.PI, baseRight = 0;
+    let lx = cx + Math.cos(baseLeft + angle) * radius;
+    let ly = cy + Math.sin(baseLeft + angle) * radius * 0.55;
+    let rx = cx + Math.cos(baseRight + angle) * radius;
+    let ry = cy + Math.sin(baseRight + angle) * radius * 0.55;
+
+    // 분리 비행 시 — 궤도 위치와 SP 숫자 위치를 보간
+    if (blendDispatch > 0) {
+      if (!dispatchTargetL && myNumEl) dispatchTargetL = rectCenterEl(myNumEl);
+      if (!dispatchTargetR && oppNumEl) dispatchTargetR = rectCenterEl(oppNumEl);
+      if (!dispatchStartL) dispatchStartL = { x: lx, y: ly };
+      if (!dispatchStartR) dispatchStartR = { x: rx, y: ry };
+      if (dispatchTargetL) {
+        // lift — 위로 살짝 솟았다가 내려옴
+        const lift = -Math.sin(blendDispatch * Math.PI) * 50;
+        lx = lerp(dispatchStartL.x, dispatchTargetL.x, blendDispatch);
+        ly = lerp(dispatchStartL.y, dispatchTargetL.y, blendDispatch) + lift;
+      }
+      if (dispatchTargetR) {
+        const lift = -Math.sin(blendDispatch * Math.PI) * 50;
+        rx = lerp(dispatchStartR.x, dispatchTargetR.x, blendDispatch);
+        ry = lerp(dispatchStartR.y, dispatchTargetR.y, blendDispatch) + lift;
+      }
+    }
+
+    setOrbPos(orbL, lx, ly);
+    setOrbPos(orbR, rx, ry);
+
+    if (t < 1) {
+      requestAnimationFrame(animate);
+    } else {
+      // 종료
+      if (trailIv) { clearInterval(trailIv); trailIv = null; }
+      orbL.style.opacity = '0';
+      orbR.style.opacity = '0';
+      if (myNumEl) { myNumEl.classList.remove('sp-bump'); void myNumEl.offsetWidth; myNumEl.classList.add('sp-bump'); }
+      if (oppNumEl) { oppNumEl.classList.remove('sp-bump'); void oppNumEl.offsetWidth; oppNumEl.classList.add('sp-bump'); }
+      // 1초 페이드 아웃
+      overlay.classList.add('fading-out');
+      setTimeout(() => {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('fading-out');
+        textBox.classList.remove('show');
+        textBox.style.opacity = '';
+        document.body.classList.remove('sp-granting');
+      }, 1000);
+    }
+  }
+  requestAnimationFrame(animate);
+
+  try { playSpGrantChime(); } catch (e) {}
+}
+
+// 내부 헬퍼들
+function setOrbPos(el, x, y) {
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+}
+function rectCenterEl(el) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOutCubic(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2; }
+
+// ── SP 마법구 효과음 (4가지 옵션) ──────────────────────────────────
+// 사용자가 미리듣고 결정 후 선호하는 것으로 PROD 톤 고정.
+// 기본은 옵션 1 (가장 매끄러운 페어리 톤). 옵션 변경: SP_ORB_SFX_VARIANT
+const SP_ORB_SFX_VARIANT = 1;  // 1: 페어리 (기본 — 사용자 확정)
+
+function playSfxSpOrbDepart() { _spOrbDepart(SP_ORB_SFX_VARIANT); }
+function playSfxSpOrbArrive() { _spOrbArrive(SP_ORB_SFX_VARIANT); }
+function _spOrbDepart(variant) {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    if (variant === 1) {
+      // 페어리 출발 — 부드러운 상승 휘릭
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(700, now); o.frequency.exponentialRampToValueAtTime(1300, now + 0.18);
+      g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.16, now + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.25);
+    } else if (variant === 2) {
+      // 짧은 글래스 핑
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(1800, now);
+      g.gain.setValueAtTime(0.16, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+    } else if (variant === 3) {
+      // 깃털 — 부드러운 화이트노이즈 슬라이드
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.18, ctx.sampleRate);
+      const d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.15 * (1 - i / d.length);
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(out); src.start(now);
+    } else {
+      // 종 톡- (단톤)
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(990, now);
+      g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.18, now + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.28);
+    }
+  } catch (e) {}
+}
+function _spOrbArrive(variant) {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    if (variant === 1) {
+      // 도착 — 종소리 chime + 살짝 sparkle
+      const o1 = ctx.createOscillator(); const g1 = ctx.createGain();
+      o1.type = 'triangle'; o1.frequency.setValueAtTime(1568, now);
+      g1.gain.setValueAtTime(0.0001, now); g1.gain.linearRampToValueAtTime(0.20, now + 0.02); g1.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
+      o1.connect(g1); g1.connect(out); o1.start(now); o1.stop(now + 0.5);
+      const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+      o2.type = 'sine'; o2.frequency.setValueAtTime(2349, now + 0.04);
+      g2.gain.setValueAtTime(0.0001, now + 0.04); g2.gain.linearRampToValueAtTime(0.10, now + 0.06); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      o2.connect(g2); g2.connect(out); o2.start(now + 0.04); o2.stop(now + 0.36);
+    } else if (variant === 2) {
+      // 단순 핑 — 1500Hz
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(1500, now);
+      g.gain.setValueAtTime(0.22, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.35);
+    } else if (variant === 3) {
+      // 도착 통통 — 나무 상자 풍
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(420, now); o.frequency.exponentialRampToValueAtTime(180, now + 0.1);
+      g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+    } else {
+      // 푹- (저음 임팩트 + 고음 sparkle)
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(220, now);
+      g.gain.setValueAtTime(0.20, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+      const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+      o2.type = 'triangle'; o2.frequency.setValueAtTime(2640, now);
+      g2.gain.setValueAtTime(0.10, now); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o2.connect(g2); g2.connect(out); o2.start(now); o2.stop(now + 0.2);
+    }
+  } catch (e) {}
+}
+
+// 인스턴트 SP 소비/획득 효과음 — 사용자 확정: 둘 다 SFX 3
+const SP_INSTANT_CONSUME_VARIANT = 3;  // 3: 흩날림 (3음 빠른 캐스케이드)
+const SP_INSTANT_GAIN_VARIANT = 3;     // 3: 황홀 sparkle (5음 1500→3300 상승)
+function playSfxInstantConsume() { _spInstantConsume(SP_INSTANT_CONSUME_VARIANT); }
+function playSfxInstantGain() { _spInstantGain(SP_INSTANT_GAIN_VARIANT); }
+function _spInstantConsume(variant) {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    if (variant === 1) {
+      // 황금 풉— 빠르게 사라지는 톤
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(2200, now); o.frequency.exponentialRampToValueAtTime(900, now + 0.25);
+      g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.32);
+    } else if (variant === 2) {
+      // 빠른 허밍 — 인스턴트 소비 (단발)
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(1320, now);
+      g.gain.setValueAtTime(0.16, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.2);
+    } else if (variant === 3) {
+      // 흩날림 — 3음 빠른 캐스케이드 (1800/2400/3000 Hz)
+      [1800, 2400, 3000].forEach((f, i) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        const t = now + i * 0.04;
+        o.type = 'sine'; o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.22);
+      });
+    } else {
+      // 휘릭 (상승)
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(800, now); o.frequency.exponentialRampToValueAtTime(2200, now + 0.18);
+      g.gain.setValueAtTime(0.10, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.25);
+    }
+  } catch (e) {}
+}
+function _spInstantGain(variant) {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    if (variant === 1) {
+      // 풍성한 화음 — 마법사 인스턴트 매직 (메이저 트라이어드 + 종)
+      [1047, 1319, 1568].forEach((f, i) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        const t = now + i * 0.05;
+        o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.16, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+        o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.5);
+      });
+    } else if (variant === 2) {
+      // 단순 황금 핑
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(1760, now);
+      g.gain.setValueAtTime(0.20, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.4);
+    } else if (variant === 3) {
+      // 황홀 sparkle (빠른 5음 상승)
+      [1500, 1800, 2200, 2700, 3300].forEach((f, i) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        const t = now + i * 0.045;
+        o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.14, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+        o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.27);
+      });
+    } else {
+      // 둥— + 차임
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(440, now);
+      g.gain.setValueAtTime(0.18, now); g.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+      o.connect(g); g.connect(out); o.start(now); o.stop(now + 0.5);
+      const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+      o2.type = 'triangle'; o2.frequency.setValueAtTime(1760, now + 0.05);
+      g2.gain.setValueAtTime(0.0001, now + 0.05); g2.gain.linearRampToValueAtTime(0.12, now + 0.07); g2.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+      o2.connect(g2); g2.connect(out); o2.start(now + 0.05); o2.stop(now + 0.35);
+    }
+  } catch (e) {}
+}
+
+// SP 지급 마법 차임 — 부드러운 종소리 (페어리 톤)
+function playSpGrantChime() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 종소리 5음 — C5, E5, G5, C6, E6 부드럽게 캐스케이드
+    const notes = [523, 659, 784, 1047, 1319];
+    notes.forEach((freq, i) => {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, now + i * 0.18);
+      g.gain.setValueAtTime(0.0001, now + i * 0.18);
+      g.gain.linearRampToValueAtTime(0.16, now + i * 0.18 + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.18 + 0.7);
+      o.connect(g); g.connect(out);
+      o.start(now + i * 0.18); o.stop(now + i * 0.18 + 0.8);
+    });
+    // 후반부 더스트 — 고음 sparkle
+    setTimeout(() => {
+      [2400, 3200, 4000].forEach((f, i) => {
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        const t = ctx.currentTime + i * 0.06;
+        o.type = 'sine';
+        o.frequency.setValueAtTime(f, t);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.08, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+        o.connect(g); g.connect(out);
+        o.start(t); o.stop(t + 0.5);
+      });
+    }, 1200);
+  } catch (e) {}
+}
 
 // 1대1 대치 풀스크린 알림 — 게임 시작 오버레이와 동일 스타일
 function playStalemateShrinkAlert(msg) {
@@ -3508,7 +4297,7 @@ function playStalemateShrinkAlert(msg) {
   setTimeout(() => {
     overlay.classList.remove('active');
     overlay.classList.add('hidden');
-  }, 2200);
+  }, 3000);
 }
 
 // ── 보드 축소 경고 ──
@@ -3519,9 +4308,9 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
     el.classList.remove('hidden');
     el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
   }
-  // 카운트다운이 10턴 남았을 때 — 풀스크린 인트로 강제 재생 (관전자·탈락 플레이어 포함)
+  // 카운트다운이 10턴 남았을 때 — 풀스크린 인트로 강제 재생 (페이드 1s + 유지 1s + 페이드 1s)
   if (turnsRemaining === 10) {
-    playBoardShrinkIntro();
+    runFullscreenLocked(() => playBoardShrinkIntro(), 3000);
   }
 });
 
@@ -3698,97 +4487,182 @@ function playBoardQuake() {
 }
 
 // ── 스킬 결과 ──
-socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed, data, effects }) => {
-  // 피해 감지용: 업데이트 전 HP 스냅샷
+// 시전 시퀀스 (사용자 요청):
+//   ① 화면 dim 오버레이 등장 — SP 바·시전자 프로필만 spotlight (밝게 유지)
+//   ② SP 차감 집중 + 마법구 비행 (~2s)
+//   ③ 화면 dim 해제 (밝아짐)
+//   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx }) => {
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
+  const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
+  const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
 
-  if (yourPieces) S.myPieces = yourPieces;
-  if (oppPieces) S.oppPieces = oppPieces;
-  pruneDeductionTokens();
-  if (sp) { S.sp = sp; }
-  if (instantSp) { S.instantSp = instantSp; }
-  if (sp || instantSp) { updateSPBar(); }
-  if (boardObjects) S.boardObjects = boardObjects;
+  // 1단계 — 즉시: 효과음 + 행동 플래그 + dim 오버레이 + SP 차감 집중 (마법구 비행)
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   if (msg) {
-    // 메시지 prefix별 전용 효과음 매핑
     const sfxRoute = pickSkillSfxByMsg(msg);
     if (sfxRoute) sfxRoute(); else playSfx('skill');
-    addLog(msg, 'skill');
-    showSkillToast(msg);
   }
-  // 스킬 시전 완료 — 액션 모드 글로우 해제
+  // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
+  // 시전자 인덱스: 서버가 casterPieceIdx 로 보내며, 구 버전 호환을 위해 pieceIdx 도 fallback
+  const _casterIdx = (typeof casterPieceIdx === 'number') ? casterPieceIdx
+                    : (typeof pieceIdx === 'number') ? pieceIdx : null;
+  const casterCard = (_casterIdx !== null)
+    ? (S.isTeamMode
+        ? document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${_casterIdx}"]`)
+        : document.querySelectorAll('#my-pieces-info .my-piece-card')[_casterIdx])
+    : null;
+  startSkillCastDim(casterCard);
+  // SP 마법구 이동
+  try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
-  // 힐 애니메이션: data.healedPieceIdxs 있으면 해당 카드 2초 초록 빛
-  const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
-  if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
-    setTimeout(() => flashHealPieces(healedIdxs), 50);
-  }
 
-  // 내 스킬로 상대 유닛이 피해를 받았는지 감지
-  const oppSkillDmgIdx = [];
-  if (S.oppPieces) {
-    for (let i = 0; i < S.oppPieces.length; i++) {
-      if (i < oldOppHps.length && S.oppPieces[i].hp < oldOppHps[i]) oppSkillDmgIdx.push(i);
+  const SP_ATTN_MS = 2000;     // 마법구 비행
+  const SKILL_GAP_MS = 500;    // 화면 복귀 후 스킬 시전까지 텀
+  const isDetonate = data && Array.isArray(data.deferredBombEmits) && data.deferredBombEmits.length > 0;
+  const skillAnimMs = isDetonate ? 2500 : 700;
+
+  // 2단계 — SP 강조 끝(2s) 직후: dim 해제 (화면 복귀)
+  setTimeout(() => {
+    endSkillCastDim(casterCard);
+    // SP 숫자도 이 시점에 최신값으로 동기화 (마법구 도착 tick 으로 이미 반영되었지만 안전장치)
+    if (sp) { S.sp = sp; }
+    if (instantSp) { S.instantSp = instantSp; }
+    if (sp || instantSp) { updateSPBar(); }
+  }, SP_ATTN_MS);
+
+  // 3단계 — dim 해제 0.5초 후: 실제 스킬 효과 (HP/보드 업데이트 + 렌더 + 애니메이션)
+  setTimeout(() => {
+    if (yourPieces) S.myPieces = yourPieces;
+    if (oppPieces) S.oppPieces = oppPieces;
+    pruneDeductionTokens();
+    if (boardObjects) S.boardObjects = boardObjects;
+
+    // 피해 감지
+    const oppSkillDmgIdx = [];
+    if (S.oppPieces) {
+      for (let i = 0; i < S.oppPieces.length; i++) {
+        if (i < oldOppHps.length && S.oppPieces[i].hp < oldOppHps[i]) oppSkillDmgIdx.push(i);
+      }
     }
-  }
-  // 내 스킬로 내 유닛이 피해를 받았는지 감지 (자해 스킬 등)
-  const mySkillDmgIdx = [];
-  for (let i = 0; i < S.myPieces.length; i++) {
-    if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
-  }
+    const mySkillDmgIdx = [];
+    for (let i = 0; i < S.myPieces.length; i++) {
+      if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
+    }
 
-  renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
-  if (S.isMyTurn) showActionBar(true);
+    renderGameBoard();
+    renderMyPieces();
+    renderOppPieces();
+    if (S.isMyTurn) showActionBar(true);
 
-  if (!S.isTeamMode) {
-    applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
-    applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+    if (!S.isTeamMode) {
+      applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
+      applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+    }
+
+    // 힐 애니메이션
+    const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
+    if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
+      setTimeout(() => flashHealPieces(healedIdxs), 50);
+    }
+
+    // 광역 스킬(유황범람·악몽 등) — 피격 위치 시각 표시
+    const hitsData = data && Array.isArray(data.hits) ? data.hits : null;
+    if (hitsData && hitsData.length > 0) {
+      const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+      if (cells.length > 0) animateAttack([], cells);
+      // 단일 살아있는 hit이면 추리 토큰 자동 배치 (#10)
+      const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
+      if (aliveHits.length === 1 && !S.isTeamMode) {
+        const c = aliveHits[0];
+        const piece = S.oppPieces?.[c.defPieceIdx];
+        if (piece) {
+          const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+          try {
+            S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+            S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+            renderGameBoard();
+          } catch (e) {}
+        }
+      }
+    }
+  }, SP_ATTN_MS + SKILL_GAP_MS);   // 화면 복귀 후 0.5초 텀 → 실제 스킬 시전
+
+  // 4단계 — 스킬 애니 종료 후: 메시지(토스트·로그)
+  if (msg) {
+    setTimeout(() => {
+      addLog(msg, 'skill');
+      showSkillToast(msg);
+    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
   }
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx }) => {
   // 메시지 기반 라우팅 (skill_result와 동일 매핑) — 폴백은 'opp_skill'
   const sfxRoute = pickSkillSfxByMsg(msg);
   if (sfxRoute) sfxRoute(); else playSfx('opp_skill');
 
-  // 피해 감지용: 업데이트 전 HP 스냅샷
-  const oldMyHps = S.myPieces.map(p => p.hp);
+  // 마법구 비행 + dim 오버레이 — skill_result(시전자) 와 동일한 시퀀스로 재현.
+  // 시전자 카드는 1v1 상대 시점이므로 #opp-pieces-info 에 위치.
+  const oldMyHpsCaptured = S.myPieces.map(p => p.hp);
+  const oldOppHpsCaptured = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
+  const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
+  const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
 
-  if (yourPieces) S.myPieces = yourPieces;
-  if (oppPieces) S.oppPieces = oppPieces;
-  pruneDeductionTokens();
-  if (sp) { S.sp = sp; }
-  if (instantSp) { S.instantSp = instantSp; }
-  if (sp || instantSp) { updateSPBar(); }
-  if (boardObjects) S.boardObjects = boardObjects;
+  const oppCasterCard = (typeof casterPieceIdx === 'number')
+    ? document.querySelectorAll('#opp-pieces-info .opp-piece-card')[casterPieceIdx]
+    : null;
+  startSkillCastDim(oppCasterCard);
+  // SP 마법구 비행 — opp 측이 SP 를 소비해 본인 측으로 transfer 되므로 transferToMe 경로(빨간 마법구)가 발동
+  try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+
+  const SP_ATTN_MS = 2000;
+  const SKILL_GAP_MS = 500;
+  const skillAnimMs = 700;
+
+  // 2단계 — 2s 후 dim 해제 + sp/instantSp 동기화
+  setTimeout(() => {
+    endSkillCastDim(oppCasterCard);
+    if (sp) { S.sp = sp; }
+    if (instantSp) { S.instantSp = instantSp; }
+    if (sp || instantSp) { updateSPBar(); }
+  }, SP_ATTN_MS);
+
+  // 3단계 — 2.5s 후 HP/보드 업데이트 + 렌더 + 피격 애니
+  setTimeout(() => {
+    if (yourPieces) S.myPieces = yourPieces;
+    if (oppPieces) S.oppPieces = oppPieces;
+    pruneDeductionTokens();
+    if (boardObjects) S.boardObjects = boardObjects;
+
+    const mySkillDmgIdx = [];
+    for (let i = 0; i < S.myPieces.length; i++) {
+      if (i < oldMyHpsCaptured.length && S.myPieces[i].hp < oldMyHpsCaptured[i]) mySkillDmgIdx.push(i);
+    }
+
+    renderGameBoard();
+    renderMyPieces();
+    renderOppPieces();
+
+    if (!S.isTeamMode) {
+      applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+    }
+    // 상대가 사용한 회복 — 상대 카드에 초록 플래시
+    if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
+      setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
+    }
+  }, SP_ATTN_MS + SKILL_GAP_MS);
+
+  // 4단계 — 스킬 애니 종료 후: 토스트 + 로그 (msg 가 명시적으로 비어있으면 출력 안 함)
   if (msg) {
-    showSkillToast(msg, true);
-    addLog(msg, 'skill-enemy');
-  }
-
-  // 상대 스킬로 내 유닛이 피해를 받았는지 감지
-  const mySkillDmgIdx = [];
-  for (let i = 0; i < S.myPieces.length; i++) {
-    if (S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
-  }
-
-  renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
-
-  if (!S.isTeamMode) {
-    applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
-  }
-  // 상대가 사용한 회복 — 상대 카드에 초록 플래시 + 반짝이
-  if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
-    setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
+    setTimeout(() => {
+      showSkillToast(msg, true);
+      addLog(msg, 'skill-enemy');
+    }, SP_ATTN_MS + SKILL_GAP_MS + skillAnimMs);
   }
 });
 
@@ -3823,7 +4697,10 @@ socket.on('rats_spawned', ({ rats, owner }) => {
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner }) => {
   if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill');
-  if (owner === S.playerIdx) {
+  // 본인/팀원/적 구분 — 팀모드에서 팀원 시점에서도 본인과 동일한 문구 출력
+  const isMine = owner === S.playerIdx;
+  const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
+  if (isMine || isAlly) {
     addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
     showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
   } else {
@@ -3838,7 +4715,7 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   playSfxTrapSnap();
   if (destroyed) playSfx('kill'); else playSfx('hit');
 
-  // 인벤토리 E7 트랩 발동 — `🪤 덫 발동!` 모두 동일
+  // 인벤토리 E7 트랩 발동 — `🪤 덫 발동!` 모두 동일 (원본 유지)
   const msg = `🪤 덫 발동!`;
   addLog(msg, 'hit');
   showSkillToast(msg);
@@ -3896,14 +4773,68 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   }
 });
 
+// ── 기폭 인트로 (폭탄 노출 → 빨강 전환 애니) ──
+// #18: SP 강조(2s) 후 시작. 전체 1.5s 로 압축.
+// 폭탄 이모지는 인게임 보드 렌더 흐름과 무관하게 인트로 핸들러가 직접 셀에 마커 부착 →
+// skill_result 로 boardObjects 가 업데이트돼 폭탄이 사라져도 애니 동안 시각적으로 유지됨.
+socket.on('detonation_intro', ({ bombs }) => {
+  if (!Array.isArray(bombs) || bombs.length === 0) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  // 폭탄 애니는 화면 dim 해제 + 0.5초 텀 후(=SKILL_START_MS=2500ms) 시작
+  const SP_ATTN_MS = 2000;
+  const SKILL_GAP_MS = 500;
+  const SKILL_START_MS = SP_ATTN_MS + SKILL_GAP_MS;
+  const markers = [];
+  // 단계 1: 노출 (0ms) — 마커 부착 + 황색 후광
+  setTimeout(() => {
+    for (const b of bombs) {
+      const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+      if (!cell) continue;
+      cell.classList.add('bomb-reveal');
+      const existing = cell.querySelector('.bomb-anim-marker');
+      if (!existing) {
+        const m = document.createElement('span');
+        m.className = 'bomb-anim-marker';
+        m.textContent = '💣';
+        m.style.cssText = 'position:absolute;top:1px;right:2px;font-size:0.6rem;z-index:6;pointer-events:none;animation:bomb-marker-fade-in 0.35s ease-out forwards;';
+        cell.appendChild(m);
+        markers.push(m);
+      }
+    }
+  }, SKILL_START_MS);
+  // 단계 2: 빨강 (450ms 후)
+  setTimeout(() => {
+    for (const b of bombs) {
+      const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+      if (cell) cell.classList.add('bomb-arming');
+    }
+  }, SKILL_START_MS + 450);
+  // 단계 3: 폭발 (550ms — 빨강 변환 100ms 후 즉시 폭발)
+  setTimeout(() => {
+    for (const b of bombs) {
+      const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+      if (cell) cell.classList.add('bomb-blast');
+    }
+  }, SKILL_START_MS + 550);
+  // 단계 4: 정리 (950ms 후) — 마커 제거
+  setTimeout(() => {
+    for (const b of bombs) {
+      const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+      if (cell) cell.classList.remove('bomb-reveal', 'bomb-arming', 'bomb-blast');
+    }
+    for (const m of markers) {
+      if (m && m.parentNode) m.remove();
+    }
+  }, SKILL_START_MS + 950);
+});
+
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
   playSfxBombExplode();
-  // 인벤토리 E5 폭탄 폭발 — `💥기폭: 폭탄 폭발!` (모든 viewer 동일)
-  if (hits.length > 0) {
-    addLog(`💥기폭: 폭탄 폭발!`, 'hit');
-    showSkillToast(`💥기폭: 폭탄 폭발!`);
-  }
+  // #13: 폭탄 폭발은 skill_result(기폭 시전자)에서 이미 메시지 출력됨.
+  // 여기서는 토스트 중복 방지 — 로그도 생략 (위치 정보가 필요하면 stamp/HP바로 충분).
+  // (자동 발화 — 화약상 사망 시 트리거 등 — 도 별도 패시브 알림으로 처리되므로 OK)
   for (const h of hits) {
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
   }
@@ -3959,59 +4890,68 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
   S._recentCurseDamageKeys.add(key);
   setTimeout(() => { if (S._recentCurseDamageKeys) S._recentCurseDamageKeys.delete(key); }, 800);
 
-  // 1v1: querySelectorAll → 인덱스로 카드 직접 매칭. 점멸(curse-flash) 제거 — 보라 도장만 표시
+  // 1v1: 도장 데이터 누적 + piece HP 동기화 (HP 바 즉시 반영 + buildDamageOverlay 가 보라 도장을 표시)
   const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
   const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
   if (myIdx >= 0) {
-    const cards = document.querySelectorAll('#my-pieces-info .my-piece-card');
-    if (cards[myIdx]) attachCurseDamageStamp(cards[myIdx], damage);
+    addCurseDamageStampValue(`my:${myIdx}`, damage);
+    if (typeof newHp === 'number' && S.myPieces[myIdx]) S.myPieces[myIdx].hp = newHp;
   }
   if (oppIdx >= 0) {
-    const cards = document.querySelectorAll('#opp-pieces-info .opp-piece-card');
-    if (cards[oppIdx]) attachCurseDamageStamp(cards[oppIdx], damage);
+    addCurseDamageStampValue(`opp:${oppIdx}`, damage);
+    if (typeof newHp === 'number' && S.oppPieces[oppIdx]) S.oppPieces[oppIdx].hp = newHp;
   }
-  // 팀모드: data-piece-idx 셀렉터로 정확 매칭
+  // 팀모드: 플레이어별 인덱스 키 사용
   if (S.isTeamMode) {
     for (const pl of (S.teamGamePlayers || [])) {
       const idxInPl = (pl.pieces || []).findIndex(p => p.alive && p.name === targetName);
       if (idxInPl < 0) continue;
-      requestAnimationFrame(() => {
-        const card = document.querySelector(`.team-profile-block[data-player-idx="${pl.idx}"] [data-piece-idx="${idxInPl}"]`);
-        if (card) {
-          attachCurseDamageStamp(card, damage);
-        }
-      });
+      addCurseDamageStampValue(`${pl.idx}:${idxInPl}`, damage);
+      if (typeof newHp === 'number' && pl.pieces[idxInPl]) pl.pieces[idxInPl].hp = newHp;
     }
   }
+  // 저주 지속 데미지 로그 (토스트는 없음) — 해골 이모지 (저주 관련 통일)
+  try {
+    const dmgStr = Number.isInteger(damage) ? `${damage}` : `${damage.toFixed(1)}`;
+    addLog(`☠ 저주: ${targetName} ${dmgStr} 피해`, 'skill');
+  } catch (e) {}
+  // 즉시 재렌더 — 보라 도장 반영
+  try {
+    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+    else { renderMyPieces(); renderOppPieces(); }
+  } catch (e) {}
 });
+// (구) DOM 기반 저주 도장 함수 — 더 이상 호출되지 않음.
+// 새 시스템: S.curseDamageThisTurn 누적 → buildDamageOverlay 가 카드 마크업에 도장 포함.
 function attachCurseDamageStamp(card, damage) {
+  // no-op (호환용 빈 스텁)
+  return;
+  // 이전 코드 (참고용 보존):
   if (!card) return;
-  // 기존 보라 도장 제거 후 새로 추가
   const existing = card.querySelector('.dmg-stamp.curse');
   if (existing) existing.remove();
   const stamp = document.createElement('div');
   stamp.className = 'dmg-stamp curse';
   const dmgText = Number.isInteger(damage) ? `${damage} 데미지` : `${damage.toFixed(1)} 데미지`;
   stamp.textContent = dmgText;
-  // 카드가 position: relative 인지 확인
   if (getComputedStyle(card).position === 'static') card.style.position = 'relative';
   card.appendChild(stamp);
   setTimeout(() => { if (stamp.parentNode) stamp.remove(); }, 3000);
 }
 
 // ── 패시브 알림 ──
-socket.on('passive_alert', ({ type, msg, playerIdx, targetName }) => {
+// '공격받았습니다!' 가 항상 먼저 나오도록 — 공격 반응형 패시브(bodyguard/monk/count/armoredWarrior 등)는
+// being_attacked 처리 후로 출력 순서를 미룬다.
+// 공격 반응형 패시브 — 'wizard' 도 포함 (토스트·로그 출력 + 마법구 애니메이션 동시)
+const DEFENSIVE_PASSIVE_TYPES = new Set(['bodyguard', 'monk', 'count', 'armoredWarrior', 'wizard']);
+S._pendingDefensiveAlerts = S._pendingDefensiveAlerts || [];
+
+function _renderPassiveAlert({ type, msg, playerIdx, targetName }) {
   addLog(msg, 'skill');
-  // 패시브 type별 전용 효과음 (저주 틱은 별도)
   if (type !== 'curse_tick') {
     const passiveSfx = pickPassiveSfxByType(type);
     if (passiveSfx) passiveSfx(); else playSfxPassive();
   }
-  if (type === 'bodyguard') {
-    S._bodyguardIntercepted = true;
-  }
-  // 저주 점멸(curse-flash) 제거 — 토스트(보라)와 상시 보라 배경(curse-active)으로 대체
-  // 저주 관련 토스트는 보라색 (curse type), 그 외는 기본 색 (적/아군 분기)
   const isCurseToast = (type === 'curse_tick' || type === 'curse_removed');
   if (S.isSpectator) {
     showSkillToast(msg, false, playerIdx, isCurseToast ? 'curse' : undefined);
@@ -4019,12 +4959,54 @@ socket.on('passive_alert', ({ type, msg, playerIdx, targetName }) => {
   }
   const isEnemy = (playerIdx !== undefined) ? (playerIdx !== S.playerIdx) : false;
   showSkillToast(msg, isEnemy, undefined, isCurseToast ? 'curse' : undefined);
+}
+
+// 데미지 감소형 패시브(가호/폭정/아이언스킨) — 격파 발생 시 토스트 생략, 로그는 유지
+const REDUCTION_PASSIVE_TYPES = new Set(['monk', 'count', 'armoredWarrior']);
+function flushDefensiveAlerts(opts) {
+  if (!S._pendingDefensiveAlerts || S._pendingDefensiveAlerts.length === 0) return;
+  const skipReduction = !!(opts && opts.skipReduction);
+  const list = S._pendingDefensiveAlerts;
+  S._pendingDefensiveAlerts = [];
+  for (const item of list) {
+    if (skipReduction && REDUCTION_PASSIVE_TYPES.has(item.type)) {
+      // 로그만 작성 (토스트 생략)
+      addLog(item.msg, 'skill');
+      continue;
+    }
+    _renderPassiveAlert(item);
+  }
+}
+
+socket.on('passive_alert', (payload) => {
+  const { type, playerIdx } = payload || {};
+  // 호위무사 가로채기 플래그는 being_attacked 측 보호 애니메이션 분기에 사용
+  if (type === 'bodyguard') S._bodyguardIntercepted = true;
+  // 마법사 인스턴트 매직 — 황금 마법구 합류 애니 트리거. 토스트·로그는 _renderPassiveAlert 가 처리.
+  if (type === 'wizard') {
+    let targetSlot = 'mine';
+    if (S.isTeamMode) {
+      const owner = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+      if (owner) targetSlot = (owner.teamId === S.teamId) ? 'mine' : 'opp';
+    } else {
+      targetSlot = (playerIdx === S.playerIdx) ? 'mine' : 'opp';
+    }
+    try { spawnInstantGainOrb(targetSlot); } catch (e) {}
+  }
+  // 공격 반응형 패시브는 버퍼에 쌓아두고 being_attacked 직후 flush
+  if (DEFENSIVE_PASSIVE_TYPES.has(type)) {
+    S._pendingDefensiveAlerts.push(payload);
+    return;
+  }
+  _renderPassiveAlert(payload);
 });
 
 // ── 게임 오버 ──
-socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason }) => {
+socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason, replayWinnerPieces, replayBoardObjects, replayBounds }) => {
   // 게임 간 stale 데이터 차단 — 다음 게임의 교환 배지 오탐 방지
   S.oppRevealChars = null;
+  // 무승부 시에도 타이머 절대 재가동 안 되게 차단
+  S._gameEnded = true;
   stopClientTimer();
   // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 1초 대기 + 느린 페이드
   // 보드 축소로 인한 종료: 축소 애니메이션(흔들림 + bounds 업데이트)이 완료된 후 표시
@@ -4103,7 +5085,9 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     document.getElementById('gameover-sub').textContent = sub;
   } else {
     // ── 패배 메시지 ──
-    document.getElementById('gameover-icon').textContent = r.type === 'surrender' ? '🏳' : '💀';
+    // #15: 일반 패배는 해골 이모지 제거 + 상대 마지막 배치 그리드 노출.
+    //      단, 기권·세팅 단계 이탈로 인한 패배는 그리드가 무의미하므로 기존대로 💀 유지.
+    document.getElementById('gameover-icon').textContent = r.type === 'surrender' ? '💀' : '';
     document.getElementById('gameover-title').textContent = r.type === 'surrender' ? '기권' : '패배';
     document.getElementById('gameover-title').style.color = 'var(--danger)';
     let sub = '';
@@ -4118,9 +5102,53 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
       default: sub = `${opponentName}에게 패배했습니다.`;
     }
     document.getElementById('gameover-sub').textContent = sub;
+    // 상대 마지막 배치 그리드 렌더 (기권은 의미 없음 → 표시 안함)
+    if (r.type !== 'surrender' && Array.isArray(replayWinnerPieces) && replayBounds) {
+      try { renderDefeatReplayBoard(replayWinnerPieces, replayBoardObjects || [], replayBounds); } catch (e) {}
+    }
   }
   }  // end runGameOverRender
 });
+
+// #15: 패배 화면 — 상대 마지막 배치 그리드 렌더
+function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
+  const wrap = document.getElementById('gameover-replay');
+  const board = document.getElementById('gameover-replay-board');
+  if (!wrap || !board) return;
+  wrap.classList.remove('hidden');
+  // 보드 사이즈 — bounds.max-min+1 (1v1=5, 팀=7 가능)
+  const total = (bounds.max - bounds.min + 1);
+  const cellPx = total >= 7 ? 40 : 50;
+  board.innerHTML = '';
+  board.style.gridTemplateColumns = `repeat(${total}, ${cellPx}px)`;
+  board.style.gridTemplateRows = `repeat(${total}, ${cellPx}px)`;
+  for (let r = 0; r < total; r++) {
+    for (let c = 0; c < total; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      const realCol = bounds.min + c;
+      const realRow = bounds.min + r;
+      cell.dataset.col = realCol;
+      cell.dataset.row = realRow;
+      // 상대 piece (살아있는 것만) — 위치에 표시
+      const pcs = (winnerPieces || []).filter(p => p.alive && p.col === realCol && p.row === realRow);
+      if (pcs.length > 0) {
+        const pc = pcs[0];
+        cell.innerHTML = `<span style="font-size:1.2rem">${pc.icon}</span><span style="position:absolute;bottom:0;right:2px;font-size:0.55rem;color:var(--success);font-weight:700">${pc.hp}</span>`;
+        cell.classList.add('has-piece');
+        cell.style.position = 'relative';
+      }
+      // 오브젝트 (덫·폭탄·쥐)
+      const objHere = (objects || []).find(o => o.col === realCol && o.row === realRow);
+      if (objHere) {
+        if (objHere.type === 'trap') cell.classList.add('has-trap');
+        else if (objHere.type === 'bomb') cell.classList.add('has-bomb');
+        else if (objHere.type === 'rat') cell.classList.add('has-rat');
+      }
+      board.appendChild(cell);
+    }
+  }
+}
 
 // 게임오버 화면 전환 — instant=true면 즉시, 아니면 느린 페이드인 (1.5초)
 function _showGameOverScreen(instant) {
@@ -4160,9 +5188,26 @@ socket.on('err', ({ msg }) => {
   showError('hp-error', msg);
   showError('draft-error', msg);
   addLog(`⚠ ${msg}`, 'system');
-  // 팀 대기실에서도 보이도록 토스트 표시
-  if (S.isTeamMode && S.phase === 'team-waiting') {
-    try { showSkillToast(msg, false, undefined, 'event'); } catch (e) {}
+  // 사용자에게 즉시 피드백 — 어떤 화면에서든 토스트로 알림 (버튼이 응답 없이 멈춰있다는 오해 방지)
+  try { showSkillToast(`⚠ ${msg}`, false, undefined, 'event'); } catch (e) {}
+  // ── 응답 없이 버튼이 잠긴 채로 머무는 문제 방지 ──
+  // 세팅/게임 단계의 '대기 중...' 버튼들을 자동 복구하여 재시도 가능하게 함
+  const RECOVER_BTN_IDS = [
+    'btn-draft-confirm', 'btn-draft-select', 'btn-draft-random', 'btn-draft-recommend',
+    'btn-team-draft-confirm', 'btn-team-reveal-continue',
+    'btn-hp-confirm',
+    'btn-reveal-confirm', 'btn-irev-confirm', 'btn-frev-confirm',
+    'btn-exchange-confirm',
+    'btn-placement-confirm',
+  ];
+  for (const id of RECOVER_BTN_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (el.disabled && /대기 중/.test(el.textContent || '')) {
+      el.disabled = false;
+      // 원래 텍스트는 다음 렌더에서 복구되므로 임시 라벨만 정리
+      el.textContent = '재시도';
+    }
   }
 });
 
@@ -4254,7 +5299,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 덫이 설치 된 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다.',
+    body: '현재 위치에 덫 설치. 작동 시 2 피해.',
     flavor: '소리 없는 사냥꾼. 당하기 전까지는 아무도 그의 함정을 눈치챌 수 없다.',
   },
   messenger: {
@@ -4298,7 +5343,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('인스턴트 매직'), color: '#f59e0b' },
     ],
-    body: '마법사는 피격 당할 때마다 1회용 SP를 제공합니다. 이 SP는 사용하면 사라집니다.',
+    body: '피격 시 1회용 SP 1개 획득',
     flavor: '신체가 마력으로 이루어진 신비의 존재. 그의 몸은 기꺼이 전우의 연료가 된다.',
   },
   armoredWarrior: {
@@ -5548,7 +6593,7 @@ function showTwinSplit(twinTierHp) {
 
   function render() {
     controls.innerHTML = `
-      <div class="hp-twin-unit">
+      <div class="hp-twin-unit hp-twin-unit-compact">
         <strong>👧 누나</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="elder" data-delta="-1">−</button>
@@ -5556,8 +6601,7 @@ function showTwinSplit(twinTierHp) {
           <button class="hp-btn twin-btn" data-who="elder" data-delta="1">+</button>
         </div>
       </div>
-      <span style="font-size:1.2rem;color:var(--muted)">+</span>
-      <div class="hp-twin-unit">
+      <div class="hp-twin-unit hp-twin-unit-compact">
         <strong>👦 동생</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="younger" data-delta="-1">−</button>
@@ -6951,6 +7995,9 @@ function updateSPBar() {
   const myInstant = (S.instantSp && S.instantSp[mySlot]) || 0;
   const oppInstant = (S.instantSp && S.instantSp[oppSlot]) || 0;
   const total = mySP + oppSP || 1;
+  // 스킬 시전 애니 중에는 spendSPAttention 이 큰 숫자/pip 트레이를 직접 관리.
+  // updateSPBar 가 끼어들어 NEW 값으로 덮어쓰지 않도록 _spAnimGuard 동안 부분 스킵.
+  const skipBigNumsAndTray = !!S._spAnimGuard;
 
   const myInstantStr = myInstant > 0 ? ` (+${myInstant}✨)` : '';
   const oppInstantStr = oppInstant > 0 ? ` (+${oppInstant}✨)` : '';
@@ -6967,16 +8014,51 @@ function updateSPBar() {
   }
   const myLabelEl = document.getElementById('sp-my-label');
   const oppLabelEl = document.getElementById('sp-opp-label');
-  myLabelEl.textContent = myLabel;
-  oppLabelEl.textContent = oppLabel;
+  if (myLabelEl) myLabelEl.textContent = myLabel;
+  if (oppLabelEl) oppLabelEl.textContent = oppLabel;
   // 팀모드: 라벨 컬러를 절대 팀 컬러로 (블루는 항상 파랑, 레드는 항상 빨강)
   if (S.isTeamMode) {
-    myLabelEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
-    oppLabelEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
+    if (myLabelEl) myLabelEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
+    if (oppLabelEl) oppLabelEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
   } else {
-    myLabelEl.style.color = '';
-    oppLabelEl.style.color = '';
+    if (myLabelEl) myLabelEl.style.color = '';
+    if (oppLabelEl) oppLabelEl.style.color = '';
   }
+  // v2 큰 숫자 표기 — 일반 SP만 표시 (인스턴트 SP는 카운트다운 영역으로 분리 표시)
+  const myNumEl = document.getElementById('sp-my-num');
+  const oppNumEl = document.getElementById('sp-opp-num');
+  if (myNumEl && !skipBigNumsAndTray) {
+    const newText = String(mySP);
+    if (myNumEl.textContent !== newText) {
+      myNumEl.textContent = newText;
+      myNumEl.classList.remove('sp-bump');
+      void myNumEl.offsetWidth;
+      myNumEl.classList.add('sp-bump');
+    }
+  }
+  if (oppNumEl && !skipBigNumsAndTray) {
+    const newText = String(oppSP);
+    if (oppNumEl.textContent !== newText) {
+      oppNumEl.textContent = newText;
+      oppNumEl.classList.remove('sp-bump');
+      void oppNumEl.offsetWidth;
+      oppNumEl.classList.add('sp-bump');
+    }
+  }
+  if (S.isTeamMode) {
+    if (myNumEl) myNumEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
+    if (oppNumEl) oppNumEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
+  } else {
+    if (myNumEl) myNumEl.style.color = '';
+    if (oppNumEl) oppNumEl.style.color = '';
+  }
+  // 인스턴트 SP 트레이 — 숫자 옆에 작은 황금 구슬 나열 (사용 시 숫자로 빨려 들어감)
+  // 스킬 시전 애니 중에는 spendSPAttention 이 트레이의 pip 를 직접 제거 (sp-pip-consume) 하므로 sync 스킵
+  if (!skipBigNumsAndTray) {
+    syncInstantTray('sp-instant-tray-mine', myInstant);
+    syncInstantTray('sp-instant-tray-opp', oppInstant);
+  }
+
   const myFillEl = document.getElementById('sp-my-fill');
   const oppFillEl = document.getElementById('sp-opp-fill');
   myFillEl.style.width = `${(mySP / total) * 100}%`;
@@ -7440,10 +8522,27 @@ function renderGameBoard() {
       if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
       try {
         const data = JSON.parse(e.dataTransfer.getData('text/plain'));
-        // 기존 토큰 제거 (같은 말)
-        S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== data.pieceKey);
-        // 새 위치에 배치
-        S.deductionTokens.push({ pieceKey: data.pieceKey, icon: data.icon, name: data.name, col, row });
+        // 같은 칸에 이미 다른 토큰이 있는 경우 처리:
+        // - 보드의 기존 토큰을 옮긴 거라면 (fromBoard=true) → 두 토큰 위치 스왑
+        // - 카드(프로필)에서 새로 끌어온 토큰이라면 → 기존 토큰 자동 제거(대체)
+        const existingHere = S.deductionTokens.find(t => t.col === col && t.row === row && t.pieceKey !== data.pieceKey);
+        const movedFromBoard = !!data.fromBoard;
+        const draggedToken = S.deductionTokens.find(t => t.pieceKey === data.pieceKey);
+        if (existingHere && movedFromBoard && draggedToken) {
+          // 두 토큰 자리 교환 — 드래그한 토큰은 새 위치(=기존 토큰 자리)로,
+          // 기존 토큰은 드래그한 토큰의 원래 위치로 이동
+          const fromCol = draggedToken.col, fromRow = draggedToken.row;
+          existingHere.col = fromCol; existingHere.row = fromRow;
+          draggedToken.col = col; draggedToken.row = row;
+        } else {
+          // 같은 칸의 다른 토큰은 자동 제거(대체) + 동일 pieceKey 의 기존 토큰도 제거
+          S.deductionTokens = S.deductionTokens.filter(t => {
+            if (t.pieceKey === data.pieceKey) return false;
+            if (t.col === col && t.row === row) return false;
+            return true;
+          });
+          S.deductionTokens.push({ pieceKey: data.pieceKey, icon: data.icon, name: data.name, col, row });
+        }
         refreshDeductionTokens();
         // 프로필 전체 재렌더 대신 배지만 in-place 갱신
         updateDeductionBadgesInPlace();
@@ -7535,24 +8634,65 @@ function getStatusIcons(pc) {
 
 // ── 턴 데미지 추적 — 매 턴 시작 시 모든 piece HP 스냅샷, 변화량을 도장·HP바로 표시 ──
 // `S.turnStartHps[key] = hpAtTurnStart`. key = 'my:<idx>' / 'opp:<idx>' (1v1) / `<playerIdx>:<idx>` (팀모드)
-function snapshotTurnStartHps() {
+//
+// preCurseHps (서버에서 옴): { [playerIdx]: [hp0, hp1, ...] } — curse 가 적용되기 *전* 의 HP.
+//   주어지면 startHp 로 사용 → 저주 데미지를 단독으로 받은 piece 는 (preHp - currentHp) 만큼이
+//   curseDamageThisTurn 으로 자동 도출되어 buildDamageOverlay 가 보라 도장을 출력함.
+function snapshotTurnStartHps(preCurseHps) {
   const snap = {};
+  const newCurseDmg = {};
+  const _myIdx = S.playerIdx;
   if (S.isTeamMode && Array.isArray(S.teamGamePlayers)) {
     for (const pl of S.teamGamePlayers) {
       const pieces = pl.pieces || [];
+      const preHps = preCurseHps ? preCurseHps[pl.idx] : null;
       for (let i = 0; i < pieces.length; i++) {
         const pc = pieces[i];
         if (!pc) continue;
-        snap[`${pl.idx}:${i}`] = (pc.alive === false ? 0 : (pc.hp ?? 0));
+        const currentHp = (pc.alive === false ? 0 : (pc.hp ?? 0));
+        const startHp = (preHps && i < preHps.length) ? preHps[i] : currentHp;
+        snap[`${pl.idx}:${i}`] = startHp;
+        // 저주 보라 도장 — preHp - currentHp 가 곧 이번 턴 저주 데미지
+        const diff = startHp - currentHp;
+        if (diff > 0) newCurseDmg[`${pl.idx}:${i}`] = diff;
       }
     }
   } else {
     const my = S.myPieces || [];
-    for (let i = 0; i < my.length; i++) snap[`my:${i}`] = (my[i].alive === false ? 0 : (my[i].hp ?? 0));
+    const preMy = preCurseHps && _myIdx != null ? preCurseHps[_myIdx] : null;
+    for (let i = 0; i < my.length; i++) {
+      const currentHp = (my[i].alive === false ? 0 : (my[i].hp ?? 0));
+      const startHp = (preMy && i < preMy.length) ? preMy[i] : currentHp;
+      snap[`my:${i}`] = startHp;
+      const diff = startHp - currentHp;
+      if (diff > 0) newCurseDmg[`my:${i}`] = diff;
+    }
     const opp = S.oppPieces || [];
-    for (let i = 0; i < opp.length; i++) snap[`opp:${i}`] = (opp[i].alive === false ? 0 : (opp[i].hp ?? 0));
+    const oppPlayerIdx = (_myIdx == null) ? null : (1 - _myIdx);
+    const preOpp = (preCurseHps && oppPlayerIdx != null) ? preCurseHps[oppPlayerIdx] : null;
+    for (let i = 0; i < opp.length; i++) {
+      const currentHp = (opp[i].alive === false ? 0 : (opp[i].hp ?? 0));
+      const startHp = (preOpp && i < preOpp.length) ? preOpp[i] : currentHp;
+      snap[`opp:${i}`] = startHp;
+      const diff = startHp - currentHp;
+      if (diff > 0) newCurseDmg[`opp:${i}`] = diff;
+    }
   }
   S.turnStartHps = snap;
+  S.loyaltyDamageThisTurn = {};
+  // 저주 데미지: preHps 가 주어졌으면 새로운 턴이라 이전 누적을 버리고 newCurseDmg 로 덮어씀.
+  // preHps 없이 호출된 경우(게임 시작 등)는 그대로 비움.
+  S.curseDamageThisTurn = newCurseDmg;
+}
+// 호위무사가 충성으로 대신 받은 피해를 누적
+function addLoyaltyDamage(key, dmg) {
+  if (!S.loyaltyDamageThisTurn) S.loyaltyDamageThisTurn = {};
+  S.loyaltyDamageThisTurn[key] = (S.loyaltyDamageThisTurn[key] || 0) + dmg;
+}
+// 저주(curse) 지속 데미지 — 매 턴 재렌더에도 보존되도록 도장 데이터로 누적
+function addCurseDamageStampValue(key, dmg) {
+  if (!S.curseDamageThisTurn) S.curseDamageThisTurn = {};
+  S.curseDamageThisTurn[key] = (S.curseDamageThisTurn[key] || 0) + dmg;
 }
 // 데미지(이번 턴 기준): 시작 HP − 현재 HP. 음수면 0(회복 등).
 function getTurnDamage(key, currentHp) {
@@ -7563,18 +8703,35 @@ function getTurnDamage(key, currentHp) {
   return d > 0 ? d : 0;
 }
 // 데미지 도장 + HP 바 빨간 오버레이 HTML 빌더
+// 도장 구성 (3가지만):
+//   ① 본체만 맞은 경우: 빨강 (저주 데미지도 포함 — 새 피해가 오면 빨강이 최신화)
+//   ② 대신 맞은 경우(호위무사 충성): 파랑 + '충성' 태그
+//   ③ 본체 + 동료(충성) 동시: 빨강 + 파랑 (위치 분리)
+//   ※ 저주 데미지가 단독으로만 들어온 경우(턴 시작 직후·다른 피해 없음): 보라 → 후속 피해 들어오면 빨강으로 자연스럽게 최신화됨
 function buildDamageOverlay(key, hp, maxHp) {
-  const dmg = getTurnDamage(key, hp);
-  if (dmg <= 0) return { stamp: '', barOverlay: '' };
-  // 데미지 양: 정수면 정수, 소수면 .5 단위로 (예: 1.5, 2)
-  const dmgText = Number.isInteger(dmg) ? `${dmg} 데미지` : `${dmg.toFixed(1)} 데미지`;
-  const stamp = `<div class="dmg-stamp">${dmgText}</div>`;
+  const totalDmg = getTurnDamage(key, hp);
+  const loyaltyDmg = (S.loyaltyDamageThisTurn && S.loyaltyDamageThisTurn[key]) || 0;
+  const curseDmg = (S.curseDamageThisTurn && S.curseDamageThisTurn[key]) || 0;
+  // 본체 직접 피해 = 전체 − 충성으로 대신 받은 것 (저주는 본체 피해에 포함됨)
+  const bodyDmg = Math.max(0, totalDmg - loyaltyDmg);
+  const fmt = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
+  let stamp = '';
+  if (bodyDmg > 0) {
+    // 저주만 들어왔고 그 외 다른 피해가 없으면 보라색, 그 외엔 빨강
+    const onlyCurse = (curseDmg > 0 && Math.abs(bodyDmg - curseDmg) < 0.001);
+    const cls = onlyCurse ? 'dmg-stamp curse' : 'dmg-stamp';
+    stamp = `<div class="${cls}">${fmt(bodyDmg)}</div>`;
+  }
+  // 충성 도장 — 별도 슬롯 (본체 도장과 위치 분리)
+  if (loyaltyDmg > 0) {
+    stamp += `<div class="dmg-stamp loyalty">${fmt(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
+  }
   // HP 바 빨간 오버레이 — 시작 HP 위치에서 현재 HP 위치까지의 구간
-  const startHp = S.turnStartHps[key];
+  const startHp = S.turnStartHps?.[key] ?? hp;
   const startPct = Math.max(0, Math.min(100, (startHp / maxHp) * 100));
   const curPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
   const widthPct = Math.max(0, startPct - curPct);
-  const barOverlay = widthPct > 0
+  const barOverlay = (widthPct > 0 && totalDmg > 0)
     ? `<div class="hp-bar-damage" style="left:${curPct}%;width:${widthPct}%"></div>`
     : '';
   return { stamp, barOverlay };
@@ -7627,14 +8784,16 @@ function renderMyPieces() {
       p => p.alive && p.type === 'commander' &&
       ((Math.abs(p.col - pc.col) === 1 && p.row === pc.row) || (Math.abs(p.row - pc.row) === 1 && p.col === pc.col))
     );
-    const atkDisplay = commanderBuff ? `${pc.atk}<span style="color:#22c55e">+1</span>` : `${pc.atk}`;
+    const atkDisplay = commanderBuff
+      ? `<span style="color:#22c55e;font-weight:800">${(pc.atk || 0) + 1}</span>`
+      : `${pc.atk}`;
     const moraleHtml = commanderBuff ? '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>' : '';
 
     card.style.position = 'relative';
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
     card.innerHTML = `
-      ${pc.alive ? dmgOv.stamp : ''}
+      ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
@@ -7642,9 +8801,13 @@ function renderMyPieces() {
         ${tagHtml}
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
-      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div>${pc.alive ? dmgOv.barOverlay : ''}</div>
-      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
-        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${atkDisplay}</span>
+      <div class="hp-bar-bg hp-bar-with-text">
+        <div class="hp-bar" style="width:${hpPct}%"></div>
+        ${pc.alive ? dmgOv.barOverlay : ''}
+        <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
+      </div>
+      <div class="piece-stat-row">
+        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
@@ -7776,7 +8939,7 @@ function renderOppPieces() {
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
     card.innerHTML = `
-      ${pc.alive ? dmgOv.stamp : ''}
+      ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
@@ -7785,10 +8948,14 @@ function renderOppPieces() {
         ${placedBadge}
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
-      <div class="hp-bar-bg"><div class="hp-bar" style="width:${hpPct}%"></div>${pc.alive ? dmgOv.barOverlay : ''}</div>
-      <div style="font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between">
-        <span>HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span>
-        <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.68rem">
+      <div class="hp-bar-bg hp-bar-with-text">
+        <div class="hp-bar" style="width:${hpPct}%"></div>
+        ${pc.alive ? dmgOv.barOverlay : ''}
+        <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
+      </div>
+      <div class="piece-stat-row">
+        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
+        <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.7rem">
           ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : '💀 격파'}
         </span>
       </div>
@@ -7892,38 +9059,60 @@ function getSkillTypeTagFromChar(pc) {
 function buildPieceTooltip(pc, side) {
   const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
 
-  // 스킬 표시 — skills 배열 우선, 없으면 hasSkill/skillName 폴백
+  // 캐릭터 도감(slide-content)과 동일 양식으로 통일:
+  //   <slide-head-line>
+  //     <slide-skill-name mini-header-XXX>스킬이름</slide-skill-name>  ← 유형 색상 박스(이게 곧 유형 표시)
+  //     <slide-sp-box>SP 비용</slide-sp-box>
+  //   </slide-head-line>
+  //   <slide-detail-body>설명</slide-detail-body>
+  // ※ 별도의 [행동소비형/자유시전형/...] 태그는 제거 (이름 박스 색상이 곧 유형이므로 중복 정보)
+  const spBox = (cost) => `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
+  const headClassFor = (sk) => {
+    if (!sk) return 'mini-header-action';
+    if (sk.replacesAction) return 'mini-header-action';
+    if (sk.oncePerTurn) return 'mini-header-once';
+    return 'mini-header-free';
+  };
+
   let skillHtml = '';
   const hasActiveSkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
   const hasPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
   if (pc.skills && pc.skills.length > 0) {
     for (const sk of pc.skills) {
-      const skTag = getSkillTypeTag(sk);
-      skillHtml += `<div class="tooltip-line skill-color">스킬: ${sk.name} (${sk.cost}SP) ${skTag}</div>`;
-      skillHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${sk.desc}</div>`;
+      const cls = headClassFor(sk);
+      skillHtml += `<div class="slide-head-line">` +
+        `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
+        spBox(sk.cost) +
+        `</div>`;
+      skillHtml += `<div class="slide-detail-body">${sk.desc}</div>`;
     }
   } else if (pc.hasSkill) {
-    const tag = getSkillTypeTagFromChar(pc);
+    const cls = pc.skillReplacesAction ? 'mini-header-action' : (pc.skillOncePerTurn ? 'mini-header-once' : 'mini-header-free');
     const skillDesc = getSkillDescForPiece(pc);
-    skillHtml = `<div class="tooltip-line skill-color">스킬: ${pc.skillName} (${pc.skillCost}SP) ${tag}</div>`;
-    skillHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${skillDesc}</div>`;
+    skillHtml = `<div class="slide-head-line">` +
+      `<span class="slide-skill-name ${cls}">${pc.skillName}</span>` +
+      spBox(pc.skillCost) +
+      `</div>`;
+    skillHtml += `<div class="slide-detail-body">${skillDesc}</div>`;
   } else if (!hasPassive) {
-    // 액티브 스킬도, 패시브도 없을 때만 "스킬 없음"
     skillHtml = '<div class="tooltip-line" style="color:var(--muted)">스킬 없음</div>';
   }
 
-  // 패시브 — 스킬 라인과 동일 포맷: 주황색 "패시브: 이름" + 패시브 태그
+  // 패시브 — 동일 양식, 색상은 mini-header-passive
   let passiveHtml = '';
-  const passiveTag = '<span class="skill-tag tag-passive">패시브</span>';
   if (pc.passives && pc.passives.length > 0) {
     for (const pid of pc.passives) {
       const name = getPassiveName(pid);
       const desc = getPassiveLabel(pid);
-      passiveHtml += `<div class="tooltip-line passive-color">패시브: ${name} ${passiveTag}</div>`;
-      passiveHtml += `<div class="tooltip-line" style="font-size:0.65rem;color:var(--text-dim)">${desc}</div>`;
+      passiveHtml += `<div class="slide-head-line">` +
+        `<span class="slide-skill-name mini-header-passive">${name}</span>` +
+        `</div>`;
+      passiveHtml += `<div class="slide-detail-body">${desc}</div>`;
     }
   } else if (pc.passiveName) {
-    passiveHtml = `<div class="tooltip-line passive-color">패시브: ${pc.passiveName} ${passiveTag}</div>`;
+    passiveHtml = `<div class="slide-head-line">` +
+      `<span class="slide-skill-name mini-header-passive">${pc.passiveName}</span>` +
+      `</div>`;
   }
 
   // 상태이상 배지
@@ -7937,12 +9126,8 @@ function buildPieceTooltip(pc, side) {
   const tooltip = document.createElement('div');
   tooltip.className = `piece-tooltip tooltip-${side}`;
   tooltip.innerHTML = `
-    <div class="tooltip-title">${pc.icon} ${pc.name} (T${pc.tier})</div>
-    <div class="tooltip-section">
-      <div class="tooltip-label">공격 범위</div>
-      ${grid}
-      <div class="tooltip-desc">ATK ${pc.atk}</div>
-    </div>
+    <div class="tooltip-title">${pc.icon} ${pc.name}</div>
+    <div class="tooltip-section">${grid}</div>
     ${skillHtml}
     ${passiveHtml}
     ${statusHtml}`;
@@ -7986,6 +9171,8 @@ function resetAction() {
   S.targetSelectMode = false;
   S.skillTargetData = null;
   document.getElementById('btn-cancel').classList.add('hidden');
+  const skipBtn = document.getElementById('btn-twin-skip-elder');
+  if (skipBtn) skipBtn.classList.add('hidden');
   const hint = document.getElementById('action-hint');
   if (hint) hint.textContent = '행동을 선택하세요.';
   setActionButtonMode(null);
@@ -8000,9 +9187,50 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.selectedPiece = null;
   S.targetSelectMode = false;
   document.getElementById('btn-cancel').classList.remove('hidden');
-  document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
+  // 쌍둥이가 같은 칸에 겹쳐 있고 둘 다 살아있다면 — 누나 먼저 이동 안내 + 스킵 버튼
+  const elderPc = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
+  const youngerPc = (S.myPieces || []).find(p => p.subUnit === 'younger' && p.alive);
+  const stackedTwins = elderPc && youngerPc &&
+    elderPc.col === youngerPc.col && elderPc.row === youngerPc.row;
+  const elderAlreadyMoved = S.twinMovedSub === 'elder' || S.twinElderSkipped;
+  if (stackedTwins && !elderAlreadyMoved) {
+    document.getElementById('action-hint').textContent = '👫 누나가 먼저 이동합니다. 이동할 칸을 선택하세요.';
+    const skipBtn = document.getElementById('btn-twin-skip-elder');
+    if (skipBtn) skipBtn.classList.remove('hidden');
+  } else {
+    document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
+    const skipBtn = document.getElementById('btn-twin-skip-elder');
+    if (skipBtn) skipBtn.classList.add('hidden');
+  }
   setActionButtonMode('move');
   renderGameBoard();
+});
+
+// 쌍둥이 누나 이동 넘기기 버튼
+{
+  const _btnTwinSkip = document.getElementById('btn-twin-skip-elder');
+  if (_btnTwinSkip) {
+    _btnTwinSkip.addEventListener('click', () => {
+      if (!S.isMyTurn) return;
+      if (S.twinElderSkipped || S.twinMovedSub === 'elder') return;
+      socket.emit('skip_twin_move', { subUnit: 'elder' });
+      _btnTwinSkip.classList.add('hidden');
+    });
+  }
+}
+
+// 서버 confirm — 누나 이동 스킵 처리됨
+socket.on('twin_skip_ok', ({ subUnit }) => {
+  if (subUnit === 'elder') {
+    S.twinElderSkipped = true;
+    S.twinMovePending = true;       // 동생 이동 가능 상태
+    S.twinMovedSub = 'elder';       // 동생만 이동 가능하도록 표시
+    document.getElementById('action-hint').textContent = '👫 누나 이동 스킵됨. 동생을 이동시키거나 턴을 종료할 수 있습니다.';
+  } else if (subUnit === 'younger') {
+    S.twinYoungerSkipped = true;
+    S.twinMovePending = true;
+    S.twinMovedSub = 'younger';
+  }
 });
 
 // 공격 버튼
@@ -8031,7 +9259,6 @@ document.getElementById('btn-skill').addEventListener('click', () => {
 // 턴 종료 버튼 (행동 없이 누르면 확인 모달)
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!S.isMyTurn) return;
-  // 쌍둥이 한쪽만 이동해도 정상 턴 종료 — 모달 없음 (옵션이므로)
   // #3: 쌍검무 활성 + 추가 공격 남음
   const dualBladeLeft = S.myPieces && S.myPieces.some(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeLeft) {
@@ -8044,7 +9271,14 @@ document.getElementById('btn-end-turn').addEventListener('click', () => {
     document.getElementById('sprint-endturn-modal').classList.remove('hidden');
     return;
   }
-  if (!S.moveDone && !S.actionDone) {
+  // 쌍둥이 한쪽만 이동했고 다른 쪽 미이동 → 확인 모달
+  // (단, 누나 이동을 의도적으로 스킵한 경우는 컨펌 완료된 것으로 보고 모달 생략)
+  if (S.twinMovePending && !S.twinElderSkipped && !S.twinYoungerSkipped) {
+    document.getElementById('twin-endturn-modal').classList.remove('hidden');
+    return;
+  }
+  // 쌍둥이 누나 이동을 의도적으로 스킵했다면 — 컨펌은 이미 완료된 것으로 보고 모달 생략
+  if (!S.moveDone && !S.actionDone && !S.twinElderSkipped && !S.twinYoungerSkipped) {
     document.getElementById('endturn-modal').classList.remove('hidden');
     return;
   }
@@ -8284,15 +9518,22 @@ function openSkillModal() {
         const hasDragon = S.myPieces.some(p => p.isDragon && p.alive);
         if (hasDragon) { singleDisabled = true; singleNote = ' (드래곤 이미 소환됨)'; }
       }
-      // 쌍둥이 분신: 두 명 모두 살아있어야 사용 가능
+      // 쌍둥이 분신: 두 명 모두 살아있어야 사용 가능 + 같은 칸에 겹쳐있으면 잠금
       let twinsDisabled = false;
       if (pc.type === 'twins_elder' || pc.type === 'twins_younger') {
-        const elderAlive = S.myPieces.some(p => p.subUnit === 'elder' && p.alive);
-        const youngerAlive = S.myPieces.some(p => p.subUnit === 'younger' && p.alive);
+        const elderPc = S.myPieces.find(p => p.subUnit === 'elder');
+        const youngerPc = S.myPieces.find(p => p.subUnit === 'younger');
+        const elderAlive = elderPc && elderPc.alive;
+        const youngerAlive = youngerPc && youngerPc.alive;
         if (!elderAlive || !youngerAlive) {
           twinsDisabled = true;
           singleDisabled = true;
           singleNote = ' (사용 불가)';
+        } else if (elderPc.col === youngerPc.col && elderPc.row === youngerPc.row) {
+          // 이미 같은 칸에 있음 → 분신 의미 없음
+          twinsDisabled = true;
+          singleDisabled = true;
+          singleNote = ' (이미 겹쳐 있음 — 사용 불가)';
         }
       }
       // 쌍검무: 이번 턴 공격 2회 — 이동 후 / 다른 유닛이 공격한 경우 사용 불가
@@ -8334,8 +9575,13 @@ function openSkillModal() {
         opt.style.opacity = (canAfford && !singleDisabled) ? '1' : '0.4';
       }
       const singleTag = getSkillTypeTagFromChar(pc);
+      // 쌍둥이는 스킬탭에서 누나/동생 구분 없이 '쌍둥이 강도'로 통일 표기
+      const skillTabName = (pc.type === 'twins_elder' || pc.type === 'twins_younger')
+        ? '쌍둥이 강도' : pc.name;
+      const skillTabIcon = (pc.type === 'twins_elder' || pc.type === 'twins_younger')
+        ? '👫' : pc.icon;
       opt.innerHTML = `
-        <div class="skill-name">${pc.icon} ${pc.name} — ${pc.skillName} ${singleTag}</div>
+        <div class="skill-name">${skillTabIcon} ${skillTabName} — ${pc.skillName} ${singleTag}</div>
         <div class="skill-cost">SP 비용: ${pc.skillCost}${singleNote}</div>
         <div class="skill-desc">${getSkillDesc(pc)}</div>`;
 
@@ -8690,7 +9936,15 @@ function handleGameCellClick(col, row) {
       S.targetSelectMode = false;
     } else {
       const selPc = S.myPieces[S.selectedPiece];
-      // 다른 내 말 클릭 → 선택 변경
+      // 같은 칸 클릭(쌍둥이 겹쳐 있음 포함) → 공격 확정 (선택 변경 아님)
+      const sameCellAsSel = (selPc && col === selPc.col && row === selPc.row);
+      if (sameCellAsSel) {
+        socket.emit('attack', { pieceIdx: S.selectedPiece });
+        S.action = null;
+        S.selectedPiece = null;
+        return;
+      }
+      // 다른 칸의 내 말 클릭 → 선택 변경
       const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (clickedOther) {
         // #2: 쌍검무 중에는 양손검객 외 선택 차단
@@ -8711,7 +9965,7 @@ function handleGameCellClick(col, row) {
         renderMyPieces();
         return;
       }
-      // 같은 말 또는 범위 내 클릭 → 공격 확정
+      // 범위 내 클릭 → 공격 확정
       socket.emit('attack', { pieceIdx: S.selectedPiece });
       S.action = null;
       S.selectedPiece = null;
@@ -8934,6 +10188,12 @@ function formatMsgMiniHeader(msg) {
 }
 
 function addLog(msg, type = 'system') {
+  // 풀스크린 오버레이 재생 중에는 로그도 일시 정지 → 종료 후 일괄 출력
+  if (S._fullscreenBusy) {
+    if (!S._eventDuringFullscreen) S._eventDuringFullscreen = [];
+    S._eventDuringFullscreen.push(() => addLog(msg, type));
+    return;
+  }
   const log = document.getElementById('game-log');
   if (!log) return;
   const entry = document.createElement('div');
@@ -8942,6 +10202,39 @@ function addLog(msg, type = 'system') {
   entry.innerHTML = `<span class="turn-num">T${S.turnNumber}</span> ${formatted}`;
   log.prepend(entry);
   while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// ── 풀스크린 오버레이 큐/락 ─────────────────────────────────────
+// 1대1 대치, 보드 축소(파괴 시작), SP 지급 — 동시 재생 금지. 하나 끝나면 다음.
+// 재생 중에는 모든 토스트·로그·passive_alert·curse_tick 이 버퍼로 들어가 종료 후 드레인.
+S._fullscreenBusy = false;
+S._fullscreenQueue = [];          // [{fn, durationMs}]
+S._eventDuringFullscreen = [];    // [() => effect()]
+
+function runFullscreenLocked(playFn, durationMs) {
+  if (S._fullscreenBusy) {
+    S._fullscreenQueue.push({ fn: playFn, durationMs });
+    return;
+  }
+  S._fullscreenBusy = true;
+  try { playFn(); } catch (e) {}
+  setTimeout(() => {
+    S._fullscreenBusy = false;
+    // 버퍼된 이벤트 드레인 (다음 오버레이 시작 전 처리)
+    drainFullscreenBuffer();
+    // 큐에 다음 오버레이가 있으면 재생
+    if (S._fullscreenQueue.length > 0) {
+      const next = S._fullscreenQueue.shift();
+      runFullscreenLocked(next.fn, next.durationMs);
+    }
+  }, durationMs);
+}
+function drainFullscreenBuffer() {
+  const buf = S._eventDuringFullscreen || [];
+  S._eventDuringFullscreen = [];
+  for (const ev of buf) {
+    try { ev(); } catch (e) {}
+  }
 }
 
 function showError(id, msg) {
@@ -8963,14 +10256,14 @@ function findChar(type) {
 
 function getPassiveLabel(passiveId) {
   const map = {
-    instantMagic: '피격마다 1회용 SP를 1개 획득',
+    instantMagic: '피격 시 1회용 SP 1개 획득',
     ironSkin: '받는 피해가 0.5 감소',
     grace: '악인 공격 시 공격력 3, 악인에게 피격 시 받는 피해 0.5로 감소',
     betrayer: '공격 시 아군도 1 피해',
-    wrath: '인접한 아군 공격력 1 증가',
+    wrath: '인접한 아군에게 사기 증진 부여',
     markPassive: '공격 적중 시 대상에게 표식 부여',
     tyranny: '1티어와 2티어에게 받는 피해 0.5 감소',
-    loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음',
+    loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음. 왕실 아군이 받을 상태 이상도 모두 대신 받음.',
   };
   return map[passiveId] || passiveId;
 }
@@ -9615,6 +10908,12 @@ function _processToastQueue() {
 }
 
 function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined, toastType = undefined) {
+  // 풀스크린 오버레이 재생 중에는 토스트도 보류 → 종료 후 출력
+  if (S._fullscreenBusy) {
+    if (!S._eventDuringFullscreen) S._eventDuringFullscreen = [];
+    S._eventDuringFullscreen.push(() => showSkillToast(msg, isEnemy, specPlayerIdx, toastType));
+    return;
+  }
   _toastQueue.push({ msg, isEnemy, specPlayerIdx, toastType });
   if (!_toastProcessing) _processToastQueue();
 }
@@ -9795,6 +11094,14 @@ function animateBoardIconHit(cells) {
 socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   // 적 공격 휘두름 SFX — 팀원이 공격 받을 때 관전 시점에서도 들림
   try { playSfx('attack'); } catch (e) {}
+  // #5: 충성(호위무사 대신 받음) — 팀모드 팀원 시점에서도 파란 도장 누적
+  for (const h of (hitPieces || [])) {
+    if (!h.bodyguardRedirect) continue;
+    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+    if (dmg <= 0 || h.defPieceIdx == null) continue;
+    // victimIdx 가 호위무사 owner. 키 형식 = `${ownerIdx}:${pieceIdx}`
+    addLoyaltyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
+  }
   // 호위무사 가로채기·0데미지 비격파는 본체 흔들림 제외 (1v1 being_attacked와 동일)
   const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
@@ -12209,3 +13516,281 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     showScreen('screen-lobby');
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── 캐릭터 사전 (게임 중 열람) — '내 덱' 메뉴 슬라이드 동일 구성
+// ═══════════════════════════════════════════════════════════════
+(function setupCharacterDictionary() {
+  const overlay = document.getElementById('char-dict-overlay');
+  const btnOpen = document.getElementById('btn-char-dict');
+  const btnClose = document.getElementById('char-dict-close');
+  if (!overlay || !btnOpen) return;
+
+  let dictTier = 1;
+  let dictIdx = 0;
+  let dictPreviewMode = 'attack';
+
+  function getChars(tier) {
+    return (S.characters || S.specCharacters || {})[tier] || [];
+  }
+
+  // dict-preview-board 5x5 그리드 빌드 (한 번만) — 드래프트 미리보기와 동일 사이즈
+  function ensureDictBoard() {
+    const board = document.getElementById('dict-preview-board');
+    if (!board || board.dataset.built === '1') return;
+    const totalSize = 5;
+    const cellPx = 56;
+    board.innerHTML = '';
+    board.style.gridTemplateColumns = `repeat(${totalSize}, ${cellPx}px)`;
+    board.style.gridTemplateRows = `repeat(${totalSize}, ${cellPx}px)`;
+    for (let r = 0; r < totalSize; r++) {
+      for (let cc = 0; cc < totalSize; cc++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.col = cc;
+        cell.dataset.row = r;
+        board.appendChild(cell);
+      }
+    }
+    board.dataset.built = '1';
+  }
+
+  // 미리보기 보드 갱신 — updateDraftPreview 와 동일한 로직 / DOM 만 dict-*
+  function updateDictPreview(charData) {
+    const board = document.getElementById('dict-preview-board');
+    if (!board) return;
+    const tabs = overlay.querySelectorAll('.slide-preview-tab[data-dict-mode]');
+    const hasSkill = (typeof hasSkillPreview === 'function') && hasSkillPreview(charData);
+    tabs.forEach(t => {
+      const m = t.dataset.dictMode;
+      t.classList.toggle('active', m === dictPreviewMode && (m === 'attack' || hasSkill));
+      if (m === 'skill') t.disabled = !hasSkill;
+    });
+    const effectiveMode = (dictPreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
+    const centerCol = 2, centerRow = 2;
+    const infoEl = document.getElementById('dict-preview-info');
+
+    if (effectiveMode === 'skill' && hasSkill) {
+      const skill = SKILL_PREVIEW[charData.type];
+      // 합류(쌍둥이) — 누나·동생 양측 공격 범위 색 분리
+      if (skill && skill.joinedTwins) {
+        const elderRange = getAttackCells('twins_elder', centerCol, centerRow);
+        const youngerRange = getAttackCells('twins_younger', centerCol, centerRow);
+        const elderSet = new Set(elderRange.map(c => `${c.col},${c.row}`));
+        const youngerSet = new Set(youngerRange.map(c => `${c.col},${c.row}`));
+        board.querySelectorAll('.cell').forEach(cell => {
+          const col = parseInt(cell.dataset.col);
+          const row = parseInt(cell.dataset.row);
+          cell.className = 'cell';
+          cell.innerHTML = '';
+          if (col === centerCol && row === centerRow) {
+            cell.innerHTML = `<span style="font-size:1.1rem">👫</span>`;
+            cell.classList.add('has-piece');
+          }
+          const inE = elderSet.has(`${col},${row}`);
+          const inY = youngerSet.has(`${col},${row}`);
+          if (inE || inY) cell.classList.add('skill-preview-attack');
+        });
+        if (infoEl) infoEl.textContent = skill.label || '';
+        return;
+      }
+      if (skill) {
+        const cells = skill.cells(centerCol, centerRow);
+        const cellsSet = new Set(cells.map(c => `${c.col},${c.row}`));
+        // 쥐 위치 (showRats=true) — 자기 칸은 제외
+        const ratSet = skill.showRats
+          ? new Set(cells.filter(c => !(c.col === centerCol && c.row === centerRow)).map(c => `${c.col},${c.row}`))
+          : null;
+        board.querySelectorAll('.cell').forEach(cell => {
+          const col = parseInt(cell.dataset.col);
+          const row = parseInt(cell.dataset.row);
+          cell.className = 'cell';
+          cell.innerHTML = '';
+          if (col === centerCol && row === centerRow) {
+            let centerIcon = charData.icon;
+            if (skill.showDragonOnly) centerIcon = '🐲';
+            cell.innerHTML = `<span style="font-size:1.1rem">${centerIcon}</span>`;
+            cell.classList.add('has-piece');
+          } else if (ratSet && ratSet.has(`${col},${row}`)) {
+            // 실제 게임처럼 작게 + 우상단 코너에 배치 (updateDraftPreview 와 동일)
+            cell.innerHTML = `<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>`;
+          }
+          if (cellsSet.has(`${col},${row}`)) {
+            cell.classList.add('skill-preview-' + skill.cat);
+          }
+        });
+        if (infoEl) infoEl.textContent = skill.label || '';
+        return;
+      }
+    }
+
+    // 공격 범위 모드 — 캐릭터 본인 + 자기 공격 범위 셀
+    const atkCells = getAttackCells(charData.type, centerCol, centerRow);
+    const atkSet = new Set(atkCells.map(c => `${c.col},${c.row}`));
+    board.querySelectorAll('.cell').forEach(cell => {
+      const col = parseInt(cell.dataset.col);
+      const row = parseInt(cell.dataset.row);
+      cell.className = 'cell';
+      cell.innerHTML = '';
+      if (col === centerCol && row === centerRow) {
+        cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
+        cell.classList.add('has-piece');
+      } else if (atkSet.has(`${col},${row}`)) {
+        cell.classList.add('attack-range');
+      }
+    });
+    // 8명(SPECIAL_DESC_TYPES) 외에는 공격범위 설명 텍스트 비표시 — 미니 그리드만으로 충분
+    if (infoEl) infoEl.textContent = (typeof shouldShowDesc === 'function' && shouldShowDesc(charData))
+      ? (charData.desc || '') : '';
+  }
+
+  function renderDictSlide() {
+    const chars = getChars(dictTier);
+    if (chars.length === 0) return;
+    if (dictIdx < 0) dictIdx = chars.length - 1;
+    if (dictIdx >= chars.length) dictIdx = 0;
+    const c = chars[dictIdx];
+    dictPreviewMode = 'attack';
+
+    // 아이콘 / 이름 / ATK / 미니헤더 / 플레이버 / 레이더
+    document.getElementById('dict-slide-icon').textContent = c.icon;
+    const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+    document.getElementById('dict-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
+    document.getElementById('dict-slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
+    const miniEl = document.getElementById('dict-slide-mini-headers');
+    if (miniEl) miniEl.innerHTML = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(c) : '';
+    const detail = (typeof CHAR_DETAILS !== 'undefined') ? CHAR_DETAILS[c.type] : null;
+    const flavorEl = document.getElementById('dict-slide-flavor');
+    if (flavorEl) flavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
+    if (typeof renderStatRadar === 'function') {
+      renderStatRadar(c.type, document.getElementById('dict-slide-stat-radar'));
+    }
+
+    // 상세 블록 — 드래프트 화면과 동일 포맷
+    const blocksEl = document.getElementById('dict-slide-detail-blocks');
+    const bodyEl = document.getElementById('dict-slide-detail-body');
+    if (detail) {
+      const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+      const renderHeadLine = (b) => {
+        const cls = b.headCls || '';
+        const name = cls
+          ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
+          : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
+        const tag = b.tag || '';
+        const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
+        return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
+      };
+      if (hasPerBlockDesc) {
+        blocksEl.innerHTML = detail.blocks.map(b => {
+          return `<div style="margin-bottom:10px">` +
+            renderHeadLine(b) +
+            (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
+            `</div>`;
+        }).join('');
+        bodyEl.textContent = '';
+      } else {
+        blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
+        bodyEl.innerHTML = detail.body || '';
+      }
+    } else {
+      blocksEl.innerHTML = '';
+      bodyEl.innerHTML = '';
+    }
+
+    ensureDictBoard();
+    updateDictPreview(c);
+
+    // 아이콘 인덱스 활성 상태
+    overlay.querySelectorAll('#dict-icon-index .icon-index-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i === dictIdx);
+    });
+    // 스텝 인디케이터 활성/완료 상태
+    overlay.querySelectorAll('#dict-step-indicator .dict-bookmark').forEach(el => {
+      const tier = Number(el.dataset.tier);
+      el.classList.toggle('active', tier === dictTier);
+    });
+  }
+
+  function buildIconIndex() {
+    const chars = getChars(dictTier);
+    const wrap = document.getElementById('dict-icon-index');
+    if (!wrap) return;
+    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
+    wrap.innerHTML = '';
+    chars.forEach((c, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'icon-index-btn';
+      btn.title = c.name;
+      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
+      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.addEventListener('click', () => { dictIdx = i; renderDictSlide(); });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function setTier(tier) {
+    if (!getChars(tier).length) return;
+    dictTier = tier;
+    dictIdx = 0;
+    buildIconIndex();
+    renderDictSlide();
+  }
+
+  function openDict() {
+    if (!getChars(dictTier).length) {
+      // 캐릭터 데이터가 아직 없으면 1티어부터 다시 시도 — 게임 시작 후 항상 채워짐
+      dictTier = 1;
+    }
+    overlay.classList.remove('hidden');
+    overlay.setAttribute('aria-hidden', 'false');
+    buildIconIndex();
+    renderDictSlide();
+  }
+  function closeDict() {
+    overlay.classList.add('hidden');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+
+  btnOpen.addEventListener('click', openDict);
+  if (btnClose) btnClose.addEventListener('click', closeDict);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDict(); });
+
+  // 화살표
+  const prevBtn = document.getElementById('dict-slide-prev');
+  const nextBtn = document.getElementById('dict-slide-next');
+  if (prevBtn) prevBtn.addEventListener('click', () => {
+    const chars = getChars(dictTier);
+    if (chars.length === 0) return;
+    dictIdx = ((dictIdx - 1) % chars.length + chars.length) % chars.length;
+    renderDictSlide();
+  });
+  if (nextBtn) nextBtn.addEventListener('click', () => {
+    const chars = getChars(dictTier);
+    if (chars.length === 0) return;
+    dictIdx = (dictIdx + 1) % chars.length;
+    renderDictSlide();
+  });
+
+  // 티어 탭
+  overlay.querySelectorAll('#dict-step-indicator .dict-bookmark').forEach(el => {
+    el.addEventListener('click', () => {
+      const tier = Number(el.dataset.tier);
+      if (tier) setTier(tier);
+    });
+  });
+
+  // 공격범위 / 스킬 미리보기 탭
+  overlay.querySelectorAll('.slide-preview-tab[data-dict-mode]').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.disabled) return;
+      dictPreviewMode = t.dataset.dictMode;
+      const chars = getChars(dictTier);
+      if (chars[dictIdx]) updateDictPreview(chars[dictIdx]);
+    });
+  });
+
+  // ESC 로 닫기
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeDict();
+  });
+})();

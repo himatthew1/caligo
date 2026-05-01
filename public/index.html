@@ -410,7 +410,7 @@
     <div id="hp-pieces"></div>
     <div id="hp-twin-split" class="hp-twin-split hidden">
       <h3>쌍둥이 HP 분배</h3>
-      <p class="muted">쌍둥이 강도의 HP를 형과 동생에게 분배하세요 (각 최소 1)</p>
+      <p class="muted">쌍둥이 강도의 HP를 누나와 동생에게 분배하세요</p>
       <div id="hp-twin-controls"></div>
     </div>
     <div class="hp-total-bar hidden" aria-hidden="true">
@@ -466,19 +466,46 @@
 <!-- ── 게임 ── -->
 <div id="screen-game" class="screen">
   <div class="game-layout">
-    <!-- SP 영향력 그래프 (상단, game-layout 안) -->
+    <!-- SP 영향력 그래프 (상단, game-layout 안) — 중앙 정렬·큰 숫자 강조 -->
     <div class="sp-section">
-      <div class="sp-bar-container">
-        <span id="sp-my-label" class="sp-label sp-mine">내 SP: 1</span>
+      <div class="sp-bar-container sp-bar-v2">
+        <div class="sp-side sp-side-mine">
+          <div class="sp-side-title">내 SP</div>
+          <div class="sp-num-row">
+            <!-- 인스턴트 SP 트레이 — 숫자 바깥쪽(화면 좌측 가장자리 방향)으로 쌓임 -->
+            <div id="sp-instant-tray-mine" class="sp-instant-tray sp-instant-tray-mine"></div>
+            <div id="sp-my-num" class="sp-num sp-num-mine">1</div>
+          </div>
+        </div>
         <div class="sp-bar">
           <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
           <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
         </div>
-        <span id="sp-opp-label" class="sp-label sp-opp">상대 SP: 1</span>
+        <div class="sp-side sp-side-opp">
+          <div class="sp-side-title">상대 SP</div>
+          <div class="sp-num-row">
+            <div id="sp-opp-num" class="sp-num sp-num-opp">1</div>
+            <!-- 인스턴트 SP 트레이 — 숫자 바깥쪽(화면 우측 가장자리 방향)으로 쌓임 -->
+            <div id="sp-instant-tray-opp" class="sp-instant-tray sp-instant-tray-opp"></div>
+          </div>
+        </div>
       </div>
       <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
       <!-- 보드 축소 경고 -->
       <div id="shrink-warning" class="shrink-warning hidden"></div>
+    </div>
+    <!-- 스킬 시전 dim 오버레이 — SP 마법구 비행 동안 화면 어둡게 (SP 바·시전자 프로필만 밝게) -->
+    <div id="skill-cast-dim" class="skill-cast-dim hidden"></div>
+    <!-- SP 지급 풀스크린 — 마법 구슬 두 개가 좌우 대칭으로 입장해 텍스트 프레임 형성 후 각 SP 숫자로 흡수됨 -->
+    <div id="sp-grant-overlay" class="sp-grant-overlay hidden">
+      <div class="sp-grant-content">
+        <div id="sp-grant-orb-left" class="sp-grant-orb sp-grant-orb-left"></div>
+        <div id="sp-grant-orb-right" class="sp-grant-orb sp-grant-orb-right"></div>
+        <div class="sp-grant-text">
+          <div class="sp-grant-title">SP 지급</div>
+          <div class="sp-grant-sub">새로운 SP가 지급됩니다</div>
+        </div>
+      </div>
     </div>
     <!-- 왼쪽: 내 말 정보 -->
     <div class="side-panel left-panel">
@@ -496,6 +523,7 @@
         <button id="btn-skill" class="btn btn-skill">스킬</button>
         <button id="btn-end-turn" class="btn btn-warning">턴 종료</button>
         <button id="btn-cancel" class="btn btn-muted hidden">취소</button>
+        <button id="btn-twin-skip-elder" class="btn btn-secondary hidden">누나 이동 넘기기</button>
         <button id="btn-surrender" class="btn btn-surrender" disabled>기권</button>
       </div>
       <div id="action-hint" class="action-hint"></div>
@@ -519,6 +547,7 @@
   <div class="chat-bottom-row">
     <button class="btn-bgm-toggle audio-btn-round" title="음악 끄기">🎵</button>
     <button class="btn-sfx-toggle audio-btn-round" title="효과음 끄기">🔔</button>
+    <button id="btn-char-dict" class="audio-btn-round" title="캐릭터 사전">📖</button>
     <button id="chat-toggle" class="chat-toggle-btn">💬 <span id="chat-badge" class="chat-badge hidden">0</span></button>
   </div>
   <div class="chat-panel">
@@ -538,6 +567,62 @@
     <div class="chat-input-row">
       <input id="chat-input" type="text" placeholder="메시지 입력..." maxlength="200" autocomplete="off">
       <button id="chat-send" class="btn btn-primary" style="padding:8px 12px;font-size:0.8rem">전송</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 캐릭터 사전 (게임 중 열람 — '내 덱' 메뉴와 동일한 슬라이드 뷰) ── -->
+<div id="char-dict-overlay" class="char-dict-overlay hidden" aria-hidden="true">
+  <div class="char-dict-book">
+    <div class="char-dict-body">
+      <div class="draft-main char-dict-main">
+        <div class="draft-viewer-wrap">
+          <!-- 책갈피 + 아이콘 인덱스를 한 묶음으로 — 동일 너비로 정렬 -->
+          <div class="dict-page">
+            <div class="dict-bookmark-row">
+              <div id="dict-step-indicator" class="dict-bookmarks">
+                <span class="dict-bookmark active" data-tier="1">1티어</span>
+                <span class="dict-bookmark" data-tier="2">2티어</span>
+                <span class="dict-bookmark" data-tier="3">3티어</span>
+              </div>
+              <button id="char-dict-close" class="char-dict-close" title="닫기">×</button>
+            </div>
+            <div id="dict-icon-index" class="draft-icon-index"></div>
+          </div>
+          <div class="slide-viewer">
+            <button id="dict-slide-prev" class="slide-arrow slide-arrow-left">‹</button>
+            <div class="slide-content">
+              <div class="slide-top-row">
+                <div class="slide-left-col">
+                  <span id="dict-slide-icon" class="slide-icon-large"></span>
+                  <div class="slide-info-col">
+                    <div id="dict-slide-name" class="slide-name"></div>
+                    <div class="slide-atk-row">
+                      <div id="dict-slide-atk" class="slide-atk"></div>
+                      <div id="dict-slide-mini-headers" class="slide-mini-headers"></div>
+                    </div>
+                    <div id="dict-slide-flavor" class="slide-flavor"></div>
+                    <div id="dict-slide-stat-radar" class="slide-stat-radar"></div>
+                  </div>
+                </div>
+                <div class="slide-right-col">
+                  <div class="slide-preview-tabs">
+                    <button class="slide-preview-tab active" data-dict-mode="attack">공격 범위</button>
+                    <button class="slide-preview-tab" data-dict-mode="skill">스킬 미리보기</button>
+                  </div>
+                  <div id="dict-preview-board" class="board preview-board"></div>
+                  <div id="dict-preview-info" class="draft-preview-info"></div>
+                </div>
+              </div>
+              <div class="slide-skill-box">
+                <div id="dict-slide-detail-blocks"></div>
+                <div id="dict-slide-detail-body" class="slide-detail-body"></div>
+              </div>
+            </div>
+            <button id="dict-slide-next" class="slide-arrow slide-arrow-right">›</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -699,6 +784,11 @@
     <div id="gameover-icon" class="gameover-icon"></div>
     <h1 id="gameover-title"></h1>
     <p id="gameover-sub" class="muted"></p>
+    <!-- 패배 시 상대 마지막 배치 그리드 (생존 시·관전·승리 시 비표시) -->
+    <div id="gameover-replay" class="gameover-replay hidden">
+      <h3 class="gameover-replay-title">상대의 마지막 배치</h3>
+      <div id="gameover-replay-board" class="board"></div>
+    </div>
     <button id="btn-replay" class="btn btn-primary btn-large" onclick="location.reload()">다시 시작</button>
   </div>
 </div>
