@@ -3536,20 +3536,23 @@ body.team-mode .placement-opp-panel {
   35%  { opacity: 1; transform: scaleX(1); }
   100% { opacity: 0.85; transform: scaleX(1); }
 }
-/* 이번 턴 회복 — HP 바 위 녹색 오버레이. 시작 HP 위치에서 현재 HP 위치까지 펼쳐짐 (피해의 역방향) */
+/* 이번 턴 회복 — HP 바보다 *더 밝은* 녹색 임시 오버레이.
+   시작 HP 위치(현재 hp-bar 끝)부터 currentHp 위치까지 펼쳐짐 — 임시 회복분 시각화.
+   다음 턴 시작 또는 같은 턴에 새 피해 받을 때 일반 hp-bar 로 통합되며 사라짐.
+   (사용자 요청: 진짜 hp 바가 차오르는건 다음 턴부터 — 그전엔 더 밝은 녹색 오버레이로만 표시) */
 .hp-bar-heal {
   position: absolute;
   top: 0; height: 6px;
-  background: rgba(34, 197, 94, 0.85);
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.98) 0%, rgba(74, 222, 128, 0.95) 100%);
   border-radius: 0 3px 3px 0;
   pointer-events: none;
-  animation: hp-heal-pulse 1.4s ease-out 1;
+  box-shadow: 0 0 6px rgba(134, 239, 172, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: hp-heal-pulse 1.6s ease-in-out infinite alternate;
 }
 .hp-bar-bg.hp-bar-with-text .hp-bar-heal { height: 14px; border-radius: 0 4px 4px 0; }
 @keyframes hp-heal-pulse {
-  0%   { opacity: 0; transform: scaleX(0.85); transform-origin: left; }
-  35%  { opacity: 1; transform: scaleX(1); }
-  100% { opacity: 0.85; transform: scaleX(1); }
+  0%   { opacity: 0.78; }
+  100% { opacity: 1.0; box-shadow: 0 0 10px rgba(134, 239, 172, 0.95), inset 0 1px 0 rgba(255, 255, 255, 0.45); }
 }
 
 /* 데미지 도장 — 프로필 카드 우상단 사선 빨간 도장 */

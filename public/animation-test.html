@@ -302,7 +302,7 @@
 
   <!-- E. 스킬 연출 -->
   <section class="group" id="skill">
-    <div class="group-title">E. 스킬 연출 (NEW)</div>
+    <div class="group-title">E. 스킬 시전 연출</div>
     <div class="anim-grid">
       <div class="anim-card">
         <div class="label">⭐ detonation · 기폭 (3단계)</div>
@@ -334,19 +334,13 @@
       </div>
       <div class="anim-card">
         <div class="label">⭐ instant-consume · 인스턴트 SP 사용 (위로 흩날림)</div>
-        <div class="desc">스킬 시전 시 인스턴트 SP가 먼저 사라지고 0.5초 텀 후 일반 SP 마법구 비행 시작. 4가지 SFX 옵션.</div>
+        <div class="desc">스킬 시전 시 인스턴트 SP가 먼저 사라지고 0.5초 텀 후 일반 SP 마법구 비행 시작.</div>
         <div class="anim-stage" data-stage="instant-consume"></div>
-        <div class="btn-row">
-          <button class="anim-btn" data-play="instant-consume">▶ 1개 소멸</button>
-          <button class="anim-btn alt" data-play="ic-sfx-1">SFX1</button>
-          <button class="anim-btn alt" data-play="ic-sfx-2">SFX2</button>
-          <button class="anim-btn alt" data-play="ic-sfx-3">SFX3</button>
-          <button class="anim-btn alt" data-play="ic-sfx-4">SFX4</button>
-        </div>
+        <button class="anim-btn" data-play="instant-consume">▶ 1개 소멸</button>
       </div>
       <div class="anim-card">
         <div class="label">⭐ instant-gain · 인스턴트 매직 (마법사 SP 합류)</div>
-        <div class="desc">마법사 인스턴트 매직 발동 시 황금 마법구가 SP 숫자로 합류 → 도착 흡수. 4가지 SFX 옵션.</div>
+        <div class="desc">마법사 인스턴트 매직 발동 시 황금 마법구가 SP 숫자로 합류 → 도착 흡수.</div>
         <div class="anim-stage" data-stage="instant-gain">
           <div class="sp-bar-mock">
             <span class="mock-num mock-num-mine" id="mock-gain-mine">5</span>
@@ -354,24 +348,7 @@
             <span class="mock-num mock-num-opp">3</span>
           </div>
         </div>
-        <div class="btn-row">
-          <button class="anim-btn" data-play="instant-gain">▶ 마법구 합류</button>
-          <button class="anim-btn alt" data-play="ig-sfx-1">SFX1</button>
-          <button class="anim-btn alt" data-play="ig-sfx-2">SFX2</button>
-          <button class="anim-btn alt" data-play="ig-sfx-3">SFX3</button>
-          <button class="anim-btn alt" data-play="ig-sfx-4">SFX4</button>
-        </div>
-      </div>
-      <div class="anim-card">
-        <div class="label">⭐ orb-sfx · 마법구 출발/도착 SFX 4가지</div>
-        <div class="desc">시전자 → 상대 마법구 출발/도착 효과음. 4가지 변형 미리듣기.</div>
-        <div class="anim-stage" data-stage="orb-sfx" style="min-height:60px"></div>
-        <div class="btn-row">
-          <button class="anim-btn" data-play="orb-sfx-1">SFX1 페어리</button>
-          <button class="anim-btn" data-play="orb-sfx-2">SFX2 글래스</button>
-          <button class="anim-btn" data-play="orb-sfx-3">SFX3 깃털</button>
-          <button class="anim-btn" data-play="orb-sfx-4">SFX4 종</button>
-        </div>
+        <button class="anim-btn" data-play="instant-gain">▶ 마법구 합류</button>
       </div>
     </div>
   </section>
@@ -409,10 +386,7 @@
         </div>
         <div class="anim-stage tall" data-stage="sp-grant"></div>
         <div class="btn-row">
-          <button class="anim-btn" data-play="sp-grant-v1">▶ V1 사이드 (기본)</button>
-          <button class="anim-btn alt" data-play="sp-grant-v2">▶ V2 코너</button>
-          <button class="anim-btn alt" data-play="sp-grant-v3">▶ V3 웨이브</button>
-          <button class="anim-btn alt" data-play="sp-grant-v4">▶ V4 호버</button>
+          <button class="anim-btn" data-play="sp-grant-v1">▶ 재생</button>
         </div>
       </div>
     </div>
@@ -427,36 +401,6 @@
         <div class="desc">해골 거대 이모지 제거. 상대의 살아있는 piece 위치 + 보드 오브젝트(덫·폭탄·쥐) 그대로 그리드 노출.</div>
         <div class="anim-stage tall" data-stage="defeat-replay"></div>
         <button class="anim-btn" data-play="defeat-replay">▶ 미리보기</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- H. 보호됨 옵션 (변형 + SFX 5종) -->
-  <section class="group" id="protected">
-    <div class="group-title">H. 보호됨 — 4 변형 × 5 SFX (참고)</div>
-    <div class="anim-grid">
-      <div class="anim-card">
-        <div class="label">애니메이션 4 변형</div>
-        <div class="desc">v1: 1회 sweep / v2: 2회 sweep / v3: 1회 + 둔둔 (현재 기본) / v4: 2회 + 둔둔</div>
-        <div class="anim-stage" data-stage="protected-variants"></div>
-        <div class="btn-row">
-          <button class="anim-btn" data-play="protected-v1">v1</button>
-          <button class="anim-btn" data-play="protected-v2">v2</button>
-          <button class="anim-btn" data-play="protected-v3">v3 (기본)</button>
-          <button class="anim-btn" data-play="protected-v4">v4</button>
-        </div>
-      </div>
-      <div class="anim-card">
-        <div class="label">SFX 5종 — 단독 듣기</div>
-        <div class="desc">SFX1 팅(금속) / SFX2 반짝(유리 5음) / SFX3 둔둔(저음 더블) / SFX4 차임(벨톤, 현재 기본) / SFX5 크리스탈(8음 캐스케이드)</div>
-        <div class="anim-stage compact" data-stage="protected-sfx"></div>
-        <div class="btn-row">
-          <button class="anim-btn alt" data-play="sfx-only-1">SFX1</button>
-          <button class="anim-btn alt" data-play="sfx-only-2">SFX2</button>
-          <button class="anim-btn alt" data-play="sfx-only-3">SFX3</button>
-          <button class="anim-btn alt" data-play="sfx-only-4">SFX4 (기본)</button>
-          <button class="anim-btn alt" data-play="sfx-only-5">SFX5</button>
-        </div>
       </div>
     </div>
   </section>

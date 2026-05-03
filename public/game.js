@@ -2503,10 +2503,12 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       ? `<span class="my-piece-pos">${posText}</span>`
       : `<span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'};font-size:0.68rem">${posText ? `📍${posText}` : '생존'}</span>`;
     const nameLenCls = getNameLengthClass(pc.name || pc.type);
-    // 이번 턴 데미지 도장 + HP 바 빨간 오버레이 (팀모드는 playerIdx 기반 키)
+    // 이번 턴 데미지 도장 + HP 바 오버레이 (팀모드는 playerIdx 기반 키)
     const dmgOv = (typeof buildDamageOverlay === 'function')
       ? buildDamageOverlay(`${playerData.idx}:${i}`, pc.alive ? (pc.hp ?? 0) : 0, pc.maxHp || 1)
       : { stamp: '', barOverlay: '' };
+    // HP 바 폭 — 회복 시 시작 HP 위치 유지, 피해 시 현재 HP 위치 (overlay 가 차이 표시)
+    const _displayHpPct = (dmgOv.displayHpPct != null) ? dmgOv.displayHpPct : hpPct;
     return `<div class="${baseCardClass} ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
@@ -2518,7 +2520,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg hp-bar-with-text">
-        <div class="hp-bar" style="width:${hpPct}%"></div>
+        <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
         <span class="hp-bar-text">${pc.hp}/${pc.maxHp}</span>
       </div>
@@ -9069,19 +9071,22 @@ function buildDamageOverlay(key, hp, maxHp) {
   } else if (curseDmg > 0) {
     stamp += `<div class="dmg-stamp curse">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
   } else if (healAmt > 0) {
-    // 회복 도장 — 녹색. 메인 텍스트가 이미 "X 회복" 이므로 별도 태그 없음 (사용자 요청).
     stamp += `<div class="dmg-stamp heal">${fmtHeal(healAmt)}</div>`;
   }
-  // 충성 도장 — 항상 별도 위치 (위 분류와 공존 가능)
   if (loyaltyDmg > 0) {
     stamp += `<div class="dmg-stamp loyalty">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
   }
-  // HP 바 오버레이:
-  //   피해 (startHp > hp): 빨간 hp-bar-damage 가 currentHp 위치에서 startHp 위치까지
-  //   회복 (startHp < hp): 녹색 hp-bar-heal 이 startHp 위치에서 currentHp 위치까지
+  // HP 바 표시 로직 (사용자 요청):
+  //   기본 HP 바 자체는 *시작 HP 와 현재 HP 중 더 작은 쪽*에 머물러 있음.
+  //   - 피해 (startHp > currentHp): hp-bar 가 currentHp 위치 (작아짐) + 빨간 오버레이가 currentHp~startHp 구간 표시.
+  //   - 회복 (startHp < currentHp): hp-bar 는 startHp 위치 그대로 (차오르지 않음) + 더 밝은 녹색 오버레이가 startHp~currentHp 구간 표시.
+  //     이 임시 회복 오버레이는 다음 턴 시작 시 (snapshotTurnStartHps 가 startHp 갱신) 또는 같은 턴에 새 데미지 받을 때
+  //     일반 hp-bar 로 통합되어 사라짐.
   const startHp = S.turnStartHps?.[key] ?? hp;
   const startPct = Math.max(0, Math.min(100, (startHp / maxHp) * 100));
   const curPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  // 표시용 HP 바 폭 — 시작 HP 와 현재 HP 중 작은 쪽 (피해 시 currentHp, 회복 시 startHp)
+  const displayHpPct = Math.min(startPct, curPct);
   let barOverlay = '';
   if (hp < startHp) {
     const widthPct = Math.max(0, startPct - curPct);
@@ -9090,7 +9095,7 @@ function buildDamageOverlay(key, hp, maxHp) {
     const widthPct = Math.max(0, curPct - startPct);
     if (widthPct > 0) barOverlay = `<div class="hp-bar-heal" style="left:${startPct}%;width:${widthPct}%"></div>`;
   }
-  return { stamp, barOverlay };
+  return { stamp, barOverlay, displayHpPct };
 }
 
 // ── 내 말 정보 패널 ──────────────────────────────────────────
@@ -9151,6 +9156,8 @@ function renderMyPieces() {
     // #24: 보드 파괴 탈락 도장 (1v1 — my 카드)
     const _myElimKey = `my:${i}`;
     const _isMyShrunkElim = !pc.alive && S._shrunkEliminated && S._shrunkEliminated.has(_myElimKey);
+    // HP 바 폭 — 회복 시 시작 HP 위치 유지 (overlay 가 임시 회복 표시)
+    const _displayHpPct = (dmgOv.displayHpPct != null) ? dmgOv.displayHpPct : hpPct;
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       ${_isMyShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
@@ -9162,7 +9169,7 @@ function renderMyPieces() {
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg hp-bar-with-text">
-        <div class="hp-bar" style="width:${hpPct}%"></div>
+        <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
         <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
       </div>
@@ -9301,6 +9308,7 @@ function renderOppPieces() {
     // #24: 보드 파괴 탈락 도장 (1v1 — opp 카드)
     const _oppElimKey = `opp:${pi}`;
     const _isOppShrunkElim = !pc.alive && S._shrunkEliminated && S._shrunkEliminated.has(_oppElimKey);
+    const _displayHpPct = (dmgOv.displayHpPct != null) ? dmgOv.displayHpPct : hpPct;
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       ${_isOppShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
@@ -9313,7 +9321,7 @@ function renderOppPieces() {
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
       <div class="hp-bar-bg hp-bar-with-text">
-        <div class="hp-bar" style="width:${hpPct}%"></div>
+        <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
         <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
       </div>
