@@ -299,7 +299,16 @@
         <div id="irev-opp-chars" class="reveal-pieces"></div>
       </div>
     </div>
-    <button id="btn-irev-confirm" class="btn btn-primary btn-large">교환 드래프트로</button>
+    <!-- #12: 교체 필요 여부를 양측에서 각자 선택. 둘 다 NO 면 즉시 다음 단계로,
+         하나라도 YES 면 그 측만 교환 드래프트 진행, 다른 측은 60초 대기 화면. -->
+    <div id="irev-decision-row" class="reveal-decision-row">
+      <div class="reveal-prompt">캐릭터 교체가 필요하십니까?</div>
+      <div class="reveal-decision-buttons">
+        <button id="btn-irev-no" class="btn btn-secondary btn-large">NO — 그대로 진행</button>
+        <button id="btn-irev-yes" class="btn btn-primary btn-large">YES — 교체 드래프트로</button>
+      </div>
+    </div>
+    <button id="btn-irev-confirm" class="btn btn-primary btn-large hidden">교환 드래프트로</button>
   </div>
 </div>
 

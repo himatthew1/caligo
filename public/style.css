@@ -861,6 +861,36 @@ body {
 #screen-exchange #ex-opp-chars { gap: 8px; }
 #screen-exchange .draft-sidebar-btns { margin-top: 6px; }
 #screen-exchange .draft-sidebar-btns .btn-primary { padding: 9px; font-size: 0.85rem; }
+/* #12 — 초기 공개 후 YES/NO 결정 영역 */
+.reveal-decision-row {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.reveal-prompt {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.reveal-decision-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.reveal-decision-buttons .btn {
+  min-width: 220px;
+}
+.reveal-decision-note {
+  font-size: 0.86rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.btn.hidden { display: none; }
+
 /* 교환 드래프트 — 한 화면에 다 들어가도록 상하단 여백 컴팩트화 (스크롤 제거) */
 #screen-exchange .progress-stepper { margin-bottom: 4px; padding: 8px 16px; }
 #screen-exchange .draft-layout { margin: 6px 0; padding: 8px 16px; }

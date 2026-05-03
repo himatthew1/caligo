@@ -2319,46 +2319,61 @@ function aiDecideExchange(myDraft, oppDraft) {
   return { tier: pick.tier, newType: pick.newType };
 }
 
-// ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (90초) ──
+// ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (60초) ──
+//   #12 단일측 흐름: exchangeDecisions 가 NO 인 측은 자동 done 처리, 'exchange_waiting' 상태로 emit.
 function transitionToExchangeDraft(room) {
   clearTimer(room);
   room.phase = 'exchange_draft';
+  if (!room.exchangeDecisions) room.exchangeDecisions = [null, null];
   if (room.isAI) {
-    // AI 교환 카운터픽 — 결정만 미리 저장하고, 실제 교환은 final_reveal 직전에 적용
-    // (사용자에게는 교체되기 전 조합으로 보이도록 — final_reveal에서 변경 결과 공개)
+    // AI 교환 결정이 YES 인 경우만 swap 계산
     const aiPlayer = room.players[1];
     const human = room.players[0];
     aiPlayer._exchangeOriginal = { ...aiPlayer.draft };
-    const swap = aiDecideExchange(aiPlayer.draft, human.draft);
-    if (swap) {
-      const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
-      const currentType = aiPlayer.draft[key];
-      const conflictsOtherSlot =
-        (key !== 't1' && aiPlayer.draft.t1 === swap.newType) ||
-        (key !== 't2' && aiPlayer.draft.t2 === swap.newType) ||
-        (key !== 't3' && aiPlayer.draft.t3 === swap.newType);
-      if (currentType !== swap.newType && !conflictsOtherSlot) {
-        // pending swap만 저장. 실제 적용은 transitionToFinalReveal에서.
-        aiPlayer._pendingSwap = { tier: swap.tier, key, newType: swap.newType };
+    if (room.exchangeDecisions[1] === true) {
+      const swap = aiDecideExchange(aiPlayer.draft, human.draft);
+      if (swap) {
+        const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
+        const currentType = aiPlayer.draft[key];
+        const conflictsOtherSlot =
+          (key !== 't1' && aiPlayer.draft.t1 === swap.newType) ||
+          (key !== 't2' && aiPlayer.draft.t2 === swap.newType) ||
+          (key !== 't3' && aiPlayer.draft.t3 === swap.newType);
+        if (currentType !== swap.newType && !conflictsOtherSlot) {
+          aiPlayer._pendingSwap = { tier: swap.tier, key, newType: swap.newType };
+        }
       }
     }
     room.exchangeDone[1] = true;
   }
+  // YES 측에는 normal exchange_draft_phase, NO 측에는 'exchange_waiting' (60s 카운트다운 + 상대 슬롯에 오버레이)
   room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
-      // 각 티어에서 교환 가능한 캐릭터 목록 (자신이 이미 선택한 것 제외)
-      const available = {};
-      for (const tier of [1, 2, 3]) {
-        const myType = tier === 1 ? p.draft.t1 : tier === 2 ? p.draft.t2 : p.draft.t3;
-        available[tier] = CHARACTERS[tier]
-          .filter(c => c.type !== myType)
-          .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
+      const wantsExchange = room.exchangeDecisions[i] === true;
+      if (!wantsExchange) {
+        // NO 측 — 자동 done + 대기 화면
+        room.exchangeDone[i] = true;
+        io.to(p.socketId).emit('exchange_waiting_phase', {
+          myDraft: p.draft,
+          oppDraft: room.players[1 - i].draft,
+          oppExchanging: room.exchangeDecisions[1 - i] === true,
+          waitingMs: 60000,
+        });
+      } else {
+        // YES 측 — 정상 교환 드래프트 화면
+        const available = {};
+        for (const tier of [1, 2, 3]) {
+          const myType = tier === 1 ? p.draft.t1 : tier === 2 ? p.draft.t2 : p.draft.t3;
+          available[tier] = CHARACTERS[tier]
+            .filter(c => c.type !== myType)
+            .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
+        }
+        io.to(p.socketId).emit('exchange_draft_phase', {
+          myDraft: p.draft,
+          available,
+          oppDraft: room.players[1 - i].draft,
+        });
       }
-      io.to(p.socketId).emit('exchange_draft_phase', {
-        myDraft: p.draft,
-        available,
-        oppDraft: room.players[1 - i].draft,
-      });
     }
   });
   emitToSpectators(room, 'spectator_phase', {
@@ -2366,7 +2381,12 @@ function transitionToExchangeDraft(room) {
     p0Name: room.players[0].name,
     p1Name: room.players[1].name,
   });
-  startTimer(room, 'exchange_draft', () => exchangeDraftTimeout(room));
+  // YES 측이 모두 done 이거나 60초 타이머 만료 시 final_reveal 로 진행
+  if (room.exchangeDone.every(d => d)) {
+    transitionToFinalReveal(room);
+  } else {
+    startTimer(room, 'exchange_draft', () => exchangeDraftTimeout(room));
+  }
 }
 
 function exchangeDraftTimeout(room) {
@@ -6290,15 +6310,35 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── 초기 공개 확인 ──
-  socket.on('confirm_initial_reveal', () => {
+  // ── 초기 공개 확인 (#12: YES/NO 결정도 함께) ──
+  // wantsExchange = true → 교체 드래프트 진행 측, false → 그대로 확정 측.
+  // 양측 모두 결정되면 분기:
+  //   둘 다 NO → final_reveal 로 직행 (교환 없음)
+  //   하나라도 YES → exchange_draft 로 진입 (NO 측은 자동 done 처리, 60s 대기)
+  socket.on('confirm_initial_reveal', (payload) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'initial_reveal') return;
     const idx = socket.data.idx;
+    if (room.initialRevealDone[idx]) return;
     room.initialRevealDone[idx] = true;
+    if (!room.exchangeDecisions) room.exchangeDecisions = [null, null];
+    const wantsExchange = !!(payload && payload.wantsExchange);
+    room.exchangeDecisions[idx] = wantsExchange;
 
     if (room.initialRevealDone.every(d => d)) {
-      transitionToExchangeDraft(room);
+      // AI 결정 — 단순 휴리스틱: 50% 확률
+      if (room.isAI) {
+        if (room.exchangeDecisions[1] == null) {
+          room.exchangeDecisions[1] = (Math.random() < 0.5);
+        }
+      }
+      const anyYes = room.exchangeDecisions.some(d => d === true);
+      if (!anyYes) {
+        // 둘 다 NO → final_reveal 직행
+        transitionToFinalReveal(room);
+      } else {
+        transitionToExchangeDraft(room);
+      }
     } else {
       socket.emit('wait_msg', { msg: '상대방을 기다리는 중...' });
     }

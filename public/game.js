@@ -7082,9 +7082,81 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
 }
 
 document.getElementById('btn-irev-confirm').addEventListener('click', () => {
-  socket.emit('confirm_initial_reveal');
+  // 레거시 단일 버튼 — YES 결정으로 처리
+  socket.emit('confirm_initial_reveal', { wantsExchange: true });
   document.getElementById('btn-irev-confirm').disabled = true;
   document.getElementById('btn-irev-confirm').textContent = '대기 중...';
+});
+
+// #12 — 신규 YES/NO 결정 버튼
+const _irevYes = document.getElementById('btn-irev-yes');
+const _irevNo = document.getElementById('btn-irev-no');
+function _disableIrevDecision(label) {
+  if (_irevYes) { _irevYes.disabled = true; }
+  if (_irevNo)  { _irevNo.disabled = true; }
+  const row = document.getElementById('irev-decision-row');
+  if (row) {
+    const note = document.createElement('div');
+    note.className = 'reveal-decision-note';
+    note.textContent = label;
+    row.appendChild(note);
+  }
+}
+if (_irevYes) {
+  _irevYes.addEventListener('click', () => {
+    socket.emit('confirm_initial_reveal', { wantsExchange: true });
+    _disableIrevDecision('YES — 교체 드래프트 대기 중...');
+  });
+}
+if (_irevNo) {
+  _irevNo.addEventListener('click', () => {
+    socket.emit('confirm_initial_reveal', { wantsExchange: false });
+    _disableIrevDecision('NO — 그대로 진행. 상대 결정 대기 중...');
+  });
+}
+
+// #12 — 상대 측만 교환할 때 NO 측이 대기하는 화면
+socket.on('exchange_waiting_phase', ({ myDraft, oppDraft, oppExchanging, waitingMs }) => {
+  // 교환 드래프트 화면을 띄우되, 입력은 막고 60초 카운트다운 + 상대 슬롯에 안내 오버레이.
+  showScreen('screen-exchange');
+  // 기본 UI 빌드 후 readonly 처리
+  if (typeof buildExchangeDraftUI === 'function') {
+    try { buildExchangeDraftUI(myDraft, {}, oppDraft); } catch (e) {}
+  }
+  // 모든 캐릭터 카드 비활성화
+  setTimeout(() => {
+    document.querySelectorAll('#screen-exchange .char-card, #screen-exchange .draft-char-slot').forEach(el => {
+      el.style.pointerEvents = 'none';
+      el.style.filter = 'grayscale(0.5) brightness(0.7)';
+    });
+    const confirmBtn = document.getElementById('btn-exchange-confirm') || document.getElementById('btn-ex-confirm');
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = '상대 교체 대기 중...'; }
+  }, 50);
+  // 카운트다운 오버레이 (상대 슬롯 영역 위)
+  const overlay = document.createElement('div');
+  overlay.id = 'exchange-waiting-overlay';
+  overlay.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9000;background:rgba(15,23,42,0.92);border:2px solid #fbbf24;border-radius:14px;padding:24px 36px;color:#fef3c7;font-size:1.05rem;font-weight:700;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,0.6);pointer-events:none';
+  let remaining = Math.ceil((waitingMs || 60000) / 1000);
+  overlay.innerHTML = `<div>상대가 교체 중...</div><div id="exchange-waiting-count" style="font-size:2.4rem;color:#fde68a;margin-top:8px">${remaining}</div>`;
+  // 기존 오버레이 제거
+  const existing = document.getElementById('exchange-waiting-overlay');
+  if (existing) existing.remove();
+  document.body.appendChild(overlay);
+  const tickIv = setInterval(() => {
+    remaining--;
+    const countEl = document.getElementById('exchange-waiting-count');
+    if (countEl) countEl.textContent = String(Math.max(0, remaining));
+    if (remaining <= 0) {
+      clearInterval(tickIv);
+      // 시간 초과 — overlay 그대로 두고 final_reveal 이벤트 도착 시 정리
+    }
+  }, 1000);
+});
+
+// final_reveal 도착 시 waiting 오버레이 정리
+socket.on('final_reveal_phase', () => {
+  const overlay = document.getElementById('exchange-waiting-overlay');
+  if (overlay) overlay.remove();
 });
 
 // ═══════════════════════════════════════════════════════════════
