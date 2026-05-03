@@ -1329,18 +1329,31 @@ function aiTeamUsePreSkills(room, idx) {
         if (!occ) { aiTeamExecSkill(room, idx, pi, 'dragon', { col: c, row: r }); return; }
       }
     }
-    // ring (국왕) — 가장 위협적인 적을 외곽으로 밀어넣기
+    // ring (국왕) — 가장 위협적인 적을 외곽으로 밀어넣기.
+    // 사용자 요청: 절대 같은 팀원에게 사용하지 못하게 — 적팀(enemyIdxs) 만 후보 + targetOwnerIdx 명시.
     if (piece.skillId === 'ring') {
-      const enemies = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || []));
-      const target = enemies.find(e => e.alive && e.col != null);
-      if (target) {
+      // 적팀 piece 들을 owner 정보와 함께 수집 (server.executeSkill 'king' 케이스가 type+ownerIdx 로 매칭)
+      const enemyEntries = [];
+      for (const ei of enemyIdxs) {
+        const owner = room.players[ei];
+        if (!owner) continue;
+        if (owner.teamId === room.players[idx].teamId) continue;  // 같은 팀이면 스킵 (이중 안전장치)
+        for (const e of (owner.pieces || [])) {
+          if (e.alive && e.col != null) enemyEntries.push({ piece: e, ownerIdx: ei });
+        }
+      }
+      if (enemyEntries.length > 0) {
+        const target = enemyEntries[0];
         const bounds = room.boardBounds;
-        // 외곽 빈 칸으로 이동
         for (let r = bounds.min; r <= bounds.max; r += (bounds.max - bounds.min)) {
           for (let c = bounds.min; c <= bounds.max; c++) {
             const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
             if (!occ) {
-              aiTeamExecSkill(room, idx, pi, 'ring', { targetName: target.name, col: c, row: r });
+              aiTeamExecSkill(room, idx, pi, 'ring', {
+                targetName: target.piece.type,        // server 는 piece.type 으로 매칭
+                targetOwnerIdx: target.ownerIdx,      // 같은 팀원 폴백 방지
+                col: c, row: r,
+              });
               return;
             }
           }

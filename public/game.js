@@ -2110,8 +2110,10 @@ socket.on('team_game_update', (state) => {
           setTimeout(() => card.classList.remove('profile-hit'), 1800);
         }
       }
-      // 힐 효과 — 1v1 flashHealPieces와 동일하게 초록 플래시
-      for (const ch of healed) {
+      // 힐 효과 제거 — skill_result / team_skill_notice 가 T+1500ms 에 flashHealPieces 호출
+      // (team_game_update 가 즉시 발동하면 중복 + SP 마법구 도중에 노출되므로 차단)
+      const _legacyHealLoop = false;
+      for (const ch of (_legacyHealLoop ? healed : [])) {
         const isOwnTeam = (S.teamGamePlayers || []).find(p => p.idx === ch.playerIdx)?.teamId === S.teamId;
         const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
         const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
@@ -3504,6 +3506,8 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
 
   S.myPieces = yourPieces;
   // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
+  // 키 형식: 1v1 = 'my:idx' / 팀모드 = '${myPlayerIdx}:idx' (renderTeamProfiles 와 일치).
+  const _selfStampKey = (idx) => S.isTeamMode ? `${S.playerIdx}:${idx}` : `my:${idx}`;
   for (const h of hitPieces) {
     const dmg = (typeof h.damage === 'number') ? h.damage : 0;
     if (dmg <= 0) continue;
@@ -3514,7 +3518,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
         bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
       }
       if (bgIdx < 0) continue;
-      addLoyaltyDamage(`my:${bgIdx}`, dmg);
+      addLoyaltyDamage(_selfStampKey(bgIdx), dmg);
     } else if (!h.redirectedToBodyguard) {
       // 본체 직접 피해 → 빨간 도장 (피격 카드)
       let pieceIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
@@ -3522,7 +3526,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
         pieceIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row);
       }
       if (pieceIdx < 0) continue;
-      addBodyDamage(`my:${pieceIdx}`, dmg);
+      addBodyDamage(_selfStampKey(pieceIdx), dmg);
     }
   }
   // 호위무사 가로채기 / 0데미지 비격파 hit은 토스트·로그 생략
@@ -3619,6 +3623,10 @@ socket.on('turn_event', ({ type, msg }) => {
   // SP 지급 — 풀스크린 애니(4.4s) + 1.5s 버퍼 = 5.9s 동안 모든 토스트/로그 차단
   if (type === 'sp_grant') {
     addLog(msg, 'system');
+    // 사용자 요청: SP 증정 애니는 강제 시청 — 디바이스 무관 스크롤 최상단으로 이동
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {
+      try { window.scrollTo(0, 0); } catch (e2) {}
+    }
     runFullscreenLocked(() => playSpGrantAnimation(), 6000);
     return;
   }
@@ -3985,6 +3993,15 @@ function playSpGrantAnimation() {
   const myNumEl = document.getElementById('sp-my-num');
   const oppNumEl = document.getElementById('sp-opp-num');
 
+  // 사용자 요청: 숫자 증가는 구슬이 숫자에 합쳐지는 순간에 발생.
+  // sp_update 가 이미 도착해 displayed=NEW 인 상태이므로, 애니 시작 시 임시로 OLD(=NEW-1)로 표시.
+  // 분리 비행 끝(blendDispatch=1) 시점에 NEW 로 되돌리며 흰 팝(sp-num-tick-up).
+  const finalMyNum = parseInt((myNumEl && myNumEl.textContent) || '0', 10) || 0;
+  const finalOppNum = parseInt((oppNumEl && oppNumEl.textContent) || '0', 10) || 0;
+  let _myAbsorbed = false, _oppAbsorbed = false;
+  if (myNumEl) myNumEl.textContent = String(Math.max(0, finalMyNum - 1));
+  if (oppNumEl) oppNumEl.textContent = String(Math.max(0, finalOppNum - 1));
+
   setOrbPos(orbL, cx - W * 0.6, cy);  // 멀리 좌측
   setOrbPos(orbR, cx + W * 0.6, cy);  // 멀리 우측
   orbL.style.opacity = '0';
@@ -4070,6 +4087,23 @@ function playSpGrantAnimation() {
         rx = lerp(dispatchStartR.x, dispatchTargetR.x, blendDispatch);
         ry = lerp(dispatchStartR.y, dispatchTargetR.y, blendDispatch) + lift;
       }
+      // 흡수 직전 (95% 이상) — 숫자 증가 + 하얀 팝 (한 번만)
+      if (blendDispatch >= 0.95) {
+        if (!_myAbsorbed && myNumEl) {
+          _myAbsorbed = true;
+          myNumEl.textContent = String(finalMyNum);
+          myNumEl.classList.remove('sp-num-tick-up');
+          void myNumEl.offsetWidth;
+          myNumEl.classList.add('sp-num-tick-up');
+        }
+        if (!_oppAbsorbed && oppNumEl) {
+          _oppAbsorbed = true;
+          oppNumEl.textContent = String(finalOppNum);
+          oppNumEl.classList.remove('sp-num-tick-up');
+          void oppNumEl.offsetWidth;
+          oppNumEl.classList.add('sp-num-tick-up');
+        }
+      }
     }
 
     setOrbPos(orbL, lx, ly);
@@ -4082,8 +4116,19 @@ function playSpGrantAnimation() {
       if (trailIv) { clearInterval(trailIv); trailIv = null; }
       orbL.style.opacity = '0';
       orbR.style.opacity = '0';
-      if (myNumEl) { myNumEl.classList.remove('sp-bump'); void myNumEl.offsetWidth; myNumEl.classList.add('sp-bump'); }
-      if (oppNumEl) { oppNumEl.classList.remove('sp-bump'); void oppNumEl.offsetWidth; oppNumEl.classList.add('sp-bump'); }
+      // 흡수가 미처 안 일어났을 경우 안전장치 — 최종 숫자 동기화
+      if (myNumEl && !_myAbsorbed) {
+        myNumEl.textContent = String(finalMyNum);
+        myNumEl.classList.remove('sp-num-tick-up');
+        void myNumEl.offsetWidth;
+        myNumEl.classList.add('sp-num-tick-up');
+      }
+      if (oppNumEl && !_oppAbsorbed) {
+        oppNumEl.textContent = String(finalOppNum);
+        oppNumEl.classList.remove('sp-num-tick-up');
+        void oppNumEl.offsetWidth;
+        oppNumEl.classList.add('sp-num-tick-up');
+      }
       // 1초 페이드 아웃
       overlay.classList.add('fading-out');
       setTimeout(() => {
@@ -8777,8 +8822,8 @@ function buildDamageOverlay(key, hp, maxHp) {
     // 본체 피해가 있으면 빨강이 우선 — 저주는 빨강에 흡수되지 않고 단순히 표시 안 됨 (이번 턴 시각화)
     stamp += `<div class="dmg-stamp">${fmt(bodyDmg)}</div>`;
   } else if (curseDmg > 0) {
-    // 본체 피해 없이 저주만 들어온 경우 — 보라
-    stamp += `<div class="dmg-stamp curse">${fmt(curseDmg)}</div>`;
+    // 본체 피해 없이 저주만 들어온 경우 — 보라 + '저주' 태그 (충성과 동일 패턴)
+    stamp += `<div class="dmg-stamp curse">${fmt(curseDmg)}<span class="curse-tag">저주</span></div>`;
   }
   // 충성 도장 — 빨강/보라와 별도 위치(top: 32px)에 항상 표시 가능
   if (loyaltyDmg > 0) {

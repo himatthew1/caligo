@@ -3473,6 +3473,14 @@ body.team-mode .placement-opp-panel {
   border-color: rgba(245, 232, 255, 0.9);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
+.dmg-stamp.curse .curse-tag {
+  display: block;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-top: 1px;
+  opacity: 0.9;
+}
 /* 충성(호위무사 대신 받음) 데미지 도장 — 파란색 + 작은 '충성' 태그 */
 .dmg-stamp.loyalty {
   background: rgba(59, 130, 246, 0.95);
