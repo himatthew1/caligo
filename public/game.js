@@ -10148,9 +10148,93 @@ document.getElementById('skill-modal-close').addEventListener('click', () => {
 // ── 게임 보드 셀 클릭 핸들러 ───────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+// #9 — 보드 위 부채꼴 행동 메뉴 (이동/공격/스킬)
+function _closeRadialActionMenu() {
+  const m = document.getElementById('radial-action-menu');
+  if (m) m.remove();
+  S._radialMenuPiece = null;
+}
+function _showRadialActionMenu(col, row, pieceIdx) {
+  _closeRadialActionMenu();
+  // 셀 element 의 화면 좌표 기준
+  const cellEl = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cellEl) return;
+  const r = cellEl.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const radius = 56;  // 부채꼴 반경
+  const menu = document.createElement('div');
+  menu.id = 'radial-action-menu';
+  menu.className = 'radial-action-menu';
+  // 위쪽으로 펼쳐짐 — -135°, -90°, -45°
+  const items = [
+    { angle: -135, key: 'move',   icon: '🏃', label: '이동' },
+    { angle:  -90, key: 'attack', icon: '⚔', label: '공격' },
+    { angle:  -45, key: 'skill',  icon: '✨', label: '스킬' },
+  ];
+  for (const it of items) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'radial-btn';
+    btn.dataset.key = it.key;
+    btn.innerHTML = `<span class="ic">${it.icon}</span><span class="lbl">${it.label}</span>`;
+    const rad = it.angle * Math.PI / 180;
+    const x = cx + Math.cos(rad) * radius;
+    const y = cy + Math.sin(rad) * radius;
+    btn.style.left = x + 'px';
+    btn.style.top = y + 'px';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _closeRadialActionMenu();
+      // 동일한 행동 버튼 트리거 — 기존 흐름 그대로 사용
+      const targetBtn = document.getElementById('btn-' + it.key);
+      if (targetBtn && !targetBtn.disabled) {
+        targetBtn.click();
+        // 자동으로 해당 piece 선택 상태로 진입
+        if (it.key === 'move' || it.key === 'attack') {
+          S.selectedPiece = pieceIdx;
+          renderGameBoard();
+        }
+      }
+    });
+    menu.appendChild(btn);
+  }
+  document.body.appendChild(menu);
+  S._radialMenuPiece = pieceIdx;
+}
+// 다른 곳 누르면 자동 닫힘
+document.addEventListener('click', (e) => {
+  const m = document.getElementById('radial-action-menu');
+  if (!m) return;
+  if (!m.contains(e.target)) {
+    // 보드 셀 클릭은 handleGameCellClick 이 별도로 처리하므로 여기서는 그 외만 닫음
+    if (!e.target.closest('#game-board .cell')) _closeRadialActionMenu();
+  }
+});
+// 라디얼 모드 활성화 — 보드 아래 행동 버튼 숨김
+document.addEventListener('DOMContentLoaded', () => {
+  document.body.classList.add('radial-menu-mode');
+});
+if (document.readyState !== 'loading') {
+  document.body.classList.add('radial-menu-mode');
+}
+
 function handleGameCellClick(col, row) {
   const bounds = S.boardBounds;
   if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+
+  // #9 — 행동이 진행 중이지 않을 때 내 말 셀을 누르면 라디얼 메뉴 표시
+  if (S.isMyTurn && !S.action) {
+    const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
+    if (myPc) {
+      const idx = S.myPieces.indexOf(myPc);
+      _showRadialActionMenu(col, row, idx);
+      return;
+    } else {
+      // 빈 셀 / 적 셀 클릭 — 라디얼 닫기
+      _closeRadialActionMenu();
+    }
+  }
 
   // ── 팀원 공격 범위 오버레이 토글 (턴/행동 무관, 단 내 행동 대상셀이 아닐 때만) ──
   if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
