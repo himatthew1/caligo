@@ -2413,9 +2413,13 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     const isCursedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
     const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}`;
     if (!pc.alive) {
+      // #24: 보드 파괴로 탈락한 유닛은 '탈락' 도장 부착. 일반 격파는 '💀 격파' 텍스트만.
+      const elimKey = `${playerData.idx}:${i}`;
+      const isShrunkElim = S._shrunkEliminated && S._shrunkEliminated.has(elimKey);
       return `<div class="${baseCardClass} dead" data-team-piece="1" data-piece-idx="${i}">
+        ${isShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
         <div class="my-piece-header"><span class="p-icon">${pc.icon || '❔'}</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
-        <div style="font-size:0.72rem;color:var(--muted)">💀 격파</div>
+        <div style="font-size:0.72rem;color:var(--muted)">${isShrunkElim ? '' : '💀 격파'}</div>
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
@@ -4526,6 +4530,25 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
   try { playBoardQuake(); } catch (e) {}
   S.boardBounds = bounds;
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
+  // #24: 보드 파괴로 탈락한 유닛 추적 — 프로필에 '탈락' 도장 표시용.
+  if (!S._shrunkEliminated) S._shrunkEliminated = new Set();
+  for (const e of (eliminated || [])) {
+    // 1v1: e.owner 가 playerIdx 와 같으면 my, 아니면 opp.
+    // 팀모드: e.owner 가 player idx (0-3). team-profile-block 의 data-player-idx 와 매치.
+    if (S.isTeamMode) {
+      // pieces 배열에서 col/row 매칭으로 idx 찾기
+      const pl = (S.teamGamePlayers || []).find(p => p.idx === e.owner);
+      if (pl && pl.pieces) {
+        const idx = pl.pieces.findIndex(p => p.col === e.col && p.row === e.row);
+        if (idx >= 0) S._shrunkEliminated.add(`${e.owner}:${idx}`);
+      }
+    } else {
+      const arr = (e.owner === S.playerIdx) ? S.myPieces : S.oppPieces;
+      const prefix = (e.owner === S.playerIdx) ? 'my' : 'opp';
+      const idx = (arr || []).findIndex(p => p.col === e.col && p.row === e.row);
+      if (idx >= 0) S._shrunkEliminated.add(`${prefix}:${idx}`);
+    }
+  }
   if (!S.isSpectator) {
     showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
     addLog(`🔥 보드 외곽 파괴`, 'shrink');
@@ -4537,7 +4560,7 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
     // 관전자: 팀/플레이어 인덱스 0,1 별로 분리
     const formatGroup = (group) => group.map(e => `${e.icon}${e.name}`).join(', ');
     if (S.isSpectator) {
-      // 관전자는 두 팀(또는 두 플레이어)로 분리
+      // 관전자는 두 팀(또는 두 플레이어)로 분리. 사용자 #24: 토스트 X, 로그만.
       const groups = new Map();
       for (const e of eliminated) {
         const key = e.owner;
@@ -4545,9 +4568,7 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
         groups.get(key).push(e);
       }
       for (const [ownerIdx, list] of groups.entries()) {
-        const txt = `💀 ${formatGroup(list)} 파괴`;
-        addLog(txt, 'shrink');
-        showSkillToast(txt, false, ownerIdx, 'event');
+        addLog(`💀 ${formatGroup(list)} 탈락`, 'shrink');
       }
     } else {
       const isAllyOwner = (ownerIdx) => {
@@ -4562,19 +4583,11 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
       for (const e of eliminated) {
         (isAllyOwner(e.owner) ? myGroup : oppGroup).push(e);
       }
-      // 라벨: 1v1은 나/상대, 팀전은 우리 편/적 편
       const myLabel = S.isTeamMode ? '우리 편' : myN();
       const oppLabel = S.isTeamMode ? '적 편' : oppN();
-      if (myGroup.length > 0) {
-        const txt = `💀 ${myLabel}의 ${formatGroup(myGroup)} 파괴`;
-        addLog(txt, 'shrink');
-        showSkillToast(txt, false, undefined, 'event');
-      }
-      if (oppGroup.length > 0) {
-        const txt = `💀 ${oppLabel}의 ${formatGroup(oppGroup)} 파괴`;
-        addLog(txt, 'shrink');
-        showSkillToast(txt, true, undefined, 'event');
-      }
+      // 사용자 #24: 보드 파괴 사망은 토스트 X, 로그만 ([name 탈락]).
+      if (myGroup.length > 0) addLog(`💀 ${myLabel}의 ${formatGroup(myGroup)} 탈락`, 'shrink');
+      if (oppGroup.length > 0) addLog(`💀 ${oppLabel}의 ${formatGroup(oppGroup)} 탈락`, 'shrink');
     }
   }
   const sw = document.getElementById('shrink-warning');
@@ -9135,8 +9148,12 @@ function renderMyPieces() {
     card.style.position = 'relative';
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
+    // #24: 보드 파괴 탈락 도장 (1v1 — my 카드)
+    const _myElimKey = `my:${i}`;
+    const _isMyShrunkElim = !pc.alive && S._shrunkEliminated && S._shrunkEliminated.has(_myElimKey);
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
+      ${_isMyShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
@@ -9151,7 +9168,7 @@ function renderMyPieces() {
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
-        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
+        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : (_isMyShrunkElim ? '' : '💀 격파')}</span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
 
@@ -9281,8 +9298,12 @@ function renderOppPieces() {
 
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
+    // #24: 보드 파괴 탈락 도장 (1v1 — opp 카드)
+    const _oppElimKey = `opp:${pi}`;
+    const _isOppShrunkElim = !pc.alive && S._shrunkEliminated && S._shrunkEliminated.has(_oppElimKey);
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
+      ${_isOppShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
@@ -9299,7 +9320,7 @@ function renderOppPieces() {
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.7rem">
-          ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : '💀 격파'}
+          ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : (_isOppShrunkElim ? '' : '💀 격파')}
         </span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}`;

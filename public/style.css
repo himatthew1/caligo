@@ -3601,6 +3601,30 @@ body.team-mode .placement-opp-panel {
   border-color: rgba(220, 252, 231, 0.92);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
+/* #24 — 보드 파괴로 탈락한 유닛: 카드 중앙에 큰 "탈락" 사선 도장. 본체 도장과 위치 분리. */
+.elim-stamp {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) rotate(-18deg);
+  background: rgba(63, 63, 70, 0.96);
+  color: #fef3c7;
+  font-size: 1.0rem;
+  font-weight: 900;
+  padding: 5px 16px;
+  border-radius: 5px;
+  border: 3px solid rgba(212, 212, 216, 0.95);
+  letter-spacing: 0.18em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  z-index: 14;
+  pointer-events: none;
+  animation: elim-stamp-in 0.55s ease-out 1;
+}
+@keyframes elim-stamp-in {
+  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-30deg) scale(2.0); }
+  60%  { opacity: 1; transform: translate(-50%, -50%) rotate(-12deg) scale(0.9); }
+  100% { opacity: 1; transform: translate(-50%, -50%) rotate(-18deg) scale(1); }
+}
 .dmg-stamp.heal .heal-tag {
   display: block;
   font-size: 0.55rem;
