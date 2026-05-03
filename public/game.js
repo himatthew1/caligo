@@ -2167,7 +2167,11 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const casterCard = (typeof casterPieceIdx === 'number')
     ? document.querySelector(`.team-profile-block[data-player-idx="${casterIdx}"] [data-piece-idx="${casterPieceIdx}"]`)
     : null;
-  startSkillCastDim(casterCard);
+  // targetInfo: team_game_update 가 곧 도착해 DOM 재렌더 시 spotlight 가 날아가는 문제 방지용
+  const _spotlightTarget = (typeof casterPieceIdx === 'number' && casterIdx != null)
+    ? { playerIdx: casterIdx, pieceIdx: casterPieceIdx }
+    : null;
+  startSkillCastDim(casterCard, _spotlightTarget);
   try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
 
   const TOAST_DELAY_MS = 1500;
@@ -2305,6 +2309,8 @@ function renderTeamGameSnapshot() {
   try {
     if (typeof renderGameBoard === 'function') renderGameBoard();
     renderTeamProfiles();  // 1v1의 renderMyPieces/renderOppPieces 대체
+    // 사용자 #14 수정: spotlight 진행 중에 재렌더되면 caster-spotlight 가 사라지므로 즉시 재적용.
+    if (typeof reapplyCasterSpotlight === 'function') reapplyCasterSpotlight();
     if (typeof updateSPBar === 'function') updateSPBar();
     updateTurnBanner();  // 1v1과 통일된 턴 배너 + 팀전 턴 오더 도트
   } catch (e) {
@@ -3893,14 +3899,17 @@ function spawnInstantGainOrb(targetSlot) {
 }
 
 // ── 스킬 시전 dim 오버레이 — 화면 어둡게, SP 바·시전자 프로필만 spotlight ──
-function startSkillCastDim(casterCard) {
+function startSkillCastDim(casterCard, targetInfo) {
   const dim = document.getElementById('skill-cast-dim');
   if (dim) dim.classList.remove('hidden');
   const sec = document.querySelector('.sp-section');
   if (sec) sec.classList.add('caster-spotlight');
   if (casterCard) casterCard.classList.add('caster-spotlight');
-  // 다음 endSkillCastDim 에서 동일 카드 reference 사용을 위해 저장
   S._castSpotlightCard = casterCard || null;
+  // 팀모드: team_game_update 가 곧이어 도착해 renderTeamProfiles 가 DOM 을 재생성하면
+  //   .caster-spotlight 클래스가 날아감. {playerIdx, pieceIdx} 를 저장해 reapplyCasterSpotlight() 가
+  //   재렌더 직후 다시 클래스 부여하도록.
+  S._castSpotlightTarget = targetInfo || null;
 }
 function endSkillCastDim(casterCard) {
   const dim = document.getElementById('skill-cast-dim');
@@ -3909,7 +3918,24 @@ function endSkillCastDim(casterCard) {
   if (sec) sec.classList.remove('caster-spotlight');
   const card = casterCard || S._castSpotlightCard;
   if (card) card.classList.remove('caster-spotlight');
+  // 또한 target 정보로 현재 DOM 의 매칭 카드도 클린업 (재렌더 사본까지 처리)
+  if (S._castSpotlightTarget) {
+    const t = S._castSpotlightTarget;
+    document.querySelectorAll(`.team-profile-block[data-player-idx="${t.playerIdx}"] [data-piece-idx="${t.pieceIdx}"].caster-spotlight`)
+      .forEach(el => el.classList.remove('caster-spotlight'));
+  }
   S._castSpotlightCard = null;
+  S._castSpotlightTarget = null;
+}
+// renderTeamProfiles 직후 호출 — spotlight 가 진행 중이면 매칭 카드에 다시 클래스 부여.
+function reapplyCasterSpotlight() {
+  const t = S._castSpotlightTarget;
+  if (!t) return;
+  const card = document.querySelector(`.team-profile-block[data-player-idx="${t.playerIdx}"] [data-piece-idx="${t.pieceIdx}"]`);
+  if (card) {
+    card.classList.add('caster-spotlight');
+    S._castSpotlightCard = card;
+  }
 }
 
 // 마법사 카드 위치 찾기 (instant gain 출발지)
@@ -4667,7 +4693,11 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         ? document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${_casterIdx}"]`)
         : document.querySelectorAll('#my-pieces-info .my-piece-card')[_casterIdx])
     : null;
-  startSkillCastDim(casterCard);
+  // targetInfo: 팀모드에서 재렌더 후 spotlight 재적용을 위해 caster 식별자 저장
+  const _targetInfo = (S.isTeamMode && _casterIdx !== null && S.playerIdx != null)
+    ? { playerIdx: S.playerIdx, pieceIdx: _casterIdx }
+    : null;
+  startSkillCastDim(casterCard, _targetInfo);
   // SP 마법구 이동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
