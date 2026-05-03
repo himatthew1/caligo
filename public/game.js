@@ -10519,6 +10519,78 @@ setInterval(() => {
   } catch (e) {}
 }, 1000);
 
+// ── #11 모바일/태블릿 길게 누르기 → 호버 툴팁 표시 ──
+// 마우스가 없는 디바이스에서 :hover 가 동작 안 함. 길게 누르기(500ms)로 .piece-tooltip 을 표시.
+//   다른 곳을 탭하면 자동 해제. 한 번에 하나만 표시.
+(function setupLongPressTooltips() {
+  let pressTimer = null;
+  let pressTarget = null;
+  let activePinnedEl = null;
+  const LONG_PRESS_MS = 500;
+
+  function findTooltipHost(el) {
+    // 가장 가까운 piece-tooltip 자식을 가진 ancestor 를 찾음
+    let cur = el;
+    while (cur && cur !== document.body) {
+      if (cur.querySelector && cur.querySelector(':scope > .piece-tooltip')) return cur;
+      cur = cur.parentElement;
+    }
+    return null;
+  }
+
+  function pinTooltip(el) {
+    if (activePinnedEl && activePinnedEl !== el) {
+      activePinnedEl.classList.remove('tooltip-pinned');
+    }
+    activePinnedEl = el;
+    el.classList.add('tooltip-pinned');
+  }
+  function unpinTooltip() {
+    if (activePinnedEl) {
+      activePinnedEl.classList.remove('tooltip-pinned');
+      activePinnedEl = null;
+    }
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    if (pressTimer) clearTimeout(pressTimer);
+    const host = findTooltipHost(e.target);
+    pressTarget = host;
+    if (!host) {
+      // 빈 곳 탭 → 기존 툴팁 해제
+      unpinTooltip();
+      return;
+    }
+    pressTimer = setTimeout(() => {
+      pressTimer = null;
+      // 길게 누름 — 같은 카드면 토글, 다른 카드면 새로 pin
+      if (activePinnedEl === host) {
+        unpinTooltip();
+      } else {
+        pinTooltip(host);
+      }
+    }, LONG_PRESS_MS);
+  }, { passive: true });
+
+  document.addEventListener('touchmove', () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  }, { passive: true });
+
+  // pinned 상태에서 click 으로 다른 곳 누르면 해제
+  document.addEventListener('click', (e) => {
+    if (!activePinnedEl) return;
+    if (!activePinnedEl.contains(e.target)) unpinTooltip();
+  });
+})();
+
 function showError(id, msg) {
   const el = document.getElementById(id);
   if (el) { el.textContent = msg; setTimeout(() => { if (el) el.textContent = ''; }, 3000); }

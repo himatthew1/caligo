@@ -3743,6 +3743,9 @@ body.team-mode .placement-opp-panel {
 .my-piece-card:hover .piece-tooltip,
 .opp-piece-card:hover .piece-tooltip,
 .placement-opp-card:hover .piece-tooltip { display: block; }
+/* 모바일/태블릿 — 길게 누르기로 표시되는 tooltip-pinned 클래스 (#11) */
+.tooltip-pinned > .piece-tooltip,
+.tooltip-pinned .piece-tooltip { display: block !important; }
 
 .tooltip-title { font-weight: 700; font-size: 0.85rem; color: var(--accent); margin-bottom: 6px; }
 .tooltip-section { margin-bottom: 8px; }
