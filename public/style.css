@@ -1901,9 +1901,11 @@ body {
   opacity: 0.78;
   filter: saturate(0.9);
 }
-/* 피격이 발생한 순간만 해당 블록을 풀 밝기로 — profile-hit 가 자식에 붙어있으면 부모도 밝아짐 */
+/* 피격이 발생한 순간만 해당 블록을 풀 밝기로.
+   :has() 미지원 브라우저 안전장치를 위해 JS 가 .block-bright 클래스도 함께 토글. */
 .team-profile-block:has(.profile-hit),
-.team-profile-block:has(.heal-flash) {
+.team-profile-block:has(.heal-flash),
+.team-profile-block.block-bright {
   opacity: 1;
   filter: none;
 }

@@ -2108,12 +2108,7 @@ socket.on('team_game_update', (state) => {
         const isOwnTeam = player?.teamId === S.teamId;
         const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
         const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
-        if (card) {
-          card.classList.remove('profile-hit');
-          void card.offsetWidth;
-          card.classList.add('profile-hit');
-          setTimeout(() => card.classList.remove('profile-hit'), 1800);
-        }
+        applyHitFlashWithBrighten(card);
       }
       // 힐 효과 제거 — skill_result / team_skill_notice 가 T+1500ms 에 flashHealPieces 호출
       // (team_game_update 가 즉시 발동하면 중복 + SP 마법구 도중에 노출되므로 차단)
@@ -3936,6 +3931,33 @@ function reapplyCasterSpotlight() {
     card.classList.add('caster-spotlight');
     S._castSpotlightCard = card;
   }
+}
+
+// #18 헬퍼: profile-hit/heal-flash 를 카드에 부여할 때, 부모 team-profile-block 도 잠시 밝게.
+// :has() 미지원 브라우저 안전장치 + 명시적 토글로 dim/brighten 추적이 명확.
+function applyHitFlashWithBrighten(card, durationMs) {
+  if (!card) return;
+  card.classList.remove('profile-hit');
+  void card.offsetWidth;
+  card.classList.add('profile-hit');
+  const block = card.closest('.team-profile-block');
+  if (block) block.classList.add('block-bright');
+  setTimeout(() => {
+    card.classList.remove('profile-hit');
+    if (block) block.classList.remove('block-bright');
+  }, durationMs || 1800);
+}
+function applyHealFlashWithBrighten(card, durationMs) {
+  if (!card) return;
+  card.classList.remove('heal-flash');
+  void card.offsetWidth;
+  card.classList.add('heal-flash');
+  const block = card.closest('.team-profile-block');
+  if (block) block.classList.add('block-bright');
+  setTimeout(() => {
+    card.classList.remove('heal-flash');
+    if (block) block.classList.remove('block-bright');
+  }, durationMs || 2000);
 }
 
 // 마법사 카드 위치 찾기 (instant gain 출발지)
@@ -11235,12 +11257,8 @@ function applyProfileHitAnim(selector, indices) {
   requestAnimationFrame(() => {
     const cards = document.querySelectorAll(selector);
     for (const idx of indices) {
-      if (cards[idx]) {
-        cards[idx].classList.remove('profile-hit');
-        void cards[idx].offsetWidth; // reflow to restart animation
-        cards[idx].classList.add('profile-hit');
-        setTimeout(() => cards[idx].classList.remove('profile-hit'), 1800);
-      }
+      // 팀모드에서도 호출될 수 있으니 helper 사용 — 부모 블록까지 밝아짐
+      if (cards[idx]) applyHitFlashWithBrighten(cards[idx]);
     }
   });
 }
@@ -11405,12 +11423,7 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
         requestAnimationFrame(() => {
           for (const i of hitIdxs) {
             const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
-            if (card) {
-              card.classList.remove('profile-hit');
-              void card.offsetWidth;
-              card.classList.add('profile-hit');
-              setTimeout(() => card.classList.remove('profile-hit'), 1800);
-            }
+            applyHitFlashWithBrighten(card);
           }
         });
       }
