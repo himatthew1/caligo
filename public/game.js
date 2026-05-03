@@ -9069,8 +9069,8 @@ function buildDamageOverlay(key, hp, maxHp) {
   } else if (curseDmg > 0) {
     stamp += `<div class="dmg-stamp curse">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
   } else if (healAmt > 0) {
-    // 회복 도장 — 녹색 (피해 도장과 같은 슬롯, 피해 발생 시 빨강이 우선)
-    stamp += `<div class="dmg-stamp heal">${fmtHeal(healAmt)}<span class="heal-tag">회복</span></div>`;
+    // 회복 도장 — 녹색. 메인 텍스트가 이미 "X 회복" 이므로 별도 태그 없음 (사용자 요청).
+    stamp += `<div class="dmg-stamp heal">${fmtHeal(healAmt)}</div>`;
   }
   // 충성 도장 — 항상 별도 위치 (위 분류와 공존 가능)
   if (loyaltyDmg > 0) {

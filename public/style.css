@@ -3625,14 +3625,7 @@ body.team-mode .placement-opp-panel {
   60%  { opacity: 1; transform: translate(-50%, -50%) rotate(-12deg) scale(0.9); }
   100% { opacity: 1; transform: translate(-50%, -50%) rotate(-18deg) scale(1); }
 }
-.dmg-stamp.heal .heal-tag {
-  display: block;
-  font-size: 0.55rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  margin-top: 1px;
-  opacity: 0.9;
-}
+/* .heal-tag 제거 — 메인 텍스트가 이미 "X 회복" 이라 중복 표시 안 함 (사용자 요청) */
 .dmg-stamp.loyalty .loyalty-tag {
   display: block;
   font-size: 0.55rem;

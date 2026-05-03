@@ -678,8 +678,7 @@
       if (kind === 'heal') {
         cls += ' heal';
         const htxt = Number.isInteger(dmg) ? `${dmg} 회복` : `${dmg.toFixed(1)} 회복`;
-        extra = '<span class="heal-tag">회복</span>';
-        return `<div class="${cls}">${htxt}${extra}</div>`;
+        return `<div class="${cls}">${htxt}</div>`;
       }
       return `<div class="${cls}">${txt}${extra}</div>`;
     }
@@ -826,7 +825,7 @@
         if (bg) { bg.style.position = 'relative'; bg.appendChild(overlay); }
         const stamp = document.createElement('div');
         stamp.className = 'dmg-stamp heal';
-        stamp.innerHTML = '2 회복<span class="heal-tag">회복</span>';
+        stamp.textContent = '2 회복';
         card.appendChild(stamp);
       },
       'day2-curse-tag': () => refreshStampStage('day2-curse-tag', 0.5, 'curse'),
