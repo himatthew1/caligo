@@ -4515,14 +4515,17 @@ socket.on('board_shrink_warning', ({ turnsRemaining }) => {
 });
 
 // ── 보드 축소 실행 ──
+//   사용자 #24: 애니메이션 페이즈 소속. runFullscreenLocked 로 큐잉되어 다른 phase 애니와
+//   0.5s 텀으로 순차 재생. SP 지급은 항상 이 다음.
 socket.on('board_shrink', ({ bounds, eliminated }) => {
+  runFullscreenLocked(() => _executeBoardShrinkAnim(bounds, eliminated), 3000);
+});
+
+function _executeBoardShrinkAnim(bounds, eliminated) {
   playSfx('shrink');
   try { playBoardQuake(); } catch (e) {}
-  // 외곽 파괴를 먼저 시각화한 뒤 흔들림 — 파괴된 셀이 보이는 채로 흔들리도록
   S.boardBounds = bounds;
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
-  // 인트로 풀스크린 오버레이는 카운트다운=10 시점에 이미 재생됨 — 여기서는 재생 X.
-  // 기존 보드 파괴 애니메이션(quake + shake-class + 외곽 셀 destroyed 시각화)이 그대로 동작.
   if (!S.isSpectator) {
     showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
     addLog(`🔥 보드 외곽 파괴`, 'shrink');
@@ -4589,7 +4592,7 @@ socket.on('board_shrink', ({ bounds, eliminated }) => {
     boardEl.classList.add('board-shake');
     setTimeout(() => boardEl.classList.remove('board-shake'), 1000);
   }
-});
+}
 
 // 힐 애니메이션: 지정된 인덱스의 piece 카드 2초간 초록 glow
 function flashHealPieces(indexes, opts) {
@@ -10479,6 +10482,9 @@ S._fullscreenBusy = false;
 S._fullscreenQueue = [];          // [{fn, durationMs}]
 S._eventDuringFullscreen = [];    // [() => effect()]
 
+// 애니메이션 페이즈 #24 — 연속 풀스크린 사이에 0.5s 텀.
+//   여러 turn-event (보드 파괴 경고/실행, SP 지급) 가 동시 발사되면 큐로 순차 재생.
+const ANIM_PHASE_GAP_MS = 500;
 function runFullscreenLocked(playFn, durationMs) {
   if (S._fullscreenBusy) {
     S._fullscreenQueue.push({ fn: playFn, durationMs });
@@ -10491,7 +10497,8 @@ function runFullscreenLocked(playFn, durationMs) {
     drainFullscreenBuffer();
     if (S._fullscreenQueue.length > 0) {
       const next = S._fullscreenQueue.shift();
-      runFullscreenLocked(next.fn, next.durationMs);
+      // 0.5s 텀 후 다음 애니 시작
+      setTimeout(() => runFullscreenLocked(next.fn, next.durationMs), ANIM_PHASE_GAP_MS);
     }
   }, durationMs);
 }

@@ -344,6 +344,10 @@ function createRoom(id, opts = {}) {
     instantSp: [0, 0],
     // Board bounds — 팀전은 7×7로 시작
     boardBounds: mode === 'team' ? { min: 0, max: 6 } : { min: 0, max: 4 },
+    // 보드 축소 레벨 — LV4=7×7, LV3=5×5, LV2=3×3, LV1=1×1.
+    //   1v1 init=LV3 (full 5×5), 팀전 init=LV4 (full 7×7).
+    //   매 트리거(turn-based, 1대1교전)마다 -1 까지 감소.
+    boardShrinkLevel: mode === 'team' ? 4 : 3,
     boardShrunk: false,
     boardShrinkStage: 0,   // 0=초기, 1=첫 축소, 2=최종 축소
     stalemateShrinkTriggered: false,
@@ -3293,9 +3297,66 @@ function processTurnStart(room) {
   }
   room._preCurseHpsSnap = preCurseHpsSnap;
 
-  // ── SP 지급 검사 (10턴마다) ──
-  // 사용자 요청 (#22, #25): SP 지급 애니메이션이 재생되는 동안 모든 진행은 멈춤.
-  // 따라서 저주 틱·보드 축소 등은 SP 지급 직후가 아니라 애니메이션이 끝난 뒤에 처리.
+  // ── 애니메이션 페이즈 시작 (#24) ──
+  //   여러 turn-event 가 한 턴에 발생할 때, 0.5s 텀으로 순차 재생.
+  //   전체 페이즈 동안 게임 일시정지 (AI/curse_tick 모두). 페이즈 종료 + 1.5s 버퍼 후 정상화.
+  //   순서: 보드 파괴 경고 → 보드 파괴 → 1대1 대치 → ... → SP 지급 (항상 마지막)
+  //   각 애니메이션의 server-side 추정 duration:
+  const ANIM_GAP = 500;
+  const DUR_SHRINK_WARN = 3000;
+  const DUR_SHRINK_INTRO = 3000;
+  const DUR_BOARD_SHRINK = 3000;
+  const DUR_STALEMATE = 3000;
+  const DUR_SP_GRANT = 5400;
+  let animTotalMs = 0;
+  const queueAnim = (durMs) => {
+    if (animTotalMs > 0) animTotalMs += ANIM_GAP;
+    animTotalMs += durMs;
+  };
+
+  // 1. 1대1 대치 감지 (즉시 trigger, 별도 애니메이션 없음 — 기존 5턴 후 축소만 예약)
+  detectStalemateShrink(room);
+
+  // ── 보드 축소 스케줄 (애니메이션 페이즈) ──
+  const schedule = getBoardShrinkSchedule(room);
+  for (const ev of schedule) {
+    if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
+      const remaining = ev.shrinkTurn - room.turnNumber;
+      if (remaining > 0) {
+        emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining, stage: ev.stage });
+        emitToSpectators(room, 'spectator_log', { msg: `외곽 파괴까지 ${remaining}턴`, type: 'event' });
+        queueAnim(DUR_SHRINK_WARN);
+      }
+    }
+    if (room.turnNumber >= ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
+      room.boardShrinkStage = ev.stage;
+      decreaseBoardShrinkLevel(room);
+      if (room.boardShrinkLevel === 1) room.boardShrunk = true;
+      const eliminated = [];
+      for (let pi = 0; pi < room.players.length; pi++) {
+        const pl = room.players[pi];
+        for (const p of pl.pieces) {
+          if (p.alive && !inBounds(p.col, p.row, room.boardBounds)) {
+            p.alive = false;
+            p.hp = 0;
+            eliminated.push({ type: p.type, name: p.name, icon: p.icon, col: p.col, row: p.row, owner: pi });
+          }
+        }
+      }
+      for (let i = 0; i < room.players.length; i++) {
+        if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
+        if (room.rats[i]) room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
+      }
+      emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated, stage: ev.stage });
+      emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽 파괴', type: 'event' });
+      queueAnim(DUR_BOARD_SHRINK);
+      // 축소로 인한 승부 체크는 페이즈 종료 후 처리되도록 큐잉
+      // (즉시 endGame 하면 애니메이션 도중 게임 종료 → 후속 SP 지급 등 끊김)
+      // 현재 위치에서는 일단 그대로 두고, 후속 코드의 win check 가 해결하게 함.
+    }
+  }
+
+  // ── SP 지급 (애니메이션 페이즈의 *마지막* — 사용자 요청 #24) ──
   let spGrantedThisTurn = false;
   if (room.turnNumber > 0 && room.turnNumber % 10 === 0 && room.turnNumber <= 40) {
     const poolTotal = room.sp[0] + room.sp[1];
@@ -3308,9 +3369,6 @@ function processTurnStart(room) {
         room.sp[1] = Math.max(0, room.sp[1] - excess);
       }
     }
-    // 사용자 요청: SP 보유량 숫자는 애니 시작 전에 미리 갱신되면 안 됨.
-    //   sp_update 가 turn_event sp_grant 보다 먼저 도착하면 클라가 즉시 NEW 표시 후 다시 OLD 로 reset 하면서 깜빡임 발생.
-    //   해결: turn_event sp_grant 페이로드에 finalSp/finalInstantSp 포함 → sp_update 생략 → 클라가 OLD 유지하다 흡수 시점에 NEW 로 전환.
     emitToBoth(room, 'turn_event', {
       type: 'sp_grant',
       msg: '새로운 SP가 지급되었습니다',
@@ -3318,13 +3376,20 @@ function processTurnStart(room) {
       instantSp: room.instantSp,
     });
     emitToSpectators(room, 'spectator_log', { msg: '새로운 SP가 지급되었습니다', type: 'event' });
+    queueAnim(DUR_SP_GRANT);
     spGrantedThisTurn = true;
-    // SP 지급 애니(1s 페이드인 + 2.4s 본체 + 1s 페이드아웃 = 4.4s) + 1.5s 버퍼 = 5.9s
-    // 이 윈도우 동안 서버는 AI 행동·저주 틱 등 모든 후속 처리 보류 (사용자 요청: 여유)
-    room._spGrantBlockedUntil = Date.now() + 6000;
   }
 
-  // 저주 틱·축소 처리는 SP 애니가 있으면 이후로 미룸
+  // 애니메이션 페이즈 종료 시각 기록 — AI/저주틱 등 모든 후속 처리는 이 시각 + 1.5s 까지 대기
+  if (animTotalMs > 0) {
+    room._animPhaseEndsAt = Date.now() + animTotalMs + 1500;
+  } else {
+    room._animPhaseEndsAt = 0;
+  }
+  // 레거시 호환
+  room._spGrantBlockedUntil = room._animPhaseEndsAt || 0;
+
+  // 저주 틱·축소 처리는 애니메이션 페이즈 이후로 미룸
   const continueTurnStart = () => {
     // Process curse damage at the start of this player's turn
     for (const p of player.pieces) {
@@ -3351,83 +3416,41 @@ function processTurnStart(room) {
       }
     }
   };
-  if (spGrantedThisTurn) {
-    // 6초 후 저주 틱 처리 (SP 애니 4.4s + 1.5s 버퍼 후)
+  // continueTurnStart — 저주 틱 + 후속 처리. 애니메이션 페이즈가 있으면 그 종료 + 1.5s 후 실행.
+  const _phaseDelay = animTotalMs > 0 ? (animTotalMs + 1500) : 0;
+  if (_phaseDelay > 0) {
     setTimeout(() => {
       if (!rooms[room.id] || room.phase !== 'game') return;
       continueTurnStart();
-    }, 6000);
+    }, _phaseDelay);
   } else {
     continueTurnStart();
   }
-  room._spGrantedThisTurn = spGrantedThisTurn;  // endTurn 측 AI 트리거 지연용
+  room._spGrantedThisTurn = spGrantedThisTurn;  // endTurn 측 AI 트리거 지연용 (레거시)
 
-  // 1대1 대치 감지 — 양측 1유닛 alive면 5턴 후 축소 예약
-  detectStalemateShrink(room);
-
-  // ── 보드 축소 스케줄 ──
-  // 1v1: 40턴 경고 → 50턴 5x5→3x3 (또는 1대1 대치 시 +5턴 동적)
-  // 팀전: 20턴 경고 → 25턴 7x7→5x5 / 45턴 경고 → 50턴 5x5→3x3
-  const schedule = getBoardShrinkSchedule(room);
-  for (const ev of schedule) {
-    // 경고 (5턴 전부터)
-    if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
-      const remaining = ev.shrinkTurn - room.turnNumber;
-      if (remaining > 0) {
-        emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining, stage: ev.stage });
-        emitToSpectators(room, 'spectator_log', { msg: `외곽 파괴까지 ${remaining}턴`, type: 'event' });
-      }
+  // ── 보드 축소 후 승부 체크 ──
+  //   축소로 인해 누군가 탈락했으면 승부 결과 emit. 애니메이션 페이즈는 클라에서 이미 진행 중이라
+  //   server-side 승부 처리만 즉시 (game_over 이벤트는 client 가 받지만 내부적으로 전환되도 OK).
+  if (room.boardShrinkStage > 0 && (animTotalMs > 0)) {
+    if (room.mode === 'team') {
+      const aElim = isTeamEliminated(room, 0);
+      const bElim = isTeamEliminated(room, 1);
+      if (aElim && bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
+      if (aElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[1][0], 'shrink'); return; }
+      if (bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[0][0], 'shrink'); return; }
+    } else {
+      const p0Dead = checkWin(room, 0);
+      const p1Dead = checkWin(room, 1);
+      if (p0Dead && p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
+      if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
+      if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
     }
-    // 축소 실행
-    if (room.turnNumber >= ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
-      room.boardShrinkStage = ev.stage;
-      // 최종 축소 시 1v1 레거시 플래그도 설정 (기존 코드 호환)
-      if (ev.final) room.boardShrunk = true;
-      room.boardBounds = { ...ev.newBounds };
-      const eliminated = [];
-      for (let pi = 0; pi < room.players.length; pi++) {
-        const pl = room.players[pi];
-        for (const p of pl.pieces) {
-          if (p.alive && !inBounds(p.col, p.row, room.boardBounds)) {
-            p.alive = false;
-            p.hp = 0;
-            eliminated.push({ type: p.type, name: p.name, icon: p.icon, col: p.col, row: p.row, owner: pi });
-          }
-        }
-      }
-      // 영역 밖 오브젝트/쥐 제거
-      for (let i = 0; i < room.players.length; i++) {
-        if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
-        if (room.rats[i]) room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
-      }
-      emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated, stage: ev.stage });
-      emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽 파괴', type: 'event' });
-
-      // 축소로 인한 승부 체크
-      if (room.mode === 'team') {
-        const aElim = isTeamEliminated(room, 0);
-        const bElim = isTeamEliminated(room, 1);
-        if (aElim && bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
-        if (aElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[1][0], 'shrink'); return; }
-        if (bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[0][0], 'shrink'); return; }
-      } else {
-        const p0Dead = checkWin(room, 0);
-        const p1Dead = checkWin(room, 1);
-        if (p0Dead && p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
-        if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
-        if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
-      }
-      // 마지막 축소(final) 후에도 양쪽이 살아있으면 — 남은 유닛들이 서로 공격 범위에 안 닿으면 무승부
-      // 사용자 요청 #24c: "게임을 끝낼 수 없어 무승부입니다"
-      if (ev.final && checkUnreachableDraw(room)) {
-        setKillInfo(room, 'unreachable', null, []);
-        if (room.mode === 'team') {
-          endTeamGame(room, 0, 'unreachable_draw');  // winnerTeamId 무시됨 (draw 처리)
-        } else {
-          endGame(room, -1, 'unreachable_draw');
-        }
-        return;
-      }
+    // LV1 + unreachable 무승부
+    if (room.boardShrinkLevel === 1 && checkUnreachableDraw(room)) {
+      setKillInfo(room, 'unreachable', null, []);
+      if (room.mode === 'team') endTeamGame(room, 0, 'unreachable_draw');
+      else endGame(room, -1, 'unreachable_draw');
+      return;
     }
   }
 }
@@ -3461,38 +3484,62 @@ function checkUnreachableDraw(room) {
 // 보드 축소 스케줄 (모드별)
 // 사용자 요청 (#24): 1v1은 70턴에 마지막 외곽 파괴, 10턴 전부터 카운트다운 경고
 //                   팀전은 80턴에 마지막 외곽 파괴 (60턴 첫 축소 후 더 좁혀짐)
-function getBoardShrinkSchedule(room) {
-  if (room.mode === 'team') {
-    return [
-      { stage: 1, warnTurn: 20, shrinkTurn: 30, newBounds: { min: 1, max: 5 }, final: false },  // 7x7 → 5x5
-      { stage: 2, warnTurn: 50, shrinkTurn: 60, newBounds: { min: 2, max: 4 }, final: false },  // 5x5 → 3x3
-      { stage: 3, warnTurn: 70, shrinkTurn: 80, newBounds: { min: 3, max: 3 }, final: true },   // 3x3 → 1x1 (마지막)
-    ];
-  }
-  // 1v1: stalemate 트리거가 우선
-  if (room.stalemateShrinkTriggered && room.stalemateShrinkTurn != null) {
-    return [{
-      stage: 1,
-      warnTurn: Math.max(0, room.stalemateShrinkTurn - 5),
-      shrinkTurn: room.stalemateShrinkTurn,
-      newBounds: { min: 1, max: 3 },
-      final: true,
-    }];
-  }
-  // 1v1 기본: 40턴 경고 → 50턴 첫 축소 (3x3) → 60턴 경고 → 70턴 마지막 외곽 파괴 (1x1)
-  return [
-    { stage: 1, warnTurn: 40, shrinkTurn: 50, newBounds: { min: 1, max: 3 }, final: false },
-    { stage: 2, warnTurn: 60, shrinkTurn: 70, newBounds: { min: 2, max: 2 }, final: true },
-  ];
+// 레벨 → 보드 칸 수 (LV4=7, LV3=5, LV2=3, LV1=1)
+function _shrinkLevelToSize(level) {
+  return ({ 4: 7, 3: 5, 2: 3, 1: 1 })[level] || 1;
+}
+// 레벨 → bounds (모드별 base 사이즈에 중앙 정렬)
+function _levelToBounds(level, baseSize) {
+  const targetSize = _shrinkLevelToSize(level);
+  const offset = Math.floor((baseSize - targetSize) / 2);
+  return { min: offset, max: baseSize - 1 - offset };
+}
+// 한 단계 축소 — LV1 이면 노옵
+function decreaseBoardShrinkLevel(room) {
+  if (room.boardShrinkLevel <= 1) return false;
+  room.boardShrinkLevel--;
+  const baseSize = room.mode === 'team' ? 7 : 5;
+  room.boardBounds = _levelToBounds(room.boardShrinkLevel, baseSize);
+  return true;
 }
 
-// 1대1 대치 감지 — 양 플레이어 각 1유닛 alive 시 5턴 후 보드 축소 예약
-// 이미 축소 진행 중이거나 기존 경고가 시작됐다면 조용히 스킵
+// schedule — 트리거 시점 (warn/shrink) 의 array. 매 트리거마다 -1 LV.
+//   1대1교전(stalemate) 은 기존 schedule 과 *cumulative* — replace 하지 않고 추가 트리거.
+function getBoardShrinkSchedule(room) {
+  const events = [];
+  if (room.mode === 'team') {
+    events.push({ warnTurn: 20, shrinkTurn: 30, key: 'team-30' });
+    events.push({ warnTurn: 50, shrinkTurn: 60, key: 'team-60' });
+    events.push({ warnTurn: 70, shrinkTurn: 80, key: 'team-80' });
+  } else {
+    events.push({ warnTurn: 40, shrinkTurn: 50, key: '1v1-50' });
+    events.push({ warnTurn: 60, shrinkTurn: 70, key: '1v1-70' });
+  }
+  if (room.stalemateShrinkTurn != null) {
+    events.push({
+      warnTurn: Math.max(0, room.stalemateShrinkTurn - 5),
+      shrinkTurn: room.stalemateShrinkTurn,
+      key: `stalemate-${room.stalemateShrinkTurn}`,
+      stalemate: true,
+    });
+  }
+  events.sort((a, b) => a.shrinkTurn - b.shrinkTurn);
+  // boardShrinkStage 호환을 위해 stage 필드 부여 (1부터 누적)
+  let stage = 1;
+  for (const ev of events) {
+    ev.stage = stage++;
+    ev.final = (stage > events.length);
+  }
+  return events;
+}
+
+// 1대1 대치 감지 — 양 플레이어 각 1유닛 alive 시 5턴 후 보드 축소 예약.
+// 레벨 시스템 (#25): 이미 LV1 이면 의미 없으므로 스킵.
+// 한 번 트리거 되면 cumulative — 기존 turn 50/70 schedule 과 함께 작동.
 function detectStalemateShrink(room) {
   if (!room || room.mode === 'team') return;
-  if (room.boardShrinkStage > 0) return;       // 이미 축소 진행
   if (room.stalemateShrinkTriggered) return;   // 이미 트리거됨
-  if (room.turnNumber >= 40) return;           // 기본 경고가 이미 시작됨 → 조용히 스킵
+  if (room.boardShrinkLevel <= 1) return;      // 더 이상 축소 불가 (LV1)
   const a = room.players[0]?.pieces.filter(p => p.alive).length || 0;
   const b = room.players[1]?.pieces.filter(p => p.alive).length || 0;
   if (a !== 1 || b !== 1) return;
@@ -3575,9 +3622,10 @@ function endTurn(room) {
     broadcastTeamGameState(room, turnData);
     emitToSpectators(room, 'spectator_log', { msg: `${room.turnNumber}턴 : ${cur.name}의 차례`, type: 'system', playerIdx: curIdx });
     startTimer(room, 'game', () => turnTimeout(room));
-    // 현재 차례가 AI라면 자동 행동 트리거 (SP 지급 턴이면 4s 후 시작)
+    // 현재 차례가 AI라면 자동 행동 트리거. 애니메이션 페이즈 진행 중이면 그 종료 + 1.5s 까지 대기.
     if (cur && cur.socketId === 'AI') {
-      const aiDelay = room._spGrantedThisTurn ? 6000 : 2500;
+      const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
+      const aiDelay = Math.max(2500, phaseRemain);
       setTimeout(() => {
         if (room.phase === 'game' && room.currentPlayerIdx === curIdx) {
           aiTeamTakeTurn(room, curIdx);
@@ -3596,8 +3644,9 @@ function endTurn(room) {
     });
     // AI 턴에도 타이머 리셋 (플레이어에게 시각적 표시)
     startTimer(room, 'game', () => turnTimeout(room));
-    // SP 지급 턴이면 애니메이션(3s) + 1s = 4s 대기 후 AI 행동
-    const aiDelay = room._spGrantedThisTurn ? 6000 : 3000;
+    // 애니메이션 페이즈 진행 중이면 그 종료 + 1.5s 까지 대기, 그 외 3s.
+    const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
+    const aiDelay = Math.max(3000, phaseRemain);
     setTimeout(() => {
       if (room.phase === 'game') aiTakeTurn(room);
     }, aiDelay);
