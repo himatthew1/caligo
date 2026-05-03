@@ -2961,6 +2961,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   const hitResults = [];
   // #1: 호위무사 hit 사이드채널 초기화
   room._pendingBodyguardHits = [];
+  // 사용자 요청: 표식이 한 번에 여러 대상에 새겨지면 단일 로그/토스트로 통합.
+  //   per-target emit 대신 이름들을 수집한 뒤 attack 종료 시 한 번만 발송.
+  const _markedTargetNames = [];
 
   // 팀전: 적 = 적팀 멤버만 / 1v1: 적 = 상대
   // (이전 버그: !isTeammate(self,self)는 true이므로 공격자 본인이 enemy에 포함되어 friendly-fire 발생)
@@ -3003,22 +3006,20 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             attackerIcon: atkPiece.icon,
           });
 
-          // Post-damage: torturer passive mark
+          // Post-damage: torturer passive mark — 다중 대상 시 단일 통합 알림으로 처리 (사용자 요청).
+          //   여기서는 이름만 수집하고 emit 은 processAttack 종료 시 한 번만.
           if (atkPiece.type === 'torturer' && !destroyed) {
-            // 호위 무사 패시브: 왕실 아군 상태이상도 대신 받음
             let markTarget = defPiece;
+            // 호위무사 패시브: 왕실 아군 상태이상도 대신 받음
             if (defPiece.tag === 'royal' && defPiece.type !== 'bodyguard') {
               const bg = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
               if (bg) markTarget = bg;
             }
-            // 그림자 상태 면역: 표식 적용 안됨
-            if (markTarget.statusEffects.some(e => e.type === 'shadow')) {
-              // skip mark
-            } else if (!markTarget.statusEffects.some(e => e.type === 'mark')) {
+            // 그림자 상태 면역
+            if (!markTarget.statusEffects.some(e => e.type === 'shadow') &&
+                !markTarget.statusEffects.some(e => e.type === 'mark')) {
               markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
-              const atkName = room.players[attackerIdx].name;
-              emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${markTarget.name}에게 표식 새김` });
-              emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${markTarget.name}에게 표식 새김`, type: 'passive', playerIdx: attackerIdx });
+              _markedTargetNames.push(markTarget.name);
             }
           }
 
@@ -3117,6 +3118,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   }
   // sp_update suppress 플래그 정리
   room._suppressSpUpdate = false;
+
+  // 표식 통합 알림 — 이번 공격으로 새겨진 표식 대상 모두 한 번에 출력 (사용자 요청)
+  if (_markedTargetNames.length > 0) {
+    const namesStr = _markedTargetNames.join(', ');
+    emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${namesStr}에게 표식 새김` });
+    emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${namesStr}에게 표식 새김`, type: 'passive', playerIdx: attackerIdx });
+  }
 
   return hitResults;
 }
@@ -3300,8 +3308,15 @@ function processTurnStart(room) {
         room.sp[1] = Math.max(0, room.sp[1] - excess);
       }
     }
-    emitSPUpdate(room);
-    emitToBoth(room, 'turn_event', { type: 'sp_grant', msg: '새로운 SP가 지급되었습니다' });
+    // 사용자 요청: SP 보유량 숫자는 애니 시작 전에 미리 갱신되면 안 됨.
+    //   sp_update 가 turn_event sp_grant 보다 먼저 도착하면 클라가 즉시 NEW 표시 후 다시 OLD 로 reset 하면서 깜빡임 발생.
+    //   해결: turn_event sp_grant 페이로드에 finalSp/finalInstantSp 포함 → sp_update 생략 → 클라가 OLD 유지하다 흡수 시점에 NEW 로 전환.
+    emitToBoth(room, 'turn_event', {
+      type: 'sp_grant',
+      msg: '새로운 SP가 지급되었습니다',
+      sp: room.sp,
+      instantSp: room.instantSp,
+    });
     emitToSpectators(room, 'spectator_log', { msg: '새로운 SP가 지급되었습니다', type: 'event' });
     spGrantedThisTurn = true;
     // SP 지급 애니(1s 페이드인 + 2.4s 본체 + 1s 페이드아웃 = 4.4s) + 1.5s 버퍼 = 5.9s

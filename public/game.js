@@ -3612,7 +3612,8 @@ socket.on('no_action_notice', ({ playerIdx, name, msg }) => {
   showSkillToast(msg, false, playerIdx, 'event');
 });
 
-socket.on('turn_event', ({ type, msg }) => {
+socket.on('turn_event', (payload) => {
+  const { type, msg, sp: finalSp, instantSp: finalInstantSp } = payload || {};
   if (S.isSpectator) return; // 관전자는 spectator_log 경로로 수신
   // 1대1 대치는 풀스크린 알림 — 페이드 인 1s + 유지 1s + 페이드 아웃 1s
   if (type === 'stalemate_shrink') {
@@ -3627,7 +3628,10 @@ socket.on('turn_event', ({ type, msg }) => {
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {
       try { window.scrollTo(0, 0); } catch (e2) {}
     }
-    runFullscreenLocked(() => playSpGrantAnimation(), 6000);
+    // 사용자 요청: SP 숫자는 애니 시작 시점이 아닌, 구슬이 숫자에 합쳐지는 순간에 변경되어야 함.
+    // 서버가 페이로드에 final sp/instantSp 를 함께 보내므로 OLD 상태(=현재 S.sp)를 유지하다가
+    // 애니 끝나는 흡수 시점에 NEW 로 갱신 (S.sp 동기화는 playSpGrantAnimation 내부에서 수행).
+    runFullscreenLocked(() => playSpGrantAnimation(finalSp, finalInstantSp), 6000);
     return;
   }
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
@@ -3963,7 +3967,11 @@ function spawnSpOrbVanish(from, kind) {
 
 // SP 지급 풀스크린 애니메이션 — 통합 스파이럴 모션 (수영하듯이 매끄럽게)
 // 한 RAF 안에서 angle 과 radius 가 함께 변화 → 페이즈 사이 멈칫 없음, 빠른 템포, 2회 회전
-function playSpGrantAnimation() {
+//
+// finalSp / finalInstantSp (선택): 서버가 turn_event sp_grant 로 보낸 NEW 값.
+//   주어지면 애니메이션 동안에는 OLD(=현재 S.sp) 유지, 구슬 흡수 시점에 NEW 로 전환.
+//   미제공(레거시 호출)일 경우 textContent 에서 NEW 를 추정해 fallback.
+function playSpGrantAnimation(finalSp, finalInstantSp) {
   const overlay = document.getElementById('sp-grant-overlay');
   const orbL = document.getElementById('sp-grant-orb-left');
   const orbR = document.getElementById('sp-grant-orb-right');
@@ -3993,14 +4001,18 @@ function playSpGrantAnimation() {
   const myNumEl = document.getElementById('sp-my-num');
   const oppNumEl = document.getElementById('sp-opp-num');
 
-  // 사용자 요청: 숫자 증가는 구슬이 숫자에 합쳐지는 순간에 발생.
-  // sp_update 가 이미 도착해 displayed=NEW 인 상태이므로, 애니 시작 시 임시로 OLD(=NEW-1)로 표시.
-  // 분리 비행 끝(blendDispatch=1) 시점에 NEW 로 되돌리며 흰 팝(sp-num-tick-up).
-  const finalMyNum = parseInt((myNumEl && myNumEl.textContent) || '0', 10) || 0;
-  const finalOppNum = parseInt((oppNumEl && oppNumEl.textContent) || '0', 10) || 0;
+  // 숫자 증가는 구슬이 숫자에 합쳐지는 순간에 발생 — finalSp 가 주어지면 그 값을 NEW 로,
+  //   주어지지 않은 경우엔 textContent 에서 추정 (레거시 호환).
+  const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const oppSlot = 1 - mySlot;
+  const oldMyNum = (S.sp && S.sp[mySlot] != null) ? S.sp[mySlot] : (parseInt((myNumEl && myNumEl.textContent) || '0', 10) || 0);
+  const oldOppNum = (S.sp && S.sp[oppSlot] != null) ? S.sp[oppSlot] : (parseInt((oppNumEl && oppNumEl.textContent) || '0', 10) || 0);
+  const finalMyNum = (Array.isArray(finalSp) && finalSp[mySlot] != null) ? finalSp[mySlot] : (oldMyNum + 1);
+  const finalOppNum = (Array.isArray(finalSp) && finalSp[oppSlot] != null) ? finalSp[oppSlot] : (oldOppNum + 1);
   let _myAbsorbed = false, _oppAbsorbed = false;
-  if (myNumEl) myNumEl.textContent = String(Math.max(0, finalMyNum - 1));
-  if (oppNumEl) oppNumEl.textContent = String(Math.max(0, finalOppNum - 1));
+  // 애니 동안 OLD 유지 (sp_update 가 더 이상 안 옴 → S.sp 도 OLD)
+  if (myNumEl) myNumEl.textContent = String(oldMyNum);
+  if (oppNumEl) oppNumEl.textContent = String(oldOppNum);
 
   setOrbPos(orbL, cx - W * 0.6, cy);  // 멀리 좌측
   setOrbPos(orbR, cx + W * 0.6, cy);  // 멀리 우측
@@ -4095,6 +4107,11 @@ function playSpGrantAnimation() {
           myNumEl.classList.remove('sp-num-tick-up');
           void myNumEl.offsetWidth;
           myNumEl.classList.add('sp-num-tick-up');
+          // S.sp 도 흡수 시점에 NEW 로 동기화 (sp_update 가 안 오므로 여기서 갱신)
+          if (Array.isArray(finalSp)) {
+            if (!Array.isArray(S.sp)) S.sp = [0, 0];
+            S.sp[mySlot] = finalMyNum;
+          }
         }
         if (!_oppAbsorbed && oppNumEl) {
           _oppAbsorbed = true;
@@ -4102,6 +4119,14 @@ function playSpGrantAnimation() {
           oppNumEl.classList.remove('sp-num-tick-up');
           void oppNumEl.offsetWidth;
           oppNumEl.classList.add('sp-num-tick-up');
+          if (Array.isArray(finalSp)) {
+            if (!Array.isArray(S.sp)) S.sp = [0, 0];
+            S.sp[oppSlot] = finalOppNum;
+          }
+          // instantSp 도 NEW 로 동기화
+          if (Array.isArray(finalInstantSp)) {
+            S.instantSp = [...finalInstantSp];
+          }
         }
       }
     }
@@ -4116,7 +4141,7 @@ function playSpGrantAnimation() {
       if (trailIv) { clearInterval(trailIv); trailIv = null; }
       orbL.style.opacity = '0';
       orbR.style.opacity = '0';
-      // 흡수가 미처 안 일어났을 경우 안전장치 — 최종 숫자 동기화
+      // 흡수가 미처 안 일어났을 경우 안전장치 — 최종 숫자 동기화 + S.sp/S.instantSp 갱신
       if (myNumEl && !_myAbsorbed) {
         myNumEl.textContent = String(finalMyNum);
         myNumEl.classList.remove('sp-num-tick-up');
@@ -4129,6 +4154,9 @@ function playSpGrantAnimation() {
         void oppNumEl.offsetWidth;
         oppNumEl.classList.add('sp-num-tick-up');
       }
+      if (Array.isArray(finalSp)) S.sp = [...finalSp];
+      if (Array.isArray(finalInstantSp)) S.instantSp = [...finalInstantSp];
+      try { if (typeof updateSPBar === 'function') updateSPBar(); } catch (e) {}
       // 1초 페이드 아웃
       overlay.classList.add('fading-out');
       setTimeout(() => {
