@@ -2092,6 +2092,11 @@ socket.on('team_game_update', (state) => {
   if (changes && changes.length > 0) {
     const damaged = changes.filter(c => !c.healed);
     const healed = changes.filter(c => c.healed);
+    // 회복량 추적 — 녹색 도장 + HP 바 녹색 오버레이용 (skill_result 외 경로의 회복도 캡처)
+    for (const ch of healed) {
+      const delta = (ch.newHp || 0) - (ch.oldHp || 0);
+      if (delta > 0) addHeal(`${ch.playerIdx}:${ch.pieceIdx}`, delta);
+    }
     requestAnimationFrame(() => {
       for (const ch of damaged) {
         // 직전 curse_tick 으로 처리된 piece는 빨간 일반 피격 애니 스킵 (보라 애니가 이미 발동)
@@ -4685,6 +4690,23 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       for (let i = 0; i < S.myPieces.length; i++) {
         if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
       }
+      // 회복 추적 — HP 가 늘어난 pieces 의 delta 를 healThisTurn 에 누적 (녹색 도장 + HP 바 녹색 오버레이)
+      const _myStampPrefix = S.isTeamMode ? `${S.playerIdx}` : 'my';
+      const _oppStampPrefix = S.isTeamMode
+        ? null  // 팀 모드는 owner 별 키이므로 별도 처리 필요 (skill_result 에서 opp 회복은 드뭄)
+        : 'opp';
+      for (let i = 0; i < S.myPieces.length; i++) {
+        if (i < oldMyHps.length && S.myPieces[i].hp > oldMyHps[i]) {
+          addHeal(`${_myStampPrefix}:${i}`, S.myPieces[i].hp - oldMyHps[i]);
+        }
+      }
+      if (S.oppPieces && _oppStampPrefix) {
+        for (let i = 0; i < S.oppPieces.length; i++) {
+          if (i < oldOppHps.length && S.oppPieces[i].hp > oldOppHps[i]) {
+            addHeal(`${_oppStampPrefix}:${i}`, S.oppPieces[i].hp - oldOppHps[i]);
+          }
+        }
+      }
 
       renderGameBoard();
       renderMyPieces();
@@ -4766,6 +4788,18 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     const mySkillDmgIdx = [];
     for (let i = 0; i < S.myPieces.length; i++) {
       if (i < oldMyHpsCaptured.length && S.myPieces[i].hp < oldMyHpsCaptured[i]) mySkillDmgIdx.push(i);
+    }
+    // 회복 추적 — 1v1 상대 시점에서 상대 pieces 회복 (heal 스킬)
+    for (let i = 0; i < (S.oppPieces || []).length; i++) {
+      if (i < oldOppHpsCaptured.length && S.oppPieces[i].hp > oldOppHpsCaptured[i]) {
+        addHeal(`opp:${i}`, S.oppPieces[i].hp - oldOppHpsCaptured[i]);
+      }
+    }
+    // (혹시 모를 본인 측 회복)
+    for (let i = 0; i < S.myPieces.length; i++) {
+      if (i < oldMyHpsCaptured.length && S.myPieces[i].hp > oldMyHpsCaptured[i]) {
+        addHeal(`my:${i}`, S.myPieces[i].hp - oldMyHpsCaptured[i]);
+      }
     }
 
     renderGameBoard();
@@ -7987,6 +8021,20 @@ function updatePlacementBoard() {
 }
 
 function handlePlacementCellClick(col, row) {
+  // 사용자 요청 #10: 클릭한 셀에 이미 배치된 내 말이 있으면, 그 말을 다시 선택 (재배치 가능 상태로)
+  // 쌍둥이의 경우 같은 칸에 형/동생 둘 다 배치되므로 첫 번째 매치를 사용
+  const placedHere = (S.myPieces || []).find(p => p.col === col && p.row === row);
+  if (placedHere) {
+    const idx = S.myPieces.indexOf(placedHere);
+    placementSelected = idx;
+    if (typeof updatePlacementBoard === 'function') { try { updatePlacementBoard(); } catch (e) {} }
+    // 디테일 카드(우측 패널) 도 재렌더 — selected 상태 동기화
+    const detailContainer = document.querySelector('#screen-placement .placement-detail-list');
+    if (detailContainer && typeof renderPlacementPieceCards === 'function') {
+      try { renderPlacementPieceCards(detailContainer, S.myPieces, true, myN()); } catch (e) {}
+    }
+    return;
+  }
   if (placementSelected === null) return;
   // 팀 모드 분기
   if (S.teamPlacementMode) {
@@ -8805,6 +8853,7 @@ function snapshotTurnStartHps(preCurseHps) {
   S.turnStartHps = snap;
   S.loyaltyDamageThisTurn = {};
   S.bodyDamageThisTurn = {};   // 본체 직접 피해 — 매 턴 초기화
+  S.healThisTurn = {};         // 회복 — 매 턴 초기화 (녹색 도장 + HP 바 녹색 오버레이)
   // 저주 데미지: preHps 가 주어졌으면 새로운 턴이라 이전 누적을 버리고 newCurseDmg 로 덮어씀.
   // preHps 없이 호출된 경우(게임 시작 등)는 그대로 비움.
   S.curseDamageThisTurn = newCurseDmg;
@@ -8826,6 +8875,11 @@ function addBodyDamage(key, dmg) {
   if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
   S.bodyDamageThisTurn[key] = (S.bodyDamageThisTurn[key] || 0) + dmg;
 }
+// 회복(신성/약초학) 누적 — 녹색 회복 도장 + HP 바 녹색 오버레이용.
+function addHeal(key, amount) {
+  if (!S.healThisTurn) S.healThisTurn = {};
+  S.healThisTurn[key] = (S.healThisTurn[key] || 0) + amount;
+}
 // 데미지(이번 턴 기준): 시작 HP − 현재 HP. 음수면 0(회복 등).
 function getTurnDamage(key, currentHp) {
   if (!S.turnStartHps || !(key in S.turnStartHps)) return 0;
@@ -8844,27 +8898,36 @@ function buildDamageOverlay(key, hp, maxHp) {
   const bodyDmg    = (S.bodyDamageThisTurn    && S.bodyDamageThisTurn[key])    || 0;
   const loyaltyDmg = (S.loyaltyDamageThisTurn && S.loyaltyDamageThisTurn[key]) || 0;
   const curseDmg   = (S.curseDamageThisTurn   && S.curseDamageThisTurn[key])   || 0;
-  const fmt = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
+  const healAmt    = (S.healThisTurn          && S.healThisTurn[key])          || 0;
+  const fmtDmg = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
+  const fmtHeal = (d) => Number.isInteger(d) ? `${d} 회복` : `${d.toFixed(1)} 회복`;
   let stamp = '';
   if (bodyDmg > 0) {
-    // 본체 피해가 있으면 빨강이 우선 — 저주는 빨강에 흡수되지 않고 단순히 표시 안 됨 (이번 턴 시각화)
-    stamp += `<div class="dmg-stamp">${fmt(bodyDmg)}</div>`;
+    stamp += `<div class="dmg-stamp">${fmtDmg(bodyDmg)}</div>`;
   } else if (curseDmg > 0) {
-    // 본체 피해 없이 저주만 들어온 경우 — 보라 + '저주' 태그 (충성과 동일 패턴)
-    stamp += `<div class="dmg-stamp curse">${fmt(curseDmg)}<span class="curse-tag">저주</span></div>`;
+    stamp += `<div class="dmg-stamp curse">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
+  } else if (healAmt > 0) {
+    // 회복 도장 — 녹색 (피해 도장과 같은 슬롯, 피해 발생 시 빨강이 우선)
+    stamp += `<div class="dmg-stamp heal">${fmtHeal(healAmt)}<span class="heal-tag">회복</span></div>`;
   }
-  // 충성 도장 — 빨강/보라와 별도 위치(top: 32px)에 항상 표시 가능
+  // 충성 도장 — 항상 별도 위치 (위 분류와 공존 가능)
   if (loyaltyDmg > 0) {
-    stamp += `<div class="dmg-stamp loyalty">${fmt(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
+    stamp += `<div class="dmg-stamp loyalty">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
   }
-  // HP 바 빨간 오버레이 — 시각적 HP delta (도장 분류와 무관, 단순 시각화)
+  // HP 바 오버레이:
+  //   피해 (startHp > hp): 빨간 hp-bar-damage 가 currentHp 위치에서 startHp 위치까지
+  //   회복 (startHp < hp): 녹색 hp-bar-heal 이 startHp 위치에서 currentHp 위치까지
   const startHp = S.turnStartHps?.[key] ?? hp;
   const startPct = Math.max(0, Math.min(100, (startHp / maxHp) * 100));
   const curPct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-  const widthPct = Math.max(0, startPct - curPct);
-  const barOverlay = (widthPct > 0 && (startHp - hp) > 0)
-    ? `<div class="hp-bar-damage" style="left:${curPct}%;width:${widthPct}%"></div>`
-    : '';
+  let barOverlay = '';
+  if (hp < startHp) {
+    const widthPct = Math.max(0, startPct - curPct);
+    if (widthPct > 0) barOverlay = `<div class="hp-bar-damage" style="left:${curPct}%;width:${widthPct}%"></div>`;
+  } else if (hp > startHp) {
+    const widthPct = Math.max(0, curPct - startPct);
+    if (widthPct > 0) barOverlay = `<div class="hp-bar-heal" style="left:${startPct}%;width:${widthPct}%"></div>`;
+  }
   return { stamp, barOverlay };
 }
 
