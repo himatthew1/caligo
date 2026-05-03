@@ -419,10 +419,14 @@
         </div>
       </div>
       <div class="anim-card">
-        <div class="label">⭐ hp-bar-heal · HP 바 녹색 오버레이 (#20)</div>
-        <div class="desc">시작 HP → 현재 HP (회복) 구간 녹색 슬라이스. 빨강 데미지의 역방향.</div>
+        <div class="label">⭐ hp-bar-heal · 임시 회복 오버레이 (#20)</div>
+        <div class="desc">시작: HP 2/5 (40%). 회복 +2 → 본 HP 바는 40% 그대로, 더 밝은 녹색 오버레이가 40%~80% 구간을 임시 회복분으로 표시.<br>다음 턴 시뮬: 본 HP 바가 80%까지 차오르며 오버레이 사라짐 (= snapshotTurnStartHps 가 startHp=4 로 갱신).</div>
         <div class="anim-stage" data-stage="day2-hpbar-heal"></div>
-        <button class="anim-btn" data-play="day2-hpbar-heal">▶ HP 2→4</button>
+        <div class="btn-row">
+          <button class="anim-btn alt" data-play="day2-hpbar-heal-init">↺ 시작 (HP 2/5)</button>
+          <button class="anim-btn" data-play="day2-hpbar-heal-add">▶ +2 회복</button>
+          <button class="anim-btn alt" data-play="day2-hpbar-heal-nextturn">▶ 다음 턴</button>
+        </div>
       </div>
       <div class="anim-card">
         <div class="label">⭐ dmg-stamp.curse · 저주 태그 (#23)</div>
@@ -513,12 +517,14 @@
     function init() {
       ['hit', 'heal', 'protected', 'curse-active', 'stamp', 'stamp-curse', 'stamp-loyalty',
        'stamp-combo', 'hpbar', 'sp-spend', 'protected-variants',
-       'day2-heal-stamp', 'day2-curse-tag', 'day2-spotlight', 'day2-hpbar-heal'].forEach(name => {
+       'day2-heal-stamp', 'day2-curse-tag', 'day2-spotlight'].forEach(name => {
         const stage = $stage(name);
         if (!stage) return;
         const card = buildMiniCard({ cursed: name === 'curse-active' });
         stage.appendChild(card);
       });
+      // day2-hpbar-heal 는 HP 2/5 (40% 바) 상태로 초기화 — 회복 시작점
+      _day2HpbarHealInit();
       ['cellhit', 'markedmove', 'tmflash', 'tmtrail'].forEach(n => {
         const stage = $stage(n);
         if (!stage) return;
@@ -631,6 +637,49 @@
       if (!stage) return;
       stage.innerHTML = '';
       stage.appendChild(buildMiniCard({ dmgOverlay: dmgOverlay(dmg, kind), hpPct: 60, hp: 3 }));
+    }
+
+    // ── #20 회복 HP 바 오버레이 미리보기 헬퍼 ──
+    // 시작 HP 2/5 → +2 회복 → 다음 턴 까지 본 hp-bar 는 40% 그대로, 더 밝은 녹색 오버레이가 40~80% 구간에 표시.
+    // 다음 턴 시뮬: hp-bar 가 80% 까지 차오르고 오버레이 사라짐.
+    function _day2HpbarHealInit() {
+      const s = $stage('day2-hpbar-heal');
+      if (!s) return;
+      s.innerHTML = '';
+      // 시작 상태: HP 2/5 — 본 hp-bar 40%
+      const card = buildMiniCard({ hpPct: 40, hp: 2 });
+      s.appendChild(card);
+    }
+    function _day2HpbarHealAdd() {
+      const s = $stage('day2-hpbar-heal');
+      if (!s) return;
+      // 본 hp-bar 는 40% 그대로 유지 (사용자 요청: 다음 턴 전엔 차오르지 않음)
+      // currentHp 를 4 로 갱신해 텍스트만 4/5 로 변경 + 회복 도장 + 녹색 오버레이
+      s.innerHTML = '';
+      const card = buildMiniCard({ hpPct: 40, hp: 4 });   // bar=40% (start), text=4/5 (current)
+      s.appendChild(card);
+      // 회복 도장 (녹색)
+      const stamp = document.createElement('div');
+      stamp.className = 'dmg-stamp heal';
+      stamp.textContent = '2 회복';
+      card.appendChild(stamp);
+      // 임시 회복 녹색 오버레이 — 40%~80% 구간 (위치는 .hp-bar-bg 내부)
+      const bg = card.querySelector('.hp-bar-bg');
+      if (bg) {
+        bg.style.position = 'relative';
+        const overlay = document.createElement('div');
+        overlay.className = 'hp-bar-heal';
+        overlay.style.cssText = 'left:40%;width:40%';
+        bg.appendChild(overlay);
+      }
+    }
+    function _day2HpbarHealNextTurn() {
+      const s = $stage('day2-hpbar-heal');
+      if (!s) return;
+      // 다음 턴 시뮬 — startHp 가 4 로 갱신됨 → 본 hp-bar 가 80% 까지 차오름, 오버레이 사라짐, 도장도 새 턴 리셋
+      s.innerHTML = '';
+      const card = buildMiniCard({ hpPct: 80, hp: 4 });
+      s.appendChild(card);
     }
 
     // ── SFX (게임 코드와 동일 generator) ──
@@ -757,21 +806,9 @@
       // ── I. Day 2 신규 ──
       'day2-heal1': () => refreshStampStage('day2-heal-stamp', 1, 'heal'),
       'day2-heal2': () => refreshStampStage('day2-heal-stamp', 2, 'heal'),
-      'day2-hpbar-heal': () => {
-        const s = $stage('day2-hpbar-heal'); s.innerHTML = '';
-        // 회복: 시작 HP 2 (40%) → 현재 HP 4 (80%) — 녹색 슬라이스가 40%~80% 구간에 표시
-        const card = buildMiniCard({ hpPct: 80, hp: 4 });
-        s.appendChild(card);
-        const overlay = document.createElement('div');
-        overlay.className = 'hp-bar-heal';
-        overlay.style.cssText = 'left:40%;width:40%;position:absolute;top:0;height:14px;background:rgba(34,197,94,0.85);border-radius:0 4px 4px 0;animation:hp-heal-pulse 1.4s ease-out 1';
-        const bg = card.querySelector('.hp-bar-bg');
-        if (bg) { bg.style.position = 'relative'; bg.appendChild(overlay); }
-        const stamp = document.createElement('div');
-        stamp.className = 'dmg-stamp heal';
-        stamp.textContent = '2 회복';
-        card.appendChild(stamp);
-      },
+      'day2-hpbar-heal-init': () => _day2HpbarHealInit(),
+      'day2-hpbar-heal-add': () => _day2HpbarHealAdd(),
+      'day2-hpbar-heal-nextturn': () => _day2HpbarHealNextTurn(),
       'day2-curse-tag': () => refreshStampStage('day2-curse-tag', 0.5, 'curse'),
       'day2-elim-stamp': () => {
         const s = $stage('day2-elim-stamp'); s.innerHTML = '';

@@ -21,6 +21,17 @@ process.on('unhandledRejection', (err) => {
 const ROW_LABELS = ['A','B','C','D','E','F','G'];
 function coord(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 
+// 한국어 조사 자동 변환 — 마지막 글자의 받침 유무로 with받침/without받침 선택.
+//   한글이 아니거나 빈 문자열이면 without받침 반환.
+//   사용: `${name}${조사(name, '이', '가')} 이동` → 받침 있으면 '이', 없으면 '가'
+function 조사(word, with받침, without받침) {
+  if (!word || typeof word !== 'string') return without받침;
+  const last = word.charCodeAt(word.length - 1);
+  if (last < 0xAC00 || last > 0xD7A3) return without받침;
+  const hasJongseong = (last - 0xAC00) % 28 !== 0;
+  return hasJongseong ? with받침 : without받침;
+}
+
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
@@ -59,21 +70,21 @@ const CHARACTERS = {
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
     { type:'spearman', name:'창병', tier:1, atk:1, icon:'🔱', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
     { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'🐎', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
-    { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'👁', tag:null, desc:'주변 8칸(자기제외)', skills:[] },
+    { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'👁', tag:null, desc:'주변 8칸 · 자기 제외', skills:[] },
     { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'👫', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
       skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류합니다.'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'🔭', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'🪤', tag:'villain', desc:'자신 포함 세로 3칸',
       skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:true, desc:'현재 위치에 덫 설치. 작동 시 2 피해.'}] },
-    { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'📯', tag:null, desc:'X대각선 5칸(자신포함)',
+    { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'📯', tag:null, desc:'X대각선 5칸 · 자신 포함',
       skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
-    { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'💣', tag:null, desc:'상하 각2칸(자기제외)',
+    { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'💣', tag:null, desc:'상하 각2칸 · 자기 제외',
       skills:[
         {id:'bomb', name:'폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발. 1 피해.'}
       ] },
-    { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null, desc:'좌우 각2칸(자기제외)',
+    { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null, desc:'좌우 각2칸 · 자기 제외',
       skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
   ],
   2: [
@@ -83,17 +94,17 @@ const CHARACTERS = {
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
     { type:'wizard', name:'마법사', tier:2, atk:2, icon:'🧙', tag:null, desc:'한칸 건너뛴 십자 4칸',
       skills:[], passives:['instantMagic'] },
-    { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'🛡', tag:null, desc:'자신 + 아래 가로3칸(4칸)',
+    { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'🛡', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
     { type:'witch', name:'마녀', tier:2, atk:1, icon:'🧹', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
       skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에 저주'}] },
-    { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸(col±1,row±1)',
+    { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸 · col±1, row±1',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리와 쥐가 소환된 칸 공격',
       skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 타일 세 곳에 쥐 소환.'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'가로 3칸을 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
-    { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'🛡️', tag:'royal', desc:'십자 4칸(자기제외)',
+    { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'🛡️', tag:'royal', desc:'십자 4칸 · 자기 제외',
       skills:[], passives:['loyalty'] },
   ],
   3: [
@@ -101,21 +112,21 @@ const CHARACTERS = {
     { type:'princess', name:'공주', tier:3, atk:3, icon:'🌸', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
     { type:'king', name:'국왕', tier:3, atk:2, icon:'♛', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
-    { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null, desc:'X대각선 4칸(자기제외)',
-      skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환 (3HP, 십자5칸, ATK3)'}] },
-    { type:'monk', name:'수도승', tier:3, atk:1, icon:'🙏', tag:null, desc:'상하 각1칸(자기제외)',
+    { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null, desc:'X대각선 4칸 · 자기 제외',
+      skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환 · 3HP · 십자5칸 · ATK3'}] },
+    { type:'monk', name:'수도승', tier:3, atk:1, icon:'🙏', tag:null, desc:'상하 각1칸 · 자기 제외',
       skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거.'}],
       passives:['grace'] },
     { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'🪓', tag:'villain', desc:'3x3 전체 9칸',
       skills:[], passives:['betrayer'] },
-    { type:'commander', name:'지휘관', tier:3, atk:2, icon:'📋', tag:'royal', desc:'좌우 각1칸(자기제외)',
+    { type:'commander', name:'지휘관', tier:3, atk:2, icon:'📋', tag:'royal', desc:'좌우 각1칸 · 자기 제외',
       skills:[], passives:['wrath'] },
-    { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸(자기제외)',
+    { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸 · 자기 제외',
       skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격. 2 피해.'}] },
-    { type:'torturer', name:'고문 기술자', tier:3, atk:2, icon:'⛓', tag:'villain', desc:'자신 + 바로 아래(2칸)',
+    { type:'torturer', name:'고문 기술자', tier:3, atk:2, icon:'⛓', tag:'villain', desc:'자신 + 바로 아래 · 총 2칸',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해.'}],
       passives:['markPassive'] },
-    { type:'count', name:'백작', tier:3, atk:2, icon:'🦇', tag:'villain', desc:'X대각선 5칸(자신포함)',
+    { type:'count', name:'백작', tier:3, atk:2, icon:'🦇', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
       skills:[], passives:['tyranny'] },
   ]
 };
@@ -553,9 +564,12 @@ const DRAFT_TIMER_SECONDS = 150;
 
 function startTimer(room, phase, callback) {
   clearTimer(room);
-  // 팀전 드래프트는 150초, 그 외 팀 페이즈는 90초 유지
+  // 팀전 드래프트는 150초, 교환 드래프트는 60초, 그 외 팀 페이즈는 90초
   const longPhases = new Set(['draft', 'team_draft']);
-  const sec = longPhases.has(phase) ? DRAFT_TIMER_SECONDS : TIMER_SECONDS;
+  let sec;
+  if (longPhases.has(phase)) sec = DRAFT_TIMER_SECONDS;
+  else if (phase === 'exchange_draft') sec = 60;
+  else sec = TIMER_SECONDS;
   room.timerDeadline = Date.now() + sec * 1000;
   emitToBothAndSpectators(room, 'timer_start', { seconds: sec, phase });
   room.timer = setTimeout(() => {
@@ -571,6 +585,13 @@ function clearTimer(room) {
     room.timer = null;
   }
   room.timerDeadline = null;
+  // AI thinking 타이머도 함께 정리 — endGame/endTeamGame/disconnect 시에 stale fire 방지.
+  if (room._aiThinkTimer) {
+    clearTimeout(room._aiThinkTimer);
+    room._aiThinkTimer = null;
+  }
+  delete room._aiThinkStart;
+  delete room._aiThinkMs;
 }
 
 function emitToBothAndSpectators(room, event, data) {
@@ -1263,10 +1284,10 @@ function aiTeamUsePreSkills(room, idx) {
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
       if (altScore > curScore + 8) { aiTeamExecSkill(room, idx, pi, 'reform'); return; }
     }
-    // sprint — 적 격파 가능 위치로 이동하기 위해
+    // sprint — 위급(HP≤1) + 도망 필요시에만. 1v1 AI 와 동일한 정책.
     if (piece.skillId === 'sprint') {
-      // 단순: SP 충분하고 적 인접 시 활성
-      if (Math.random() < 0.5) { aiTeamExecSkill(room, idx, pi, 'sprint'); return; }
+      const critical = piece.hp <= 1;
+      if (critical) { aiTeamExecSkill(room, idx, pi, 'sprint'); return; }
     }
     // herb — 인접 아군 부상 시
     if (piece.skillId === 'herb') {
@@ -1656,8 +1677,8 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
     if (en && en.socketId && en.socketId !== 'AI') {
       io.to(en.socketId).emit('opp_moved', {
         msg: isMarked
-          ? `${p.name}의 표식된 ${piece.name}이(가) 이동했습니다.`
-          : `${p.name}이(가) 이동했습니다.`,
+          ? `${p.name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
+          : `${p.name}${조사(p.name, '이', '가')} 이동했습니다.`,
         prevCol: isMarked ? prevCol : undefined,
         prevRow: isMarked ? prevRow : undefined,
         col: isMarked ? nc : undefined,
@@ -2316,22 +2337,34 @@ function aiDecideExchange(myDraft, oppDraft) {
   for (const c of topN) { r -= c.priority; if (r <= 0) { pick = c; break; } }
   // 베이스 우선순위 50 미만 카운터는 35% 확률로 패스 (확실하지 않으면 안 바꿈)
   if (pick._base < 50 && Math.random() < 0.35) return null;
-  return { tier: pick.tier, newType: pick.newType };
+  // priority(_base) 노출 — confirm_initial_reveal 핸들러에서 YES/NO 결정에 활용.
+  return { tier: pick.tier, newType: pick.newType, priority: pick._base };
 }
 
 // ── 교환 드래프트: 같은 티어 내 1캐릭터 교환 가능 (60초) ──
 //   #12 단일측 흐름: exchangeDecisions 가 NO 인 측은 자동 done 처리, 'exchange_waiting' 상태로 emit.
+// AI 시나리오 — final_reveal 로 진행할 때 7~15초 무작위 "AI 가 고민 중" 딜레이.
+//   인간이 ✓로 교환 드래프트를 진행했든, ✗로 그 자리에서 대기했든 동일하게 적용 →
+//   인간이 swap 결과를 보기 전에 항상 7~15초 대기 UI 를 거침. (둘 다 NO 케이스만 예외 — 진입조차 안 함)
 function transitionToExchangeDraft(room) {
   clearTimer(room);
+  if (room._aiThinkTimer) { clearTimeout(room._aiThinkTimer); room._aiThinkTimer = null; }
   room.phase = 'exchange_draft';
   if (!room.exchangeDecisions) room.exchangeDecisions = [null, null];
+
+  // AI 가 YES 한 경우 — AI 가 "고민하고 캐릭터 픽 확정" 하는 데 7~15초 강제 딜레이.
+  //   서버 내부에서는 _pendingSwap 즉시 계산 (게임 로직 결정성), 하지만 exchangeDone[1] 은 7-15s 후 설정 →
+  //   인간 입장에서는 AI 가 이 시간동안 "고민 중" 인 것처럼 보임.
+  const aiYes = room.isAI && room.exchangeDecisions[1] === true;
+  const aiThinkMs = aiYes ? (7000 + Math.floor(Math.random() * 8001)) : 0;
+
   if (room.isAI) {
-    // AI 교환 결정이 YES 인 경우만 swap 계산
     const aiPlayer = room.players[1];
     const human = room.players[0];
     aiPlayer._exchangeOriginal = { ...aiPlayer.draft };
-    if (room.exchangeDecisions[1] === true) {
-      const swap = aiDecideExchange(aiPlayer.draft, human.draft);
+    if (aiYes) {
+      // _pendingSwap 즉시 계산 (외부에서 보이지 않음)
+      const swap = aiPlayer._aiPrecomputedSwap || aiDecideExchange(aiPlayer.draft, human.draft);
       if (swap) {
         const key = swap.tier === 1 ? 't1' : swap.tier === 2 ? 't2' : 't3';
         const currentType = aiPlayer.draft[key];
@@ -2343,30 +2376,41 @@ function transitionToExchangeDraft(room) {
           aiPlayer._pendingSwap = { tier: swap.tier, key, newType: swap.newType };
         }
       }
+      // exchangeDone[1] 은 일부러 false 유지 — 7-15초 setTimeout 안에서 true 로 전환
+    } else {
+      // AI NO — 즉시 done
+      room.exchangeDone[1] = true;
     }
-    room.exchangeDone[1] = true;
+    delete aiPlayer._aiPrecomputedSwap;
   }
-  // YES 측에는 normal exchange_draft_phase, NO 측에는 'exchange_waiting' (60s 카운트다운 + 상대 슬롯에 오버레이)
+
+  // 인간 측 처리
+  //   - NO/✗ 측: 자동 done + 카운트다운 (AI YES 면 ai_decision_wait, 그 외 exchange_waiting_phase)
+  //   - YES/✓ 측: exchange_draft_phase 로 정상 교환 드래프트 화면
   room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
       const wantsExchange = room.exchangeDecisions[i] === true;
       if (!wantsExchange) {
-        // NO 측 — 자동 done + 대기 화면
         room.exchangeDone[i] = true;
-        io.to(p.socketId).emit('exchange_waiting_phase', {
-          myDraft: p.draft,
-          oppDraft: room.players[1 - i].draft,
-          oppExchanging: room.exchangeDecisions[1 - i] === true,
-          waitingMs: 60000,
-        });
+        if (aiYes) {
+          // 타이머는 인간/AI 동일하게 60초 표시. AI 가 그 안에서 7~15초 사이에 자체 확정 → countdown 도중에 swap 발생.
+          io.to(p.socketId).emit('ai_decision_wait', { waitMs: 60000 });
+          console.log(`[transitionToExchangeDraft] AI YES, emit ai_decision_wait waitMs=60000 (AI internal think=${aiThinkMs}ms) to ${p.socketId}`);
+        } else {
+          io.to(p.socketId).emit('exchange_waiting_phase', {
+            myDraft: p.draft,
+            oppDraft: room.players[1 - i].draft,
+            oppExchanging: room.exchangeDecisions[1 - i] === true,
+            waitingMs: 60000,
+          });
+        }
       } else {
-        // YES 측 — 정상 교환 드래프트 화면
         const available = {};
         for (const tier of [1, 2, 3]) {
           const myType = tier === 1 ? p.draft.t1 : tier === 2 ? p.draft.t2 : p.draft.t3;
           available[tier] = CHARACTERS[tier]
             .filter(c => c.type !== myType)
-            .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
+            .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range, isTwin: !!c.isTwin, skills: c.skills, passives: c.passives }));
         }
         io.to(p.socketId).emit('exchange_draft_phase', {
           myDraft: p.draft,
@@ -2381,7 +2425,28 @@ function transitionToExchangeDraft(room) {
     p0Name: room.players[0].name,
     p1Name: room.players[1].name,
   });
-  // YES 측이 모두 done 이거나 60초 타이머 만료 시 final_reveal 로 진행
+
+  // AI thinking 타이머 (AI 가 YES 인 경우만) — 7-15s 후 exchangeDone[1]=true + 양측 done 체크
+  if (aiYes) {
+    room._aiThinkStart = Date.now();
+    room._aiThinkMs = aiThinkMs;
+    console.log(`[transitionToExchangeDraft] starting AI think timer ${aiThinkMs}ms`);
+    room._aiThinkTimer = setTimeout(() => {
+      room._aiThinkTimer = null;
+      // ★ 진단 #1/#2: phase 가 이미 다른 상태로 넘어갔으면 (게임 종료/연결끊김 등) 즉시 중단.
+      //   stale 콜백이 ended room 의 exchangeDone 를 건드리거나 transitionToFinalReveal 을 잘못 호출하지 않도록.
+      if (!room || room.phase !== 'exchange_draft') return;
+      room.exchangeDone[1] = true;
+      console.log(`[ai think timer fired] phase=${room.phase} exchangeDone=${JSON.stringify(room.exchangeDone)}`);
+      if (room.exchangeDone.every(d => d)) {
+        transitionToFinalReveal(room);
+      }
+      // 인간이 아직 픽 중이면 그냥 기다림 — 인간이 submit 할 때 exchange_pick 핸들러에서 transition
+    }, aiThinkMs);
+  }
+
+  // 즉시 양측 done 체크 (사실상 이 함수 진입 시 양측 done 인 경우는 거의 없음 —
+  //   anyYes=true 라서 진입하므로 적어도 한쪽은 ✓ 하거나 AI YES, 그쪽이 picking 중)
   if (room.exchangeDone.every(d => d)) {
     transitionToFinalReveal(room);
   } else {
@@ -2391,6 +2456,8 @@ function transitionToExchangeDraft(room) {
 
 function exchangeDraftTimeout(room) {
   if (room.phase !== 'exchange_draft') return;
+  // AI thinking 타이머도 정리 (어차피 timeout 으로 전체 종료)
+  if (room._aiThinkTimer) { clearTimeout(room._aiThinkTimer); room._aiThinkTimer = null; }
   for (let i = 0; i < 2; i++) {
     if (!room.exchangeDone[i]) {
       room.exchangeDone[i] = true;
@@ -2404,6 +2471,10 @@ function exchangeDraftTimeout(room) {
 // ── 최종 공개: 교환 후 상대 캐릭터 공개 ──
 function transitionToFinalReveal(room) {
   clearTimer(room);
+  // AI thinking 타이머 / 관련 메타데이터 정리
+  if (room._aiThinkTimer) { clearTimeout(room._aiThinkTimer); room._aiThinkTimer = null; }
+  delete room._aiThinkStart;
+  delete room._aiThinkMs;
   room.phase = 'final_reveal';
   if (room.isAI) {
     // 보류된 AI 교체를 여기서 적용 — 사용자가 본 exchange_draft_phase는 교체 전 조합
@@ -3123,7 +3194,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     const attackerName = room.players[attackerIdx].name;
     const coordStr = destroyedRatCells.map(c => coord(c.col, c.row)).join(', ');
     emitToSpectators(room, 'spectator_log', {
-      msg: `🐀 ${attackerName}이(가) ${coordStr}의 쥐 격파함`,
+      msg: `🐀 ${attackerName}${조사(attackerName, '이', '가')} ${coordStr}의 쥐 격파함`,
       type: 'hit',
       playerIdx: attackerIdx,
     });
@@ -3932,7 +4003,6 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     case 'archer': {
       piece.toggleState = (piece.toggleState === 'right') ? null : 'right';
       spendSP(room, playerIdx, cost);
-      const dir = piece.toggleState === 'right' ? '우대각선(\\)' : '좌대각선(/)';
       result.msg = `🏹 정비: 공격 방향 전환`;
       result.oppMsg = `🏹 정비: 공격 방향 전환`;
       result.data.toggleState = piece.toggleState;
@@ -4309,7 +4379,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       dragon.skillId = null;
       dragon.tag = null;
       dragon.tier = 3;
-      dragon.desc = '자신+십자4칸 (5칸)';
+      dragon.desc = '자신 + 십자4칸 · 총 5칸';
       player.pieces.push(dragon);
       spendSP(room, playerIdx, cost);
       emitToBoth(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx });
@@ -4405,7 +4475,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
             msg: `⛓ 악몽: ${prefix}${k.name} 격파!`,
           });
           emitToSpectators(room, 'spectator_log', {
-            msg: `⛓ 악몽: ${player.name}의 고문기술자가 ${prefix}${k.name}을(를) 격파`,
+            msg: `⛓ 악몽: ${player.name}의 고문기술자가 ${prefix}${k.name}${조사(k.name, '을', '를')} 격파`,
             type: 'passive', playerIdx: playerIdx,
           });
         }
@@ -4745,10 +4815,23 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 전령: 피격 기억 있으면 질주 (1 SP)
+      // 전령 질주 — 사용자 요청: SP 1을 함부로 쓰지 말 것. 확실한 이득이 있을 때만.
+      //   기존: 최근 피격 기억만 있어도 무조건 사용 → 자주 의미없는 SP 소모.
+      //   개선:
+      //     (1) HP ≤ 1 인 위급 상황 (도망용 추가 이동) — 피격 기억 + 저체력
+      //     (2) 적과 멀리 떨어져 있는데 attack score 가 0 이라 "다가가기" 위해 추가 이동이 필요한 경우 — 정찰/접근용
+      //   그 외엔 보류.
       case 'messenger': {
         const mem = brain.hitMemory[piece.type];
-        if (mem && brain.turnCount - mem.turn <= 1) {
+        const recentlyHit = mem && brain.turnCount - mem.turn <= 1;
+        // (1) 위급 도주
+        const critical = piece.hp <= 1;
+        // (2) 공격 가치 없을 때 — 현재 위치 공격범위 내 적 점수가 0 이고 적 가까이 갈 필요가 있는 경우
+        const curAtkCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds);
+        let curThreatScore = 0;
+        for (const c of curAtkCells) curThreatScore += brain.probMap[c.row]?.[c.col] || 0;
+        const needsRepositioning = curThreatScore < 0.5 && recentlyHit;
+        if ((critical && recentlyHit) || needsRepositioning) {
           aiExecSkill(room, pidx, 'sprint');
         }
         break;
@@ -5271,7 +5354,7 @@ function aiExecuteMove(room, action) {
     });
   }
 
-  emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}이(가) 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
+  emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}${조사(room.players[1].name, '이', '가')} 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
@@ -5662,7 +5745,7 @@ io.on('connection', (socket) => {
         }
         room.players.forEach((p, i) => { p.index = i; });
       } else {
-        socket.emit('err', { msg: '방이 가득 찼습니다. (4/4)' });
+        socket.emit('err', { msg: '방이 가득 찼습니다. 4/4' });
         return;
       }
     }
@@ -5995,7 +6078,7 @@ io.on('connection', (socket) => {
     // 일반 — hps 2개
     if (!Array.isArray(hps) || hps.length !== 2 ||
         hps.reduce((a, b) => a + b, 0) !== 10 || hps.some(h => h < 1 || h > 9)) {
-      socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 9 (2개 필요)' }); return;
+      socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 9 · 2개 필요' }); return;
     }
     if (hasTwins) {
       const twinIdx = twinSlot === 'pick1' ? 0 : 1;
@@ -6259,7 +6342,7 @@ io.on('connection', (socket) => {
       // For twins: 3 values [twinTierTotal, t2, t3], twinTierTotal >= 2
       if (!Array.isArray(hps) || hps.length !== 3 ||
           hps.reduce((a, b) => a + b, 0) !== 10 || hps.some(h => h < 1 || h > 8)) {
-        socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 8. (3개 필요)' }); return;
+        socket.emit('err', { msg: 'HP 합계는 10, 각 최소 1 최대 8 · 3개 필요' }); return;
       }
       if (hps[0] < 2) {
         socket.emit('err', { msg: '쌍둥이 티어는 최소 2 HP 필요합니다.' }); return;
@@ -6273,7 +6356,7 @@ io.on('connection', (socket) => {
     // Non-twins: standard 3 values
     if (!Array.isArray(hps) || hps.length !== 3 ||
         hps.reduce((a, b) => a + b, 0) !== 10 || hps.some(h => h < 1 || h > 8)) {
-      socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1 최대 8. (3개 필요)' }); return;
+      socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1 최대 8 · 3개 필요' }); return;
     }
 
     player.hpDist = hps;
@@ -6315,33 +6398,56 @@ io.on('connection', (socket) => {
   // 양측 모두 결정되면 분기:
   //   둘 다 NO → final_reveal 로 직행 (교환 없음)
   //   하나라도 YES → exchange_draft 로 진입 (NO 측은 자동 done 처리, 60s 대기)
+  // 교체 페이즈 — 10초 결정 윈도우 종료 후 클라이언트가 최종 결정을 emit.
+  //   클라이언트가 자체 10초 타이머로 토글 후 한 번만 emit (조기 emit 도 수용 — 서버는 마지막 값으로 갱신).
+  //   양측 모두 수신 시 즉시 다음 단계. 둘 다 NO → final_reveal 직행. 하나라도 YES → exchange_draft.
+  //   서버는 상대 측의 결정을 broadcast 하지 않음 — 결정 윈도우 동안 익명성 유지.
   socket.on('confirm_initial_reveal', (payload) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'initial_reveal') return;
     const idx = socket.data.idx;
-    if (room.initialRevealDone[idx]) return;
-    room.initialRevealDone[idx] = true;
     if (!room.exchangeDecisions) room.exchangeDecisions = [null, null];
     const wantsExchange = !!(payload && payload.wantsExchange);
     room.exchangeDecisions[idx] = wantsExchange;
+    room.initialRevealDone[idx] = true;
+    console.log(`[confirm_initial_reveal] idx=${idx} wantsExchange=${wantsExchange} initialRevealDone=${JSON.stringify(room.initialRevealDone)} exchangeDecisions=${JSON.stringify(room.exchangeDecisions)} isAI=${room.isAI}`);
 
     if (room.initialRevealDone.every(d => d)) {
-      // AI 결정 — 단순 휴리스틱: 50% 확률
+      // AI 결정 — aiDecideExchange 의 카운터 점수에 기반한 분석적 판단.
+      //   강력한 카운터(점수 70+) 발견 → 거의 확실히 YES
+      //   보통 카운터(50-69) → 70% YES
+      //   약한 카운터(35-49) → 30% YES
+      //   카운터 없거나 매우 약함 → NO
+      // 무작위 50% 동전 던지기 대신 "상대 조합을 보고 판단" 하는 동작으로 자연스러움 강화.
       if (room.isAI) {
         if (room.exchangeDecisions[1] == null) {
-          room.exchangeDecisions[1] = (Math.random() < 0.5);
+          const aiPlayer = room.players[1];
+          const humanPlayer = room.players[0];
+          const swap = aiDecideExchange(aiPlayer.draft, humanPlayer.draft);
+          let aiYes;
+          if (swap && swap.priority >= 70) aiYes = true;
+          else if (swap && swap.priority >= 50) aiYes = (Math.random() < 0.7);
+          else if (swap && swap.priority >= 35) aiYes = (Math.random() < 0.3);
+          else aiYes = false;
+          room.exchangeDecisions[1] = aiYes;
+          // YES 결정 시 미리 계산된 swap 을 보관 — transitionToExchangeDraft 에서 재사용
+          if (aiYes && swap) {
+            aiPlayer._aiPrecomputedSwap = { tier: swap.tier, newType: swap.newType };
+          }
         }
       }
       const anyYes = room.exchangeDecisions.some(d => d === true);
+      console.log(`[confirm_initial_reveal] both done, anyYes=${anyYes}, exchangeDecisions=${JSON.stringify(room.exchangeDecisions)}`);
       if (!anyYes) {
-        // 둘 다 NO → final_reveal 직행
+        // 둘 다 NO → final_reveal 직행 (대기 없음 — 양측 모두 교체하지 않으므로 보여줄 게 없음)
+        console.log('[confirm_initial_reveal] both NO → transitionToFinalReveal');
         transitionToFinalReveal(room);
       } else {
+        console.log('[confirm_initial_reveal] anyYes → transitionToExchangeDraft');
         transitionToExchangeDraft(room);
       }
-    } else {
-      socket.emit('wait_msg', { msg: '상대방을 기다리는 중...' });
     }
+    // 상대가 아직 결정 안 했어도 wait_msg 보내지 않음 — 결정 사실 자체가 정보가 됨.
   });
 
   // ── 교환 드래프트: 1캐릭터 교환 ──
@@ -6358,9 +6464,15 @@ io.on('connection', (socket) => {
       room.exchangeDone[idx] = true;
       socket.emit('exchange_done', { draft: player.draft });
       if (room.exchangeDone.every(d => d)) {
+        // AI thinking 도 끝남 → 즉시 final_reveal (양측 모두 픽 확정)
         transitionToFinalReveal(room);
       } else {
-        socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+        // AI 가 아직 thinking 중 — 60초 카운트다운 표시 (AI 가 7~15초 안에 자체 확정 → 도중에 swap)
+        if (room.isAI && room._aiThinkTimer) {
+          socket.emit('ai_decision_wait', { waitMs: 60000 });
+        } else {
+          socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+        }
       }
       return;
     }
@@ -6388,9 +6500,15 @@ io.on('connection', (socket) => {
     emitToSpectators(room, 'spectator_exchange', { playerIdx: idx, playerName: player.name });
 
     if (room.exchangeDone.every(d => d)) {
+      // AI thinking 도 끝남 → 즉시 final_reveal (양측 모두 픽 확정)
       transitionToFinalReveal(room);
     } else {
-      socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+      // AI 가 아직 thinking 중 — 60초 카운트다운 표시 (AI 가 7~15초 안에 자체 확정 → 도중에 swap)
+      if (room.isAI && room._aiThinkTimer) {
+        socket.emit('ai_decision_wait', { waitMs: 60000 });
+      } else {
+        socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
+      }
     }
   });
 
@@ -6623,8 +6741,8 @@ io.on('connection', (socket) => {
         if (en && en.socketId && en.socketId !== 'AI') {
           io.to(en.socketId).emit('opp_moved', {
             msg: isMarked
-              ? `${room.players[idx].name}의 표식된 ${piece.name}이(가) 이동했습니다.`
-              : `${room.players[idx].name}이(가) 이동했습니다.`,
+              ? `${room.players[idx].name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
+              : `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`,
             // 표식된 말은 좌표 노출 (애니메이션용), 일반 이동은 좌표 숨김
             prevCol: isMarked ? prev.col : undefined,
             prevRow: isMarked ? prev.row : undefined,
@@ -6637,7 +6755,7 @@ io.on('connection', (socket) => {
     } else {
       const opp = room.players[1 - idx];
       if (opp.socketId !== 'AI') {
-        io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}이(가) 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+        io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
       }
     }
     emitToSpectators(room, 'spectator_log', { msg: `${player.name}, ${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: idx });
@@ -7084,7 +7202,7 @@ io.on('connection', (socket) => {
       if (surrenderedTeam === undefined || surrenderedTeam === null) return;
       const winnerTeamId = 1 - surrenderedTeam;
       if (room.phase === 'game' || teamSetupPhases.includes(room.phase)) {
-        emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다! ${surrenderedTeam === 0 ? '블루' : '레드'}팀 패배.`, type: 'system', playerIdx: idx });
+        emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 기권했습니다! ${surrenderedTeam === 0 ? '블루' : '레드'}팀 패배.`, type: 'system', playerIdx: idx });
         endTeamGame(room, winnerTeamId, 'surrender');
       }
       return;
@@ -7094,14 +7212,14 @@ io.on('connection', (socket) => {
     // 사용자 요청: 게임 시작 전 이탈은 그리드 화면 출력 안 함, 해골 화면(=기권 처리)으로 송출.
     const setupPhases = ['initial_reveal','exchange_draft','final_reveal','hp_distribution','placement'];
     if (setupPhases.includes(room.phase)) {
-      emitToSpectators(room, 'spectator_log', { msg: `🚪 ${room.players[idx].name}이(가) 게임을 나갔습니다.`, type: 'system', playerIdx: idx });
+      emitToSpectators(room, 'spectator_log', { msg: `🚪 ${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 게임을 나갔습니다.`, type: 'system', playerIdx: idx });
       endGame(room, 1 - idx, 'surrender');  // surrender 처리 → 해골 화면 + 그리드 미노출
       return;
     }
     // 게임 중 기권
     if (room.phase !== 'game') return;
     if (room.currentPlayerIdx !== idx) return;
-    emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}이(가) 기권했습니다!`, type: 'system', playerIdx: idx });
+    emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 기권했습니다!`, type: 'system', playerIdx: idx });
     endGame(room, 1 - idx, 'surrender');
   });
 
@@ -7313,7 +7431,7 @@ io.on('connection', (socket) => {
     room.boardObjects[idx] = room.boardObjects[idx].filter(o => !(o.type === 'bomb' && o.col === bomb.col && o.row === bomb.row));
 
     socket.emit('skill_result', {
-      msg: `폭탄 기폭: (${bomb.col},${bomb.row})`,
+      msg: `폭탄 기폭: ${coord(bomb.col, bomb.row)}`,
       success: true,
       yourPieces: pieceSummary(room.players[idx].pieces),
       oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
@@ -7481,7 +7599,7 @@ io.on('connection', (socket) => {
         // 상대에게도 알림 (승리 처리 아직 안 함)
         for (const p of room.players) {
           if (p.socketId && p.socketId !== 'AI') {
-            io.to(p.socketId).emit('opp_disconnected_pending', { msg: `${dcName}이(가) 연결이 끊겼습니다. 30초 동안 재접속을 기다립니다...`, graceMs: RECONNECT_GRACE_MS });
+            io.to(p.socketId).emit('opp_disconnected_pending', { msg: `${dcName}${조사(dcName, '이', '가')} 연결이 끊겼습니다. 30초 동안 재접속을 기다립니다...`, graceMs: RECONNECT_GRACE_MS });
           }
         }
 

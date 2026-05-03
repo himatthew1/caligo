@@ -57,6 +57,15 @@ function coordLabel(col, row) { return `${ROW_LABELS[row] || row}${col + 1}`; }
 function myN() { return S.myName || '나'; }
 function oppN() { return S.opponentName || '상대'; }
 
+// 한국어 조사 자동 변환 — 마지막 글자의 받침 유무로 with받침/without받침 선택.
+function 조사(word, with받침, without받침) {
+  if (!word || typeof word !== 'string') return without받침;
+  const last = word.charCodeAt(word.length - 1);
+  if (last < 0xAC00 || last > 0xD7A3) return without받침;
+  const hasJongseong = (last - 0xAC00) % 28 !== 0;
+  return hasJongseong ? with받침 : without받침;
+}
+
 // 슬라이더 좌측 컬럼 오버플로 감지 → --slide-scale을 점진적으로 줄여 최적점 찾기
 function autoFitLeftCol(leftCol) {
   if (!leftCol) return;
@@ -263,7 +272,34 @@ socket.on('placement_timeout', () => {
 });
 
 // ── 화면 전환 ─────────────────────────────────────────────────
+// 화면 오버레이 — 교환 드래프트를 캐릭터 딕셔너리처럼 떠오르는 패널로 표시.
+//   뒤의 교체 페이즈는 그대로 .active 유지 → 슬라이드 인/아웃하는 동안에도 보임.
+//   openOverlayScreen: 우측에서 슬라이드 인. closeOverlayScreen: 우측으로 슬라이드 아웃 (같은 방향, 모달처럼 사라짐).
+//   showScreen 을 호출하지 않으므로 BGM 등은 호출자가 책임 (필요 시 S.phase 만 갱신).
+const OVERLAY_ANIM_MS = 420;
+function openOverlayScreen(targetId) {
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  target.classList.remove('overlay-closing', 'overlay-slide-out-right');
+  target.classList.add('is-overlay', 'overlay-slide-in-right');
+  S.phase = targetId.replace('screen-', '');
+  setTimeout(() => target.classList.remove('overlay-slide-in-right'), OVERLAY_ANIM_MS);
+}
+function closeOverlayScreen(targetId) {
+  const target = document.getElementById(targetId);
+  if (!target || !target.classList.contains('is-overlay')) return;
+  target.classList.remove('overlay-slide-in-right');
+  target.classList.add('overlay-slide-out-right', 'overlay-closing');
+  setTimeout(() => {
+    target.classList.remove('is-overlay', 'overlay-slide-out-right', 'overlay-closing');
+  }, OVERLAY_ANIM_MS);
+}
+
 function showScreen(id) {
+  // 다른 화면으로 이동 시 떠 있는 오버레이는 자동 정리 (예: 재접속/게임오버 등)
+  document.querySelectorAll('.screen.is-overlay').forEach(s => {
+    s.classList.remove('is-overlay', 'overlay-slide-in-right', 'overlay-slide-out-right', 'overlay-closing');
+  });
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = document.getElementById(id);
   if (target) target.classList.add('active');
@@ -1181,7 +1217,7 @@ function updateDraftLockState() {
         badge.className = 'team-dim-overlay';
         slideViewer.appendChild(badge);
       }
-      badge.textContent = `🔒 ${tmName}이(가) 선택한 캐릭터`;
+      badge.textContent = `🔒 ${tmName}${조사(tmName, '이', '가')} 선택한 캐릭터`;
     } else if (badge) {
       badge.remove();
     }
@@ -1370,7 +1406,7 @@ function renderTeamDraft() {
   const confirmBtn = document.getElementById('btn-team-draft-confirm');
   if (confirmBtn) {
     const pickCount = (myPick1 ? 1 : 0) + (myPick2 ? 1 : 0);
-    confirmBtn.textContent = S.teamDraftConfirmed ? '✅ 확정됨' : `선택 확정 (${pickCount}/2)`;
+    confirmBtn.textContent = S.teamDraftConfirmed ? '✅ 확정됨' : `선택 확정 · ${pickCount}/2`;
     confirmBtn.disabled = S.teamDraftConfirmed || pickCount !== 2;
   }
   // 카드 클릭
@@ -2067,6 +2103,8 @@ socket.on('team_game_update', (state) => {
   }
   // 턴이 바뀌었으면 — 1v1처럼 로그·토스트로 누구 차례인지 명확히 알림
   if (prevTurnIdx !== S.currentPlayerIdx && S.currentPlayerIdx !== undefined) {
+    // 이전 턴 동안 켜져 있던 turn-bright 카드 모두 해제 — 다음 턴부터 다시 dim 으로
+    clearAllTurnBright();
     const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
     if (cur) {
       const isMine = cur.idx === S.playerIdx;
@@ -2266,7 +2304,7 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
       }
       switch (r.type) {
         case 'surrender': sub = `${L}의 기권입니다.`; break;
-        case 'shrink': sub = `${L}이(가) 보드 축소를 피하지 못해 승리했습니다.`; break;
+        case 'shrink': sub = `${L}${조사(L, '이', '가')} 보드 축소를 피하지 못해 승리했습니다.`; break;
         case 'trap': sub = `덫으로 ${L}의 모든 유닛을 제거해 승리했습니다.`; break;
         case 'bomb': sub = `폭탄으로 ${L}의 모든 유닛을 제거해 승리했습니다.`; break;
         case 'sulfur': sub = `유황범람으로 ${L}의 모든 유닛을 제거해 승리했습니다.`; break;
@@ -2413,13 +2451,10 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     const isCursedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
     const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}`;
     if (!pc.alive) {
-      // #24: 보드 파괴로 탈락한 유닛은 '탈락' 도장 부착. 일반 격파는 '💀 격파' 텍스트만.
-      const elimKey = `${playerData.idx}:${i}`;
-      const isShrunkElim = S._shrunkEliminated && S._shrunkEliminated.has(elimKey);
+      // 일반 격파 — '💀 격파' 텍스트. 보드 파괴 탈락은 캐릭터 카드가 아닌 *플레이어 프로필* 전체에 도장 (아래 처리)
       return `<div class="${baseCardClass} dead" data-team-piece="1" data-piece-idx="${i}">
-        ${isShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
         <div class="my-piece-header"><span class="p-icon">${pc.icon || '❔'}</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
-        <div style="font-size:0.72rem;color:var(--muted)">${isShrunkElim ? '' : '💀 격파'}</div>
+        <div style="font-size:0.72rem;color:var(--muted)">💀 격파</div>
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
@@ -2532,8 +2567,11 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     </div>`;
   }).join('');
 
+  // #24: 보드 파괴로 *완전 탈락*한 플레이어 블록에 큰 '탈락' 도장 (사용자 요청: 캐릭터 카드가 아니라 플레이어 프로필 위)
+  const isShrunkElim = S._shrunkEliminatedPlayers && S._shrunkEliminatedPlayers.has(playerData.idx);
   return `
-    <div class="team-profile-block ${blockClass}${currentPlayer ? ' is-current-turn' : ''}" data-player-idx="${playerData.idx}">
+    <div class="team-profile-block ${blockClass}${currentPlayer ? ' is-current-turn' : ''}${isShrunkElim ? ' player-eliminated' : ''}" data-player-idx="${playerData.idx}">
+      ${isShrunkElim ? '<div class="player-elim-stamp">탈락</div>' : ''}
       <div class="team-profile-header">
         <div class="team-profile-header-left">
           <span class="team-letter team-${teamLetter.toLowerCase()}">${teamLetter}</span>
@@ -2639,7 +2677,7 @@ socket.on('spectator_joined', ({ roomId, phase, gameState, draftState, hpState, 
   if (characters) S.specCharacters = characters;
   // 관전자 전용 채팅 표시
   const chatInput = document.getElementById('chat-input');
-  if (chatInput) chatInput.placeholder = '관전자 채팅 (관전자끼리만 보입니다)';
+  if (chatInput) chatInput.placeholder = '관전자 채팅';
 
   if (phase === 'game' && gameState) {
     buildBoard('game-board', () => {});
@@ -2682,7 +2720,7 @@ socket.on('team_spectator_joined', ({ roomId, phase, gameState, characters, play
   S.teamPlayers = players || [];
   S.teamTeams = teams || [[],[]];
   const chatInput = document.getElementById('chat-input');
-  if (chatInput) chatInput.placeholder = '관전자 채팅 (관전자끼리만 보입니다)';
+  if (chatInput) chatInput.placeholder = '관전자 채팅';
 
   if (phase === 'game' && gameState) {
     buildBoard('game-board', () => {});
@@ -2967,7 +3005,8 @@ socket.on('initial_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName,
   showScreen('screen-initial-reveal');
 });
 
-// ── 교환 드래프트 ──
+// ── 교환 드래프트 ── 캐릭터 딕셔너리처럼 우측에서 슬라이드 인하는 오버레이로 표시.
+//   뒤의 screen-initial-reveal 은 그대로 active 유지 → 백드롭 너머로 보임.
 socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
   S.phase = 'exchange_draft';
   S.exchangeAvailable = available;
@@ -2975,7 +3014,7 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
   S.exchangeSelected = null;
   S.myDraft = myDraft;
   buildExchangeDraftUI(myDraft, available, oppDraft);
-  showScreen('screen-exchange');
+  openOverlayScreen('screen-exchange');
 });
 
 socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
@@ -2987,14 +3026,40 @@ socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   }
 });
 
-// ── 최종 공개 ──
+// ── 교체 페이즈 (구 final_reveal) ── 통합된 교체 페이즈의 마지막 단계.
+//   화면 전환 없이 screen-initial-reveal 위에서 변경된 티어의 카드만 swap-reveal 애니메이션 진행 (1.5초).
+//   양측 모두 교체했으면 동시 진행, 변경 없으면 즉시 다음 단계로 진행.
+//   "교체됨" 태그(exchanged-highlight) + SFX(playSfxSwapBlink/playSfxSwapReveal) 유지.
 socket.on('final_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName }) => {
   S.phase = 'final_reveal';
   S.myDeckName = myDeckName || S.myDeckName || '';
   S.oppDeckName = oppDeckName || S.oppDeckName || '';
-  buildFinalRevealUI(myDraft, oppChars);
-  applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, /*final=*/true);
-  showScreen('screen-final-reveal');
+  // 교환 드래프트 화면에서 돌아오는 경우 — 대기 오버레이 + 교환 드래프트 오버레이 + AI 카운트다운 모두 정리
+  clearAiWaitCountdown();
+  const waitOverlay = document.getElementById('exchange-waiting-overlay');
+  if (waitOverlay) waitOverlay.remove();
+  applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, /*final=*/false);
+  // 교환 드래프트 오버레이가 떠 있으면 우측으로 슬라이드 아웃 (뒤의 교체 페이즈가 자연스럽게 노출)
+  const exScreen = document.getElementById('screen-exchange');
+  const isOverlayOpen = exScreen && exScreen.classList.contains('is-overlay');
+  if (isOverlayOpen) {
+    closeOverlayScreen('screen-exchange');
+    S.phase = 'final_reveal';
+    // 오버레이가 빠진 후 swap 애니메이션 시작 (화면이 자리 잡은 다음)
+    //   ★ 진단 #7 — 440ms 사이에 disconnected/game_over 등이 도착해 화면이 다른 곳으로 넘어갔으면 중단.
+    //     phase 가 final_reveal 이 아니거나 active screen 이 screen-initial-reveal 이 아니면 swap 애니 스킵.
+    setTimeout(() => {
+      const cur = document.querySelector('.screen.active');
+      if (S.phase !== 'final_reveal' || !cur || cur.id !== 'screen-initial-reveal') return;
+      playExchangeRevealAnimation(myDraft, oppChars);
+    }, OVERLAY_ANIM_MS + 20);
+  } else {
+    // 인간이 ✗/미선택으로 그 자리(교체 페이즈) 에서 대기 중이거나 재접속 — 화면 전환 없이 곧장 swap 애니메이션
+    const cur = document.querySelector('.screen.active');
+    if (!cur || cur.id !== 'screen-initial-reveal') showScreen('screen-initial-reveal');
+    else S.phase = 'final_reveal';
+    playExchangeRevealAnimation(myDraft, oppChars);
+  }
 });
 
 // 캐릭터 공개 화면에 닉네임 + 덱 이름 표시
@@ -3151,6 +3216,8 @@ function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
 
 // ── 내 턴 ──
 socket.on('your_turn', (data) => {
+  // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
+  if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   S.isMyTurn = true;
   S.turnNumber = data.turnNumber;
   S.myPieces = data.yourPieces || S.myPieces;
@@ -3186,6 +3253,8 @@ socket.on('your_turn', (data) => {
 
 // ── 상대 턴 ──
 socket.on('opp_turn', (data) => {
+  // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
+  if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   S.isMyTurn = false;
   S.turnNumber = data.turnNumber;
   S.oppPieces = data.oppPieces || S.oppPieces;
@@ -3939,18 +4008,17 @@ function reapplyCasterSpotlight() {
   }
 }
 
-// #18 헬퍼: profile-hit/heal-flash 를 카드에 부여할 때, 부모 team-profile-block 도 잠시 밝게.
-// :has() 미지원 브라우저 안전장치 + 명시적 토글로 dim/brighten 추적이 명확.
+// #18 헬퍼: 피격 / 회복이 발생한 캐릭터 카드에 'turn-bright' 부여 — 그 턴 동안 계속 풀 밝기 유지.
+//   사용자 요청: 한 번 피격되면 다음 턴 시작 전까지 계속 밝게. 블록 전체가 아니라 해당 카드만 밝게.
+//   profile-hit / heal-flash 는 짧은 플래시 애니메이션 (자동 해제), turn-bright 는 turn change 시 일괄 해제.
 function applyHitFlashWithBrighten(card, durationMs) {
   if (!card) return;
   card.classList.remove('profile-hit');
   void card.offsetWidth;
   card.classList.add('profile-hit');
-  const block = card.closest('.team-profile-block');
-  if (block) block.classList.add('block-bright');
+  card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
   setTimeout(() => {
     card.classList.remove('profile-hit');
-    if (block) block.classList.remove('block-bright');
   }, durationMs || 1800);
 }
 function applyHealFlashWithBrighten(card, durationMs) {
@@ -3958,12 +4026,14 @@ function applyHealFlashWithBrighten(card, durationMs) {
   card.classList.remove('heal-flash');
   void card.offsetWidth;
   card.classList.add('heal-flash');
-  const block = card.closest('.team-profile-block');
-  if (block) block.classList.add('block-bright');
+  card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
   setTimeout(() => {
     card.classList.remove('heal-flash');
-    if (block) block.classList.remove('block-bright');
   }, durationMs || 2000);
+}
+// 턴 변경 시 모든 turn-bright 해제 — 다음 턴부터 다시 dim 상태로 돌아감.
+function clearAllTurnBright() {
+  document.querySelectorAll('.turn-bright').forEach(el => el.classList.remove('turn-bright'));
 }
 
 // 마법사 카드 위치 찾기 (instant gain 출발지)
@@ -4532,23 +4602,24 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
   try { playBoardQuake(); } catch (e) {}
   S.boardBounds = bounds;
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
-  // #24: 보드 파괴로 탈락한 유닛 추적 — 프로필에 '탈락' 도장 표시용.
-  if (!S._shrunkEliminated) S._shrunkEliminated = new Set();
-  for (const e of (eliminated || [])) {
-    // 1v1: e.owner 가 playerIdx 와 같으면 my, 아니면 opp.
-    // 팀모드: e.owner 가 player idx (0-3). team-profile-block 의 data-player-idx 와 매치.
+  // #24: 보드 파괴로 *완전 탈락*한 플레이어 추적 — 프로필 블록 위에 '탈락' 도장 표시용.
+  //   사용자 요청: 도장은 캐릭터 카드가 아니라 *플레이어 프로필* 블록에 (두 캐릭터 위를 덮음).
+  if (!S._shrunkEliminatedPlayers) S._shrunkEliminatedPlayers = new Set();
+  // 이번 emit 에서 영향 받은 owner 들 수집
+  const affectedOwners = new Set();
+  for (const e of (eliminated || [])) affectedOwners.add(e.owner);
+  // 각 owner 의 모든 piece 가 dead 면 (= 보드 파괴로 풀 탈락) 도장 부착
+  for (const ownerIdx of affectedOwners) {
     if (S.isTeamMode) {
-      // pieces 배열에서 col/row 매칭으로 idx 찾기
-      const pl = (S.teamGamePlayers || []).find(p => p.idx === e.owner);
-      if (pl && pl.pieces) {
-        const idx = pl.pieces.findIndex(p => p.col === e.col && p.row === e.row);
-        if (idx >= 0) S._shrunkEliminated.add(`${e.owner}:${idx}`);
+      const pl = (S.teamGamePlayers || []).find(p => p.idx === ownerIdx);
+      if (pl && pl.pieces && pl.pieces.length > 0 && pl.pieces.every(p => !p.alive)) {
+        S._shrunkEliminatedPlayers.add(ownerIdx);
       }
     } else {
-      const arr = (e.owner === S.playerIdx) ? S.myPieces : S.oppPieces;
-      const prefix = (e.owner === S.playerIdx) ? 'my' : 'opp';
-      const idx = (arr || []).findIndex(p => p.col === e.col && p.row === e.row);
-      if (idx >= 0) S._shrunkEliminated.add(`${prefix}:${idx}`);
+      const arr = (ownerIdx === S.playerIdx) ? S.myPieces : S.oppPieces;
+      if (arr && arr.length > 0 && arr.every(p => !p.alive)) {
+        S._shrunkEliminatedPlayers.add(ownerIdx);
+      }
     }
   }
   if (!S.isSpectator) {
@@ -5281,7 +5352,7 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     const arr = vs || [];
     if (arr.length === 0) return '';
     if (arr.length === 1) return arr[0];
-    if (arr.length === 2) return `${arr[0]}와(과) ${arr[1]}`;
+    if (arr.length === 2) return `${arr[0]}${조사(arr[0], '과', '와')} ${arr[1]}`;
     return arr.join(', ');
   }
 
@@ -5867,40 +5938,35 @@ function buildDraftStepUI() {
   updateDraftConfirmBtn();
 }
 
-function renderSlide() {
-  const step = S.draftStep;
-  const chars = S.characters[step];
-  if (!chars || !chars.length) return;
-  const c = chars[slideIndex];
-  // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
-  slidePreviewMode = 'attack';
-
-  // 아이콘 & 이름 + 태그
-  document.getElementById('slide-icon').textContent = c.icon;
+// 캐릭터 슬라이드 콘텐츠 렌더 — 드래프트(=내 덱)와 캐릭터 딕셔너리가 공유.
+//   prefix: 'slide' (드래프트) 또는 'dict-slide' (딕셔너리)
+//   이전에는 두 함수가 동일 로직을 별도 복제로 유지해 typeof 가드 추가/누락 등
+//   미세한 가공 차이가 발생했음. 단일 헬퍼로 통합되어 모든 변경이 자동 동기화됨.
+function populateSlideContent(c, prefix) {
+  // 아이콘 / 이름 + 태그 / ATK / 미니 헤더
+  const iconEl = document.getElementById(`${prefix}-icon`);
+  if (iconEl) iconEl.textContent = c.icon;
   const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
-  document.getElementById('slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
-  // 이름 아래 공격력
-  document.getElementById('slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
-  // 그 아래 미니 헤더
-  const miniEl = document.getElementById('slide-mini-headers');
+  const nameEl = document.getElementById(`${prefix}-name`);
+  if (nameEl) nameEl.innerHTML = `<span>${c.name}</span>${tagHtml}`;
+  const atkEl = document.getElementById(`${prefix}-atk`);
+  if (atkEl) atkEl.innerHTML = `⚔ 공격력 ${c.atk}`;
+  const miniEl = document.getElementById(`${prefix}-mini-headers`);
   if (miniEl) miniEl.innerHTML = buildMiniHeaders(c);
-  // 실제 오버플로 감지 — 내용이 좌측 컬럼을 넘치면만 살짝 축소
-  const leftCol = document.querySelector('#screen-draft .slide-left-col');
-  if (leftCol) autoFitLeftCol(leftCol);
-  // slide-desc는 숨김 (사용 안 함)
-  const descEl = document.getElementById('slide-desc');
+  // 사용하지 않는 desc 영역은 항상 숨김
+  const descEl = document.getElementById(`${prefix}-desc`);
   if (descEl) { descEl.innerHTML = ''; descEl.classList.add('hidden'); }
 
-  // 상세 설명 블록
+  // 상세 설명 블록 + 플레이버 + 레이더
   const detail = CHAR_DETAILS[c.type];
-  const blocksEl = document.getElementById('slide-detail-blocks');
-  const bodyEl = document.getElementById('slide-detail-body');
-  // 좌측 컬럼 플레이버 텍스트 (이름+ATK 아래)
-  const flavorEl = document.getElementById('slide-flavor');
+  const flavorEl = document.getElementById(`${prefix}-flavor`);
   if (flavorEl) flavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
-  // 캐릭터 개성 그래프 (오각형 레이더)
-  renderStatRadar(c.type, document.getElementById('slide-stat-radar'));
+  const radarEl = document.getElementById(`${prefix}-stat-radar`);
+  if (radarEl) renderStatRadar(c.type, radarEl);
 
+  const blocksEl = document.getElementById(`${prefix}-detail-blocks`);
+  const bodyEl = document.getElementById(`${prefix}-detail-body`);
+  if (!blocksEl || !bodyEl) return;
   if (detail) {
     const hasPerBlockDesc = detail.blocks.some(b => b.desc);
     const renderHeadLine = (b) => {
@@ -5928,6 +5994,21 @@ function renderSlide() {
     blocksEl.innerHTML = '';
     bodyEl.innerHTML = '';
   }
+}
+
+function renderSlide() {
+  const step = S.draftStep;
+  const chars = S.characters[step];
+  if (!chars || !chars.length) return;
+  const c = chars[slideIndex];
+  // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
+  slidePreviewMode = 'attack';
+
+  // 공유 헬퍼 — 아이콘/이름/ATK/미니헤더/플레이버/레이더/상세블록 일괄 갱신
+  populateSlideContent(c, 'slide');
+  // 실제 오버플로 감지 — 내용이 좌측 컬럼을 넘치면만 살짝 축소 (드래프트 화면 한정)
+  const leftCol = document.querySelector('#screen-draft .slide-left-col');
+  if (leftCol) autoFitLeftCol(leftCol);
 
   // 공격 범위 미리보기
   updateDraftPreview(c);
@@ -6263,20 +6344,34 @@ document.querySelectorAll('.slide-preview-tab').forEach(tab => {
   });
 });
 
-function updateDraftPreview(charData) {
-  const board = document.getElementById('draft-preview-board');
+// 캐릭터 미리보기 그리드 렌더링 — 드래프트/내 덱/캐릭터 딕셔너리 공통.
+//   opts.boardEl    : 5×5 미리보기 보드 DOM (default: #draft-preview-board)
+//   opts.infoEl     : 보드 아래 안내 텍스트 DOM (default: #draft-preview-info)
+//   opts.tabsRoot   : 모드 탭 컨테이너 (default: document) — 딕셔너리는 overlay 내부로 한정
+//   opts.tabAttr    : 모드 data 속성 ('mode' or 'dict-mode'; default: 'mode')
+//   opts.mode       : 현재 미리보기 모드 ('attack' | 'skill'; default: slidePreviewMode)
+// 이전에는 updateDictPreview 가 별도 복제로 존재해 쌍둥이 분리·색 분기·shouldShowDesc 처리가 일치하지 않았음.
+//   이제 단일 구현으로 통합되어 미래 변경이 양쪽에 자동 반영됨.
+function updateDraftPreview(charData, opts = {}) {
+  const board = opts.boardEl || document.getElementById('draft-preview-board');
   if (!board) return;
+  const infoEl = opts.infoEl || document.getElementById('draft-preview-info');
+  const tabsRoot = opts.tabsRoot || document;
+  const tabAttr = opts.tabAttr || 'mode';
+  // dataset 키는 camelCase ('mode' / 'dictMode')
+  const datasetKey = tabAttr.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+  const mode = opts.mode || slidePreviewMode;
 
   // 탭 상태 업데이트
-  const tabs = document.querySelectorAll('.slide-preview-tab');
+  const tabs = tabsRoot.querySelectorAll(`.slide-preview-tab[data-${tabAttr}]`);
   const hasSkill = hasSkillPreview(charData);
   tabs.forEach(t => {
-    const m = t.dataset.mode;
-    t.classList.toggle('active', m === slidePreviewMode && (m === 'attack' || hasSkill));
+    const m = t.dataset[datasetKey];
+    t.classList.toggle('active', m === mode && (m === 'attack' || hasSkill));
     if (m === 'skill') t.disabled = !hasSkill;
   });
   // 스킬 미리보기가 없으면 자동으로 attack 모드로 복귀
-  const effectiveMode = (slidePreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
+  const effectiveMode = (mode === 'skill' && hasSkill) ? 'skill' : 'attack';
 
   // 스킬 미리보기 모드
   if (effectiveMode === 'skill' && hasSkill) {
@@ -6303,7 +6398,7 @@ function updateDraftPreview(charData) {
         else if (inE) cell.classList.add('attack-range');
         else if (inY) cell.classList.add('skill-range');
       });
-      document.getElementById('draft-preview-info').textContent = skill.label;
+      if (infoEl) infoEl.textContent = skill.label;
       return;
     }
     const cells = skill.cells(centerCol, centerRow);
@@ -6330,7 +6425,7 @@ function updateDraftPreview(charData) {
         cell.classList.add('skill-preview-' + skill.cat);
       }
     });
-    document.getElementById('draft-preview-info').textContent = skill.label;
+    if (infoEl) infoEl.textContent = skill.label;
     return;
   }
 
@@ -6370,7 +6465,7 @@ function updateDraftPreview(charData) {
       }
     });
 
-    document.getElementById('draft-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
+    if (infoEl) infoEl.textContent = shouldShowDesc(charData) ? charData.desc : '';
     return;
   }
 
@@ -6389,13 +6484,12 @@ function updateDraftPreview(charData) {
     if (col === centerCol && row === centerRow) {
       cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
       cell.classList.add('has-piece');
-      // 사용자 요청 #8: 제자리 공격범위 포함 시 시각적으로 명확히 (황금 ring + inset glow)
-      if (inRange) cell.classList.add('cell-self-attackable');
+      // 제자리 공격범위 추가 강조 제거 — 쌍둥이처럼 attack-range 단일 표현으로 통일.
     }
     if (inRange) cell.classList.add('attack-range');
   });
 
-  document.getElementById('draft-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
+  if (infoEl) infoEl.textContent = shouldShowDesc(charData) ? charData.desc : '';
 }
 
 function updateDraftConfirmBtn() {
@@ -6412,7 +6506,7 @@ function updateDraftConfirmBtn() {
       btn.textContent = '선택 확정';
     } else {
       btn.disabled = true;
-      btn.textContent = `선택 확정 (${tmCount}/2)`;
+      btn.textContent = `선택 확정 · ${tmCount}/2`;
     }
     renderTeamDraftSlots();
     return;
@@ -6422,13 +6516,13 @@ function updateDraftConfirmBtn() {
   const count = [1,2,3].filter(t => S.draftSelected[t]).length;
   if (S.deckBuilderMode) {
     btn.disabled = false;
-    btn.textContent = allSelected ? '덱 저장' : `덱 저장 (${count}/3)`;
+    btn.textContent = allSelected ? '덱 저장' : `덱 저장 · ${count}/3`;
   } else if (allSelected) {
     btn.disabled = false;
     btn.textContent = '최종 확정';
   } else {
     btn.disabled = true;
-    btn.textContent = `선택 확정 (${count}/3)`;
+    btn.textContent = `선택 확정 · ${count}/3`;
   }
   renderDraftSlots();
 }
@@ -7009,20 +7103,38 @@ function renderProgressStepper(containerId, currentStepId) {
 // ── 초기 공개 UI ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-function buildInitialRevealUI(myDraft, oppChars) {
+// 교체 페이즈 결정 윈도우 (10초) 상태
+const IREV_DECISION_MS = 10000;
+let _irevDecisionState = null;       // 'yes' | 'no' | null  (10초 동안 자유 토글)
+let _irevDecisionTimeoutId = null;
+let _irevDecisionTickIv = null;
+let _irevDecisionLocked = false;     // 10초 종료 후 잠금
+let _irevAnimRunning = false;        // 교체 공개 애니메이션 중인지
+
+function buildInitialRevealUI(myDraft, oppChars, opts = {}) {
+  // opts.skipIntroAnim: 교체 후 final_reveal 재진입 시 등장 애니메이션 생략하고 즉시 카드 표시 + 변경 슬롯만 swap-reveal
+  const skipIntroAnim = !!opts.skipIntroAnim;
   renderProgressStepper('screen-initial-reveal', 'initial_reveal');
   document.getElementById('irev-my-name').textContent = S.myName || '나';
   document.getElementById('irev-opp-name').textContent = S.opponentName || '상대방';
 
   const myContainer = document.getElementById('irev-my-chars');
   const oppContainer = document.getElementById('irev-opp-chars');
-  myContainer.innerHTML = '';
+  myContainer.innerHTML = '';   // 이전 라운드의 카드/라벨/플레이스홀더 모두 정리
   oppContainer.innerHTML = '';
 
   const btn = document.getElementById('btn-irev-confirm');
-  btn.disabled = true;
-  btn.style.opacity = '0';
-  btn.textContent = '교환 드래프트로';
+  if (btn) {
+    btn.classList.add('hidden');  // 새 라운드 진입 — swap 애니메이션 종료 후 다시 보이도록 초기 숨김
+    btn.disabled = true;
+    btn.style.opacity = '0';
+    btn.style.animation = '';
+    btn.textContent = 'HP 분배로';
+    delete btn.dataset.confirmStage;
+  }
+
+  // 결정 영역 — 새 라운드 시작 시 초기 상태로 리셋
+  resetIrevDecisionUI();
 
   // 카드 데이터 준비
   const myCards = [];
@@ -7033,7 +7145,20 @@ function buildInitialRevealUI(myDraft, oppChars) {
   }
   const oppCards = oppChars.map(ch => ({ ch, tier: ch.tier }));
 
-  // 빈 슬롯 3개씩 미리 표시
+  if (skipIntroAnim) {
+    // 즉시 카드 표시 (애니메이션 없이) — final_reveal 화면이 첫 진입이 아니라 이미 노출된 카드의 차분 갱신용
+    for (let i = 0; i < 3; i++) {
+      if (myCards[i]) {
+        myContainer.appendChild(createDraftRevealCard(myCards[i].ch, myCards[i].tier, 'left'));
+      }
+      if (oppCards[i]) {
+        oppContainer.appendChild(createDraftRevealCard(oppCards[i].ch, oppCards[i].tier, 'right'));
+      }
+    }
+    return;
+  }
+
+  // 빈 슬롯 3개씩 미리 표시 — 등장 애니메이션을 위한 placeholder
   for (let i = 0; i < 3; i++) {
     const ms = document.createElement('div'); ms.className = 'reveal-slot-empty';
     myContainer.appendChild(ms);
@@ -7061,12 +7186,282 @@ function buildInitialRevealUI(myDraft, oppChars) {
     }, delays[i]);
   }
 
-  // 모든 등장 후 버튼 표시
+  // 공개 애니메이션이 완전히 끝난 뒤 ✓/✗ 결정 영역 페이드인 + 10초 카운트다운 시작
   setTimeout(() => {
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    btn.style.animation = 'revealSlide 0.5s ease-out both';
-  }, 2500);
+    showIrevDecisionAndStartTimer();
+  }, 2600);
+}
+
+// 결정 영역을 새 라운드 시작 상태로 리셋
+function resetIrevDecisionUI() {
+  if (_irevDecisionTimeoutId) { clearTimeout(_irevDecisionTimeoutId); _irevDecisionTimeoutId = null; }
+  if (_irevDecisionTickIv)    { clearInterval(_irevDecisionTickIv); _irevDecisionTickIv = null; }
+  _irevDecisionState = null;
+  _irevDecisionLocked = false;
+  // 이전 라운드 대기 오버레이 흔적 제거
+  clearAiWaitCountdown();
+  const row = document.getElementById('irev-decision-row');
+  if (!row) return;
+  row.classList.remove('visible');
+  row.classList.remove('timer-active');
+  row.querySelectorAll('.reveal-decision-note').forEach(n => n.remove());
+  const status = document.getElementById('irev-decision-status');
+  if (status) status.textContent = '';
+  const yesBtn = document.getElementById('btn-irev-yes');
+  const noBtn  = document.getElementById('btn-irev-no');
+  if (yesBtn) { yesBtn.disabled = false; yesBtn.classList.remove('is-selected'); }
+  if (noBtn)  { noBtn.disabled  = false; noBtn.classList.remove('is-selected'); }
+  // 링 진행 리셋
+  row.querySelectorAll('.ring-progress').forEach(r => {
+    r.style.transition = 'none';
+    r.style.strokeDashoffset = '0';
+  });
+}
+
+// 결정 영역 페이드인 + 10초 카운트다운 시작
+function showIrevDecisionAndStartTimer() {
+  const row = document.getElementById('irev-decision-row');
+  if (!row) return;
+  row.classList.add('visible');
+
+  // 다음 프레임에 timer-active 부여 → 링 페이드인 + 진행 애니메이션 시작
+  requestAnimationFrame(() => {
+    row.classList.add('timer-active');
+    const RING_LEN = 169.65; // 2π·27
+    row.querySelectorAll('.ring-progress').forEach(r => {
+      // 강제 리플로우 후 transition 설정 → 0 → RING_LEN 으로 비워지는 애니메이션
+      r.style.transition = 'none';
+      r.style.strokeDashoffset = '0';
+      // eslint-disable-next-line no-unused-expressions
+      r.getBoundingClientRect();
+      r.style.transition = `stroke-dashoffset ${IREV_DECISION_MS}ms linear`;
+      r.style.strokeDashoffset = String(RING_LEN);
+    });
+  });
+
+  // 10초 종료 시 결정 잠금 + 서버로 emit
+  _irevDecisionTimeoutId = setTimeout(() => {
+    finalizeIrevDecision();
+  }, IREV_DECISION_MS);
+}
+
+// 사용자 토글 — ✓ / ✗ 버튼 클릭 시
+function toggleIrevDecision(target /* 'yes' | 'no' */) {
+  if (_irevDecisionLocked) return;
+  // 같은 버튼 다시 누르면 해제 (라디오/토글 혼합)
+  if (_irevDecisionState === target) _irevDecisionState = null;
+  else _irevDecisionState = target;
+  refreshIrevDecisionUI();
+}
+
+function refreshIrevDecisionUI() {
+  const yesBtn = document.getElementById('btn-irev-yes');
+  const noBtn  = document.getElementById('btn-irev-no');
+  if (yesBtn) yesBtn.classList.toggle('is-selected', _irevDecisionState === 'yes');
+  if (noBtn)  noBtn.classList.toggle('is-selected',  _irevDecisionState === 'no');
+}
+
+// 10초 종료 — 최종 결정을 서버로 emit (미선택 시 false 로 패스)
+function finalizeIrevDecision() {
+  if (_irevDecisionLocked) return;
+  _irevDecisionLocked = true;
+  const wantsExchange = _irevDecisionState === 'yes';
+  const yesBtn = document.getElementById('btn-irev-yes');
+  const noBtn  = document.getElementById('btn-irev-no');
+  if (yesBtn) yesBtn.disabled = true;
+  if (noBtn)  noBtn.disabled  = true;
+  // 결정 후 상태 텍스트는 표시하지 않음 — 대기 카운트다운은 상대 카드 슬롯 위 오버레이로 별도 노출됨.
+  const status = document.getElementById('irev-decision-status');
+  if (status) status.textContent = '';
+  socket.emit('confirm_initial_reveal', { wantsExchange });
+}
+
+// 교체 공개 애니메이션 — screen-initial-reveal 에서 변경된 티어의 카드만 in-place 갱신.
+//   1.5초 안에 끝나도록: 0.5s fade-out → 1s fade-in (총 1.5s).
+//   양측 모두 교체했으면 동시 재생. 변경 없으면 즉시 "교체하지 않음" 라벨 + 확인 버튼 노출.
+//   카드 비교는 기존 DOM 의 reveal-piece-card 와 새 데이터(myDraft/oppChars)를 대조.
+//   교체된 측에는 카드 위에 "🔄 교체됨" 태그 (.exchanged-highlight),
+//   교체되지 않은 측에는 카드 영역 아래에 "교체하지 않음" 라벨 표시.
+function playExchangeRevealAnimation(myDraft, oppChars) {
+  if (_irevAnimRunning) return;
+  _irevAnimRunning = true;
+
+  // ★ 진단 #3 deadman switch — 어떤 경로로든 (예외, DOM 분리, 화면 전환 등) 함수가 도중에 끊겨도
+  //   3초 뒤엔 무조건 락 해제. 이 안전망 없으면 _irevAnimRunning=true 영구 잠김 → 다음 final_reveal_phase
+  //   가 이른 early-return 으로 화면 멈춤.
+  setTimeout(() => { _irevAnimRunning = false; }, 3000);
+
+  // 결정 영역은 즉시 페이드아웃 (10초 윈도우 종료 후에는 사용 안 함)
+  const row = document.getElementById('irev-decision-row');
+  if (row) row.classList.remove('visible');
+
+  const myContainer = document.getElementById('irev-my-chars');
+  const oppContainer = document.getElementById('irev-opp-chars');
+  if (!myContainer || !oppContainer) {
+    // 예상치 못한 상태 — 안전하게 통과
+    showFinalConfirmButton();
+    _irevAnimRunning = false;
+    return;
+  }
+
+  // 이전 라운드의 "교체하지 않음" 라벨 정리 — 항상 새로 생성
+  myContainer.querySelectorAll('.no-exchange-label').forEach(n => n.remove());
+  oppContainer.querySelectorAll('.no-exchange-label').forEach(n => n.remove());
+
+  // 재접속/페이즈 점프 등으로 카드가 비어있는 경우 — 즉시 빌드 후 라벨 + 확인 버튼
+  const tiers = [['t1', 1], ['t2', 2], ['t3', 3]];
+  const myCardsExisting = myContainer.querySelectorAll('.reveal-piece-card');
+  const oppCardsExisting = oppContainer.querySelectorAll('.reveal-piece-card');
+  if (myCardsExisting.length === 0 || oppCardsExisting.length === 0) {
+    // 카드 즉시 표시 (애니메이션 없음)
+    showScreen('screen-initial-reveal');
+    buildInitialRevealUI(myDraft, oppChars, { skipIntroAnim: true });
+    setTimeout(() => {
+      showFinalConfirmButton();
+      _irevAnimRunning = false;
+    }, 200);
+    return;
+  }
+
+  // 새 데이터 매핑
+  const myNew = {};
+  for (const [key, tier] of tiers) {
+    const type = myDraft[key];
+    const ch = findLocalChar(type, tier);
+    if (ch) myNew[tier] = { ch, tier };
+  }
+  const oppNew = {};
+  for (const ch of oppChars) {
+    oppNew[ch.tier] = { ch, tier: ch.tier };
+  }
+
+  // 어떤 티어가 교체되었는지 — DOM 에 저장된 dataset 으로 대조 (없으면 인덱스 순서대로 비교)
+  const swapTasks = []; // { side: 'my'|'opp', oldEl, newCh, tier }
+  for (let i = 0; i < 3; i++) {
+    const tier = i + 1;
+    const myEl = myCardsExisting[i];
+    const newMy = myNew[tier];
+    if (myEl && newMy) {
+      const oldType = myEl.dataset.charType;
+      if (oldType && oldType !== newMy.ch.type) {
+        swapTasks.push({ side: 'my', oldEl: myEl, newCh: newMy.ch, tier });
+      }
+    }
+    const oppEl = oppCardsExisting[i];
+    const newOpp = oppNew[tier];
+    if (oppEl && newOpp) {
+      const oldType = oppEl.dataset.charType;
+      if (oldType && oldType !== newOpp.ch.type) {
+        swapTasks.push({ side: 'opp', oldEl: oppEl, newCh: newOpp.ch, tier });
+      }
+    }
+  }
+
+  // 양측의 swap 여부를 미리 계산 — "교체하지 않음" 라벨 표시 결정에 사용
+  const mySwapped = swapTasks.some(t => t.side === 'my');
+  const oppSwapped = swapTasks.some(t => t.side === 'opp');
+  const addNoExchangeLabel = (container) => {
+    const label = document.createElement('div');
+    label.className = 'no-exchange-label';
+    label.textContent = '교체하지 않음';
+    container.appendChild(label);
+    return label;
+  };
+
+  // 변경 없음 → 짧은 페이드 후 양측 모두에 "교체하지 않음" 라벨 + 확인 버튼 노출
+  if (swapTasks.length === 0) {
+    setTimeout(() => {
+      addNoExchangeLabel(myContainer);
+      addNoExchangeLabel(oppContainer);
+      showFinalConfirmButton();
+      _irevAnimRunning = false;
+    }, 200);
+    return;
+  }
+
+  // 효과음 — 깜박임 + 공개음 (기존 SFX 재사용)
+  try { playSfxSwapBlink(); } catch (e) {}
+  setTimeout(() => { try { playSfxSwapReveal(); } catch (e) {} }, 400);
+
+  // 변경된 티어의 카드 동시에 swap-out → swap-in
+  for (const task of swapTasks) {
+    task.oldEl.classList.add('swap-out');
+  }
+  // 0.5s 후 카드 교체 + swap-in
+  setTimeout(() => {
+    for (const task of swapTasks) {
+      const tooltipSide = task.side === 'my' ? 'left' : 'right';
+      const newCard = createDraftRevealCard(task.newCh, task.tier, tooltipSide);
+      newCard.classList.add('swap-in', 'exchanged-highlight');
+      task.oldEl.replaceWith(newCard);
+    }
+  }, 500);
+
+  // 1.5s 후 — 교체하지 않은 측에 "교체하지 않음" 라벨 + 확인 버튼 노출
+  setTimeout(() => {
+    if (!mySwapped) addNoExchangeLabel(myContainer);
+    if (!oppSwapped) addNoExchangeLabel(oppContainer);
+    showFinalConfirmButton();
+    _irevAnimRunning = false;
+  }, 1500);
+}
+
+// 결정 종료 후 한쪽이 ✗/미선택으로 대기 중 — 결정 영역(✓/✗ 버튼 + 링) 통째로 페이드아웃,
+//   상대 캐릭터 슬롯(.reveal-side, opp 측) 위에 카운트다운 오버레이 표시. 다음 스테이지에서 정상 부활.
+let _aiWaitTickIv = null;
+function clearAiWaitCountdown() {
+  if (_aiWaitTickIv) { clearInterval(_aiWaitTickIv); _aiWaitTickIv = null; }
+  // 카운트다운 오버레이 제거
+  document.querySelectorAll('.opp-cards-wait-overlay').forEach(el => el.remove());
+  document.querySelectorAll('.reveal-side.has-wait-overlay').forEach(el => el.classList.remove('has-wait-overlay'));
+}
+
+function startWaitCountdown(label, waitMs) {
+  clearAiWaitCountdown();
+  // 내 턴 타이머(#timer-clock)는 잠시 숨김 — 다음 페이즈의 timer_start 가 자동으로 다시 표시.
+  const timerClock = document.getElementById('timer-clock');
+  if (timerClock) timerClock.classList.add('hidden');
+  // 결정 영역(✓/✗ 버튼 + 링)은 그대로 유지 (선택 결과 확인용).
+  // 상대 캐릭터 슬롯 컨테이너 위로 카운트다운 오버레이 표시.
+  const oppContainer = document.getElementById('irev-opp-chars');
+  if (!oppContainer) return;
+  const oppSide = oppContainer.closest('.reveal-side') || oppContainer;
+  oppSide.classList.add('has-wait-overlay');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'opp-cards-wait-overlay';
+  let remaining = Math.ceil((waitMs || 7000) / 1000);
+  overlay.innerHTML = `<div class="wait-label">${label}</div><div class="wait-count">${remaining}</div>`;
+  oppSide.appendChild(overlay);
+
+  _aiWaitTickIv = setInterval(() => {
+    remaining--;
+    const countEl = overlay.querySelector('.wait-count');
+    if (countEl) countEl.textContent = String(Math.max(0, remaining));
+    if (remaining <= 0) clearAiWaitCountdown();
+  }, 1000);
+}
+
+socket.on('ai_decision_wait', ({ waitMs }) => {
+  // 인간이 ✓로 교환 드래프트 중이었다면(=screen-exchange 오버레이 떠 있음) 닫고 reveal 로 복귀 후 대기 표시
+  const exScreen = document.getElementById('screen-exchange');
+  if (exScreen && exScreen.classList.contains('is-overlay')) {
+    closeOverlayScreen('screen-exchange');
+  }
+  startWaitCountdown('상대 교체 대기 중', waitMs);
+});
+
+// 교체 공개 애니메이션 종료 후 — "HP 분배로" 확인 버튼 노출.
+//   기존 buildInitialRevealUI 의 카드 등장 단계에서 사용된 버튼(btn-irev-confirm)을 재활용.
+function showFinalConfirmButton() {
+  const btn = document.getElementById('btn-irev-confirm');
+  if (!btn) return;
+  btn.classList.remove('hidden');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+  btn.style.animation = 'revealSlide 0.5s ease-out both';
+  btn.textContent = 'HP 분배로';
+  btn.dataset.confirmStage = 'final';  // 클릭 핸들러에서 분기
 }
 
 function findLocalChar(type, tier) {
@@ -7081,6 +7476,9 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
+  // 교체 공개 애니메이션이 어느 카드를 교체할지 비교에 사용 — 캐릭터 type 과 tier 를 dataset 으로 보관
+  card.dataset.charType = ch.type || '';
+  card.dataset.tier = String(tier);
   const tagHtml = ch.tag ? tagBadgeHtml(ch.tag) : '';
   const labelHtml = extraLabel ? `<span class="reveal-extra-label">${extraLabel}</span>` : '';
   card.innerHTML = `
@@ -7097,75 +7495,30 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
 }
 
 document.getElementById('btn-irev-confirm').addEventListener('click', () => {
+  const btn = document.getElementById('btn-irev-confirm');
+  // 단계 분기: 'final' 스테이지(swap 애니 종료 후) 면 confirm_final_reveal, 아니면 레거시 confirm_initial_reveal
+  if (btn.dataset.confirmStage === 'final') {
+    socket.emit('confirm_final_reveal');
+    btn.disabled = true;
+    btn.textContent = '대기 중...';
+    return;
+  }
   // 레거시 단일 버튼 — YES 결정으로 처리
   socket.emit('confirm_initial_reveal', { wantsExchange: true });
-  document.getElementById('btn-irev-confirm').disabled = true;
-  document.getElementById('btn-irev-confirm').textContent = '대기 중...';
+  btn.disabled = true;
+  btn.textContent = '대기 중...';
 });
 
-// #12 — 신규 YES/NO 결정 버튼
+// 교체 페이즈 — ✓/✗ 토글 핸들러 (10초 동안 자유 변경)
 const _irevYes = document.getElementById('btn-irev-yes');
-const _irevNo = document.getElementById('btn-irev-no');
-function _disableIrevDecision(label) {
-  if (_irevYes) { _irevYes.disabled = true; }
-  if (_irevNo)  { _irevNo.disabled = true; }
-  const row = document.getElementById('irev-decision-row');
-  if (row) {
-    const note = document.createElement('div');
-    note.className = 'reveal-decision-note';
-    note.textContent = label;
-    row.appendChild(note);
-  }
-}
-if (_irevYes) {
-  _irevYes.addEventListener('click', () => {
-    socket.emit('confirm_initial_reveal', { wantsExchange: true });
-    _disableIrevDecision('YES — 교체 드래프트 대기 중...');
-  });
-}
-if (_irevNo) {
-  _irevNo.addEventListener('click', () => {
-    socket.emit('confirm_initial_reveal', { wantsExchange: false });
-    _disableIrevDecision('NO — 그대로 진행. 상대 결정 대기 중...');
-  });
-}
+const _irevNo  = document.getElementById('btn-irev-no');
+if (_irevYes) _irevYes.addEventListener('click', () => toggleIrevDecision('yes'));
+if (_irevNo)  _irevNo.addEventListener('click',  () => toggleIrevDecision('no'));
 
-// #12 — 상대 측만 교환할 때 NO 측이 대기하는 화면
+// 인간 vs 인간 — 한쪽만 교체 신청, 다른 쪽 ✗/미선택일 때 60초 대기.
+//   슬라이드 인 화면 없이 그 자리(교체 페이즈)에서 대기. 상대 카드 슬롯 위로 카운트다운 오버레이.
 socket.on('exchange_waiting_phase', ({ myDraft, oppDraft, oppExchanging, waitingMs }) => {
-  // 교환 드래프트 화면을 띄우되, 입력은 막고 60초 카운트다운 + 상대 슬롯에 안내 오버레이.
-  showScreen('screen-exchange');
-  // 기본 UI 빌드 후 readonly 처리
-  if (typeof buildExchangeDraftUI === 'function') {
-    try { buildExchangeDraftUI(myDraft, {}, oppDraft); } catch (e) {}
-  }
-  // 모든 캐릭터 카드 비활성화
-  setTimeout(() => {
-    document.querySelectorAll('#screen-exchange .char-card, #screen-exchange .draft-char-slot').forEach(el => {
-      el.style.pointerEvents = 'none';
-      el.style.filter = 'grayscale(0.5) brightness(0.7)';
-    });
-    const confirmBtn = document.getElementById('btn-exchange-confirm') || document.getElementById('btn-ex-confirm');
-    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = '상대 교체 대기 중...'; }
-  }, 50);
-  // 카운트다운 오버레이 (상대 슬롯 영역 위)
-  const overlay = document.createElement('div');
-  overlay.id = 'exchange-waiting-overlay';
-  overlay.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9000;background:rgba(15,23,42,0.92);border:2px solid #fbbf24;border-radius:14px;padding:24px 36px;color:#fef3c7;font-size:1.05rem;font-weight:700;text-align:center;box-shadow:0 8px 28px rgba(0,0,0,0.6);pointer-events:none';
-  let remaining = Math.ceil((waitingMs || 60000) / 1000);
-  overlay.innerHTML = `<div>상대가 교체 중...</div><div id="exchange-waiting-count" style="font-size:2.4rem;color:#fde68a;margin-top:8px">${remaining}</div>`;
-  // 기존 오버레이 제거
-  const existing = document.getElementById('exchange-waiting-overlay');
-  if (existing) existing.remove();
-  document.body.appendChild(overlay);
-  const tickIv = setInterval(() => {
-    remaining--;
-    const countEl = document.getElementById('exchange-waiting-count');
-    if (countEl) countEl.textContent = String(Math.max(0, remaining));
-    if (remaining <= 0) {
-      clearInterval(tickIv);
-      // 시간 초과 — overlay 그대로 두고 final_reveal 이벤트 도착 시 정리
-    }
-  }, 1000);
+  startWaitCountdown('상대 교체 대기 중', waitingMs || 60000);
 });
 
 // final_reveal 도착 시 waiting 오버레이 정리
@@ -7441,13 +7794,12 @@ let exSlidePreviewMode = 'attack';
     tab.addEventListener('click', () => {
       if (tab.disabled) return;
       exSlidePreviewMode = tab.dataset.mode;
-      // 그리드만 부분 갱신 — 슬라이드 전체 재렌더 X
+      // 그리드만 부분 갱신 — 슬라이드 전체 재렌더 X.
+      //   ※ 버그 수정: 이전 구현은 S.characters[1..3] 전체 30개를 flatten 한 뒤 exSlideIndex 로 인덱싱했는데,
+      //     exSlideIndex 는 현재 티어의 _exAllChars(약 10개) 안의 인덱스라서 완전히 다른 캐릭터를 불러옴.
+      //     올바른 소스는 S._exAllChars 임.
       try {
-        const all = [
-          ...(S.characters?.[1]||[]),
-          ...(S.characters?.[2]||[]),
-          ...(S.characters?.[3]||[]),
-        ];
+        const all = S._exAllChars || [];
         const idx = (typeof exSlideIndex === 'number') ? exSlideIndex : 0;
         const c = all[idx];
         if (c) exUpdatePreview(c);
@@ -7543,11 +7895,13 @@ function exUpdatePreview(charData) {
   board.querySelectorAll('.cell').forEach(cell => {
     const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
     cell.className = 'cell'; cell.innerHTML = '';
+    const inRange = range.some(c => c.col === col && c.row === row);
     if (col === centerCol && row === centerRow) {
       cell.innerHTML = `<span style="font-size:1rem">${charData.icon}</span>`;
       cell.classList.add('has-piece');
+      // 제자리 공격범위 추가 강조 제거 — 쌍둥이처럼 attack-range 단일 표현으로 통일.
     }
-    if (range.some(c => c.col === col && c.row === row)) cell.classList.add('attack-range');
+    if (inRange) cell.classList.add('attack-range');
   });
   infoEl.textContent = shouldShowDesc(charData) ? charData.desc : '';
 }
@@ -7978,31 +8332,49 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
     const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
     const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
-    // 스킬/패시브 정보 (동일 로직)
+    // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
+    //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
+    //   별도 "(N SP)" 괄호 텍스트나 "스킬:" prefix 사용 안 함 — 색상·박스가 정보를 전달.
+    const spBoxFor = (cost) => `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
+    const headClassFor = (sk) => {
+      if (!sk) return 'mini-header-action';
+      if (sk.replacesAction) return 'mini-header-action';
+      if (sk.oncePerTurn) return 'mini-header-once';
+      return 'mini-header-free';
+    };
     let skillHtml = '';
-    if (pc.skills && pc.skills.length > 1) {
+    if (pc.skills && pc.skills.length > 0) {
       for (const sk of pc.skills) {
-        const skTag = getSkillTypeTag(sk);
-        skillHtml += `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${sk.name} (${sk.cost}SP)</span> ${skTag}</div>`;
-        skillHtml += `<div class="placement-skill-desc">${sk.desc}</div>`;
+        const cls = headClassFor(sk);
+        skillHtml += `<div class="slide-head-line">` +
+          `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
+          spBoxFor(sk.cost) +
+          `</div>`;
+        skillHtml += `<div class="slide-detail-body">${sk.desc}</div>`;
       }
     } else if (pc.hasSkill) {
-      const tag = getSkillTypeTagFromChar(pc);
+      const cls = pc.skillReplacesAction ? 'mini-header-action' : (pc.skillOncePerTurn ? 'mini-header-once' : 'mini-header-free');
       const skillDesc = getSkillDescForPiece(pc);
-      skillHtml = `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${pc.skillName} (${pc.skillCost}SP)</span> ${tag}</div>`;
-      skillHtml += `<div class="placement-skill-desc">${skillDesc}</div>`;
+      skillHtml = `<div class="slide-head-line">` +
+        `<span class="slide-skill-name ${cls}">${pc.skillName}</span>` +
+        spBoxFor(pc.skillCost) +
+        `</div>`;
+      skillHtml += `<div class="slide-detail-body">${skillDesc}</div>`;
     }
-    const passiveTagHtml = '<span class="skill-tag tag-passive">패시브</span>';
     let passiveHtml = '';
     if (pc.passives && pc.passives.length > 0) {
       for (const pid of pc.passives) {
         const name = getPassiveName(pid);
         const desc = getPassiveLabel(pid);
-        passiveHtml += `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${name} ${passiveTagHtml}</div>`;
-        passiveHtml += `<div class="placement-skill-desc">${desc}</div>`;
+        passiveHtml += `<div class="slide-head-line">` +
+          `<span class="slide-skill-name mini-header-passive">${name}</span>` +
+          `</div>`;
+        passiveHtml += `<div class="slide-detail-body">${desc}</div>`;
       }
     } else if (pc.passiveName) {
-      passiveHtml = `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${pc.passiveName} ${passiveTagHtml}</div>`;
+      passiveHtml = `<div class="slide-head-line">` +
+        `<span class="slide-skill-name mini-header-passive">${pc.passiveName}</span>` +
+        `</div>`;
     }
     const hasAnySkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
     const hasAnyPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
@@ -8022,7 +8394,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
           ${grid}
         </div>
         <div class="placement-info-section">
-          ${!hasAnySkill && !hasAnyPassive ? '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>' : ''}
+          ${!hasAnySkill && !hasAnyPassive ? '<div class="slide-head-line" style="color:var(--muted)">스킬 없음</div>' : ''}
           ${skillHtml}
           ${passiveHtml}
         </div>
@@ -8035,83 +8407,6 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     }
     container.appendChild(card);
   }
-}
-
-// 구 updatePlacementUI 로직 (사용 안함 — 위에서 대체)
-function _updatePlacementUI_old() {
-  const list = document.getElementById('placement-piece-list');
-  list.innerHTML = '';
-  for (let i = 0; i < S.myPieces.length; i++) {
-    const pc = S.myPieces[i];
-    const placed = pc.col >= 0;
-    const card = document.createElement('div');
-    card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${placementSelected === i ? 'selected' : ''}`;
-
-    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
-
-    // 스킬 정보
-    let skillHtml = '';
-    if (pc.skills && pc.skills.length > 1) {
-      for (const sk of pc.skills) {
-        const skTag = getSkillTypeTag(sk);
-        skillHtml += `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${sk.name} (${sk.cost}SP)</span> ${skTag}</div>`;
-        skillHtml += `<div class="placement-skill-desc">${sk.desc}</div>`;
-      }
-    } else if (pc.hasSkill) {
-      const tag = getSkillTypeTagFromChar(pc);
-      const skillDesc = getSkillDescForPiece(pc);
-      skillHtml = `<div class="placement-skill-line"><span style="color:#a78bfa">스킬: ${pc.skillName} (${pc.skillCost}SP)</span> ${tag}</div>`;
-      skillHtml += `<div class="placement-skill-desc">${skillDesc}</div>`;
-    }
-
-    // 패시브 정보 — 툴팁과 동일: 주황색 "패시브: 이름" + 패시브 태그
-    const passiveTagHtml = '<span class="skill-tag tag-passive">패시브</span>';
-    let passiveHtml = '';
-    if (pc.passives && pc.passives.length > 0) {
-      for (const pid of pc.passives) {
-        const name = getPassiveName(pid);
-        const desc = getPassiveLabel(pid);
-        passiveHtml += `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${name} ${passiveTagHtml}</div>`;
-        passiveHtml += `<div class="placement-skill-desc">${desc}</div>`;
-      }
-    } else if (pc.passiveName) {
-      passiveHtml = `<div class="placement-skill-line" style="color:#f59e0b">패시브: ${pc.passiveName} ${passiveTagHtml}</div>`;
-    }
-
-    const hasAnySkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
-    const hasAnyPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
-
-    card.innerHTML = `
-      <div class="placement-card-header">
-        <span class="piece-icon">${pc.icon}</span>
-        <div class="piece-info">
-          <strong>${pc.name} ${tagHtml}</strong>
-          <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
-          ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
-        </div>
-      </div>
-      <div class="placement-card-detail">
-        <div class="placement-grid-section">
-          <div class="placement-grid-label">공격 범위</div>
-          ${grid}
-        </div>
-        <div class="placement-info-section">
-          ${skillHtml || (!hasAnyPassive ? '<div class="placement-skill-line" style="color:var(--muted)">스킬 없음</div>' : '')}
-          ${passiveHtml}
-        </div>
-      </div>`;
-    card.addEventListener('click', () => {
-      placementSelected = i;
-      updatePlacementUI();
-      updatePlacementBoard();
-    });
-    list.appendChild(card);
-  }
-
-  const allPlaced = S.myPieces.every(p => p.col >= 0);
-  document.getElementById('btn-placement-confirm').disabled = !allPlaced;
-  updatePlacementBoard();
 }
 
 function updatePlacementBoard() {
@@ -8415,7 +8710,7 @@ function updateSPBar() {
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && S.turnNumber) {
     if (S.turnNumber >= 40) {
-      spCountdown.textContent = 'SP 지급 종료 (40턴 이후)';
+      spCountdown.textContent = 'SP 지급 종료 · 40턴 이후';
       spCountdown.style.color = 'var(--danger)';
     } else {
       const turnsUntilSP = 10 - (S.turnNumber % 10);
@@ -8587,7 +8882,7 @@ function showActionBar(enabled) {
     }
   }
   document.getElementById('btn-cancel').classList.add('hidden');
-  setActionHint(enabled ? '행동을 선택하세요.' : `${oppN()}의 턴입니다.`);
+  setActionHint(enabled ? '행동할 캐릭터의 아이콘을 클릭하세요.' : `${oppN()}의 턴입니다.`);
 }
 
 // 액션 힌트 헬퍼 — urgent=true면 빨강 볼드
@@ -9153,14 +9448,10 @@ function renderMyPieces() {
     card.style.position = 'relative';
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
-    // #24: 보드 파괴 탈락 도장 (1v1 — my 카드)
-    const _myElimKey = `my:${i}`;
-    const _isMyShrunkElim = !pc.alive && S._shrunkEliminated && S._shrunkEliminated.has(_myElimKey);
     // HP 바 폭 — 회복 시 시작 HP 위치 유지 (overlay 가 임시 회복 표시)
     const _displayHpPct = (dmgOv.displayHpPct != null) ? dmgOv.displayHpPct : hpPct;
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
-      ${_isMyShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
       <div class="my-piece-header">
         <span class="p-icon">${pc.icon}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
@@ -9175,7 +9466,7 @@ function renderMyPieces() {
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
-        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : (_isMyShrunkElim ? '' : '💀 격파')}</span>
+        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
 
@@ -11163,7 +11454,7 @@ function renderSpectatorGame(gs) {
   const spCountdown = document.getElementById('sp-countdown');
   if (spCountdown && gs.turnNumber) {
     if (gs.turnNumber >= 40) {
-      spCountdown.textContent = 'SP 지급 종료 (40턴 이후)';
+      spCountdown.textContent = 'SP 지급 종료 · 40턴 이후';
       spCountdown.style.color = 'var(--danger)';
     } else {
       const turnsUntilSP = 10 - (gs.turnNumber % 10);
@@ -13117,14 +13408,21 @@ function bgmGetCtx() {
   return BGM.ctx;
 }
 
-// 첫 사용자 인터랙션 시 현재 화면에 맞는 BGM 자동 재생
+// 첫 사용자 인터랙션 시 현재 화면에 맞는 BGM 자동 재생.
+//   재접속 시 페이지 리로드 → 게임 진행 중인 화면(screen-game / 세팅 페이즈)에서도 BGM 이 자동 시작되도록 분기 추가.
 document.addEventListener('click', function _bgmFirstClick() {
   document.removeEventListener('click', _bgmFirstClick);
-  if (!BGM.currentTrack) {
+  if (!BGM.currentTrack && !bgmMuted) {
     const active = document.querySelector('.screen.active');
     if (active) {
       const id = active.id;
-      if (id === 'screen-lobby') bgmPlay('lobby');
+      const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
+      if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
+      else if (setupScreens.includes(id)) bgmPlay('setup');
+      else if (id === 'screen-game') bgmPlay('game');
+      else if (id === 'screen-gameover') {
+        // 게임오버 트랙은 game_over 핸들러가 별도 호출 — 여기선 무시
+      }
     }
   }
 }, { once: true });
@@ -14091,93 +14389,17 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     board.dataset.built = '1';
   }
 
-  // 미리보기 보드 갱신 — updateDraftPreview 와 동일한 로직 / DOM 만 dict-*
+  // 미리보기 보드 갱신 — 단일 구현(updateDraftPreview)에 위임.
+  //   이전에는 별도 복제 함수로 인해 쌍둥이 강도 분리 배치/색 분기/joinedTwins 색 분리가
+  //   드래프트(=내 덱) 슬라이드와 일치하지 않았음. 이제 한 함수로 통합되어 모든 변경이 자동 동기화됨.
   function updateDictPreview(charData) {
-    const board = document.getElementById('dict-preview-board');
-    if (!board) return;
-    const tabs = overlay.querySelectorAll('.slide-preview-tab[data-dict-mode]');
-    const hasSkill = (typeof hasSkillPreview === 'function') && hasSkillPreview(charData);
-    tabs.forEach(t => {
-      const m = t.dataset.dictMode;
-      t.classList.toggle('active', m === dictPreviewMode && (m === 'attack' || hasSkill));
-      if (m === 'skill') t.disabled = !hasSkill;
+    updateDraftPreview(charData, {
+      boardEl: document.getElementById('dict-preview-board'),
+      infoEl: document.getElementById('dict-preview-info'),
+      tabsRoot: overlay,
+      tabAttr: 'dict-mode',
+      mode: dictPreviewMode,
     });
-    const effectiveMode = (dictPreviewMode === 'skill' && hasSkill) ? 'skill' : 'attack';
-    const centerCol = 2, centerRow = 2;
-    const infoEl = document.getElementById('dict-preview-info');
-
-    if (effectiveMode === 'skill' && hasSkill) {
-      const skill = SKILL_PREVIEW[charData.type];
-      // 합류(쌍둥이) — 누나·동생 양측 공격 범위 색 분리
-      if (skill && skill.joinedTwins) {
-        const elderRange = getAttackCells('twins_elder', centerCol, centerRow);
-        const youngerRange = getAttackCells('twins_younger', centerCol, centerRow);
-        const elderSet = new Set(elderRange.map(c => `${c.col},${c.row}`));
-        const youngerSet = new Set(youngerRange.map(c => `${c.col},${c.row}`));
-        board.querySelectorAll('.cell').forEach(cell => {
-          const col = parseInt(cell.dataset.col);
-          const row = parseInt(cell.dataset.row);
-          cell.className = 'cell';
-          cell.innerHTML = '';
-          if (col === centerCol && row === centerRow) {
-            cell.innerHTML = `<span style="font-size:1.1rem">👫</span>`;
-            cell.classList.add('has-piece');
-          }
-          const inE = elderSet.has(`${col},${row}`);
-          const inY = youngerSet.has(`${col},${row}`);
-          if (inE || inY) cell.classList.add('skill-preview-attack');
-        });
-        if (infoEl) infoEl.textContent = skill.label || '';
-        return;
-      }
-      if (skill) {
-        const cells = skill.cells(centerCol, centerRow);
-        const cellsSet = new Set(cells.map(c => `${c.col},${c.row}`));
-        // 쥐 위치 (showRats=true) — 자기 칸은 제외
-        const ratSet = skill.showRats
-          ? new Set(cells.filter(c => !(c.col === centerCol && c.row === centerRow)).map(c => `${c.col},${c.row}`))
-          : null;
-        board.querySelectorAll('.cell').forEach(cell => {
-          const col = parseInt(cell.dataset.col);
-          const row = parseInt(cell.dataset.row);
-          cell.className = 'cell';
-          cell.innerHTML = '';
-          if (col === centerCol && row === centerRow) {
-            let centerIcon = charData.icon;
-            if (skill.showDragonOnly) centerIcon = '🐲';
-            cell.innerHTML = `<span style="font-size:1.1rem">${centerIcon}</span>`;
-            cell.classList.add('has-piece');
-          } else if (ratSet && ratSet.has(`${col},${row}`)) {
-            // 실제 게임처럼 작게 + 우상단 코너에 배치 (updateDraftPreview 와 동일)
-            cell.innerHTML = `<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>`;
-          }
-          if (cellsSet.has(`${col},${row}`)) {
-            cell.classList.add('skill-preview-' + skill.cat);
-          }
-        });
-        if (infoEl) infoEl.textContent = skill.label || '';
-        return;
-      }
-    }
-
-    // 공격 범위 모드 — 캐릭터 본인 + 자기 공격 범위 셀
-    const atkCells = getAttackCells(charData.type, centerCol, centerRow);
-    const atkSet = new Set(atkCells.map(c => `${c.col},${c.row}`));
-    board.querySelectorAll('.cell').forEach(cell => {
-      const col = parseInt(cell.dataset.col);
-      const row = parseInt(cell.dataset.row);
-      cell.className = 'cell';
-      cell.innerHTML = '';
-      if (col === centerCol && row === centerRow) {
-        cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
-        cell.classList.add('has-piece');
-      } else if (atkSet.has(`${col},${row}`)) {
-        cell.classList.add('attack-range');
-      }
-    });
-    // 8명(SPECIAL_DESC_TYPES) 외에는 공격범위 설명 텍스트 비표시 — 미니 그리드만으로 충분
-    if (infoEl) infoEl.textContent = (typeof shouldShowDesc === 'function' && shouldShowDesc(charData))
-      ? (charData.desc || '') : '';
   }
 
   function renderDictSlide() {
@@ -14188,50 +14410,8 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     const c = chars[dictIdx];
     dictPreviewMode = 'attack';
 
-    // 아이콘 / 이름 / ATK / 미니헤더 / 플레이버 / 레이더
-    document.getElementById('dict-slide-icon').textContent = c.icon;
-    const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
-    document.getElementById('dict-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
-    document.getElementById('dict-slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
-    const miniEl = document.getElementById('dict-slide-mini-headers');
-    if (miniEl) miniEl.innerHTML = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(c) : '';
-    const detail = (typeof CHAR_DETAILS !== 'undefined') ? CHAR_DETAILS[c.type] : null;
-    const flavorEl = document.getElementById('dict-slide-flavor');
-    if (flavorEl) flavorEl.textContent = (detail && detail.flavor) ? detail.flavor : '';
-    if (typeof renderStatRadar === 'function') {
-      renderStatRadar(c.type, document.getElementById('dict-slide-stat-radar'));
-    }
-
-    // 상세 블록 — 드래프트 화면과 동일 포맷
-    const blocksEl = document.getElementById('dict-slide-detail-blocks');
-    const bodyEl = document.getElementById('dict-slide-detail-body');
-    if (detail) {
-      const hasPerBlockDesc = detail.blocks.some(b => b.desc);
-      const renderHeadLine = (b) => {
-        const cls = b.headCls || '';
-        const name = cls
-          ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
-          : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
-        const tag = b.tag || '';
-        const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
-        return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
-      };
-      if (hasPerBlockDesc) {
-        blocksEl.innerHTML = detail.blocks.map(b => {
-          return `<div style="margin-bottom:10px">` +
-            renderHeadLine(b) +
-            (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
-            `</div>`;
-        }).join('');
-        bodyEl.textContent = '';
-      } else {
-        blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
-        bodyEl.innerHTML = detail.body || '';
-      }
-    } else {
-      blocksEl.innerHTML = '';
-      bodyEl.innerHTML = '';
-    }
+    // 공유 헬퍼 — 드래프트(=내 덱) 슬라이드와 동일 콘텐츠 렌더
+    populateSlideContent(c, 'dict-slide');
 
     ensureDictBoard();
     updateDictPreview(c);

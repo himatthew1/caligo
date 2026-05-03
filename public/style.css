@@ -861,34 +861,269 @@ body {
 #screen-exchange #ex-opp-chars { gap: 8px; }
 #screen-exchange .draft-sidebar-btns { margin-top: 6px; }
 #screen-exchange .draft-sidebar-btns .btn-primary { padding: 9px; font-size: 0.85rem; }
-/* #12 — 초기 공개 후 YES/NO 결정 영역 */
+/* 교체 페이즈 결정 영역 — 공개 애니메이션 종료 후 페이드인.
+   ✓/✗ 작은 원형 버튼 + 10초 카운트다운 SVG 링 + 자유 토글. */
 .reveal-decision-row {
   margin-top: 18px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+.reveal-decision-row.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .reveal-prompt {
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--text);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 .reveal-decision-buttons {
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 22px;
+  justify-content: center;
+  align-items: center;
+}
+/* 버튼 + 링을 함께 감싸는 래퍼 — 링이 버튼 외곽에 보이도록 wrap 이 버튼보다 큼 */
+.reveal-decision-wrap {
+  position: relative;
+  width: 66px;
+  height: 66px;
+  display: flex;
+  align-items: center;
   justify-content: center;
 }
-.reveal-decision-buttons .btn {
-  min-width: 220px;
+/* 카운트다운 SVG 링 — 버튼 바깥쪽을 둘러싸는 트랙 + 진행 스트로크 */
+.reveal-decision-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transform: rotate(-90deg);
+  overflow: visible;
 }
+.reveal-decision-ring .ring-track {
+  fill: none;
+  stroke: rgba(120, 120, 130, 0.22);
+  stroke-width: 2.5;
+}
+.reveal-decision-ring .ring-progress {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  /* 둘레 = 2π·27 ≈ 169.65; JS 가 stroke-dashoffset 을 0 → 169.65 로 애니메이션 */
+  stroke-dasharray: 169.65;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.reveal-decision-row.timer-active .reveal-decision-ring .ring-progress {
+  opacity: 1;
+}
+.reveal-decision-ring .ring-progress-yes { stroke: #4ade80; }
+.reveal-decision-ring .ring-progress-no { stroke: #f87171; }
+
+/* 원형 버튼 본체 — wrap 가운데에 작게 배치 (52×52). 링은 외곽에 표시. */
+.reveal-decision-circle {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(180, 180, 195, 0.55);
+  background: rgba(20, 26, 40, 0.92);
+  color: #e2e8f0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+/* 호버/액티브 효과는 비선택 버튼에만 — 선택된 버튼은 호버/클릭 시에도 transform·shadow 변화 없이 동일 유지 */
+.reveal-decision-circle:hover:not(:disabled):not(.is-selected) {
+  transform: scale(1.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.reveal-decision-circle:active:not(:disabled):not(.is-selected) {
+  transform: scale(0.96);
+}
+.reveal-decision-circle:disabled {
+  cursor: default;
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+/* SVG 아이콘 — 폰트 의존 없이 viewBox 중심에 정확히 정렬 */
+.reveal-decision-svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  pointer-events: none;
+}
+/* YES — 녹색 톤 (선택 시 진하게) */
+.reveal-decision-yes .reveal-decision-svg { color: #86efac; }
+/* 호버는 비선택 상태에만 — 선택된 버튼은 호버 여부와 무관하게 동일한 강조 유지 */
+.reveal-decision-yes:hover:not(:disabled):not(.is-selected) {
+  border-color: rgba(74, 222, 128, 0.7);
+  background: rgba(22, 45, 32, 0.95);
+}
+/* 선택 상태 — 매우 명확하게: 채워진 배경 + 굵은 테두리 + 다단 글로우 + 살짝 확대 + 글리프 굵게 */
+.reveal-decision-yes.is-selected {
+  border-width: 2.5px;
+  border-color: #4ade80;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.92), rgba(22, 101, 52, 0.95));
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 4px rgba(74, 222, 128, 0.35),
+    0 0 22px rgba(74, 222, 128, 0.55),
+    0 6px 18px rgba(74, 222, 128, 0.4),
+    inset 0 0 14px rgba(187, 247, 208, 0.25);
+}
+.reveal-decision-yes.is-selected .reveal-decision-svg {
+  color: #ffffff;
+  filter: drop-shadow(0 0 4px rgba(187, 247, 208, 0.7));
+}
+.reveal-decision-yes.is-selected .reveal-decision-svg path { stroke-width: 3.2; }
+/* NO — 적색 톤 */
+.reveal-decision-no .reveal-decision-svg { color: #fca5a5; }
+/* 호버는 비선택 상태에만 — 선택된 버튼은 호버 여부와 무관하게 동일한 강조 유지 */
+.reveal-decision-no:hover:not(:disabled):not(.is-selected) {
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(50, 22, 22, 0.95);
+}
+.reveal-decision-no.is-selected {
+  border-width: 2.5px;
+  border-color: #f87171;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.92), rgba(127, 29, 29, 0.95));
+  transform: scale(1.1);
+  box-shadow:
+    0 0 0 4px rgba(248, 113, 113, 0.35),
+    0 0 22px rgba(248, 113, 113, 0.55),
+    0 6px 18px rgba(248, 113, 113, 0.4),
+    inset 0 0 14px rgba(254, 202, 202, 0.25);
+}
+.reveal-decision-no.is-selected .reveal-decision-svg {
+  color: #ffffff;
+  filter: drop-shadow(0 0 4px rgba(254, 202, 202, 0.7));
+}
+.reveal-decision-no.is-selected .reveal-decision-svg path { stroke-width: 3; }
+/* 선택된 버튼의 링 트랙은 살짝 색조 입혀 시너지 */
+.reveal-decision-wrap:has(.reveal-decision-yes.is-selected) .ring-track { stroke: rgba(74, 222, 128, 0.35); }
+.reveal-decision-wrap:has(.reveal-decision-no.is-selected) .ring-track { stroke: rgba(248, 113, 113, 0.35); }
+
+.reveal-decision-status {
+  font-size: 0.84rem;
+  color: var(--text-dim);
+  min-height: 1.2em;
+  margin-top: 2px;
+}
+/* 결정 종료 후 한쪽이 ✗/미선택으로 대기 중일 때 — 결정 영역(✓/✗ 버튼 + 링)은 통째로 잠시 사라지고,
+   상대 캐릭터 슬롯 위에 카운트다운 오버레이가 떠오름. 다음 스테이지(swap reveal)에서 결정 영역은 다시 정상.
+   상대 카드는 오버레이 너머로 흐릿하게 보임 (블러 + 어두운 배경). */
+@keyframes revealStatusPulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(253, 230, 138, 0.0); }
+  50%      { box-shadow: 0 0 14px rgba(253, 230, 138, 0.35); }
+}
+.opp-cards-wait-overlay {
+  position: absolute;
+  inset: -6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.72);
+  border: 2px solid rgba(253, 230, 138, 0.5);
+  border-radius: 14px;
+  pointer-events: none;
+  z-index: 50;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: revealStatusPulse 1.6s ease-in-out infinite;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+}
+.opp-cards-wait-overlay .wait-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #fef3c7;
+  margin-bottom: 10px;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+.opp-cards-wait-overlay .wait-count {
+  font-size: 3.4rem;
+  font-weight: 900;
+  color: #fde68a;
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(253, 230, 138, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+.reveal-side.has-wait-overlay { position: relative; }
 .reveal-decision-note {
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   color: var(--text-dim);
   margin-top: 4px;
 }
+/* 교체 공개 애니메이션 — 카드 페이드 아웃/인 (1.5s 총) */
+@keyframes swapRevealOut {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.88); }
+}
+@keyframes swapRevealIn {
+  0%   { opacity: 0; transform: scale(0.88); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.reveal-piece-card.swap-out { animation: swapRevealOut 0.5s ease-in forwards; }
+.reveal-piece-card.swap-in  { animation: swapRevealIn 1s ease-out both; }
+
+/* 교환 드래프트 — 캐릭터 딕셔너리처럼 오버레이로 떠오름 (뒤의 교체 페이즈가 그대로 보임).
+   .screen.is-overlay 가 .active 와 무관하게 화면 위에 떠오르며, 진입/퇴장 시 슬라이드 애니메이션. */
+@keyframes overlaySlideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes overlaySlideOutRight {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+@keyframes overlayBackdropFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlayBackdropFadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+.screen.is-overlay {
+  display: flex !important;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 200;
+  overflow: hidden auto;
+  will-change: transform;
+  /* 뒤 화면이 보이도록 살짝 어두운 백드롭 — 패널 자체는 불투명 */
+}
+.screen.is-overlay::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: -1;
+  animation: overlayBackdropFadeIn 0.42s ease forwards;
+}
+.screen.is-overlay.overlay-closing::before {
+  animation: overlayBackdropFadeOut 0.42s ease forwards;
+}
+.screen.is-overlay.overlay-slide-in-right  { animation: overlaySlideInRight  0.42s cubic-bezier(0.4, 0.0, 0.2, 1) forwards; }
+.screen.is-overlay.overlay-slide-out-right { animation: overlaySlideOutRight 0.42s cubic-bezier(0.4, 0.0, 0.2, 1) forwards; }
 .btn.hidden { display: none; }
 
 /* #9 — 보드 위 부채꼴 행동 메뉴
@@ -896,9 +1131,11 @@ body {
    3개 미니 버튼 (이동/공격/스킬). 다른 곳 누르면 자동 닫힘. */
 .radial-action-menu {
   position: fixed;
+  /* inset:0 으로 viewport 전체에 펼쳐 자식 버튼의 left/top 좌표가 viewport 기준으로 정확히 적용됨.
+     이전에는 top/left 미지정으로 normal-flow 위치(=body 시작점)를 origin 으로 잡아 캐릭터 위치와 어긋났음. */
+  inset: 0;
   z-index: 9200;
   pointer-events: none;
-  width: 0; height: 0;
 }
 .radial-action-menu .radial-btn {
   position: absolute;
@@ -1551,9 +1788,13 @@ body.radial-menu-mode #btn-skill { display: none; }
   box-shadow: 0 2px 6px rgba(0,0,0,0.4);
 }
 .hp-twin-split h3 { font-size: 1rem; color: var(--villain); margin-bottom: 6px; }
-.hp-twin-controls {
-  display: flex; gap: 10px;
-  justify-content: center; align-items: center;
+.hp-twin-controls,
+#hp-twin-controls {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
   margin-top: 12px;
   flex-wrap: nowrap;
 }
@@ -1975,17 +2216,17 @@ body.radial-menu-mode #btn-skill { display: none; }
   border: 1px solid var(--border);
   background: rgba(20,28,48,0.5);
   transition: opacity 0.25s, filter 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.2s;
-  /* 비-현재 턴 플레이어는 살짝 딤 (사용자 요청: 정말 살짝) */
-  opacity: 0.78;
-  filter: saturate(0.9);
+  /* 비-현재 턴 플레이어 dim — 너무 약하지도 너무 어둡지도 않은 중간값 (이전 0.78 / 직전 0.45 의 중간). */
+  opacity: 0.62;
+  filter: saturate(0.7) brightness(0.85);
 }
-/* 피격이 발생한 순간만 해당 블록을 풀 밝기로.
-   :has() 미지원 브라우저 안전장치를 위해 JS 가 .block-bright 클래스도 함께 토글. */
-.team-profile-block:has(.profile-hit),
-.team-profile-block:has(.heal-flash),
-.team-profile-block.block-bright {
-  opacity: 1;
-  filter: none;
+/* 피격·회복이 발생한 캐릭터의 프로필 카드만 풀 밝기로 (블록 전체가 아니라 해당 카드만).
+   .turn-bright 가 부여되면 그 턴 동안 계속 유지. JS 가 부여/해제. */
+.team-profile-block .reveal-piece-card.turn-bright,
+.team-profile-block .piece-info-card.turn-bright,
+.team-profile-block .char-card.turn-bright {
+  opacity: 1 !important;
+  filter: none !important;
 }
 /* 팀 절대 컬러 보더 제거 — 사용자 요청 */
 .team-profile-block.team-block-blue { border: 1px solid var(--border); background: rgba(20,28,48,0.5); }
@@ -2100,12 +2341,6 @@ body.radial-menu-mode #btn-skill { display: none; }
   text-shadow: 0 0 4px rgba(240,192,64,0.7);
 }
 .cell.attack-range { background: var(--range); border-color: rgba(226,168,75,0.5); }
-/* 캐릭터 딕셔너리: 제자리 자체가 공격범위인 케이스 — 황금 ring + inset glow 로 강조 (사용자 요청 #8) */
-.cell.has-piece.cell-self-attackable {
-  background: linear-gradient(135deg, rgba(226,168,75,0.50), rgba(26,32,64,0.82));
-  border: 2px solid #e2a84b;
-  box-shadow: inset 0 0 8px rgba(226,168,75,0.55);
-}
 .cell.move-range   { background: var(--move-h); border-color: rgba(82,183,136,0.5); }
 .cell.hit-mark     { background: var(--hit); border: 2px solid #ef4444 !important; box-shadow: inset 0 0 8px rgba(239,68,68,0.4); }
 .cell.miss-mark    { background: var(--miss); }
@@ -2976,8 +3211,17 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 }
 
 /* (구 .selected-piece-glow 클래스 — 미사용 — 제거) */
-.action-hint { font-size: 0.82rem; color: var(--muted); text-align: center; min-height: 20px; }
-.action-hint.urgent { color: var(--danger); font-weight: 700; font-size: 0.88rem; }
+/* 액션 힌트 — 사용자 가독성 요청으로 더 굵고 밝게. urgent 는 빨강 강조 유지. */
+.action-hint {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fde68a;
+  text-align: center;
+  min-height: 22px;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+.action-hint.urgent { color: var(--danger); font-weight: 800; font-size: 1rem; }
 
 /* 스킬 미리보기 탭 */
 .slide-preview-tabs {
@@ -3474,6 +3718,19 @@ body.team-mode .placement-opp-panel {
   border: 2px solid rgba(239,68,68,0.6);
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
+/* ── 1v1: 비-현재-턴 사이드 패널 dim — 팀모드와 동일한 수치(opacity 0.62, saturate 0.7, brightness 0.85)로 통일 ── */
+.side-panel {
+  transition: opacity 0.25s, filter 0.25s;
+  opacity: 0.62;
+  filter: saturate(0.7) brightness(0.85);
+}
+.side-panel.turn-active { opacity: 1; filter: none; }
+/* 피격/회복 시 해당 카드만 풀 밝기 — 그 턴 동안 유지 (turn-bright). 다음 턴 진입 시 clearAllTurnBright 가 일괄 해제 */
+.side-panel .my-piece-card.turn-bright,
+.side-panel .opp-piece-card.turn-bright {
+  opacity: 1 !important;
+  filter: none !important;
+}
 .my-piece-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .my-piece-header .p-icon { font-size: 1.4rem; }
 .my-piece-header strong { font-size: 0.9rem; }
@@ -3604,29 +3861,41 @@ body.team-mode .placement-opp-panel {
   border-color: rgba(220, 252, 231, 0.92);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
-/* #24 — 보드 파괴로 탈락한 유닛: 카드 중앙에 큰 "탈락" 사선 도장. 본체 도장과 위치 분리. */
-.elim-stamp {
+/* #24 — 플레이어 프로필 블록 위에 부착되는 큰 '탈락' 도장 (보드 파괴로 모든 캐릭터 탈락 시).
+   사용자 요청: 캐릭터 카드 위가 아닌 플레이어 프로필 자체에 두 캐릭터를 덮도록 부착. */
+.player-elim-stamp {
   position: absolute;
   top: 50%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-18deg);
-  background: rgba(63, 63, 70, 0.96);
+  transform: translate(-50%, -50%) rotate(-14deg);
+  background: rgba(38, 38, 42, 0.96);
   color: #fef3c7;
-  font-size: 1.0rem;
+  font-size: 2.4rem;
   font-weight: 900;
-  padding: 5px 16px;
-  border-radius: 5px;
-  border: 3px solid rgba(212, 212, 216, 0.95);
-  letter-spacing: 0.18em;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  z-index: 14;
+  padding: 10px 36px;
+  border-radius: 8px;
+  border: 5px solid rgba(212, 212, 216, 0.96);
+  letter-spacing: 0.32em;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), 0 0 0 2px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  z-index: 50;
   pointer-events: none;
-  animation: elim-stamp-in 0.55s ease-out 1;
+  animation: player-elim-stamp-in 0.65s ease-out 1;
+  white-space: nowrap;
 }
-@keyframes elim-stamp-in {
-  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-30deg) scale(2.0); }
-  60%  { opacity: 1; transform: translate(-50%, -50%) rotate(-12deg) scale(0.9); }
-  100% { opacity: 1; transform: translate(-50%, -50%) rotate(-18deg) scale(1); }
+@keyframes player-elim-stamp-in {
+  0%   { opacity: 0; transform: translate(-50%, -50%) rotate(-30deg) scale(2.4); }
+  55%  { opacity: 1; transform: translate(-50%, -50%) rotate(-8deg)  scale(0.92); }
+  100% { opacity: 1; transform: translate(-50%, -50%) rotate(-14deg) scale(1); }
+}
+/* 탈락된 플레이어 블록 자체 — 카드 내용 살짝 dim 처리해 도장 가독성 ↑. position relative 보장. */
+.team-profile-block.player-eliminated {
+  position: relative;
+  filter: grayscale(0.7) brightness(0.55);
+  opacity: 0.7;
+}
+.team-profile-block.player-eliminated .my-piece-card,
+.team-profile-block.player-eliminated .opp-piece-card {
+  pointer-events: none;
 }
 /* .heal-tag 제거 — 메인 텍스트가 이미 "X 회복" 이라 중복 표시 안 함 (사용자 요청) */
 .dmg-stamp.loyalty .loyalty-tag {
@@ -4571,7 +4840,7 @@ body.team-mode .placement-opp-panel {
     font-size: 0.75rem; padding: 8px 6px;
   }
   .btn-surrender { flex-basis: 100%; }
-  .action-hint { font-size: 0.72rem; }
+  .action-hint { font-size: 0.85rem; font-weight: 700; }
 
   /* SP 바 */
   .sp-bar-container { padding: 6px 10px; gap: 8px; }

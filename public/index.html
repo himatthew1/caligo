@@ -299,14 +299,36 @@
         <div id="irev-opp-chars" class="reveal-pieces"></div>
       </div>
     </div>
-    <!-- #12: 교체 필요 여부를 양측에서 각자 선택. 둘 다 NO 면 즉시 다음 단계로,
-         하나라도 YES 면 그 측만 교환 드래프트 진행, 다른 측은 60초 대기 화면. -->
+    <!-- 교체 페이즈 결정 영역 — 공개 애니메이션 종료 후 페이드인 + 10초 결정 윈도우.
+         10초 동안 ✓/✗ 자유 토글 가능, 미선택은 패스(✗)로 간주. 양측 결정 후 일제히 다음 단계.
+         원형 SVG 링이 10초 카운트다운을 시각화. -->
     <div id="irev-decision-row" class="reveal-decision-row">
       <div class="reveal-prompt">캐릭터 교체가 필요하십니까?</div>
       <div class="reveal-decision-buttons">
-        <button id="btn-irev-no" class="btn btn-secondary btn-large">NO — 그대로 진행</button>
-        <button id="btn-irev-yes" class="btn btn-primary btn-large">YES — 교체 드래프트로</button>
+        <div class="reveal-decision-wrap">
+          <svg class="reveal-decision-ring" viewBox="0 0 60 60" aria-hidden="true">
+            <circle class="ring-track" cx="30" cy="30" r="27" />
+            <circle class="ring-progress ring-progress-no" cx="30" cy="30" r="27" />
+          </svg>
+          <button id="btn-irev-no" class="reveal-decision-circle reveal-decision-no" type="button" title="교체 안 함" aria-label="교체 안 함">
+            <svg class="reveal-decision-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7 L17 17 M17 7 L7 17" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none" />
+            </svg>
+          </button>
+        </div>
+        <div class="reveal-decision-wrap">
+          <svg class="reveal-decision-ring" viewBox="0 0 60 60" aria-hidden="true">
+            <circle class="ring-track" cx="30" cy="30" r="27" />
+            <circle class="ring-progress ring-progress-yes" cx="30" cy="30" r="27" />
+          </svg>
+          <button id="btn-irev-yes" class="reveal-decision-circle reveal-decision-yes" type="button" title="교체 드래프트로" aria-label="교체 드래프트로">
+            <svg class="reveal-decision-svg" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12.5 L10 17.5 L19 7.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </button>
+        </div>
       </div>
+      <div id="irev-decision-status" class="reveal-decision-status"></div>
     </div>
     <button id="btn-irev-confirm" class="btn btn-primary btn-large hidden">교환 드래프트로</button>
   </div>
@@ -757,7 +779,7 @@
   <div class="modal-content">
     <h3 id="deck-name-modal-title">덱 이름 설정</h3>
     <p style="color:var(--text-dim); margin:12px 0 6px;">저장할 덱의 이름을 입력해주세요.</p>
-    <input id="deck-name-input" type="text" maxlength="10" placeholder="덱 이름을 입력해주세요 (최대 10글자)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:12px" />
+    <input id="deck-name-input" type="text" maxlength="10" placeholder="덱 이름을 입력해주세요 · 최대 10글자" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:0.95rem;box-sizing:border-box;margin-bottom:12px" />
     <div class="modal-btn-row">
       <button id="deck-name-confirm" class="btn btn-primary">확인</button>
       <button id="deck-name-cancel" class="btn btn-muted">취소</button>
