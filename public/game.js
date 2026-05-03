@@ -2976,7 +2976,7 @@ socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   if (timeout) {
     showSkillToast('시간초과! 교환 없이 확정되었습니다.', false, undefined, 'event');
   } else if (exchanged) {
-    showSkillToast(`${exchanged.newChar.icon}${exchanged.newChar.name} 교환 완료.`, false, undefined, 'event');
+    showSkillToast(`${exchanged.newChar.icon}${exchanged.newChar.name} 교환 완료`, false, undefined, 'event');
   }
 });
 
@@ -3405,14 +3405,26 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   const _attackKilled = (cellResults || []).some(c => c.hit && c.destroyed);
   if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _attackKilled });
 
-  // #10: 단일 피격이라면 추리 토큰 자동 배치 (위치 확인 — 토스트·로그 없음)
+  // #10/#13: 단일 피격이라면 추리 토큰 자동 배치 (위치 확인 — 토스트·로그 없음).
+  //   1v1: pieceKey = "type:subUnit"
+  //   팀모드: pieceKey = "type:subUnit@ownerIdx" (renderTeamProfiles 와 동일 형식)
   // 단, 격파된 대상은 자연스럽게 사라지므로 토큰 생성 의미 없음 → 살아있는 hit 만 카운트
   const _aliveHits = (cellResults || []).filter(c => c.hit && !c.destroyed && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
-  if (_aliveHits.length === 1 && !S.isTeamMode) {
+  if (_aliveHits.length === 1) {
     const c = _aliveHits[0];
-    const piece = S.oppPieces?.[c.defPieceIdx];
-    if (piece) {
-      const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+    let piece = null;
+    let pieceKey = null;
+    if (S.isTeamMode && c.defOwnerIdx !== undefined) {
+      const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+      if (ownerPlayer && ownerPlayer.pieces && ownerPlayer.pieces[c.defPieceIdx]) {
+        piece = ownerPlayer.pieces[c.defPieceIdx];
+        pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+      }
+    } else {
+      piece = S.oppPieces?.[c.defPieceIdx];
+      if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+    }
+    if (piece && pieceKey) {
       try {
         S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
         S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
@@ -3694,35 +3706,35 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   const tickUp   = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up'); };
 
   let nextMs = 80;
-  // ① 인스턴트 SP 소비 (mine 측) — 트레이의 가장 안쪽(숫자에 가까운) pip 가 숫자 쪽으로 빨려 들어감
+  // ① 인스턴트 SP 소비 (mine 측) — 사용자 요청 #16:
+  //    숫자랑 *멀리* 있는 pip 부터 순차 소비.
+  //    mine 트레이는 row-reverse 라 DOM 끝(last)이 시각적으로 가장 왼쪽(숫자에서 멀리). → last 부터 빨아들임.
   for (let i = 0; i < instantConsumed; i++) {
     const t = nextMs;
     setTimeout(() => {
       const trayId = 'sp-instant-tray-mine';
       const tray = document.getElementById(trayId);
-      // 가장 안쪽 pip = 숫자에 가까운 (mine: 첫번째)
-      const targetPip = tray && tray.querySelector('.sp-instant-pip:not(.sp-pip-consume)');
+      const pips = tray ? tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)') : [];
+      const targetPip = pips.length > 0 ? pips[pips.length - 1] : null;
       let from = my;
       if (targetPip) {
         const r = targetPip.getBoundingClientRect();
         from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        // pip 즉시 consume 애니 + 제거
         targetPip.classList.add('sp-pip-consume');
         setTimeout(() => { if (targetPip.parentNode) targetPip.remove(); }, 420);
       }
-      // pip 위치에서 출발해 SP 숫자로 비행
       spawnSpOrbFlight(from, my, 'instant');
       try { playSfxInstantConsume(); } catch (e) {}
     }, t);
     nextMs += 130;
   }
-  // ①' 인스턴트 SP 소비 (opp 측) — 상대/관전 시점에서 시전자가 사용한 instant SP 시각화
+  // ①' 인스턴트 SP 소비 (opp 측) — 상대/관전 시점.
+  //    opp 트레이는 default row 이고 숫자가 *왼쪽*에 있음. DOM 끝(last)이 시각적으로 가장 오른쪽(숫자에서 멀리).
   for (let i = 0; i < oppInstantConsumed; i++) {
     const t = nextMs;
     setTimeout(() => {
       const trayId = 'sp-instant-tray-opp';
       const tray = document.getElementById(trayId);
-      // 가장 안쪽 pip = 숫자에 가까운 (opp: 마지막)
       const pips = tray ? tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)') : [];
       const targetPip = pips.length > 0 ? pips[pips.length - 1] : null;
       let from = opp;
@@ -4728,11 +4740,21 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         if (cells.length > 0) animateAttack([], cells);
         const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
-        if (aliveHits.length === 1 && !S.isTeamMode) {
+        if (aliveHits.length === 1) {
           const c = aliveHits[0];
-          const piece = S.oppPieces?.[c.defPieceIdx];
-          if (piece) {
-            const pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+          let piece = null;
+          let pieceKey = null;
+          if (S.isTeamMode && c.defOwnerIdx !== undefined) {
+            const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+            if (ownerPlayer && ownerPlayer.pieces && ownerPlayer.pieces[c.defPieceIdx]) {
+              piece = ownerPlayer.pieces[c.defPieceIdx];
+              pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+            }
+          } else {
+            piece = S.oppPieces?.[c.defPieceIdx];
+            if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+          }
+          if (piece && pieceKey) {
             try {
               S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
               S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
@@ -6005,7 +6027,7 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     S.teamDraft[slot] = c.type;
     socket.emit('team_draft_pick', { slot, type: c.type });
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name} 선택 완료.`, false, undefined, 'event');
+    showSkillToast(`${c.icon} ${c.name} 선택 완료`, false, undefined, 'event');
     draftUpdateSelectionState();
     return;
   }
@@ -6019,7 +6041,7 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
   if (!isDuplicate) {
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name} 선택 완료.`, false, undefined, 'event');
+    showSkillToast(`${c.icon} ${c.name} 선택 완료`, false, undefined, 'event');
   }
 });
 
@@ -6293,14 +6315,14 @@ function updateDraftPreview(charData) {
     cell.className = 'cell';
     cell.innerHTML = '';
 
+    const inRange = range.some(c => c.col === col && c.row === row);
     if (col === centerCol && row === centerRow) {
       cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
       cell.classList.add('has-piece');
+      // 사용자 요청 #8: 제자리 공격범위 포함 시 시각적으로 명확히 (황금 ring + inset glow)
+      if (inRange) cell.classList.add('cell-self-attackable');
     }
-
-    if (range.some(c => c.col === col && c.row === row)) {
-      cell.classList.add('attack-range');
-    }
+    if (inRange) cell.classList.add('attack-range');
   });
 
   document.getElementById('draft-preview-info').textContent = shouldShowDesc(charData) ? charData.desc : '';
@@ -10411,12 +10433,10 @@ function runFullscreenLocked(playFn, durationMs) {
     return;
   }
   S._fullscreenBusy = true;
-  try { playFn(); } catch (e) {}
+  try { playFn(); } catch (e) { console.error('[fullscreen]', e); }
   setTimeout(() => {
     S._fullscreenBusy = false;
-    // 버퍼된 이벤트 드레인 (다음 오버레이 시작 전 처리)
     drainFullscreenBuffer();
-    // 큐에 다음 오버레이가 있으면 재생
     if (S._fullscreenQueue.length > 0) {
       const next = S._fullscreenQueue.shift();
       runFullscreenLocked(next.fn, next.durationMs);
@@ -10430,6 +10450,15 @@ function drainFullscreenBuffer() {
     try { ev(); } catch (e) {}
   }
 }
+// #17/#22 안전장치 — 풀스크린 lock 이 어떤 이유로 stuck 되어도 버퍼된 토스트/로그가 영구 누락되지 않게.
+//   1초마다 점검: lock 이 풀려있고 버퍼에 미발송 이벤트가 쌓여있으면 강제 드레인.
+setInterval(() => {
+  try {
+    if (!S._fullscreenBusy && (S._eventDuringFullscreen || []).length > 0) {
+      drainFullscreenBuffer();
+    }
+  } catch (e) {}
+}, 1000);
 
 function showError(id, msg) {
   const el = document.getElementById(id);
