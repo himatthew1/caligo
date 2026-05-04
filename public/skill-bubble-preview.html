@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스킬 시전 말풍선 미리보기 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: 0.04em; }
+  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 28px; text-align: center; max-width: 540px; line-height: 1.5; }
+
+  /* 더미 게임 레이아웃 — 좌 패널 / 보드 / 우 패널 */
+  .stage {
+    display: grid;
+    grid-template-columns: 220px 360px 220px;
+    gap: 32px;
+    align-items: start;
+    margin-bottom: 32px;
+  }
+  .side-panel-mock {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .side-panel-mock h3 {
+    margin: 0 0 10px; font-size: 0.85rem; color: #94a3b8;
+    text-align: center; font-weight: 600;
+  }
+  .piece-card-mock {
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+    transition: all 0.3s;
+  }
+  .piece-card-mock.is-caster {
+    border-color: #fde68a;
+    background: rgba(253, 230, 138, 0.08);
+    box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.45), 0 0 18px rgba(253, 230, 138, 0.4);
+  }
+  .piece-card-mock .ic { font-size: 1.5rem; }
+  .piece-card-mock .nm { font-size: 0.85rem; font-weight: 700; color: #fef3c7; }
+
+  .board-mock {
+    width: 360px; height: 360px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 2px solid rgba(253, 230, 138, 0.35);
+    border-radius: 14px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(5, 1fr);
+    padding: 6px; gap: 4px;
+  }
+  .board-mock .cell {
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 6px;
+  }
+
+  /* 컨트롤 */
+  .controls {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 16px; max-width: 720px; width: 100%;
+  }
+  .ctl-btn {
+    padding: 10px 14px;
+    border: 2px solid;
+    border-radius: 8px;
+    font-weight: 800; font-size: 0.85rem;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .ctl-btn:hover { transform: translateY(-1px); }
+  .ctl-action {
+    background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+    border-color: #fca5a5; color: #fff;
+  }
+  .ctl-once {
+    background: linear-gradient(135deg, #fde047 0%, #facc15 100%);
+    border-color: #fef08a; color: #422006;
+  }
+  .ctl-free {
+    background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+    border-color: #86efac; color: #fff;
+  }
+
+  .switch-row {
+    display: flex; gap: 12px; margin-bottom: 24px; align-items: center;
+  }
+  .toggle-btn {
+    padding: 6px 14px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    color: #94a3b8;
+    border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+  }
+  .toggle-btn.active { background: rgba(253, 230, 138, 0.15); border-color: #fde68a; color: #fde68a; }
+
+  .desc {
+    max-width: 720px; font-size: 0.78rem; color: #94a3b8; line-height: 1.6;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 10px; padding: 14px 18px;
+  }
+  .desc h3 { margin: 0 0 8px; color: #fde68a; font-size: 0.92rem; }
+  .desc code { color: #fde68a; font-size: 0.85em; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80; border-radius: 100px;
+    font-size: 0.7rem; font-weight: 700;
+  }
+
+  /* ==== 말풍선 — game style.css 와 동일 ==== */
+  .skill-cast-bubble {
+    position: fixed;
+    z-index: 9600;
+    padding: 8px 18px;
+    border-radius: 100px;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+    border: 2px solid;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.55);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    transform: translate(0, -50%) scale(0.4);
+    opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease-out;
+  }
+  .skill-cast-bubble.bubble-show {
+    transform: translate(0, -50%) scale(1);
+    opacity: 1;
+  }
+  .skill-cast-bubble.bubble-fade {
+    transform: translate(0, -50%) scale(0.95);
+    opacity: 0;
+    transition: transform 0.45s ease-in, opacity 0.5s ease-in;
+  }
+  .skill-cast-bubble.bubble-action {
+    background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+    border-color: #fca5a5; color: #fff;
+  }
+  .skill-cast-bubble.bubble-once {
+    background: linear-gradient(135deg, #fde047 0%, #facc15 100%);
+    border-color: #fef08a; color: #422006;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.4);
+  }
+  .skill-cast-bubble.bubble-free {
+    background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+    border-color: #86efac; color: #fff;
+  }
+  .skill-cast-bubble::after,
+  .skill-cast-bubble::before {
+    content: ''; position: absolute; top: 50%;
+    width: 0; height: 0;
+  }
+  .skill-cast-bubble.bubble-tail-left::after {
+    left: -10px; transform: translateY(-50%);
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-right: 12px solid currentColor;
+  }
+  .skill-cast-bubble.bubble-tail-left::before {
+    left: -13px; transform: translateY(-50%);
+    border-top: 11px solid transparent;
+    border-bottom: 11px solid transparent;
+    border-right: 14px solid currentColor;
+    opacity: 0.5;
+  }
+  .skill-cast-bubble.bubble-tail-right::after {
+    right: -10px; transform: translateY(-50%);
+    border-top: 9px solid transparent;
+    border-bottom: 9px solid transparent;
+    border-left: 12px solid currentColor;
+  }
+  .skill-cast-bubble.bubble-tail-right::before {
+    right: -13px; transform: translateY(-50%);
+    border-top: 11px solid transparent;
+    border-bottom: 11px solid transparent;
+    border-left: 14px solid currentColor;
+    opacity: 0.5;
+  }
+  .skill-cast-bubble.bubble-action::after,
+  .skill-cast-bubble.bubble-action::before { color: #ef4444; }
+  .skill-cast-bubble.bubble-once::after,
+  .skill-cast-bubble.bubble-once::before { color: #facc15; }
+  .skill-cast-bubble.bubble-free::after,
+  .skill-cast-bubble.bubble-free::before { color: #22c55e; }
+</style>
+</head>
+<body>
+
+<h1>스킬 시전 말풍선 <span class="badge">DEV</span></h1>
+<div class="sub">시전자 프로필에서 보드 쪽으로 꼬리 달린 말풍선. 2초 유지 후 페이드아웃. 색상은 스킬 유형별 — <strong style="color:#f87171">행동소비형 빨강</strong> · <strong style="color:#fde047">자유시전·턴1회 노랑</strong> · <strong style="color:#4ade80">자유시전 초록</strong>.</div>
+
+<div class="switch-row">
+  시전자 위치:
+  <button class="toggle-btn active" id="tgl-left" data-side="left">왼쪽 (내 패널)</button>
+  <button class="toggle-btn" id="tgl-right" data-side="right">오른쪽 (적 패널)</button>
+</div>
+
+<div class="stage" id="stage">
+  <!-- 좌측 패널 -->
+  <div class="side-panel-mock">
+    <h3>나</h3>
+    <div class="piece-card-mock" data-card="my-1">
+      <span class="ic">🧙</span><span class="nm">마법사</span>
+    </div>
+    <div class="piece-card-mock is-caster" data-card="my-2" id="card-left">
+      <span class="ic">🧹</span><span class="nm">마녀</span>
+    </div>
+    <div class="piece-card-mock" data-card="my-3">
+      <span class="ic">🐀</span><span class="nm">쥐 장수</span>
+    </div>
+  </div>
+
+  <!-- 보드 -->
+  <div class="board-mock" id="board-mock">
+    <!-- 25개 셀 -->
+  </div>
+
+  <!-- 우측 패널 -->
+  <div class="side-panel-mock">
+    <h3>적</h3>
+    <div class="piece-card-mock" data-card="opp-1">
+      <span class="ic">🏹</span><span class="nm">궁수</span>
+    </div>
+    <div class="piece-card-mock" data-card="opp-2" id="card-right">
+      <span class="ic">🐉</span><span class="nm">드래곤 조련사</span>
+    </div>
+    <div class="piece-card-mock" data-card="opp-3">
+      <span class="ic">⛓</span><span class="nm">고문 기술자</span>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="ctl-btn ctl-action" data-type="action" data-skill="저주">저주 (행동소비형)</button>
+  <button class="ctl-btn ctl-action" data-type="action" data-skill="분신">분신 (행동소비형)</button>
+  <button class="ctl-btn ctl-action" data-type="action" data-skill="유황범람">유황범람 (행동소비형)</button>
+
+  <button class="ctl-btn ctl-once" data-type="once" data-skill="질주">질주 (자유·턴1회)</button>
+  <button class="ctl-btn ctl-once" data-type="once" data-skill="쌍검무">쌍검무 (자유·턴1회)</button>
+  <button class="ctl-btn ctl-once" data-type="once" data-skill="그림자 숨기">그림자 숨기 (자유·턴1회)</button>
+
+  <button class="ctl-btn ctl-free" data-type="free" data-skill="역병의 자손들">역병의 자손들 (자유)</button>
+  <button class="ctl-btn ctl-free" data-type="free" data-skill="신성">신성 (자유)</button>
+  <button class="ctl-btn ctl-free" data-type="free" data-skill="드래곤 소환">드래곤 소환 (자유)</button>
+</div>
+
+<div class="desc">
+  <h3>구성</h3>
+  ① <code>showSkillCastBubble(casterCard, skillName, type)</code> — 시전자 카드에서 보드 방향 자동 감지 후 반대편으로 꼬리 배치<br>
+  ② Pop-in 애니메이션 (28ms cubic-bezier bounce) → 2초 유지 → fade-out (450ms)<br>
+  ③ z-index: <code>9600</code> — skill-cast-dim(8500) / spotlight(9000) 위, 토스트(9700) 아래<br>
+  ④ 실제 게임에서는 <code>skill_result</code> · <code>status_update</code> · <code>team_skill_notice</code> · <code>spectator_skill_anim</code> 모두에 자동 트리거
+</div>
+
+<script>
+// 보드 셀 빌드
+const board = document.getElementById('board-mock');
+for (let i = 0; i < 25; i++) {
+  const c = document.createElement('div');
+  c.className = 'cell';
+  board.appendChild(c);
+}
+
+// 시전자 카드 토글
+let currentCasterCard = document.getElementById('card-left');
+function setCasterSide(side) {
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.side === side));
+  document.querySelectorAll('.piece-card-mock').forEach(c => c.classList.remove('is-caster'));
+  currentCasterCard = (side === 'left') ? document.getElementById('card-left') : document.getElementById('card-right');
+  currentCasterCard.classList.add('is-caster');
+}
+document.querySelectorAll('.toggle-btn').forEach(b => {
+  b.addEventListener('click', () => setCasterSide(b.dataset.side));
+});
+
+// 말풍선 함수 (game.js 와 동일)
+function showSkillCastBubble(casterCard, skillName, skillType) {
+  if (!casterCard || !skillName) return;
+  const board = document.getElementById('board-mock');
+  if (!board) return;
+  const cardRect = casterCard.getBoundingClientRect();
+  const boardRect = board.getBoundingClientRect();
+  const cardCx = cardRect.left + cardRect.width / 2;
+  const boardCx = boardRect.left + boardRect.width / 2;
+  const boardIsRight = boardCx > cardCx;
+  const type = ['action', 'once', 'free'].includes(skillType) ? skillType : 'free';
+
+  const bubble = document.createElement('div');
+  bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;
+  bubble.textContent = skillName;
+  if (boardIsRight) {
+    bubble.style.left = (cardRect.right + 14) + 'px';
+  } else {
+    bubble.style.right = (window.innerWidth - cardRect.left + 14) + 'px';
+  }
+  bubble.style.top = (cardRect.top + cardRect.height / 2) + 'px';
+  document.body.appendChild(bubble);
+  requestAnimationFrame(() => { bubble.classList.add('bubble-show'); });
+  setTimeout(() => { bubble.classList.add('bubble-fade'); }, 2000);
+  setTimeout(() => { if (bubble.parentNode) bubble.remove(); }, 2600);
+}
+
+// 컨트롤 버튼
+document.querySelectorAll('.ctl-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    showSkillCastBubble(currentCasterCard, b.dataset.skill, b.dataset.type);
+  });
+});
+</script>
+
+</body>
+</html>

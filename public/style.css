@@ -2825,6 +2825,99 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .skill-cast-dim:not(.hidden) { opacity: 1; }
 .skill-cast-dim.hidden { display: none; }
 
+/* ── 스킬 시전 말풍선 — 시전자 프로필에서 보드 쪽으로 꼬리 달린 oval ── */
+.skill-cast-bubble {
+  position: fixed;
+  z-index: 9600;                       /* skill-cast-dim(8500), spotlight(9000) 위, 토스트(9700) 아래 */
+  padding: 8px 18px;
+  border-radius: 100px;                /* pill 모양 */
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  border: 2px solid;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.55);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  transform: translate(0, -50%) scale(0.4);
+  opacity: 0;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease-out;
+}
+.skill-cast-bubble.bubble-show {
+  transform: translate(0, -50%) scale(1);
+  opacity: 1;
+}
+.skill-cast-bubble.bubble-fade {
+  transform: translate(0, -50%) scale(0.95);
+  opacity: 0;
+  transition: transform 0.45s ease-in, opacity 0.5s ease-in;
+}
+/* 유형별 색상 — mini-header 와 일치 */
+.skill-cast-bubble.bubble-action {
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+  border-color: #fca5a5;
+  color: #fff;
+}
+.skill-cast-bubble.bubble-once {
+  background: linear-gradient(135deg, #fde047 0%, #facc15 100%);
+  border-color: #fef08a;
+  color: #422006;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.4);
+}
+.skill-cast-bubble.bubble-free {
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+  border-color: #86efac;
+  color: #fff;
+}
+/* 꼬리 — 카드 쪽으로 향함. ::after 로 삼각형 + ::before 로 테두리 매칭 */
+.skill-cast-bubble::after,
+.skill-cast-bubble::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+/* 꼬리: 보드가 오른쪽 → 말풍선이 카드 오른쪽 → 꼬리는 왼쪽 (카드 쪽) 향함 */
+.skill-cast-bubble.bubble-tail-left::after {
+  left: -10px;
+  transform: translateY(-50%);
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-right: 12px solid currentColor;  /* 본체 색상 사용 */
+}
+.skill-cast-bubble.bubble-tail-left::before {
+  left: -13px;
+  transform: translateY(-50%);
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-right: 14px solid currentColor;
+  opacity: 0.5;  /* 테두리 효과 */
+}
+/* 보드가 왼쪽 → 말풍선이 카드 왼쪽 → 꼬리는 오른쪽 향함 */
+.skill-cast-bubble.bubble-tail-right::after {
+  right: -10px;
+  transform: translateY(-50%);
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 12px solid currentColor;
+}
+.skill-cast-bubble.bubble-tail-right::before {
+  right: -13px;
+  transform: translateY(-50%);
+  border-top: 11px solid transparent;
+  border-bottom: 11px solid transparent;
+  border-left: 14px solid currentColor;
+  opacity: 0.5;
+}
+/* 색상 확정 — 꼬리는 본체 그라데이션의 중간 톤으로 */
+.skill-cast-bubble.bubble-action::after,
+.skill-cast-bubble.bubble-action::before { color: #ef4444; }
+.skill-cast-bubble.bubble-once::after,
+.skill-cast-bubble.bubble-once::before { color: #facc15; }
+.skill-cast-bubble.bubble-free::after,
+.skill-cast-bubble.bubble-free::before { color: #22c55e; }
+
 /* spotlight — dim 위로 띄움 (z-index 9000) + 강한 글로우로 시전자 카드 부각.
    사용자 요청: 마법구 비행 중에도 시전자 프로필이 명확히 튀어 보이도록. */
 .caster-spotlight {

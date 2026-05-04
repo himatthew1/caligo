@@ -2231,9 +2231,18 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   startSkillCastDim(casterCard, _spotlightTarget);
   try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
 
+  // ★ 시전자 말풍선 — 팀모드 시점에서도 시전자 카드에서 보드 쪽으로 표시
+  if (casterCard && typeof casterPieceIdx === 'number' && casterIdx != null) {
+    const casterPlayer = (S.teamGamePlayers || []).find(p => p.idx === casterIdx);
+    const casterPc = casterPlayer?.pieces?.[casterPieceIdx];
+    const skName = skillUsed?.skillName || label || (msg ? (msg.match(/[가-힣A-Za-z]+(?=:)/) || [])[0] : null);
+    if (skName) {
+      const stype = getSkillTypeFromPiece(casterPc, skName);
+      showSkillCastBubble(casterCard, skName, stype);
+    }
+  }
+
   // ★ 통일된 시퀀스 — SP 비행 종료 시점에 SFX + 토스트/로그 동시 발사
-  // 팀 모드 cost 추정 — 본인이 시전자라면 mine SP 변화, 적 팀이 시전했다면 opp SP 변화 측 활용
-  // 일단 여기서는 SP delta 합으로 추정.
   const _spCost = spCostFromDelta(oldSpSnap, newSp, oldInstantSnap, newInstant);
   const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
 
@@ -2848,6 +2857,18 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     : null;
   startSkillCastDim(casterCard);
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+
+  // ★ 시전자 말풍선 (관전자 시점)
+  if (casterCard && typeof casterPieceIdx === 'number') {
+    // 관전자 — 양쪽 piece 데이터 모두 접근. 카드의 컨테이너로 누구 piece 인지 결정
+    const sourcePieces = (casterIdx === 0) ? (S.myPieces || S.specP0Pieces) : (S.oppPieces || S.specP1Pieces);
+    const casterPc = sourcePieces?.[casterPieceIdx];
+    const skName = skillUsed?.skillName || (msg ? (msg.match(/[가-힣A-Za-z]+(?=:)/) || [])[0] : null);
+    if (skName) {
+      const stype = getSkillTypeFromPiece(casterPc, skName);
+      showSkillCastBubble(casterCard, skName, stype);
+    }
+  }
 
   // ★ 통일 — SP 비행 종료 시점에 dim 해제 + sp 동기화
   const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
@@ -4100,6 +4121,54 @@ function spawnInstantGainOrb(targetSlot) {
   requestAnimationFrame(step);
 }
 
+// ── 스킬 시전 말풍선 ──
+//   시전자 프로필에서 보드 방향으로 꼬리 달린 oval 말풍선 — 스킬명 표시.
+//   유형별 색상 (action 빨강 / once 노랑 / free 초록).
+//   2초 유지 후 페이드아웃.
+function getSkillTypeFromPiece(piece, skillName) {
+  if (!piece || !skillName) return 'free';
+  const skill = (piece.skills || []).find(s => s.name === skillName);
+  if (skill) {
+    if (skill.replacesAction) return 'action';
+    if (skill.oncePerTurn) return 'once';
+    return 'free';
+  }
+  // 폴백 — pc 자체 플래그 (구버전 데이터 호환)
+  if (piece.skillReplacesAction) return 'action';
+  if (piece.skillOncePerTurn) return 'once';
+  return 'free';
+}
+function showSkillCastBubble(casterCard, skillName, skillType) {
+  if (!casterCard || !skillName) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cardRect = casterCard.getBoundingClientRect();
+  const boardRect = board.getBoundingClientRect();
+  if (!cardRect.width || !boardRect.width) return;
+  // 보드가 카드의 어느 방향에 있는지 (꼬리는 카드 쪽으로 향함, 본체는 보드 쪽)
+  const cardCx = cardRect.left + cardRect.width / 2;
+  const boardCx = boardRect.left + boardRect.width / 2;
+  const boardIsRight = boardCx > cardCx;
+  const type = ['action', 'once', 'free'].includes(skillType) ? skillType : 'free';
+
+  const bubble = document.createElement('div');
+  bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;
+  bubble.textContent = skillName;
+  // 카드 가장자리(보드 쪽) 에 붙이고, 살짝 보드 쪽으로 띄움
+  if (boardIsRight) {
+    bubble.style.left = (cardRect.right + 14) + 'px';
+  } else {
+    bubble.style.right = (window.innerWidth - cardRect.left + 14) + 'px';
+  }
+  bubble.style.top = (cardRect.top + cardRect.height / 2) + 'px';
+  document.body.appendChild(bubble);
+  // 다음 프레임에 visible 클래스 → CSS 로 pop-in
+  requestAnimationFrame(() => { bubble.classList.add('bubble-show'); });
+  // 2초 유지 후 페이드아웃
+  setTimeout(() => { bubble.classList.add('bubble-fade'); }, 2000);
+  setTimeout(() => { if (bubble.parentNode) bubble.remove(); }, 2600);
+}
+
 // ── 스킬 시전 dim 오버레이 — 화면 어둡게, SP 바·시전자 프로필만 spotlight ──
 function startSkillCastDim(casterCard, targetInfo) {
   const dim = document.getElementById('skill-cast-dim');
@@ -5090,6 +5159,25 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
+  // ★ 시전자 말풍선 — 시전자 카드에서 보드 쪽으로 꼬리 달린 스킬명 말풍선 (2초 유지)
+  if (casterCard && _casterIdx != null) {
+    const casterPc = (S.myPieces || [])[_casterIdx];
+    const skName = (casterPc?.skills || []).find(s => (s.cost || 0) > 0)?.name
+                 || casterPc?.skillName
+                 || (msg ? (msg.match(/[가-힣A-Za-z]+(?=:)/) || [])[0] : null);
+    // skillsUsed 의 마지막 사용 스킬을 우선 (정확)
+    const lastUsed = skillsUsed && skillsUsed.length > 0 ? skillsUsed[skillsUsed.length - 1] : null;
+    const lastSkillId = lastUsed ? lastUsed.split(':').pop() : null;
+    const matchedSkill = casterPc && lastSkillId
+      ? (casterPc.skills || []).find(s => s.id === lastSkillId)
+      : null;
+    const finalName = matchedSkill?.name || skName;
+    if (finalName) {
+      const stype = getSkillTypeFromPiece(casterPc, finalName);
+      showSkillCastBubble(casterCard, finalName, stype);
+    }
+  }
+
   // ★ 분신 비행 애니메이션 — msg 가 "👫 분신" 으로 시작하면 mover 가 잔상 남기며 target 으로 빠르게 비행.
   //   비교: OLD S.myPieces 위치 vs NEW yourPieces 위치 → 좌표가 변한 쪽이 mover.
   //   비행 동안 mover 의 piece-marker 는 visibility:hidden, 도착 시 보드 재렌더로 합류 emoji 출현.
@@ -5237,6 +5325,16 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   startSkillCastDim(oppCasterCard);
   // SP 마법구 비행 — opp 측이 SP 를 소비해 본인 측으로 transfer 되므로 transferToMe 경로(빨간 마법구)가 발동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+
+  // ★ 시전자 말풍선 (1v1 상대 시전 시점)
+  if (oppCasterCard && typeof casterPieceIdx === 'number') {
+    const oppPc = (S.oppPieces || [])[casterPieceIdx];
+    const skName = skillUsed?.skillName || (msg ? (msg.match(/[가-힣A-Za-z]+(?=:)/) || [])[0] : null);
+    if (skName) {
+      const stype = getSkillTypeFromPiece(oppPc, skName);
+      showSkillCastBubble(oppCasterCard, skName, stype);
+    }
+  }
 
   // ★ 통일된 시퀀스 — SP 비행 종료 시점에 SFX + 보드 효과 + 토스트/로그 동시 발사
   const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
