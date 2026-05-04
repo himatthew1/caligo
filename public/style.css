@@ -2400,7 +2400,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 }
 /* ── 팀전 프로필 블록 — 1v1처럼 깔끔한 프레임, 현재 턴만 팀컬러 강조 ──
    ★ dim 을 블록(부모) 에서 카드(자식) 로 이동 — opacity compound 문제로 .turn-bright 가 무력화되던 것 해결.
-   비-현재 턴 블록의 비-bright 카드만 dim 됨. .turn-bright 카드는 그 턴 동안 계속 풀 밝기 유지. */
+   ★ 카드 클래스는 .my-piece-card / .opp-piece-card (1v1 과 통일).  내부 카드만 dim, .turn-bright 면 면제. */
 .team-profile-block {
   margin-bottom: 12px;
   padding: 10px;
@@ -2409,14 +2409,12 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   background: rgba(20,28,48,0.5);
   transition: border-color 0.25s, box-shadow 0.25s, background 0.2s;
 }
-.team-profile-block .reveal-piece-card,
-.team-profile-block .piece-info-card,
-.team-profile-block .char-card {
+.team-profile-block .my-piece-card,
+.team-profile-block .opp-piece-card {
   transition: opacity 0.25s, filter 0.25s;
 }
-.team-profile-block:not(.is-current-turn) .reveal-piece-card:not(.turn-bright):not(.dead),
-.team-profile-block:not(.is-current-turn) .piece-info-card:not(.turn-bright):not(.dead),
-.team-profile-block:not(.is-current-turn) .char-card:not(.turn-bright):not(.dead) {
+.team-profile-block:not(.is-current-turn) .my-piece-card:not(.turn-bright):not(.dead),
+.team-profile-block:not(.is-current-turn) .opp-piece-card:not(.turn-bright):not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
 }
@@ -3916,14 +3914,14 @@ body.team-mode .placement-opp-panel {
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
 /* ── 1v1: 비-현재-턴 사이드 패널 dim — 카드 단위로 적용해야 .turn-bright 가 부모 opacity 와 충돌 안 함 ──
-   기존: .side-panel { opacity: 0.62 } → opacity 는 자식에게 compound 되어 .turn-bright !important 로도 override 불가.
-   수정: 카드 레벨로 dim 이동, .turn-bright 카드는 자동 면제. 패널 헤더 등은 본 dim 적용 안 받음 (가독성↑). */
+   ★ 직속 자식만 (#my-pieces-info > .my-piece-card) 으로 한정 — 팀전의 team-profile-block 안 카드는 영향 X.
+   .turn-bright 카드는 자동 면제. 패널 헤더 등은 본 dim 적용 안 받음 (가독성↑). */
 .side-panel .my-piece-card,
 .side-panel .opp-piece-card {
   transition: opacity 0.25s, filter 0.25s;
 }
-.side-panel:not(.turn-active) .my-piece-card:not(.turn-bright):not(.dead),
-.side-panel:not(.turn-active) .opp-piece-card:not(.turn-bright):not(.dead) {
+.side-panel:not(.turn-active) #my-pieces-info > .my-piece-card:not(.turn-bright):not(.dead),
+.side-panel:not(.turn-active) #opp-pieces-info > .opp-piece-card:not(.turn-bright):not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
 }
