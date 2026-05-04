@@ -72,17 +72,17 @@ const CHARACTERS = {
     { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'🐎', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'👁', tag:null, desc:'주변 8칸 · 자기 제외', skills:[] },
     { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'👫', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
-      skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류합니다.'}] },
+      skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'🔭', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'🪤', tag:'villain', desc:'자신 포함 세로 3칸',
-      skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:true, desc:'현재 위치에 덫 설치. 작동 시 2 피해.'}] },
+      skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
     { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'📯', tag:null, desc:'X대각선 5칸 · 자신 포함',
       skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
     { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'💣', tag:null, desc:'상하 각2칸 · 자기 제외',
       skills:[
         {id:'bomb', name:'폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
-        {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발. 1 피해.'}
+        {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발 · 1 피해'}
       ] },
     { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null, desc:'좌우 각2칸 · 자기 제외',
       skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
@@ -97,11 +97,11 @@ const CHARACTERS = {
     { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'🛡', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
     { type:'witch', name:'마녀', tier:2, atk:1, icon:'🧹', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
-      skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에 저주'}] },
+      skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에게 저주 부여'}] },
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'⚔', tag:null, desc:'좌우 대각선 4칸 · col±1, row±1',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'🐀', tag:'villain', desc:'제자리와 쥐가 소환된 칸 공격',
-      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 타일 세 곳에 쥐 소환.'}] },
+      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 랜덤 타일 세 곳에 쥐 소환'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'⚒', tag:null, desc:'가로 3칸을 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'🛡️', tag:'royal', desc:'십자 4칸 · 자기 제외',
@@ -113,18 +113,18 @@ const CHARACTERS = {
     { type:'king', name:'국왕', tier:3, atk:2, icon:'♛', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null, desc:'X대각선 4칸 · 자기 제외',
-      skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환 · 3HP · 십자5칸 · ATK3'}] },
+      skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
     { type:'monk', name:'수도승', tier:3, atk:1, icon:'🙏', tag:null, desc:'상하 각1칸 · 자기 제외',
-      skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거.'}],
+      skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
       passives:['grace'] },
     { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'🪓', tag:'villain', desc:'3x3 전체 9칸',
       skills:[], passives:['betrayer'] },
     { type:'commander', name:'지휘관', tier:3, atk:2, icon:'📋', tag:'royal', desc:'좌우 각1칸 · 자기 제외',
       skills:[], passives:['wrath'] },
     { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸 · 자기 제외',
-      skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격. 2 피해.'}] },
+      skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격 · 2 피해'}] },
     { type:'torturer', name:'고문 기술자', tier:3, atk:2, icon:'⛓', tag:'villain', desc:'자신 + 바로 아래 · 총 2칸',
-      skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해.'}],
+      skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:2, icon:'🦇', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
       skills:[], passives:['tyranny'] },
@@ -585,7 +585,22 @@ function clearTimer(room) {
     room.timer = null;
   }
   room.timerDeadline = null;
-  // AI thinking 타이머도 함께 정리 — endGame/endTeamGame/disconnect 시에 stale fire 방지.
+  // ※ _aiThinkTimer 는 여기서 정리 안 함 — startTimer 가 내부에서 clearTimer 를 호출하기 때문에,
+  //   transitionToExchangeDraft 처럼 [_aiThinkTimer 설정 → startTimer(60s 안전망) 설정] 순서일 때
+  //   safety timer 가 AI 사고 타이머를 즉시 wipe 해버림. 게임 종료 경로에서 별도 호출(clearAiThinkState).
+}
+
+// 교환 페이즈 남은 시간 계산 — 페이즈 시작 시각 기준 공유 카운트다운.
+//   누가 먼저 끝내든 "그 시점의 남은 시간" 으로 카운트다운 표시 (60초 풀타임 X).
+function exchangeRemainingMs(room) {
+  if (!room || !room._exchangeStart) return 60000;
+  const max = room._exchangeMaxMs || 60000;
+  return Math.max(500, max - (Date.now() - room._exchangeStart));
+}
+
+// AI 사고 타이머/메타데이터 명시적 정리 — endGame/endTeamGame/disconnect 등 stale fire 방지가 필요한 곳에서만 호출.
+function clearAiThinkState(room) {
+  if (!room) return;
   if (room._aiThinkTimer) {
     clearTimeout(room._aiThinkTimer);
     room._aiThinkTimer = null;
@@ -622,9 +637,7 @@ function draftTimeout(room) {
       const sock = io.sockets.sockets.get(room.players[i].socketId);
       if (sock) {
         const allFilled = had1 && had2 && had3;
-        const timeoutMsg = allFilled
-          ? '시간초과로 자동 확정 됐습니다.'
-          : '시간초과로 빈 슬롯이 랜덤으로 선택됐습니다.';
+        const timeoutMsg = allFilled ? '자동 확정' : '랜덤 선택';
         sock.emit('draft_ok', { t1, t2, t3, timeout: true, timeoutMsg });
       }
     }
@@ -1729,9 +1742,12 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
     io.to(defPlayer.socketId).emit('being_attacked', {
       atkCells,
       hitPieces: hits.map(h => {
-        const dp = defPlayer.pieces.find(pp => pp.col === h.col && pp.row === h.row);
+        // ★ 합류 쌍둥이 버그 수정: col/row 기반 find 는 같은 칸의 첫 매치(누나)만 반환 → 동생 hit 도 누나 이름/도장으로 잘못 매핑.
+        //   대신 defPieceIdx 로 정확히 해당 piece 를 찾고, 클라에 defPieceIdx 도 함께 전달.
+        const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
         return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
           name: dp?.name, icon: dp?.icon,
+          defPieceIdx: h.defPieceIdx,
           redirectedToBodyguard: h.redirectedToBodyguard || false,
           bodyguardRedirect: h.bodyguardRedirect || false };
       }),
@@ -1749,9 +1765,11 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         victimIdx: defOwnerIdx,
         victimName: room.players[defOwnerIdx].name,
         hitPieces: hits.map(h => {
-          const dp = room.players[defOwnerIdx].pieces.find(pp => pp.col === h.col && pp.row === h.row);
+          // ★ 합류 쌍둥이 버그 수정 — 동일.
+          const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
           return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
             name: dp?.name, icon: dp?.icon,
+            defPieceIdx: h.defPieceIdx,
             redirectedToBodyguard: h.redirectedToBodyguard || false,
             bodyguardRedirect: h.bodyguardRedirect || false };
         }),
@@ -1788,7 +1806,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells: extra2Cells,
           hitPieces: hits.map(h => {
-            const dp = defPlayer.pieces.find(pp => pp.col === h.col && pp.row === h.row);
+            const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
             return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
               name: dp?.name, icon: dp?.icon,
               redirectedToBodyguard: h.redirectedToBodyguard || false,
@@ -1807,9 +1825,10 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
             atkCells: extra2Cells, victimIdx: defOwnerIdx,
             victimName: room.players[defOwnerIdx].name,
             hitPieces: hits.map(h => {
-              const dp = room.players[defOwnerIdx].pieces.find(pp => pp.col === h.col && pp.row === h.row);
+              const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
               return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
                 name: dp?.name, icon: dp?.icon,
+                defPieceIdx: h.defPieceIdx,
                 redirectedToBodyguard: h.redirectedToBodyguard || false };
             }),
           });
@@ -1825,6 +1844,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
 
 function teamDraftTimeout(room) {
   if (room.phase !== 'team_draft') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'team_draft' });
   for (let i = 0; i < room.playerCount; i++) {
     if (room.draftDone[i]) continue;
     const p = room.players[i];
@@ -1880,6 +1900,7 @@ function transitionToTeamHp(room) {
 
 function teamHpTimeout(room) {
   if (room.phase !== 'team_hp') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'team_hp' });
   // 미완료 플레이어: 균등 분할 (10을 반반 = 5/5, 쌍둥이면 2/4/4 등)
   for (let i = 0; i < room.playerCount; i++) {
     if (room.hpDone[i]) continue;
@@ -1963,6 +1984,7 @@ function transitionToTeamReveal(room) {
 
 function teamRevealTimeout(room) {
   if (room.phase !== 'team_reveal') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'team_reveal' });
   transitionToTeamPlacement(room);
 }
 
@@ -2043,6 +2065,7 @@ function broadcastTeamPlacementUpdate(room, changedIdx) {
 
 function teamPlacementTimeout(room) {
   if (room.phase !== 'team_placement') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'team_placement' });
   // 미배치 유닛은 자동 배치 (팀 구역 내 빈 칸)
   for (let i = 0; i < room.playerCount; i++) {
     if (room.placementDone[i]) continue;
@@ -2184,6 +2207,7 @@ function transitionToInitialReveal(room) {
 
 function initialRevealTimeout(room) {
   if (room.phase !== 'initial_reveal') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'initial_reveal' });
   for (let i = 0; i < 2; i++) {
     if (!room.initialRevealDone[i]) room.initialRevealDone[i] = true;
   }
@@ -2351,6 +2375,10 @@ function transitionToExchangeDraft(room) {
   if (room._aiThinkTimer) { clearTimeout(room._aiThinkTimer); room._aiThinkTimer = null; }
   room.phase = 'exchange_draft';
   if (!room.exchangeDecisions) room.exchangeDecisions = [null, null];
+  // 교환 페이즈 공유 타이머 시작 시각 — 양측 동시에 60초 카운트가 흐름.
+  //   누군가 일찍 끝낸 후 보는 카운트다운은 "남은 시간" 기준 (실시간 동기화).
+  room._exchangeStart = Date.now();
+  room._exchangeMaxMs = 60000;
 
   // AI 가 YES 한 경우 — AI 가 "고민하고 캐릭터 픽 확정" 하는 데 7~15초 강제 딜레이.
   //   서버 내부에서는 _pendingSwap 즉시 계산 (게임 로직 결정성), 하지만 exchangeDone[1] 은 7-15s 후 설정 →
@@ -2392,18 +2420,10 @@ function transitionToExchangeDraft(room) {
       const wantsExchange = room.exchangeDecisions[i] === true;
       if (!wantsExchange) {
         room.exchangeDone[i] = true;
-        if (aiYes) {
-          // 타이머는 인간/AI 동일하게 60초 표시. AI 가 그 안에서 7~15초 사이에 자체 확정 → countdown 도중에 swap 발생.
-          io.to(p.socketId).emit('ai_decision_wait', { waitMs: 60000 });
-          console.log(`[transitionToExchangeDraft] AI YES, emit ai_decision_wait waitMs=60000 (AI internal think=${aiThinkMs}ms) to ${p.socketId}`);
-        } else {
-          io.to(p.socketId).emit('exchange_waiting_phase', {
-            myDraft: p.draft,
-            oppDraft: room.players[1 - i].draft,
-            oppExchanging: room.exchangeDecisions[1 - i] === true,
-            waitingMs: 60000,
-          });
-        }
+        // 페이즈 시작 시점이라 remaining = 60000. 동일 이벤트로 AI/인간 분기 제거.
+        const remainingMs = exchangeRemainingMs(room);
+        io.to(p.socketId).emit('ai_decision_wait', { waitMs: remainingMs });
+        console.log(`[transitionToExchangeDraft] NO side waitMs=${remainingMs}${aiYes ? ` (AI internal think=${aiThinkMs}ms)` : ''}`);
       } else {
         const available = {};
         for (const tier of [1, 2, 3]) {
@@ -2471,10 +2491,12 @@ function exchangeDraftTimeout(room) {
 // ── 최종 공개: 교환 후 상대 캐릭터 공개 ──
 function transitionToFinalReveal(room) {
   clearTimer(room);
-  // AI thinking 타이머 / 관련 메타데이터 정리
+  // AI thinking 타이머 / 관련 메타데이터 정리 + 교환 페이즈 시작 시각 정리
   if (room._aiThinkTimer) { clearTimeout(room._aiThinkTimer); room._aiThinkTimer = null; }
   delete room._aiThinkStart;
   delete room._aiThinkMs;
+  delete room._exchangeStart;
+  delete room._exchangeMaxMs;
   room.phase = 'final_reveal';
   if (room.isAI) {
     // 보류된 AI 교체를 여기서 적용 — 사용자가 본 exchange_draft_phase는 교체 전 조합
@@ -2517,6 +2539,7 @@ function transitionToFinalReveal(room) {
 
 function finalRevealTimeout(room) {
   if (room.phase !== 'final_reveal') return;
+  emitToBothAndSpectators(room, 'phase_timeout', { phase: 'final_reveal' });
   for (let i = 0; i < 2; i++) {
     if (!room.finalRevealDone[i]) room.finalRevealDone[i] = true;
   }
@@ -3286,16 +3309,16 @@ function buildSpectatorSkillMsg(playerName, piece, result) {
     { prefix: '🌿 약초학:', rewrite: (m) => `🌿 약초학: 범위 내 아군 1 HP 회복` },
     { prefix: '👻 그림자 숨기:', rewrite: (m) => `👻 그림자 숨기: 그림자 암살자는 다음 턴까지 공격·상태이상 면역` },
     { prefix: '☠ 저주:', rewrite: (m) => {
-        const tMatch = m.match(/^☠ 저주: (.+?)을 저주/);
+        const tMatch = m.match(/^☠ 저주: (.+?)[을를] 저주/);
         const tName = tMatch ? tMatch[1] : '대상';
-        return `☠ 저주: ${tName}을 저주`;
+        return `☠ 저주: ${tName}${조사(tName, '을', '를')} 저주`;
       } },
     { prefix: '⚔ 쌍검무:', rewrite: (m) => `⚔ 쌍검무: 양손검객은 추가 공격 가능` },
     { prefix: '⚒ 정비:', rewrite: (m) => `⚒ 정비: 공격 방향 전환` },
     { prefix: '♛ 절대복종 반지:', rewrite: (m) => {
-        const kMatch = m.match(/^♛ 절대복종 반지: (.+?)을 강제 이동/);
+        const kMatch = m.match(/^♛ 절대복종 반지: (.+?)[을를] 강제 이동/);
         const target = kMatch ? kMatch[1] : '대상';
-        return `♛ 반지: ${playerName}의 국왕이 ${target}을 강제 이동`;
+        return `♛ 반지: ${playerName}의 국왕이 ${target}${조사(target, '을', '를')} 강제 이동`;
       } },
     { prefix: '🙏 신성:', rewrite: (m) => {
         const mMatch = m.match(/^🙏 신성: (.+?)의 상태이상/);
@@ -3868,6 +3891,7 @@ function getTeamSpectatorGameState(room) {
 // 팀전 게임 종료
 function endTeamGame(room, winnerTeamId, reason) {
   clearTimer(room);
+  clearAiThinkState(room);
   room.phase = 'ended';
   const winners = (room.teams[winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
   const losers = (room.teams[1 - winnerTeamId] || []).map(i => room.players[i]?.name).filter(Boolean);
@@ -3900,6 +3924,7 @@ function endTeamGame(room, winnerTeamId, reason) {
 
 function endGame(room, winnerIdx, reason) {
   clearTimer(room);
+  clearAiThinkState(room);
   room.phase = 'ended';
   const killInfo = room.lastKillInfo || {};
   const reasonObj = reason === 'surrender' ? { type: 'surrender' }
@@ -4024,6 +4049,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         : player.pieces.find(p => p.subUnit === 'elder' && p.alive);
 
       if (!mover || !target) return { ok: false, msg: '대상이 없습니다.' };
+      // ★ 비행 애니메이션용 — 이동 전 좌표를 캡쳐 (시전자/상대방/관전자 모두 동일 from→to 사용)
+      const _twinFromCol = mover.col, _twinFromRow = mover.row;
+      const _twinToCol   = target.col, _twinToRow   = target.row;
       mover.col = target.col;
       mover.row = target.row;
       spendSP(room, playerIdx, cost);
@@ -4034,6 +4062,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const targetLabel  = target.subUnit === 'elder' ? '누나' : '동생';
       result.msg = `👫 분신: ${moverSubject} ${targetLabel} 위치로 합류`;
       result.oppMsg = `👫 분신: ${moverSubject} ${targetLabel} 위치로 합류`;
+      // 시전자/상대/관전자 모두에게 비행 애니메이션 정보 전달 (fog of war 우회용)
+      result.data = result.data || {};
+      result.data.twinJoin = {
+        moverSub: mover.subUnit,
+        fromCol: _twinFromCol, fromRow: _twinFromRow,
+        toCol:   _twinToCol,   toRow:   _twinToRow,
+      };
       break;
     }
 
@@ -4236,8 +4271,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      result.msg = `☠ 저주: ${curseTarget.name}을 저주`;
-      result.oppMsg = `☠ 저주: 상대 마녀가 ${curseTarget.name}을 저주`;
+      result.msg = `☠ 저주: ${curseTarget.name}${조사(curseTarget.name, '을', '를')} 저주`;
+      result.oppMsg = `☠ 저주: 상대 마녀가 ${curseTarget.name}${조사(curseTarget.name, '을', '를')} 저주`;
       break;
     }
 
@@ -4278,7 +4313,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       room.rats[playerIdx].push(...newRats);
       spendSP(room, playerIdx, cost);
-      emitToBoth(room, 'rats_spawned', { rats: newRats, owner: playerIdx });
+      emitToBoth(room, 'rats_spawned', { rats: newRats, owner: playerIdx, spCost: cost });
       emitToSpectators(room, 'spectator_log', { msg: `🐀 역병의 자손들: 쥐 ${newRats.length}마리 소환`, type: 'skill', playerIdx });
       result.msg = ``;
       result.skipLog = true;
@@ -4322,8 +4357,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       enemyPiece.col = destCol;
       enemyPiece.row = destRow;
       spendSP(room, playerIdx, cost);
-      result.msg = `♛ 절대복종 반지: ${enemyPiece.name}을 강제 이동`;
-      result.oppMsg = `♛ 반지: 상대 국왕이 ${enemyPiece.name}을 강제 이동`;
+      result.msg = `♛ 절대복종 반지: ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
+      result.oppMsg = `♛ 반지: 상대 국왕이 ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
 
       // Check if moved onto a trap
       const trapIdx2 = room.boardObjects[playerIdx].findIndex(o => o.type === 'trap' && o.col === destCol && o.row === destRow);
@@ -4382,7 +4417,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       dragon.desc = '자신 + 십자4칸 · 총 5칸';
       player.pieces.push(dragon);
       spendSP(room, playerIdx, cost);
-      emitToBoth(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx });
+      emitToBoth(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx, spCost: cost });
       emitToSpectators(room, 'spectator_log', { msg: `🐉 드래곤 소환: ${coord(dc,dr)}에 드래곤 소환`, type: 'skill', playerIdx });
       result.msg = ``;
       result.skipLog = true;
@@ -5378,8 +5413,12 @@ function aiExecuteAttack(room, action) {
   emitToPlayer(room, 0, 'being_attacked', {
     atkCells,
     hitPieces: hitResults.map(h => {
-      const dp = humanPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
-      return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+      // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+      const dp = (typeof h.defPieceIdx === 'number') ? humanPlayer.pieces[h.defPieceIdx] : null;
+      return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+        name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx,
+        redirectedToBodyguard: h.redirectedToBodyguard || false,
+        bodyguardRedirect: h.bodyguardRedirect || false };
     }),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
@@ -5417,8 +5456,11 @@ function aiExecuteAttack(room, action) {
       emitToPlayer(room, 0, 'being_attacked', {
         atkCells: extraCells,
         hitPieces: extraHits.map(h => {
-          const dp = humanPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
-          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon };
+          const dp = (typeof h.defPieceIdx === 'number') ? humanPlayer.pieces[h.defPieceIdx] : null;
+          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+            name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx,
+            redirectedToBodyguard: h.redirectedToBodyguard || false,
+            bodyguardRedirect: h.bodyguardRedirect || false };
         }),
         yourPieces: pieceSummary(humanPlayer.pieces),
       });
@@ -6464,15 +6506,10 @@ io.on('connection', (socket) => {
       room.exchangeDone[idx] = true;
       socket.emit('exchange_done', { draft: player.draft });
       if (room.exchangeDone.every(d => d)) {
-        // AI thinking 도 끝남 → 즉시 final_reveal (양측 모두 픽 확정)
         transitionToFinalReveal(room);
       } else {
-        // AI 가 아직 thinking 중 — 60초 카운트다운 표시 (AI 가 7~15초 안에 자체 확정 → 도중에 swap)
-        if (room.isAI && room._aiThinkTimer) {
-          socket.emit('ai_decision_wait', { waitMs: 60000 });
-        } else {
-          socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
-        }
+        // 상대가 아직 안 끝남 — 페이즈 시작부터 흐른 시간 빼고 남은 시간 카운트다운
+        socket.emit('ai_decision_wait', { waitMs: exchangeRemainingMs(room) });
       }
       return;
     }
@@ -6500,15 +6537,10 @@ io.on('connection', (socket) => {
     emitToSpectators(room, 'spectator_exchange', { playerIdx: idx, playerName: player.name });
 
     if (room.exchangeDone.every(d => d)) {
-      // AI thinking 도 끝남 → 즉시 final_reveal (양측 모두 픽 확정)
       transitionToFinalReveal(room);
     } else {
-      // AI 가 아직 thinking 중 — 60초 카운트다운 표시 (AI 가 7~15초 안에 자체 확정 → 도중에 swap)
-      if (room.isAI && room._aiThinkTimer) {
-        socket.emit('ai_decision_wait', { waitMs: 60000 });
-      } else {
-        socket.emit('wait_msg', { msg: '상대방의 교환을 기다리는 중...' });
-      }
+      // 상대가 아직 안 끝남 — 페이즈 시작부터 흐른 시간 빼고 남은 시간 카운트다운
+      socket.emit('ai_decision_wait', { waitMs: exchangeRemainingMs(room) });
     }
   });
 
@@ -6707,12 +6739,17 @@ io.on('connection', (socket) => {
     player._lastActionPieceType = piece.type;
     player._lastActionSubUnit = piece.subUnit || null;
 
+    // twinMovePending: 쌍둥이 첫 이동 후 나머지 한쪽이 아직 이동 안 했으면 true.
+    //   client 가 새 "쌍둥이 이동 페이즈" 를 유지하기 위한 플래그.
+    const stillCanMoveOtherTwin = piece.subUnit
+      && Array.isArray(player.twinMovedSubs) && player.twinMovedSubs.length === 1
+      && player.pieces.some(p => p.alive && p.subUnit && p.subUnit !== piece.subUnit);
     socket.emit('move_ok', {
       pieceIdx, prev, col, row,
       yourPieces: pieceSummary(player.pieces),
       boardObjects: boardObjectsSummary(room, idx),
-      twinMovePending: piece.subUnit && !player.actionDone,
-      twinMovedSub: piece.subUnit || null,  // 어느 쪽이 이동했는지
+      twinMovePending: stillCanMoveOtherTwin,
+      twinMovedSub: piece.subUnit || null,
     });
     if (room.mode === 'team') {
       // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용)
@@ -6831,7 +6868,8 @@ io.on('connection', (socket) => {
           io.to(defender.socketId).emit('being_attacked', {
             atkCells,
             hitPieces: hitResults.map(h => {
-              const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+              // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+              const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
               return {
                 col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
                 name: dp?.name, icon: dp?.icon,
@@ -6989,7 +7027,8 @@ io.on('connection', (socket) => {
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells,
           hitPieces: hits.map(h => {
-            const dp = defPlayer.pieces.find(p => p.col === h.col && p.row === h.row);
+            // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+            const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
             return {
               col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
               name: dp?.name, icon: dp?.icon,
@@ -7012,10 +7051,12 @@ io.on('connection', (socket) => {
             victimIdx: defOwnerIdx,
             victimName: room.players[defOwnerIdx].name,
             hitPieces: hits.map(h => {
-              const dp = room.players[defOwnerIdx].pieces.find(p => p.col === h.col && p.row === h.row);
+              // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+              const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
               return {
                 col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
                 name: dp?.name, icon: dp?.icon,
+                defPieceIdx: h.defPieceIdx,
                 redirectedToBodyguard: h.redirectedToBodyguard || false,
                 bodyguardRedirect: h.bodyguardRedirect || false,
               };
@@ -7033,7 +7074,8 @@ io.on('connection', (socket) => {
         io.to(defender.socketId).emit('being_attacked', {
           atkCells,
           hitPieces: hitResults.map(h => {
-            const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
+            // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+            const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
             return {
               col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
               name: dp?.name, icon: dp?.icon,
@@ -7361,6 +7403,8 @@ io.on('connection', (socket) => {
           casterPieceIdx: pieceIdx,         // 상대 시점에서 시전자 카드 spotlight 용
           // 상대 측에서도 회복 애니메이션 — 시전자 piece 인덱스 그대로 전달 (상대 oppPieces 동일 순서)
           healedPieceIdxs: result.data?.healedPieceIdxs || null,
+          // 분신 비행 애니메이션 — fog of war 우회용 좌표 정보 (있을 때만)
+          twinJoin: result.data?.twinJoin || null,
         });
       }
     }
@@ -7375,6 +7419,9 @@ io.on('connection', (socket) => {
           sp: room.sp,
           instantSp: room.instantSp,
           skillUsed: { icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName },
+          // 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
+          twinJoin: result.data?.twinJoin || null,
+          msg: result.msg || null,
         });
       }
     }
@@ -7385,14 +7432,13 @@ io.on('connection', (socket) => {
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    // 기폭 스킬: SP dim(2s) + 0.5s 텀 + 폭탄 애니(0.95s) = ~3.45s
-    // 1) 즉시 detonation_intro emit (클라/관전 모두)
-    // 2) ~3.5초 후 실제 bomb_detonated 이벤트로 피해 적용
+    // 기폭 스킬: SP_END(1)=780ms + 폭탄 애니(950ms) = ~1730ms (통일된 새 타이밍)
+    // 1) 즉시 detonation_intro emit (클라/관전 모두) — 클라가 780ms 후 시퀀스 시작
+    // 2) 1730ms 후 bomb_detonated 이벤트로 피해 적용 (클라 시퀀스 종료 시점에 정확히 맞춤)
     if (result.data && Array.isArray(result.data.deferredBombEmits)) {
       const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
       if (bombList.length > 0) {
         emitToBoth(room, 'detonation_intro', { bombs: bombList });
-        // 관전자에게도 동일 알림 — 모든 시점이 동기화되도록
         emitToSpectators(room, 'detonation_intro', { bombs: bombList });
       }
       const deferred = [...result.data.deferredBombEmits];
@@ -7401,7 +7447,7 @@ io.on('connection', (socket) => {
         for (const bd of deferred) {
           emitToBoth(room, 'bomb_detonated', bd);
         }
-      }, 3500);
+      }, 1730);
     }
 
     // Check win after skill effects (모드별)

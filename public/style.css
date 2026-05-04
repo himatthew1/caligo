@@ -1082,8 +1082,23 @@ body {
   60%  { opacity: 1; transform: scale(1.04); }
   100% { opacity: 1; transform: scale(1); }
 }
-.reveal-piece-card.swap-out { animation: swapRevealOut 0.5s ease-in forwards; }
-.reveal-piece-card.swap-in  { animation: swapRevealIn 1s ease-out both; }
+.reveal-piece-card.swap-out { animation: swapRevealOut 0.4s ease-in forwards; }
+.reveal-piece-card.swap-in  { animation: swapRevealIn 0.9s ease-out both; }
+
+/* swap 도중 빈 슬롯 placeholder — 사용자 요청: "이전 픽 → 현재 픽" 가 아닌 "빈 슬롯 → 새 유닛 등장" */
+.reveal-slot-empty.reveal-slot-swap-empty {
+  border: 1px dashed rgba(253, 230, 138, 0.45);
+  background: rgba(253, 230, 138, 0.06);
+  border-radius: 10px;
+  min-height: 90px;
+  box-sizing: border-box;
+  opacity: 0.7;
+  animation: swapEmptyPulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes swapEmptyPulse {
+  from { opacity: 0.5; }
+  to   { opacity: 0.85; }
+}
 
 /* 교환 드래프트 — 캐릭터 딕셔너리처럼 오버레이로 떠오름 (뒤의 교체 페이즈가 그대로 보임).
    .screen.is-overlay 가 .active 와 무관하게 화면 위에 떠오르며, 진입/퇴장 시 슬라이드 애니메이션. */
@@ -1175,6 +1190,179 @@ body {
 body.radial-menu-mode #btn-move,
 body.radial-menu-mode #btn-attack,
 body.radial-menu-mode #btn-skill { display: none; }
+
+/* ── 부채꼴 메뉴 활성 시 시각 강조 ── */
+/* 선택된 캐릭터 셀: 아이콘 스케일 업 + 보드 설치물(덫·쥐·폭탄) 위로 z-index 끌어올림 */
+#game-board .cell.radial-active .piece-marker {
+  position: relative;
+  z-index: 12;
+  transform: scale(1.18);
+  transform-origin: center;
+  filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.55));
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+/* 활성 셀 자체도 살짝 강조 (테두리 톤 살림) */
+#game-board .cell.radial-active {
+  z-index: 11;
+  position: relative;
+  box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.55), 0 0 18px rgba(253, 230, 138, 0.25);
+}
+/* 다른 캐릭터들은 살짝 dim — 호버 시 복원 + 살짝 스케일 업으로 상호작용 가능함을 시각적으로 안내 */
+body.radial-mode-active #game-board .cell.has-piece:not(.radial-active) .piece-marker {
+  opacity: 0.55;
+  filter: saturate(0.65) brightness(0.9);
+  transition: opacity 0.18s ease, filter 0.18s ease, transform 0.18s ease;
+}
+body.radial-mode-active #game-board .cell.has-piece:not(.radial-active):hover .piece-marker {
+  opacity: 1;
+  filter: none;
+  transform: scale(1.06);
+}
+
+/* ── 행동 진행 중 다른 유닛 완전 차단 ──
+   행동 모드 (이동/공격/스킬/쌍둥이 이동) 중 행동 주체 외 모든 유닛 dim + 클릭 차단:
+   - selected-piece (현재 행동 주체) : 면제
+   - twin-active (쌍둥이 페이즈 미이동 쌍둥이 / 합류 셀)  : dim 면제 + 클릭 가능
+   - 그 외 (twin-spent 포함) : dim + 클릭 차단
+   ★ :not(.twin-active) 추가 — 쌍둥이 페이즈에서 미이동 쌍둥이가 dim 되는 버그 차단. */
+body.action-locked #game-board .cell.has-piece:not(.radial-active):not(.selected-piece) .piece-marker:not(.twin-active) {
+  opacity: 0.4 !important;
+  filter: saturate(0.5) brightness(0.7) !important;
+  transform: none !important;
+  pointer-events: none;
+}
+/* twin-spent — 이동을 마친 쌍둥이 (분리 상태) : 위 룰로 자동 dim 되지만 명시적으로 비활성 강조 */
+.piece-marker.twin-spent {
+  pointer-events: none !important;
+}
+
+/* ── 쌍둥이 이동 페이즈 floating 버튼 (이동 선택) ──
+   game-board 의 absolute 자식으로 배치 → 셀 innerHTML 재렌더에도 살아남음.
+   left/top 은 JS 가 셀의 offsetLeft/offsetTop 을 계산해 부여, transform 은 anchor 보정만 담당. */
+.twin-phase-btn {
+  position: absolute;
+  z-index: 9300;
+  transform: translate(-50%, -100%) translateY(-4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 2px solid rgba(253, 230, 138, 0.85);
+  background: rgba(15, 23, 42, 0.95);
+  color: #fef3c7;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 18px rgba(253, 230, 138, 0.45);
+  transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s, background 0.18s;
+  pointer-events: auto;
+  white-space: nowrap;
+  animation: twin-btn-pop 0.22s ease-out forwards;
+}
+/* anchor 보정 + scale pop. transform-origin 고려해서 left/top 이미 적용된 상태에서 보정만 */
+@keyframes twin-btn-pop {
+  0%   { transform: translate(-50%, -100%) translateY(-4px) scale(0); }
+  60%  { transform: translate(-50%, -100%) translateY(-4px) scale(1.15); }
+  100% { transform: translate(-50%, -100%) translateY(-4px) scale(1); }
+}
+.twin-phase-btn .ic { font-size: 1rem; line-height: 1; margin-bottom: 1px; }
+.twin-phase-btn .lbl { font-size: 0.62rem; letter-spacing: 0.04em; }
+.twin-phase-btn:hover {
+  background: rgba(253, 230, 138, 0.18);
+  border-color: #fde68a;
+}
+.twin-phase-btn.is-selected {
+  border-color: #4ade80;
+  background: rgba(22, 70, 40, 0.95);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.35), 0 0 18px rgba(74, 222, 128, 0.45);
+}
+
+/* ── 쌍둥이 분신 비행 애니메이션 ── */
+.twin-join-flyer {
+  position: fixed;
+  font-size: 1.7rem;
+  z-index: 9500;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.85));
+  text-shadow: 0 0 12px rgba(74, 222, 128, 0.7), 0 0 20px rgba(253, 230, 138, 0.6);
+  /* transform 은 JS 가 매 프레임 직접 갱신 (scale 포함). transition 은 도착 펄스에서만 사용. */
+  will-change: left, top, transform;
+}
+.twin-join-flyer.twin-join-arrive {
+  transform: translate(-50%, -50%) scale(2.1) !important;
+  opacity: 0;
+  filter: drop-shadow(0 0 24px rgba(74, 222, 128, 1));
+  transition: transform 0.32s ease-out, opacity 0.32s ease-out, filter 0.32s ease-out;
+}
+/* 잔상 ghost — 짧게 떠올랐다가 사라짐 */
+.twin-join-trail {
+  position: fixed;
+  font-size: 1.3rem;
+  z-index: 9499;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.55;
+  filter: drop-shadow(0 0 4px rgba(253, 230, 138, 0.5));
+  animation: twin-join-trail-fade 0.48s ease-out forwards;
+}
+@keyframes twin-join-trail-fade {
+  0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0;    transform: translate(-50%, -50%) scale(0.4); }
+}
+/* 비행 중 — mover 의 piece-marker 일시 숨김 */
+.piece-marker.twin-flying {
+  visibility: hidden;
+}
+
+/* ── 보관: 가장 처음 도입했던 살짝 긴 사각형 [행동 불가] 버튼 (현재 미사용, 추후 재활용 대비) ── */
+#game-board .cell:has(.twin-disabled-btn) {
+  overflow: visible;
+  z-index: 50;
+}
+.twin-disabled-btn {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 2px solid rgba(248, 113, 113, 0.85);
+  background: rgba(60, 22, 22, 0.95);
+  color: #fca5a5;
+  font-weight: 800;
+  cursor: not-allowed;
+  opacity: 0.92;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 18px rgba(248, 113, 113, 0.4);
+  pointer-events: auto;
+  white-space: nowrap;
+  animation: twin-btn-pop 0.22s ease-out forwards;
+}
+.twin-disabled-btn .ic { font-size: 1rem; line-height: 1; margin-bottom: 1px; }
+.twin-disabled-btn .lbl { font-size: 0.62rem; letter-spacing: 0.04em; }
+
+/* ── 쌍둥이 이동 페이즈 ── 두 쌍둥이는 항상 한 세트 — dim 안 됨, 다른 캐릭터들만 dim. */
+body.twin-phase-active #game-board .cell.has-piece .piece-marker {
+  opacity: 0.55;
+  filter: saturate(0.65) brightness(0.9);
+  transition: opacity 0.18s ease, filter 0.18s ease, transform 0.18s ease;
+}
+/* 쌍둥이 piece (subUnit elder/younger) — JS 가 .twin-piece 클래스 부여 (renderGameBoard 에서 처리) — 항상 풀 밝기 */
+body.twin-phase-active #game-board .cell .piece-marker.twin-piece {
+  opacity: 1;
+  filter: none;
+}
+body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover .piece-marker {
+  opacity: 1;
+  filter: none;
+  transform: scale(1.06);
+}
 
 /* 교환 드래프트 — 한 화면에 다 들어가도록 상하단 여백 컴팩트화 (스크롤 제거) */
 #screen-exchange .progress-stepper { margin-bottom: 4px; padding: 8px 16px; }
@@ -2127,6 +2315,8 @@ body.radial-menu-mode #btn-skill { display: none; }
   border-radius: 10px;
   padding: 8px;
   width: fit-content;
+  /* 쌍둥이 [이동 선택] 버튼이 board 의 absolute 자식으로 배치되므로 기준점 필요 */
+  position: relative;
 }
 .cell {
   width: 56px;
@@ -2208,25 +2398,27 @@ body.radial-menu-mode #btn-skill { display: none; }
   color: var(--muted);
   padding: 2px 4px;
 }
-/* ── 팀전 프로필 블록 — 1v1처럼 깔끔한 프레임, 현재 턴만 팀컬러 강조 ── */
+/* ── 팀전 프로필 블록 — 1v1처럼 깔끔한 프레임, 현재 턴만 팀컬러 강조 ──
+   ★ dim 을 블록(부모) 에서 카드(자식) 로 이동 — opacity compound 문제로 .turn-bright 가 무력화되던 것 해결.
+   비-현재 턴 블록의 비-bright 카드만 dim 됨. .turn-bright 카드는 그 턴 동안 계속 풀 밝기 유지. */
 .team-profile-block {
   margin-bottom: 12px;
   padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(20,28,48,0.5);
-  transition: opacity 0.25s, filter 0.25s, border-color 0.25s, box-shadow 0.25s, background 0.2s;
-  /* 비-현재 턴 플레이어 dim — 너무 약하지도 너무 어둡지도 않은 중간값 (이전 0.78 / 직전 0.45 의 중간). */
+  transition: border-color 0.25s, box-shadow 0.25s, background 0.2s;
+}
+.team-profile-block .reveal-piece-card,
+.team-profile-block .piece-info-card,
+.team-profile-block .char-card {
+  transition: opacity 0.25s, filter 0.25s;
+}
+.team-profile-block:not(.is-current-turn) .reveal-piece-card:not(.turn-bright):not(.dead),
+.team-profile-block:not(.is-current-turn) .piece-info-card:not(.turn-bright):not(.dead),
+.team-profile-block:not(.is-current-turn) .char-card:not(.turn-bright):not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
-}
-/* 피격·회복이 발생한 캐릭터의 프로필 카드만 풀 밝기로 (블록 전체가 아니라 해당 카드만).
-   .turn-bright 가 부여되면 그 턴 동안 계속 유지. JS 가 부여/해제. */
-.team-profile-block .reveal-piece-card.turn-bright,
-.team-profile-block .piece-info-card.turn-bright,
-.team-profile-block .char-card.turn-bright {
-  opacity: 1 !important;
-  filter: none !important;
 }
 /* 팀 절대 컬러 보더 제거 — 사용자 요청 */
 .team-profile-block.team-block-blue { border: 1px solid var(--border); background: rgba(20,28,48,0.5); }
@@ -3211,17 +3403,22 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 }
 
 /* (구 .selected-piece-glow 클래스 — 미사용 — 제거) */
-/* 액션 힌트 — 사용자 가독성 요청으로 더 굵고 밝게. urgent 는 빨강 강조 유지. */
+/* 액션 힌트 — 묻히는 톤으로 존재감 죽임. 가장 긴 문구 ("양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요." ~28자) 가
+   줄바꿈 없이 들어가는 사이즈로 조정. urgent 는 색상만 빨강 (사이즈는 동일 유지). */
 .action-hint {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #fde68a;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #94a3b8;          /* 묻히는 회색 톤 */
   text-align: center;
-  min-height: 22px;
-  letter-spacing: 0.01em;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  min-height: 18px;
+  letter-spacing: 0;
+  text-shadow: none;
+  white-space: nowrap;     /* 줄바꿈 절대 금지 */
+  overflow: hidden;
+  text-overflow: ellipsis; /* 안전망 — 컨테이너 좁을 때 ... */
+  padding: 0 4px;
 }
-.action-hint.urgent { color: var(--danger); font-weight: 800; font-size: 1rem; }
+.action-hint.urgent { color: var(--danger); font-weight: 700; font-size: 0.78rem; }
 
 /* 스킬 미리보기 탭 */
 .slide-preview-tabs {
@@ -3718,18 +3915,17 @@ body.team-mode .placement-opp-panel {
   border: 2px solid rgba(239,68,68,0.6);
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
-/* ── 1v1: 비-현재-턴 사이드 패널 dim — 팀모드와 동일한 수치(opacity 0.62, saturate 0.7, brightness 0.85)로 통일 ── */
-.side-panel {
+/* ── 1v1: 비-현재-턴 사이드 패널 dim — 카드 단위로 적용해야 .turn-bright 가 부모 opacity 와 충돌 안 함 ──
+   기존: .side-panel { opacity: 0.62 } → opacity 는 자식에게 compound 되어 .turn-bright !important 로도 override 불가.
+   수정: 카드 레벨로 dim 이동, .turn-bright 카드는 자동 면제. 패널 헤더 등은 본 dim 적용 안 받음 (가독성↑). */
+.side-panel .my-piece-card,
+.side-panel .opp-piece-card {
   transition: opacity 0.25s, filter 0.25s;
+}
+.side-panel:not(.turn-active) .my-piece-card:not(.turn-bright):not(.dead),
+.side-panel:not(.turn-active) .opp-piece-card:not(.turn-bright):not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
-}
-.side-panel.turn-active { opacity: 1; filter: none; }
-/* 피격/회복 시 해당 카드만 풀 밝기 — 그 턴 동안 유지 (turn-bright). 다음 턴 진입 시 clearAllTurnBright 가 일괄 해제 */
-.side-panel .my-piece-card.turn-bright,
-.side-panel .opp-piece-card.turn-bright {
-  opacity: 1 !important;
-  filter: none !important;
 }
 .my-piece-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .my-piece-header .p-icon { font-size: 1.4rem; }
@@ -4840,7 +5036,7 @@ body.team-mode .placement-opp-panel {
     font-size: 0.75rem; padding: 8px 6px;
   }
   .btn-surrender { flex-basis: 100%; }
-  .action-hint { font-size: 0.85rem; font-weight: 700; }
+  .action-hint { font-size: 0.72rem; font-weight: 500; }
 
   /* SP 바 */
   .sp-bar-container { padding: 6px 10px; gap: 8px; }

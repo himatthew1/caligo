@@ -262,13 +262,39 @@ socket.on('timer_start', ({ seconds }) => {
 
 socket.on('turn_timeout', () => {
   if (!isActiveGamePhase()) return;
-  addLog('⏰ 시간 초과!', 'system');
-  showSkillToast('⏰ 시간 초과!', false, undefined, 'event');
+  if (typeof playSfxTimeout === 'function') playSfxTimeout();
+  addLog('⏰ 턴 스킵', 'system');
+  showSkillToast('⏰ 턴 스킵', false, undefined, 'event');
+  // 쌍둥이 이동 페이즈 중 타이머 만료 → 클라 상태/플로팅 버튼/body 클래스 정리
+  // (서버는 turnTimeout → endTurn 으로 턴을 진행하지만, 클라가 twin phase 를 자체 정리 안 하면 UI 가 멈춰 보임)
+  if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
+    exitTwinMovePhase(/*emitToast=*/false);
+  }
 });
 
 socket.on('placement_timeout', () => {
   if (!isActiveGamePhase()) return;
-  showSkillToast('⏰ 시간 초과! 미배치 말이 랜덤 배치됩니다.', false, undefined, 'event');
+  if (typeof playSfxTimeout === 'function') playSfxTimeout();
+  addLog('⏰ 랜덤 배치', 'system');
+  showSkillToast('⏰ 랜덤 배치', false, undefined, 'event');
+});
+
+// ── 페이즈별 시간 초과 통합 핸들러 ──
+//   서버가 phase_timeout 이벤트로 phase 명을 전달 → 클라가 phase 별 통일 메시지 출력.
+const PHASE_TIMEOUT_MSG = {
+  initial_reveal:   '⏰ 시간 초과',
+  final_reveal:     '⏰ 시간 초과',
+  team_draft:       '⏰ 랜덤 선택',
+  team_hp:          '⏰ 자동 분배',
+  team_reveal:      '⏰ 시간 초과',
+  team_placement:   '⏰ 랜덤 배치',
+};
+socket.on('phase_timeout', ({ phase }) => {
+  const msg = PHASE_TIMEOUT_MSG[phase];
+  if (!msg) return;
+  if (typeof playSfxTimeout === 'function') playSfxTimeout();
+  addLog(msg, 'system');
+  showSkillToast(msg, false, undefined, 'event');
 });
 
 // ── 화면 전환 ─────────────────────────────────────────────────
@@ -2081,6 +2107,10 @@ socket.on('team_game_update', (state) => {
   const prevTurnIdx = S.currentPlayerIdx;
   const prevSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
   applyTeamGameState(state);
+  // 내가 쌍둥이 이동 중이었는데 턴이 넘어가는 케이스 (타이머 만료/강제 종료 등) — UI 정리
+  if (wasMyTurn && !S.isMyTurn && S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
+    exitTwinMovePhase(/*emitToast=*/false);
+  }
   // 스킬·패시브로 HP가 변한 piece에 hit/heal 애니메이션 — 1v1 skill_result/status_update와 동일
   const currSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
   const changes = (typeof detectTeamHpChanges === 'function') ? detectTeamHpChanges(prevSnap, currSnap) : [];
@@ -2183,12 +2213,7 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
-  // msg 가 명시적으로 빈 문자열/null 이면 텍스트 출력 차단 (애니메이션만)
-  // 사용자 요청: '[이름] - 스킬명' 같은 자동 폴백 메시지 출력 금지
   const hasMsg = !!msg;
-  const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
-  if (sfxRoute) sfxRoute();
-  else playSfx(myTeam ? 'skill' : 'opp_skill');
 
   // 마법구 비행 + dim 시퀀스 (skill_result/status_update 와 동일)
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -2200,17 +2225,24 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const casterCard = (typeof casterPieceIdx === 'number')
     ? document.querySelector(`.team-profile-block[data-player-idx="${casterIdx}"] [data-piece-idx="${casterPieceIdx}"]`)
     : null;
-  // targetInfo: team_game_update 가 곧 도착해 DOM 재렌더 시 spotlight 가 날아가는 문제 방지용
   const _spotlightTarget = (typeof casterPieceIdx === 'number' && casterIdx != null)
     ? { playerIdx: casterIdx, pieceIdx: casterPieceIdx }
     : null;
   startSkillCastDim(casterCard, _spotlightTarget);
   try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
 
-  const TOAST_DELAY_MS = 1500;
+  // ★ 통일된 시퀀스 — SP 비행 종료 시점에 SFX + 토스트/로그 동시 발사
+  // 팀 모드 cost 추정 — 본인이 시전자라면 mine SP 변화, 적 팀이 시전했다면 opp SP 변화 측 활용
+  // 일단 여기서는 SP delta 합으로 추정.
+  const _spCost = spCostFromDelta(oldSpSnap, newSp, oldInstantSnap, newInstant);
+  const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
 
-  // T+1500: dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
+  // T+SP_END: SFX + dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
   setTimeout(() => {
+    const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
+    if (sfxRoute) sfxRoute();
+    else playSfx(myTeam ? 'skill' : 'opp_skill');
+
     endSkillCastDim(casterCard);
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
@@ -2791,8 +2823,15 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg }) => {
   if (!S.isSpectator) return;
+
+  // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
+  if (twinJoin && typeof playTwinJoinFlight === 'function') {
+    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
+    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+    if (typeof playSfxTwinsJoin === 'function') playSfxTwinsJoin();
+  }
 
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
   const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
@@ -2806,13 +2845,15 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
   startSkillCastDim(casterCard);
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
 
-  const SP_ATTN_MS = 2000;
+  // ★ 통일 — SP 비행 종료 시점에 dim 해제 + sp 동기화
+  const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
+  const SP_END_MS = getSpFlightEndMs(_spCost);
   setTimeout(() => {
     endSkillCastDim(casterCard);
     if (sp) S.sp = sp;
     if (instantSp) S.instantSp = instantSp;
     if (sp || instantSp) try { updateSPBar(); } catch (e) {}
-  }, SP_ATTN_MS);
+  }, SP_END_MS);
 });
 
 // ── 관전자 전투 로그 ──
@@ -2961,7 +3002,13 @@ socket.on('phase_change', ({ phase }) => {
 // ── 드래프트 확정 ──
 socket.on('draft_ok', ({ t1, t2, t3, timeout, timeoutMsg }) => {
   S.myDraft = { t1, t2, t3 };
-  if (timeout) showSkillToast(`⏰ ${timeoutMsg || '시간 초과로 랜덤 선택되었습니다.'}`, false, undefined, 'event');
+  if (timeout) {
+    if (typeof playSfxTimeout === 'function') playSfxTimeout();
+    // 서버 timeoutMsg: '자동 확정' (이미 다 채웠을 때) / '랜덤 선택' (빈 슬롯 채운 경우)
+    const msg = `⏰ ${timeoutMsg || '랜덤 선택'}`;
+    addLog(msg, 'system');
+    showSkillToast(msg, false, undefined, 'event');
+  }
 });
 
 // ── HP 분배 페이즈 ──
@@ -2977,7 +3024,11 @@ socket.on('hp_phase', ({ draft, hasTwins }) => {
 });
 
 socket.on('hp_ok', ({ timeout }) => {
-  if (timeout) showSkillToast('⏰ 시간 초과로 랜덤 분배되었습니다.', false, undefined, 'event');
+  if (timeout) {
+    if (typeof playSfxTimeout === 'function') playSfxTimeout();
+    addLog('⏰ 랜덤 분배', 'system');
+    showSkillToast('⏰ 랜덤 분배', false, undefined, 'event');
+  }
 });
 
 socket.on('twin_split_needed', ({ twinTierHp }) => {
@@ -3019,12 +3070,55 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
 
 socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   S.exchangeMyDraft = draft;
+  S.myDraft = draft;  // 교체 페이즈 카드 갱신용 — 페이즈 종료 후 다른 핸들러도 일관된 데이터 사용
   if (timeout) {
-    showSkillToast('시간초과! 교환 없이 확정되었습니다.', false, undefined, 'event');
+    if (typeof playSfxTimeout === 'function') playSfxTimeout();
+    addLog('⏰ 자동 확정', 'system');
+    showSkillToast('⏰ 자동 확정', false, undefined, 'event');
   } else if (exchanged) {
-    showSkillToast(`${exchanged.newChar.icon}${exchanged.newChar.name} 교환 완료`, false, undefined, 'event');
+    // 토스트 제거 — 시각적으로 카드 자체가 바뀌므로 텍스트 안내 불필요
+    // 내 슬롯에 즉시 swap-reveal: 기존 카드 페이드아웃 → 빈 슬롯 → 새 카드 등장
+    animateMySwapInReveal(exchanged);
   }
 });
+
+// 내 측 교체 애니메이션 — exchange_done 도착 즉시 실행 (오버레이 슬라이드 아웃과 동시).
+//   1) 기존 카드 fade-out (400ms)
+//   2) 빈 슬롯 placeholder (200ms)
+//   3) 새 캐릭터 카드 fade-in (900ms)  → 총 1.5초
+//   대기 중에도 내 슬롯에는 이미 새 캐릭터가 자리잡고 있음.
+function animateMySwapInReveal(exchanged) {
+  if (!exchanged) return;
+  const myContainer = document.getElementById('irev-my-chars');
+  if (!myContainer) return;
+  const cards = [...myContainer.querySelectorAll('.reveal-piece-card')];
+  const targetIdx = exchanged.tier - 1;  // tier 1/2/3 → idx 0/1/2
+  const oldEl = cards[targetIdx];
+  if (!oldEl) return;
+  // 진행 중 표시 — playExchangeRevealAnimation 가 동시에 끼어들어도 my 측 tier 를 건너뛰게.
+  S._mySwapAnimatingTier = exchanged.tier;
+  // SFX (기존 swap reveal 동일)
+  try { playSfxSwapBlink(); } catch (e) {}
+  setTimeout(() => { try { playSfxSwapReveal(); } catch (e) {} }, 400);
+  // (1) fade-out
+  oldEl.classList.add('swap-out');
+  // (2) 400ms 후 빈 슬롯으로 교체
+  setTimeout(() => {
+    const emptySlot = document.createElement('div');
+    emptySlot.className = 'reveal-slot-empty reveal-slot-swap-empty';
+    // ★ 버그 수정: data-tier 부착 — 인덱스 기반 매핑이 placeholder 를 건너뛰고 어긋나는 문제 차단.
+    emptySlot.dataset.tier = String(exchanged.tier);
+    oldEl.replaceWith(emptySlot);
+    // (3) 200ms 후 새 카드 fade-in
+    setTimeout(() => {
+      const newCard = createDraftRevealCard(exchanged.newChar, exchanged.tier, 'left');
+      newCard.classList.add('swap-in', 'exchanged-highlight');
+      emptySlot.replaceWith(newCard);
+      // 애니메이션 완료 — 락 해제
+      if (S._mySwapAnimatingTier === exchanged.tier) S._mySwapAnimatingTier = null;
+    }, 200);
+  }, 400);
+}
 
 // ── 교체 페이즈 (구 final_reveal) ── 통합된 교체 페이즈의 마지막 단계.
 //   화면 전환 없이 screen-initial-reveal 위에서 변경된 티어의 카드만 swap-reveal 애니메이션 진행 (1.5초).
@@ -3218,6 +3312,10 @@ function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
 socket.on('your_turn', (data) => {
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
+  // 방어적 — 이전 턴의 쌍둥이 페이즈 잔재 정리 (정상 흐름이면 이미 종료됐어야 함)
+  if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
+    exitTwinMovePhase(/*emitToast=*/false);
+  }
   S.isMyTurn = true;
   S.turnNumber = data.turnNumber;
   S.myPieces = data.yourPieces || S.myPieces;
@@ -3255,6 +3353,10 @@ socket.on('your_turn', (data) => {
 socket.on('opp_turn', (data) => {
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
+  // 내가 쌍둥이 이동 중이었는데 턴이 넘어가는 케이스 (타이머 만료/강제 종료) — UI 정리 필수
+  if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
+    exitTwinMovePhase(/*emitToast=*/false);
+  }
   S.isMyTurn = false;
   S.turnNumber = data.turnNumber;
   S.oppPieces = data.oppPieces || S.oppPieces;
@@ -3282,42 +3384,50 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
   playSfx('move');
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
+
+  // 쌍둥이 이동 페이즈 — 토스트/로그는 페이즈 종료 시점에 단 한 번만 (개별 이동마다 X)
+  if (S.twinPhaseActive) {
+    if (twinMovePending) {
+      // 첫 이동 끝남 — 두 번째 이동 대기
+      S.twinFirstSubMoved = twinMovedSub;
+      S.selectedPiece = null;
+      S.moveDone = true;
+      S.actionDone = true;
+      S.lastActionType = 'move';
+      S.lastActionPieceType = pc.type;
+      renderGameBoard();
+      renderMyPieces();
+      // 두 번째 이동 안내 — 합류 상태면 picker, 아니면 floating 버튼
+      refreshTwinPhaseButtons();
+      setActionHint('두 번째 쌍둥이를 선택하거나 턴을 종료하세요.');
+      showActionBar(true);
+    } else {
+      // 두 번째 이동 끝남 — 페이즈 종료 + 단일 토스트/로그
+      S.moveDone = true;
+      S.actionDone = true;
+      S.lastActionType = 'move';
+      S.lastActionPieceType = pc.type;
+      exitTwinMovePhase(/*emitToast=*/true);
+      showActionBar(true);
+    }
+    return;
+  }
+
+  // 일반 이동 — 기존 로직
   addLog(`${pc.name} 이동`, 'move');
   showSkillToast(`${pc.name} 이동`);
-
-  if (twinMovePending) {
-    // 쌍둥이 첫 이동 — 행동 완료지만 같은 턴에 다른 쪽 이동도 옵션
-    S.action = 'move';
-    S.selectedPiece = null;
-    S.twinMovePending = true;
-    S.twinMovedSub = twinMovedSub;
-    S.moveDone = true;
-    S.actionDone = true;  // 첫 이동만으로 턴 종료 가능
-    S.lastActionType = 'move';
-    S.lastActionPieceType = pc.type;
-    // 누나가 이미 이동했으면 누나 이동 넘기기 버튼은 의미 없음 — 숨김
-    // (동생에는 적용되지 않음 — 동생 이동 후엔 더 이동할 쌍둥이가 없으므로 비표시 유지)
-    const skipBtn = document.getElementById('btn-twin-skip-elder');
-    if (skipBtn) skipBtn.classList.add('hidden');
-    renderGameBoard();
-    renderMyPieces();
-    const otherFull = pc.subUnit === 'elder' ? '동생도' : '누나도';
-    document.getElementById('action-hint').textContent = `👫 쌍둥이 ${otherFull} 추가로 이동시키거나 턴을 종료할 수 있습니다.`;
-    showActionBar(true);
-  } else {
-    S.action = null;
-    S.selectedPiece = null;
-    S.twinMovePending = false;
-    S.twinMovedSub = null;
-    S.moveDone = true;
-    S.actionDone = true;
-    S.lastActionType = 'move';
-    S.lastActionPieceType = pc.type;
-    setActionButtonMode(null);
-    renderGameBoard();
-    renderMyPieces();
-    showActionBar(true);
-  }
+  S.action = null;
+  S.selectedPiece = null;
+  S.twinMovePending = false;
+  S.twinMovedSub = null;
+  S.moveDone = true;
+  S.actionDone = true;
+  S.lastActionType = 'move';
+  S.lastActionPieceType = pc.type;
+  setActionButtonMode(null);
+  renderGameBoard();
+  renderMyPieces();
+  showActionBar(true);
 });
 
 // 팀모드: 팀원이 이동했을 때 실시간 애니메이션
@@ -3734,6 +3844,22 @@ socket.on('turn_event', (payload) => {
 // 스킬 시전 시 SP 차감 집중 연출 — SP 바 위에서 마법 구슬이 시전자 → 상대 숫자로 이동
 // 순서: 인스턴트 SP 먼저 소멸 → 0.5s 간격 → 일반 SP 마법구 비행
 // 비행/소멸마다 카운터 숫자가 한 칸씩 변화 (시각적 tick + 효과음)
+// ── SP 오브 비행 종료 시점 계산 ──
+//   spendSPAttention 의 nextMs(80) + (cost-1)*130 + flight(700) 공식.
+//   cost 0 (기폭) → 다른 스킬과 시각 호흡 통일 위해 cost 1 (780ms) 로 처리.
+function getSpFlightEndMs(cost) {
+  const c = Math.max(1, cost | 0);  // 0 → 1 로 처리
+  return 780 + (c - 1) * 130;
+}
+// 이벤트 payload 에 spCost 가 없을 때 fallback (SP delta 로 추정)
+function spCostFromDelta(oldSp, newSp, oldInstantSp, newInstantSp) {
+  if (!oldSp || !newSp) return 1;
+  const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const reg = (oldSp[mySlot] || 0) - (newSp[mySlot] || 0);
+  const ins = ((oldInstantSp || [])[mySlot] || 0) - ((newInstantSp || [])[mySlot] || 0);
+  return Math.max(1, (reg > 0 ? reg : 0) + (ins > 0 ? ins : 0));
+}
+
 function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   const sec = document.querySelector('.sp-section');
   if (sec) {
@@ -4104,6 +4230,154 @@ function spawnSpOrbVanish(from, kind) {
     orb.style.transform = 'scale(0.4)';
   });
   setTimeout(() => orb.remove(), 750);
+}
+
+// ── 쌍둥이 분신 비행 애니메이션 ──
+//   mover (불려오는 쪽) 가 caller 위치로 빠르게 날아가며 잔상(작은 ghost copy) 을 남김.
+//   SP 마법구 비행과 유사한 베지어 곡선 + 트레일 인터벌. 도착 시 작은 합체 펄스.
+//   비행 동안 mover 의 보드 위 piece-marker 를 hidden 처리 (skill_result 의 yourPieces 적용 전까지).
+//
+// ★ 디버그 미리보기 — 실제 게임 흐름과 무관하게 비행 + SFX 만 미리 재생.
+//   콘솔에서 `previewTwinJoin()` 호출. 게임 보드가 있으면 그 위에서, 없으면 화면 가운데에서 임의 좌표로 비행.
+window.previewTwinJoin = function(moverIcon = '👦') {
+  const board = document.getElementById('game-board');
+  if (board && board.querySelectorAll('.cell').length >= 2) {
+    // 보드 위에서 비행 — 임의의 두 셀 선택
+    const cells = board.querySelectorAll('.cell');
+    const fromCell = cells[0];
+    const toCell = cells[Math.min(cells.length - 1, 7)];
+    const fromCol = parseInt(fromCell.dataset.col), fromRow = parseInt(fromCell.dataset.row);
+    const toCol = parseInt(toCell.dataset.col), toRow = parseInt(toCell.dataset.row);
+    try { if (typeof playSfxTwinsJoin === 'function') playSfxTwinsJoin(); } catch(e) {}
+    playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow);
+    return `Flying ${moverIcon} from (${fromCol},${fromRow}) → (${toCol},${toRow})`;
+  }
+  // 보드 없을 때 — 화면 좌→우로 비행 (셀 없이 fixed 좌표 사용 위해 임시 가짜 호출)
+  const W = window.innerWidth, H = window.innerHeight;
+  const fromX = W * 0.25, fromY = H * 0.5;
+  const toX = W * 0.75, toY = H * 0.5;
+  // playTwinJoinFlight 는 셀 기반이라 fallback 으로 직접 비행 객체 생성
+  const flyer = document.createElement('div');
+  flyer.className = 'twin-join-flyer';
+  flyer.textContent = moverIcon;
+  flyer.style.left = fromX + 'px';
+  flyer.style.top = fromY + 'px';
+  document.body.appendChild(flyer);
+  try { if (typeof playSfxTwinsJoin === 'function') playSfxTwinsJoin(); } catch(e) {}
+  const dur = 700, startT = performance.now();
+  const mid = { x: (fromX + toX) / 2, y: fromY - Math.abs(toX - fromX) * 0.18 - 24 };
+  const trailIv = setInterval(() => {
+    const r = flyer.getBoundingClientRect();
+    const ghost = document.createElement('div');
+    ghost.className = 'twin-join-trail';
+    ghost.textContent = moverIcon;
+    ghost.style.left = (r.left + r.width / 2) + 'px';
+    ghost.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(ghost);
+    setTimeout(() => ghost.remove(), 480);
+  }, 35);
+  function step(now) {
+    const t = Math.min(1, (now - startT) / dur);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const x = (1 - e) * (1 - e) * fromX + 2 * (1 - e) * e * mid.x + e * e * toX;
+    const y = (1 - e) * (1 - e) * fromY + 2 * (1 - e) * e * mid.y + e * e * toY;
+    flyer.style.left = x + 'px';
+    flyer.style.top = y + 'px';
+    if (t < 1) requestAnimationFrame(step);
+    else { clearInterval(trailIv); flyer.classList.add('twin-join-arrive'); setTimeout(() => flyer.remove(), 320); }
+  }
+  requestAnimationFrame(step);
+  return `Preview flight ${moverIcon} (no board)`;
+};
+
+function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const fromCell = board.querySelector(`.cell[data-col="${fromCol}"][data-row="${fromRow}"]`);
+  const toCell   = board.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
+  if (!fromCell || !toCell) return;
+
+  // mover 의 piece-marker 일시 숨김 — 비행 끝나고 보드 재렌더 시 자연 복귀
+  const moverMarker = fromCell.querySelector('.piece-marker');
+  if (moverMarker) moverMarker.classList.add('twin-flying');
+
+  const fromR = fromCell.getBoundingClientRect();
+  const toR   = toCell.getBoundingClientRect();
+  const fromX = fromR.left + fromR.width  / 2;
+  const fromY = fromR.top  + fromR.height / 2;
+  const toX   = toR.left   + toR.width    / 2;
+  const toY   = toR.top    + toR.height   / 2;
+
+  // 비행 객체 (이모지 자체)
+  const flyer = document.createElement('div');
+  flyer.className = 'twin-join-flyer';
+  flyer.textContent = moverIcon;
+  flyer.style.left = fromX + 'px';
+  flyer.style.top  = fromY + 'px';
+  document.body.appendChild(flyer);
+
+  // ── 사용자 요청: 곡선 → "준비 동작 + 일직선" 모션 ──
+  //   ① 준비(wind-up): 0~180ms — target 반대 방향으로 살짝 후퇴 + scale 1.15 부풀어 오름
+  //   ② 비행(launch):  180~700ms — wind-up 위치에서 target 까지 직선 이동 (ease-out)
+  //   잔상 트레일은 비행 구간에서만 발사.
+  const WINDUP_MS = 180;
+  const FLIGHT_MS = 520;
+  const TOTAL_MS = WINDUP_MS + FLIGHT_MS;
+  const startT = performance.now();
+  // wind-up 후퇴 거리 — target 반대 방향으로 진행 거리의 8% (작게)
+  const dx = toX - fromX, dy = toY - fromY;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist, uy = dy / dist;        // target 방향 단위벡터
+  const WINDUP_DIST = 14;                       // 14px 후퇴
+  const windupX = fromX - ux * WINDUP_DIST;
+  const windupY = fromY - uy * WINDUP_DIST;
+
+  // 잔상 트레일 — 비행 구간(180ms 이후)에만 발사
+  const trailIv = setInterval(() => {
+    if (performance.now() - startT < WINDUP_MS) return;  // 준비 동작 중엔 잔상 X
+    const r = flyer.getBoundingClientRect();
+    const ghost = document.createElement('div');
+    ghost.className = 'twin-join-trail';
+    ghost.textContent = moverIcon;
+    ghost.style.left = (r.left + r.width / 2) + 'px';
+    ghost.style.top  = (r.top  + r.height / 2) + 'px';
+    document.body.appendChild(ghost);
+    setTimeout(() => ghost.remove(), 480);
+  }, 30);
+
+  function step(now) {
+    const elapsed = now - startT;
+    let x, y, scale;
+    if (elapsed < WINDUP_MS) {
+      // ① 준비 — easeOut 으로 후퇴 + 1.0 → 1.15 스케일
+      const t = elapsed / WINDUP_MS;
+      const e = 1 - Math.pow(1 - t, 3);
+      x = fromX + (windupX - fromX) * e;
+      y = fromY + (windupY - fromY) * e;
+      scale = 1 + 0.15 * e;
+    } else {
+      // ② 일직선 비행 — wind-up 위치 → target. easeOutCubic 으로 빠르게 가속 후 살짝 감속.
+      const t = Math.min(1, (elapsed - WINDUP_MS) / FLIGHT_MS);
+      const e = 1 - Math.pow(1 - t, 3);
+      x = windupX + (toX - windupX) * e;
+      y = windupY + (toY - windupY) * e;
+      scale = 1.15 - 0.15 * e;  // 1.15 → 1.0
+    }
+    flyer.style.left = x + 'px';
+    flyer.style.top  = y + 'px';
+    flyer.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+
+    if (elapsed < TOTAL_MS) {
+      requestAnimationFrame(step);
+    } else {
+      clearInterval(trailIv);
+      // ★ 사용자 요청: 도착 펄스는 mover 가 아닌 합류 이모지(👫) 로 표시.
+      flyer.textContent = '👫';
+      flyer.classList.add('twin-join-arrive');
+      setTimeout(() => flyer.remove(), 320);
+    }
+  }
+  requestAnimationFrame(step);
 }
 
 // SP 지급 풀스크린 애니메이션 — 통합 스파이럴 모션 (수영하듯이 매끄럽게)
@@ -4787,14 +5061,11 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
   const oldInstantSnap = Array.isArray(S.instantSp) ? [...S.instantSp] : [0, 0];
 
-  // 1단계 — 즉시: 효과음 + 행동 플래그 + dim 오버레이 + SP 차감 집중 (마법구 비행)
+  // 1단계 — 즉시: 행동 플래그 + dim 오버레이 + SP 차감 집중 (마법구 비행)
+  //   ★ SFX 는 SP 비행 종료 시점(SP_END) 으로 이동 — 보드 효과/토스트 와 동기화.
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
-  if (msg) {
-    const sfxRoute = pickSkillSfxByMsg(msg);
-    if (sfxRoute) sfxRoute(); else playSfx('skill');
-  }
   // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
   // 시전자 인덱스: 서버가 casterPieceIdx 로 보내며, 구 버전 호환을 위해 pieceIdx 도 fallback
   const _casterIdx = (typeof casterPieceIdx === 'number') ? casterPieceIdx
@@ -4813,14 +5084,38 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
-  // 새 시퀀스 (사용자 요청):
-  //   T+0     : 마법구 비행 시작 + 시전자 카드 spotlight (긴장감 빌드업, 1.5s)
-  //   T+1500  : 스킬 효과(HP/보드) + 토스트/로그 + dim 해제 — 모두 한 번에
-  const TOAST_DELAY_MS = 1500;
+  // ★ 분신 비행 애니메이션 — msg 가 "👫 분신" 으로 시작하면 mover 가 잔상 남기며 target 으로 빠르게 비행.
+  //   비교: OLD S.myPieces 위치 vs NEW yourPieces 위치 → 좌표가 변한 쪽이 mover.
+  //   비행 동안 mover 의 piece-marker 는 visibility:hidden, 도착 시 보드 재렌더로 합류 emoji 출현.
+  if (msg && msg.indexOf('👫 분신') === 0 && yourPieces && typeof playTwinJoinFlight === 'function') {
+    const oldElder   = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
+    const oldYounger = (S.myPieces || []).find(p => p.subUnit === 'younger' && p.alive);
+    const newElder   = (yourPieces || []).find(p => p.subUnit === 'elder' && p.alive);
+    const newYounger = (yourPieces || []).find(p => p.subUnit === 'younger' && p.alive);
+    let moverIcon = null, fromCol, fromRow, toCol, toRow;
+    if (oldElder && newElder && (oldElder.col !== newElder.col || oldElder.row !== newElder.row)) {
+      moverIcon = '👧'; fromCol = oldElder.col; fromRow = oldElder.row; toCol = newElder.col; toRow = newElder.row;
+    } else if (oldYounger && newYounger && (oldYounger.col !== newYounger.col || oldYounger.row !== newYounger.row)) {
+      moverIcon = '👦'; fromCol = oldYounger.col; fromRow = oldYounger.row; toCol = newYounger.col; toRow = newYounger.row;
+    }
+    if (moverIcon) playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow);
+  }
+
+  // ★ 통일된 시퀀스 — SP 오브 비행 종료 시점에 SFX/보드 효과/토스트/로그 동시 발사.
+  //   SP_END(cost) = 780 + (cost-1) * 130 ms.  cost 0 (기폭) → 1 로 처리해 780ms.
+  //   T+0       : 마법구 비행 시작 + 시전자 spotlight (dim)
+  //   T+SP_END  : SFX + 스킬 효과(HP/보드) + 토스트/로그 + dim 해제 — 모두 동시
+  const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
+  const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
   const isDetonate = data && Array.isArray(data.deferredBombEmits) && data.deferredBombEmits.length > 0;
 
-  // 2단계 — T+1500: 스킬 효과 + 토스트·로그 + dim 해제 (모두 동시)
+  // 2단계 — T+SP_END: SFX + 스킬 효과 + 토스트·로그 + dim 해제 (모두 동시)
   setTimeout(() => {
+    // SFX — 보드 효과와 정확히 같은 순간에 재생
+    if (msg) {
+      const sfxRoute = pickSkillSfxByMsg(msg);
+      if (sfxRoute) sfxRoute(); else playSfx('skill');
+    }
     endSkillCastDim(casterCard);
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
@@ -4915,10 +5210,13 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx }) => {
-  // 메시지 기반 라우팅 (skill_result와 동일 매핑) — 폴백은 'opp_skill'
-  const sfxRoute = pickSkillSfxByMsg(msg);
-  if (sfxRoute) sfxRoute(); else playSfx('opp_skill');
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx, twinJoin }) => {
+  // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
+  //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
+  if (twinJoin && typeof playTwinJoinFlight === 'function') {
+    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
+    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+  }
 
   // 마법구 비행 + dim 오버레이 — skill_result(시전자) 와 동일한 시퀀스로 재현.
   // 시전자 카드는 1v1 상대 시점이므로 #opp-pieces-info 에 위치.
@@ -4934,10 +5232,16 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   // SP 마법구 비행 — opp 측이 SP 를 소비해 본인 측으로 transfer 되므로 transferToMe 경로(빨간 마법구)가 발동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
 
-  const TOAST_DELAY_MS = 1500;
+  // ★ 통일된 시퀀스 — SP 비행 종료 시점에 SFX + 보드 효과 + 토스트/로그 동시 발사
+  const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
+  const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
 
-  // T+1500: dim 해제 + sp 동기화 + HP/보드 + 토스트·로그 (모두 동시)
+  // T+SP_END: SFX + dim 해제 + sp 동기화 + HP/보드 + 토스트·로그 (모두 동시)
   setTimeout(() => {
+    if (msg) {
+      const sfxRoute = pickSkillSfxByMsg(msg);
+      if (sfxRoute) sfxRoute(); else playSfx('opp_skill');
+    }
     endSkillCastDim(oppCasterCard);
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
@@ -4993,37 +5297,43 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 });
 
 // ── 쥐 소환 ──
-socket.on('rats_spawned', ({ rats, owner }) => {
-  if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
-  // 팀모드: 본인/팀원/적 구분
+socket.on('rats_spawned', ({ rats, owner, spCost }) => {
+  // ★ 통일 — SP 비행 종료 시점에 SFX + 보드 + 토스트/로그 동시 발사
+  const SP_END_MS = getSpFlightEndMs(spCost || 2);
   const isMine = owner === S.playerIdx;
   const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
-  if (isMine) {
-    addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
-    showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
-  } else if (isAlly) {
-    addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
-    showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
-  } else {
-    addLog(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
-    showSkillToast(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
-  }
-  renderGameBoard();
+  setTimeout(() => {
+    if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
+    if (isMine) {
+      addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
+      showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
+    } else if (isAlly) {
+      addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
+      showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
+    } else {
+      addLog(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
+      showSkillToast(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
+    }
+    renderGameBoard();
+  }, SP_END_MS);
 });
 
 // ── 드래곤 소환 ──
-socket.on('dragon_spawned', ({ dragon, owner }) => {
-  if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill');
-  // 본인/팀원/적 구분 — 팀모드에서 팀원 시점에서도 본인과 동일한 문구 출력
+socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
+  // ★ 통일 — SP 비행 종료 시점에 SFX + 토스트/로그 (드래곤 5 SP → 1300ms)
+  const SP_END_MS = getSpFlightEndMs(spCost || 5);
   const isMine = owner === S.playerIdx;
   const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
-  if (isMine || isAlly) {
-    addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
-    showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
-  } else {
-    addLog(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
-    showSkillToast(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, true);
-  }
+  setTimeout(() => {
+    if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill');
+    if (isMine || isAlly) {
+      addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
+      showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
+    } else {
+      addLog(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
+      showSkillToast(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, true);
+    }
+  }, SP_END_MS);
 });
 
 // ── 함정 발동 ──
@@ -5105,10 +5415,10 @@ socket.on('detonation_intro', ({ bombs }) => {
   if (!Array.isArray(bombs) || bombs.length === 0) return;
   const board = document.getElementById('game-board');
   if (!board) return;
-  // 폭탄 애니는 화면 dim 해제 + 0.5초 텀 후(=SKILL_START_MS=2500ms) 시작
-  const SP_ATTN_MS = 2000;
-  const SKILL_GAP_MS = 500;
-  const SKILL_START_MS = SP_ATTN_MS + SKILL_GAP_MS;
+  // ★ 통일 — 기폭은 SP cost 0 이지만 cost 1 (780ms) 시점에 spotlight 종료 후 폭탄 시퀀스 시작.
+  //   기존 SP_ATTN_MS(2000) + SKILL_GAP_MS(500) = 2500ms → 780ms 로 단축.
+  //   폭탄 시퀀스 자체(reveal→arm→blast→cleanup) 는 950ms 로 그대로 유지.
+  const SKILL_START_MS = getSpFlightEndMs(1);  // 780ms — 다른 1 cost 스킬과 동일 호흡
   const markers = [];
   // 단계 1: 노출 (0ms) — 마커 부착 + 황색 후광
   setTimeout(() => {
@@ -7335,19 +7645,34 @@ function playExchangeRevealAnimation(myDraft, oppChars) {
     oppNew[ch.tier] = { ch, tier: ch.tier };
   }
 
-  // 어떤 티어가 교체되었는지 — DOM 에 저장된 dataset 으로 대조 (없으면 인덱스 순서대로 비교)
+  // ★ 버그 수정: 인덱스 기반 매핑은 my 측이 animateMySwapInReveal 로 placeholder 상태일 때 어긋남
+  //   (T1 placeholder 면 querySelectorAll('.reveal-piece-card') 가 [T2, T3] 만 반환 → i=0 이 T2 카드를 잡아 T1 처리하는 식).
+  //   해결: data-tier 기반으로 element 매핑.
+  const myByTier = {};
+  for (const el of myContainer.querySelectorAll('.reveal-piece-card[data-tier]')) {
+    const t = parseInt(el.dataset.tier);
+    if (t) myByTier[t] = el;
+  }
+  const oppByTier = {};
+  for (const el of oppContainer.querySelectorAll('.reveal-piece-card[data-tier]')) {
+    const t = parseInt(el.dataset.tier);
+    if (t) oppByTier[t] = el;
+  }
+
+  // 어떤 티어가 교체되었는지 — DOM 에 저장된 dataset 으로 대조
   const swapTasks = []; // { side: 'my'|'opp', oldEl, newCh, tier }
-  for (let i = 0; i < 3; i++) {
-    const tier = i + 1;
-    const myEl = myCardsExisting[i];
+  for (let tier = 1; tier <= 3; tier++) {
+    const myEl = myByTier[tier];
     const newMy = myNew[tier];
-    if (myEl && newMy) {
+    // animateMySwapInReveal 가 이 tier 를 처리 중이면 my 측 swap-task 추가 안 함 (이미 별도 애니로 진행 중).
+    const myMidAnim = S._mySwapAnimatingTier === tier;
+    if (myEl && newMy && !myMidAnim) {
       const oldType = myEl.dataset.charType;
       if (oldType && oldType !== newMy.ch.type) {
         swapTasks.push({ side: 'my', oldEl: myEl, newCh: newMy.ch, tier });
       }
     }
-    const oppEl = oppCardsExisting[i];
+    const oppEl = oppByTier[tier];
     const newOpp = oppNew[tier];
     if (oppEl && newOpp) {
       const oldType = oppEl.dataset.charType;
@@ -7358,7 +7683,8 @@ function playExchangeRevealAnimation(myDraft, oppChars) {
   }
 
   // 양측의 swap 여부를 미리 계산 — "교체하지 않음" 라벨 표시 결정에 사용
-  const mySwapped = swapTasks.some(t => t.side === 'my');
+  //   (my 측은 animateMySwapInReveal 진행 중인 경우도 swap 으로 인식해야 라벨 잘못 붙는 것 방지)
+  const mySwapped = swapTasks.some(t => t.side === 'my') || (S._mySwapAnimatingTier != null);
   const oppSwapped = swapTasks.some(t => t.side === 'opp');
   const addNoExchangeLabel = (container) => {
     const label = document.createElement('div');
@@ -7383,19 +7709,29 @@ function playExchangeRevealAnimation(myDraft, oppChars) {
   try { playSfxSwapBlink(); } catch (e) {}
   setTimeout(() => { try { playSfxSwapReveal(); } catch (e) {} }, 400);
 
-  // 변경된 티어의 카드 동시에 swap-out → swap-in
+  // (1) 0~400ms: 기존 카드 fade-out
   for (const task of swapTasks) {
     task.oldEl.classList.add('swap-out');
   }
-  // 0.5s 후 카드 교체 + swap-in
+  // (2) 400~600ms: 빈 슬롯 placeholder
+  setTimeout(() => {
+    for (const task of swapTasks) {
+      const emptySlot = document.createElement('div');
+      emptySlot.className = 'reveal-slot-empty reveal-slot-swap-empty';
+      emptySlot.dataset.task = task.side + ':' + task.tier;
+      task.oldEl.replaceWith(emptySlot);
+      task._emptySlot = emptySlot;
+    }
+  }, 400);
+  // (3) 600~1500ms: 새 카드 fade-in
   setTimeout(() => {
     for (const task of swapTasks) {
       const tooltipSide = task.side === 'my' ? 'left' : 'right';
       const newCard = createDraftRevealCard(task.newCh, task.tier, tooltipSide);
       newCard.classList.add('swap-in', 'exchanged-highlight');
-      task.oldEl.replaceWith(newCard);
+      if (task._emptySlot) task._emptySlot.replaceWith(newCard);
     }
-  }, 500);
+  }, 600);
 
   // 1.5s 후 — 교체하지 않은 측에 "교체하지 않음" 라벨 + 확인 버튼 노출
   setTimeout(() => {
@@ -8063,21 +8399,21 @@ document.getElementById('btn-ex-select').addEventListener('click', () => {
 });
 
 document.getElementById('btn-exchange-confirm').addEventListener('click', () => {
-  const btn = document.getElementById('btn-exchange-confirm');
   if (!S.exchangeSelected) {
     document.getElementById('exchange-noswap-modal').classList.remove('hidden');
     return;
   }
   socket.emit('exchange_pick', { tier: S.exchangeSelected.tier, newType: S.exchangeSelected.newType });
-  btn.disabled = true;
-  btn.textContent = '대기 중...';
+  // 즉시 교환 오버레이 슬라이드 아웃 → 뒤의 교체 페이즈(공개 화면)로 복귀.
+  //   서버 응답 (ai_decision_wait 또는 final_reveal_phase) 을 그 화면에서 받음:
+  //   - 상대 미완료 → 상대 카드 슬롯 위에 대기 카운트다운
+  //   - 상대 완료 / 교체 안 함 → 즉시 swap-reveal 애니메이션
+  if (typeof closeOverlayScreen === 'function') closeOverlayScreen('screen-exchange');
 });
 document.getElementById('exchange-noswap-confirm').addEventListener('click', () => {
   document.getElementById('exchange-noswap-modal').classList.add('hidden');
   socket.emit('exchange_pick', {});
-  const btn = document.getElementById('btn-exchange-confirm');
-  btn.disabled = true;
-  btn.textContent = '대기 중...';
+  if (typeof closeOverlayScreen === 'function') closeOverlayScreen('screen-exchange');
 });
 document.getElementById('exchange-noswap-cancel').addEventListener('click', () => {
   document.getElementById('exchange-noswap-modal').classList.add('hidden');
@@ -8727,6 +9063,52 @@ function updateSPBar() {
 }
 
 // 각 스킬별 실제 타겟/조건 체크 — 타겟이 하나도 없으면 false
+// 특정 piece 가 이번 턴에 기본 행동(이동/공격) 을 할 수 있는지.
+//   기본 행동 소진 = S.actionDone, 단 다음 예외에선 가능:
+//     1) 전령 질주 활성 + 추가 이동 남음
+//     2) 쌍둥이 첫 이동 후 다른 쌍둥이 (twinMovePending + 다른 sub)
+//     3) 양손검객 쌍검무 활성 + 추가 공격 남음
+function pieceCanTakeBasicAction(pc) {
+  if (!pc || !pc.alive) return false;
+  if (S.actionUsedSkillReplace) return false;
+  if (pc.messengerSprintActive && pc.messengerMovesLeft > 0) return true;
+  if (S.twinMovePending && pc.subUnit && S.twinMovedSub !== pc.subUnit) return true;
+  if (pc.dualBladeAttacksLeft > 0) return true;
+  return !S.actionDone;
+}
+
+// piece 가 스킬을 보유하는지 (사용 가능 여부와 무관 — 보유 자체).
+function pieceHasAnySkill(pc) {
+  if (!pc) return false;
+  return !!pc.hasSkill || (Array.isArray(pc.skills) && pc.skills.length > 0);
+}
+
+// 특정 piece 가 지금 시점에 사용 가능한 스킬을 하나라도 가지고 있는지.
+//   부채꼴 메뉴 스킬 버튼 활성/비활성 판정에 사용. SP / 저주 / 행동소비 / oncePerTurn / 스킬별 타겟 조건 모두 검사.
+function canPieceUseAnySkill(pieceIdx) {
+  const pc = S.myPieces && S.myPieces[pieceIdx];
+  if (!pc || !pc.alive) return false;
+  if (!pc.hasSkill && !(pc.skills && pc.skills.length > 0)) return false;
+  const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
+  if (isCursed) return false;
+  const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+  const totalSP = ((S.sp && S.sp[spSlot]) || 0) + ((S.instantSp && S.instantSp[spSlot]) || 0);
+  const skills = (pc.skills && pc.skills.length > 0)
+    ? pc.skills
+    : (pc.hasSkill ? [{ id: pc.skillId, cost: pc.skillCost, replacesAction: !!pc.skillReplacesAction, oncePerTurn: !!pc.skillOncePerTurn }] : []);
+  for (const sk of skills) {
+    if ((sk.cost || 0) > totalSP) continue;
+    if (sk.replacesAction && S.actionDone) continue;
+    if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) continue;
+    // sprint/dualStrike 플래그 기반 사용완료 (서버는 messengerSprintActive / dualBladeAttacksLeft 로 추적)
+    if (sk.id === 'sprint' && pc.messengerSprintActive) continue;
+    if (sk.id === 'dualStrike' && pc.dualBladeAttacksLeft > 0) continue;
+    if (!skillHasValidTarget(pc, sk)) continue;
+    return true;
+  }
+  return false;
+}
+
 function skillHasValidTarget(piece, sk) {
   const skillId = sk.id || piece.skillId;
   const type = piece.type;
@@ -8932,8 +9314,25 @@ function renderGameBoard() {
         : `${pc.hp}/${pc.maxHp}`;
       // 팀모드: 내 말도 팀 절대 컬러로 — 관전자/일관성을 위해
       const myTeamColorCls = S.isTeamMode ? (S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red') : '';
+      // 쌍둥이 dim 면제 — 사용자 요청: 둘 다 살아있는 한 쌍둥이 둘 다 항상 면제 (한 몸 취급).
+      //   모드 무관 (이동·공격·스킬·twin_move) — 한쪽 쌍둥이가 선택돼도 나머지 한쪽도 함께 면제.
+      //   ★ 단, twin_move 페이즈에서 분리 상태로 이미 이동을 마친 쪽은 'twin-spent' 로 dim 처리 (행동 끝난 한쪽).
+      let twinPhaseCls = '';
+      if (isTwin) {
+        const _myOtherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
+        const _myOtherAlive = (S.myPieces || []).some(p => p.subUnit === _myOtherSub && p.alive);
+        if (_myOtherAlive) {
+          twinPhaseCls = ' twin-active';
+          // twin_move 페이즈에서 분리 상태 + 이동을 마친 쪽 → spent (dim)
+          if (S.twinPhaseActive && !otherTwin && pc.subUnit === S.twinFirstSubMoved) {
+            twinPhaseCls = ' twin-spent';
+          }
+        }
+        // _myOtherAlive=false 면 외톨이 쌍둥이 — 일반 유닛처럼 dim 적용 (twinPhaseCls 빈 문자열).
+      }
+      const twinCls = isTwin ? (' twin-piece' + twinPhaseCls) : '';
       cell.innerHTML += `
-        <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}">
+        <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
           <span class="p-icon">${displayIcon}</span>
           <span class="p-hp">${hpText}</span>
         </div>`;
@@ -8942,7 +9341,11 @@ function renderGameBoard() {
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
       const idx = S.myPieces.indexOf(pc);
-      if (idx === S.selectedPiece) cell.classList.add('selected-piece');
+      // ★ 합류 셀 글로우: 같은 칸의 어느 쌍둥이가 선택돼도 selected-piece 적용 (둘 다 쌍둥이 강도이므로)
+      const otherTwinIdx = otherTwin ? S.myPieces.indexOf(otherTwin) : -1;
+      if (idx === S.selectedPiece || (otherTwinIdx >= 0 && otherTwinIdx === S.selectedPiece)) {
+        cell.classList.add('selected-piece');
+      }
     }
 
     // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
@@ -9034,8 +9437,8 @@ function renderGameBoard() {
       if (!pc) cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
     }
 
-    // 이동 범위
-    if (S.action === 'move' && S.selectedPiece !== null) {
+    // 이동 범위 — 일반 이동 / 쌍둥이 이동 페이즈 모두 동일한 십자 1칸
+    if ((S.action === 'move' || S.action === 'twin_move') && S.selectedPiece !== null) {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc && isCrossAdjacent(selPc.col, selPc.row, col, row) &&
           col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
@@ -9180,6 +9583,20 @@ function renderGameBoard() {
       } catch (err) { /* ignore */ }
     });
   });
+
+  // 부채꼴 메뉴 활성 셀 클래스 보존 — cell.className='cell' 로 리셋된 후 다시 부여.
+  //   외부에서 renderGameBoard 가 호출되어도 활성 표시(스케일업/z-index/dim)가 깨지지 않도록.
+  if (S._radialMenuPiece != null) {
+    const pc = S.myPieces && S.myPieces[S._radialMenuPiece];
+    if (pc && pc.alive) {
+      const activeCell = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+      if (activeCell) activeCell.classList.add('radial-active');
+    }
+  }
+  // 쌍둥이 페이즈 floating 버튼 재부여 — 셀이 재생성되면 자식 버튼이 사라지므로 다시 붙임.
+  if (S.twinPhaseActive && typeof refreshTwinPhaseButtons === 'function') {
+    refreshTwinPhaseButtons();
+  }
 }
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
@@ -9826,18 +10243,33 @@ function setActionButtonMode(mode) {
     btnCancel.classList.toggle('action-active', mode !== null);
     btnCancel.classList.toggle('hidden', mode === null);
   }
+  // body 액션 락 — 행동 진행 중 다른 유닛 상호작용(클릭/호버/스케일업) 모두 차단.
+  if (mode === null) document.body.classList.remove('action-locked');
+  else document.body.classList.add('action-locked');
 }
 
 function resetAction() {
+  // 쌍둥이 이동 페이즈 — 첫 이동 전에는 취소 가능, 첫 이동 후에는 페이즈 종료(토스트 송출).
+  if (S.twinPhaseActive) {
+    if (S.twinFirstSubMoved == null) {
+      // 아직 이동 실행 안 함 — 그냥 취소
+      exitTwinMovePhase(/*emitToast=*/false);
+    } else {
+      // 첫 이동 끝났으면 페이즈 정상 종료 (토스트 1회)
+      exitTwinMovePhase(/*emitToast=*/true);
+    }
+    return;
+  }
   S.action = null;
   S.selectedPiece = null;
   S.targetSelectMode = false;
   S.skillTargetData = null;
+  document.body.classList.remove('action-locked');
   document.getElementById('btn-cancel').classList.add('hidden');
   const skipBtn = document.getElementById('btn-twin-skip-elder');
   if (skipBtn) skipBtn.classList.add('hidden');
   const hint = document.getElementById('action-hint');
-  if (hint) hint.textContent = '행동을 선택하세요.';
+  if (hint) hint.textContent = '행동할 캐릭터의 아이콘을 클릭하세요.';
   setActionButtonMode(null);
   renderGameBoard();
   renderMyPieces();
@@ -9849,6 +10281,7 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.action = 'move';
   S.selectedPiece = null;
   S.targetSelectMode = false;
+  document.body.classList.add('action-locked');  // 행동 중 다른 유닛 상호작용 완전 차단
   document.getElementById('btn-cancel').classList.remove('hidden');
   // 쌍둥이가 같은 칸에 겹쳐 있고 둘 다 살아있다면 — 누나 먼저 이동 안내 + 스킵 버튼
   const elderPc = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
@@ -9906,6 +10339,7 @@ document.getElementById('btn-attack').addEventListener('click', () => {
   S.action = 'attack';
   S.selectedPiece = null;
   S.targetSelectMode = false;
+  document.body.classList.add('action-locked');  // 행동 중 다른 유닛 상호작용 완전 차단
   document.getElementById('btn-cancel').classList.remove('hidden');
   document.getElementById('action-hint').textContent = '공격할 말을 클릭하세요.';
   setActionButtonMode('attack');
@@ -9922,6 +10356,20 @@ document.getElementById('btn-skill').addEventListener('click', () => {
 // 턴 종료 버튼 (행동 없이 누르면 확인 모달)
 document.getElementById('btn-end-turn').addEventListener('click', () => {
   if (!S.isMyTurn) return;
+  // 쌍둥이 이동 페이즈 — 첫 이동을 아직 실행하지 않은 상태로는 턴 종료 차단.
+  //   이미 첫 이동을 끝낸 후 두 번째 미이동 상태에선 턴 종료 가능 (페이즈 종료 토스트 송출).
+  if (S.twinPhaseActive) {
+    if (S.twinFirstSubMoved == null) {
+      setActionHint('첫 쌍둥이의 이동을 먼저 실행하세요.', true);
+      return;
+    }
+    // 첫 이동 끝남, 두 번째 안 함 — 페이즈 종료 + 단일 토스트
+    exitTwinMovePhase(/*emitToast=*/true);
+    socket.emit('end_turn');
+    S.isMyTurn = false;
+    showActionBar(false);
+    return;
+  }
   // #3: 쌍검무 활성 + 추가 공격 남음
   const dualBladeLeft = S.myPieces && S.myPieces.some(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeLeft) {
@@ -10056,10 +10504,23 @@ document.getElementById('btn-cancel').addEventListener('click', resetAction);
 // ── 스킬 모달 ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
-function openSkillModal() {
+// targetPieceIdx 가 주어지면 그 piece 의 스킬만 (캐릭터 전용 탭 — 부채꼴 메뉴에서 호출).
+//   주어지지 않으면 모든 piece 의 스킬 (전역 — 레거시 btn-skill 클릭).
+function openSkillModal(targetPieceIdx) {
   const modal = document.getElementById('skill-modal');
   const body = document.getElementById('skill-modal-body');
   body.innerHTML = '';
+
+  // 모달 제목 — 캐릭터 전용일 때 이름 표시
+  const titleEl = document.getElementById('skill-modal-title');
+  if (titleEl) {
+    if (targetPieceIdx != null && S.myPieces[targetPieceIdx]) {
+      const pc = S.myPieces[targetPieceIdx];
+      titleEl.textContent = `${pc.icon} ${pc.name} — 스킬`;
+    } else {
+      titleEl.textContent = '스킬 선택';
+    }
+  }
 
   // 팀모드: SP 풀이 [팀A, 팀B]로 인덱싱됨 → S.teamId / 1v1: [p0, p1] → S.playerIdx
   const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
@@ -10068,9 +10529,11 @@ function openSkillModal() {
   const totalSP = mySP + myInstant;
   let hasAnySkill = false;
 
+  // 캐릭터 전용 모드면 그 인덱스만, 아니면 전체 순회
+  const indices = (targetPieceIdx != null) ? [targetPieceIdx] : Array.from({ length: S.myPieces.length }, (_, i) => i);
   // 남매(twins): 분신은 한 쌍에 1회만 표시 — 첫 번째 등장(주로 elder)에서만 출력
   let twinSkillShown = false;
-  for (let i = 0; i < S.myPieces.length; i++) {
+  for (const i of indices) {
     const pc = S.myPieces[i];
     if (!pc.alive || !pc.hasSkill) continue;
     if (pc.type === 'twins_elder' || pc.type === 'twins_younger') {
@@ -10472,30 +10935,319 @@ document.getElementById('skill-modal-close').addEventListener('click', () => {
 function _closeRadialActionMenu() {
   const m = document.getElementById('radial-action-menu');
   if (m) m.remove();
+  // 활성 셀 클래스 + body 모드 해제 — 다른 캐릭터 dim 도 함께 해제
+  document.querySelectorAll('#game-board .cell.radial-active').forEach(c => c.classList.remove('radial-active'));
+  document.body.classList.remove('radial-mode-active');
   S._radialMenuPiece = null;
+}
+
+// ── 쌍둥이 이동 페이즈 ─────────────────────────────────────
+// 쌍둥이는 "둘이 한 세트" — 한 턴에 양쪽 모두 이동권을 가짐. 일반 이동 흐름과 별도 상태 머신으로 처리.
+//   진입 조건: 라디얼 메뉴에서 쌍둥이 캐릭터의 "이동" 클릭.
+//   상태:
+//     - S.twinPhaseActive: 페이즈 진행 중 boolean
+//     - S.twinFirstSubMoved: 첫 이동을 끝낸 sub ('elder' / 'younger' / null)
+//     - S.action='twin_move' 로 설정하여 handleGameCellClick 가 분기 처리
+//     - S.selectedPiece: 이번 이동에서 움직일 쌍둥이 idx (null=아직 미선택)
+//   특수 처리:
+//     - 두 쌍둥이가 같은 칸에 있을 때 (합류) → 누나/동생 picker 모달
+//     - 첫 이동 후에도 "다른 한쪽" 의 이동권 보존
+//     - 첫 이동 실행 전에는 턴 종료 차단, 이후엔 가능
+//     - 토스트/로그는 페이즈 종료 시 단 한 번만 송출 (S._twinPhaseLogPending 으로 누적 → 종료 시 emit)
+function enterTwinMovePhase() {
+  if (!S.isMyTurn) return;
+  S.twinPhaseActive = true;
+  S.twinFirstSubMoved = null;
+  S.action = 'twin_move';
+  S.selectedPiece = null;
+  S._twinPhaseToastShown = false;
+  document.getElementById('btn-cancel').classList.remove('hidden');
+  if (typeof setActionButtonMode === 'function') setActionButtonMode('move');
+  document.body.classList.add('twin-phase-active');
+  document.body.classList.add('action-locked');  // 행동 중 — 다른 비-쌍둥이 유닛 상호작용 차단
+  setActionHint('쌍둥이 위 [이동 선택] 버튼을 클릭하세요.');
+  renderGameBoard();
+  if (typeof renderMyPieces === 'function') renderMyPieces();
+  // 두 쌍둥이 머리 위로 [이동 선택] 버튼 (또는 합류 상태면 picker)
+  refreshTwinPhaseButtons();
+}
+
+function exitTwinMovePhase(emitToast) {
+  S.twinPhaseActive = false;
+  S.twinFirstSubMoved = null;
+  S.action = null;
+  S.selectedPiece = null;
+  document.body.classList.remove('twin-phase-active');
+  document.body.classList.remove('action-locked');
+  _closeTwinPicker();
+  _closeTwinPhaseButtons();
+  _closeTwinDisabledButton();
+  if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+  document.getElementById('btn-cancel').classList.add('hidden');
+  // 페이즈 종료 시 단일 토스트/로그 (이미 표시 안 했고 실제 이동이 일어났을 때만)
+  if (emitToast && !S._twinPhaseToastShown) {
+    addLog(`👫 쌍둥이 강도 이동`, 'move');
+    showSkillToast(`👫 쌍둥이 강도 이동`);
+    S._twinPhaseToastShown = true;
+  }
+  renderGameBoard();
+  if (typeof renderMyPieces === 'function') renderMyPieces();
+}
+
+function _closeTwinPicker() {
+  const p = document.getElementById('twin-picker-menu');
+  if (p) p.remove();
+  // board 위에 부착된 picker 버튼들도 제거
+  document.querySelectorAll('.twin-phase-btn[data-picker="1"]').forEach(b => b.remove());
+}
+function _closeTwinPhaseButtons() {
+  // picker 버튼은 별도 라이프사이클 — _closeTwinPicker 가 관리. 여기서는 비-picker 만 제거.
+  document.querySelectorAll('.twin-phase-btn:not([data-picker="1"])').forEach(b => b.remove());
+}
+
+// 쌍둥이 페이즈 — 두 쌍둥이 머리 위에 [이동 선택] 버튼 표시.
+//   합류(같은 칸) 상태면 picker(누나/동생) 로 대체.
+//   이미 이동한 쌍둥이는 이 버튼 표시 안 함 (대신 클릭 시 [행동불가] 표시).
+//   ★ incremental — 이미 존재하는 버튼은 유지 (pop 애니메이션이 매번 다시 트리거되지 않게).
+//   상태 변화(is-selected, sub 매칭, 셀 위치)만 갱신하고, 새로 만들 필요 있는 것만 createElement.
+function refreshTwinPhaseButtons() {
+  if (!S.twinPhaseActive) {
+    _closeTwinPhaseButtons();
+    _closeTwinPicker();
+    return;
+  }
+  const elderPc = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
+  const youngerPc = (S.myPieces || []).find(p => p.subUnit === 'younger' && p.alive);
+  if (!elderPc || !youngerPc) return;
+  // 합류 상태
+  if (elderPc.col === youngerPc.col && elderPc.row === youngerPc.row) {
+    if (S.twinFirstSubMoved) {
+      // 한쪽이 이미 이동 → 미이동 쌍둥이의 [이동 선택] 버튼만 유지 (이동한 쪽 버튼은 제거).
+      //   picker 는 닫음 — 사용자는 명확히 미이동 쪽만 선택할 수 있음.
+      _closeTwinPicker();
+      const movedSub = S.twinFirstSubMoved;
+      const remainingSub = movedSub === 'elder' ? 'younger' : 'elder';
+      const remainingPc = remainingSub === 'elder' ? elderPc : youngerPc;
+      const board = document.getElementById('game-board');
+      // 이동한 쪽 버튼 제거
+      const movedBtn = board.querySelector(`.twin-phase-btn[data-sub="${movedSub}"]`);
+      if (movedBtn) movedBtn.remove();
+      // 미이동 쪽 버튼 위치 동기화 / 생성
+      const cellEl = board.querySelector(`.cell[data-col="${remainingPc.col}"][data-row="${remainingPc.row}"]`);
+      if (cellEl) {
+        let btn = board.querySelector(`.twin-phase-btn[data-sub="${remainingSub}"]`);
+        if (btn) {
+          btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+          btn.style.top = cellEl.offsetTop + 'px';
+          const currentlySelected = S.selectedPiece != null && S.myPieces[S.selectedPiece] === remainingPc;
+          btn.classList.toggle('is-selected', currentlySelected);
+        } else {
+          _placeTwinMoveBtn(remainingPc);
+        }
+      }
+      return;
+    }
+    // 둘 다 미이동 (시작부터 합류) → picker 사용
+    //   ★ incremental — 이미 있으면 위치/선택 상태만 갱신, 새로 만들지 않음.
+    _closeTwinPhaseButtons();
+    showTwinPickerAt(elderPc.col, elderPc.row);  // 함수 내부에서 incremental 처리
+    return;
+  }
+  // 비합류 — picker 닫기, 개별 버튼 incremental 갱신.
+  //   ★ 버튼들은 game-board 의 자식으로 absolute 배치되어 있음 → 셀 innerHTML 재렌더에 영향받지 않음.
+  //   기존 버튼이 같은 sub 로 살아있으면 위치만 갱신 (pop 애니메이션 재발 방지).
+  _closeTwinPicker();
+  const board = document.getElementById('game-board');
+  for (const pc of [elderPc, youngerPc]) {
+    const moved = S.twinFirstSubMoved === pc.subUnit;
+    const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+    if (!cellEl) continue;
+    let btn = board.querySelector(`.twin-phase-btn[data-sub="${pc.subUnit}"]`);
+    if (moved) {
+      if (btn) btn.remove();
+      continue;
+    }
+    if (btn) {
+      // 기존 버튼 유지 — is-selected 만 갱신 + 위치 동기화 (보드 크기 변화 대응)
+      btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+      btn.style.top = cellEl.offsetTop + 'px';
+      const currentlySelected = S.selectedPiece != null && S.myPieces[S.selectedPiece] === pc;
+      btn.classList.toggle('is-selected', currentlySelected);
+    } else {
+      _placeTwinMoveBtn(pc);
+    }
+  }
+}
+
+function _placeTwinMoveBtn(pc) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+  if (!cellEl) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'twin-phase-btn';
+  const sub = pc.subUnit;
+  btn.dataset.sub = sub;
+  btn.innerHTML = `<span class="ic">${sub === 'elder' ? '👧' : '👦'}</span><span class="lbl">이동 선택</span>`;
+  const left = cellEl.offsetLeft + cellEl.offsetWidth / 2;
+  const top = cellEl.offsetTop;
+  btn.style.left = left + 'px';
+  btn.style.top = top + 'px';
+  const currentlySelected = S.selectedPiece != null && S.myPieces[S.selectedPiece] === pc;
+  if (currentlySelected) btn.classList.add('is-selected');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // 다른 쌍둥이가 이미 이동 선택 상태면 — 선택 전환은 차단.
+    //   단, 클릭된 쌍둥이의 셀이 현재 selected 쌍둥이의 인접 칸이면 → 이동 (합류) 으로 진행.
+    if (S.selectedPiece != null) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc && selPc.subUnit && selPc.subUnit !== sub) {
+        // 인접 1칸이면 정상 이동(합류) 으로 진행 — selectedPiece 는 그대로, 이동 emit
+        const targetPc = (S.myPieces || []).find(p => p.subUnit === sub && p.alive);
+        if (targetPc) {
+          const dCol = Math.abs(targetPc.col - selPc.col);
+          const dRow = Math.abs(targetPc.row - selPc.row);
+          const inRange = (dCol === 1 && dRow === 0) || (dCol === 0 && dRow === 1);
+          if (inRange) {
+            socket.emit('move_piece', { pieceIdx: S.selectedPiece, col: targetPc.col, row: targetPc.row });
+          }
+        }
+        return;  // 인접 아니면 그냥 차단 (선택 전환 방지)
+      }
+    }
+    // ★ 버그 수정: pc 를 closure 로 캡처하면 move_ok 후 S.myPieces 가 새 배열로 교체되어 indexOf=-1.
+    //   클릭 시점에 data-sub 로 현재 piece 객체 재검색.
+    const currentPc = (S.myPieces || []).find(p => p.subUnit === sub && p.alive);
+    if (!currentPc) return;
+    S.selectedPiece = S.myPieces.indexOf(currentPc);
+    setActionHint(`${sub === 'elder' ? '👧 누나' : '👦 동생'} 이동할 칸을 클릭하세요.`);
+    refreshTwinPhaseButtons();
+    renderGameBoard();
+  });
+  board.appendChild(btn);
+}
+
+// ※ 사용자 보관 요청: 가장 처음 도입했던 살짝 긴 사각형의 [행동 불가] 버튼 — 코드/CSS 보존.
+//   현재 흐름에선 호출하지 않음 (대신 라디얼 메뉴에서 이동·공격 dim 으로 처리).
+//   추후 다시 사용할 수 있도록 그대로 둠.
+function _showTwinDisabledButton(col, row) {
+  _closeTwinDisabledButton();
+  const cellEl = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cellEl) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'twin-disabled-btn';
+  btn.disabled = true;
+  btn.innerHTML = `<span class="ic">🚫</span><span class="lbl">행동 불가</span>`;
+  cellEl.appendChild(btn);
+}
+function _closeTwinDisabledButton() {
+  document.querySelectorAll('.twin-disabled-btn').forEach(b => b.remove());
+}
+
+// 합류 상태에서 어느 쪽을 움직일지 선택하는 picker (라디얼과 동일 양식 — 누나/동생 두 버튼)
+//   셀의 화면 좌표 기준으로 fixed 배치. renderGameBoard 후 refreshTwinPhaseButtons 가 다시 호출되며 재배치됨.
+// ── 합류 상태 picker ──
+//   사용자 요청: 비합류 [이동 선택] 버튼과 동일 디자인 (twin-phase-btn).
+//   합류 셀에 두 개를 양쪽으로 배치 (누나=왼쪽, 동생=오른쪽).
+//   game-board 의 absolute 자식으로 배치 → 셀 innerHTML 재렌더에도 살아남음.
+//   클릭 시 picker 자체는 유지 (제거하지 않음). 선택 상태만 is-selected 로 표시.
+function showTwinPickerAt(col, row) {
+  // incremental: 이미 있으면 유지·갱신만
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cellEl = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cellEl) return;
+  const cx = cellEl.offsetLeft + cellEl.offsetWidth / 2;
+  const top = cellEl.offsetTop;
+  // 합류 picker — 셀 위쪽 양옆으로 배치. 라벨은 비합류 버튼과 동일한 "이동 선택" — 이모지(👧/👦)로 구분.
+  //   안 겹치는 최소 offset (≈ 버튼 절반폭 + 소량 갭).
+  const SPLIT = 38;
+  const placements = [
+    { sub: 'elder',   icon: '👧', label: '이동 선택', x: cx - SPLIT },
+    { sub: 'younger', icon: '👦', label: '이동 선택', x: cx + SPLIT },
+  ];
+  for (const it of placements) {
+    let btn = board.querySelector(`.twin-phase-btn[data-sub="${it.sub}"][data-picker="1"]`);
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'twin-phase-btn twin-picker-btn';
+      btn.dataset.sub = it.sub;
+      btn.dataset.picker = '1';
+      btn.innerHTML = `<span class="ic">${it.icon}</span><span class="lbl">${it.label}</span>`;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const pc = (S.myPieces || []).find(p => p.subUnit === it.sub && p.alive);
+        if (!pc) return;
+        S.selectedPiece = S.myPieces.indexOf(pc);
+        const subLabel = it.sub === 'elder' ? '누나' : '동생';
+        setActionHint(`${it.icon} ${subLabel} 이동할 칸을 클릭하세요.`);
+        // ★ picker 유지 — 재생성 안 함. is-selected 만 갱신.
+        refreshTwinPickerSelection();
+        renderGameBoard();
+      });
+      board.appendChild(btn);
+    }
+    btn.style.left = it.x + 'px';
+    btn.style.top = top + 'px';
+  }
+  refreshTwinPickerSelection();
+  // 합류 picker 표식 (id 유지 — 다른 코드가 querySelector('#twin-picker-menu') 로 존재 확인하기 때문)
+  if (!document.getElementById('twin-picker-menu')) {
+    const marker = document.createElement('div');
+    marker.id = 'twin-picker-menu';
+    marker.style.display = 'none';
+    document.body.appendChild(marker);
+  }
+}
+
+// 합류 picker 의 is-selected 클래스만 갱신 (DOM 재생성 없이)
+function refreshTwinPickerSelection() {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const selPc = (S.selectedPiece != null) ? S.myPieces[S.selectedPiece] : null;
+  const selSub = selPc?.subUnit || null;
+  board.querySelectorAll('.twin-phase-btn[data-picker="1"]').forEach(btn => {
+    btn.classList.toggle('is-selected', btn.dataset.sub === selSub);
+  });
 }
 function _showRadialActionMenu(col, row, pieceIdx) {
   _closeRadialActionMenu();
-  // 셀 element 의 화면 좌표 기준
   const cellEl = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
   if (!cellEl) return;
+  cellEl.classList.add('radial-active');
+  document.body.classList.add('radial-mode-active');
   const r = cellEl.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
-  const radius = 56;  // 부채꼴 반경
+  const radius = 68;
   const menu = document.createElement('div');
   menu.id = 'radial-action-menu';
   menu.className = 'radial-action-menu';
-  // 위쪽으로 펼쳐짐 — -135°, -90°, -45°
+
+  // 두 가지 모드:
+  //   (A) 기본 행동 가능 → [이동, 공격, 스킬] (현재 동작)
+  //   (B) 기본 행동 소진 → [행동 불가] + [스킬 (있을 때만)] (스킬 dim if 사용 불가)
+  const pc = S.myPieces && S.myPieces[pieceIdx];
+  const canBasic = pieceCanTakeBasicAction(pc);
+  const hasSkill = pieceHasAnySkill(pc);
+  const canSkill = canPieceUseAnySkill(pieceIdx);
+
+  // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
+  //   기본 행동 소진 시 → 이동·공격 둘 다 disabled. 스킬은 별도 canSkill 로 결정.
+  //   스킬 미보유 캐릭터는 -45° 자리 비움 (hideIfMissing).
   const items = [
-    { angle: -135, key: 'move',   icon: '🏃', label: '이동' },
-    { angle:  -90, key: 'attack', icon: '⚔', label: '공격' },
-    { angle:  -45, key: 'skill',  icon: '✨', label: '스킬' },
-  ];
+    { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: !canBasic },
+    { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: !canBasic },
+    { angle:  -45, key: 'skill',  icon: '✨',  label: '스킬',   disabled: !canSkill, hideIfMissing: !hasSkill },
+  ].filter(it => !it.hideIfMissing);
+
   for (const it of items) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'radial-btn';
+    btn.className = 'radial-btn' + ((it.key && it.key.indexOf('unable') === 0) ? ' radial-btn-unable' : '');
     btn.dataset.key = it.key;
     btn.innerHTML = `<span class="ic">${it.icon}</span><span class="lbl">${it.label}</span>`;
     const rad = it.angle * Math.PI / 180;
@@ -10503,18 +11255,36 @@ function _showRadialActionMenu(col, row, pieceIdx) {
     const y = cy + Math.sin(rad) * radius;
     btn.style.left = x + 'px';
     btn.style.top = y + 'px';
+    if (it.disabled) btn.disabled = true;
+
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (btn.disabled) return;
       _closeRadialActionMenu();
-      // 동일한 행동 버튼 트리거 — 기존 흐름 그대로 사용
+      if (it.key === 'skill') {
+        if (!S.isMyTurn) return;
+        if (typeof setActionButtonMode === 'function') setActionButtonMode('skill');
+        openSkillModal(pieceIdx);
+        return;
+      }
+      if (it.key === 'move') {
+        const pc2 = S.myPieces && S.myPieces[pieceIdx];
+        // 쌍둥이 이동 페이즈는 두 쌍둥이 모두 생존해 있을 때만 진입.
+        //   한 쌍이 사망했으면 일반 이동 흐름으로 처리 (쌍둥이 한 명 = 일반 유닛처럼 단일 이동).
+        if (pc2 && pc2.subUnit && typeof enterTwinMovePhase === 'function') {
+          const elderAlive = (S.myPieces || []).some(p => p.subUnit === 'elder' && p.alive);
+          const youngerAlive = (S.myPieces || []).some(p => p.subUnit === 'younger' && p.alive);
+          if (elderAlive && youngerAlive) {
+            enterTwinMovePhase();
+            return;
+          }
+        }
+      }
       const targetBtn = document.getElementById('btn-' + it.key);
       if (targetBtn && !targetBtn.disabled) {
         targetBtn.click();
-        // 자동으로 해당 piece 선택 상태로 진입
-        if (it.key === 'move' || it.key === 'attack') {
-          S.selectedPiece = pieceIdx;
-          renderGameBoard();
-        }
+        S.selectedPiece = pieceIdx;
+        renderGameBoard();
       }
     });
     menu.appendChild(btn);
@@ -10525,10 +11295,14 @@ function _showRadialActionMenu(col, row, pieceIdx) {
 // 다른 곳 누르면 자동 닫힘
 document.addEventListener('click', (e) => {
   const m = document.getElementById('radial-action-menu');
-  if (!m) return;
-  if (!m.contains(e.target)) {
+  if (m && !m.contains(e.target)) {
     // 보드 셀 클릭은 handleGameCellClick 이 별도로 처리하므로 여기서는 그 외만 닫음
     if (!e.target.closest('#game-board .cell')) _closeRadialActionMenu();
+  }
+  // [행동불가] 라디얼 — 다른 곳 클릭 시 닫힘 (보드 클릭은 handleGameCellClick 이 처리)
+  const disabledBtn = document.querySelector('.twin-disabled-btn');
+  if (disabledBtn && !disabledBtn.contains(e.target) && !e.target.closest('#game-board .cell')) {
+    _closeTwinDisabledButton();
   }
 });
 // 라디얼 모드 활성화 — 보드 아래 행동 버튼 숨김
@@ -10555,6 +11329,17 @@ function handleGameCellClick(col, row) {
       _closeRadialActionMenu();
     }
   }
+  // 행동 진행 중 (move/attack/skill_target/twin_move) — 다른 내 유닛 클릭 차단.
+  //   사용자가 selected piece 의 행동만 완료할 수 있게 (취소 버튼으로만 해제 가능).
+  //   단, twin_move 페이즈에서는 위 분기에서 별도 처리 (이동한 쌍둥이 [행동불가] / 그린 셀 이동).
+  if (S.isMyTurn && S.action && S.action !== 'twin_move') {
+    const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
+    const selPc = (S.selectedPiece != null) ? S.myPieces[S.selectedPiece] : null;
+    if (myPc && selPc && myPc !== selPc) {
+      // 다른 내 유닛 클릭 — 차단 (selected piece 의 행동을 끝내거나 취소 후 다시 시도)
+      return;
+    }
+  }
 
   // ── 팀원 공격 범위 오버레이 토글 (턴/행동 무관, 단 내 행동 대상셀이 아닐 때만) ──
   if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
@@ -10576,6 +11361,31 @@ function handleGameCellClick(col, row) {
   }
 
   if (!S.isMyTurn) return;
+
+  // ── 쌍둥이 이동 페이즈 ──
+  //   floating 버튼 (이동 선택) 클릭으로만 selectedPiece 가 결정됨.
+  //   여기서는 (1) 이미 이동한 쌍둥이 셀 클릭 → [행동 불가] 라디얼 표시, (2) 그린 셀 클릭 → 이동 emit.
+  //   다른 캐릭터 셀 / 빈 셀 / 중립 클릭은 무시.
+  if (S.action === 'twin_move') {
+    // ★ 사용자 요청: 쌍둥이 이동 페이즈 클릭 정책
+    //   - [이동 선택] 버튼은 separate 한 핸들러 (selectedPiece 결정).
+    //   - 이미 이동한 쌍둥이 (분리 상태) : 라디얼/선택/이동 어떤 상호작용도 ❌ — 완전 비활성.
+    //   - selectedPiece 가 있고 인접 그린 셀 클릭 : 이동 emit (다른 쌍둥이 칸이면 합류).
+    //   - 그 외 모든 클릭 (비인접 칸, 빈 칸, 적 셀 등) : 무시.
+    _closeTwinDisabledButton();  // 보관된 함수 — 잔존 시 정리
+    if (S.selectedPiece !== null) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc) {
+        const dCol = Math.abs(col - selPc.col);
+        const dRow = Math.abs(row - selPc.row);
+        const inRange = (dCol === 1 && dRow === 0) || (dCol === 0 && dRow === 1);
+        if (inRange) {
+          socket.emit('move_piece', { pieceIdx: S.selectedPiece, col, row });
+        }
+      }
+    }
+    return;
+  }
 
   // ── 스킬 대상 선택 모드 ──
   if (S.action === 'skill_target' && S.skillTargetData) {
@@ -11086,14 +11896,14 @@ function findChar(type) {
 
 function getPassiveLabel(passiveId) {
   const map = {
-    instantMagic: '피격 시 1회용 SP 1개 획득',
-    ironSkin: '받는 피해가 0.5 감소',
-    grace: '악인 공격 시 공격력 3, 악인에게 피격 시 받는 피해 0.5로 감소',
-    betrayer: '공격 시 아군도 1 피해',
+    instantMagic: '피격 시 일회용 SP 1개 획득',
+    ironSkin: '받는 모든 공격 피해가 0.5씩 감소',
+    grace: '악인을 공격할 때 3 피해 · 악인의 공격 피해 0.5로 감소',
+    betrayer: '공격 범위 내 모든 아군에게도 1 피해',
     wrath: '인접한 아군에게 사기 증진 부여',
-    markPassive: '공격 적중 시 대상에게 표식 부여',
-    tyranny: '1티어와 2티어에게 받는 피해 0.5 감소',
-    loyalty: '왕실 아군이 받을 피해를 1로 줄이고 모두 대신 받음. 왕실 아군이 받을 상태 이상도 모두 대신 받음.',
+    markPassive: '공격 시 대상에게 표식 부여',
+    tyranny: '1티어 · 2티어에게 받는 모든 공격 피해 0.5씩 감소',
+    loyalty: '다른 왕실 아군이 받을 피해를 1로 감소시켜 대신 받음 · 상태 이상 대신 받음',
   };
   return map[passiveId] || passiveId;
 }
@@ -11640,9 +12450,10 @@ function _getToastContainer() {
   if (!container) {
     container = document.createElement('div');
     container.id = 'toast-container';
+    // ★ z-index: 9700 — skill-cast-dim(8500) / caster-spotlight(9000) 보다 위 + twin-join-flyer(9500) 보다도 위.
     container.style.cssText = `
       position:fixed; top:60px; left:50%; transform:translateX(-50%);
-      z-index:2000; pointer-events:none; display:flex; flex-direction:column;
+      z-index:9700; pointer-events:none; display:flex; flex-direction:column;
       align-items:center; gap:6px; width:max-content; max-width:90vw;
     `;
     document.body.appendChild(container);
@@ -12811,6 +13622,23 @@ function pickSkillSfxByMsg(msg) {
 }
 
 // 작은 헬퍼 — 짧은 톤
+// ── 시간 초과 SFX (옵션 1: 클래식 따르릉) ──
+//   850/1100Hz 두 톤을 0.18s 간격으로 6번 번갈아 울림 (~1.1s).
+//   각 펄스는 sine 메인 + square 1.5x 하모닉으로 부저 느낌 약하게.
+function playSfxTimeout() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    for (let i = 0; i < 6; i++) {
+      const t = now + i * 0.18;
+      const f = (i % 2 === 0) ? 850 : 1100;
+      _sfxTone(ctx, t, f,       0.13, 'sine',   0.12);
+      _sfxTone(ctx, t, f * 1.5, 0.13, 'square', 0.025);
+    }
+  } catch (e) {}
+}
+
 function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
   const o = ctx.createOscillator(); const g = ctx.createGain();
   o.type = type || 'sine';
@@ -12859,14 +13687,20 @@ function playSfxScout() {
   } catch (e) {}
 }
 
-// ── 3. 쌍둥이 분신 (합체) — 조화로운 듀엣 ──
+// ── 3. 쌍둥이 분신 (합체) — 비행 휘이익 + 도착 화음 + 반짝 chime ──
+//   비행 700ms 와 동기화 — 0~600ms 에 상승 글라이드 (휘이익), 도착 시점(~650ms)에 화음 합주.
 function playSfxTwinsJoin() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    _sfxTone(ctx, now,        523, 0.4, 'sine', 0.08);  // C5
-    _sfxTone(ctx, now,        659, 0.4, 'sine', 0.08);  // E5 (3rd)
-    _sfxTone(ctx, now + 0.15, 784, 0.35, 'sine', 0.07); // G5 (5th)
+    // ① 비행 휘이익 — 350Hz → 1100Hz 상승 글라이드, 0~0.6s
+    _sfxTone(ctx, now,         350, 0.6,  'sine',     0.05, 1100);
+    // ② 도착 펄스 — 합체 화음 (C major triad: C5+E5+G5)
+    _sfxTone(ctx, now + 0.62,  523, 0.45, 'sine',     0.09);  // C5
+    _sfxTone(ctx, now + 0.62,  659, 0.45, 'sine',     0.08);  // E5
+    _sfxTone(ctx, now + 0.62,  784, 0.45, 'sine',     0.07);  // G5
+    // ③ 반짝 chime — 한 옥타브 위 (C6) 짧게
+    _sfxTone(ctx, now + 0.68, 1047, 0.30, 'triangle', 0.06);  // C6 sparkle
   } catch (e) {}
 }
 

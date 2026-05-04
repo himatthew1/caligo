@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>시간 초과 SFX 미리듣기 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: 0.04em; }
+  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 28px; text-align: center; max-width: 540px; line-height: 1.5; }
+
+  .options {
+    display: grid; grid-template-columns: 1fr; gap: 14px;
+    width: 100%; max-width: 540px;
+  }
+  .opt-card {
+    background: rgba(15, 23, 42, 0.85);
+    border: 2px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: 18px 20px;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .opt-card:hover { border-color: rgba(253, 230, 138, 0.4); background: rgba(15, 23, 42, 0.95); }
+  .opt-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; gap: 12px;
+  }
+  .opt-title { font-size: 1.1rem; font-weight: 800; color: #fde68a; }
+  .opt-desc { color: #94a3b8; font-size: 0.78rem; line-height: 1.5; margin-bottom: 12px; }
+  .play-btn {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: #1f2937; border: none; border-radius: 8px;
+    font-weight: 800; font-size: 0.88rem; cursor: pointer;
+    box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+    flex-shrink: 0;
+  }
+  .play-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(251, 191, 36, 0.5); }
+  .play-btn:active { transform: translateY(1px); }
+  .play-btn.playing {
+    background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+    color: #fff;
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.35), 0 4px 14px rgba(74, 222, 128, 0.4);
+    animation: pulseRing 0.6s ease-in-out infinite;
+  }
+  @keyframes pulseRing {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.35), 0 4px 14px rgba(74, 222, 128, 0.4); }
+    50%      { box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.15), 0 4px 14px rgba(74, 222, 128, 0.6); }
+  }
+
+  .badge {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80; border-radius: 100px;
+    font-size: 0.7rem; font-weight: 700;
+  }
+  code { color: #fde68a; font-size: 0.82em; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>시간 초과 SFX 미리듣기 <span class="badge">DEV</span></h1>
+<div class="sub">자명종/알람시계 톤 5종 옵션. 마음에 드는 옵션 번호를 알려주시면 적용하겠습니다. 모두 약 1.0~1.4초 길이.</div>
+
+<div class="options">
+
+  <div class="opt-card">
+    <div class="opt-head">
+      <span class="opt-title">옵션 1 — 클래식 따르릉</span>
+      <button class="play-btn" data-opt="1">▶ 재생</button>
+    </div>
+    <div class="opt-desc">전형적인 자명종 — 두 개 톤(800Hz/1000Hz)을 빠르게 번갈아 6번 울림. 익숙한 "따르릉" 느낌.</div>
+  </div>
+
+  <div class="opt-card">
+    <div class="opt-head">
+      <span class="opt-title">옵션 2 — 디지털 비프</span>
+      <button class="play-btn" data-opt="2">▶ 재생</button>
+    </div>
+    <div class="opt-desc">현대식 알람시계 — 1200Hz square 짧은 비프 4번 + 마지막은 길게. 각 잡힌 디지털 톤.</div>
+  </div>
+
+  <div class="opt-card">
+    <div class="opt-head">
+      <span class="opt-title">옵션 3 — 부드러운 차임</span>
+      <button class="play-btn" data-opt="3">▶ 재생</button>
+    </div>
+    <div class="opt-desc">호텔 모닝콜 같은 톤 — 3개 음(C·E·G)을 sine 으로 이어 울림. 가장 덜 자극적.</div>
+  </div>
+
+  <div class="opt-card">
+    <div class="opt-head">
+      <span class="opt-title">옵션 4 — 빈티지 벨 (트레몰로)</span>
+      <button class="play-btn" data-opt="4">▶ 재생</button>
+    </div>
+    <div class="opt-desc">진짜 옛날 종이 떨리는 느낌 — 880Hz triangle 에 빠른 진폭 변조(트레몰로) 적용. 떨리는 종소리.</div>
+  </div>
+
+  <div class="opt-card">
+    <div class="opt-head">
+      <span class="opt-title">옵션 5 — 카운트다운 부저</span>
+      <button class="play-btn" data-opt="5">▶ 재생</button>
+    </div>
+    <div class="opt-desc">긴박한 카운트다운 부저 — sawtooth 600Hz 짧은 펄스 3번 후 sustain. 게임쇼/시한 만료 톤.</div>
+  </div>
+
+</div>
+
+<script>
+let _audioCtx = null;
+function getAudioCtx() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  } catch (e) { return null; }
+}
+function _tone(ctx, time, freq, dur, type, gain, glide) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, time);
+  if (glide) osc.frequency.exponentialRampToValueAtTime(glide, time + dur);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(gain || 0.08, time + 0.01);
+  g.gain.linearRampToValueAtTime(gain || 0.08, time + dur - 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(time); osc.stop(time + dur + 0.05);
+}
+function _toneTremolo(ctx, time, freq, dur, type, gain, tremRate) {
+  // 진폭 변조 — 빈티지 벨용
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  const lfo = ctx.createOscillator();
+  const lfoGain = ctx.createGain();
+  osc.type = type || 'triangle';
+  osc.frequency.setValueAtTime(freq, time);
+  lfo.frequency.setValueAtTime(tremRate || 18, time);
+  lfoGain.gain.setValueAtTime((gain || 0.08) * 0.5, time);
+  lfo.connect(lfoGain);
+  lfoGain.connect(g.gain);
+  g.gain.setValueAtTime((gain || 0.08) * 0.5, time);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(time); lfo.start(time);
+  // fade out
+  g.gain.linearRampToValueAtTime((gain || 0.08) * 0.5, time + dur - 0.1);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  osc.stop(time + dur + 0.05);
+  lfo.stop(time + dur + 0.05);
+}
+
+// ── 옵션 1: 클래식 따르릉 ──
+function sfxOpt1() {
+  const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  // 두 톤 번갈아 6번 (총 ~1.2s)
+  for (let i = 0; i < 6; i++) {
+    const t = now + i * 0.18;
+    const f = (i % 2 === 0) ? 850 : 1100;
+    _tone(ctx, t, f, 0.13, 'sine', 0.12);
+    // 약간의 부저 느낌 추가 — square layer
+    _tone(ctx, t, f * 1.5, 0.13, 'square', 0.025);
+  }
+}
+
+// ── 옵션 2: 디지털 비프 ──
+function sfxOpt2() {
+  const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  // 짧은 비프 4번 + 긴 마지막
+  for (let i = 0; i < 4; i++) {
+    _tone(ctx, now + i * 0.18, 1200, 0.1, 'square', 0.08);
+  }
+  // 마지막 길게
+  _tone(ctx, now + 0.85, 1200, 0.5, 'square', 0.09);
+}
+
+// ── 옵션 3: 부드러운 차임 ──
+function sfxOpt3() {
+  const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  // C5 → E5 → G5 차례로 (각 0.35s)
+  _tone(ctx, now,        523, 0.5, 'sine', 0.10);   // C5
+  _tone(ctx, now + 0.30, 659, 0.5, 'sine', 0.10);   // E5
+  _tone(ctx, now + 0.60, 784, 0.7, 'sine', 0.10);   // G5
+  // 살짝 위 옥타브 sparkle
+  _tone(ctx, now + 0.65, 1568, 0.4, 'triangle', 0.04);
+}
+
+// ── 옵션 4: 빈티지 벨 (트레몰로) ──
+function sfxOpt4() {
+  const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _toneTremolo(ctx, now, 880, 1.1, 'triangle', 0.10, 18);
+  // 살짝 낮은 옥타브 layer (배음감)
+  _toneTremolo(ctx, now, 440, 1.1, 'triangle', 0.06, 18);
+}
+
+// ── 옵션 5: 카운트다운 부저 ──
+function sfxOpt5() {
+  const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  // 짧은 펄스 3번
+  for (let i = 0; i < 3; i++) {
+    _tone(ctx, now + i * 0.20, 600, 0.12, 'sawtooth', 0.09);
+  }
+  // sustain — 긴 부저
+  _tone(ctx, now + 0.70, 500, 0.6, 'sawtooth', 0.10);
+  // 약간 낮은 톤 layer
+  _tone(ctx, now + 0.70, 250, 0.6, 'sawtooth', 0.05);
+}
+
+const SFX_MAP = { 1: sfxOpt1, 2: sfxOpt2, 3: sfxOpt3, 4: sfxOpt4, 5: sfxOpt5 };
+const SFX_DUR = { 1: 1300, 2: 1450, 3: 1400, 4: 1200, 5: 1400 };
+
+document.querySelectorAll('.play-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const opt = btn.dataset.opt;
+    const fn = SFX_MAP[opt];
+    if (!fn) return;
+    fn();
+    btn.classList.add('playing');
+    btn.textContent = '재생 중...';
+    setTimeout(() => {
+      btn.classList.remove('playing');
+      btn.textContent = '▶ 재생';
+    }, SFX_DUR[opt]);
+  });
+});
+</script>
+
+</body>
+</html>

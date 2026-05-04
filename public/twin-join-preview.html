@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>분신 애니메이션 미리보기 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: 0.04em; }
+  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 24px; }
+
+  /* 보드 — 5x5 격자, CALIGO 스타일과 비슷한 톤 */
+  .preview-board {
+    position: relative;
+    width: 360px; height: 360px;
+    display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+    background: rgba(15, 23, 42, 0.85);
+    border: 2px solid rgba(253, 230, 138, 0.35);
+    border-radius: 14px;
+    padding: 6px; gap: 4px;
+    box-shadow: 0 0 32px rgba(253, 230, 138, 0.12);
+  }
+  .cell {
+    position: relative;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; user-select: none;
+  }
+  .cell.from-cell, .cell.to-cell {
+    background: rgba(253, 230, 138, 0.08);
+    border-color: rgba(253, 230, 138, 0.45);
+  }
+  .cell.to-cell { box-shadow: inset 0 0 12px rgba(74, 222, 128, 0.25); }
+
+  /* 컨트롤 */
+  .controls {
+    display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; justify-content: center;
+  }
+  .ctl-btn {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: #1f2937; border: none; border-radius: 8px;
+    font-weight: 800; font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(251, 191, 36, 0.35);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .ctl-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(251, 191, 36, 0.5); }
+  .ctl-btn:active { transform: translateY(1px); }
+  .ctl-btn.alt {
+    background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+    color: #fff; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  }
+
+  .desc {
+    max-width: 540px; margin-top: 28px;
+    font-size: 0.8rem; color: #94a3b8; line-height: 1.6;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 10px; padding: 14px 18px;
+  }
+  .desc h3 { margin: 0 0 8px; color: #fde68a; font-size: 0.92rem; }
+  .desc code { color: #fde68a; font-size: 0.85em; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80; border-radius: 100px;
+    font-size: 0.7rem; font-weight: 700;
+  }
+
+  /* ==== 분신 비행 애니메이션 — game.css 와 동일 ==== */
+  .twin-join-flyer {
+    position: fixed;
+    font-size: 1.7rem;
+    z-index: 9500;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.85));
+    text-shadow: 0 0 12px rgba(74, 222, 128, 0.7), 0 0 20px rgba(253, 230, 138, 0.6);
+    will-change: left, top, transform;
+  }
+  .twin-join-flyer.twin-join-arrive {
+    transform: translate(-50%, -50%) scale(2.1) !important;
+    opacity: 0;
+    filter: drop-shadow(0 0 24px rgba(74, 222, 128, 1));
+    transition: transform 0.32s ease-out, opacity 0.32s ease-out, filter 0.32s ease-out;
+  }
+  .twin-join-trail {
+    position: fixed;
+    font-size: 1.3rem;
+    z-index: 9499;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0.55;
+    filter: drop-shadow(0 0 4px rgba(253, 230, 138, 0.5));
+    animation: twin-join-trail-fade 0.48s ease-out forwards;
+  }
+  @keyframes twin-join-trail-fade {
+    0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0;    transform: translate(-50%, -50%) scale(0.4); }
+  }
+  .cell.flying-from .pc-emoji { visibility: hidden; }
+</style>
+</head>
+<body>
+
+<h1>분신 애니메이션 미리보기 <span class="badge">DEV</span></h1>
+<div class="sub">버튼을 눌러 비행 + 잔상 + 효과음을 동시에 확인할 수 있습니다.</div>
+
+<div class="preview-board" id="board"></div>
+
+<div class="controls">
+  <button class="ctl-btn" id="btn-elder">👧 누나 → 동생 위치로 합류</button>
+  <button class="ctl-btn alt" id="btn-younger">👦 동생 → 누나 위치로 합류</button>
+</div>
+
+<div class="desc">
+  <h3>구성</h3>
+  ① 준비 동작 (180ms) — 후퇴 14px + 1.15배 부풀림.<br>
+  ② 일직선 비행 (520ms) — easeOutCubic 으로 가속·도달 · 30ms 마다 잔상 ghost.<br>
+  ③ 도착 펄스 — 합류 이모지(👫) 로 변환되며 2.1배 스케일 후 페이드.<br>
+  SFX: <code>0~600ms 350Hz→1100Hz 휘이익</code> · <code>620ms C5+E5+G5 화음</code> · <code>680ms C6 sparkle</code>.<br>
+  실제 게임에서는 분신 스킬 발동 시 시전자 / 상대방 / 관전자 모두 동일한 흐름으로 재생됩니다.
+</div>
+
+<script>
+// ==== SFX (game.js 와 동일) ====
+let _audioCtx = null;
+function getAudioCtx() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  } catch (e) { return null; }
+}
+function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, time);
+  if (glide) osc.frequency.exponentialRampToValueAtTime(glide, time + dur);
+  g.gain.setValueAtTime(0, time);
+  g.gain.linearRampToValueAtTime(gain || 0.08, time + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  osc.connect(g); g.connect(ctx.destination);
+  osc.start(time); osc.stop(time + dur + 0.05);
+}
+function playSfxTwinsJoin() {
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now,         350, 0.6,  'sine',     0.05, 1100);
+    _sfxTone(ctx, now + 0.62,  523, 0.45, 'sine',     0.09);
+    _sfxTone(ctx, now + 0.62,  659, 0.45, 'sine',     0.08);
+    _sfxTone(ctx, now + 0.62,  784, 0.45, 'sine',     0.07);
+    _sfxTone(ctx, now + 0.68, 1047, 0.30, 'triangle', 0.06);
+  } catch (e) {}
+}
+
+// ==== 보드 빌드 ====
+const board = document.getElementById('board');
+const FROM_COL = 0, FROM_ROW = 2;   // A3 (왼쪽 중앙)
+const TO_COL   = 4, TO_ROW   = 2;   // E3 (오른쪽 중앙)
+
+function buildBoard() {
+  board.innerHTML = '';
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const c = document.createElement('div');
+      c.className = 'cell';
+      c.dataset.col = col;
+      c.dataset.row = row;
+      if (col === FROM_COL && row === FROM_ROW) {
+        c.classList.add('from-cell');
+      }
+      if (col === TO_COL && row === TO_ROW) {
+        c.classList.add('to-cell');
+      }
+      board.appendChild(c);
+    }
+  }
+}
+
+function setPieces(moverIcon, callerIcon) {
+  const fromCell = board.querySelector(`.cell[data-col="${FROM_COL}"][data-row="${FROM_ROW}"]`);
+  const toCell   = board.querySelector(`.cell[data-col="${TO_COL}"][data-row="${TO_ROW}"]`);
+  fromCell.innerHTML = `<span class="pc-emoji">${moverIcon}</span>`;
+  toCell.innerHTML   = `<span class="pc-emoji">${callerIcon}</span>`;
+  return { fromCell, toCell };
+}
+
+// ==== 비행 애니메이션 (game.js 와 동일 — 준비동작 + 일직선 + 도착 시 합류 이모지 펄스) ====
+function playTwinJoinFlight(moverIcon, fromCell, toCell, onArrive) {
+  const fromR = fromCell.getBoundingClientRect();
+  const toR   = toCell.getBoundingClientRect();
+  const fromX = fromR.left + fromR.width  / 2;
+  const fromY = fromR.top  + fromR.height / 2;
+  const toX   = toR.left   + toR.width    / 2;
+  const toY   = toR.top    + toR.height   / 2;
+
+  fromCell.classList.add('flying-from');
+
+  const flyer = document.createElement('div');
+  flyer.className = 'twin-join-flyer';
+  flyer.textContent = moverIcon;
+  flyer.style.left = fromX + 'px';
+  flyer.style.top  = fromY + 'px';
+  document.body.appendChild(flyer);
+
+  const WINDUP_MS = 180, FLIGHT_MS = 520, TOTAL_MS = 700;
+  const startT = performance.now();
+  const dx = toX - fromX, dy = toY - fromY;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist, uy = dy / dist;
+  const WINDUP_DIST = 14;
+  const windupX = fromX - ux * WINDUP_DIST;
+  const windupY = fromY - uy * WINDUP_DIST;
+
+  const trailIv = setInterval(() => {
+    if (performance.now() - startT < WINDUP_MS) return;
+    const r = flyer.getBoundingClientRect();
+    const ghost = document.createElement('div');
+    ghost.className = 'twin-join-trail';
+    ghost.textContent = moverIcon;
+    ghost.style.left = (r.left + r.width / 2) + 'px';
+    ghost.style.top  = (r.top  + r.height / 2) + 'px';
+    document.body.appendChild(ghost);
+    setTimeout(() => ghost.remove(), 480);
+  }, 30);
+
+  function step(now) {
+    const elapsed = now - startT;
+    let x, y, scale;
+    if (elapsed < WINDUP_MS) {
+      const t = elapsed / WINDUP_MS;
+      const e = 1 - Math.pow(1 - t, 3);
+      x = fromX + (windupX - fromX) * e;
+      y = fromY + (windupY - fromY) * e;
+      scale = 1 + 0.15 * e;
+    } else {
+      const t = Math.min(1, (elapsed - WINDUP_MS) / FLIGHT_MS);
+      const e = 1 - Math.pow(1 - t, 3);
+      x = windupX + (toX - windupX) * e;
+      y = windupY + (toY - windupY) * e;
+      scale = 1.15 - 0.15 * e;
+    }
+    flyer.style.left = x + 'px';
+    flyer.style.top  = y + 'px';
+    flyer.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+    if (elapsed < TOTAL_MS) requestAnimationFrame(step);
+    else {
+      clearInterval(trailIv);
+      flyer.textContent = '👫';                  // 도착 펄스 — 합류 이모지
+      flyer.classList.add('twin-join-arrive');
+      setTimeout(() => flyer.remove(), 320);
+      if (typeof onArrive === 'function') onArrive();
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ==== 트리거 ====
+function previewElder() {
+  // 누나 → 동생 위치로. 누나(👧) 가 mover.
+  const { fromCell, toCell } = setPieces('👧', '👦');
+  playSfxTwinsJoin();
+  playTwinJoinFlight('👧', fromCell, toCell, () => {
+    // 도착 후: TO 셀에 합류 emoji 표시
+    toCell.innerHTML = '<span class="pc-emoji">👫</span>';
+    fromCell.innerHTML = '';
+    fromCell.classList.remove('flying-from');
+  });
+}
+function previewYounger() {
+  // 동생 → 누나 위치로. 동생(👦) 이 mover.
+  // FROM 에 동생, TO 에 누나 — 비행 방향이 반대가 되도록 셀 역할만 swap.
+  const fromCell = board.querySelector(`.cell[data-col="${TO_COL}"][data-row="${TO_ROW}"]`);
+  const toCell   = board.querySelector(`.cell[data-col="${FROM_COL}"][data-row="${FROM_ROW}"]`);
+  fromCell.innerHTML = '<span class="pc-emoji">👦</span>';
+  toCell.innerHTML   = '<span class="pc-emoji">👧</span>';
+  playSfxTwinsJoin();
+  playTwinJoinFlight('👦', fromCell, toCell, () => {
+    toCell.innerHTML = '<span class="pc-emoji">👫</span>';
+    fromCell.innerHTML = '';
+    fromCell.classList.remove('flying-from');
+  });
+}
+
+document.getElementById('btn-elder').addEventListener('click', () => {
+  buildBoard();
+  setPieces('👧', '👦');
+  setTimeout(previewElder, 80);  // 살짝 텀
+});
+document.getElementById('btn-younger').addEventListener('click', () => {
+  buildBoard();
+  setPieces('👦', '👧');
+  setTimeout(previewYounger, 80);
+});
+
+// 초기 상태
+buildBoard();
+setPieces('👧', '👦');
+</script>
+
+</body>
+</html>
