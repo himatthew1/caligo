@@ -3851,9 +3851,11 @@ socket.on('turn_event', (payload) => {
 // ── SP 오브 비행 종료 시점 계산 ──
 //   spendSPAttention 의 nextMs(80) + (cost-1)*130 + flight(700) 공식.
 //   cost 0 (기폭) → 다른 스킬과 시각 호흡 통일 위해 cost 1 (780ms) 로 처리.
+//   SP_END_OFFSET_MS — SP 오브 도착 후 추가로 더 기다리는 텀 (살짝 호흡).
+const SP_END_OFFSET_MS = 200;
 function getSpFlightEndMs(cost) {
   const c = Math.max(1, cost | 0);  // 0 → 1 로 처리
-  return 780 + (c - 1) * 130;
+  return 780 + (c - 1) * 130 + SP_END_OFFSET_MS;
 }
 // 이벤트 payload 에 spCost 가 없을 때 fallback (SP delta 로 추정)
 function spCostFromDelta(oldSp, newSp, oldInstantSp, newInstantSp) {

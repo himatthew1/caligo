@@ -7432,9 +7432,9 @@ io.on('connection', (socket) => {
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    // 기폭 스킬: SP_END(1)=780ms + 폭탄 애니(950ms) = ~1730ms (통일된 새 타이밍)
-    // 1) 즉시 detonation_intro emit (클라/관전 모두) — 클라가 780ms 후 시퀀스 시작
-    // 2) 1730ms 후 bomb_detonated 이벤트로 피해 적용 (클라 시퀀스 종료 시점에 정확히 맞춤)
+    // 기폭 스킬: SP_END(1) + offset 200ms = 980ms + 폭탄 애니(950ms) = ~1930ms
+    // 1) 즉시 detonation_intro emit — 클라가 980ms 후 시퀀스 시작
+    // 2) 1930ms 후 bomb_detonated 이벤트로 피해 적용 (클라 시퀀스 종료 시점)
     if (result.data && Array.isArray(result.data.deferredBombEmits)) {
       const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
       if (bombList.length > 0) {
@@ -7447,7 +7447,7 @@ io.on('connection', (socket) => {
         for (const bd of deferred) {
           emitToBoth(room, 'bomb_detonated', bd);
         }
-      }, 1730);
+      }, 1930);
     }
 
     // Check win after skill effects (모드별)
