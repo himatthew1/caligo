@@ -3466,6 +3466,8 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 .my-piece-card:hover { border-color: #4a4a7a; }
 .my-piece-card.active-piece { border-color: var(--accent); }
 .my-piece-card.dead { opacity: 0.4; }
+/* 사망한 턴 — 피격으로 죽었으면 그 턴 동안 풀밝기 (.turn-bright override). 다음 턴부터 정상 dim */
+.my-piece-card.dead.turn-bright { opacity: 1 !important; filter: none !important; }
 .my-piece-card.twin-moved { opacity: 0.45; pointer-events: none; }
 /* 딤 통일 — 쌍둥이/쌍검무/질주 공용: 보드 아이콘 흐림 */
 .piece-marker.twin-board-dimmed,
@@ -4202,6 +4204,8 @@ body.team-mode .placement-opp-panel {
 }
 .opp-piece-card:hover { border-color: #4a4a7a; }
 .opp-piece-card.dead { opacity: 0.4; }
+/* 사망한 턴 — 피격으로 죽었으면 그 턴 동안 풀밝기 */
+.opp-piece-card.dead.turn-bright { opacity: 1 !important; filter: none !important; }
 .opp-piece-card[draggable="true"] { cursor: grab; }
 .opp-piece-card[draggable="true"]:active { cursor: grabbing; }
 .opp-piece-card.dragging { opacity: 0.4; }

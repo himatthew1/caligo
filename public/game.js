@@ -2483,10 +2483,14 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     const isCursedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
     const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}`;
     if (!pc.alive) {
-      // 일반 격파 — '💀 격파' 텍스트. 보드 파괴 탈락은 캐릭터 카드가 아닌 *플레이어 프로필* 전체에 도장 (아래 처리)
+      // 사망 — 아이콘만 💀 로 변경. "격파" 텍스트는 제거 (피격 애니 + .turn-bright 가 사망 알림 역할).
+      // 도장(damage stamp) 은 그 턴 동안 카드에 남아 마지막 일격 시각화.
+      const _deadDmgOv = (typeof buildDamageOverlay === 'function')
+        ? buildDamageOverlay(`${playerData.idx}:${i}`, 0, pc.maxHp || 1)
+        : { stamp: '' };
       return `<div class="${baseCardClass} dead" data-team-piece="1" data-piece-idx="${i}">
-        <div class="my-piece-header"><span class="p-icon">${pc.icon || '❔'}</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
-        <div style="font-size:0.72rem;color:var(--muted)">💀 격파</div>
+        ${_deadDmgOv.stamp || ''}
+        <div class="my-piece-header"><span class="p-icon">💀</span><strong>${escapeHtmlGlobal(pc.name || pc.type)}</strong></div>
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
@@ -9870,7 +9874,7 @@ function renderMyPieces() {
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
-        <span class="p-icon">${pc.icon}</span>
+        <span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
@@ -9883,7 +9887,7 @@ function renderMyPieces() {
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
-        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : '💀 격파'}</span>
+        <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : ''}</span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
 
@@ -10021,7 +10025,7 @@ function renderOppPieces() {
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       ${_isOppShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
       <div class="my-piece-header">
-        <span class="p-icon">${pc.icon}</span>
+        <span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
@@ -10036,7 +10040,7 @@ function renderOppPieces() {
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.7rem">
-          ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : (_isOppShrunkElim ? '' : '💀 격파')}
+          ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : ''}
         </span>
       </div>
       ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}`;
@@ -12669,11 +12673,16 @@ function findPieceIndices(pieces, hitList, matchByCoord = true) {
   const indices = [];
   for (const h of hitList) {
     let idx = -1;
-    if (matchByCoord && h.col !== undefined && h.row !== undefined) {
-      idx = pieces.findIndex(p => p.alive && p.col === h.col && p.row === h.row);
+    // ★ 서버가 defPieceIdx 를 직접 보내면 그것을 1순위로 사용 (사망한 piece 도 정확히 매칭).
+    if (typeof h.defPieceIdx === 'number' && pieces[h.defPieceIdx]) {
+      idx = h.defPieceIdx;
+    }
+    // p.alive 검사 제거 — 이번 턴에 죽은 piece 도 carrd 애니메이션 (turn-bright) 받아야 함.
+    if (idx < 0 && matchByCoord && h.col !== undefined && h.row !== undefined) {
+      idx = pieces.findIndex(p => p.col === h.col && p.row === h.row);
     }
     if (idx < 0 && h.name) {
-      idx = pieces.findIndex(p => p.alive && p.name === h.name);
+      idx = pieces.findIndex(p => p.name === h.name);
     }
     if (idx >= 0 && !indices.includes(idx)) indices.push(idx);
   }
