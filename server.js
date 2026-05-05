@@ -1778,6 +1778,18 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       });
     }
   }
+  // ★ 관전자 일반 공격 애니메이션 — 팀모드. defOwnerIdx 포함 hits.
+  emitToSpectators(room, 'spectator_attack_anim', {
+    atkCells,
+    hits: hitResults.map(h => ({
+      col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+      defPieceIdx: h.defPieceIdx,
+      defOwnerIdx: h.defOwnerIdx,
+      redirectedToBodyguard: h.redirectedToBodyguard || false,
+      bodyguardRedirect: h.bodyguardRedirect || false,
+    })),
+  });
+
   emitToSpectators(room, 'spectator_log', {
     msg: hitResults.length > 0
       ? `${p.name}의 공격 명중!`
@@ -1836,6 +1848,16 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
           });
         }
       }
+      // ★ 관전자 — 쌍검무 두 번째 공격 애니
+      emitToSpectators(room, 'spectator_attack_anim', {
+        atkCells: extra2Cells,
+        hits: extra2Hits.map(h => ({
+          col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+          defPieceIdx: h.defPieceIdx, defOwnerIdx: h.defOwnerIdx,
+          redirectedToBodyguard: h.redirectedToBodyguard || false,
+          bodyguardRedirect: h.bodyguardRedirect || false,
+        })),
+      });
       broadcastTeamGameState(room);
       scheduleAITurnEnd(room, idx, 3000);
     }, DUAL_BLADE_DELAY);
@@ -5428,6 +5450,16 @@ function aiExecuteAttack(room, action) {
     }),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
+  // ★ 관전자 일반 공격 애니 (1v1 AI 공격) — defOwnerIdx 0 (인간 = p0)
+  emitToSpectators(room, 'spectator_attack_anim', {
+    atkCells,
+    hits: hitResults.map(h => ({
+      col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+      defPieceIdx: h.defPieceIdx, defOwnerIdx: 0,
+      redirectedToBodyguard: h.redirectedToBodyguard || false,
+      bodyguardRedirect: h.bodyguardRedirect || false,
+    })),
+  });
   // 관전자에게 공격 결과 전송
   if (hitResults.length > 0) {
     for (const h of hitResults) {
@@ -5469,6 +5501,16 @@ function aiExecuteAttack(room, action) {
             bodyguardRedirect: h.bodyguardRedirect || false };
         }),
         yourPieces: pieceSummary(humanPlayer.pieces),
+      });
+      // ★ 관전자 — 쌍검무 두 번째 공격 (1v1 AI). defOwnerIdx 0
+      emitToSpectators(room, 'spectator_attack_anim', {
+        atkCells: extraCells,
+        hits: extraHits.map(h => ({
+          col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+          defPieceIdx: h.defPieceIdx, defOwnerIdx: 0,
+          redirectedToBodyguard: h.redirectedToBodyguard || false,
+          bodyguardRedirect: h.bodyguardRedirect || false,
+        })),
       });
       if (hitResults.length > 0 || extraHits.length > 0) {
         emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
@@ -6888,6 +6930,16 @@ io.on('connection', (socket) => {
             yourPieces: pieceSummary(defender.pieces),
           });
         }
+        // ★ 관전자 — 1v1 인간 시점 쌍검무 추가 공격
+        emitToSpectators(room, 'spectator_attack_anim', {
+          atkCells,
+          hits: hitResults.map(h => ({
+            col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+            defPieceIdx: h.defPieceIdx, defOwnerIdx: 1 - idx,
+            redirectedToBodyguard: h.redirectedToBodyguard || false,
+            bodyguardRedirect: h.bodyguardRedirect || false,
+          })),
+        });
         // 관전자 로그: 쌍검무 추가 공격
         if (hitResults.length > 0) {
           for (const h of hitResults) {
@@ -7094,6 +7146,19 @@ io.on('connection', (socket) => {
         });
       }
     }
+
+    // ★ 관전자 일반 공격 애니메이션 — 셀 hit 번쩍임 + 카드 hit flash + 본체 도장.
+    //   defOwnerIdx 가 hits 에 들어있어 클라가 패널 매핑 가능.
+    emitToSpectators(room, 'spectator_attack_anim', {
+      atkCells,
+      hits: hitResults.map(h => ({
+        col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+        defPieceIdx: h.defPieceIdx,
+        defOwnerIdx: (h.defOwnerIdx !== undefined) ? h.defOwnerIdx : (1 - idx),
+        redirectedToBodyguard: h.redirectedToBodyguard || false,
+        bodyguardRedirect: h.bodyguardRedirect || false,
+      })),
+    });
 
     // 관전자 로그: 일반 공격 (쌍둥이는 각 공격자별로 메시지 분리)
     if (hitResults.length > 0) {

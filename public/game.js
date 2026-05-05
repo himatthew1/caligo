@@ -2901,22 +2901,81 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (instantSp) S.instantSp = instantSp;
     if (sp || instantSp) try { updateSPBar(); } catch (e) {}
 
-    // ★ 데미지 스킬 hits — 관전자 시점에서도 셀 hit 애니 + 카드 hit flash + turn-bright.
+    // ★ 데미지 스킬 hits — 관전자 시점에서도 셀 hit 애니 + 카드 hit flash + turn-bright + 본체 도장.
     //   1v1 관전자: p0 → #my-pieces-info, p1 → #opp-pieces-info 매핑.
     if (Array.isArray(hits) && hits.length > 0) {
       const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
       if (hitCells.length > 0) animateAttack([], hitCells);
       for (const h of hits) {
         if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
-        if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue; // 본체에 안 들어간 hit
+        const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+        if (dmg > 0) {
+          const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
+          if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
+          else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
+        }
+        if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
         const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
         const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
         const cards = document.querySelectorAll(`${containerSel} ${cardSel}`);
         const card = cards[h.defPieceIdx];
         if (card) applyHitFlashWithBrighten(card);
       }
+      if (S.specGameState) renderSpectatorGame(S.specGameState);
     }
   }, SP_END_MS);
+});
+
+// ── 관전자 일반 공격 애니메이션 ──
+//   서버가 each being_attacked emit 옆에 같이 emit 함. defOwnerIdx 0/1 → my/opp 패널 매핑.
+socket.on('spectator_attack_anim', ({ atkCells, hits }) => {
+  if (!S.isSpectator) return;
+  // 셀 hit 번쩍임 (공격 범위 + 피격 셀)
+  const hitCellList = (hits || []).filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+  if (Array.isArray(atkCells) || hitCellList.length > 0) {
+    animateAttack(atkCells || [], hitCellList);
+  }
+  // 효과음 — kill / hit
+  if ((hits || []).some(h => h.destroyed)) {
+    try { playSfx('kill'); } catch (e) {}
+  } else if (hitCellList.length > 0) {
+    try { playSfx('hit'); } catch (e) {}
+  }
+  // 1v1 관전자 — defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
+  if (!S.isTeamMode) {
+    for (const h of (hits || [])) {
+      if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+      const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+      // 본체 빨간 도장 / 충성 파란 도장 누적
+      if (dmg > 0) {
+        const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
+        if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
+        else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
+      }
+      // 카드 hit flash + turn-bright (호위무사가 본체 가로챈 경우는 BG 카드만 빛남)
+      if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
+      const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+      const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+      const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
+      if (card) applyHitFlashWithBrighten(card);
+    }
+    // spectator 패널 재렌더 — 도장 반영
+    if (S.specGameState) renderSpectatorGame(S.specGameState);
+    return;
+  }
+  // 팀모드 관전자 — team-profile-block[data-player-idx][data-piece-idx] 마크업 매핑.
+  for (const h of (hits || [])) {
+    if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+    if (dmg > 0) {
+      const key = `${h.defOwnerIdx}:${h.defPieceIdx}`;
+      if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
+      else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
+    }
+    if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
+    const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+    if (card) applyHitFlashWithBrighten(card);
+  }
 });
 
 // ── 관전자 전투 로그 ──
@@ -5575,12 +5634,17 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
       let idx = arr.findIndex(p => p.alive && p.name === pieceInfo?.name && p.col === col && p.row === row);
       if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === pieceInfo?.name);
       if (idx >= 0) {
+        if (typeof damage === 'number' && damage > 0) {
+          const key = (victimOwnerIdx === 0) ? `my:${idx}` : `opp:${idx}`;
+          addBodyDamage(key, damage);
+        }
         const containerSel = (victimOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
         const cardSel = (victimOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
         const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[idx];
         if (card) applyHitFlashWithBrighten(card);
       }
     }
+    if (S.specGameState) renderSpectatorGame(S.specGameState);
     return;
   }
 
@@ -5742,11 +5806,17 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
     animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
     for (const h of hits) {
       if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+      const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+      if (dmg > 0) {
+        const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
+        addBodyDamage(key, dmg);
+      }
       const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
       const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
       const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
       if (card) applyHitFlashWithBrighten(card);
     }
+    if (S.specGameState) renderSpectatorGame(S.specGameState);
     return;
   }
   // 보드에서 해당 폭탄 제거 (자동 폭발 케이스 등)
@@ -12637,6 +12707,29 @@ function renderSpectatorPlacement() {
 
 // ── 관전자 렌더링 ─────────────────────────────────────────
 function renderSpectatorGame(gs) {
+  // ★ 턴 변경 감지 — 1v1 관전자도 매 턴 데미지 도장/HP 바 오버레이 초기화 + turn-bright 일괄 해제.
+  //   snapshotTurnStartHps 가 S.bodyDamageThisTurn 등을 매 턴 비움.
+  const _prevTurn = S._specPrevTurn;
+  const turnChanged = (_prevTurn != null && _prevTurn !== gs.turnNumber);
+  if (turnChanged) {
+    if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
+    // 1v1 관전자 HP 스냅샷 — gs.p0Pieces / p1Pieces 로 자체 스냅 (snapshotTurnStartHps 는 S.myPieces 의존이라 직접 구성).
+    const snap = {};
+    for (let i = 0; i < (gs.p0Pieces || []).length; i++) {
+      const pc = gs.p0Pieces[i];
+      snap[`my:${i}`] = (pc.alive === false ? 0 : (pc.hp ?? 0));
+    }
+    for (let i = 0; i < (gs.p1Pieces || []).length; i++) {
+      const pc = gs.p1Pieces[i];
+      snap[`opp:${i}`] = (pc.alive === false ? 0 : (pc.hp ?? 0));
+    }
+    S.turnStartHps = snap;
+    S.bodyDamageThisTurn = {};
+    S.loyaltyDamageThisTurn = {};
+    S.curseDamageThisTurn = {};
+    S.healThisTurn = {};
+  }
+  S._specPrevTurn = gs.turnNumber;
   S.turnNumber = gs.turnNumber;
   S.sp = gs.sp;
   S.instantSp = gs.instantSp;
@@ -12789,19 +12882,23 @@ function renderSpectatorGame(gs) {
   });
 
   // 좌측: P0 말 정보
+  // ★ 관전자 패널에도 데미지 도장 + HP 바 빨간 오버레이 적용 (1v1 spec 기준 my:idx / opp:idx 키).
   const leftPanel = document.getElementById('my-pieces-info');
   if (leftPanel) {
     document.querySelector('.left-panel h3').textContent = gs.p0Name;
     leftPanel.innerHTML = '';
-    for (const pc of (gs.p0Pieces || [])) {
-      const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+    for (let i = 0; i < (gs.p0Pieces || []).length; i++) {
+      const pc = gs.p0Pieces[i];
+      const overlay = buildDamageOverlay(`my:${i}`, pc.alive ? pc.hp : 0, pc.maxHp);
       const div = document.createElement('div');
       div.className = `my-piece-card ${pc.alive ? '' : 'dead'}`;
       div.style.position = 'relative';
-      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+      div.dataset.pieceIdx = i;
+      const hpPct = overlay.displayHpPct;
+      div.innerHTML = `<span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
         <div><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
-        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
-        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div>${overlay.barOverlay}</div>
+        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>${overlay.stamp}`;
       if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'left'));
       leftPanel.appendChild(div);
     }
@@ -12814,15 +12911,18 @@ function renderSpectatorGame(gs) {
     const sub = document.querySelector('.right-panel p');
     if (sub) sub.textContent = '';
     rightPanel.innerHTML = '';
-    for (const pc of (gs.p1Pieces || [])) {
-      const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
+    for (let i = 0; i < (gs.p1Pieces || []).length; i++) {
+      const pc = gs.p1Pieces[i];
+      const overlay = buildDamageOverlay(`opp:${i}`, pc.alive ? pc.hp : 0, pc.maxHp);
       const div = document.createElement('div');
       div.className = `opp-piece-card ${pc.alive ? '' : 'dead'}`;
       div.style.position = 'relative';
-      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+      div.dataset.pieceIdx = i;
+      const hpPct = overlay.displayHpPct;
+      div.innerHTML = `<span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
         <div class="opp-info"><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
-        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div></div>
-        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>`;
+        <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div>${overlay.barOverlay}</div>
+        <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>${overlay.stamp}`;
       if (pc.alive) div.appendChild(buildPieceTooltip(pc, 'right'));
       rightPanel.appendChild(div);
     }
