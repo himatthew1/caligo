@@ -2209,7 +2209,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2260,6 +2260,24 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     if (sp) { S.sp = sp; }
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { try { updateSPBar(); } catch (e) {} }
+
+    // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
+    //   팀모드 키 형식: `${defOwnerIdx}:${defPieceIdx}` — owner 별 인덱스로 통일.
+    if (Array.isArray(hits) && hits.length > 0) {
+      const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+      if (hitCells.length > 0) animateAttack([], hitCells);
+      for (const h of hits) {
+        const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+        if (dmg <= 0 || h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+        const key = `${h.defOwnerIdx}:${h.defPieceIdx}`;
+        if (h.bodyguardRedirect) {
+          addLoyaltyDamage(key, dmg);
+        } else if (!h.redirectedToBodyguard) {
+          addBodyDamage(key, dmg);
+        }
+      }
+    }
+
     if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
       addLog(msg, 'skill');
@@ -5313,6 +5331,25 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (hitsData && hitsData.length > 0) {
         const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         if (cells.length > 0) animateAttack([], cells);
+
+        // ★ 본체 빨간 도장 / 호위무사 파란 도장 — being_attacked 와 동일하게 처리.
+        //   유황범람·악몽 등 데미지 스킬에서 빠져 있던 처리. defPieceIdx + defOwnerIdx 기반.
+        for (const h of hitsData) {
+          const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+          if (dmg <= 0 || h.defPieceIdx == null) continue;
+          // 키 결정: 1v1 → opp:idx (시전자 시점에서 피해는 항상 상대), 팀모드 → ownerIdx:idx
+          const key = (S.isTeamMode && h.defOwnerIdx !== undefined)
+            ? `${h.defOwnerIdx}:${h.defPieceIdx}`
+            : `opp:${h.defPieceIdx}`;
+          if (h.bodyguardRedirect) {
+            // 호위무사가 대신 받음 → 파란 충성 도장 (BG 카드)
+            addLoyaltyDamage(key, dmg);
+          } else if (!h.redirectedToBodyguard) {
+            // 본체에 직접 들어간 피해 → 빨간 도장 (피격 카드)
+            addBodyDamage(key, dmg);
+          }
+        }
+
         const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
         if (aliveHits.length === 1) {
           const c = aliveHits[0];
@@ -5348,7 +5385,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx, twinJoin }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx, twinJoin, hits }) => {
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
@@ -5428,6 +5465,24 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     }
     if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
       setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
+    }
+
+    // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
+    //   server status_update 가 hits 를 보내며, defPieceIdx 는 받는 쪽의 yourPieces (= S.myPieces) 인덱스.
+    if (Array.isArray(hits) && hits.length > 0) {
+      const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+      if (hitCells.length > 0) animateAttack([], hitCells);
+      for (const h of hits) {
+        const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+        if (dmg <= 0 || h.defPieceIdx == null) continue;
+        // 1v1 status_update 받는 쪽 = 피해 받는 쪽 → 본인 카드 (my:idx)
+        const key = `my:${h.defPieceIdx}`;
+        if (h.bodyguardRedirect) {
+          addLoyaltyDamage(key, dmg);
+        } else if (!h.redirectedToBodyguard) {
+          addBodyDamage(key, dmg);
+        }
+      }
     }
 
     if (msg) {

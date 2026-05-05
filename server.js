@@ -1162,6 +1162,8 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
         name: skillPiece.name,
         skillName: skillPiece.skillName,
       },
+      // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용 (AI 시전 경로)
+      hits: result.data?.hits || null,
     };
     // 본인/팀원/적 분기 (use_skill 핸들러의 explicitAlly/explicitOpp 와 동일 로직)
     const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
@@ -7349,6 +7351,8 @@ io.on('connection', (socket) => {
             icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
           },
           msg: isAlly ? explicitAlly : explicitOpp,
+          // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용. defOwnerIdx + defPieceIdx 포함.
+          hits: result.data?.hits || null,
         });
       }
       for (const s of (room.spectators || [])) {
@@ -7362,6 +7366,7 @@ io.on('connection', (socket) => {
           skillUsed: {
             icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
           },
+          hits: result.data?.hits || null,
           msg: result.oppMsg || result.msg || null,
         });
       }
@@ -7405,6 +7410,9 @@ io.on('connection', (socket) => {
           healedPieceIdxs: result.data?.healedPieceIdxs || null,
           // 분신 비행 애니메이션 — fog of war 우회용 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
+          // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장용
+          //   defPieceIdx 는 server 의 opp.pieces (= 받는 쪽의 yourPieces) 인덱스와 일치.
+          hits: result.data?.hits || null,
         });
       }
     }
