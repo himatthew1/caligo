@@ -4806,9 +4806,16 @@ function aiRecordHit(brain, piece) {
 }
 
 // AI 스킬 사용 후 플레이어+관전자에게 알림
-function aiNotifySkill(room, pieceIdx, result) {
+function aiNotifySkill(room, pieceIdx, result, skillId) {
   if (!result || !result.ok) return;
   const piece = room.players[1].pieces[pieceIdx];
+  // ★ 다중 스킬 캐릭터 (화약상의 폭탄 설치 vs 기폭 등) — 실제 시전된 스킬 이름을 정확히 전달.
+  //   piece.skillName 만 쓰면 첫 번째 스킬명 (폭탄 설치) 만 노출돼 말풍선이 잘못 표시됨.
+  let actualSkillName = piece.skillName || '';
+  if (skillId && Array.isArray(piece.skills)) {
+    const matched = piece.skills.find(s => s.id === skillId);
+    if (matched && matched.name) actualSkillName = matched.name;
+  }
   // 플레이어에게 status_update — 시전자 카드 spotlight + 마법구 비행 트리거
   const human = room.players[0];
   if (human.socketId !== 'AI') {
@@ -4822,7 +4829,7 @@ function aiNotifySkill(room, pieceIdx, result) {
       skillUsed: {
         icon: piece.icon,
         name: piece.name,
-        skillName: piece.skillName || '',
+        skillName: actualSkillName,
       },
       casterPieceIdx: pieceIdx,
     });
@@ -4835,7 +4842,7 @@ function aiNotifySkill(room, pieceIdx, result) {
       casterPieceIdx: pieceIdx,
       sp: room.sp,
       instantSp: room.instantSp,
-      skillUsed: { icon: piece.icon, name: piece.name, skillName: piece.skillName || '' },
+      skillUsed: { icon: piece.icon, name: piece.name, skillName: actualSkillName },
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
       hits: result.data?.hits || null,
     });
@@ -4871,7 +4878,7 @@ function aiNotifySkill(room, pieceIdx, result) {
 // AI executeSkill wrapper — 실행 후 알림
 function aiExecSkill(room, pidx, skillId, params) {
   const result = executeSkill(room, 1, pidx, skillId, params || {});
-  aiNotifySkill(room, pidx, result);
+  aiNotifySkill(room, pidx, result, skillId);  // skillId 전달 — 다중스킬 캐릭터의 정확한 스킬명용
   return result;
 }
 

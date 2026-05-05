@@ -2263,7 +2263,8 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
 
     // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
     //   팀모드 키 형식: `${defOwnerIdx}:${defPieceIdx}` — owner 별 인덱스로 통일.
-    if (Array.isArray(hits) && hits.length > 0) {
+    //   ★ 기폭은 스킵 — bomb_detonated 가 폭발 순간 처리.
+    if (!_isDetonateMsgTeam && Array.isArray(hits) && hits.length > 0) {
       const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
       if (hitCells.length > 0) animateAttack([], hitCells);
       for (const h of hits) {
@@ -5498,6 +5499,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
   // T+SP_END: SFX + dim 해제 + sp 동기화 + HP/보드 + 토스트·로그 (모두 동시)
   //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
+  //   ★ 기폭 msg 는 HP/보드/도장/profile-hit 도 모두 스킵 — bomb_detonated 가 폭발 순간에 처리.
+  //     (사용자 요청: 폭탄 피해는 폭발 순간 즉시 처리, 사전 토스트 시점에 미리 노출 X.)
   const _isDetonateMsg = msg && msg.indexOf('💥기폭') === 0;
   setTimeout(() => {
     if (msg && !_isDetonateMsg) {
@@ -5509,53 +5512,56 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { updateSPBar(); }
 
-    if (yourPieces) S.myPieces = yourPieces;
-    if (oppPieces) S.oppPieces = oppPieces;
-    pruneDeductionTokens();
-    if (boardObjects) S.boardObjects = boardObjects;
+    // ★ 기폭은 HP/보드/도장/profile-hit 처리 스킵 — bomb_detonated 가 폭발 순간 처리.
+    if (!_isDetonateMsg) {
+      if (yourPieces) S.myPieces = yourPieces;
+      if (oppPieces) S.oppPieces = oppPieces;
+      pruneDeductionTokens();
+      if (boardObjects) S.boardObjects = boardObjects;
 
-    const mySkillDmgIdx = [];
-    for (let i = 0; i < S.myPieces.length; i++) {
-      if (i < oldMyHpsCaptured.length && S.myPieces[i].hp < oldMyHpsCaptured[i]) mySkillDmgIdx.push(i);
-    }
-    // 회복 추적 — 1v1 상대 시점에서 상대 pieces 회복 (heal 스킬)
-    for (let i = 0; i < (S.oppPieces || []).length; i++) {
-      if (i < oldOppHpsCaptured.length && S.oppPieces[i].hp > oldOppHpsCaptured[i]) {
-        addHeal(`opp:${i}`, S.oppPieces[i].hp - oldOppHpsCaptured[i]);
+      const mySkillDmgIdx = [];
+      for (let i = 0; i < S.myPieces.length; i++) {
+        if (i < oldMyHpsCaptured.length && S.myPieces[i].hp < oldMyHpsCaptured[i]) mySkillDmgIdx.push(i);
       }
-    }
-    // (혹시 모를 본인 측 회복)
-    for (let i = 0; i < S.myPieces.length; i++) {
-      if (i < oldMyHpsCaptured.length && S.myPieces[i].hp > oldMyHpsCaptured[i]) {
-        addHeal(`my:${i}`, S.myPieces[i].hp - oldMyHpsCaptured[i]);
+      // 회복 추적 — 1v1 상대 시점에서 상대 pieces 회복 (heal 스킬)
+      for (let i = 0; i < (S.oppPieces || []).length; i++) {
+        if (i < oldOppHpsCaptured.length && S.oppPieces[i].hp > oldOppHpsCaptured[i]) {
+          addHeal(`opp:${i}`, S.oppPieces[i].hp - oldOppHpsCaptured[i]);
+        }
       }
-    }
+      // (혹시 모를 본인 측 회복)
+      for (let i = 0; i < S.myPieces.length; i++) {
+        if (i < oldMyHpsCaptured.length && S.myPieces[i].hp > oldMyHpsCaptured[i]) {
+          addHeal(`my:${i}`, S.myPieces[i].hp - oldMyHpsCaptured[i]);
+        }
+      }
 
-    renderGameBoard();
-    renderMyPieces();
-    renderOppPieces();
+      renderGameBoard();
+      renderMyPieces();
+      renderOppPieces();
 
-    if (!S.isTeamMode) {
-      applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
-    }
-    if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
-      setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
-    }
+      if (!S.isTeamMode) {
+        applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+      }
+      if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
+        setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
+      }
 
-    // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
-    //   server status_update 가 hits 를 보내며, defPieceIdx 는 받는 쪽의 yourPieces (= S.myPieces) 인덱스.
-    if (Array.isArray(hits) && hits.length > 0) {
-      const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-      if (hitCells.length > 0) animateAttack([], hitCells);
-      for (const h of hits) {
-        const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-        if (dmg <= 0 || h.defPieceIdx == null) continue;
-        // 1v1 status_update 받는 쪽 = 피해 받는 쪽 → 본인 카드 (my:idx)
-        const key = `my:${h.defPieceIdx}`;
-        if (h.bodyguardRedirect) {
-          addLoyaltyDamage(key, dmg);
-        } else if (!h.redirectedToBodyguard) {
-          addBodyDamage(key, dmg);
+      // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
+      //   server status_update 가 hits 를 보내며, defPieceIdx 는 받는 쪽의 yourPieces (= S.myPieces) 인덱스.
+      if (Array.isArray(hits) && hits.length > 0) {
+        const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+        if (hitCells.length > 0) animateAttack([], hitCells);
+        for (const h of hits) {
+          const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+          if (dmg <= 0 || h.defPieceIdx == null) continue;
+          // 1v1 status_update 받는 쪽 = 피해 받는 쪽 → 본인 카드 (my:idx)
+          const key = `my:${h.defPieceIdx}`;
+          if (h.bodyguardRedirect) {
+            addLoyaltyDamage(key, dmg);
+          } else if (!h.redirectedToBodyguard) {
+            addBodyDamage(key, dmg);
+          }
         }
       }
     }
@@ -5797,6 +5803,11 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   } else {
     playSfxBombExplode();
   }
+  // ★ 피격/격파 SFX — 트랩 핸들러와 동일 패턴 (사용자 요청: 폭탄 피격 효과음 누락 수정).
+  if (Array.isArray(hits) && hits.length > 0) {
+    if (hits.some(h => h.destroyed)) { try { playSfx('kill'); } catch (e) {} }
+    else { try { playSfx('hit'); } catch (e) {} }
+  }
   // ★ 1v1 관전자 — 별도 처리: spectator 의 S.myPieces/oppPieces 가 비어있어 일반 경로가 무동작.
   //   defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑으로 카드 hit flash 적용.
   if (S.isSpectator && !S.isTeamMode) {
@@ -5811,6 +5822,12 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
         const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
         addBodyDamage(key, dmg);
       }
+      // ★ 폭탄 피해/사망 로그 — 일반 공격과 구분
+      if (h.name) {
+        const label = h.icon ? `${h.icon}${h.name}` : h.name;
+        if (h.destroyed) addLog(`${label} 폭탄 사망`, 'hit');
+        else if (dmg > 0) addLog(`${label} 폭탄 피해 (${dmg})`, 'hit');
+      }
       const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
       const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
       const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
@@ -5823,11 +5840,19 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   if (Array.isArray(S.boardObjects)) {
     S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
   }
-  // #13: 폭탄 폭발은 skill_result(기폭 시전자)에서 이미 메시지 출력됨.
-  // 여기서는 토스트 중복 방지 — 로그도 생략 (위치 정보가 필요하면 stamp/HP바로 충분).
-  // (자동 발화 — 화약상 사망 시 트리거 등 — 도 별도 패시브 알림으로 처리되므로 OK)
+  // ★ 폭탄 피해/사망 로그 — 일반 공격(공격받았습니다!)과 구분되는 명확한 표기.
+  //   사용자 요청: 폭탄 피격은 "공격받았습니다!" 토스트 출력 X (혼동 방지).
+  //   로그는 "[icon][name] 폭탄 피해" / "[icon][name] 폭탄 사망" 으로 명확히.
   for (const h of hits) {
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
+    if (h.name) {
+      const label = h.icon ? `${h.icon}${h.name}` : h.name;
+      if (h.destroyed) {
+        addLog(`${label} 폭탄 사망`, 'hit');
+      } else if (typeof h.damage === 'number' && h.damage > 0) {
+        addLog(`${label} 폭탄 피해 (${h.damage})`, 'hit');
+      }
+    }
   }
   if (hits.length === 0) {
     S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
