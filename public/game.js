@@ -11977,7 +11977,7 @@ function _showRadialActionMenu(col, row, pieceIdx) {
           } else {
             S.targetSelectMode = false;
             const hintEl = document.getElementById('action-hint');
-            if (hintEl) hintEl.textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
+            if (hintEl) hintEl.textContent = '공격 확정 버튼을 눌러주세요.';
           }
         }
         renderGameBoard();
@@ -12183,7 +12183,7 @@ function handleGameCellClick(col, row) {
           _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
+          document.getElementById('action-hint').textContent = '공격 확정 버튼을 눌러주세요.';
           _placeAttackConfirmBtn(pc);
         }
         renderGameBoard();
@@ -12212,7 +12212,7 @@ function handleGameCellClick(col, row) {
           _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
+          document.getElementById('action-hint').textContent = '공격 확정 버튼을 눌러주세요.';
           _placeAttackConfirmBtn(clickedOther);
         }
         renderGameBoard();
