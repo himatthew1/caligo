@@ -3189,6 +3189,7 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
   S.exchangeMyDraft = { ...myDraft };
   S.exchangeSelected = null;
   S.myDraft = myDraft;
+  S._myExchangedThisRound = false;  // 새 교체 라운드 진입 — 플래그 초기화
   buildExchangeDraftUI(myDraft, available, oppDraft);
   openOverlayScreen('screen-exchange');
 });
@@ -3196,6 +3197,10 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
 socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
   S.exchangeMyDraft = draft;
   S.myDraft = draft;  // 교체 페이즈 카드 갱신용 — 페이즈 종료 후 다른 핸들러도 일관된 데이터 사용
+  // ★ 내가 이번 라운드에 교체했음을 기록 — final_reveal_phase 가 "교체하지 않음" 라벨을 잘못 붙이지 않게.
+  //   exchanged 가 truthy 면 실제 교체 발생. swap 애니가 이미 끝나서 swapTasks 에 안 잡히는 경우에도
+  //   이 플래그로 detect → 라벨 스킵.
+  S._myExchangedThisRound = !!exchanged;
   if (timeout) {
     if (typeof playSfxTimeout === 'function') playSfxTimeout();
     addLog('⏰ 자동 확정', 'system');
@@ -8237,8 +8242,14 @@ function playExchangeRevealAnimation(myDraft, oppChars) {
   }
 
   // 양측의 swap 여부를 미리 계산 — "교체하지 않음" 라벨 표시 결정에 사용
-  //   (my 측은 animateMySwapInReveal 진행 중인 경우도 swap 으로 인식해야 라벨 잘못 붙는 것 방지)
-  const mySwapped = swapTasks.some(t => t.side === 'my') || (S._mySwapAnimatingTier != null);
+  //   my 측은 3가지 케이스 모두 swap 으로 간주:
+  //     (1) swapTasks 에 들어감 (final_reveal 시점에 아직 미애니 — 거의 발생 X)
+  //     (2) animateMySwapInReveal 진행 중 (_mySwapAnimatingTier 세팅됨)
+  //     (3) 이미 swap 애니 끝났지만 _myExchangedThisRound 플래그 기록 — DOM 은 새 캐릭터 상태,
+  //         oldType === newType 비교가 false 라 swapTasks 에 안 잡힘. 이때 플래그로 보강.
+  const mySwapped = swapTasks.some(t => t.side === 'my')
+    || (S._mySwapAnimatingTier != null)
+    || !!S._myExchangedThisRound;
   const oppSwapped = swapTasks.some(t => t.side === 'opp');
   const addNoExchangeLabel = (container) => {
     const label = document.createElement('div');
