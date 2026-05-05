@@ -2869,6 +2869,11 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   border-color: #86efac;
   color: #fff;
 }
+.skill-cast-bubble.bubble-passive {
+  background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
+  border-color: #fed7aa;
+  color: #fff;
+}
 /* 꼬리 — 카드 쪽으로 향함. ::after 로 삼각형 + ::before 로 테두리 매칭 */
 .skill-cast-bubble::after,
 .skill-cast-bubble::before {
@@ -2917,6 +2922,8 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .skill-cast-bubble.bubble-once::before { color: #facc15; }
 .skill-cast-bubble.bubble-free::after,
 .skill-cast-bubble.bubble-free::before { color: #22c55e; }
+.skill-cast-bubble.bubble-passive::after,
+.skill-cast-bubble.bubble-passive::before { color: #ea580c; }
 
 /* spotlight — dim 위로 띄움 (z-index 9000) + 강한 글로우로 시전자 카드 부각.
    사용자 요청: 마법구 비행 중에도 시전자 프로필이 명확히 튀어 보이도록. */

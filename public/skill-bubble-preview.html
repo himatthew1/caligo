@@ -91,6 +91,10 @@
     background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
     border-color: #86efac; color: #fff;
   }
+  .ctl-passive {
+    background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
+    border-color: #fed7aa; color: #fff;
+  }
 
   .switch-row {
     display: flex; gap: 12px; margin-bottom: 24px; align-items: center;
@@ -160,6 +164,10 @@
     background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
     border-color: #86efac; color: #fff;
   }
+  .skill-cast-bubble.bubble-passive {
+    background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
+    border-color: #fed7aa; color: #fff;
+  }
   .skill-cast-bubble::after,
   .skill-cast-bubble::before {
     content: ''; position: absolute; top: 50%;
@@ -197,12 +205,14 @@
   .skill-cast-bubble.bubble-once::before { color: #facc15; }
   .skill-cast-bubble.bubble-free::after,
   .skill-cast-bubble.bubble-free::before { color: #22c55e; }
+  .skill-cast-bubble.bubble-passive::after,
+  .skill-cast-bubble.bubble-passive::before { color: #ea580c; }
 </style>
 </head>
 <body>
 
 <h1>스킬 시전 말풍선 <span class="badge">DEV</span></h1>
-<div class="sub">시전자 프로필에서 보드 쪽으로 꼬리 달린 말풍선. 2초 유지 후 페이드아웃. 색상은 스킬 유형별 — <strong style="color:#f87171">행동소비형 빨강</strong> · <strong style="color:#fde047">자유시전·턴1회 노랑</strong> · <strong style="color:#4ade80">자유시전 초록</strong>.</div>
+<div class="sub">시전자 프로필에서 보드 쪽으로 꼬리 달린 말풍선. 2초 유지 후 페이드아웃. 색상별 — <strong style="color:#f87171">행동소비형 빨강</strong> · <strong style="color:#fde047">자유·턴1회 노랑</strong> · <strong style="color:#4ade80">자유 초록</strong> · <strong style="color:#fdba74">패시브 주황</strong>.</div>
 
 <div class="switch-row">
   시전자 위치:
@@ -257,6 +267,13 @@
   <button class="ctl-btn ctl-free" data-type="free" data-skill="역병의 자손들">역병의 자손들 (자유)</button>
   <button class="ctl-btn ctl-free" data-type="free" data-skill="신성">신성 (자유)</button>
   <button class="ctl-btn ctl-free" data-type="free" data-skill="드래곤 소환">드래곤 소환 (자유)</button>
+
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="가호">가호 (패시브)</button>
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="충성">충성 (패시브)</button>
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="인스턴트매직">인스턴트매직 (패시브)</button>
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="아이언스킨">아이언스킨 (패시브)</button>
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="폭정">폭정 (패시브)</button>
+  <button class="ctl-btn ctl-passive" data-type="passive" data-skill="표식">표식 (패시브)</button>
 </div>
 
 <div class="desc">
@@ -298,7 +315,7 @@ function showSkillCastBubble(casterCard, skillName, skillType) {
   const cardCx = cardRect.left + cardRect.width / 2;
   const boardCx = boardRect.left + boardRect.width / 2;
   const boardIsRight = boardCx > cardCx;
-  const type = ['action', 'once', 'free'].includes(skillType) ? skillType : 'free';
+  const type = ['action', 'once', 'free', 'passive'].includes(skillType) ? skillType : 'free';
 
   const bubble = document.createElement('div');
   bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;

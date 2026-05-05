@@ -4149,7 +4149,7 @@ function showSkillCastBubble(casterCard, skillName, skillType) {
   const cardCx = cardRect.left + cardRect.width / 2;
   const boardCx = boardRect.left + boardRect.width / 2;
   const boardIsRight = boardCx > cardCx;
-  const type = ['action', 'once', 'free'].includes(skillType) ? skillType : 'free';
+  const type = ['action', 'once', 'free', 'passive'].includes(skillType) ? skillType : 'free';
 
   const bubble = document.createElement('div');
   bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;
@@ -5684,11 +5684,63 @@ function attachCurseDamageStamp(card, damage) {
 const DEFENSIVE_PASSIVE_TYPES = new Set(['bodyguard', 'monk', 'count', 'armoredWarrior', 'wizard']);
 S._pendingDefensiveAlerts = S._pendingDefensiveAlerts || [];
 
+// 패시브 type → { pieceType, displayName } — 말풍선 표시 대상
+const PASSIVE_BUBBLE_INFO = {
+  wizard:         { pieceType: 'wizard',         name: '인스턴트매직' },
+  monk:           { pieceType: 'monk',           name: '가호' },
+  monk_attack:    { pieceType: 'monk',           name: '가호' },
+  armoredWarrior: { pieceType: 'armoredWarrior', name: '아이언스킨' },
+  count:          { pieceType: 'count',          name: '폭정' },
+  bodyguard:      { pieceType: 'bodyguard',      name: '충성' },
+  torturer:       { pieceType: 'torturer',       name: '표식' },
+};
+
+// 패시브 발동 시 — 해당 piece 카드에서 보드 쪽으로 주황 말풍선 (스킬 시전 말풍선과 동일 디자인)
+function showPassiveBubble(type, playerIdx) {
+  const info = PASSIVE_BUBBLE_INFO[type];
+  if (!info) return;
+  // 카드 찾기 — 1v1 / 팀 모드 분기
+  let card = null;
+  if (S.isTeamMode) {
+    const player = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+    const idx = (player?.pieces || []).findIndex(pc => pc.type === info.pieceType);
+    if (idx >= 0) {
+      card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${idx}"]`);
+    }
+  } else if (S.isSpectator) {
+    // 관전자 — playerIdx 별 컨테이너 + my-piece-card / opp-piece-card 구분
+    const containerSel = (playerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+    const cardSel = (playerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+    const sourcePieces = (playerIdx === 0) ? (S.specP0Pieces || S.myPieces) : (S.specP1Pieces || S.oppPieces);
+    const idx = (sourcePieces || []).findIndex(pc => pc.type === info.pieceType);
+    if (idx >= 0) {
+      card = document.querySelectorAll(`${containerSel} ${cardSel}`)[idx];
+    }
+  } else {
+    // 1v1 — playerIdx 가 본인이면 my, 아니면 opp
+    const isMine = (playerIdx === S.playerIdx);
+    const sourcePieces = isMine ? S.myPieces : S.oppPieces;
+    const idx = (sourcePieces || []).findIndex(pc => pc.type === info.pieceType);
+    if (idx >= 0) {
+      const containerSel = isMine ? '#my-pieces-info' : '#opp-pieces-info';
+      const cardSel = isMine ? '.my-piece-card' : '.opp-piece-card';
+      card = document.querySelectorAll(`${containerSel} ${cardSel}`)[idx];
+    }
+  }
+  if (card && typeof showSkillCastBubble === 'function') {
+    showSkillCastBubble(card, info.name, 'passive');
+  }
+}
+
 function _renderPassiveAlert({ type, msg, playerIdx, targetName }) {
   addLog(msg, 'skill');
   if (type !== 'curse_tick') {
     const passiveSfx = pickPassiveSfxByType(type);
     if (passiveSfx) passiveSfx(); else playSfxPassive();
+  }
+  // ★ 패시브 말풍선 — 해당 piece 카드에서 주황 말풍선 (저주 관련 type 은 스킬·패시브 와 무관해 제외)
+  if (typeof playerIdx === 'number' && PASSIVE_BUBBLE_INFO[type]) {
+    showPassiveBubble(type, playerIdx);
   }
   const isCurseToast = (type === 'curse_tick' || type === 'curse_removed');
   if (S.isSpectator) {
