@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO 미리보기 허브</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 48px 16px 64px;
+  }
+  h1 {
+    margin: 0 0 12px;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub {
+    color: #94a3b8;
+    font-size: 0.92rem;
+    margin-bottom: 36px;
+    text-align: center;
+    max-width: 600px;
+    line-height: 1.6;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    background: rgba(74, 222, 128, 0.15);
+    color: #4ade80;
+    border-radius: 100px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+    max-width: 940px;
+    width: 100%;
+  }
+
+  .card {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 14px;
+    padding: 22px 22px 20px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(253, 230, 138, 0.55);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(253, 230, 138, 0.2);
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent-color, #fde68a);
+    opacity: 0.7;
+  }
+  .card[data-color="green"]  { --accent-color: linear-gradient(90deg, #4ade80, #16a34a); }
+  .card[data-color="purple"] { --accent-color: linear-gradient(90deg, #c084fc, #a855f7); }
+  .card[data-color="amber"]  { --accent-color: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .card[data-color="orange"] { --accent-color: linear-gradient(90deg, #fdba74, #ea580c); }
+  .card[data-color="red"]    { --accent-color: linear-gradient(90deg, #f87171, #dc2626); }
+
+  .card-icon {
+    font-size: 2.6rem;
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+  .card-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #fde68a;
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+  .card-desc {
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin-bottom: 12px;
+    flex: 1;
+  }
+  .card-meta {
+    color: #64748b;
+    font-size: 0.72rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.15);
+    padding-top: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .card-meta code {
+    color: #fde68a;
+    font-size: 0.72rem;
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .card-meta .arrow { color: #fde68a; font-weight: 800; }
+
+  .footer {
+    margin-top: 48px;
+    color: #64748b;
+    font-size: 0.78rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .footer a { color: #94a3b8; text-decoration: underline; text-underline-offset: 3px; }
+  .footer a:hover { color: #fde68a; }
+</style>
+</head>
+<body>
+
+<h1>CALIGO 미리보기 허브 <span class="badge">DEV</span></h1>
+<div class="sub">게임 내 적용된 애니메이션·효과·UI 요소를 게임 진행 없이 직접 시연·확인할 수 있는 데모 사이트들. 각 카드를 클릭해 해당 미리보기로 이동하세요.</div>
+
+<div class="grid">
+
+  <!-- 분신 비행 -->
+  <a href="/twin-join-preview.html" class="card" data-color="green">
+    <div class="card-icon">👫</div>
+    <div class="card-title">분신 비행 애니메이션</div>
+    <div class="card-desc">
+      쌍둥이 강도의 분신 스킬 — 누나/동생이 잔상을 남기며 다른 쪽 위치로 빠르게 비행. 도착 시 합류 이모지(👫) 가 펄스로 등장. SFX 동기화 포함.
+    </div>
+    <div class="card-meta">
+      <code>twin-join-preview.html</code>
+      <span class="arrow">→</span>
+    </div>
+  </a>
+
+  <!-- 시간 초과 SFX -->
+  <a href="/timeout-sfx-preview.html" class="card" data-color="amber">
+    <div class="card-icon">⏰</div>
+    <div class="card-title">시간 초과 SFX</div>
+    <div class="card-desc">
+      자명종/알람시계 톤 5종 — 클래식 따르릉, 디지털 비프, 부드러운 차임, 빈티지 벨 트레몰로, 카운트다운 부저. 현재 게임에는 옵션 1 (클래식 따르릉) 적용.
+    </div>
+    <div class="card-meta">
+      <code>timeout-sfx-preview.html</code>
+      <span class="arrow">→</span>
+    </div>
+  </a>
+
+  <!-- 스킬 시전 말풍선 -->
+  <a href="/skill-bubble-preview.html" class="card" data-color="purple">
+    <div class="card-icon">💬</div>
+    <div class="card-title">스킬 시전 말풍선</div>
+    <div class="card-desc">
+      시전자 프로필에서 보드 쪽으로 꼬리 달린 oval 말풍선 — 스킬명 표시. 4가지 색상 (행동소비형 빨강 · 자유·턴1회 노랑 · 자유 초록 · 패시브 주황). 좌/우 시전자 위치별 꼬리 자동 전환.
+    </div>
+    <div class="card-meta">
+      <code>skill-bubble-preview.html</code>
+      <span class="arrow">→</span>
+    </div>
+  </a>
+
+  <!-- 기폭 애니메이션 -->
+  <a href="/bomb-explosion-preview.html" class="card" data-color="red">
+    <div class="card-icon">💥</div>
+    <div class="card-title">기폭 폭발 애니메이션</div>
+    <div class="card-desc">
+      💣 이모지가 커지며 회전·소멸 + 💥 burst 이모지 pop + 사방으로 9개 파편(💢✦⚡🔥✨) 비산 + 셀 흔들림. 단일/다중 폭발, 전체 시퀀스(reveal→arm→blast) 시연 가능.
+    </div>
+    <div class="card-meta">
+      <code>bomb-explosion-preview.html</code>
+      <span class="arrow">→</span>
+    </div>
+  </a>
+
+</div>
+
+<div class="footer">
+  실제 게임은 <a href="/">루트(/)</a> 에서 플레이.<br>
+  허브에 새 미리보기 추가 시 — <code>public/previews.html</code> 의 그리드에 카드 항목만 추가하면 됨.
+</div>
+
+</body>
+</html>
