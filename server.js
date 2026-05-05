@@ -1670,8 +1670,9 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   const prevCol = piece.col, prevRow = piece.row;
   piece.col = nc; piece.row = nr;
   p._lastActionType = 'move';
-  // 트랩 체크 (적팀의 트랩만)
-  for (const eIdx of getEnemyIndices(room, idx)) {
+  // 트랩 체크 (적팀의 트랩만) — ★ 그림자 숨기 면역
+  const isShadowedTeamAI = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+  for (const eIdx of (isShadowedTeamAI ? [] : getEnemyIndices(room, idx))) {
     const arr = room.boardObjects[eIdx] || [];
     const ti = arr.findIndex(o => o.type === 'trap' && o.col === nc && o.row === nr);
     if (ti >= 0) {
@@ -3273,6 +3274,8 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   for (let epi = 0; epi < opponent.pieces.length; epi++) {
     const ep = opponent.pieces[epi];
     if (ep.alive && ep.col === bomb.col && ep.row === bomb.row) {
+      // ★ 그림자 숨기 면역 — 폭탄도 그림자 상태 piece 에는 무효 (사용자 요청).
+      if (ep.statusEffects && ep.statusEffects.some(e => e.type === 'shadow')) continue;
       const dmg = resolveDamage(room, { type: 'gunpowder', tag: null, tier: 1, col: bomb.col, row: bomb.row }, ep, ownerIdx, 1, false);
       ep.hp = Math.max(0, ep.hp - dmg);
       if (ep.hp <= 0) {
@@ -3333,6 +3336,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
       for (let dpi = 0; dpi < defender.pieces.length; dpi++) {
         const defPiece = defender.pieces[dpi];
         if (defPiece.alive && defPiece.col === cell.col && defPiece.row === cell.row) {
+          // ★ 사용자 요청: 그림자 숨기 상태는 모든 데미지 면역 + 빗나감 처리.
+          //   처음부터 hitResults 에 추가하지 않음 → 클라가 빗나감으로 인식 (피격 표시·도장·자동 추리토큰 모두 X).
+          //   torturer 표식, wizard 인스턴트 SP, 호위무사 가로채기 등 부수효과도 모두 차단.
+          if (defPiece.statusEffects && defPiece.statusEffects.some(e => e.type === 'shadow')) {
+            continue;
+          }
           // 호위무사 가로채기 감지: resolveDamage 직전후 _pendingBodyguardHits 길이 비교
           const bgBefore = (room._pendingBodyguardHits || []).length;
           const dmg = resolveDamage(room, atkPiece, defPiece, attackerIdx, baseDmg, false, defIdx);
@@ -5714,9 +5723,10 @@ function aiExecuteMove(room, action) {
   piece.col = action.col;
   piece.row = action.row;
 
-  // Check trap
+  // Check trap — ★ 그림자 숨기 면역: 트랩 자체가 발동하지 않음 (제거도 X, 그대로 남음).
   const trapIdx = room.boardObjects[0].findIndex(o => o.type === 'trap' && o.col === action.col && o.row === action.row);
-  if (trapIdx >= 0) {
+  const isShadowedAI = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+  if (trapIdx >= 0 && !isShadowedAI) {
     room.boardObjects[0].splice(trapIdx, 1);
     const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: action.col, row: action.row }, piece, 0, 2, false);
     piece.hp = Math.max(0, piece.hp - dmg);
@@ -7069,7 +7079,9 @@ io.on('connection', (socket) => {
       const ti = arr.findIndex(o => o.type === 'trap' && o.col === col && o.row === row);
       if (ti >= 0) { trapIdx = ti; trapOwnerIdx = eIdx; break; }
     }
-    if (trapIdx >= 0) {
+    // ★ 그림자 숨기 면역 — 트랩 발동 자체 차단 (제거도 X, 그대로 남음).
+    const isShadowedHuman = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+    if (trapIdx >= 0 && !isShadowedHuman) {
       room.boardObjects[trapOwnerIdx].splice(trapIdx, 1);
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, trapOwnerIdx, 2, false, idx);
       piece.hp = Math.max(0, piece.hp - dmg);

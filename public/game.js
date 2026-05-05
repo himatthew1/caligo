@@ -4615,6 +4615,13 @@ function playSpGrantAnimation(finalSp, finalInstantSp) {
   const textBox = overlay && overlay.querySelector('.sp-grant-text');
   if (!overlay || !orbL || !orbR || !textBox) return;
   document.body.classList.add('sp-granting');
+
+  // ★ 사용자 요청: SP 숫자는 구슬이 합쳐지는 순간에 변경되어야 함.
+  //   _spAnimGuard 를 켜서 your_turn / team_game_update 가 도착해 S.sp 가 NEW 로 바뀌어도
+  //   updateSPBar 의 big number 갱신을 차단 (skipBigNumsAndTray). 흡수 시 명시적 갱신.
+  S._spAnimGuard = true;
+  if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
+  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 4000);  // SP_GRANT 총 길이 안전 cap
   overlay.classList.remove('hidden', 'fading-out');
   textBox.classList.remove('show');
   textBox.style.opacity = '';
