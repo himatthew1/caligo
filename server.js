@@ -1490,12 +1490,16 @@ function aiTeamTakeTurn(room, idx) {
     return;
   }
   if (usedPreSkill) {
-    // 3초 후 재진입 — 다음 pre-skill 또는 STEP 2/3 (메인 액션)
+    // 사용자 요청: 이전 스킬의 토스트·애니메이션이 화면에서 사라질 때까지 freeze.
+    //   _aiEndTurnEarliest 기준 (skill = now + 5900ms) + 200ms 마진. 최소 3000ms 보장.
+    const _now = Date.now();
+    const _earliest = room._aiEndTurnEarliest || 0;
+    const waitMs = Math.max(3000, (_earliest - _now) + 200);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === idx) {
         aiTeamTakeTurn(room, idx);
       }
-    }, 3000);
+    }, waitMs);
     return;
   }
 
@@ -4880,7 +4884,19 @@ function aiUsePreSkills(room) {
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
   const bounds = room.boardBounds;
 
+  // ★ 사용자 요청 — AI 는 한 번에 한 개의 스킬만 사용. 시전 후 모든 애니메이션·토스트가
+  //   화면에서 사라질 때까지 freeze. 다음 스킬은 aiTakeTurn 의 setTimeout 재진입으로 처리.
+  //   _execed 가 true 이면 이번 호출에서는 더 이상 시전하지 않고 즉시 리턴 (다른 piece 도 스킵).
+  let _execed = false;
+  const _tryExec = (pidx, skillId, params) => {
+    if (_execed) return false;
+    const r = aiExecSkill(room, pidx, skillId, params);
+    if (r && r.ok) { _execed = true; return true; }
+    return false;
+  };
+
   for (const piece of alivePieces) {
+    if (_execed) break;  // 이미 한 개 시전 — 이번 호출 종료
     if (!piece.hasSkill || piece.skillReplacesAction || (room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
     const pidx = aiPlayer.pieces.indexOf(piece);
@@ -4892,7 +4908,7 @@ function aiUsePreSkills(room) {
         const recentlyHit = mem && brain.turnCount - mem.turn <= 2;
         const hasShadow = piece.statusEffects.some(e => e.type === 'shadow');
         if (!hasShadow && (recentlyHit || piece.hp <= piece.maxHp * 0.6 || Math.random() < 0.4)) {
-          aiExecSkill(room, pidx, 'shadow');
+          _tryExec(pidx, 'shadow');
         }
         break;
       }
@@ -4909,7 +4925,7 @@ function aiUsePreSkills(room) {
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
         if (altScore > curScore * 1.3 && altScore >= 4) {
-          aiExecSkill(room, pidx, 'reform');
+          _tryExec(pidx, 'reform');
         }
         break;
       }
@@ -4930,14 +4946,14 @@ function aiUsePreSkills(room) {
         for (const c of curAtkCells) curThreatScore += brain.probMap[c.row]?.[c.col] || 0;
         const needsRepositioning = curThreatScore < 0.5 && recentlyHit;
         if ((critical && recentlyHit) || needsRepositioning) {
-          aiExecSkill(room, pidx, 'sprint');
+          _tryExec(pidx, 'sprint');
         }
         break;
       }
       // 척후병: 정찰 자주 사용 (SP 2 — scan 모드일 때 70%)
       case 'scout': {
         if (brain.mode === 'scan' && Math.random() < 0.7) {
-          aiExecSkill(room, pidx, 'recon');
+          _tryExec(pidx, 'recon');
         }
         break;
       }
@@ -4948,14 +4964,14 @@ function aiUsePreSkills(room) {
           Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1
         );
         if (nearbyInjured.length >= 1) {
-          aiExecSkill(room, pidx, 'herb');
+          _tryExec(pidx, 'herb');
         }
         break;
       }
       // 쥐장수: 쥐가 적으면 적극 소환 (SP 2)
       case 'ratMerchant': {
         if (room.rats[1].length < 3 && Math.random() < 0.85) {
-          aiExecSkill(room, pidx, 'rats');
+          _tryExec(pidx, 'rats');
         }
         break;
       }
@@ -4963,7 +4979,7 @@ function aiUsePreSkills(room) {
       case 'torturer': {
         const marked = human.pieces.filter(p => p.alive && p.statusEffects.some(e => e.type === 'mark'));
         if (marked.length >= 1) {
-          aiExecSkill(room, pidx, 'nightmare');
+          _tryExec(pidx, 'nightmare');
         }
         break;
       }
@@ -4974,7 +4990,7 @@ function aiUsePreSkills(room) {
           ((Math.abs(p.col - piece.col) === 1 && p.row === piece.row) ||
            (Math.abs(p.row - piece.row) === 1 && p.col === piece.col)));
         if (adjEnemy ? Math.random() < 0.9 : Math.random() < 0.6) {
-          aiExecSkill(room, pidx, 'dualStrike');
+          _tryExec(pidx, 'dualStrike');
         }
         break;
       }
@@ -4985,7 +5001,7 @@ function aiUsePreSkills(room) {
         const target = cursed[0] || injured[0];
         if (target && (cursed.length > 0 || target.hp <= target.maxHp * 0.6)) {
           const targetIdx = aiPlayer.pieces.indexOf(target);
-          aiExecSkill(room, pidx, 'divine', { targetPieceIdx: targetIdx });
+          _tryExec(pidx, 'divine', { targetPieceIdx: targetIdx });
         }
         break;
       }
@@ -5016,7 +5032,7 @@ function aiUsePreSkills(room) {
           }
         }
         if (target && destCol != null && destRow != null) {
-          aiExecSkill(room, pidx, 'ring', { targetName: target.type, col: destCol, row: destRow });
+          _tryExec(pidx, 'ring', { targetName: target.type, col: destCol, row: destRow });
         }
         break;
       }
@@ -5038,7 +5054,7 @@ function aiUsePreSkills(room) {
             const avgR = enemies.length ? enemies.reduce((s, e) => s + e.row, 0) / enemies.length : 2;
             emptyCells.sort((a, b) => (Math.abs(a.col - avgC) + Math.abs(a.row - avgR)) - (Math.abs(b.col - avgC) + Math.abs(b.row - avgR)));
             const pos = emptyCells[0];
-            aiExecSkill(room, pidx, 'dragon', { col: pos.col, row: pos.row });
+            _tryExec(pidx, 'dragon', { col: pos.col, row: pos.row });
           }
         }
         break;
@@ -5057,7 +5073,7 @@ function aiUsePreSkills(room) {
             }
           }
           if (enemiesInBlast >= 1) {
-            aiExecSkill(room, pidx, 'detonate');
+            _tryExec(pidx, 'detonate');
             break;
           }
         }
@@ -5074,7 +5090,7 @@ function aiUsePreSkills(room) {
             }
           }
           if (bestCell && bestScore >= 2) {
-            aiExecSkill(room, pidx, 'bomb', { col: bestCell.col, row: bestCell.row });
+            _tryExec(pidx, 'bomb', { col: bestCell.col, row: bestCell.row });
           }
         }
         break;
@@ -5206,13 +5222,20 @@ function aiTakeTurn(room) {
   }
 
   // ★ STEP 1: 행동 전 free 스킬 사용
-  // pre-skill 썼으면 토스트가 출력될 때까지 + 200ms 마진 후 재진입.
-  //   이렇게 해야 다음 행동의 토스트가 스킬 토스트보다 먼저 안 나옴 (사용자 요청).
+  //   사용자 요청: AI 는 한 번에 한 개의 스킬만 시전. 시전 후 모든 애니메이션·토스트·팝업이
+  //   화면에서 완전히 사라질 때까지 freeze. 그 다음에야 다음 스킬·행동 가능.
+  //   → aiUsePreSkills 가 한 번에 한 개만 시전 (내부 _execed 가드).
+  //   → 재진입 대기 시간은 _aiEndTurnEarliest (토스트가 사라지는 시점) 기준 + 안전 마진.
   const preLenBefore = (aiPlayer.skillsUsedBeforeAction || []).length;
   aiUsePreSkills(room);
   const usedPreSkill = ((aiPlayer.skillsUsedBeforeAction || []).length > preLenBefore);
   if (usedPreSkill) {
-    const waitMs = aiNextActionWaitMs(room, 2500);
+    // 이전 스킬의 토스트/애니메이션이 화면에서 사라질 때까지 대기 — _aiEndTurnEarliest 활용.
+    //   skill 의 경우 _aiEndTurnEarliest = now + 5900ms (appear 1500 + display 4000 + fade 350 + 50 buffer).
+    //   현재 시각 기준 남은 시간 + 200ms 마진 → 다음 스킬 시작.
+    const now = Date.now();
+    const earliest = room._aiEndTurnEarliest || 0;
+    const waitMs = Math.max(2500, (earliest - now) + 200);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === 1) {
         aiTakeTurn(room);
