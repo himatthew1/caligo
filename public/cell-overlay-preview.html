@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO 셀 레이어 오버레이 미리보기</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: rgba(15, 23, 42, 0.8);
+    --border: rgba(148, 163, 184, 0.2);
+    --accent: #fbbf24;
+    --muted: #94a3b8;
+    --cell: #15172d;
+    --cell-h: #1d2147;
+    --success: #22c55e;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    padding: 32px 16px 64px;
+  }
+  h1 {
+    text-align: center;
+    margin: 0 0 8px;
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 24px;
+  }
+  .back-link {
+    display: block;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.78rem;
+    margin-bottom: 24px;
+    text-decoration: none;
+  }
+  .back-link:hover { color: var(--accent); }
+
+  .container {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  .layer-toggles {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+  .layer-toggles h3 {
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+    color: #fde68a;
+  }
+  .toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    user-select: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .toggle:hover { border-color: rgba(253, 230, 138, 0.4); }
+  .toggle input { margin: 0; cursor: pointer; }
+  .toggle .badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    color: var(--muted);
+    font-family: 'Consolas', monospace;
+  }
+
+  .demo-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .demo-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .demo-card h4 {
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+    color: #fde68a;
+  }
+  .demo-card .scale-hint {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+
+  .cell-stage {
+    display: flex;
+    justify-content: center;
+    padding: 32px 0;
+  }
+  /* === 실제 게임의 .cell 스타일 복제 === */
+  .cell {
+    width: 56px;
+    height: 56px;
+    background: var(--cell);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transform: scale(3);
+    transform-origin: center;
+    margin: 60px;
+    background: #1a2040;
+    border-color: #3a4a80;
+  }
+  /* 좌표 라벨 — bottom-left */
+  .coord-label {
+    font-size: 0.55rem;
+    color: #3a3a5a;
+    position: absolute;
+    bottom: 1px;
+    left: 2px;
+  }
+  /* piece-marker (centered) */
+  .piece-marker {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    padding: 2px;
+  }
+  .piece-marker .p-icon  { font-size: 1.3rem; line-height: 1; filter: drop-shadow(0 0 2px rgba(96,165,250,0.7)); }
+  .piece-marker .p-hp    { font-size: 0.6rem; color: var(--success); font-weight: 700; }
+  /* 셀 마크 — top-right (status icons like 🎯 표식) */
+  .cell-mark { font-size: 0.75rem; position: absolute; top: 2px; right: 3px; }
+  /* 추리 토큰 — bottom-left (덮어씌워짐 주의) */
+  .deduction-token {
+    position: absolute;
+    bottom: 1px; left: 1px;
+    font-size: 0.65rem;
+    width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(226, 168, 75, 0.25);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    user-select: none;
+    z-index: 5;
+  }
+  /* 본인 쥐 — top-right (현재 코드) */
+  .own-rat {
+    position: absolute;
+    top: 1px; right: 2px;
+    font-size: 0.5rem;
+    color: #52b788;
+  }
+  /* 적군 쥐 — top-left (수정 후 위치) */
+  .enemy-rat {
+    position: absolute;
+    top: 1px; left: 2px;
+    font-size: 0.5rem;
+    color: #e05252;
+  }
+  /* 폭탄 설치 — top-right (현재 코드) */
+  .bomb-install {
+    position: absolute;
+    top: 1px; right: 2px;
+    font-size: 0.5rem;
+  }
+  /* 트랩 설치 — bottom-right (현재 코드) */
+  .trap-install {
+    position: absolute;
+    bottom: 1px; right: 2px;
+    font-size: 0.5rem;
+  }
+
+  .legend {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+  }
+  .legend h3 {
+    margin: 0 0 12px;
+    font-size: 0.95rem;
+    color: #fde68a;
+  }
+  .legend table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .legend th, .legend td {
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  }
+  .legend th {
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .legend code {
+    color: var(--accent);
+    font-size: 0.78rem;
+    background: rgba(0,0,0,0.3);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .conflict-row {
+    background: rgba(239, 68, 68, 0.08);
+  }
+  .conflict-row td {
+    color: #fca5a5;
+  }
+  .ok-row td { color: #cbd5e1; }
+
+  .corner-overlay-warning {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+    font-size: 0.85rem;
+    color: #fca5a5;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<a href="/previews.html" class="back-link">← 미리보기 허브</a>
+<h1>셀 레이어 오버레이 미리보기</h1>
+<div class="sub">한 셀에 모든 시각 요소를 동시 표시했을 때 어떻게 겹치고 충돌하는지 시연.</div>
+
+<div class="container">
+
+  <div class="corner-overlay-warning">
+    <strong>시나리오:</strong> 한 칸에 — 본인 쥐(🐀) + 적군 쥐(🐁) + 폭탄 설치(💣) + 본인 화약상 piece marker + 표식(🎯) + 적 쥐장수 추리 토큰(🐀)
+    <br><br>
+    <strong>관찰 포인트:</strong> top-right 코너에 폭탄·본인쥐·표식 3개가 동시에 쌓임. 각 레이어를 끄고 켜서 실제 시각적 충돌 확인.
+  </div>
+
+  <!-- 레이어 토글 -->
+  <div class="layer-toggles">
+    <h3>레이어 on/off</h3>
+    <div class="toggle-grid">
+      <label class="toggle">
+        <input type="checkbox" id="t-piece" checked>
+        <span>화약상 piece</span>
+        <span class="badge">center</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-mark" checked>
+        <span>표식 🎯</span>
+        <span class="badge">top-right</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-bomb" checked>
+        <span>폭탄 설치 💣</span>
+        <span class="badge">top-right</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-own-rat" checked>
+        <span>본인 쥐 🐀</span>
+        <span class="badge">top-right</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-enemy-rat" checked>
+        <span>적군 쥐 🐁</span>
+        <span class="badge">top-left</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-trap">
+        <span>덫 🪤</span>
+        <span class="badge">bottom-right</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-token" checked>
+        <span>추리 토큰 (적 쥐장수)</span>
+        <span class="badge">bottom-left</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="t-coord" checked>
+        <span>좌표 라벨 (B3)</span>
+        <span class="badge">bottom-left</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- 데모 -->
+  <div class="demo-row">
+    <div class="demo-card">
+      <h4>실제 셀 (3× 확대)</h4>
+      <div class="cell-stage">
+        <div class="cell" id="demo-cell">
+          <span class="coord-label" id="el-coord">B3</span>
+          <div class="piece-marker" id="el-piece">
+            <span class="p-icon">💣</span>
+            <span class="p-hp">4/4</span>
+          </div>
+          <span class="cell-mark" id="el-mark">🎯</span>
+          <span class="bomb-install" id="el-bomb">💣</span>
+          <span class="own-rat" id="el-own-rat">🐀</span>
+          <span class="enemy-rat" id="el-enemy-rat">🐁</span>
+          <span class="trap-install" id="el-trap" style="display:none">🪤</span>
+          <div class="deduction-token" id="el-token">🐀</div>
+        </div>
+      </div>
+      <div class="scale-hint">실제 게임 셀 56×56px, 여기서는 168×168px (3배)</div>
+    </div>
+  </div>
+
+  <!-- 충돌 분석 -->
+  <div class="legend">
+    <h3>코너별 점유 — 충돌 매트릭스</h3>
+    <table>
+      <thead>
+        <tr><th>코너</th><th>점유 레이어</th><th>충돌 위험</th></tr>
+      </thead>
+      <tbody>
+        <tr class="conflict-row">
+          <td><code>top-right</code></td>
+          <td>폭탄 💣 · 본인 쥐 🐀 · 표식 🎯 (3개 중첩)</td>
+          <td>🔴 심각 — 셋이 같은 좌표 (1px, 2~3px)</td>
+        </tr>
+        <tr class="ok-row">
+          <td><code>top-left</code></td>
+          <td>적군 쥐 🐁 (단독)</td>
+          <td>✅ 안전</td>
+        </tr>
+        <tr class="conflict-row">
+          <td><code>bottom-left</code></td>
+          <td>추리 토큰 (18×18) · 좌표 라벨 (작음)</td>
+          <td>🟡 토큰이 좌표 라벨 위로 덮음 (가독성 ↓)</td>
+        </tr>
+        <tr class="ok-row">
+          <td><code>bottom-right</code></td>
+          <td>덫 🪤 (단독)</td>
+          <td>✅ 안전</td>
+        </tr>
+        <tr class="ok-row">
+          <td><code>center</code></td>
+          <td>piece-marker (icon + HP)</td>
+          <td>✅ 안전</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="legend">
+    <h3>제안 (사용자 검토용)</h3>
+    <table>
+      <tbody>
+        <tr class="ok-row">
+          <td><strong>1.</strong> top-right 3중첩 해소</td>
+          <td>본인 쥐를 <code>bottom-right</code> (덫이 동시 점유 가능 시 추가 조정 필요) 또는 셀 외곽 다른 위치로</td>
+        </tr>
+        <tr class="ok-row">
+          <td><strong>2.</strong> 추리 토큰 / 좌표 라벨</td>
+          <td>토큰 위치를 <code>bottom-center</code> 또는 셀 외부 (cell 위/아래) 로</td>
+        </tr>
+        <tr class="ok-row">
+          <td><strong>3.</strong> 표식 vs 폭탄 vs 쥐</td>
+          <td>크기/색을 차별화. 표식은 큰 외곽선, 쥐는 색상 보더, 폭탄은 그림자 등</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const layers = [
+  { id: 't-piece',     el: 'el-piece' },
+  { id: 't-mark',      el: 'el-mark' },
+  { id: 't-bomb',      el: 'el-bomb' },
+  { id: 't-own-rat',   el: 'el-own-rat' },
+  { id: 't-enemy-rat', el: 'el-enemy-rat' },
+  { id: 't-trap',      el: 'el-trap' },
+  { id: 't-token',     el: 'el-token' },
+  { id: 't-coord',     el: 'el-coord' },
+];
+
+for (const layer of layers) {
+  const cb = document.getElementById(layer.id);
+  const el = document.getElementById(layer.el);
+  if (!cb || !el) continue;
+  cb.addEventListener('change', () => {
+    el.style.display = cb.checked ? '' : 'none';
+  });
+}
+</script>
+
+</body>
+</html>
