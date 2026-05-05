@@ -9805,7 +9805,18 @@ function renderGameBoard() {
       const idx = S.myPieces.indexOf(pc);
       // ★ 합류 셀 글로우: 같은 칸의 어느 쌍둥이가 선택돼도 selected-piece 적용 (둘 다 쌍둥이 강도이므로)
       const otherTwinIdx = otherTwin ? S.myPieces.indexOf(otherTwin) : -1;
-      if (idx === S.selectedPiece || (otherTwinIdx >= 0 && otherTwinIdx === S.selectedPiece)) {
+      // ★ 분리된 쌍둥이 짝꿍 dim 면제 (사용자 요청: 둘은 한 몸) — 한쪽이 행동 주체로 선택되면,
+      //   분리되어 다른 칸에 있는 다른 한쪽도 같은 'selected-piece' 처리해 action-locked dim 면제.
+      let twinPartnerSelected = false;
+      if (isTwin && S.selectedPiece != null) {
+        const selectedPc = S.myPieces[S.selectedPiece];
+        if (selectedPc && selectedPc !== pc &&
+            (selectedPc.subUnit === 'elder' || selectedPc.subUnit === 'younger') &&
+            selectedPc.subUnit !== pc.subUnit && selectedPc.alive) {
+          twinPartnerSelected = true;
+        }
+      }
+      if (idx === S.selectedPiece || (otherTwinIdx >= 0 && otherTwinIdx === S.selectedPiece) || twinPartnerSelected) {
         cell.classList.add('selected-piece');
       }
     }
