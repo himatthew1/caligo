@@ -11797,7 +11797,7 @@ function _placeAttackConfirmBtn(pc, targetParams) {
   btn.type = 'button';
   btn.className = 'attack-confirm-btn';
   btn.dataset.pieceIdx = String(S.myPieces.indexOf(pc));
-  btn.innerHTML = '<span class="ic">⚔</span><span class="lbl">공격 확정</span>';
+  btn.innerHTML = '<span class="lbl">공격 확정</span>';
   btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
   btn.style.top = cellEl.offsetTop + 'px';
   btn.addEventListener('click', (e) => {
