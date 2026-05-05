@@ -4324,6 +4324,8 @@ function startSkillCastDim(casterCard, targetInfo) {
   //   .caster-spotlight 클래스가 날아감. {playerIdx, pieceIdx} 를 저장해 reapplyCasterSpotlight() 가
   //   재렌더 직후 다시 클래스 부여하도록.
   S._castSpotlightTarget = targetInfo || null;
+  // ★ 사용자 요청: 스킬 시전 도입 SFX — Ethereal (페어리 더스트 + 3음 종소리). 마법구슬 비행과 별개.
+  try { playSfxSkillCastWind(); } catch (e) {}
 }
 function endSkillCastDim(casterCard) {
   const dim = document.getElementById('skill-cast-dim');
@@ -13654,6 +13656,43 @@ function playSfxRatDeath() {
     bpf.type = 'bandpass'; bpf.frequency.value = 1800; bpf.Q.value = 2;
     noise.connect(bpf); bpf.connect(nG); nG.connect(out);
     noise.start(now + 0.18); noise.stop(now + 0.26);
+  } catch (e) {}
+}
+
+// ── 스킬 시전 도입 SFX — Ethereal (페어리 더스트 + 3음 종소리 chord) ──
+//   사용자 선택 (preset C). 화면 dim + spotlight + 말풍선 시작 시점에 발사.
+//   마법구슬 비행과 별개로 "스킬 시전 도입" 알림.
+function playSfxSkillCastWind() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 페어리 더스트 — high-pass noise 잔향 (0.85s)
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.85, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1200;
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.001, now);
+    nGain.gain.exponentialRampToValueAtTime(0.28, now + 0.2);  // 부스트 — 게임 본체 audio context 직접 라우트
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.85);
+    noise.connect(hp); hp.connect(nGain); nGain.connect(out);
+    noise.start(now); noise.stop(now + 0.9);
+    // 3-note 종소리 chord (페어리 더스트 효과) — 880·1320·1760 Hz, 50ms 간격
+    [880, 1320, 1760].forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine'; o.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, now + i * 0.05);
+      g.gain.exponentialRampToValueAtTime(0.13, now + i * 0.05 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.6);
+      o.connect(g); g.connect(out);
+      o.start(now + i * 0.05); o.stop(now + i * 0.05 + 0.65);
+    });
   } catch (e) {}
 }
 

@@ -3072,10 +3072,13 @@ function flushPhase(room, onComplete) {
   const phase = room._currentPhase;
   room._currentPhase = null;
 
-  const RECOGNITION_DELAY = 600;   // 사망 인지 텀
-  const CAST_DURATION = 780;        // "사망 기폭" 말풍선 + spotlight
-  const BOMB_DURATION = 1930;       // detonation_intro + bomb_detonated
-  const POST_SETTLE = 500;          // wave 간 마진
+  // ★ 사용자 요청: 데미지 도장이 화면에 모두 출력된 후 사망 기폭 시작.
+  //   트리거 액션 (공격·스킬) 의 hit 애니 + addBodyDamage 도장 표시 + profile-hit 흔들림이
+  //   완전히 화면에 노출되려면 약 2초 필요 (도장 stamp 가 1.8s 동안 fade-in/visible).
+  const RECOGNITION_DELAY = 2000;  // 사망 인지 + 도장 완전 표시 텀
+  const CAST_DURATION = 780;       // "사망 기폭" 말풍선 + spotlight
+  const BOMB_DURATION = 1930;      // detonation_intro + bomb_detonated
+  const POST_SETTLE = 500;         // wave 간 마진
 
   // === 1) 모든 wave 사전 계산 ===
   const waves = [];
