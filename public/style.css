@@ -1274,6 +1274,38 @@ body.action-locked #game-board .cell.skill-caster-mild .piece-marker {
 }
 .twin-phase-btn .ic { font-size: 1rem; line-height: 1; margin-bottom: 1px; }
 .twin-phase-btn .lbl { font-size: 0.62rem; letter-spacing: 0.04em; }
+
+/* ── 공격 확정 floating 버튼 ──
+   사용자 요청: 공격 모드 진입 시 선택된 유닛 머리 위에 [공격 확정] 버튼 등장.
+   클릭 시 attack emit. 더블 클릭 / 셀 클릭 confirm 패턴 제거. */
+.attack-confirm-btn {
+  position: absolute;
+  z-index: 9300;
+  transform: translate(-50%, -100%) translateY(-4px);
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 14px;
+  border-radius: 100px;
+  border: 2px solid rgba(254, 242, 242, 0.95);
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.55), 0 0 22px rgba(239, 68, 68, 0.45);
+  transition: transform 0.18s, box-shadow 0.18s;
+  pointer-events: auto;
+  white-space: nowrap;
+  animation: attack-confirm-pop 0.22s ease-out forwards;
+}
+.attack-confirm-btn:hover {
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.7), 0 0 28px rgba(239, 68, 68, 0.6);
+}
+@keyframes attack-confirm-pop {
+  0%   { transform: translate(-50%, -100%) translateY(-4px) scale(0); }
+  60%  { transform: translate(-50%, -100%) translateY(-4px) scale(1.12); }
+  100% { transform: translate(-50%, -100%) translateY(-4px) scale(1); }
+}
+.attack-confirm-btn .ic { font-size: 0.95rem; line-height: 1; }
+.attack-confirm-btn .lbl { font-size: 0.72rem; letter-spacing: 0.05em; }
 .twin-phase-btn:hover {
   background: rgba(253, 230, 138, 0.18);
   border-color: #fde68a;

@@ -10228,6 +10228,8 @@ function renderGameBoard() {
   if (S.twinPhaseActive && typeof refreshTwinPhaseButtons === 'function') {
     refreshTwinPhaseButtons();
   }
+  // 공격 확정 floating 버튼 재배치 — 셀 재생성 / piece 위치 변경 / 선택 변경 대응.
+  if (typeof refreshAttackConfirmBtn === 'function') refreshAttackConfirmBtn();
 }
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
@@ -10902,6 +10904,7 @@ function resetAction() {
   const hint = document.getElementById('action-hint');
   if (hint) hint.textContent = '행동할 캐릭터의 아이콘을 클릭하세요.';
   setActionButtonMode(null);
+  if (typeof _clearAttackConfirmBtns === 'function') _clearAttackConfirmBtns();
   renderGameBoard();
   renderMyPieces();
 }
@@ -11777,6 +11780,54 @@ function _closeTwinDisabledButton() {
   document.querySelectorAll('.twin-disabled-btn').forEach(b => b.remove());
 }
 
+// ── 공격 확정 floating 버튼 ──
+//   사용자 요청: 공격 모드 진입 시 선택된 유닛 머리 위에 floating 버튼 생성.
+//   클릭 시 attack emit. (이전 "더블 클릭" / "셀 클릭 확정" 패턴 대체)
+function _placeAttackConfirmBtn(pc) {
+  _clearAttackConfirmBtns();
+  if (!pc || !pc.alive) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+  if (!cellEl) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'attack-confirm-btn';
+  btn.dataset.pieceIdx = String(S.myPieces.indexOf(pc));
+  btn.innerHTML = '<span class="ic">⚔</span><span class="lbl">공격 확정</span>';
+  btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+  btn.style.top = cellEl.offsetTop + 'px';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (S.action !== 'attack' || S.selectedPiece == null) return;
+    socket.emit('attack', { pieceIdx: S.selectedPiece });
+    S.action = null;
+    S.selectedPiece = null;
+    S.targetSelectMode = false;
+    _clearAttackConfirmBtns();
+    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+    document.getElementById('btn-cancel')?.classList.add('hidden');
+    const hint = document.getElementById('action-hint');
+    if (hint) hint.textContent = '';
+  });
+  board.appendChild(btn);
+}
+function _clearAttackConfirmBtns() {
+  document.querySelectorAll('.attack-confirm-btn').forEach(b => b.remove());
+}
+// 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
+function refreshAttackConfirmBtn() {
+  if (S.action !== 'attack' || S.selectedPiece == null || S.targetSelectMode) {
+    _clearAttackConfirmBtns();
+    return;
+  }
+  const pc = S.myPieces?.[S.selectedPiece];
+  if (!pc || !pc.alive) { _clearAttackConfirmBtns(); return; }
+  // 마녀/그림자 암살자는 target select 라 버튼 안 띄움
+  if (pc.type === 'witch' || pc.type === 'shadowAssassin') { _clearAttackConfirmBtns(); return; }
+  _placeAttackConfirmBtn(pc);
+}
+
 // 합류 상태에서 어느 쪽을 움직일지 선택하는 picker (라디얼과 동일 양식 — 누나/동생 두 버튼)
 //   셀의 화면 좌표 기준으로 fixed 배치. renderGameBoard 후 refreshTwinPhaseButtons 가 다시 호출되며 재배치됨.
 // ── 합류 상태 picker ──
@@ -11915,8 +11966,8 @@ function _showRadialActionMenu(col, row, pieceIdx) {
       if (targetBtn && !targetBtn.disabled) {
         targetBtn.click();
         S.selectedPiece = pieceIdx;
-        // ★ 마녀/그림자 암살자 — 라디얼에서 공격 선택 시 targetSelectMode 진입 (boards 클릭 핸들러가
-        //   S.targetSelectMode=true 일 때만 tCol/tRow 동봉해 attack emit. 누락 시 서버 "대상 칸 선택" 에러).
+        // ★ 마녀/그림자 암살자 — 라디얼에서 공격 선택 시 targetSelectMode 진입.
+        //   그 외 공격은 머리 위 [공격 확정] 버튼 등장 (사용자 요청, 더블클릭 패턴 대체).
         if (it.key === 'attack') {
           const pc2 = S.myPieces && S.myPieces[pieceIdx];
           if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin')) {
@@ -11925,9 +11976,16 @@ function _showRadialActionMenu(col, row, pieceIdx) {
             if (hintEl) hintEl.textContent = `${pc2.icon} ${pc2.name} 선택. 공격할 칸을 선택하세요.`;
           } else {
             S.targetSelectMode = false;
+            const hintEl = document.getElementById('action-hint');
+            if (hintEl) hintEl.textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
           }
         }
         renderGameBoard();
+        // 공격 모드 + 일반 piece → 머리 위 확정 버튼
+        if (it.key === 'attack' && !S.targetSelectMode) {
+          const pc2 = S.myPieces && S.myPieces[pieceIdx];
+          if (pc2) _placeAttackConfirmBtn(pc2);
+        }
       }
     });
     menu.appendChild(btn);
@@ -12105,25 +12163,28 @@ function handleGameCellClick(col, row) {
   }
 
   // ── 공격 ──
+  //   사용자 요청: 더블 클릭 / 셀 클릭 confirm 패턴 폐기.
+  //   공격 모드 진입 → 선택된 유닛 머리 위 [공격 확정] floating 버튼 클릭 시 attack emit.
+  //   마녀/그림자 암살자 (target-pick) 만 셀 클릭으로 target 지정 — 기존 동작 유지.
   if (S.action === 'attack') {
     if (S.selectedPiece === null) {
-      // 말 선택
+      // 말 선택 — 처음 클릭하는 경우 (radial 메뉴 안 통한 경로)
       const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
       if (pc) {
-        // #2: 쌍검무 활성 — 해당 양손검객만 선택 가능
         const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
         if (dualActive && pc !== dualActive) {
           setActionHint('양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요.', true);
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
-        // 타겟 선택이 필요한 캐릭터
         if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 공격할 칸을 선택하세요.`;
+          _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 더블 클릭 시 공격합니다.`;
+          document.getElementById('action-hint').textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
+          _placeAttackConfirmBtn(pc);
         }
         renderGameBoard();
         renderMyPieces();
@@ -12134,20 +12195,11 @@ function handleGameCellClick(col, row) {
       S.action = null;
       S.selectedPiece = null;
       S.targetSelectMode = false;
+      _clearAttackConfirmBtns();
     } else {
-      const selPc = S.myPieces[S.selectedPiece];
-      // 같은 칸 클릭(쌍둥이 겹쳐 있음 포함) → 공격 확정 (선택 변경 아님)
-      const sameCellAsSel = (selPc && col === selPc.col && row === selPc.row);
-      if (sameCellAsSel) {
-        socket.emit('attack', { pieceIdx: S.selectedPiece });
-        S.action = null;
-        S.selectedPiece = null;
-        return;
-      }
-      // 다른 칸의 내 말 클릭 → 선택 변경
+      // 다른 칸의 내 말 클릭 → 선택 변경 + 버튼 재배치 (공격 확정은 버튼으로만)
       const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (clickedOther) {
-        // #2: 쌍검무 중에는 양손검객 외 선택 차단
         const dualActive2 = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
         if (dualActive2 && clickedOther !== dualActive2) {
           setActionHint('양손검객의 쌍검무 중입니다. 양손 검객으로 추가 공격하세요.', true);
@@ -12157,18 +12209,17 @@ function handleGameCellClick(col, row) {
         if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
+          _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 더블 클릭 시 공격합니다.`;
+          document.getElementById('action-hint').textContent = '머리 위 [공격 확정] 버튼을 누르세요.';
+          _placeAttackConfirmBtn(clickedOther);
         }
         renderGameBoard();
         renderMyPieces();
         return;
       }
-      // 범위 내 클릭 → 공격 확정
-      socket.emit('attack', { pieceIdx: S.selectedPiece });
-      S.action = null;
-      S.selectedPiece = null;
+      // 그 외 셀 클릭 — 무시 (확정은 버튼으로만)
     }
     return;
   }
