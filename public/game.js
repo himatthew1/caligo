@@ -12238,7 +12238,7 @@ function handleGameCellClick(col, row) {
       // 시전자 머리 위에 confirm 버튼 (target 좌표 동봉 콜백)
       _placeAttackConfirmBtn(selPc2, { tCol: col, tRow: row });
       const hint = document.getElementById('action-hint');
-      if (hint) hint.textContent = `${coord(col, row)} 타겟. 공격 확정 버튼을 눌러주세요.`;
+      if (hint) hint.textContent = '공격 확정 버튼을 눌러주세요.';
     } else {
       // 다른 칸의 내 말 클릭 → 선택 변경 + 버튼 재배치 (공격 확정은 버튼으로만)
       const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
