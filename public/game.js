@@ -5822,11 +5822,11 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
         const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
         addBodyDamage(key, dmg);
       }
-      // ★ 폭탄 피해/사망 로그 — 일반 공격과 구분
+      // ★ 폭탄 피해/사망 로그 — 일반 공격과 구분 (피해량 1 고정이라 표기 생략)
       if (h.name) {
         const label = h.icon ? `${h.icon}${h.name}` : h.name;
         if (h.destroyed) addLog(`${label} 폭탄 사망`, 'hit');
-        else if (dmg > 0) addLog(`${label} 폭탄 피해 (${dmg})`, 'hit');
+        else if (dmg > 0) addLog(`${label} 폭탄 피해`, 'hit');
       }
       const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
       const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
@@ -5842,7 +5842,7 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   }
   // ★ 폭탄 피해/사망 로그 — 일반 공격(공격받았습니다!)과 구분되는 명확한 표기.
   //   사용자 요청: 폭탄 피격은 "공격받았습니다!" 토스트 출력 X (혼동 방지).
-  //   로그는 "[icon][name] 폭탄 피해" / "[icon][name] 폭탄 사망" 으로 명확히.
+  //   로그는 "[icon][name] 폭탄 피해" / "[icon][name] 폭탄 사망" — 피해량은 1 고정이라 생략.
   for (const h of hits) {
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
     if (h.name) {
@@ -5850,7 +5850,7 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
       if (h.destroyed) {
         addLog(`${label} 폭탄 사망`, 'hit');
       } else if (typeof h.damage === 'number' && h.damage > 0) {
-        addLog(`${label} 폭탄 피해 (${h.damage})`, 'hit');
+        addLog(`${label} 폭탄 피해`, 'hit');
       }
     }
   }
