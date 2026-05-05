@@ -5425,9 +5425,7 @@ function aiEndTurn(room) {
   setTimeout(() => {
     if (room.phase === 'game') endTurn(room);
   }, delay);
-  // ★ _aiEndTurnEarliest 는 리셋하지 않음 — 다음 AI 턴 시작 시 cross-turn 버퍼 (액션 후 스킬 등)
-  //   판단에 사용. aiTakeTurn 시작 시 스스로 미래 시각이면 wait, 과거 시각이면 무시.
-  // (이전: room._aiEndTurnEarliest = 0; — 제거함)
+  room._aiEndTurnEarliest = 0;  // 다음 AI 턴 위해 리셋 (stale future-time 으로 인한 freeze 방지)
 }
 
 function aiTakeTurn(room) {
@@ -5436,13 +5434,15 @@ function aiTakeTurn(room) {
   const brain = room.aiBrain;
   const bounds = room.boardBounds;
 
-  // ★ Cross-turn / intra-turn 버퍼 — 직전 액션·스킬 토스트가 아직 화면에 있으면 대기.
+  // ★ Intra-turn 버퍼 — 직전 (같은 턴 내) 스킬·액션의 토스트가 아직 화면에 있으면 대기.
+  //   _aiEndTurnEarliest 는 aiEndTurn 에서 리셋되므로 cross-turn 에는 영향 없음. 단, 안전 cap (5s).
   //   사용자 요청: 액션 ↔ 스킬 양방향 모두 명확한 호흡 텀.
-  //   _aiEndTurnEarliest 를 turn 종료 시 리셋하지 않으므로 cross-turn 도 추적됨.
   const _now = Date.now();
   const _earliest = room._aiEndTurnEarliest || 0;
   if (_earliest > _now) {
-    const waitMs = (_earliest - _now) + 1500;  // 토스트 끝난 후 1.5초 추가 텀
+    const remain = _earliest - _now;
+    // 안전 cap — stale value 로 인한 freeze 방지 (정상값은 ~6초 이내)
+    const waitMs = Math.min(7500, remain + 1500);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === 1) {
         aiTakeTurn(room);
@@ -5450,8 +5450,6 @@ function aiTakeTurn(room) {
     }, waitMs);
     return;
   }
-  // 과거 시각이면 명시적으로 0 으로 정리 (다음 사이클 noise 방지)
-  if (_earliest > 0 && _earliest <= _now) room._aiEndTurnEarliest = 0;
 
   brain.turnCount++;
   aiSpreadProbability(brain);

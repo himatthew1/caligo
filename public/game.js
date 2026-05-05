@@ -9910,10 +9910,15 @@ function renderGameBoard() {
       const otherTwinIdx = otherTwin ? S.myPieces.indexOf(otherTwin) : -1;
       // ★ 분리된 쌍둥이 짝꿍 dim 면제 (사용자 요청: 둘은 한 몸) — 한쪽이 행동 주체로 선택되면,
       //   분리되어 다른 칸에 있는 다른 한쪽도 같은 'selected-piece' 처리해 action-locked dim 면제.
+      //   ★ 단, "이미 이동한 쪽" (twin-spent / twinMovedSub) 은 면제 제외 — 행동을 마쳐 dim 유지.
       let twinPartnerSelected = false;
       if (isTwin && S.selectedPiece != null) {
         const selectedPc = S.myPieces[S.selectedPiece];
-        if (selectedPc && selectedPc !== pc &&
+        // 이미 이동한 쌍둥이 (twin_move 페이즈 + 첫 이동 마친 쪽 / twinMovePending 의 moved sub) 는 dim 유지
+        const alreadyMoved = (S.twinPhaseActive && S.twinFirstSubMoved && pc.subUnit === S.twinFirstSubMoved && !otherTwin)
+                          || (S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub);
+        if (!alreadyMoved &&
+            selectedPc && selectedPc !== pc &&
             (selectedPc.subUnit === 'elder' || selectedPc.subUnit === 'younger') &&
             selectedPc.subUnit !== pc.subUnit && selectedPc.alive) {
           twinPartnerSelected = true;
@@ -9988,7 +9993,10 @@ function renderGameBoard() {
           if (obj.type === 'rat') {
             const isMyRat = obj.owner === S.playerIdx;
             const ratColor = isMyRat ? 'color:#52b788' : 'color:#e05252';
-            const ratPos = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
+            // ★ 위치 변경 (사용자 보고): 적군 쥐가 추리 토큰(bottom-left)과 겹쳐 보임 → top-left 로 이동.
+            //   본인 쥐: top-right (기존 유지) — 폭탄과 같은 코너지만 같은 셀에 둘이 동시 발생 거의 없음.
+            //   적군 쥐: top-left (신규) — 추리 토큰(bottom-left), 트랩(bottom-right) 와 겹치지 않음.
+            const ratPos = isMyRat ? 'top:1px;right:2px' : 'top:1px;left:2px';
             cell.innerHTML += `<span style="position:absolute;${ratPos};font-size:0.5rem;${ratColor}">${isMyRat ? '🐀' : '🐁'}</span>`;
           }
         }
