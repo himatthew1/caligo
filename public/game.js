@@ -8287,11 +8287,13 @@ function playExchangeRevealAnimation(myDraft, oppChars) {
     return label;
   };
 
-  // 변경 없음 → 짧은 페이드 후 양측 모두에 "교체하지 않음" 라벨 + 확인 버튼 노출
+  // 변경 없음 → 짧은 페이드 후 라벨 + 확인 버튼 노출.
+  //   ★ 사용자 보고: 본인이 이미 교체 애니메이션 끝낸 경우 swapTasks 비어있지만 _myExchangedThisRound=true.
+  //   이 케이스에서 my 측 라벨 출력 X (이전 mySwapped 만 평가하던 fallback 누락 수정).
   if (swapTasks.length === 0) {
     setTimeout(() => {
-      addNoExchangeLabel(myContainer);
-      addNoExchangeLabel(oppContainer);
+      if (!mySwapped) addNoExchangeLabel(myContainer);
+      if (!oppSwapped) addNoExchangeLabel(oppContainer);
       showFinalConfirmButton();
       _irevAnimRunning = false;
     }, 200);
