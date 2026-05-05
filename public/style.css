@@ -2646,12 +2646,63 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   50%     { background: rgba(248, 113, 113, 0.75) !important; }
 }
 .cell.bomb-blast {
-  animation: bomb-blast-flash 0.35s ease-out forwards !important;
+  animation: bomb-blast-flash 0.45s ease-out forwards !important;
 }
 @keyframes bomb-blast-flash {
-  0%   { background: rgba(255, 255, 200, 0.9) !important; box-shadow: 0 0 28px rgba(255, 200, 0, 0.95); }
-  50%  { background: rgba(255, 100, 0, 0.75) !important; }
-  100% { background: rgba(120, 30, 0, 0.3) !important; box-shadow: none; }
+  0%   { background: rgba(255, 255, 200, 0.95) !important; box-shadow: 0 0 36px rgba(255, 200, 0, 1); }
+  40%  { background: rgba(255, 100, 0, 0.85) !important; box-shadow: 0 0 30px rgba(255, 120, 0, 0.85); }
+  100% { background: rgba(120, 30, 0, 0.25) !important; box-shadow: none; }
+}
+
+/* ── 강화된 기폭 애니메이션 — 💣 이모지 폭발 + 💥 burst + 파편 + 셀 흔들림 ── */
+.bomb-anim-marker.bomb-marker-explode {
+  animation: bomb-marker-explode 0.45s ease-out forwards !important;
+}
+@keyframes bomb-marker-explode {
+  0%   { transform: scale(1) rotate(0deg); opacity: 1; filter: drop-shadow(0 0 0 rgba(255,200,0,0)); }
+  30%  { transform: scale(2.2) rotate(20deg); opacity: 1; filter: drop-shadow(0 0 8px rgba(255,200,0,1)); }
+  100% { transform: scale(0.3) rotate(-15deg); opacity: 0; filter: drop-shadow(0 0 4px rgba(255,80,0,0.5)); }
+}
+/* 💥 burst — 셀 위로 큰 이모지 떠오름 */
+.bomb-burst-emoji {
+  position: fixed;
+  z-index: 9650;
+  font-size: 3rem;
+  pointer-events: none;
+  user-select: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: bomb-burst-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  filter: drop-shadow(0 0 14px rgba(255, 200, 0, 1));
+}
+@keyframes bomb-burst-pop {
+  0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0; }
+  18%  { transform: translate(-50%, -50%) scale(1.7); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+}
+/* 파편 — 사방으로 비산 (--dx/--dy CSS 변수로 방향) */
+.bomb-fragment {
+  position: fixed;
+  z-index: 9640;
+  font-size: 1.05rem;
+  pointer-events: none;
+  user-select: none;
+  --dx: 0px; --dy: 0px;
+  transform: translate(-50%, -50%);
+  animation: bomb-fragment-fly 0.85s cubic-bezier(0.42, 0, 0.58, 1) forwards;
+  filter: drop-shadow(0 0 4px rgba(255, 150, 0, 0.85));
+}
+@keyframes bomb-fragment-fly {
+  0%   { transform: translate(-50%, -50%) scale(0.6) rotate(0deg); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.25) rotate(540deg); opacity: 0; }
+}
+/* 셀 흔들림 */
+.cell.bomb-cell-shake {
+  animation: bomb-cell-shake 0.42s ease-out !important;
+}
+@keyframes bomb-cell-shake {
+  0%, 100% { transform: translate(0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate(-2.5px, 1.5px); }
+  20%, 40%, 60%, 80%      { transform: translate( 2.5px, -1.5px); }
 }
 
 .piece-marker {

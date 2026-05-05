@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>기폭 애니메이션 미리보기 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: 0.04em; }
+  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 28px; text-align: center; max-width: 600px; line-height: 1.5; }
+  .badge {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(74, 222, 128, 0.18);
+    color: #4ade80; border-radius: 100px;
+    font-size: 0.7rem; font-weight: 700;
+  }
+
+  /* 더미 보드 */
+  .board {
+    width: 360px; height: 360px;
+    display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+    background: rgba(15, 23, 42, 0.85);
+    border: 2px solid rgba(253, 230, 138, 0.35);
+    border-radius: 14px;
+    padding: 6px; gap: 4px;
+    box-shadow: 0 0 32px rgba(253, 230, 138, 0.12);
+  }
+  .cell {
+    position: relative;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem;
+  }
+  .controls {
+    display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; justify-content: center;
+  }
+  .ctl-btn {
+    padding: 12px 22px;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    color: #1f2937; border: none; border-radius: 8px;
+    font-weight: 800; font-size: 0.95rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(251, 191, 36, 0.35);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .ctl-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(251, 191, 36, 0.5); }
+  .ctl-btn.alt {
+    background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+    color: #fff; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
+  }
+  .desc {
+    max-width: 600px; margin-top: 28px;
+    font-size: 0.78rem; color: #94a3b8; line-height: 1.6;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 10px; padding: 14px 18px;
+  }
+  .desc h3 { margin: 0 0 8px; color: #fde68a; font-size: 0.92rem; }
+  .desc code { color: #fde68a; font-size: 0.85em; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
+
+  /* ==== 게임 style.css 와 동일 ==== */
+  .bomb-anim-marker {
+    position: absolute; top: 1px; right: 2px;
+    font-size: 0.7rem; z-index: 6; pointer-events: none;
+    animation: bomb-marker-fade-in 0.35s ease-out forwards;
+  }
+  @keyframes bomb-marker-fade-in {
+    0%   { opacity: 0; transform: scale(0.3); }
+    60%  { opacity: 1; transform: scale(1.25); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .cell.bomb-reveal {
+    box-shadow: inset 0 0 10px rgba(250, 204, 21, 0.55), 0 0 8px rgba(250, 204, 21, 0.4);
+    animation: bomb-reveal-glow 0.6s ease-out forwards;
+  }
+  @keyframes bomb-reveal-glow {
+    0%   { box-shadow: inset 0 0 0 rgba(250, 204, 21, 0); }
+    100% { box-shadow: inset 0 0 12px rgba(250, 204, 21, 0.7), 0 0 10px rgba(250, 204, 21, 0.5); }
+  }
+  .cell.bomb-arming {
+    background: rgba(220, 38, 38, 0.45) !important;
+    box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.85), 0 0 10px rgba(248, 113, 113, 0.7);
+    animation: bomb-arm-pulse 0.18s ease-in-out infinite;
+  }
+  @keyframes bomb-arm-pulse {
+    0%,100% { background: rgba(220, 38, 38, 0.45) !important; }
+    50%     { background: rgba(248, 113, 113, 0.75) !important; }
+  }
+  .cell.bomb-blast {
+    animation: bomb-blast-flash 0.45s ease-out forwards !important;
+  }
+  @keyframes bomb-blast-flash {
+    0%   { background: rgba(255, 255, 200, 0.95) !important; box-shadow: 0 0 36px rgba(255, 200, 0, 1); }
+    40%  { background: rgba(255, 100, 0, 0.85) !important; box-shadow: 0 0 30px rgba(255, 120, 0, 0.85); }
+    100% { background: rgba(120, 30, 0, 0.25) !important; box-shadow: none; }
+  }
+  .bomb-anim-marker.bomb-marker-explode {
+    animation: bomb-marker-explode 0.45s ease-out forwards !important;
+  }
+  @keyframes bomb-marker-explode {
+    0%   { transform: scale(1) rotate(0deg); opacity: 1; }
+    30%  { transform: scale(2.2) rotate(20deg); opacity: 1; filter: drop-shadow(0 0 8px rgba(255,200,0,1)); }
+    100% { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+  }
+  .bomb-burst-emoji {
+    position: fixed; z-index: 9650;
+    font-size: 3rem;
+    pointer-events: none; user-select: none;
+    transform: translate(-50%, -50%) scale(0);
+    animation: bomb-burst-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    filter: drop-shadow(0 0 14px rgba(255, 200, 0, 1));
+  }
+  @keyframes bomb-burst-pop {
+    0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0; }
+    18%  { transform: translate(-50%, -50%) scale(1.7); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+  }
+  .bomb-fragment {
+    position: fixed; z-index: 9640;
+    font-size: 1.05rem;
+    pointer-events: none; user-select: none;
+    --dx: 0px; --dy: 0px;
+    transform: translate(-50%, -50%);
+    animation: bomb-fragment-fly 0.85s cubic-bezier(0.42, 0, 0.58, 1) forwards;
+    filter: drop-shadow(0 0 4px rgba(255, 150, 0, 0.85));
+  }
+  @keyframes bomb-fragment-fly {
+    0%   { transform: translate(-50%, -50%) scale(0.6) rotate(0deg); opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.25) rotate(540deg); opacity: 0; }
+  }
+  .cell.bomb-cell-shake {
+    animation: bomb-cell-shake 0.42s ease-out !important;
+  }
+  @keyframes bomb-cell-shake {
+    0%, 100% { transform: translate(0, 0); }
+    10%, 30%, 50%, 70%, 90% { transform: translate(-2.5px, 1.5px); }
+    20%, 40%, 60%, 80%      { transform: translate( 2.5px, -1.5px); }
+  }
+</style>
+</head>
+<body>
+
+<h1>기폭 애니메이션 미리보기 <span class="badge">DEV</span></h1>
+<div class="sub">강화된 폭탄 폭발 — 💣 이모지 자체가 커지며 회전·소멸, 💥 burst 이모지가 떠오르고, 사방으로 9개 파편(💢✦⚡🔥✨💥) 이 비산. 셀이 흔들리고 노란 → 주황 → 검붉음 플래시.</div>
+
+<div class="board" id="board"></div>
+
+<div class="controls">
+  <button class="ctl-btn" id="btn-single">단일 폭탄 폭발</button>
+  <button class="ctl-btn alt" id="btn-multi">3개 동시 폭발</button>
+  <button class="ctl-btn" id="btn-full">전체 시퀀스 (reveal → arm → blast)</button>
+</div>
+
+<div class="desc">
+  <h3>구성 단계</h3>
+  ① <strong>reveal</strong> (0~600ms) — 노란 후광 + 💣 마커 fade-in (scale bounce)<br>
+  ② <strong>arm</strong> (450ms~) — 빨간 박동 (0.18s 반복)<br>
+  ③ <strong>blast</strong> (550ms) — 💣 marker scale 1→2.2→0.3 회전, 💥 burst pop, 파편 9개 비산, 셀 흔들림, 노→주→검붉 플래시 + SFX 1번<br>
+  ④ <strong>cleanup</strong> (950ms) — 모든 클래스/마커 제거, 보드에서 폭탄 즉시 제거<br>
+  <br>
+  실제 게임에선 SP_END(1)=980ms 후 시퀀스 시작 → 약 2초 안에 완전 종료
+</div>
+
+<script>
+// 보드 셀 빌드
+const board = document.getElementById('board');
+for (let row = 0; row < 5; row++) {
+  for (let col = 0; col < 5; col++) {
+    const c = document.createElement('div');
+    c.className = 'cell';
+    c.dataset.col = col;
+    c.dataset.row = row;
+    board.appendChild(c);
+  }
+}
+
+// 폭탄 마커 (페이드인 후 미리 보임)
+function placeBombMarker(cell) {
+  if (!cell) return;
+  if (cell.querySelector('.bomb-anim-marker')) return;
+  const m = document.createElement('span');
+  m.className = 'bomb-anim-marker';
+  m.textContent = '💣';
+  cell.appendChild(m);
+  return m;
+}
+
+// 강화된 폭발 (game.js 의 playBombExplosion 와 동일)
+function playBombExplosion(cell) {
+  if (!cell) return;
+  const r = cell.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  // 💥 burst
+  const burst = document.createElement('div');
+  burst.className = 'bomb-burst-emoji';
+  burst.textContent = '💥';
+  burst.style.left = cx + 'px';
+  burst.style.top = cy + 'px';
+  document.body.appendChild(burst);
+  setTimeout(() => { if (burst.parentNode) burst.remove(); }, 720);
+  // 파편 9개
+  const FRAG = ['💢', '✦', '⚡', '🔥', '✨', '💥'];
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement('div');
+    p.className = 'bomb-fragment';
+    p.textContent = FRAG[Math.floor(Math.random() * FRAG.length)];
+    p.style.left = cx + 'px';
+    p.style.top = cy + 'px';
+    const angle = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+    const dist = 55 + Math.random() * 40;
+    p.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(1) + 'px');
+    p.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(1) + 'px');
+    p.style.animationDelay = (Math.random() * 0.06).toFixed(2) + 's';
+    document.body.appendChild(p);
+    setTimeout(() => { if (p.parentNode) p.remove(); }, 950);
+  }
+}
+
+// 단순 blast — 폭발 단계만
+function explodeAt(col, row) {
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const marker = placeBombMarker(cell);
+  cell.classList.add('bomb-blast', 'bomb-cell-shake');
+  if (marker) marker.classList.add('bomb-marker-explode');
+  playBombExplosion(cell);
+  setTimeout(() => {
+    cell.classList.remove('bomb-blast', 'bomb-cell-shake', 'bomb-reveal', 'bomb-arming');
+    if (marker && marker.parentNode) marker.remove();
+  }, 700);
+}
+
+// 전체 시퀀스 — reveal → arm → blast → cleanup (실제 게임 흐름)
+function fullSequence(cells) {
+  // cells: [{col, row}, ...]
+  const markers = [];
+  cells.forEach(({col, row}) => {
+    const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (!cell) return;
+    cell.classList.add('bomb-reveal');
+    markers.push(placeBombMarker(cell));
+  });
+  setTimeout(() => {
+    cells.forEach(({col, row}) => {
+      const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (cell) cell.classList.add('bomb-arming');
+    });
+  }, 450);
+  setTimeout(() => {
+    cells.forEach(({col, row}) => {
+      const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (!cell) return;
+      cell.classList.add('bomb-blast', 'bomb-cell-shake');
+      const m = cell.querySelector('.bomb-anim-marker');
+      if (m) m.classList.add('bomb-marker-explode');
+      playBombExplosion(cell);
+    });
+  }, 550);
+  setTimeout(() => {
+    cells.forEach(({col, row}) => {
+      const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (!cell) return;
+      cell.classList.remove('bomb-reveal', 'bomb-arming', 'bomb-blast', 'bomb-cell-shake');
+    });
+    markers.forEach(m => { if (m && m.parentNode) m.remove(); });
+  }, 1100);
+}
+
+// 컨트롤
+document.getElementById('btn-single').addEventListener('click', () => explodeAt(2, 2));
+document.getElementById('btn-multi').addEventListener('click', () => {
+  explodeAt(1, 1);
+  setTimeout(() => explodeAt(3, 1), 60);
+  setTimeout(() => explodeAt(2, 3), 120);
+});
+document.getElementById('btn-full').addEventListener('click', () => {
+  fullSequence([{col: 1, row: 2}, {col: 3, row: 2}]);
+});
+</script>
+
+</body>
+</html>

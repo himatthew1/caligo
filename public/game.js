@@ -4121,6 +4121,44 @@ function spawnInstantGainOrb(targetSlot) {
   requestAnimationFrame(step);
 }
 
+// ── 강화된 폭탄 폭발 애니메이션 ──
+//   detonation_intro 의 blast phase 에서 호출. 셀 좌표 기준 💥 burst + 파편 비산.
+//   기존 .bomb-blast 셀 플래시 + .bomb-marker-explode (💣 이모지 폭발) 와 함께 동작.
+function playBombExplosion(cell) {
+  if (!cell) return;
+  const r = cell.getBoundingClientRect();
+  if (!r.width) return;
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+
+  // ① 💥 큰 burst 이모지 (셀 위에 떠오름)
+  const burst = document.createElement('div');
+  burst.className = 'bomb-burst-emoji';
+  burst.textContent = '💥';
+  burst.style.left = cx + 'px';
+  burst.style.top = cy + 'px';
+  document.body.appendChild(burst);
+  setTimeout(() => { if (burst.parentNode) burst.remove(); }, 720);
+
+  // ② 8개 파편 — 사방으로 비산 (랜덤 거리 + 각도)
+  const FRAG_CHARS = ['💢', '✦', '⚡', '🔥', '✨', '💥'];
+  const N = 9;
+  for (let i = 0; i < N; i++) {
+    const p = document.createElement('div');
+    p.className = 'bomb-fragment';
+    p.textContent = FRAG_CHARS[Math.floor(Math.random() * FRAG_CHARS.length)];
+    p.style.left = cx + 'px';
+    p.style.top = cy + 'px';
+    const angle = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+    const dist = 55 + Math.random() * 40;
+    p.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(1) + 'px');
+    p.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(1) + 'px');
+    p.style.animationDelay = (Math.random() * 0.06).toFixed(2) + 's';
+    document.body.appendChild(p);
+    setTimeout(() => { if (p.parentNode) p.remove(); }, 950);
+  }
+}
+
 // ── 스킬 시전 말풍선 ──
 //   시전자 프로필에서 보드 방향으로 꼬리 달린 oval 말풍선 — 스킬명 표시.
 //   유형별 색상 (action 빨강 / once 노랑 / free 초록).
@@ -5523,6 +5561,8 @@ socket.on('detonation_intro', ({ bombs }) => {
   //   기존 SP_ATTN_MS(2000) + SKILL_GAP_MS(500) = 2500ms → 780ms 로 단축.
   //   폭탄 시퀀스 자체(reveal→arm→blast→cleanup) 는 950ms 로 그대로 유지.
   const SKILL_START_MS = getSpFlightEndMs(1);  // 780ms — 다른 1 cost 스킬과 동일 호흡
+  // ★ 기폭으로 발동된 폭탄들 — 클라가 보드에서 즉시 제거할 수 있게 표시 + bomb_detonated 의 중복 SFX 차단
+  S._suppressNextBombSfx = (S._suppressNextBombSfx || 0) + bombs.length;
   const markers = [];
   // 단계 1: 노출 (0ms) — 마커 부착 + 황색 후광
   setTimeout(() => {
@@ -5548,14 +5588,25 @@ socket.on('detonation_intro', ({ bombs }) => {
       if (cell) cell.classList.add('bomb-arming');
     }
   }, SKILL_START_MS + 450);
-  // 단계 3: 폭발 (550ms — 빨강 변환 100ms 후 즉시 폭발)
+  // 단계 3: 폭발 (550ms — 빨강 변환 100ms 후 즉시 폭발) + SFX 1번만 + 강화 애니메이션
   setTimeout(() => {
     for (const b of bombs) {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
-      if (cell) cell.classList.add('bomb-blast');
+      if (!cell) continue;
+      cell.classList.add('bomb-blast');
+      // 셀 흔들림
+      cell.classList.add('bomb-cell-shake');
+      setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
+      // 기존 💣 마커 — 커지며 회전 후 사라짐
+      const marker = cell.querySelector('.bomb-anim-marker');
+      if (marker) marker.classList.add('bomb-marker-explode');
+      // 💥 burst + 파편
+      try { playBombExplosion(cell); } catch (e) {}
     }
+    // ★ 폭발 SFX — 시각 폭발 순간에 1번만 (bomb_detonated 의 SFX 는 _suppressNextBombSfx 로 차단)
+    try { playSfxBombExplode(); } catch (e) {}
   }, SKILL_START_MS + 550);
-  // 단계 4: 정리 (950ms 후) — 마커 제거
+  // 단계 4: 정리 (950ms 후) — 마커 제거 + 보드에서 폭탄 즉시 제거 (사용자 요청: 턴 종료 안 기다림)
   setTimeout(() => {
     for (const b of bombs) {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
@@ -5564,12 +5615,28 @@ socket.on('detonation_intro', ({ bombs }) => {
     for (const m of markers) {
       if (m && m.parentNode) m.remove();
     }
+    // S.boardObjects 에서 해당 좌표의 bomb 제거 + 보드 재렌더 (즉시 사라지게)
+    if (Array.isArray(S.boardObjects)) {
+      const coordSet = new Set(bombs.map(b => `${b.col},${b.row}`));
+      S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && coordSet.has(`${o.col},${o.row}`)));
+      try { renderGameBoard(); } catch (e) {}
+    }
   }, SKILL_START_MS + 950);
 });
 
 // ── 폭탄 폭발 ──
 socket.on('bomb_detonated', ({ col, row, hits }) => {
-  playSfxBombExplode();
+  // ★ 기폭 스킬로 발동된 경우 — detonation_intro 가 이미 SFX 재생했으므로 중복 차단.
+  //   화약상 사망 자동 폭발 등 다른 경로는 정상 SFX 재생.
+  if (S._suppressNextBombSfx && S._suppressNextBombSfx > 0) {
+    S._suppressNextBombSfx--;
+  } else {
+    playSfxBombExplode();
+  }
+  // 보드에서 해당 폭탄 제거 (자동 폭발 케이스 등)
+  if (Array.isArray(S.boardObjects)) {
+    S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
+  }
   // #13: 폭탄 폭발은 skill_result(기폭 시전자)에서 이미 메시지 출력됨.
   // 여기서는 토스트 중복 방지 — 로그도 생략 (위치 정보가 필요하면 stamp/HP바로 충분).
   // (자동 발화 — 화약상 사망 시 트리거 등 — 도 별도 패시브 알림으로 처리되므로 OK)
