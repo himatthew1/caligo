@@ -3724,10 +3724,12 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
   // #10/#13: 단일 피격이라면 추리 토큰 자동 배치 (위치 확인 — 토스트·로그 없음).
   //   1v1: pieceKey = "type:subUnit"
   //   팀모드: pieceKey = "type:subUnit@ownerIdx" (renderTeamProfiles 와 동일 형식)
-  // 단, 격파된 대상은 자연스럽게 사라지므로 토큰 생성 의미 없음 → 살아있는 hit 만 카운트
-  const _aliveHits = (cellResults || []).filter(c => c.hit && !c.destroyed && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
-  if (_aliveHits.length === 1) {
-    const c = _aliveHits[0];
+  // ★ 사용자 요청: 한 공격으로 2명 이상 피격 시 (사망 포함) 자동 토큰 절대 배치 X.
+  //   사망한 대상은 사라지지만, 그래도 "여러 명 동시 피격" 정보 자체가 추리 단서 — 자동 노출 금지.
+  //   이전 버그: _aliveHits (사망 제외) 만 카운트 → 2 hit 중 1 사망 → length=1 → 토큰 자동 배치.
+  const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
+  if (_meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
+    const c = _meaningfulHits[0];
     let piece = null;
     let pieceKey = null;
     if (S.isTeamMode && c.defOwnerIdx !== undefined) {
@@ -5435,9 +5437,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           }
         }
 
-        const aliveHits = hitsData.filter(h => !h.destroyed && !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
-        if (aliveHits.length === 1) {
-          const c = aliveHits[0];
+        // ★ 사용자 요청: 2명 이상 피격 시 (사망 포함) 자동 추리 토큰 배치 절대 X.
+        //   "여러 명 동시 피격" 정보 자체가 추리 단서 — 자동 노출 금지.
+        //   이전 버그: aliveHits (사망 제외) 만 카운트 → 2 hit 중 1 사망 → length=1 → 토큰 자동 배치.
+        const meaningfulHits = hitsData.filter(h => !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
+        if (meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
+          const c = meaningfulHits[0];
           let piece = null;
           let pieceKey = null;
           if (S.isTeamMode && c.defOwnerIdx !== undefined) {
