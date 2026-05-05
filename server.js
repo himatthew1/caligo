@@ -1180,6 +1180,23 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   }
   // 마지막에 전체 상태 브로드캐스트 (팀_skill_notice 가 먼저 도착해야 마법구 애니 동작)
   broadcastTeamGameState(room);
+
+  // ★ 기폭 (detonate) — 폭발 애니메이션 emit. 인간 use_skill 경로와 동일.
+  //   누락 시 팀모드 AI 기폭이 다른 플레이어에게 폭발 애니가 안 보임.
+  if (result && result.data && Array.isArray(result.data.deferredBombEmits)) {
+    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
+    if (bombList.length > 0) {
+      emitToBoth(room, 'detonation_intro', { bombs: bombList });
+    }
+    const deferred = [...result.data.deferredBombEmits];
+    setTimeout(() => {
+      if (!rooms[room.id]) return;
+      for (const bd of deferred) {
+        emitToBoth(room, 'bomb_detonated', bd);
+      }
+    }, 1930);
+  }
+
   // AI 토스트 추적 — 스킬은 ~7.6s 동안 표시
   aiTrackToastEnd(room, 'skill');
   return result;
@@ -4825,6 +4842,24 @@ function aiNotifySkill(room, pieceIdx, result) {
     emitToSpectators(room, 'spectator_log', { msg: specMsg, type: 'skill', playerIdx: 1 });
   }
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+
+  // ★ 기폭 (detonate) — 폭발 애니메이션 emit. 인간 use_skill 경로와 동일.
+  //   누락 시 AI가 기폭을 써도 상대방에게 폭발 애니가 안 보임 (사용자 보고).
+  if (result.data && Array.isArray(result.data.deferredBombEmits)) {
+    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
+    if (bombList.length > 0) {
+      emitToBoth(room, 'detonation_intro', { bombs: bombList });
+      // emitToBoth 가 이미 spectators 포함 (중복 방지)
+    }
+    const deferred = [...result.data.deferredBombEmits];
+    setTimeout(() => {
+      if (!rooms[room.id]) return;
+      for (const bd of deferred) {
+        emitToBoth(room, 'bomb_detonated', bd);
+      }
+    }, 1930);
+  }
+
   // AI 토스트 추적 — 1v1 AI 스킬도 인트라 턴 행동 순서 보장
   aiTrackToast(room, 'skill');
 }
@@ -7517,8 +7552,8 @@ io.on('connection', (socket) => {
     if (result.data && Array.isArray(result.data.deferredBombEmits)) {
       const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
       if (bombList.length > 0) {
+        // emitToBoth 가 spectators 까지 포함 — 중복 emit 제거.
         emitToBoth(room, 'detonation_intro', { bombs: bombList });
-        emitToSpectators(room, 'detonation_intro', { bombs: bombList });
       }
       const deferred = [...result.data.deferredBombEmits];
       setTimeout(() => {

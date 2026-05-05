@@ -9819,6 +9819,14 @@ function renderGameBoard() {
       if (idx === S.selectedPiece || (otherTwinIdx >= 0 && otherTwinIdx === S.selectedPiece) || twinPartnerSelected) {
         cell.classList.add('selected-piece');
       }
+      // ★ 스킬 시전자 dim 약화 — skill_target 모드 (폭탄 설치·드래곤 소환 등) 진입 시 시전자 본체.
+      //   "다른 애들보다 선명하게, 살짝 dim" — selected-piece (full clear) 와 다른 처리:
+      //   별도 클래스 skill-caster-mild → opacity 0.85 (다른 0.4 보다 선명, 1.0 selected 보다는 약함).
+      const isSkillCaster = (S.action === 'skill_target' && S.skillTargetData &&
+        typeof S.skillTargetData.pieceIdx === 'number' && S.skillTargetData.pieceIdx === idx);
+      if (isSkillCaster) {
+        cell.classList.add('skill-caster-mild');
+      }
     }
 
     // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
@@ -11757,6 +11765,18 @@ function _showRadialActionMenu(col, row, pieceIdx) {
       if (targetBtn && !targetBtn.disabled) {
         targetBtn.click();
         S.selectedPiece = pieceIdx;
+        // ★ 마녀/그림자 암살자 — 라디얼에서 공격 선택 시 targetSelectMode 진입 (boards 클릭 핸들러가
+        //   S.targetSelectMode=true 일 때만 tCol/tRow 동봉해 attack emit. 누락 시 서버 "대상 칸 선택" 에러).
+        if (it.key === 'attack') {
+          const pc2 = S.myPieces && S.myPieces[pieceIdx];
+          if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin')) {
+            S.targetSelectMode = true;
+            const hintEl = document.getElementById('action-hint');
+            if (hintEl) hintEl.textContent = `${pc2.icon} ${pc2.name} 선택. 공격할 칸을 선택하세요.`;
+          } else {
+            S.targetSelectMode = false;
+          }
+        }
         renderGameBoard();
       }
     });

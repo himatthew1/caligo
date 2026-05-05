@@ -1223,13 +1223,19 @@ body.radial-mode-active #game-board .cell.has-piece:not(.radial-active):hover .p
    행동 모드 (이동/공격/스킬/쌍둥이 이동) 중 행동 주체 외 모든 유닛 dim + 클릭 차단:
    - selected-piece (현재 행동 주체) : 면제
    - twin-active (쌍둥이 페이즈 미이동 쌍둥이 / 합류 셀)  : dim 면제 + 클릭 가능
+   - skill-caster-mild (skill_target 시전자 — 폭탄 설치·드래곤 소환 등) : 약한 dim (선명하게)
    - 그 외 (twin-spent 포함) : dim + 클릭 차단
    ★ :not(.twin-active) 추가 — 쌍둥이 페이즈에서 미이동 쌍둥이가 dim 되는 버그 차단. */
-body.action-locked #game-board .cell.has-piece:not(.radial-active):not(.selected-piece) .piece-marker:not(.twin-active) {
+body.action-locked #game-board .cell.has-piece:not(.radial-active):not(.selected-piece):not(.skill-caster-mild) .piece-marker:not(.twin-active) {
   opacity: 0.4 !important;
   filter: saturate(0.5) brightness(0.7) !important;
   transform: none !important;
   pointer-events: none;
+}
+/* 스킬 시전자 — 다른 애들보다 선명하게, 그러나 selected (1.0) 보단 살짝 dim */
+body.action-locked #game-board .cell.skill-caster-mild .piece-marker {
+  opacity: 0.85 !important;
+  filter: saturate(0.85) brightness(0.95) !important;
 }
 /* twin-spent — 이동을 마친 쌍둥이 (분리 상태) : 위 룰로 자동 dim 되지만 명시적으로 비활성 강조 */
 .piece-marker.twin-spent {
