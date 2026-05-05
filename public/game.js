@@ -2247,10 +2247,14 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
 
   // T+SP_END: SFX + dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
+  //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
+  const _isDetonateMsgTeam = msg && msg.indexOf('💥기폭') === 0;
   setTimeout(() => {
-    const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
-    if (sfxRoute) sfxRoute();
-    else playSfx(myTeam ? 'skill' : 'opp_skill');
+    if (!_isDetonateMsgTeam) {
+      const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
+      if (sfxRoute) sfxRoute();
+      else playSfx(myTeam ? 'skill' : 'opp_skill');
+    }
 
     endSkillCastDim(casterCard);
     if (sp) { S.sp = sp; }
@@ -5244,7 +5248,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   // 2단계 — T+SP_END: SFX + 스킬 효과 + 토스트·로그 + dim 해제 (모두 동시)
   setTimeout(() => {
     // SFX — 보드 효과와 정확히 같은 순간에 재생
-    if (msg) {
+    //   ★ 기폭(isDetonate) 은 detonation_intro 의 blast 단계(T+SP_END+550) 에서 폭발 SFX 재생 →
+    //     여기서 또 호출하면 시전 시점에 폭발음이 미리 들림. 스킵.
+    if (msg && !isDetonate) {
       const sfxRoute = pickSkillSfxByMsg(msg);
       if (sfxRoute) sfxRoute(); else playSfx('skill');
     }
@@ -5379,8 +5385,10 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
 
   // T+SP_END: SFX + dim 해제 + sp 동기화 + HP/보드 + 토스트·로그 (모두 동시)
+  //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
+  const _isDetonateMsg = msg && msg.indexOf('💥기폭') === 0;
   setTimeout(() => {
-    if (msg) {
+    if (msg && !_isDetonateMsg) {
       const sfxRoute = pickSkillSfxByMsg(msg);
       if (sfxRoute) sfxRoute(); else playSfx('opp_skill');
     }
