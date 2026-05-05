@@ -50,7 +50,7 @@
   .back-link:hover { color: var(--accent); }
 
   .container {
-    max-width: 880px;
+    max-width: 1100px;
     margin: 0 auto;
   }
 
@@ -95,9 +95,12 @@
 
   .demo-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: 1fr 1fr;
     gap: 24px;
     margin-bottom: 24px;
+  }
+  @media (max-width: 720px) {
+    .demo-row { grid-template-columns: 1fr; }
   }
   .demo-card {
     background: var(--card);
@@ -106,11 +109,25 @@
     padding: 18px 20px;
     text-align: center;
   }
+  .demo-card.proposed {
+    border-color: rgba(74, 222, 128, 0.45);
+    box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.15) inset;
+  }
+  .demo-card.current {
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.15) inset;
+  }
   .demo-card h4 {
-    margin: 0 0 12px;
-    font-size: 0.95rem;
+    margin: 0 0 4px;
+    font-size: 1rem;
     color: #fde68a;
   }
+  .demo-card .label {
+    font-size: 0.72rem;
+    margin-bottom: 12px;
+  }
+  .demo-card.current .label  { color: #fca5a5; }
+  .demo-card.proposed .label { color: #86efac; }
   .demo-card .scale-hint {
     font-size: 0.7rem;
     color: var(--muted);
@@ -126,8 +143,8 @@
   .cell {
     width: 56px;
     height: 56px;
-    background: var(--cell);
-    border: 1px solid var(--border);
+    background: #1a2040;
+    border: 1px solid #3a4a80;
     border-radius: 5px;
     position: relative;
     display: flex;
@@ -137,28 +154,25 @@
     transform: scale(3);
     transform-origin: center;
     margin: 60px;
-    background: #1a2040;
-    border-color: #3a4a80;
   }
-  /* 좌표 라벨 — bottom-left */
-  .coord-label {
-    font-size: 0.55rem;
-    color: #3a3a5a;
-    position: absolute;
-    bottom: 1px;
-    left: 2px;
-  }
-  /* piece-marker (centered) */
+
+  /* 좌표 라벨 (양쪽 동일 — 기존 위치 유지: bottom-left, 토큰 있을 때 가려짐 OK) */
+  .coord-label-shared { font-size: 0.55rem; color: #6e7396; position: absolute; bottom: 1px; left: 2px; z-index: 1; }
+
+  /* piece-marker (centered, 양쪽 동일) */
   .piece-marker {
     display: flex; flex-direction: column; align-items: center; gap: 1px;
     padding: 2px;
+    z-index: 2;
   }
   .piece-marker .p-icon  { font-size: 1.3rem; line-height: 1; filter: drop-shadow(0 0 2px rgba(96,165,250,0.7)); }
   .piece-marker .p-hp    { font-size: 0.6rem; color: var(--success); font-weight: 700; }
-  /* 셀 마크 — top-right (status icons like 🎯 표식) */
-  .cell-mark { font-size: 0.75rem; position: absolute; top: 2px; right: 3px; }
-  /* 추리 토큰 — bottom-left (덮어씌워짐 주의) */
-  .deduction-token {
+
+  /* 표식 (양쪽 동일 — 기존 위치 유지: top-right) */
+  .mark-shared { font-size: 0.75rem; position: absolute; top: 2px; right: 3px; z-index: 4; }
+
+  /* 추리 토큰 (양쪽 동일 — 기존 위치 + 크기 유지: bottom-left, 18×18) */
+  .token-shared {
     position: absolute;
     bottom: 1px; left: 1px;
     font-size: 0.65rem;
@@ -167,35 +181,24 @@
     background: rgba(226, 168, 75, 0.25);
     border: 1px solid var(--accent);
     border-radius: 4px;
-    user-select: none;
     z-index: 5;
   }
-  /* 본인 쥐 — top-right (현재 코드) */
-  .own-rat {
-    position: absolute;
-    top: 1px; right: 2px;
-    font-size: 0.5rem;
-    color: #52b788;
-  }
-  /* 적군 쥐 — top-left (수정 후 위치) */
-  .enemy-rat {
-    position: absolute;
-    top: 1px; left: 2px;
-    font-size: 0.5rem;
-    color: #e05252;
-  }
-  /* 폭탄 설치 — top-right (현재 코드) */
-  .bomb-install {
-    position: absolute;
-    top: 1px; right: 2px;
-    font-size: 0.5rem;
-  }
-  /* 트랩 설치 — bottom-right (현재 코드) */
-  .trap-install {
-    position: absolute;
-    bottom: 1px; right: 2px;
-    font-size: 0.5rem;
-  }
+
+  /* === 차이 나는 부분 — 쥐, 폭탄 === */
+
+  /* 적군 쥐 (양쪽 동일 — top-left 코너) */
+  .enemy-rat-shared { position: absolute; top: 1px; left: 2px; font-size: 0.5rem; color: #e05252; z-index: 3; }
+
+  /* 본인 쥐 — current: top-right (충돌) / proposed: top-left + 5px 오른쪽 (적쥐와 거의 겹침, 살짝만 보임) */
+  .own-rat-current  { position: absolute; top: 1px; right: 2px; font-size: 0.5rem; color: #52b788; z-index: 4; }
+  .own-rat-proposed { position: absolute; top: 1px; left: 7px; font-size: 0.5rem; color: #52b788; z-index: 4; }
+
+  /* 덫 (양쪽 동일 — bottom-right 코너) */
+  .trap-shared { position: absolute; bottom: 1px; right: 2px; font-size: 0.5rem; z-index: 3; }
+
+  /* 폭탄 — current: top-right / proposed: bottom-right + 5px 왼쪽, 덫 위에 (z-index 4) */
+  .bomb-current  { position: absolute; top: 1px; right: 2px; font-size: 0.5rem; z-index: 3; }
+  .bomb-proposed { position: absolute; bottom: 1px; right: 7px; font-size: 0.5rem; z-index: 4; }
 
   .legend {
     background: var(--card);
@@ -233,189 +236,216 @@
     padding: 1px 5px;
     border-radius: 3px;
   }
-  .conflict-row {
-    background: rgba(239, 68, 68, 0.08);
-  }
-  .conflict-row td {
-    color: #fca5a5;
-  }
+  .conflict-row { background: rgba(239, 68, 68, 0.08); }
+  .conflict-row td { color: #fca5a5; }
   .ok-row td { color: #cbd5e1; }
+  .move-row { background: rgba(74, 222, 128, 0.08); }
+  .move-row td { color: #86efac; }
 
-  .corner-overlay-warning {
-    background: rgba(239, 68, 68, 0.12);
-    border: 1px solid rgba(239, 68, 68, 0.35);
+  .summary-banner {
+    background: rgba(74, 222, 128, 0.1);
+    border: 1px solid rgba(74, 222, 128, 0.3);
     border-radius: 8px;
-    padding: 12px 16px;
+    padding: 14px 18px;
     margin-bottom: 18px;
-    font-size: 0.85rem;
-    color: #fca5a5;
-    line-height: 1.5;
+    color: #86efac;
+    font-size: 0.88rem;
+    line-height: 1.6;
   }
+  .summary-banner strong { color: #bbf7d0; }
 </style>
 </head>
 <body>
 
 <a href="/previews.html" class="back-link">← 미리보기 허브</a>
-<h1>셀 레이어 오버레이 미리보기</h1>
-<div class="sub">한 셀에 모든 시각 요소를 동시 표시했을 때 어떻게 겹치고 충돌하는지 시연.</div>
+<h1>셀 레이어 오버레이 — 가안 v2</h1>
+<div class="sub">현재 (Current) vs 제안 (Proposed) — 사용자 피드백 반영 v2</div>
 
 <div class="container">
 
-  <div class="corner-overlay-warning">
-    <strong>시나리오:</strong> 한 칸에 — 본인 쥐(🐀) + 적군 쥐(🐁) + 폭탄 설치(💣) + 본인 화약상 piece marker + 표식(🎯) + 적 쥐장수 추리 토큰(🐀)
-    <br><br>
-    <strong>관찰 포인트:</strong> top-right 코너에 폭탄·본인쥐·표식 3개가 동시에 쌓임. 각 레이어를 끄고 켜서 실제 시각적 충돌 확인.
+  <div class="summary-banner">
+    <strong>변경점 (Current → Proposed):</strong><br>
+    · <strong>본인 쥐 🐀</strong>: top-right (폭탄·표식과 충돌) → <code>top-left + 5px 오른쪽</code> (적군쥐와 거의 겹침, 적쥐가 살짝만 보임)<br>
+    · <strong>폭탄 💣</strong>: top-right (쥐·표식과 충돌) → <code>bottom-right + 5px 왼쪽</code> (덫과 거의 겹침, 덫이 살짝만 보임)<br>
+    · <strong>표식 🎯</strong>: top-right 그대로 유지 (사용자 요청 — 이전 위치가 더 좋음)<br>
+    · <strong>추리 토큰</strong>: bottom-left + 18×18 그대로 유지 (사용자 요청 — 이전 위치/크기가 더 좋음)<br>
+    · <strong>적군 쥐 🐁 / 덫 🪤 / 좌표라벨 / piece-marker</strong>: 위치 변경 없음
   </div>
 
   <!-- 레이어 토글 -->
   <div class="layer-toggles">
-    <h3>레이어 on/off</h3>
+    <h3>레이어 on/off (양쪽 동시 적용)</h3>
     <div class="toggle-grid">
       <label class="toggle">
-        <input type="checkbox" id="t-piece" checked>
+        <input type="checkbox" data-layer="piece" checked>
         <span>화약상 piece</span>
         <span class="badge">center</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-mark" checked>
+        <input type="checkbox" data-layer="mark" checked>
         <span>표식 🎯</span>
         <span class="badge">top-right</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-bomb" checked>
+        <input type="checkbox" data-layer="bomb" checked>
         <span>폭탄 설치 💣</span>
-        <span class="badge">top-right</span>
+        <span class="badge">설치물</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-own-rat" checked>
+        <input type="checkbox" data-layer="own-rat" checked>
         <span>본인 쥐 🐀</span>
-        <span class="badge">top-right</span>
+        <span class="badge">설치물</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-enemy-rat" checked>
+        <input type="checkbox" data-layer="enemy-rat" checked>
         <span>적군 쥐 🐁</span>
-        <span class="badge">top-left</span>
+        <span class="badge">설치물</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-trap">
+        <input type="checkbox" data-layer="trap" checked>
         <span>덫 🪤</span>
-        <span class="badge">bottom-right</span>
+        <span class="badge">설치물</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-token" checked>
-        <span>추리 토큰 (적 쥐장수)</span>
-        <span class="badge">bottom-left</span>
+        <input type="checkbox" data-layer="token" checked>
+        <span>추리 토큰</span>
+        <span class="badge">메타</span>
       </label>
       <label class="toggle">
-        <input type="checkbox" id="t-coord" checked>
+        <input type="checkbox" data-layer="coord" checked>
         <span>좌표 라벨 (B3)</span>
-        <span class="badge">bottom-left</span>
+        <span class="badge">항상</span>
       </label>
     </div>
   </div>
 
   <!-- 데모 -->
   <div class="demo-row">
-    <div class="demo-card">
-      <h4>실제 셀 (3× 확대)</h4>
+
+    <!-- 현재 -->
+    <div class="demo-card current">
+      <h4>현재 (Current)</h4>
+      <div class="label">충돌 — top-right 3중첩 (쥐·폭탄·표식)</div>
       <div class="cell-stage">
-        <div class="cell" id="demo-cell">
-          <span class="coord-label" id="el-coord">B3</span>
-          <div class="piece-marker" id="el-piece">
+        <div class="cell">
+          <span class="coord-label-shared"     data-l="coord">B3</span>
+          <div class="piece-marker"             data-l="piece">
             <span class="p-icon">💣</span>
             <span class="p-hp">4/4</span>
           </div>
-          <span class="cell-mark" id="el-mark">🎯</span>
-          <span class="bomb-install" id="el-bomb">💣</span>
-          <span class="own-rat" id="el-own-rat">🐀</span>
-          <span class="enemy-rat" id="el-enemy-rat">🐁</span>
-          <span class="trap-install" id="el-trap" style="display:none">🪤</span>
-          <div class="deduction-token" id="el-token">🐀</div>
+          <span class="mark-shared"             data-l="mark">🎯</span>
+          <span class="bomb-current"            data-l="bomb">💣</span>
+          <span class="own-rat-current"         data-l="own-rat">🐀</span>
+          <span class="enemy-rat-shared"        data-l="enemy-rat">🐁</span>
+          <span class="trap-shared"             data-l="trap">🪤</span>
+          <div class="token-shared"             data-l="token">🐀</div>
         </div>
       </div>
-      <div class="scale-hint">실제 게임 셀 56×56px, 여기서는 168×168px (3배)</div>
+      <div class="scale-hint">실제 56×56px → 3배 확대 (168×168px)</div>
     </div>
+
+    <!-- 제안 -->
+    <div class="demo-card proposed">
+      <h4>제안 (Proposed) v3</h4>
+      <div class="label">쥐 2종 거의 겹침 (top, 5px 간격) · 폭탄+덫 거의 겹침 (bottom-right, 5px 간격)</div>
+      <div class="cell-stage">
+        <div class="cell">
+          <span class="coord-label-shared"     data-l="coord">B3</span>
+          <div class="piece-marker"             data-l="piece">
+            <span class="p-icon">💣</span>
+            <span class="p-hp">4/4</span>
+          </div>
+          <span class="mark-shared"             data-l="mark">🎯</span>
+          <span class="bomb-proposed"           data-l="bomb">💣</span>
+          <span class="own-rat-proposed"        data-l="own-rat">🐀</span>
+          <span class="enemy-rat-shared"        data-l="enemy-rat">🐁</span>
+          <span class="trap-shared"             data-l="trap">🪤</span>
+          <div class="token-shared"             data-l="token">🐀</div>
+        </div>
+      </div>
+      <div class="scale-hint">동일 스케일 — 양쪽 직접 비교</div>
+    </div>
+
   </div>
 
-  <!-- 충돌 분석 -->
+  <!-- 위치 매트릭스 -->
   <div class="legend">
-    <h3>코너별 점유 — 충돌 매트릭스</h3>
+    <h3>위치 좌표 — 현재 vs 제안</h3>
     <table>
       <thead>
-        <tr><th>코너</th><th>점유 레이어</th><th>충돌 위험</th></tr>
+        <tr><th>레이어</th><th>현재 (px)</th><th>제안 (px)</th></tr>
       </thead>
       <tbody>
-        <tr class="conflict-row">
-          <td><code>top-right</code></td>
-          <td>폭탄 💣 · 본인 쥐 🐀 · 표식 🎯 (3개 중첩)</td>
-          <td>🔴 심각 — 셋이 같은 좌표 (1px, 2~3px)</td>
+        <tr class="ok-row">
+          <td>적군 쥐 🐁</td>
+          <td><code>top:1, left:2</code></td>
+          <td><code>top:1, left:2</code> (동일)</td>
+        </tr>
+        <tr class="move-row">
+          <td><strong>본인 쥐 🐀</strong></td>
+          <td><code>top:1, right:2</code> (top-right)</td>
+          <td><strong><code>top:1, left:7</code></strong> (적쥐 위에 5px 만 비킨 위치 — 거의 겹침)</td>
         </tr>
         <tr class="ok-row">
-          <td><code>top-left</code></td>
-          <td>적군 쥐 🐁 (단독)</td>
-          <td>✅ 안전</td>
-        </tr>
-        <tr class="conflict-row">
-          <td><code>bottom-left</code></td>
-          <td>추리 토큰 (18×18) · 좌표 라벨 (작음)</td>
-          <td>🟡 토큰이 좌표 라벨 위로 덮음 (가독성 ↓)</td>
+          <td>표식 🎯</td>
+          <td><code>top:2, right:3</code></td>
+          <td><code>top:2, right:3</code> (동일)</td>
         </tr>
         <tr class="ok-row">
-          <td><code>bottom-right</code></td>
-          <td>덫 🪤 (단독)</td>
-          <td>✅ 안전</td>
+          <td>덫 🪤</td>
+          <td><code>bottom:1, right:2</code></td>
+          <td><code>bottom:1, right:2</code> (동일)</td>
+        </tr>
+        <tr class="move-row">
+          <td><strong>폭탄 💣</strong></td>
+          <td><code>top:1, right:2</code> (top-right)</td>
+          <td><strong><code>bottom:1, right:7</code></strong> (덫 위에 5px 만 비킨 위치 — 거의 겹침)</td>
         </tr>
         <tr class="ok-row">
-          <td><code>center</code></td>
-          <td>piece-marker (icon + HP)</td>
-          <td>✅ 안전</td>
+          <td>추리 토큰</td>
+          <td><code>bottom:1, left:1, 18×18</code></td>
+          <td><code>bottom:1, left:1, 18×18</code> (동일)</td>
+        </tr>
+        <tr class="ok-row">
+          <td>좌표 라벨 B3</td>
+          <td><code>bottom:1, left:2</code></td>
+          <td><code>bottom:1, left:2</code> (동일, 토큰 있으면 가려짐)</td>
+        </tr>
+        <tr class="ok-row">
+          <td>piece-marker</td>
+          <td>center</td>
+          <td>center (동일)</td>
         </tr>
       </tbody>
     </table>
   </div>
 
-  <div class="legend">
-    <h3>제안 (사용자 검토용)</h3>
-    <table>
-      <tbody>
-        <tr class="ok-row">
-          <td><strong>1.</strong> top-right 3중첩 해소</td>
-          <td>본인 쥐를 <code>bottom-right</code> (덫이 동시 점유 가능 시 추가 조정 필요) 또는 셀 외곽 다른 위치로</td>
-        </tr>
-        <tr class="ok-row">
-          <td><strong>2.</strong> 추리 토큰 / 좌표 라벨</td>
-          <td>토큰 위치를 <code>bottom-center</code> 또는 셀 외부 (cell 위/아래) 로</td>
-        </tr>
-        <tr class="ok-row">
-          <td><strong>3.</strong> 표식 vs 폭탄 vs 쥐</td>
-          <td>크기/색을 차별화. 표식은 큰 외곽선, 쥐는 색상 보더, 폭탄은 그림자 등</td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="summary-banner" style="background: rgba(251, 191, 36, 0.08); border-color: rgba(251, 191, 36, 0.3); color: #fde68a;">
+    <strong>컨펌 요청:</strong><br>
+    v3 — 5px 간격으로 거의 겹침. 사용자 요청 "더 붙어야 한다, 거의 겹쳐져야 한다" 반영.
+    너무 붙어 있으면 6~7px 로 살짝 키우고, 더 겹치고 싶으면 3~4px 로 줄일 수 있음.
+    OK 면 실제 게임 코드 (game.js) 에 적용.
   </div>
 
 </div>
 
 <script>
-const layers = [
-  { id: 't-piece',     el: 'el-piece' },
-  { id: 't-mark',      el: 'el-mark' },
-  { id: 't-bomb',      el: 'el-bomb' },
-  { id: 't-own-rat',   el: 'el-own-rat' },
-  { id: 't-enemy-rat', el: 'el-enemy-rat' },
-  { id: 't-trap',      el: 'el-trap' },
-  { id: 't-token',     el: 'el-token' },
-  { id: 't-coord',     el: 'el-coord' },
-];
+const layerEls = {};
+document.querySelectorAll('[data-l]').forEach(el => {
+  const k = el.dataset.l;
+  if (!layerEls[k]) layerEls[k] = [];
+  layerEls[k].push(el);
+});
 
-for (const layer of layers) {
-  const cb = document.getElementById(layer.id);
-  const el = document.getElementById(layer.el);
-  if (!cb || !el) continue;
+document.querySelectorAll('input[data-layer]').forEach(cb => {
   cb.addEventListener('change', () => {
-    el.style.display = cb.checked ? '' : 'none';
+    const k = cb.dataset.layer;
+    const show = cb.checked;
+    (layerEls[k] || []).forEach(el => {
+      el.style.display = show ? '' : 'none';
+    });
   });
-}
+});
 </script>
 
 </body>

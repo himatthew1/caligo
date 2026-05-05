@@ -1186,7 +1186,7 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   // ★ 기폭 (detonate) — 폭발 애니메이션 emit. 인간 use_skill 경로와 동일.
   //   누락 시 팀모드 AI 기폭이 다른 플레이어에게 폭발 애니가 안 보임.
   if (result && result.data && Array.isArray(result.data.deferredBombEmits)) {
-    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
+    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
     if (bombList.length > 0) {
       emitToBoth(room, 'detonation_intro', { bombs: bombList });
     }
@@ -3095,7 +3095,8 @@ function flushPhase(room, onComplete) {
       const bombs = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type === 'bomb');
       for (const bomb of bombs) {
         const hits = detonateBomb(room, dd.ownerIdx, bomb, { deferEmit: true });
-        deferredEmits.push({ col: bomb.col, row: bomb.row, hits });
+        // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
+        deferredEmits.push({ col: bomb.col, row: bomb.row, hits, owner: dd.ownerIdx });
       }
       room.boardObjects[dd.ownerIdx] = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type !== 'bomb');
     }
@@ -3113,7 +3114,7 @@ function flushPhase(room, onComplete) {
   // === 2) emit 스케줄링 (각 wave 순차 노출) ===
   let cursor = 0;
   for (const wave of waves) {
-    const allBombs = wave.deferredEmits.map(b => ({ col: b.col, row: b.row }));
+    const allBombs = wave.deferredEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
 
     cursor += RECOGNITION_DELAY;
     const c1 = cursor;
@@ -4418,7 +4419,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         for (const bomb of bombs) {
           const hits = detonateBomb(room, playerIdx, bomb, { deferEmit: true });
           allHits.push(...hits);
-          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits });
+          // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
+          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits, owner: playerIdx });
         }
         room.boardObjects[playerIdx] = room.boardObjects[playerIdx].filter(o => o.type !== 'bomb');
         result.msg = `💥기폭: 폭탄 폭발!`;
@@ -5069,7 +5071,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
   // ★ 기폭 (detonate) — 폭발 애니메이션 emit. 인간 use_skill 경로와 동일.
   //   누락 시 AI가 기폭을 써도 상대방에게 폭발 애니가 안 보임 (사용자 보고).
   if (result.data && Array.isArray(result.data.deferredBombEmits)) {
-    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
+    const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
     if (bombList.length > 0) {
       emitToBoth(room, 'detonation_intro', { bombs: bombList });
       // emitToBoth 가 이미 spectators 포함 (중복 방지)
@@ -7849,7 +7851,7 @@ io.on('connection', (socket) => {
     // 1) 즉시 detonation_intro emit — 클라가 980ms 후 시퀀스 시작
     // 2) 1930ms 후 bomb_detonated 이벤트로 피해 적용 (클라 시퀀스 종료 시점)
     if (result.data && Array.isArray(result.data.deferredBombEmits)) {
-      const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row }));
+      const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
       if (bombList.length > 0) {
         // emitToBoth 가 spectators 까지 포함 — 중복 emit 제거.
         emitToBoth(room, 'detonation_intro', { bombs: bombList });

@@ -9,20 +9,39 @@
     margin: 0; min-height: 100vh;
     background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
     color: #fef3c7; font-family: 'Malgun Gothic', sans-serif;
-    display: flex; flex-direction: column; align-items: center; padding: 32px 16px;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px 64px;
   }
   h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: 0.04em; }
-  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 28px; text-align: center; max-width: 600px; line-height: 1.5; }
+  .sub { color: #a3a3a3; font-size: 0.85rem; margin-bottom: 28px; text-align: center; max-width: 700px; line-height: 1.5; }
   .badge {
     display: inline-block; padding: 2px 8px;
     background: rgba(74, 222, 128, 0.18);
     color: #4ade80; border-radius: 100px;
     font-size: 0.7rem; font-weight: 700;
   }
+  .back-link {
+    display: block; text-align: center; color: #94a3b8;
+    font-size: 0.78rem; margin-bottom: 16px; text-decoration: none;
+  }
+  .back-link:hover { color: #fde68a; }
+
+  /* ── 두 보드 나란히 (mine | enemy) ── */
+  .boards-row {
+    display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; justify-content: center;
+  }
+  .board-card {
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .board-label {
+    margin-bottom: 10px; font-weight: 800; font-size: 0.95rem;
+    padding: 5px 14px; border-radius: 100px;
+  }
+  .board-card.team-mine .board-label  { background: rgba(59,130,246,0.18);  color: #93c5fd; border: 1px solid rgba(59,130,246,0.4); }
+  .board-card.team-enemy .board-label { background: rgba(239, 68, 68,0.18); color: #fca5a5; border: 1px solid rgba(239, 68, 68,0.4); }
 
   /* 더미 보드 */
   .board {
-    width: 360px; height: 360px;
+    width: 320px; height: 320px;
     display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
     background: rgba(15, 23, 42, 0.85);
     border: 2px solid rgba(253, 230, 138, 0.35);
@@ -35,8 +54,10 @@
     background: rgba(30, 41, 59, 0.7);
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.4rem;
+  }
+  .cell .trap-static {
+    position: absolute; bottom: 1px; right: 2px;
+    font-size: 0.7rem; z-index: 3;
   }
   .controls {
     display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; justify-content: center;
@@ -56,19 +77,45 @@
     color: #fff; box-shadow: 0 4px 14px rgba(239, 68, 68, 0.35);
   }
   .desc {
-    max-width: 600px; margin-top: 28px;
-    font-size: 0.78rem; color: #94a3b8; line-height: 1.6;
+    max-width: 700px; margin-top: 28px;
+    font-size: 0.8rem; color: #94a3b8; line-height: 1.7;
     background: rgba(15, 23, 42, 0.6);
     border: 1px solid rgba(148, 163, 184, 0.12);
-    border-radius: 10px; padding: 14px 18px;
+    border-radius: 10px; padding: 16px 20px;
   }
   .desc h3 { margin: 0 0 8px; color: #fde68a; font-size: 0.92rem; }
   .desc code { color: #fde68a; font-size: 0.85em; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; }
+  .desc strong.mine-color  { color: #93c5fd; }
+  .desc strong.enemy-color { color: #fca5a5; }
 
-  /* ==== 게임 style.css 와 동일 ==== */
+  /* ============================================================
+     팀별 색상 변수 — board-card.team-mine / .team-enemy 각자 정의
+     ============================================================ */
+  .team-mine {
+    --bomb-glow:        250, 204, 21;   /* yellow warning (공통) */
+    --bomb-arming-a:     59, 130, 246;  /* mid blue */
+    --bomb-arming-b:    147, 197, 253;  /* light blue */
+    --bomb-blast-light: 191, 219, 254;  /* very light blue */
+    --bomb-blast-mid:    37, 99, 235;   /* royal blue */
+    --bomb-blast-dark:   23, 37, 84;    /* dark navy */
+    --bomb-burst-glow:  147, 197, 253;
+    --bomb-frag-glow:    96, 165, 250;
+  }
+  .team-enemy {
+    --bomb-glow:        250, 204, 21;   /* yellow warning */
+    --bomb-arming-a:    220,  38,  38;  /* red */
+    --bomb-arming-b:    248, 113, 113;  /* light red */
+    --bomb-blast-light: 255, 255, 200;  /* yellow-cream */
+    --bomb-blast-mid:   255, 100,   0;  /* orange */
+    --bomb-blast-dark:  120,  30,   0;  /* dark red */
+    --bomb-burst-glow:  255, 200,   0;
+    --bomb-frag-glow:   255, 150,   0;
+  }
+
+  /* ==== 폭탄 마커 — 새 위치 (bottom-right + 5px 왼쪽, 덫 위 z-index 4) ==== */
   .bomb-anim-marker {
-    position: absolute; top: 1px; right: 2px;
-    font-size: 0.7rem; z-index: 6; pointer-events: none;
+    position: absolute; bottom: 1px; right: 7px;
+    font-size: 0.7rem; z-index: 4; pointer-events: none;
     animation: bomb-marker-fade-in 0.35s ease-out forwards;
   }
   @keyframes bomb-marker-fade-in {
@@ -77,36 +124,36 @@
     100% { opacity: 1; transform: scale(1); }
   }
   .cell.bomb-reveal {
-    box-shadow: inset 0 0 10px rgba(250, 204, 21, 0.55), 0 0 8px rgba(250, 204, 21, 0.4);
+    box-shadow: inset 0 0 10px rgba(var(--bomb-glow), 0.55), 0 0 8px rgba(var(--bomb-glow), 0.4);
     animation: bomb-reveal-glow 0.6s ease-out forwards;
   }
   @keyframes bomb-reveal-glow {
-    0%   { box-shadow: inset 0 0 0 rgba(250, 204, 21, 0); }
-    100% { box-shadow: inset 0 0 12px rgba(250, 204, 21, 0.7), 0 0 10px rgba(250, 204, 21, 0.5); }
+    0%   { box-shadow: inset 0 0 0 rgba(var(--bomb-glow), 0); }
+    100% { box-shadow: inset 0 0 12px rgba(var(--bomb-glow), 0.7), 0 0 10px rgba(var(--bomb-glow), 0.5); }
   }
   .cell.bomb-arming {
-    background: rgba(220, 38, 38, 0.45) !important;
-    box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.85), 0 0 10px rgba(248, 113, 113, 0.7);
+    background: rgba(var(--bomb-arming-a), 0.45) !important;
+    box-shadow: inset 0 0 10px rgba(var(--bomb-arming-a), 0.85), 0 0 10px rgba(var(--bomb-arming-b), 0.7);
     animation: bomb-arm-pulse 0.18s ease-in-out infinite;
   }
   @keyframes bomb-arm-pulse {
-    0%,100% { background: rgba(220, 38, 38, 0.45) !important; }
-    50%     { background: rgba(248, 113, 113, 0.75) !important; }
+    0%,100% { background: rgba(var(--bomb-arming-a), 0.45) !important; }
+    50%     { background: rgba(var(--bomb-arming-b), 0.75) !important; }
   }
   .cell.bomb-blast {
     animation: bomb-blast-flash 0.45s ease-out forwards !important;
   }
   @keyframes bomb-blast-flash {
-    0%   { background: rgba(255, 255, 200, 0.95) !important; box-shadow: 0 0 36px rgba(255, 200, 0, 1); }
-    40%  { background: rgba(255, 100, 0, 0.85) !important; box-shadow: 0 0 30px rgba(255, 120, 0, 0.85); }
-    100% { background: rgba(120, 30, 0, 0.25) !important; box-shadow: none; }
+    0%   { background: rgba(var(--bomb-blast-light), 0.95) !important; box-shadow: 0 0 36px rgba(var(--bomb-blast-light), 1); }
+    40%  { background: rgba(var(--bomb-blast-mid),   0.85) !important; box-shadow: 0 0 30px rgba(var(--bomb-blast-mid), 0.85); }
+    100% { background: rgba(var(--bomb-blast-dark),  0.25) !important; box-shadow: none; }
   }
   .bomb-anim-marker.bomb-marker-explode {
     animation: bomb-marker-explode 0.45s ease-out forwards !important;
   }
   @keyframes bomb-marker-explode {
     0%   { transform: scale(1) rotate(0deg); opacity: 1; }
-    30%  { transform: scale(2.2) rotate(20deg); opacity: 1; filter: drop-shadow(0 0 8px rgba(255,200,0,1)); }
+    30%  { transform: scale(2.2) rotate(20deg); opacity: 1; filter: drop-shadow(0 0 8px rgba(var(--bomb-burst-glow), 1)); }
     100% { transform: scale(0.3) rotate(-15deg); opacity: 0; }
   }
   .bomb-burst-emoji {
@@ -115,7 +162,7 @@
     pointer-events: none; user-select: none;
     transform: translate(-50%, -50%) scale(0);
     animation: bomb-burst-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-    filter: drop-shadow(0 0 14px rgba(255, 200, 0, 1));
+    filter: drop-shadow(0 0 14px rgba(var(--bomb-burst-glow, 255 200 0), 1));
   }
   @keyframes bomb-burst-pop {
     0%   { transform: translate(-50%, -50%) scale(0);   opacity: 0; }
@@ -129,7 +176,7 @@
     --dx: 0px; --dy: 0px;
     transform: translate(-50%, -50%);
     animation: bomb-fragment-fly 0.85s cubic-bezier(0.42, 0, 0.58, 1) forwards;
-    filter: drop-shadow(0 0 4px rgba(255, 150, 0, 0.85));
+    filter: drop-shadow(0 0 4px rgba(var(--bomb-frag-glow, 255 150 0), 0.85));
   }
   @keyframes bomb-fragment-fly {
     0%   { transform: translate(-50%, -50%) scale(0.6) rotate(0deg); opacity: 1; }
@@ -143,45 +190,98 @@
     10%, 30%, 50%, 70%, 90% { transform: translate(-2.5px, 1.5px); }
     20%, 40%, 60%, 80%      { transform: translate( 2.5px, -1.5px); }
   }
+
+  /* SFX 시각 시뮬레이터 — 실제 게임은 audio playSfxBombExplode */
+  .board-card { position: relative; }
+  .sfx-pulse {
+    position: absolute; top: -8px; right: -8px;
+    background: rgba(var(--bomb-arming-a), 0.85);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 4px 10px;
+    border-radius: 100px;
+    box-shadow: 0 0 12px rgba(var(--bomb-arming-b), 0.7);
+    pointer-events: none;
+    animation: sfx-pulse-pop 0.55s ease-out forwards;
+    z-index: 50;
+  }
+  @keyframes sfx-pulse-pop {
+    0%   { transform: scale(0.4); opacity: 0; }
+    25%  { transform: scale(1.15); opacity: 1; }
+    100% { transform: scale(0.9); opacity: 0; }
+  }
 </style>
 </head>
 <body>
 
-<h1>기폭 애니메이션 미리보기 <span class="badge">DEV</span></h1>
-<div class="sub">강화된 폭탄 폭발 — 💣 이모지 자체가 커지며 회전·소멸, 💥 burst 이모지가 떠오르고, 사방으로 9개 파편(💢✦⚡🔥✨💥) 이 비산. 셀이 흔들리고 노란 → 주황 → 검붉음 플래시.</div>
+<a href="/previews.html" class="back-link">← 미리보기 허브</a>
+<h1>기폭 애니메이션 — 팀 컬러 가안 <span class="badge">DEV v2</span></h1>
+<div class="sub">
+  새 폭탄 위치 (bottom-right + 5px 왼쪽, 덫 위에 stacked z-4) +
+  <strong style="color:#93c5fd">내 팀 = 파란 폭발</strong> /
+  <strong style="color:#fca5a5">상대 팀 = 빨간 폭발</strong> 분리.
+  공통: reveal 시 노란 warning glow.
+</div>
 
-<div class="board" id="board"></div>
+<!-- 두 보드 나란히: 동시 실행 -->
+<div class="boards-row">
+  <div class="board-card team-mine" id="card-mine">
+    <div class="board-label">내 팀 폭탄 (파랑)</div>
+    <div class="board" id="board-mine"></div>
+  </div>
+  <div class="board-card team-enemy" id="card-enemy">
+    <div class="board-label">상대 팀 폭탄 (빨강)</div>
+    <div class="board" id="board-enemy"></div>
+  </div>
+</div>
 
 <div class="controls">
-  <button class="ctl-btn" id="btn-single">단일 폭탄 폭발</button>
+  <button class="ctl-btn" id="btn-single">단일 폭탄 폭발 (양쪽 동시)</button>
   <button class="ctl-btn alt" id="btn-multi">3개 동시 폭발</button>
   <button class="ctl-btn" id="btn-full">전체 시퀀스 (reveal → arm → blast)</button>
 </div>
 
 <div class="desc">
-  <h3>구성 단계</h3>
-  ① <strong>reveal</strong> (0~600ms) — 노란 후광 + 💣 마커 fade-in (scale bounce)<br>
-  ② <strong>arm</strong> (450ms~) — 빨간 박동 (0.18s 반복)<br>
-  ③ <strong>blast</strong> (550ms) — 💣 marker scale 1→2.2→0.3 회전, 💥 burst pop, 파편 9개 비산, 셀 흔들림, 노→주→검붉 플래시 + SFX 1번<br>
-  ④ <strong>cleanup</strong> (950ms) — 모든 클래스/마커 제거, 보드에서 폭탄 즉시 제거<br>
+  <h3>팀 컬러 디자인</h3>
+  <strong class="mine-color">내 팀 (Mine — Blue)</strong>: yellow warning → royal blue arming → light blue → blue → dark navy 폭발<br>
+  <strong class="enemy-color">상대 팀 (Enemy — Red)</strong>: yellow warning → red arming → cream yellow → orange → dark red 폭발 (기존)<br>
   <br>
-  실제 게임에선 SP_END(1)=980ms 후 시퀀스 시작 → 약 2초 안에 완전 종료
+  <h3>위치 변경</h3>
+  · 폭탄 마커 위치: <code>top-right (top:1, right:2)</code> → <code>bottom-right + 5px (bottom:1, right:7)</code><br>
+  · 덫 (🪤) 은 <code>bottom:1, right:2</code> 코너 — 폭탄 마커 아래에 깔림 (z-index 3 vs 4). 덫이 거의 가려지지만 살짝 보임.<br>
+  <br>
+  <h3>구성 단계 (각 wave)</h3>
+  ① <strong>reveal</strong> (T=0) — 모두 동시. 노란 후광 + 💣 마커 fade-in (scale bounce)<br>
+  ② <strong>arm</strong> (T=450) — 모두 동시. 팀별 박동 (mine: 파랑 / enemy: 빨강) — 긴장 누적<br>
+  ③ <strong>blast</strong> (T=550 + slot × 60ms) — <strong style="color:#fde68a">순차 · 무작위 순서</strong>. 어느 폭탄이 먼저 터질지 매번 셔플 + 각자 자기 SFX (🔊 BOOM)<br>
+  ④ <strong>cleanup</strong> (T=1100 + slot × 60ms) — 자기 blast 후 550ms 뒤 마커 제거<br>
+  <br>
+  <strong style="color:#fde68a">stagger 간격 60ms · 순서 무작위</strong> — "3개 동시 폭발" 버튼과 동일한 빠른 도미노 호흡 + 매번 다른 순서로 터짐.<br>
 </div>
 
 <script>
-// 보드 셀 빌드
-const board = document.getElementById('board');
-for (let row = 0; row < 5; row++) {
-  for (let col = 0; col < 5; col++) {
-    const c = document.createElement('div');
-    c.className = 'cell';
-    c.dataset.col = col;
-    c.dataset.row = row;
-    board.appendChild(c);
+const FRAG = ['💢', '✦', '⚡', '🔥', '✨', '💥'];
+
+// 두 보드 빌드 + 덫 정적 표시
+function buildBoard(boardId) {
+  const board = document.getElementById(boardId);
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 5; col++) {
+      const c = document.createElement('div');
+      c.className = 'cell';
+      c.dataset.col = col;
+      c.dataset.row = row;
+      // 모든 셀에 덫 정적 표시 (폭탄 위치와 비교용)
+      c.innerHTML = '<span class="trap-static">🪤</span>';
+      board.appendChild(c);
+    }
   }
 }
+buildBoard('board-mine');
+buildBoard('board-enemy');
 
-// 폭탄 마커 (페이드인 후 미리 보임)
+// 폭탄 마커
 function placeBombMarker(cell) {
   if (!cell) return;
   if (cell.querySelector('.bomb-anim-marker')) return;
@@ -192,22 +292,24 @@ function placeBombMarker(cell) {
   return m;
 }
 
-// 강화된 폭발 (game.js 의 playBombExplosion 와 동일)
+// 폭발 — burst + 파편
 function playBombExplosion(cell) {
   if (!cell) return;
   const r = cell.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
-  // 💥 burst
+  // CSS 변수 상속을 위해 burst/fragment 도 같은 team 컨테이너의 자식으로
+  const teamCard = cell.closest('.board-card');
+  const host = teamCard || document.body;
+
   const burst = document.createElement('div');
   burst.className = 'bomb-burst-emoji';
   burst.textContent = '💥';
   burst.style.left = cx + 'px';
   burst.style.top = cy + 'px';
-  document.body.appendChild(burst);
+  host.appendChild(burst);
   setTimeout(() => { if (burst.parentNode) burst.remove(); }, 720);
-  // 파편 9개
-  const FRAG = ['💢', '✦', '⚡', '🔥', '✨', '💥'];
+
   const N = 9;
   for (let i = 0; i < N; i++) {
     const p = document.createElement('div');
@@ -220,70 +322,176 @@ function playBombExplosion(cell) {
     p.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(1) + 'px');
     p.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(1) + 'px');
     p.style.animationDelay = (Math.random() * 0.06).toFixed(2) + 's';
-    document.body.appendChild(p);
+    host.appendChild(p);
     setTimeout(() => { if (p.parentNode) p.remove(); }, 950);
   }
 }
 
-// 단순 blast — 폭발 단계만
-function explodeAt(col, row) {
+// blast 단계만 — SFX 도 같이
+function explodeAt(boardId, col, row) {
+  const board = document.getElementById(boardId);
   const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
   if (!cell) return;
   const marker = placeBombMarker(cell);
   cell.classList.add('bomb-blast', 'bomb-cell-shake');
   if (marker) marker.classList.add('bomb-marker-explode');
   playBombExplosion(cell);
+  playSfxBombExplode();  // 실제 폭발 SFX
   setTimeout(() => {
     cell.classList.remove('bomb-blast', 'bomb-cell-shake', 'bomb-reveal', 'bomb-arming');
     if (marker && marker.parentNode) marker.remove();
   }, 700);
 }
 
-// 전체 시퀀스 — reveal → arm → blast → cleanup (실제 게임 흐름)
-function fullSequence(cells) {
-  // cells: [{col, row}, ...]
+// 전체 시퀀스 — 사용자 요청: blast 단계는 순차적으로 (도미노 효과 + SFX 도 각자)
+//   reveal/arm: 모두 동시 (긴장 누적)
+//   blast: 폭탄 1 → +STAGGER → 폭탄 2 → +STAGGER → ... 각자 자기 SFX
+//   stagger 60ms — "3개 동시 폭발" 버튼과 동일한 빠른 도미노 호흡
+const BOMB_STAGGER_MS = 60;  // 폭탄 간 시차
+
+// ── Web Audio 폭발 SFX (실제 게임의 playSfxBombExplode 와 동일 합성) ──
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function playSfxBombExplode() {
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    const out = ctx.destination;
+    // 저음 boom
+    const boom = ctx.createOscillator();
+    const bG = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(120, now);
+    boom.frequency.exponentialRampToValueAtTime(40, now + 0.35);
+    bG.gain.setValueAtTime(0.5, now);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    boom.connect(bG); bG.connect(out);
+    boom.start(now); boom.stop(now + 0.55);
+    // 노이즈 burst
+    const nBuf = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    for (let j = 0; j < nData.length; j++) nData[j] = (Math.random() * 2 - 1) * (1 - j / nData.length);
+    const noise = ctx.createBufferSource();
+    noise.buffer = nBuf;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.35, now);
+    nG.gain.exponentialRampToValueAtTime(0.05, now + 0.3);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    const lpf = ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 1500;
+    noise.connect(lpf); lpf.connect(nG); nG.connect(out);
+    noise.start(now); noise.stop(now + 0.8);
+    // crunch (mid sawtooth)
+    const crunch = ctx.createOscillator();
+    const crG = ctx.createGain();
+    crunch.type = 'sawtooth';
+    crunch.frequency.setValueAtTime(200, now + 0.05);
+    crunch.frequency.exponentialRampToValueAtTime(60, now + 0.3);
+    crG.gain.setValueAtTime(0.18, now + 0.05);
+    crG.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    crunch.connect(crG); crG.connect(out);
+    crunch.start(now + 0.05); crunch.stop(now + 0.45);
+  } catch (e) {}
+}
+
+function fullSequence(boardId, cells) {
+  const board = document.getElementById(boardId);
   const markers = [];
+
+  // (1) Reveal — 모두 동시 (T=0)
   cells.forEach(({col, row}) => {
     const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
     if (!cell) return;
     cell.classList.add('bomb-reveal');
     markers.push(placeBombMarker(cell));
   });
+
+  // (2) Arm — 모두 동시 (T=450)
   setTimeout(() => {
     cells.forEach(({col, row}) => {
       const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (cell) cell.classList.add('bomb-arming');
     });
   }, 450);
-  setTimeout(() => {
-    cells.forEach(({col, row}) => {
+
+  // (3) Blast — 순차 + 순서 랜덤 (사용자 요청: 도미노가 인덱스 순이 아니라 무작위)
+  //     blast 시간 순서 (550, 610, 670, ...) 는 그대로, 어느 폭탄이 먼저 터질지만 셔플.
+  const blastOrder = cells.map((_, i) => i);
+  for (let i = blastOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [blastOrder[i], blastOrder[j]] = [blastOrder[j], blastOrder[i]];
+  }
+  blastOrder.forEach((cellIdx, slot) => {
+    const { col, row } = cells[cellIdx];
+    const blastT = 550 + slot * BOMB_STAGGER_MS;
+    setTimeout(() => {
       const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (!cell) return;
       cell.classList.add('bomb-blast', 'bomb-cell-shake');
       const m = cell.querySelector('.bomb-anim-marker');
       if (m) m.classList.add('bomb-marker-explode');
       playBombExplosion(cell);
-    });
-  }, 550);
-  setTimeout(() => {
-    cells.forEach(({col, row}) => {
+      // 실제 SFX (Web Audio) + 시각 indicator
+      simulateSfxPulse(boardId, slot, blastT);
+    }, blastT);
+  });
+
+  // (4) Cleanup — 각 폭탄 자기 blast 후 550ms 뒤 (slot 기준)
+  blastOrder.forEach((cellIdx, slot) => {
+    const { col, row } = cells[cellIdx];
+    setTimeout(() => {
       const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (!cell) return;
       cell.classList.remove('bomb-reveal', 'bomb-arming', 'bomb-blast', 'bomb-cell-shake');
-    });
-    markers.forEach(m => { if (m && m.parentNode) m.remove(); });
-  }, 1100);
+      const mm = markers[cellIdx];
+      if (mm && mm.parentNode) mm.remove();
+    }, 1100 + slot * BOMB_STAGGER_MS);
+  });
 }
 
-// 컨트롤
-document.getElementById('btn-single').addEventListener('click', () => explodeAt(2, 2));
+// SFX — 실제 Web Audio 합성 폭발음 + 시각 펄스
+function simulateSfxPulse(boardId, idx, t) {
+  // 실제 사운드 재생
+  playSfxBombExplode();
+  // 시각 indicator
+  const card = document.getElementById(boardId === 'board-mine' ? 'card-mine' : 'card-enemy');
+  if (!card) return;
+  const dot = document.createElement('div');
+  dot.className = 'sfx-pulse';
+  dot.textContent = '🔊 BOOM';
+  card.appendChild(dot);
+  setTimeout(() => { if (dot.parentNode) dot.remove(); }, 600);
+}
+
+// 컨트롤 — 양쪽 보드 동시 실행
+document.getElementById('btn-single').addEventListener('click', () => {
+  explodeAt('board-mine',  2, 2);
+  explodeAt('board-enemy', 2, 2);
+});
 document.getElementById('btn-multi').addEventListener('click', () => {
-  explodeAt(1, 1);
-  setTimeout(() => explodeAt(3, 1), 60);
-  setTimeout(() => explodeAt(2, 3), 120);
+  ['board-mine', 'board-enemy'].forEach(bid => {
+    explodeAt(bid, 1, 1);
+    setTimeout(() => explodeAt(bid, 3, 1), 60);
+    setTimeout(() => explodeAt(bid, 2, 3), 120);
+  });
 });
 document.getElementById('btn-full').addEventListener('click', () => {
-  fullSequence([{col: 1, row: 2}, {col: 3, row: 2}]);
+  // 5개 폭탄 — stagger 효과 시각적으로 잘 보이도록 좀 더 많이
+  ['board-mine', 'board-enemy'].forEach(bid => {
+    fullSequence(bid, [
+      {col: 0, row: 1},
+      {col: 2, row: 1},
+      {col: 4, row: 1},
+      {col: 1, row: 3},
+      {col: 3, row: 3},
+    ]);
+  });
 });
 </script>
 

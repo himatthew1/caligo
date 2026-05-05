@@ -2625,14 +2625,59 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 
 /* 기폭 인트로 — 폭탄 자체 크기는 변경 없이 셀 배경/글로우만 단계적으로 변화 + 폭탄 마커 페이드인
    1) reveal: 폭탄 위치 셀 부드러운 황색 후광 + 마커 페이드인
-   2) arming: 셀 배경이 빨강으로 박동 (점화)
-   3) blast: 짧은 흰→주황 폭발 플래시 (피해 적용 시점)
-   ※ 마커는 우상단 작은 💣 (기존 has-bomb 와 동일 위치/크기). 보드 위 말 아이콘을 가리지 않음 */
+   2) arming: 셀 배경이 팀별 컬러로 박동 (mine 파랑 / enemy 빨강) (점화)
+   3) blast: 짧은 흰→팀컬러 폭발 플래시 (피해 적용 시점)
+   ※ 폭탄 마커는 bottom-right + 5px 왼쪽 (덫과 같은 라인) — 보드 위 말 아이콘을 가리지 않음 */
 @keyframes bomb-marker-fade-in {
   0%   { opacity: 0; transform: scale(0.3); }
   60%  { opacity: 1; transform: scale(1.25); }
   100% { opacity: 1; transform: scale(1); }
 }
+
+/* 팀 컬러 변수 — 셀에 .bomb-team-mine / .bomb-team-enemy 클래스 적용. 기본은 enemy (현행) */
+.cell.bomb-team-mine {
+  --bomb-arming-a:     59, 130, 246;  /* mid blue */
+  --bomb-arming-b:    147, 197, 253;  /* light blue */
+  --bomb-blast-light: 191, 219, 254;  /* very light blue */
+  --bomb-blast-mid:    37, 99, 235;   /* royal blue */
+  --bomb-blast-dark:   23, 37, 84;    /* dark navy */
+  --bomb-burst-glow:  147, 197, 253;
+  --bomb-frag-glow:    96, 165, 250;
+}
+.cell.bomb-team-enemy {
+  --bomb-arming-a:    220,  38,  38;  /* red */
+  --bomb-arming-b:    248, 113, 113;  /* light red */
+  --bomb-blast-light: 255, 255, 200;  /* yellow-cream */
+  --bomb-blast-mid:   255, 100,   0;  /* orange */
+  --bomb-blast-dark:  120,  30,   0;  /* dark red */
+  --bomb-burst-glow:  255, 200,   0;
+  --bomb-frag-glow:   255, 150,   0;
+}
+/* 폴백 (팀 클래스 없을 시 — enemy 팔레트) */
+.cell.bomb-reveal,
+.cell.bomb-arming,
+.cell.bomb-blast {
+  --bomb-arming-a:    220,  38,  38;
+  --bomb-arming-b:    248, 113, 113;
+  --bomb-blast-light: 255, 255, 200;
+  --bomb-blast-mid:   255, 100,   0;
+  --bomb-blast-dark:  120,  30,   0;
+  --bomb-burst-glow:  255, 200,   0;
+  --bomb-frag-glow:   255, 150,   0;
+}
+/* team 클래스가 같이 있으면 그쪽 변수가 우선 (cascading 순서) */
+.cell.bomb-team-mine.bomb-reveal,
+.cell.bomb-team-mine.bomb-arming,
+.cell.bomb-team-mine.bomb-blast {
+  --bomb-arming-a:     59, 130, 246;
+  --bomb-arming-b:    147, 197, 253;
+  --bomb-blast-light: 191, 219, 254;
+  --bomb-blast-mid:    37, 99, 235;
+  --bomb-blast-dark:   23, 37, 84;
+  --bomb-burst-glow:  147, 197, 253;
+  --bomb-frag-glow:    96, 165, 250;
+}
+
 .cell.bomb-reveal {
   box-shadow: inset 0 0 10px rgba(250, 204, 21, 0.55), 0 0 8px rgba(250, 204, 21, 0.4);
   animation: bomb-reveal-glow 0.6s ease-out forwards;
@@ -2642,22 +2687,21 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   100% { box-shadow: inset 0 0 12px rgba(250, 204, 21, 0.7), 0 0 10px rgba(250, 204, 21, 0.5); }
 }
 .cell.bomb-arming {
-  background: rgba(220, 38, 38, 0.45) !important;
-  box-shadow: inset 0 0 10px rgba(220, 38, 38, 0.85), 0 0 10px rgba(248, 113, 113, 0.7);
-  /* 빠른 박동 — 곧바로 폭발로 전이됨 */
+  background: rgba(var(--bomb-arming-a), 0.45) !important;
+  box-shadow: inset 0 0 10px rgba(var(--bomb-arming-a), 0.85), 0 0 10px rgba(var(--bomb-arming-b), 0.7);
   animation: bomb-arm-pulse 0.18s ease-in-out infinite;
 }
 @keyframes bomb-arm-pulse {
-  0%,100% { background: rgba(220, 38, 38, 0.45) !important; }
-  50%     { background: rgba(248, 113, 113, 0.75) !important; }
+  0%,100% { background: rgba(var(--bomb-arming-a), 0.45) !important; }
+  50%     { background: rgba(var(--bomb-arming-b), 0.75) !important; }
 }
 .cell.bomb-blast {
   animation: bomb-blast-flash 0.45s ease-out forwards !important;
 }
 @keyframes bomb-blast-flash {
-  0%   { background: rgba(255, 255, 200, 0.95) !important; box-shadow: 0 0 36px rgba(255, 200, 0, 1); }
-  40%  { background: rgba(255, 100, 0, 0.85) !important; box-shadow: 0 0 30px rgba(255, 120, 0, 0.85); }
-  100% { background: rgba(120, 30, 0, 0.25) !important; box-shadow: none; }
+  0%   { background: rgba(var(--bomb-blast-light), 0.95) !important; box-shadow: 0 0 36px rgba(var(--bomb-blast-light), 1); }
+  40%  { background: rgba(var(--bomb-blast-mid),   0.85) !important; box-shadow: 0 0 30px rgba(var(--bomb-blast-mid), 0.85); }
+  100% { background: rgba(var(--bomb-blast-dark),  0.25) !important; box-shadow: none; }
 }
 
 /* ── 강화된 기폭 애니메이션 — 💣 이모지 폭발 + 💥 burst + 파편 + 셀 흔들림 ── */

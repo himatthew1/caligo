@@ -5797,71 +5797,97 @@ socket.on('detonation_intro', ({ bombs }) => {
   if (!Array.isArray(bombs) || bombs.length === 0) return;
   const board = document.getElementById('game-board');
   if (!board) return;
-  // ★ 통일 — 기폭은 SP cost 0 이지만 cost 1 (780ms) 시점에 spotlight 종료 후 폭탄 시퀀스 시작.
-  //   기존 SP_ATTN_MS(2000) + SKILL_GAP_MS(500) = 2500ms → 780ms 로 단축.
-  //   폭탄 시퀀스 자체(reveal→arm→blast→cleanup) 는 950ms 로 그대로 유지.
-  const SKILL_START_MS = getSpFlightEndMs(1);  // 780ms — 다른 1 cost 스킬과 동일 호흡
-  // ★ 기폭으로 발동된 폭탄들 — 클라가 보드에서 즉시 제거할 수 있게 표시 + bomb_detonated 의 중복 SFX 차단
+  // ★ 통일 — SP cost 0 이지만 cost 1 (780ms) 시점에 spotlight 종료 후 폭탄 시퀀스 시작.
+  const SKILL_START_MS = getSpFlightEndMs(1);  // 780ms
   S._suppressNextBombSfx = (S._suppressNextBombSfx || 0) + bombs.length;
   const markers = [];
-  // 단계 1: 노출 (0ms) — 마커 부착 + 황색 후광
+
+  // ★ 팀 컬러 결정 — 폭탄 owner 가 본인/팀원이면 'mine' (파랑), 아니면 'enemy' (빨강).
+  //   1v1: owner === S.playerIdx → mine
+  //   팀모드: 같은 teamId → mine
+  const isOwnerMine = (ownerIdx) => {
+    if (ownerIdx == null) return false;
+    if (S.isTeamMode && Array.isArray(S.teamGamePlayers)) {
+      const ownerPl = S.teamGamePlayers.find(p => p.idx === ownerIdx);
+      return !!(ownerPl && ownerPl.teamId === S.teamId);
+    }
+    return ownerIdx === S.playerIdx;
+  };
+
+  // 단계 1: reveal (T=0) — 모두 동시. 마커 부착 + 후광 + 팀 컬러 클래스
   setTimeout(() => {
     for (const b of bombs) {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
       if (!cell) continue;
       cell.classList.add('bomb-reveal');
+      // 팀 컬러 — 셀에 클래스 추가 (CSS 변수 적용)
+      cell.classList.add(isOwnerMine(b.owner) ? 'bomb-team-mine' : 'bomb-team-enemy');
       const existing = cell.querySelector('.bomb-anim-marker');
       if (!existing) {
         const m = document.createElement('span');
         m.className = 'bomb-anim-marker';
         m.textContent = '💣';
-        m.style.cssText = 'position:absolute;top:1px;right:2px;font-size:0.6rem;z-index:6;pointer-events:none;animation:bomb-marker-fade-in 0.35s ease-out forwards;';
+        // ★ 위치 변경 — bottom-right + 5px 왼쪽 (덫과 같은 라인, 덫 위 z-index 6)
+        m.style.cssText = 'position:absolute;bottom:1px;right:7px;font-size:0.6rem;z-index:6;pointer-events:none;animation:bomb-marker-fade-in 0.35s ease-out forwards;';
         cell.appendChild(m);
         markers.push(m);
       }
     }
   }, SKILL_START_MS);
-  // 단계 2: 빨강 (450ms 후)
+
+  // 단계 2: arm (T=450) — 모두 동시. 팀별 박동 (CSS 변수)
   setTimeout(() => {
     for (const b of bombs) {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
       if (cell) cell.classList.add('bomb-arming');
     }
   }, SKILL_START_MS + 450);
-  // 단계 3: 폭발 (550ms — 빨강 변환 100ms 후 즉시 폭발) + SFX 1번만 + 강화 애니메이션
-  setTimeout(() => {
-    for (const b of bombs) {
+
+  // 단계 3: blast (T=550 + slot*60) — 순차 + 무작위 셔플 + 각자 SFX
+  //   사용자 요청: "3개 동시 폭발" 처럼 빠른 도미노 + 매번 다른 순서.
+  const BOMB_STAGGER_MS = 60;
+  const blastOrder = bombs.map((_, i) => i);
+  for (let i = blastOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [blastOrder[i], blastOrder[j]] = [blastOrder[j], blastOrder[i]];
+  }
+  blastOrder.forEach((bombIdx, slot) => {
+    const b = bombs[bombIdx];
+    const blastT = SKILL_START_MS + 550 + slot * BOMB_STAGGER_MS;
+    setTimeout(() => {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
-      if (!cell) continue;
+      if (!cell) return;
       cell.classList.add('bomb-blast');
-      // 셀 흔들림
       cell.classList.add('bomb-cell-shake');
       setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
-      // 기존 💣 마커 — 커지며 회전 후 사라짐
       const marker = cell.querySelector('.bomb-anim-marker');
       if (marker) marker.classList.add('bomb-marker-explode');
-      // 💥 burst + 파편
       try { playBombExplosion(cell); } catch (e) {}
-    }
-    // ★ 폭발 SFX — 시각 폭발 순간에 1번만 (bomb_detonated 의 SFX 는 _suppressNextBombSfx 로 차단)
-    try { playSfxBombExplode(); } catch (e) {}
-  }, SKILL_START_MS + 550);
-  // 단계 4: 정리 (950ms 후) — 마커 제거 + 보드에서 폭탄 즉시 제거 (사용자 요청: 턴 종료 안 기다림)
-  setTimeout(() => {
-    for (const b of bombs) {
+      // ★ SFX 각 폭탄별로 — 도미노 효과
+      try { playSfxBombExplode(); } catch (e) {}
+    }, blastT);
+  });
+
+  // 단계 4: cleanup (T=950 + slot*60 per bomb) — 자기 blast 후 마커 제거
+  blastOrder.forEach((bombIdx, slot) => {
+    const b = bombs[bombIdx];
+    setTimeout(() => {
       const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
-      if (cell) cell.classList.remove('bomb-reveal', 'bomb-arming', 'bomb-blast');
-    }
+      if (cell) cell.classList.remove('bomb-reveal', 'bomb-arming', 'bomb-blast', 'bomb-team-mine', 'bomb-team-enemy');
+    }, SKILL_START_MS + 950 + slot * BOMB_STAGGER_MS);
+  });
+  // 모든 마커 + 보드 정리 — 마지막 폭탄 cleanup 직후
+  const totalMs = SKILL_START_MS + 950 + (bombs.length - 1) * BOMB_STAGGER_MS + 50;
+  setTimeout(() => {
     for (const m of markers) {
       if (m && m.parentNode) m.remove();
     }
-    // S.boardObjects 에서 해당 좌표의 bomb 제거 + 보드 재렌더 (즉시 사라지게)
     if (Array.isArray(S.boardObjects)) {
       const coordSet = new Set(bombs.map(b => `${b.col},${b.row}`));
       S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && coordSet.has(`${o.col},${o.row}`)));
       try { renderGameBoard(); } catch (e) {}
     }
-  }, SKILL_START_MS + 950);
+  }, totalMs);
 });
 
 // ── 폭탄 폭발 ──
@@ -9987,16 +10013,20 @@ function renderGameBoard() {
         if (obj.col === col && obj.row === row) {
           if (obj.type === 'trap') {
             cell.classList.add('has-trap');
-            cell.innerHTML += '<span style="position:absolute;bottom:1px;right:2px;font-size:0.5rem">🪤</span>';
+            // 트랩 — bottom-right 코너 (z-index 3, 폭탄 아래에 깔림)
+            cell.innerHTML += '<span style="position:absolute;bottom:1px;right:2px;font-size:0.5rem;z-index:3">🪤</span>';
           }
-          if (obj.type === 'bomb') cell.innerHTML += '<span style="position:absolute;top:1px;right:2px;font-size:0.5rem">💣</span>';
+          if (obj.type === 'bomb') {
+            // ★ 폭탄 — bottom-right 영역 (덫과 같은 라인, 5px 왼쪽 offset, 덫 위 z-index 4)
+            //   사용자 결정 — 본인/상대 폭탄 시각 차별화는 폭발 애니메이션에서만 (설치 아이콘은 공통)
+            cell.innerHTML += '<span style="position:absolute;bottom:1px;right:7px;font-size:0.5rem;z-index:4">💣</span>';
+          }
           if (obj.type === 'rat') {
             const isMyRat = obj.owner === S.playerIdx;
             const ratColor = isMyRat ? 'color:#52b788' : 'color:#e05252';
-            // ★ 위치 변경 (사용자 보고): 적군 쥐가 추리 토큰(bottom-left)과 겹쳐 보임 → top-left 로 이동.
-            //   본인 쥐: top-right (기존 유지) — 폭탄과 같은 코너지만 같은 셀에 둘이 동시 발생 거의 없음.
-            //   적군 쥐: top-left (신규) — 추리 토큰(bottom-left), 트랩(bottom-right) 와 겹치지 않음.
-            const ratPos = isMyRat ? 'top:1px;right:2px' : 'top:1px;left:2px';
+            // ★ 쥐 — top 라인. 적군 쥐 = top-left 코너, 본인 쥐 = top-left + 5px 오른쪽 (적쥐 위 z-index 4).
+            //   사용자 요청: 둘이 거의 겹치되 적쥐가 살짝 보이도록 5px stagger.
+            const ratPos = isMyRat ? 'top:1px;left:7px;z-index:4' : 'top:1px;left:2px;z-index:3';
             cell.innerHTML += `<span style="position:absolute;${ratPos};font-size:0.5rem;${ratColor}">${isMyRat ? '🐀' : '🐁'}</span>`;
           }
         }
