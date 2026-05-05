@@ -6002,9 +6002,18 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
 
   // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두 (팀모드는 팀원도 포함)
-  const myBombIdx = findPieceIndices(S.myPieces, hits);
-  const oppBombIdx = findPieceIndices(S.oppPieces, hits);
-  const tmBombIdx = (S.isTeamMode && S.teammatePieces) ? findPieceIndices(S.teammatePieces, hits) : [];
+  // ★ 사용자 보고 (잘못된 링크): 양 측이 같은 캐릭터 보유 시 name 매칭이 cross-side 매칭하던 문제 →
+  //   ownerIdx 인자 전달로 hits 의 defOwnerIdx 와 일치하는 것만 매칭 (1v1 자기/상대 정확 분리).
+  const myOwnerIdx = S.playerIdx;
+  const oppOwnerIdx = (S.playerIdx != null) ? (1 - S.playerIdx) : undefined;
+  const myBombIdx = findPieceIndices(S.myPieces, hits, true, myOwnerIdx);
+  const oppBombIdx = findPieceIndices(S.oppPieces, hits, true, oppOwnerIdx);
+  // 팀모드: 팀원 → 팀원의 ownerIdx 와 일치하는 hits 만
+  let tmBombIdx = [];
+  if (S.isTeamMode && S.teammatePieces) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) tmBombIdx = findPieceIndices(S.teammatePieces, hits, true, teammate.idx);
+  }
 
   renderGameBoard();
   if (S.isTeamMode && typeof renderTeamProfiles === 'function') {
@@ -13439,15 +13448,21 @@ function applyProtectedAnimTeam(playerIdx, pieceIdx) {
 }
 
 // 좌표/이름으로 피스 배열에서 인덱스 찾기 (살아있는 유닛만)
-function findPieceIndices(pieces, hitList, matchByCoord = true) {
+// findPieceIndices — 피격 인덱스 목록 추출.
+//   ownerIdx (옵션): 명시 시 hits 중 defOwnerIdx 가 일치하는 것만 처리. 다른 owner 의 hit 는 스킵.
+//   ★ 사용자 보고 (폭탄 피격 잘못 링크): 양 측이 같은 캐릭터(같은 name) 보유 시 name 매칭으로 cross-side
+//     매칭 발생 → owner 검증으로 차단.
+function findPieceIndices(pieces, hitList, matchByCoord = true, ownerIdx) {
   const indices = [];
   for (const h of hitList) {
+    // owner 필터 — defOwnerIdx 가 명시되어 있고 ownerIdx 와 다르면 스킵.
+    if (typeof ownerIdx === 'number' && typeof h.defOwnerIdx === 'number' && h.defOwnerIdx !== ownerIdx) continue;
     let idx = -1;
     // ★ 서버가 defPieceIdx 를 직접 보내면 그것을 1순위로 사용 (사망한 piece 도 정확히 매칭).
     if (typeof h.defPieceIdx === 'number' && pieces[h.defPieceIdx]) {
       idx = h.defPieceIdx;
     }
-    // p.alive 검사 제거 — 이번 턴에 죽은 piece 도 carrd 애니메이션 (turn-bright) 받아야 함.
+    // p.alive 검사 제거 — 이번 턴에 죽은 piece 도 card 애니메이션 (turn-bright) 받아야 함.
     if (idx < 0 && matchByCoord && h.col !== undefined && h.row !== undefined) {
       idx = pieces.findIndex(p => p.col === h.col && p.row === h.row);
     }

@@ -1090,8 +1090,12 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
     const turnsToShrink = ev.shrinkTurn - room.turnNumber;
     if (turnsToShrink > 10 || turnsToShrink < 0) continue;  // 10턴 이내만
     // 새 위치가 곧 파괴될 영역(현재 bounds 밖이지만 ev.newBounds 안인 셀)인지
-    const willBeOutside = newCol < ev.newBounds.min || newCol > ev.newBounds.max ||
-                          newRow < ev.newBounds.min || newRow > ev.newBounds.max;
+    // ★ AI freeze 버그 수정 — ev.newBounds 미설정 → undefined.min throw 방어.
+    const evBaseSize = room.mode === 'team' ? 7 : 5;
+    const evNextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+    const evBounds = ev.newBounds || _levelToBounds(evNextLevel, evBaseSize);
+    const willBeOutside = newCol < evBounds.min || newCol > evBounds.max ||
+                          newRow < evBounds.min || newRow > evBounds.max;
     if (willBeOutside) {
       // 임박할수록 강한 페널티 (10턴 전: -50, 1턴 전: -200)
       const urgency = Math.max(1, 11 - turnsToShrink);
@@ -1442,7 +1446,10 @@ function aiTeamFindEvacuation(room, idx) {
   const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
   if (turnsLeft > 5) return null;  // 5턴 이내만 대피 모드
   // 곧 파괴될 외곽에 있는 내 말 찾기
-  const newBounds = nextShrink.newBounds;
+  // ★ AI freeze 버그 수정 — schedule 이벤트에 newBounds 없음. _levelToBounds 로 사후 계산.
+  const baseSize = room.mode === 'team' ? 7 : 5;
+  const nextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+  const newBounds = nextShrink.newBounds || _levelToBounds(nextLevel, baseSize);
   const myAlive = p.pieces.filter(pc => pc.alive && pc.col >= 0);
   const trapped = myAlive.filter(pc => pc.col < newBounds.min || pc.col > newBounds.max ||
                                        pc.row < newBounds.min || pc.row > newBounds.max);
@@ -2888,9 +2895,9 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   const attacker = room.players[attackerIdx];
   let dmg = baseDamage;
 
-  // Status damage pipeline (curse): only shadow blocks
+  // Status damage pipeline (curse): 기존 저주는 shadow 무관 정상 적용 (사용자 정정).
+  //   shadow 면역 범위는 새 데미지/상태이상 부여만 — 이미 걸려있던 저주의 지속 데미지는 유효.
   if (isStatusDmg) {
-    if (defenderPiece.statusEffects.some(e => e.type === 'shadow')) return 0;
     return dmg;
   }
 
@@ -4624,9 +4631,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       const enemyPiece = kingTargetOwner.pieces.find(p => p.alive && p.type === targetName);
       if (!enemyPiece) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
-      if (enemyPiece.statusEffects.some(e => e.type === 'shadow')) {
-        return { ok: false, msg: '그림자 상태인 적에게는 사용할 수 없습니다.' };
-      }
+      // ★ 사용자 정정: 그림자 암살자는 그림자 상태여도 절대복종 반지의 대상이 됨.
+      //   공격·새 상태이상 면역일 뿐, 강제 이동은 상태이상이 아니므로 정상 적용.
       enemyPiece.col = destCol;
       enemyPiece.row = destRow;
       spendSP(room, playerIdx, cost);
@@ -4925,8 +4931,12 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
     if (room.boardShrinkStage >= ev.stage) continue;
     const turnsToShrink = ev.shrinkTurn - room.turnNumber;
     if (turnsToShrink > 10 || turnsToShrink < 0) continue;
-    const willBeOutside = newCol < ev.newBounds.min || newCol > ev.newBounds.max ||
-                          newRow < ev.newBounds.min || newRow > ev.newBounds.max;
+    // ★ AI freeze 버그 수정 — ev.newBounds 미설정 → undefined.min throw 방어.
+    const _bs = room.mode === 'team' ? 7 : 5;
+    const _nl = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+    const _evB = ev.newBounds || _levelToBounds(_nl, _bs);
+    const willBeOutside = newCol < _evB.min || newCol > _evB.max ||
+                          newRow < _evB.min || newRow > _evB.max;
     if (willBeOutside) {
       const urgency = Math.max(1, 11 - turnsToShrink);
       score -= 25 * urgency;
@@ -5357,7 +5367,11 @@ function aiFindEvacuation(room) {
   if (!nextShrink) return null;
   const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
   if (turnsLeft > 5 || turnsLeft < 0) return null;
-  const newB = nextShrink.newBounds;
+  // ★ AI freeze 버그 수정 — schedule 이벤트에 newBounds 없음 (사후 계산 안 됨).
+  //   _levelToBounds 로 다음 LV 의 bounds 계산. 이전엔 undefined → inBounds() 가 throw → AI 멈춤.
+  const baseSize = room.mode === 'team' ? 7 : 5;
+  const nextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+  const newB = nextShrink.newBounds || _levelToBounds(nextLevel, baseSize);
   // 곧 파괴될 셀 = 현재 bounds 안이지만 newBounds 밖
   const willBeDestroyed = (col, row) =>
     inBounds(col, row, bounds) && !inBounds(col, row, newB);
