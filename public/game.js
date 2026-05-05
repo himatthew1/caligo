@@ -2331,12 +2331,14 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
     const titleEl = document.getElementById('gameover-title');
     const subEl = document.getElementById('gameover-sub');
 
-    // 무승부 (양 팀 동시 전멸 또는 unreachable)
-    if (r.type === 'draw' || r.type === 'unreachable_draw') {
+    // 무승부 (양 팀 동시 전멸 / unreachable / 사망 기폭으로 동시 전멸)
+    if (r.type === 'draw' || r.type === 'unreachable_draw' || r.type === 'simultaneous_draw') {
       if (iconEl) iconEl.textContent = '🤝';
       if (titleEl) { titleEl.textContent = '무승부'; titleEl.style.color = 'var(--muted)'; }
       const subMsg = r.type === 'unreachable_draw'
         ? '게임을 끝낼 수 없어 무승부입니다.'
+        : r.type === 'simultaneous_draw'
+        ? '폭탄 폭발로 양 팀 모든 유닛이 동시에 전멸했습니다.'
         : '보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.';
       if (subEl) subEl.innerHTML = subMsg;
       return;
@@ -5719,6 +5721,69 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   }
 });
 
+// ── 사망 기폭 시전 애니메이션 ──
+//   화약상이 죽으면서 자동으로 발동되는 기폭. 서버는 600ms 사망 인지 텀 후 이 이벤트 emit.
+//   여러 화약상이 동시 사망 (학살영웅 attack / 보드 축소 등) 한 wave 면 casters 배열에 다수 포함.
+//   클라는 각 caster 카드에 "사망 기폭" 노란 말풍선 + spotlight 동시 출력.
+//   SP 마법구 비행 없음 (cost 0 자동 발동).
+socket.on('death_detonate_cast', ({ casters, bombs }) => {
+  if (!Array.isArray(casters) || casters.length === 0) return;
+  // 각 caster 카드 찾아서 spotlight + 말풍선
+  for (const c of casters) {
+    if (c.ownerIdx == null || c.pieceIdx == null) continue;
+    let card = null;
+    if (S.isTeamMode) {
+      // 팀 모드 — team-profile-block[data-player-idx][data-piece-idx]
+      card = document.querySelector(`.team-profile-block[data-player-idx="${c.ownerIdx}"] [data-piece-idx="${c.pieceIdx}"]`);
+    } else if (S.isSpectator) {
+      // 1v1 관전자 — p0 → my-pieces-info, p1 → opp-pieces-info
+      const containerSel = (c.ownerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+      const cardSel = (c.ownerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+      card = document.querySelectorAll(`${containerSel} ${cardSel}`)[c.pieceIdx];
+    } else {
+      // 1v1 인게임 — 본인이면 my-pieces, 상대면 opp-pieces
+      if (c.ownerIdx === S.playerIdx) {
+        card = document.querySelectorAll('#my-pieces-info .my-piece-card')[c.pieceIdx];
+      } else {
+        card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[c.pieceIdx];
+      }
+    }
+    if (!card) continue;
+    // spotlight (skill cast dim 와 동일 메커니즘) — caster card 강조 + 다른 dim
+    if (typeof startSkillCastDim === 'function') {
+      const _targetInfo = (S.isTeamMode && c.ownerIdx != null && c.pieceIdx != null)
+        ? { playerIdx: c.ownerIdx, pieceIdx: c.pieceIdx }
+        : null;
+      startSkillCastDim(card, _targetInfo);
+    }
+    // "사망 기폭" 노란 말풍선 (자유·턴1회 색상 = once) — 이모지 없음
+    if (typeof showSkillCastBubble === 'function') {
+      showSkillCastBubble(card, '사망 기폭', 'once');
+    }
+  }
+  // 780ms (CAST_DURATION 과 일치) 후 spotlight 해제 — detonation_intro 가 곧 도착
+  setTimeout(() => {
+    for (const c of casters) {
+      if (c.ownerIdx == null || c.pieceIdx == null) continue;
+      let card = null;
+      if (S.isTeamMode) {
+        card = document.querySelector(`.team-profile-block[data-player-idx="${c.ownerIdx}"] [data-piece-idx="${c.pieceIdx}"]`);
+      } else if (S.isSpectator) {
+        const containerSel = (c.ownerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+        const cardSel = (c.ownerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+        card = document.querySelectorAll(`${containerSel} ${cardSel}`)[c.pieceIdx];
+      } else {
+        if (c.ownerIdx === S.playerIdx) {
+          card = document.querySelectorAll('#my-pieces-info .my-piece-card')[c.pieceIdx];
+        } else {
+          card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[c.pieceIdx];
+        }
+      }
+      if (card && typeof endSkillCastDim === 'function') endSkillCastDim(card);
+    }
+  }, 780);
+});
+
 // ── 기폭 인트로 (폭탄 노출 → 빨강 전환 애니) ──
 // #18: SP 강조(2s) 후 시작. 전체 1.5s 로 압축.
 // 폭탄 이모지는 인게임 보드 렌더 흐름과 무관하게 인트로 핸들러가 직접 셀에 마커 부착 →
@@ -6160,6 +6225,8 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
     document.getElementById('gameover-title').style.color = 'var(--muted)';
     const drawMsg = (reason && reason.type === 'unreachable_draw')
       ? '게임을 끝낼 수 없어 무승부입니다.'
+      : (reason && reason.type === 'simultaneous_draw')
+      ? '폭탄 폭발로 양 측 모든 유닛이 동시에 전멸했습니다.'
       : '보드 축소로 양 팀 모든 말이 전멸해 무승부입니다.';
     document.getElementById('gameover-sub').textContent = drawMsg;
     return;

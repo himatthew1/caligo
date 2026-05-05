@@ -1145,6 +1145,8 @@ function aiTeamBestTargetCell(room, idx, piece) {
 
 // 팀전 AI 스킬 실행 — 1v1 aiExecSkill의 팀모드판 (idx를 받음)
 function aiTeamExecSkill(room, idx, pidx, skillId, params) {
+  // ★ 사망 기폭 페이즈 — 팀모드 AI 스킬로 화약상 사망 시 큐.
+  startPhase(room);
   const result = executeSkill(room, idx, pidx, skillId, params || {});
   // 모든 비-AI 플레이어 + 관전자에게 스킬 사용 알림 (인간 use_skill 경로와 동일)
   // 누락되면 팀원/적의 스킬 사용을 인지 불가 → 토스트·로그 누락
@@ -1196,6 +1198,13 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       }
     }, 1930);
   }
+
+  // ★ 사망 기폭 페이즈 flush — 팀모드 AI 스킬로 화약상 사망 시 cast/intro/bomb_detonated 시퀀스 emit.
+  flushPhase(room, () => {
+    if (rooms[room.id] && room.phase === 'game') {
+      checkGameEndAfterPhase(room);
+    }
+  });
 
   // AI 토스트 추적 — 스킬은 ~7.6s 동안 표시
   aiTrackToastEnd(room, 'skill');
@@ -3015,6 +3024,177 @@ function checkCurseRemoval(room, piece, ownerIdx) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// ── Animation Phase System ─────────────────────────────────────────
+// 트리거 액션의 부산물 (사망 효과 등) 을 한꺼번에 휘몰아치지 않게 순차 페이즈로 묶음.
+//
+// 사용 패턴:
+//   startPhase(room) → 액션 처리 (handleDeath 가 페이즈 큐에 효과 push)
+//                   → flushPhase(room, onComplete)
+// 페이즈 진행 중 _animPhaseEndsAt + _aiEndTurnEarliest 가 미래 시각으로 설정됨 →
+// AI 행동 / 턴 전환 / 다음 액션이 이 시각까지 대기.
+//
+// 사용자 요구: 한 트리거의 모든 결과는 즉시(서버 사이드) 계산되지만, 클라가 보는
+// 애니메이션은 사망 → 사망 효과 → 체인 효과 순으로 호흡감 있게 노출.
+// ══════════════════════════════════════════════════════════════════
+
+function startPhase(room) {
+  room._currentPhase = {
+    pendingDeathDetonations: [],  // 1세대 사망 화약상 (액션의 직접 결과)
+  };
+}
+
+function isPhaseActive(room) {
+  return !!room._currentPhase;
+}
+
+// 사망 기폭 — handleDeath 가 화약상 분기에서 호출. 페이즈 큐에 push.
+//   체인 wave 처리 중이면 다음 wave 큐로, 아니면 1세대 큐로.
+//   페이즈 비활성 시 false 반환 (호출자가 즉시 처리 fallback).
+function queueDeathDetonation(room, ownerIdx, casterPieceIdx) {
+  if (room._tempChainQueue) {
+    room._tempChainQueue.push({ ownerIdx, casterPieceIdx });
+    return true;
+  }
+  if (room._currentPhase) {
+    room._currentPhase.pendingDeathDetonations.push({ ownerIdx, casterPieceIdx });
+    return true;
+  }
+  return false;
+}
+
+// 페이즈 종료 — 사망 기폭 wave 들 사전 계산 (state 즉시 변경) + emit 만 시간차 스케줄링
+function flushPhase(room, onComplete) {
+  if (!room._currentPhase) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const phase = room._currentPhase;
+  room._currentPhase = null;
+
+  const RECOGNITION_DELAY = 600;   // 사망 인지 텀
+  const CAST_DURATION = 780;        // "사망 기폭" 말풍선 + spotlight
+  const BOMB_DURATION = 1930;       // detonation_intro + bomb_detonated
+  const POST_SETTLE = 500;          // wave 간 마진
+
+  // === 1) 모든 wave 사전 계산 ===
+  const waves = [];
+  let waveQueue = phase.pendingDeathDetonations.slice();
+  let safetyCounter = 0;
+
+  while (waveQueue.length > 0 && safetyCounter < 8) {
+    safetyCounter++;
+    const wave = waveQueue;
+    const newPending = [];
+
+    // 이번 wave 의 detonateBomb 안에서 발생하는 사망(=체인) 은 newPending 으로
+    room._tempChainQueue = newPending;
+
+    const deferredEmits = [];
+    for (const dd of wave) {
+      const bombs = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type === 'bomb');
+      for (const bomb of bombs) {
+        const hits = detonateBomb(room, dd.ownerIdx, bomb, { deferEmit: true });
+        deferredEmits.push({ col: bomb.col, row: bomb.row, hits });
+      }
+      room.boardObjects[dd.ownerIdx] = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type !== 'bomb');
+    }
+
+    room._tempChainQueue = null;
+
+    waves.push({
+      casters: wave.map(dd => ({ ownerIdx: dd.ownerIdx, pieceIdx: dd.casterPieceIdx })),
+      deferredEmits,
+    });
+
+    waveQueue = newPending;  // 다음 wave (체인)
+  }
+
+  // === 2) emit 스케줄링 (각 wave 순차 노출) ===
+  let cursor = 0;
+  for (const wave of waves) {
+    const allBombs = wave.deferredEmits.map(b => ({ col: b.col, row: b.row }));
+
+    cursor += RECOGNITION_DELAY;
+    const c1 = cursor;
+    setTimeout(() => {
+      if (rooms[room.id]) {
+        emitToBoth(room, 'death_detonate_cast', { casters: wave.casters, bombs: allBombs });
+      }
+    }, c1);
+
+    cursor += CAST_DURATION;
+    const c2 = cursor;
+    setTimeout(() => {
+      if (rooms[room.id]) {
+        emitToBoth(room, 'detonation_intro', { bombs: allBombs });
+      }
+    }, c2);
+
+    cursor += BOMB_DURATION;
+    const c3 = cursor;
+    setTimeout(() => {
+      if (!rooms[room.id]) return;
+      for (const bd of wave.deferredEmits) {
+        emitToBoth(room, 'bomb_detonated', bd);
+      }
+    }, c3);
+
+    cursor += POST_SETTLE;
+  }
+
+  // === 3) 페이즈 종료 시각 마킹 + AI 차단 + 게임종료 검사 지연 플래그 ===
+  if (cursor > 0) {
+    const phaseEnd = Date.now() + cursor + 200;
+    room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, phaseEnd);
+    if (!room._aiEndTurnEarliest || phaseEnd > room._aiEndTurnEarliest) {
+      room._aiEndTurnEarliest = phaseEnd;
+    }
+    if (!room._aiNextActionEarliest || phaseEnd > room._aiNextActionEarliest) {
+      room._aiNextActionEarliest = phaseEnd;
+    }
+    // ★ sync 게임종료 검사가 미리 fire 되지 않게 방지하는 플래그.
+    //   호출자가 동기 흐름에서 endGame 호출 직전에 이 플래그 체크 → true 면 skip.
+    //   onComplete callback 안에서 checkGameEndAfterPhase 가 처리.
+    room._phaseDeferredGameEndCheck = true;
+  }
+
+  // === 4) 모든 wave 종료 후 callback ===
+  setTimeout(() => {
+    if (rooms[room.id]) {
+      room._phaseDeferredGameEndCheck = false;
+      if (onComplete) onComplete();
+    }
+  }, cursor + 100);
+}
+
+// 페이즈 종료 후 게임 종료 검사 — 양측 동시 전멸이면 simultaneous_draw, 아니면 일반 승패.
+// 게임 종료 시 true 반환, 계속 진행해야 하면 false (호출자가 정상 흐름 진행).
+function checkGameEndAfterPhase(room) {
+  if (room.mode === 'team') {
+    const team0Elim = isTeamEliminated(room, 0);
+    const team1Elim = isTeamEliminated(room, 1);
+    if (team0Elim && team1Elim) {
+      setKillInfo(room, 'simultaneous_draw', null, []);
+      endTeamGame(room, 0, 'simultaneous_draw');
+      return true;
+    }
+    if (team0Elim) { endTeamGame(room, 1); return true; }
+    if (team1Elim) { endTeamGame(room, 0); return true; }
+  } else {
+    const p0Dead = checkWin(room, 0);
+    const p1Dead = checkWin(room, 1);
+    if (p0Dead && p1Dead) {
+      setKillInfo(room, 'simultaneous_draw', null, []);
+      endGame(room, -1, 'simultaneous_draw');
+      return true;
+    }
+    if (p0Dead) { endGame(room, 1); return true; }
+    if (p1Dead) { endGame(room, 0); return true; }
+  }
+  return false;
+}
+
 function handleDeath(room, deadPiece, ownerIdx) {
   deadPiece.alive = false;
   const owner = room.players[ownerIdx];
@@ -3039,13 +3219,21 @@ function handleDeath(room, deadPiece, ownerIdx) {
 
   // (저주 전파 기능 제거 — 게임 룰에 없음)
 
-  // Bomb auto-detonate on gunpowder death
+  // 화약상 사망 → 사망 기폭. 페이즈가 active 면 큐로 넘김 (시퀀스), 아니면 즉시 처리(레거시).
   if (deadPiece.type === 'gunpowder') {
-    const bombs = room.boardObjects[ownerIdx].filter(o => o.type === 'bomb');
-    for (const bomb of bombs) {
-      detonateBomb(room, ownerIdx, bomb);
+    const bombs = (room.boardObjects[ownerIdx] || []).filter(o => o.type === 'bomb');
+    if (bombs.length > 0) {
+      const casterPieceIdx = (owner && owner.pieces) ? owner.pieces.indexOf(deadPiece) : -1;
+      const queued = queueDeathDetonation(room, ownerIdx, casterPieceIdx);
+      if (!queued) {
+        // 페이즈 비활성 — 즉시 폭발 (보드 축소 등 레거시 경로)
+        for (const bomb of bombs) {
+          detonateBomb(room, ownerIdx, bomb);
+        }
+        room.boardObjects[ownerIdx] = (room.boardObjects[ownerIdx] || []).filter(o => o.type !== 'bomb');
+      }
+      // 큐로 들어간 경우 — flushPhase 에서 폭탄 처리 + 보드 정리
     }
-    room.boardObjects[ownerIdx] = room.boardObjects[ownerIdx].filter(o => o.type !== 'bomb');
   }
 
   // Dragon tamer dies: dragon stays alive (independent unit)
@@ -3494,15 +3682,27 @@ function processTurnStart(room) {
       decreaseBoardShrinkLevel(room);
       if (room.boardShrinkLevel === 1) room.boardShrunk = true;
       const eliminated = [];
+      // ★ 보드 축소로 죽는 piece 들 — handleDeath 경로로 통일.
+      //   사용자 요청: 화약상이 축소로 죽으면 사망 기폭이 시전돼야 함.
+      //   페이즈 시작 → 축소 처리 → 사망 처리 (handleDeath 가 사망 기폭 큐로 push) → flushPhase
+      startPhase(room);
+      const deadPieces = [];
       for (let pi = 0; pi < room.players.length; pi++) {
         const pl = room.players[pi];
         for (const p of pl.pieces) {
           if (p.alive && !inBounds(p.col, p.row, room.boardBounds)) {
-            p.alive = false;
+            // p.alive 는 handleDeath 가 처리 — 여기서는 hp 만 0 으로 (handleDeath 안에서 sequencing)
             p.hp = 0;
             eliminated.push({ type: p.type, name: p.name, icon: p.icon, col: p.col, row: p.row, owner: pi });
+            deadPieces.push({ piece: p, ownerIdx: pi });
           }
         }
+      }
+      // boardObjects 정리는 handleDeath 후 (화약상 사망 기폭 큐가 폭탄 위치 참조해야 하므로 그 전)
+      // 하지만 축소 영역 밖의 폭탄은 사라져야 함 — handleDeath 가 필요한 폭탄을 큐로 옮겨놓음.
+      // detonateBomb 가 deferEmit 으로 호출되며 큐의 폭탄 좌표 그대로 사용 가능 — 단, 축소 영역 안에 들어있는 폭탄만.
+      for (const dp of deadPieces) {
+        handleDeath(room, dp.piece, dp.ownerIdx);
       }
       for (let i = 0; i < room.players.length; i++) {
         if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
@@ -3511,6 +3711,13 @@ function processTurnStart(room) {
       emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated, stage: ev.stage });
       emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽 파괴', type: 'event' });
       queueAnim(DUR_BOARD_SHRINK);
+      // 축소 애니 후 사망 기폭 시퀀스 — flushPhase 가 적절한 cursor 로 emit 들 스케줄.
+      //   onComplete 에서 무승부/승패 검사
+      flushPhase(room, () => {
+        if (rooms[room.id] && room.phase === 'game') {
+          checkGameEndAfterPhase(room);
+        }
+      });
       // 축소로 인한 승부 체크는 페이즈 종료 후 처리되도록 큐잉
       // (즉시 endGame 하면 애니메이션 도중 게임 종료 → 후속 SP 지급 등 끊김)
       // 현재 위치에서는 일단 그대로 두고, 후속 코드의 win check 가 해결하게 함.
@@ -3592,7 +3799,8 @@ function processTurnStart(room) {
   // ── 보드 축소 후 승부 체크 ──
   //   축소로 인해 누군가 탈락했으면 승부 결과 emit. 애니메이션 페이즈는 클라에서 이미 진행 중이라
   //   server-side 승부 처리만 즉시 (game_over 이벤트는 client 가 받지만 내부적으로 전환되도 OK).
-  if (room.boardShrinkStage > 0 && (animTotalMs > 0)) {
+  //   ★ 사망 기폭 페이즈가 deferred 되어 있으면 sync 검사 skip — flushPhase callback 이 처리.
+  if (room.boardShrinkStage > 0 && (animTotalMs > 0) && !room._phaseDeferredGameEndCheck) {
     if (room.mode === 'team') {
       const aElim = isTeamEliminated(room, 0);
       const bElim = isTeamEliminated(room, 1);
@@ -3948,23 +4156,26 @@ function endTeamGame(room, winnerTeamId, reason) {
     : reason === 'shrink' ? { type: 'shrink' }
     : reason === 'draw' ? { type: 'draw' }
     : reason === 'unreachable_draw' ? { type: 'unreachable_draw' }
+    : reason === 'simultaneous_draw' ? { type: 'simultaneous_draw' }
     : reason === 'disconnect' ? { type: 'disconnect' }
     : { type: killInfo.type || 'attack', killer: killInfo.killer || null, victims: killInfo.victims || [] };
+  const isDraw = reason === 'draw' || reason === 'unreachable_draw' || reason === 'simultaneous_draw';
   // 팀 컬러 라벨
   const winTeamLabel = winnerTeamId === 0 ? '블루팀' : '레드팀';
   const loseTeamLabel = winnerTeamId === 0 ? '레드팀' : '블루팀';
   for (const p of room.players) {
     if (!p.socketId) continue;
     io.to(p.socketId).emit('team_game_over', {
-      win: p.teamId === winnerTeamId,
-      winnerTeamId,
+      win: isDraw ? null : (p.teamId === winnerTeamId),
+      winnerTeamId: isDraw ? null : winnerTeamId,
       winTeamLabel, loseTeamLabel,
       winners, losers,
       reason: reasonObj,
     });
   }
   emitToSpectators(room, 'team_game_over', {
-    winnerTeamId, winTeamLabel, loseTeamLabel, winners, losers,
+    winnerTeamId: isDraw ? null : winnerTeamId,
+    winTeamLabel, loseTeamLabel, winners, losers,
     reason: reasonObj, spectator: true,
   });
 }
@@ -3978,11 +4189,12 @@ function endGame(room, winnerIdx, reason) {
     : reason === 'shrink' ? { type: 'shrink' }
     : reason === 'draw' ? { type: 'draw' }
     : reason === 'unreachable_draw' ? { type: 'unreachable_draw' }
+    : reason === 'simultaneous_draw' ? { type: 'simultaneous_draw' }
     : reason === 'disconnect' ? { type: 'disconnect' }
     : { type: killInfo.type || 'attack', killer: killInfo.killer || null, victims: killInfo.victims || [] };
 
   // Draw (양 팀 전멸 또는 unreachable — 게임 끝낼 수 없음)
-  if (reason === 'draw' || reason === 'unreachable_draw') {
+  if (reason === 'draw' || reason === 'unreachable_draw' || reason === 'simultaneous_draw') {
     for (let i = 0; i < 2; i++) {
       emitToPlayer(room, i, 'game_over', { win: null, draw: true, reason: reasonObj });
     }
@@ -4877,8 +5089,16 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
 
 // AI executeSkill wrapper — 실행 후 알림
 function aiExecSkill(room, pidx, skillId, params) {
+  // ★ 사망 기폭 페이즈 — 스킬 (학살영웅 attack 비슷한 효과 / 유황범람 / 악몽 등) 로 화약상 사망 시 큐.
+  startPhase(room);
   const result = executeSkill(room, 1, pidx, skillId, params || {});
   aiNotifySkill(room, pidx, result, skillId);  // skillId 전달 — 다중스킬 캐릭터의 정확한 스킬명용
+  // 사망 기폭 페이즈 flush — checkGameEndAfterPhase 는 별도 (AI는 endTurn 따로)
+  flushPhase(room, () => {
+    if (rooms[room.id] && room.phase === 'game') {
+      checkGameEndAfterPhase(room);
+    }
+  });
   return result;
 }
 
@@ -5498,6 +5718,9 @@ function aiExecuteAttack(room, action) {
   const piece = action.piece;
   const bounds = room.boardBounds;
 
+  // ★ 사망 기폭 페이즈 시작 — 학살영웅 등으로 화약상이 죽으면 큐에 push.
+  startPhase(room);
+
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, action.extra);
   const hitResults = processAttack(room, 1, piece, atkCells);
 
@@ -5541,10 +5764,14 @@ function aiExecuteAttack(room, action) {
 
   aiTrackToast(room, 'attack');
 
-  if (checkWin(room, 0)) {
-    endGame(room, 1);
-    return;
-  }
+  // ★ 게임종료 검사 — 사망 기폭 페이즈가 deferred 면 callback 으로 지연.
+  //   simultaneous_draw 케이스도 checkGameEndAfterPhase 가 처리.
+  //   dualBlade 후속 공격은 setTimeout(4000ms) 라 페이즈 끝난 뒤 실행됨 (room.phase 자체 체크).
+  flushPhase(room, () => {
+    if (rooms[room.id] && room.phase === 'game') {
+      checkGameEndAfterPhase(room);
+    }
+  });
 
   // ★ 공격 후 dualBlade 추가 공격 (4초 대기 — 클라이언트 애니메이션 + 인지 시간 포함)
   if (piece.dualBladeAttacksLeft > 0) {
@@ -7074,6 +7301,10 @@ io.on('connection', (socket) => {
       }
     }
 
+    // ★ 사망 기폭 페이즈 시작 — processAttack 안 handleDeath 가 화약상 죽이면 큐에 push.
+    //   handler 끝의 flushPhase 가 cast/intro/bomb_detonated emit 들 시간차로 스케줄링.
+    startPhase(room);
+
     // 본체 공격 처리
     const hitResults = processAttack(room, idx, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra));
     // 쌍둥이 다른 쪽 공격 처리 (겹치는 셀은 이미 본체에서 처리됨 — 중복 피해 방지)
@@ -7350,16 +7581,12 @@ io.on('connection', (socket) => {
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    // 승리 체크
-    if (room.mode === 'team') {
-      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
-      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
-    } else {
-      if (checkWin(room, 1 - idx)) {
-        endGame(room, idx);
-        return;
-      }
-    }
+    // ★ 승리 체크 — 사망 기폭 페이즈가 큐에 있으면 flushPhase callback 으로 지연.
+    //   simultaneous_draw 케이스 (양측 동시 전멸) 도 checkGameEndAfterPhase 가 처리.
+    flushPhase(room, () => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      checkGameEndAfterPhase(room);
+    });
 
     // DON'T auto end turn - wait for 'end_turn' event
   });
@@ -7436,6 +7663,10 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'game') return;
     const idx = socket.data.idx;
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
+
+    // ★ 사망 기폭 페이즈 시작 — executeSkill 안 handleDeath 가 화약상 죽이면 큐에 push.
+    //   handler 끝의 flushPhase 가 cast/bomb_detonated 시간차 스케줄링 + 게임종료 검사 지연.
+    startPhase(room);
 
     const result = executeSkill(room, idx, pieceIdx, skillId, params || {});
     if (!result.ok) {
@@ -7595,13 +7826,11 @@ io.on('connection', (socket) => {
     }
 
     // Check win after skill effects (모드별)
-    if (room.mode === 'team') {
-      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
-      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
-    } else {
-      if (checkWin(room, 0)) { endGame(room, 1); return; }
-      if (checkWin(room, 1)) { endGame(room, 0); return; }
-    }
+    // ★ 게임종료 검사 — 사망 기폭 페이즈 deferred 면 flushPhase callback 이 처리 (simultaneous_draw 포함)
+    flushPhase(room, () => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      checkGameEndAfterPhase(room);
+    });
   });
 
   // ── 폭탄 기폭 ──
