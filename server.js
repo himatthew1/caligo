@@ -3033,8 +3033,10 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   // 후속 skill_result 가 sp/instantSp 를 일괄 전달.
   const suppressSpUpdate = deferEmit;
   const opponent = room.players[1 - ownerIdx];
+  const defOwnerIdx = 1 - ownerIdx;
   const hits = [];
-  for (const ep of opponent.pieces) {
+  for (let epi = 0; epi < opponent.pieces.length; epi++) {
+    const ep = opponent.pieces[epi];
     if (ep.alive && ep.col === bomb.col && ep.row === bomb.row) {
       const dmg = resolveDamage(room, { type: 'gunpowder', tag: null, tier: 1, col: bomb.col, row: bomb.row }, ep, ownerIdx, 1, false);
       ep.hp = Math.max(0, ep.hp - dmg);
@@ -3058,7 +3060,7 @@ function detonateBomb(room, ownerIdx, bomb, options) {
         emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: wizOwnerIdx });
 
       }
-      hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon });
+      hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon, defPieceIdx: epi, defOwnerIdx });
     }
   }
   // 기폭 스킬에서 호출 시(deferEmit) bomb_detonated 는 skill_result 다음에 외부에서 emit
@@ -4791,6 +4793,8 @@ function aiNotifySkill(room, pieceIdx, result) {
       sp: room.sp,
       instantSp: room.instantSp,
       skillUsed: { icon: piece.icon, name: piece.name, skillName: piece.skillName || '' },
+      // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
+      hits: result.data?.hits || null,
     });
   }
   // 관전자 로그
@@ -7430,6 +7434,8 @@ io.on('connection', (socket) => {
           // 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
           msg: result.msg || null,
+          // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
+          hits: result.data?.hits || null,
         });
       }
     }

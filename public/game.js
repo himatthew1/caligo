@@ -2858,7 +2858,7 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits }) => {
   if (!S.isSpectator) return;
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
@@ -2900,6 +2900,22 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (sp) S.sp = sp;
     if (instantSp) S.instantSp = instantSp;
     if (sp || instantSp) try { updateSPBar(); } catch (e) {}
+
+    // ★ 데미지 스킬 hits — 관전자 시점에서도 셀 hit 애니 + 카드 hit flash + turn-bright.
+    //   1v1 관전자: p0 → #my-pieces-info, p1 → #opp-pieces-info 매핑.
+    if (Array.isArray(hits) && hits.length > 0) {
+      const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
+      if (hitCells.length > 0) animateAttack([], hitCells);
+      for (const h of hits) {
+        if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+        if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue; // 본체에 안 들어간 hit
+        const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+        const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+        const cards = document.querySelectorAll(`${containerSel} ${cardSel}`);
+        const card = cards[h.defPieceIdx];
+        if (card) applyHitFlashWithBrighten(card);
+      }
+    }
   }, SP_END_MS);
 });
 
@@ -5547,6 +5563,27 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   playSfxTrapSnap();
   if (destroyed) playSfx('kill'); else playSfx('hit');
 
+  // ★ 1v1 관전자 — 별도 처리: spectator 의 S.myPieces/oppPieces 가 비어있어 일반 경로가 무동작.
+  //   victimOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
+  if (S.isSpectator && !S.isTeamMode) {
+    addLog(`🪤 덫 발동!`, 'hit');
+    showSkillToast(`🪤 덫 발동!`);
+    S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
+    animateAttack([], [{ col, row }]);
+    if (victimOwnerIdx != null) {
+      const arr = (victimOwnerIdx === 0) ? (S.specGameState?.p0Pieces || []) : (S.specGameState?.p1Pieces || []);
+      let idx = arr.findIndex(p => p.alive && p.name === pieceInfo?.name && p.col === col && p.row === row);
+      if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === pieceInfo?.name);
+      if (idx >= 0) {
+        const containerSel = (victimOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+        const cardSel = (victimOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+        const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[idx];
+        if (card) applyHitFlashWithBrighten(card);
+      }
+    }
+    return;
+  }
+
   // 인벤토리 E7 트랩 발동 — `🪤 덫 발동!` 모두 동일 (원본 유지)
   const msg = `🪤 덫 발동!`;
   addLog(msg, 'hit');
@@ -5696,6 +5733,22 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   } else {
     playSfxBombExplode();
   }
+  // ★ 1v1 관전자 — 별도 처리: spectator 의 S.myPieces/oppPieces 가 비어있어 일반 경로가 무동작.
+  //   defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑으로 카드 hit flash 적용.
+  if (S.isSpectator && !S.isTeamMode) {
+    if (Array.isArray(S.boardObjects)) {
+      S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
+    }
+    animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
+    for (const h of hits) {
+      if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+      const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+      const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+      const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
+      if (card) applyHitFlashWithBrighten(card);
+    }
+    return;
+  }
   // 보드에서 해당 폭탄 제거 (자동 폭발 케이스 등)
   if (Array.isArray(S.boardObjects)) {
     S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
@@ -5821,6 +5874,26 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
     if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
     else { renderMyPieces(); renderOppPieces(); }
   } catch (e) {}
+  // ★ 데미지 종류 무관 — 피격된 카드는 그 턴 동안 dim 해제 (turn-bright).
+  //   저주는 빨간 profile-hit 대신 보라 도장이 visual cue 라서 turn-bright 만 추가.
+  requestAnimationFrame(() => {
+    if (S.isTeamMode) {
+      const card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${(S.teamGamePlayers || []).find(p => p.idx === playerIdx)?.pieces?.findIndex(p => p.name === targetName) ?? -1}"]`);
+      if (card) card.classList.add('turn-bright');
+    } else {
+      // 1v1 — 본인/상대 카드 모두 후보
+      const myI = S.myPieces?.findIndex(p => p.name === targetName) ?? -1;
+      const oppI = S.oppPieces?.findIndex(p => p.name === targetName) ?? -1;
+      if (myI >= 0) {
+        const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[myI];
+        if (card) card.classList.add('turn-bright');
+      }
+      if (oppI >= 0) {
+        const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[oppI];
+        if (card) card.classList.add('turn-bright');
+      }
+    }
+  });
 });
 // (구) DOM 기반 저주 도장 함수 — 더 이상 호출되지 않음.
 // 새 시스템: S.curseDamageThisTurn 누적 → buildDamageOverlay 가 카드 마크업에 도장 포함.
