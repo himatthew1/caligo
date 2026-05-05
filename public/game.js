@@ -10896,6 +10896,7 @@ function resetAction() {
   S.action = null;
   S.selectedPiece = null;
   S.targetSelectMode = false;
+  S.targetCol = undefined; S.targetRow = undefined;
   S.skillTargetData = null;
   document.body.classList.remove('action-locked');
   document.getElementById('btn-cancel').classList.add('hidden');
@@ -10905,6 +10906,7 @@ function resetAction() {
   if (hint) hint.textContent = '행동할 캐릭터의 아이콘을 클릭하세요.';
   setActionButtonMode(null);
   if (typeof _clearAttackConfirmBtns === 'function') _clearAttackConfirmBtns();
+  document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
   renderGameBoard();
   renderMyPieces();
 }
@@ -11783,7 +11785,8 @@ function _closeTwinDisabledButton() {
 // ── 공격 확정 floating 버튼 ──
 //   사용자 요청: 공격 모드 진입 시 선택된 유닛 머리 위에 floating 버튼 생성.
 //   클릭 시 attack emit. (이전 "더블 클릭" / "셀 클릭 확정" 패턴 대체)
-function _placeAttackConfirmBtn(pc) {
+//   targetParams (옵션): {tCol, tRow} — 마녀/그림자 암살자 등 target-pick 캐릭터의 selected target.
+function _placeAttackConfirmBtn(pc, targetParams) {
   _clearAttackConfirmBtns();
   if (!pc || !pc.alive) return;
   const board = document.getElementById('game-board');
@@ -11800,11 +11803,23 @@ function _placeAttackConfirmBtn(pc) {
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (S.action !== 'attack' || S.selectedPiece == null) return;
-    socket.emit('attack', { pieceIdx: S.selectedPiece });
+    // target-pick (witch/shadow) — 타겟 좌표 동봉. 일반 — 좌표 없이 emit.
+    const payload = { pieceIdx: S.selectedPiece };
+    if (targetParams && typeof targetParams.tCol === 'number' && typeof targetParams.tRow === 'number') {
+      payload.tCol = targetParams.tCol; payload.tRow = targetParams.tRow;
+    } else if (S.targetSelectMode && typeof S.targetCol === 'number' && typeof S.targetRow === 'number') {
+      payload.tCol = S.targetCol; payload.tRow = S.targetRow;
+    } else if (S.targetSelectMode) {
+      // target select 모드인데 좌표 미지정 — 무시
+      return;
+    }
+    socket.emit('attack', payload);
     S.action = null;
     S.selectedPiece = null;
     S.targetSelectMode = false;
+    S.targetCol = undefined; S.targetRow = undefined;
     _clearAttackConfirmBtns();
+    document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
     if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
     document.getElementById('btn-cancel')?.classList.add('hidden');
     const hint = document.getElementById('action-hint');
@@ -11817,14 +11832,25 @@ function _clearAttackConfirmBtns() {
 }
 // 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
 function refreshAttackConfirmBtn() {
-  if (S.action !== 'attack' || S.selectedPiece == null || S.targetSelectMode) {
+  if (S.action !== 'attack' || S.selectedPiece == null) {
     _clearAttackConfirmBtns();
     return;
   }
   const pc = S.myPieces?.[S.selectedPiece];
   if (!pc || !pc.alive) { _clearAttackConfirmBtns(); return; }
-  // 마녀/그림자 암살자는 target select 라 버튼 안 띄움
-  if (pc.type === 'witch' || pc.type === 'shadowAssassin') { _clearAttackConfirmBtns(); return; }
+  // target-pick (witch/shadow) 은 target 좌표 저장돼 있을 때만 버튼 (사용자 클릭 후)
+  const isTargetPick = (pc.type === 'witch' || pc.type === 'shadowAssassin');
+  if (isTargetPick) {
+    if (typeof S.targetCol === 'number' && typeof S.targetRow === 'number') {
+      _placeAttackConfirmBtn(pc, { tCol: S.targetCol, tRow: S.targetRow });
+      // target 셀 highlight 재부여
+      const tcell = document.querySelector(`#game-board .cell[data-col="${S.targetCol}"][data-row="${S.targetRow}"]`);
+      if (tcell) tcell.classList.add('target-locked-cell');
+    } else {
+      _clearAttackConfirmBtns();
+    }
+    return;
+  }
   _placeAttackConfirmBtn(pc);
 }
 
@@ -12190,12 +12216,29 @@ function handleGameCellClick(col, row) {
         renderMyPieces();
       }
     } else if (S.targetSelectMode) {
-      // shadowAssassin / witch 대상 선택
-      socket.emit('attack', { pieceIdx: S.selectedPiece, tCol: col, tRow: row });
-      S.action = null;
-      S.selectedPiece = null;
-      S.targetSelectMode = false;
-      _clearAttackConfirmBtns();
+      // ★ 사용자 요청: shadowAssassin / witch 도 [공격 확정] 버튼 패턴.
+      //   타겟 셀 클릭 → 좌표 저장 + 시전자 머리 위 [공격 확정] 버튼 활성화 (target locked).
+      //   다른 셀 클릭 시 — 타겟만 갱신 (버튼은 그대로). 버튼 클릭 시 emit (저장된 target).
+      const selPc2 = S.myPieces[S.selectedPiece];
+      if (!selPc2) return;
+      // shadowAssassin: 자기 주변 9칸 (자신 포함) 만 허용
+      if (selPc2.type === 'shadowAssassin') {
+        if (Math.abs(col - selPc2.col) > 1 || Math.abs(row - selPc2.row) > 1) {
+          setActionHint('주변 9칸 중에서만 선택 가능합니다.', true);
+          return;
+        }
+      }
+      // 타겟 좌표 저장 + 셀 시각 강조 + 시전자 위 버튼
+      S.targetCol = col;
+      S.targetRow = row;
+      // 셀에 임시 highlight (CSS 는 .target-locked-cell 정의)
+      document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
+      const tcell = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+      if (tcell) tcell.classList.add('target-locked-cell');
+      // 시전자 머리 위에 confirm 버튼 (target 좌표 동봉 콜백)
+      _placeAttackConfirmBtn(selPc2, { tCol: col, tRow: row });
+      const hint = document.getElementById('action-hint');
+      if (hint) hint.textContent = `${coord(col, row)} 타겟. 공격 확정 버튼을 눌러주세요.`;
     } else {
       // 다른 칸의 내 말 클릭 → 선택 변경 + 버튼 재배치 (공격 확정은 버튼으로만)
       const clickedOther = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
