@@ -5655,6 +5655,39 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
     S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
   }
 
+  // ★ HP 갱신 + 본체 데미지 도장 — 트랩(`trap_triggered`)과 동일하게 처리.
+  //   원래는 후속 game_state/team_game_update 가 HP 를 가져왔지만, 그 사이 시각적으로
+  //   HP 바·도장·사망 아이콘이 누락되는 문제가 있어 즉시 반영.
+  let bombAnyDestroyed = false;
+  for (const h of hits) {
+    const updateInArr = (arr) => {
+      if (!Array.isArray(arr)) return -1;
+      let idx = arr.findIndex(p => p.alive && p.name === h.name && p.col === h.col && p.row === h.row);
+      if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === h.name);
+      if (idx >= 0) {
+        if (typeof h.newHp === 'number') arr[idx].hp = h.newHp;
+        if (h.destroyed) arr[idx].alive = false;
+      }
+      return idx;
+    };
+    const myI  = updateInArr(S.myPieces);
+    const oppI = updateInArr(S.oppPieces);
+    const tmI  = (S.isTeamMode && S.teammatePieces) ? updateInArr(S.teammatePieces) : -1;
+    if (h.destroyed) bombAnyDestroyed = true;
+    if (typeof h.damage === 'number' && h.damage > 0) {
+      if (myI >= 0) addBodyDamage(`my:${myI}`, h.damage);
+      else if (oppI >= 0) addBodyDamage(`opp:${oppI}`, h.damage);
+      else if (tmI >= 0 && S.isTeamMode) {
+        const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+        if (teammate) addBodyDamage(`${teammate.idx}:${tmI}`, h.damage);
+      }
+    }
+  }
+  // 사망 시 추리 토큰 즉시 제거 (트랩과 동일)
+  if (bombAnyDestroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
+  // 셀 + 보드 아이콘 피격 애니메이션 (트랩과 동일하게 — 일반 공격 hit 애니)
+  animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
+
   // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두 (팀모드는 팀원도 포함)
   const myBombIdx = findPieceIndices(S.myPieces, hits);
   const oppBombIdx = findPieceIndices(S.oppPieces, hits);
