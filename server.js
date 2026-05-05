@@ -5425,7 +5425,9 @@ function aiEndTurn(room) {
   setTimeout(() => {
     if (room.phase === 'game') endTurn(room);
   }, delay);
-  room._aiEndTurnEarliest = 0;  // 다음 AI 턴 위해 리셋
+  // ★ _aiEndTurnEarliest 는 리셋하지 않음 — 다음 AI 턴 시작 시 cross-turn 버퍼 (액션 후 스킬 등)
+  //   판단에 사용. aiTakeTurn 시작 시 스스로 미래 시각이면 wait, 과거 시각이면 무시.
+  // (이전: room._aiEndTurnEarliest = 0; — 제거함)
 }
 
 function aiTakeTurn(room) {
@@ -5433,6 +5435,23 @@ function aiTakeTurn(room) {
   const humanPlayer = room.players[0];
   const brain = room.aiBrain;
   const bounds = room.boardBounds;
+
+  // ★ Cross-turn / intra-turn 버퍼 — 직전 액션·스킬 토스트가 아직 화면에 있으면 대기.
+  //   사용자 요청: 액션 ↔ 스킬 양방향 모두 명확한 호흡 텀.
+  //   _aiEndTurnEarliest 를 turn 종료 시 리셋하지 않으므로 cross-turn 도 추적됨.
+  const _now = Date.now();
+  const _earliest = room._aiEndTurnEarliest || 0;
+  if (_earliest > _now) {
+    const waitMs = (_earliest - _now) + 1500;  // 토스트 끝난 후 1.5초 추가 텀
+    setTimeout(() => {
+      if (room.phase === 'game' && room.currentPlayerIdx === 1) {
+        aiTakeTurn(room);
+      }
+    }, waitMs);
+    return;
+  }
+  // 과거 시각이면 명시적으로 0 으로 정리 (다음 사이클 noise 방지)
+  if (_earliest > 0 && _earliest <= _now) room._aiEndTurnEarliest = 0;
 
   brain.turnCount++;
   aiSpreadProbability(brain);
@@ -5459,16 +5478,37 @@ function aiTakeTurn(room) {
   if (usedPreSkill) {
     // 이전 스킬의 토스트/애니메이션이 화면에서 사라질 때까지 대기 — _aiEndTurnEarliest 활용.
     //   skill 의 경우 _aiEndTurnEarliest = now + 5900ms (appear 1500 + display 4000 + fade 350 + 50 buffer).
-    //   현재 시각 기준 남은 시간 + 200ms 마진 → 다음 스킬 시작.
+    //   사용자 요청: 스킬과 다음 행동(다른 스킬/일반 액션) 사이 명확한 호흡 텀 — 1500ms 버퍼.
+    //   토스트 사라진 후에도 1.5초 가량 정적 → 다음 스킬/액션의 토스트가 명확히 분리되어 보임.
     const now = Date.now();
     const earliest = room._aiEndTurnEarliest || 0;
-    const waitMs = Math.max(2500, (earliest - now) + 200);
+    const waitMs = Math.max(2500, (earliest - now) + 1500);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === 1) {
         aiTakeTurn(room);
       }
     }, waitMs);
+    // ★ 직전 iteration 이 스킬 시전이었음을 마킹 — 다음 iteration 에서 액션으로 fall-through 시 추가 버퍼.
+    room._aiLastWasSkill = true;
     return;
+  }
+
+  // ★ 직전 iteration 이 스킬이었고 이번에 더 이상 스킬을 안 쓴다면, 액션으로 넘어가기 전 추가 버퍼.
+  //   사용자 요청: AI 가 스킬과 일반 행동을 거의 동시에 하는 느낌 제거. 스킬 phase 끝 → 명확한 텀 → 액션 phase.
+  if (room._aiLastWasSkill) {
+    room._aiLastWasSkill = false;
+    const now = Date.now();
+    const earliest = room._aiEndTurnEarliest || 0;
+    const remain = Math.max(0, earliest - now);
+    const waitMs = remain + 1500;  // 토스트 끝난 후 1.5초 추가 텀
+    if (waitMs >= 200) {
+      setTimeout(() => {
+        if (room.phase === 'game' && room.currentPlayerIdx === 1) {
+          aiTakeTurn(room);
+        }
+      }, waitMs);
+      return;
+    }
   }
 
   // ★ STEP 2: 피격된 말 — 도망 vs 반격 비교 (#6)
