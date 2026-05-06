@@ -16815,8 +16815,9 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     const btnEnd  = document.getElementById('btn-end-turn');
     if (!btnAct || !btnSkill || !btnEnd) return;
     if (!S.isMyTurn) {
-      btnAct.classList.remove('dimmed');
-      btnSkill.classList.remove('dimmed');
+      // ★ 사용자 요청: 내 차례가 아니면 모든 액션 버튼을 dim 처리 (이전엔 dim 을 제거해 빛나는 버그).
+      btnAct.classList.add('dimmed');
+      btnSkill.classList.add('dimmed');
       btnEnd.classList.remove('attention');
       return;
     }
