@@ -5408,10 +5408,16 @@ body.team-mode .placement-opp-panel {
   border-color: var(--accent);
   font-weight: 700;
 }
+/* ★ 팀 채팅 테마 — 사용자 요청: 내가 블루팀이면 파랑, 레드팀이면 빨강.
+   body[data-my-team] 가 game.js (updateSPBar) 에서 동기화됨. */
 .chat-msg.scope-team {
   background: rgba(96,165,250,0.08);
   border-left: 2px solid #60a5fa;
   padding-left: 6px;
+}
+body[data-my-team="red"] .chat-msg.scope-team {
+  background: rgba(239, 68, 68, 0.10);
+  border-left-color: #ef4444;
 }
 .chat-msg .scope-badge {
   display: inline-block;
@@ -5423,6 +5429,19 @@ body.team-mode .placement-opp-panel {
 }
 .chat-msg .scope-badge.all { background: rgba(255,255,255,0.1); color: var(--muted); }
 .chat-msg .scope-badge.team { background: rgba(96,165,250,0.25); color: #60a5fa; }
+body[data-my-team="red"] .chat-msg .scope-badge.team {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+/* 활성 [팀] 탭 — 색상도 팀 컬러 따라 */
+body[data-my-team="blue"] #chat-scope-team.active {
+  color: #60a5fa;
+  border-color: #60a5fa;
+}
+body[data-my-team="red"] #chat-scope-team.active {
+  color: #ef4444;
+  border-color: #ef4444;
+}
 .chat-input-row {
   display: flex; gap: 6px;
   padding: 8px 10px;

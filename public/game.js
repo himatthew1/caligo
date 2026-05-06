@@ -9833,6 +9833,24 @@ function updateSPBar() {
   const oppLabelEl = document.getElementById('sp-opp-label');
   if (myLabelEl) myLabelEl.textContent = leftLabel;
   if (oppLabelEl) oppLabelEl.textContent = rightLabel;
+  // ★ 사용자 요청: 하드코딩된 "내 SP / 상대 SP" 좌·우 사이드 타이틀도 팀전에서는 색상명으로.
+  const sideTitleMine = document.getElementById('sp-side-title-mine');
+  const sideTitleOpp = document.getElementById('sp-side-title-opp');
+  if (sideTitleMine) sideTitleMine.textContent = S.isTeamMode ? '블루팀 SP' : '내 SP';
+  if (sideTitleOpp)  sideTitleOpp.textContent  = S.isTeamMode ? '레드팀 SP' : '상대 SP';
+  if (S.isTeamMode) {
+    if (sideTitleMine) sideTitleMine.style.color = '#60a5fa';
+    if (sideTitleOpp)  sideTitleOpp.style.color  = '#ef4444';
+  } else {
+    if (sideTitleMine) sideTitleMine.style.color = '';
+    if (sideTitleOpp)  sideTitleOpp.style.color  = '';
+  }
+  // ★ body[data-my-team] — 채팅 등 팀 컬러 종속 UI 의 CSS 셀렉터용
+  if (S.isTeamMode && (S.teamId === 0 || S.teamId === 1)) {
+    document.body.dataset.myTeam = S.teamId === 0 ? 'blue' : 'red';
+  } else {
+    delete document.body.dataset.myTeam;
+  }
   // 팀모드: 라벨 컬러 절대 고정 — 왼쪽=파랑, 오른쪽=빨강
   if (S.isTeamMode) {
     if (myLabelEl) myLabelEl.style.color = '#60a5fa';
@@ -15661,9 +15679,18 @@ function bgmDefeat(ctx, dest) {
     applyChatScopeView();
   }
   // 팀전 진입 시 탭 표시 (S.isTeamMode 변경 감지용 간이 polling)
+  // ★ body[data-my-team] 도 함께 동기화 — 채팅 테마(파랑/빨강)·SP 사이드 타이틀 색이 의존
   setInterval(() => {
-    if (S.isTeamMode) showChatScopeTabs();
-    else hideChatScopeTabs();
+    if (S.isTeamMode) {
+      showChatScopeTabs();
+      if (S.teamId === 0 || S.teamId === 1) {
+        const want = S.teamId === 0 ? 'blue' : 'red';
+        if (document.body.dataset.myTeam !== want) document.body.dataset.myTeam = want;
+      }
+    } else {
+      hideChatScopeTabs();
+      if (document.body.dataset.myTeam) delete document.body.dataset.myTeam;
+    }
   }, 500);
   if (scopeAllBtn) scopeAllBtn.addEventListener('click', () => {
     currentChatScope = 'all';
