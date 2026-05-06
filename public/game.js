@@ -9798,36 +9798,45 @@ function updateSPBar() {
   // 1v1: sp 배열이 [p0, p1] 이므로 playerIdx 기반 인덱싱
   const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
   const oppSlot = 1 - mySlot;
-  const mySP = S.sp[mySlot] || 0;
-  const oppSP = S.sp[oppSlot] || 0;
-  const myInstant = (S.instantSp && S.instantSp[mySlot]) || 0;
-  const oppInstant = (S.instantSp && S.instantSp[oppSlot]) || 0;
-  const total = mySP + oppSP || 1;
+  // ★ 사용자 요청: 팀전에서는 SP 표기가 절대 좌·우 고정 — 블루팀=왼쪽, 레드팀=오른쪽.
+  //   레드팀 플레이 시에도 sp-my(왼쪽 슬롯) 가 블루팀 SP, sp-opp(오른쪽 슬롯) 가 레드팀 SP 가 되도록.
+  //   1v1 은 기존대로 my=왼쪽, opp=오른쪽 (시점 기준).
+  let leftSlot, rightSlot;
+  if (S.isTeamMode) {
+    leftSlot = 0;   // 블루팀 (왼쪽 고정)
+    rightSlot = 1;  // 레드팀 (오른쪽 고정)
+  } else {
+    leftSlot = mySlot;
+    rightSlot = oppSlot;
+  }
+  const leftSP = S.sp[leftSlot] || 0;
+  const rightSP = S.sp[rightSlot] || 0;
+  const leftInstant = (S.instantSp && S.instantSp[leftSlot]) || 0;
+  const rightInstant = (S.instantSp && S.instantSp[rightSlot]) || 0;
+  const total = leftSP + rightSP || 1;
   // 스킬 시전 애니 중에는 spendSPAttention 이 큰 숫자/pip 트레이를 직접 관리.
   // updateSPBar 가 끼어들어 NEW 값으로 덮어쓰지 않도록 _spAnimGuard 동안 부분 스킵.
   const skipBigNumsAndTray = !!S._spAnimGuard;
 
-  const myInstantStr = myInstant > 0 ? ` (+${myInstant}✨)` : '';
-  const oppInstantStr = oppInstant > 0 ? ` (+${oppInstant}✨)` : '';
-  // 팀모드 라벨: 절대 팀 컬러 기준 — 블루팀/레드팀 명시 + 컬러 매핑
-  let myLabel, oppLabel;
+  const leftInstantStr = leftInstant > 0 ? ` (+${leftInstant}✨)` : '';
+  const rightInstantStr = rightInstant > 0 ? ` (+${rightInstant}✨)` : '';
+  // 라벨: 팀전 = 절대 팀 컬러 (왼쪽=블루팀 / 오른쪽=레드팀) / 1v1 = 시점 (내/상대)
+  let leftLabel, rightLabel;
   if (S.isTeamMode) {
-    const myTeamName = S.teamId === 0 ? '블루팀' : '레드팀';
-    const oppTeamName = S.teamId === 0 ? '레드팀' : '블루팀';
-    myLabel = `${myTeamName} SP: ${mySP}${myInstantStr}`;
-    oppLabel = `${oppTeamName} SP: ${oppSP}${oppInstantStr}`;
+    leftLabel = `블루팀 SP: ${leftSP}${leftInstantStr}`;
+    rightLabel = `레드팀 SP: ${rightSP}${rightInstantStr}`;
   } else {
-    myLabel = `내 SP: ${mySP}${myInstantStr}`;
-    oppLabel = `상대 SP: ${oppSP}${oppInstantStr}`;
+    leftLabel = `내 SP: ${leftSP}${leftInstantStr}`;
+    rightLabel = `상대 SP: ${rightSP}${rightInstantStr}`;
   }
   const myLabelEl = document.getElementById('sp-my-label');
   const oppLabelEl = document.getElementById('sp-opp-label');
-  if (myLabelEl) myLabelEl.textContent = myLabel;
-  if (oppLabelEl) oppLabelEl.textContent = oppLabel;
-  // 팀모드: 라벨 컬러를 절대 팀 컬러로 (블루는 항상 파랑, 레드는 항상 빨강)
+  if (myLabelEl) myLabelEl.textContent = leftLabel;
+  if (oppLabelEl) oppLabelEl.textContent = rightLabel;
+  // 팀모드: 라벨 컬러 절대 고정 — 왼쪽=파랑, 오른쪽=빨강
   if (S.isTeamMode) {
-    if (myLabelEl) myLabelEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
-    if (oppLabelEl) oppLabelEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
+    if (myLabelEl) myLabelEl.style.color = '#60a5fa';
+    if (oppLabelEl) oppLabelEl.style.color = '#ef4444';
   } else {
     if (myLabelEl) myLabelEl.style.color = '';
     if (oppLabelEl) oppLabelEl.style.color = '';
@@ -9836,7 +9845,7 @@ function updateSPBar() {
   const myNumEl = document.getElementById('sp-my-num');
   const oppNumEl = document.getElementById('sp-opp-num');
   if (myNumEl && !skipBigNumsAndTray) {
-    const newText = String(mySP);
+    const newText = String(leftSP);
     if (myNumEl.textContent !== newText) {
       myNumEl.textContent = newText;
       myNumEl.classList.remove('sp-bump');
@@ -9845,7 +9854,7 @@ function updateSPBar() {
     }
   }
   if (oppNumEl && !skipBigNumsAndTray) {
-    const newText = String(oppSP);
+    const newText = String(rightSP);
     if (oppNumEl.textContent !== newText) {
       oppNumEl.textContent = newText;
       oppNumEl.classList.remove('sp-bump');
@@ -9854,8 +9863,8 @@ function updateSPBar() {
     }
   }
   if (S.isTeamMode) {
-    if (myNumEl) myNumEl.style.color = S.teamId === 0 ? '#60a5fa' : '#ef4444';
-    if (oppNumEl) oppNumEl.style.color = S.teamId === 0 ? '#ef4444' : '#60a5fa';
+    if (myNumEl) myNumEl.style.color = '#60a5fa';
+    if (oppNumEl) oppNumEl.style.color = '#ef4444';
   } else {
     if (myNumEl) myNumEl.style.color = '';
     if (oppNumEl) oppNumEl.style.color = '';
@@ -9863,21 +9872,20 @@ function updateSPBar() {
   // 인스턴트 SP 트레이 — 숫자 옆에 작은 황금 구슬 나열 (사용 시 숫자로 빨려 들어감)
   // 스킬 시전 애니 중에는 spendSPAttention 이 트레이의 pip 를 직접 제거 (sp-pip-consume) 하므로 sync 스킵
   if (!skipBigNumsAndTray) {
-    syncInstantTray('sp-instant-tray-mine', myInstant);
-    syncInstantTray('sp-instant-tray-opp', oppInstant);
+    syncInstantTray('sp-instant-tray-mine', leftInstant);
+    syncInstantTray('sp-instant-tray-opp', rightInstant);
   }
 
   const myFillEl = document.getElementById('sp-my-fill');
   const oppFillEl = document.getElementById('sp-opp-fill');
-  myFillEl.style.width = `${(mySP / total) * 100}%`;
-  oppFillEl.style.width = `${(oppSP / total) * 100}%`;
-  // 팀모드: SP 바 fill 그라데이션을 절대 팀 컬러로 (블루팀=파랑, 레드팀=빨강)
-  // 위치(좌/우 둥근 모서리)는 그대로 두고 색만 변경
+  myFillEl.style.width = `${(leftSP / total) * 100}%`;
+  oppFillEl.style.width = `${(rightSP / total) * 100}%`;
+  // 팀모드: 왼쪽 fill = 파랑 / 오른쪽 fill = 빨강 — 시점 무관, 절대 고정
   if (S.isTeamMode) {
-    myFillEl.classList.toggle('sp-fill-blue', S.teamId === 0);
-    myFillEl.classList.toggle('sp-fill-red', S.teamId === 1);
-    oppFillEl.classList.toggle('sp-fill-blue', S.teamId === 1);
-    oppFillEl.classList.toggle('sp-fill-red', S.teamId === 0);
+    myFillEl.classList.add('sp-fill-blue');
+    myFillEl.classList.remove('sp-fill-red');
+    oppFillEl.classList.add('sp-fill-red');
+    oppFillEl.classList.remove('sp-fill-blue');
   } else {
     myFillEl.classList.remove('sp-fill-blue', 'sp-fill-red');
     oppFillEl.classList.remove('sp-fill-blue', 'sp-fill-red');
@@ -9892,7 +9900,7 @@ function updateSPBar() {
     } else {
       const turnsUntilSP = 10 - (S.turnNumber % 10);
       const displayTurns = turnsUntilSP === 10 ? 10 : turnsUntilSP;
-      if (mySP >= 10 && oppSP >= 10) {
+      if (leftSP >= 10 && rightSP >= 10) {
         spCountdown.textContent = 'SP 최대';
         spCountdown.style.color = 'var(--accent)';
       } else {
