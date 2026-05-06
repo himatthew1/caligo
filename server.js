@@ -3772,13 +3772,21 @@ function processTurnStart(room) {
 
   // ── 보드 축소 스케줄 (애니메이션 페이즈) ──
   const schedule = getBoardShrinkSchedule(room);
+  if (!room._boardShrinkIntroFired) room._boardShrinkIntroFired = {};
   for (const ev of schedule) {
     if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
       const remaining = ev.shrinkTurn - room.turnNumber;
       if (remaining > 0) {
         emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining, stage: ev.stage });
         emitToSpectators(room, 'spectator_log', { msg: `외곽 파괴까지 ${remaining}턴`, type: 'event' });
-        queueAnim(DUR_SHRINK_WARN);
+        // ★ 픽스: 풀스크린 인트로 (3000ms 락) 는 클라가 turnsRemaining === 10 일 때만 재생.
+        //   이전엔 매 턴 queueAnim(3000) 호출해 9턴 동안 4.5s 락이 누적 — 사용자가 턴종료 눌러도
+        //   서버가 anim phase 처리 중이라 아무것도 안 일어나는 freeze 증상의 직접 원인.
+        //   이제 stage 별 인트로는 1회만 (== 10) 큐잉, 나머지 턴은 카운트다운 텍스트만.
+        if (remaining === 10 && !room._boardShrinkIntroFired[ev.stage]) {
+          room._boardShrinkIntroFired[ev.stage] = true;
+          queueAnim(DUR_SHRINK_WARN);
+        }
       }
     }
     if (room.turnNumber >= ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
