@@ -3908,9 +3908,11 @@ function processTurnStart(room) {
     if (room.mode === 'team') {
       const aElim = isTeamEliminated(room, 0);
       const bElim = isTeamEliminated(room, 1);
-      if (aElim && bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, -1, 'draw'); return; }
-      if (aElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[1][0], 'shrink'); return; }
-      if (bElim) { setKillInfo(room, 'shrink', null, []); endGame(room, room.teams[0][0], 'shrink'); return; }
+      // ★ 픽스: 이전엔 1v1 전용 endGame 을 호출 + player-idx 인자로 잘못 넘겨 winner 가 undefined → uncaught (room.players[?].pieces TypeError) → 게임 freeze.
+      //   팀모드에선 endTeamGame(room, winnerTeamId, reason) 가 정답.
+      if (aElim && bElim) { setKillInfo(room, 'shrink', null, []); endTeamGame(room, 0, 'simultaneous_draw'); return; }
+      if (aElim) { setKillInfo(room, 'shrink', null, []); endTeamGame(room, 1, 'shrink'); return; }
+      if (bElim) { setKillInfo(room, 'shrink', null, []); endTeamGame(room, 0, 'shrink'); return; }
     } else {
       const p0Dead = checkWin(room, 0);
       const p1Dead = checkWin(room, 1);
