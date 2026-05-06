@@ -39,6 +39,11 @@ const io = socketIo(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '8mb' }));
 
+// ── 커스텀 모드 — 캐릭터 목록 조회 (히든 모드용) ──
+app.get('/characters', (req, res) => {
+  res.json(CHARACTERS);
+});
+
 // 스크린샷 저장 엔드포인트 — 클라이언트가 보낸 dataURL을 screenshots/ 폴더에 저장
 const fs = require('fs');
 const screenshotDir = path.join(__dirname, 'screenshots');
@@ -1307,7 +1312,7 @@ function scheduleAITurnEnd(room, idx, delayMs) {
 // ── 팀전 AI 자유 스킬 사용 (그림자/정비/질주/약초학/정찰/기폭/신성/반지) ──
 function aiTeamUsePreSkills(room, idx) {
   const p = room.players[idx];
-  if (!p || p.actionDone) return;
+  if (!p || p.actionDone) return false;
   const allyIdxs = getAllyIndices(room, idx);
   const enemyIdxs = getEnemyIndices(room, idx);
   for (let pi = 0; pi < p.pieces.length; pi++) {
@@ -1320,30 +1325,30 @@ function aiTeamUsePreSkills(room, idx) {
     if (piece.skillId === 'shadow') {
       const adjEnemy = enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(e =>
         e.alive && e.col != null && Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row) <= 2));
-      if (adjEnemy) { aiTeamExecSkill(room, idx, pi, 'shadow'); return; }
+      if (adjEnemy) { aiTeamExecSkill(room, idx, pi, 'shadow'); return true; }
     }
     // reform — 더 좋은 공격 점수 방향이면
     if (piece.skillId === 'reform') {
       const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState });
       const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
-      if (altScore > curScore + 8) { aiTeamExecSkill(room, idx, pi, 'reform'); return; }
+      if (altScore > curScore + 8) { aiTeamExecSkill(room, idx, pi, 'reform'); return true; }
     }
     // sprint — 위급(HP≤1) + 도망 필요시에만. 1v1 AI 와 동일한 정책.
     if (piece.skillId === 'sprint') {
       const critical = piece.hp <= 1;
-      if (critical) { aiTeamExecSkill(room, idx, pi, 'sprint'); return; }
+      if (critical) { aiTeamExecSkill(room, idx, pi, 'sprint'); return true; }
     }
     // herb — 인접 아군 부상 시
     if (piece.skillId === 'herb') {
       const woundedAlly = allyIdxs.flatMap(ai => room.players[ai]?.pieces || [])
         .some(a => a.alive && a !== piece && a.hp < a.maxHp &&
           Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1);
-      if (woundedAlly) { aiTeamExecSkill(room, idx, pi, 'herb'); return; }
+      if (woundedAlly) { aiTeamExecSkill(room, idx, pi, 'herb'); return true; }
     }
     // recon — 무작위 적 정보 공개
     if (piece.skillId === 'recon' && Math.random() < 0.4) {
-      aiTeamExecSkill(room, idx, pi, 'recon'); return;
+      aiTeamExecSkill(room, idx, pi, 'recon'); return true;
     }
     // bomb — 폭탄 설치 (적 인접 셀 우선)
     if (piece.skillId === 'bomb') {
@@ -1360,7 +1365,7 @@ function aiTeamUsePreSkills(room, idx) {
       }
       if (cands.length > 0) {
         const t = cands[Math.floor(Math.random() * cands.length)];
-        aiTeamExecSkill(room, idx, pi, 'bomb', { col: t.col, row: t.row }); return;
+        aiTeamExecSkill(room, idx, pi, 'bomb', { col: t.col, row: t.row }); return true;
       }
     }
     // detonate — 폭탄이 적 위치 위에 있으면
@@ -1368,7 +1373,7 @@ function aiTeamUsePreSkills(room, idx) {
       const myBombs = (room.boardObjects[idx] || []).filter(o => o.type === 'bomb');
       const enemyOnBomb = myBombs.some(b => enemyIdxs.some(ei =>
         (room.players[ei]?.pieces || []).some(e => e.alive && e.col === b.col && e.row === b.row)));
-      if (enemyOnBomb) { aiTeamExecSkill(room, idx, pi, 'detonate'); return; }
+      if (enemyOnBomb) { aiTeamExecSkill(room, idx, pi, 'detonate'); return true; }
     }
     // divine (수도승 신성) — 부상 아군에게
     if (piece.skillId === 'divine') {
@@ -1386,7 +1391,7 @@ function aiTeamUsePreSkills(room, idx) {
         }
       }
       if (target) {
-        aiTeamExecSkill(room, idx, pi, 'divine', { targetPieceIdx: targetIdx, targetOwnerIdx }); return;
+        aiTeamExecSkill(room, idx, pi, 'divine', { targetPieceIdx: targetIdx, targetOwnerIdx }); return true;
       }
     }
     // dragon — 5SP 충분하면 한 번 소환 (게임당 1회 시도)
@@ -1396,7 +1401,7 @@ function aiTeamUsePreSkills(room, idx) {
         const c = piece.col + dc, r = piece.row + dr;
         if (!inBounds(c, r, room.boardBounds)) continue;
         const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
-        if (!occ) { aiTeamExecSkill(room, idx, pi, 'dragon', { col: c, row: r }); return; }
+        if (!occ) { aiTeamExecSkill(room, idx, pi, 'dragon', { col: c, row: r }); return true; }
       }
     }
     // ring (국왕) — 가장 위협적인 적을 외곽으로 밀어넣기.
@@ -1424,13 +1429,14 @@ function aiTeamUsePreSkills(room, idx) {
                 targetOwnerIdx: target.ownerIdx,      // 같은 팀원 폴백 방지
                 col: c, row: r,
               });
-              return;
+              return true;
             }
           }
         }
       }
     }
   }
+  return false;
 }
 
 // ── 팀전 AI 보드 축소 대피 ──
@@ -1497,9 +1503,11 @@ function aiTeamTakeTurn(room, idx) {
 
   // ★ STEP 1: free 스킬 사용 (그림자/정비/질주/약초/정찰/폭탄·기폭/신성/반지/드래곤)
   // 사용자 요청: 행동 사이 3초 딜레이 — pre-skill 썼으면 3초 후 다시 진입해 다음 액션 평가
-  const preLenBefore = (p.skillsUsedBeforeAction || []).length;
-  aiTeamUsePreSkills(room, idx);
-  const usedPreSkill = ((p.skillsUsedBeforeAction || []).length > preLenBefore);
+  // ★ usedPreSkill 은 aiTeamUsePreSkills 의 반환값으로 판정.
+  //   ❌ 이전 버그: skillsUsedBeforeAction.length 비교는 oncePerTurn 스킬에서만 push 되므로
+  //      recon/bomb/herb/divine/ring 등 비-oncePerTurn 스킬은 잘못된 false 가 나와
+  //      AI 가 즉시 액션으로 폴-스루 → 스킬+액션 동시 시전.
+  const usedPreSkill = aiTeamUsePreSkills(room, idx);
   if (p.actionDone) {
     // pre-skill이 actionDone을 셋했으면 (드물지만 예외) — 턴 종료
     scheduleAITurnEnd(room, idx, 3000);
@@ -1507,16 +1515,37 @@ function aiTeamTakeTurn(room, idx) {
   }
   if (usedPreSkill) {
     // 사용자 요청: 이전 스킬의 토스트·애니메이션이 화면에서 사라질 때까지 freeze.
-    //   _aiEndTurnEarliest 기준 (skill = now + 5900ms) + 200ms 마진. 최소 3000ms 보장.
+    //   _aiEndTurnEarliest 기준 (skill = now + 5900ms) + 1500ms 마진. 최소 6000ms 보장.
+    //   사용자 요청: 스킬과 다음 행동 사이 명확한 호흡 텀.
     const _now = Date.now();
     const _earliest = room._aiEndTurnEarliest || 0;
-    const waitMs = Math.max(3000, (_earliest - _now) + 200);
+    const waitMs = Math.max(6000, (_earliest - _now) + 1500);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === idx) {
         aiTeamTakeTurn(room, idx);
       }
     }, waitMs);
+    // ★ 직전 iteration 이 스킬 시전이었음을 마킹 — 다음 iteration 에서 액션으로 fall-through 시 추가 버퍼.
+    room._aiLastWasSkill = true;
     return;
+  }
+
+  // ★ 직전 iteration 이 스킬이었고 이번에 더 이상 스킬을 안 쓴다면, 액션으로 넘어가기 전 추가 버퍼.
+  //   사용자 요청: AI 가 스킬과 일반 행동을 거의 동시에 하는 느낌 제거.
+  if (room._aiLastWasSkill) {
+    room._aiLastWasSkill = false;
+    const _now = Date.now();
+    const _earliest = room._aiEndTurnEarliest || 0;
+    const remain = Math.max(0, _earliest - _now);
+    const waitMs = remain + 1500;
+    if (waitMs >= 200) {
+      setTimeout(() => {
+        if (room.phase === 'game' && room.currentPlayerIdx === idx) {
+          aiTeamTakeTurn(room, idx);
+        }
+      }, waitMs);
+      return;
+    }
   }
 
   // ★ STEP 2: 행동 대체 스킬 (덫/저주/유황범람/분신)
@@ -1768,6 +1797,10 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
   const hitResults = processAttack(room, idx, piece, atkCells);
   p.actionDone = true;
+  // 사용자 요청: 학살영웅 / 쥐 격파 등 임팩트 발생 시 빗나감 토스트 X.
+  const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
+  const _atkFf = (room._attackerFriendlyFireCount || 0);
+  const attackerImpactedAnything = hitResults.length > 0 || _atkOwnRats > 0 || _atkFf > 0;
   // 모든 인간에게 결과 브로드캐스트 (broadcastTeamGameState로 자연스럽게 갱신됨)
   // 피격된 각 적 플레이어에게 being_attacked
   const defenderHitsByOwner = new Map();
@@ -1781,6 +1814,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
     if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
     io.to(defPlayer.socketId).emit('being_attacked', {
       atkCells,
+      attackerImpactedAnything,
       hitPieces: hits.map(h => {
         // ★ 합류 쌍둥이 버그 수정: col/row 기반 find 는 같은 칸의 첫 매치(누나)만 반환 → 동생 hit 도 누나 이름/도장으로 잘못 매핑.
         //   대신 defPieceIdx 로 정확히 해당 piece 를 찾고, 클라에 defPieceIdx 도 함께 전달.
@@ -1794,6 +1828,22 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       yourPieces: pieceSummary(defPlayer.pieces),
     });
   }
+  // 적팀 멤버 중 hits 안 받은 자에게도 attackerImpactedAnything 알림 (빗나감 억제용)
+  if (attackerImpactedAnything) {
+    const enemyIdxs = getEnemyIndices(room, idx);
+    for (const enIdx of enemyIdxs) {
+      if (defenderHitsByOwner.has(enIdx)) continue;
+      const en = room.players[enIdx];
+      if (!en || !en.socketId || en.socketId === 'AI') continue;
+      io.to(en.socketId).emit('being_attacked', {
+        atkCells, attackerImpactedAnything,
+        hitPieces: [],
+        yourPieces: pieceSummary(en.pieces),
+      });
+    }
+  }
+  room._attackerFriendlyFireCount = 0;
+  room._attackerOwnRatsDestroyedCount = 0;
   // 같은 팀에게 team_ally_hit
   for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
     const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
@@ -2921,9 +2971,11 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
   // Step 3: Monk attacking villain => damage = 3
   if (attackerPiece.type === 'monk' && defenderPiece.tag === 'villain') {
     dmg = 3;
-    const atkName = room.players[attackerIdx].name;
-    emitToBoth(room, 'passive_alert', { type: 'monk_attack', playerIdx: attackerIdx, msg: `🙏 가호: 악인 공격 시 3 피해` });
-    emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: 악인 공격 시 3 피해`, type: 'passive', playerIdx: attackerIdx });
+    if (room._attackPassivesFired && !room._attackPassivesFired.has('monk_attack')) {
+      emitToBoth(room, 'passive_alert', { type: 'monk_attack', playerIdx: attackerIdx, msg: `🙏 가호: 악인 공격 시 3 피해` });
+      emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: 악인 공격 시 3 피해`, type: 'passive', playerIdx: attackerIdx });
+      room._attackPassivesFired.add('monk_attack');
+    }
   }
 
   // Step 4: Shadow => damage = 0
@@ -2936,18 +2988,22 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
-      const defName = room.players[defenderIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', playerIdx: defenderIdx, msg: `🛡 아이언 스킨: 피해 0.5 감소` });
-      emitToSpectators(room, 'spectator_log', { msg: `🛡 아이언 스킨: 피해 0.5 감소`, type: 'passive', playerIdx: defenderIdx });
+      if (room._attackPassivesFired && !room._attackPassivesFired.has('armoredWarrior')) {
+        emitToBoth(room, 'passive_alert', { type: 'armoredWarrior', playerIdx: defenderIdx, msg: `🛡 아이언 스킨: 피해 0.5 감소` });
+        emitToSpectators(room, 'spectator_log', { msg: `🛡 아이언 스킨: 피해 0.5 감소`, type: 'passive', playerIdx: defenderIdx });
+        room._attackPassivesFired.add('armoredWarrior');
+      }
     }
   }
 
   // Step 6: Monk being attacked by villain => damage = 0.5
   if (defenderPiece.type === 'monk' && attackerPiece.tag === 'villain') {
     dmg = 0.5;
-    const defName = room.players[defenderIdx].name;
-    emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: defenderIdx, msg: `🙏 가호: 악인 공격 피해 0.5로 감소` });
-    emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: 악인 공격 피해 0.5로 감소`, type: 'passive', playerIdx: defenderIdx });
+    if (room._attackPassivesFired && !room._attackPassivesFired.has('monk')) {
+      emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: defenderIdx, msg: `🙏 가호: 악인 공격 피해 0.5로 감소` });
+      emitToSpectators(room, 'spectator_log', { msg: `🙏 가호: 악인 공격 피해 0.5로 감소`, type: 'passive', playerIdx: defenderIdx });
+      room._attackPassivesFired.add('monk');
+    }
   }
 
   // Step 7: Count hit by tier 1 or 2 => -0.5
@@ -2955,9 +3011,11 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
-      const defName = room.players[defenderIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'count', playerIdx: defenderIdx, msg: `🦇 폭정: ${attackerPiece.tier}티어 공격 피해 0.5 감소` });
-      emitToSpectators(room, 'spectator_log', { msg: `🦇 폭정: ${attackerPiece.tier}티어 공격 피해 0.5 감소`, type: 'passive', playerIdx: defenderIdx });
+      if (room._attackPassivesFired && !room._attackPassivesFired.has('count')) {
+        emitToBoth(room, 'passive_alert', { type: 'count', playerIdx: defenderIdx, msg: `🦇 폭정: ${attackerPiece.tier}티어 공격 피해 0.5 감소` });
+        emitToSpectators(room, 'spectator_log', { msg: `🦇 폭정: ${attackerPiece.tier}티어 공격 피해 0.5 감소`, type: 'passive', playerIdx: defenderIdx });
+        room._attackPassivesFired.add('count');
+      }
     }
   }
 
@@ -2975,9 +3033,12 @@ function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDama
     }
     if (bodyguardPiece) {
       bodyguardPiece.hp = Math.max(0, bodyguardPiece.hp - 1);
-      const defName = room.players[bodyguardOwnerIdx].name;
-      emitToBoth(room, 'passive_alert', { type: 'bodyguard', playerIdx: bodyguardOwnerIdx, msg: `🛡 충성: ${defenderPiece.name} 대신 1 피해` });
-      emitToSpectators(room, 'spectator_log', { msg: `🛡 충성: ${defenderPiece.name} 대신 1 피해`, type: 'passive', playerIdx: bodyguardOwnerIdx });
+      // ★ 사용자 요청: 한 공격으로 여러 왕실이 호위무사로부터 보호받아도 emit 1회.
+      //   이름들 수집 후 processAttack 종료 시 통합 emit.
+      if (!room._pendingBodyguardPassive) {
+        room._pendingBodyguardPassive = { ownerIdx: bodyguardOwnerIdx, names: [] };
+      }
+      room._pendingBodyguardPassive.names.push(defenderPiece.name);
       // #1: 호위무사 피격 애니메이션을 위해 pending hit 정보를 사이드채널로 전달
       if (!room._pendingBodyguardHits) room._pendingBodyguardHits = [];
       const bgDefender = room.players[bodyguardOwnerIdx];
@@ -3331,6 +3392,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   // 사용자 요청: 표식이 한 번에 여러 대상에 새겨지면 단일 로그/토스트로 통합.
   //   per-target emit 대신 이름들을 수집한 뒤 attack 종료 시 한 번만 발송.
   const _markedTargetNames = [];
+  // ★ 사용자 요청: 한 공격으로 여러 대상에 같은 패시브 (가호/아이언스킨/폭정/충성) 가 발동돼도
+  //   토스트·로그는 단 한 번만 출력. resolveDamage 가 피격자마다 호출되므로 dedupe 필요.
+  //   - 메시지가 generic 한 패시브 (monk_attack/monk/armoredWarrior/count): type 별로 1회만 emit
+  //   - 메시지가 대상 이름을 포함하는 패시브 (bodyguard): 이름 수집 후 attack 종료 시 통합 emit
+  room._attackPassivesFired = new Set();
+  room._pendingBodyguardPassive = null;
 
   // 팀전: 적 = 적팀 멤버만 / 1v1: 적 = 상대
   // (이전 버그: !isTeammate(self,self)는 true이므로 공격자 본인이 enemy에 포함되어 friendly-fire 발생)
@@ -3415,6 +3482,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   }
 
   // SlaughterHero passive: 공격 범위 내 "아군"(팀모드: 자기+팀원) 1 피해
+  // ★ 사용자 요청: 학살영웅의 공격이 적군은 못때리고 아군/자기쥐/적쥐만 때렸어도
+  //   "무언가 피격이 있었다면" 빗나감 토스트 X. 그 판단을 위해 friendlyFire / 자기쥐격파 카운트 사이드채널 저장.
+  room._attackerFriendlyFireCount = 0;
+  room._attackerOwnRatsDestroyedCount = 0;
   if (atkPiece.type === 'slaughterHero') {
     const attackerName = room.players[attackerIdx].name;
     const allyIndices = (room.mode === 'team') ? getAllyIndices(room, attackerIdx) : [attackerIdx];
@@ -3424,6 +3495,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
         for (const allyPiece of allyPlayer.pieces) {
           if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
             allyPiece.hp = Math.max(0, allyPiece.hp - 1);
+            room._attackerFriendlyFireCount++;
             const whose = aIdx === attackerIdx ? '' : `${allyPlayer.name}의 `;
             // 배반자 토스트·로그 출력 제거 — 데미지 도장으로 충분히 표현됨 (사용자 요청)
             // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
@@ -3449,6 +3521,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           r => !(r.col === cell.col && r.row === cell.row)
         );
         if (room.rats[aIdx].length < before) {
+          room._attackerOwnRatsDestroyedCount += (before - room.rats[aIdx].length);
           // 배반자로 아군 쥐 격파 — 토스트·로그 출력 제거 (사용자 요청)
         }
       }
@@ -3477,6 +3550,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
       playerIdx: attackerIdx,
     });
   }
+  // ★ 사이드 채널 — 핸들러에서 attackerImpactedAnything 계산용 (적쥐 격파 카운트).
+  room._destroyedEnemyRatsCount = destroyedRatCells.length;
 
   // Track kill info for game-over messages
   const killed = hitResults.filter(h => h.destroyed);
@@ -3497,6 +3572,15 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     const namesStr = _markedTargetNames.join(', ');
     emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${namesStr}에게 표식 새김` });
     emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${namesStr}에게 표식 새김`, type: 'passive', playerIdx: attackerIdx });
+  }
+
+  // ★ 사용자 요청: 호위무사 충성 통합 알림 — 한 공격으로 보호한 모든 왕실 이름 한 번에 출력.
+  if (room._pendingBodyguardPassive) {
+    const { ownerIdx, names } = room._pendingBodyguardPassive;
+    const namesStr = names.join(', ');
+    emitToBoth(room, 'passive_alert', { type: 'bodyguard', playerIdx: ownerIdx, msg: `🛡 충성: ${namesStr} 대신 1 피해` });
+    emitToSpectators(room, 'spectator_log', { msg: `🛡 충성: ${namesStr} 대신 1 피해`, type: 'passive', playerIdx: ownerIdx });
+    room._pendingBodyguardPassive = null;
   }
 
   return hitResults;
@@ -3944,9 +4028,38 @@ function detectStalemateShrink(room) {
   });
 }
 
+// ★ 쌍둥이 첫 이동 후 보류된 opp_moved 를 단일 알림으로 flush.
+//   - 두번째 쌍둥이 이동 시: 그 자리에서 자연스럽게 발송되므로 호출 X (보류 플래그가 0).
+//   - 첫 이동만 하고 턴 종료 / 스킵 / 타임아웃 시: 이 함수가 단일 알림 발송.
+//   사용자 요청: 시전자가 페이즈 마무리에 단 한 번 받듯이, 상대도 같은 타이밍에 단 한 번만 받음.
+function flushPendingTwinOppMove(room, idx) {
+  if (!room || idx == null) return;
+  const player = room.players[idx];
+  if (!player || !player._pendingTwinOppMoveAt) return;
+  player._pendingTwinOppMoveAt = 0;
+  const moverName = player.name;
+  const msg = `${moverName}${조사(moverName, '이', '가')} 이동했습니다.`;
+  if (room.mode === 'team') {
+    const enemyIdxs = getEnemyIndices(room, idx);
+    for (const enIdx of enemyIdxs) {
+      const en = room.players[enIdx];
+      if (en && en.socketId && en.socketId !== 'AI') {
+        io.to(en.socketId).emit('opp_moved', { msg });
+      }
+    }
+  } else {
+    const opp = room.players[1 - idx];
+    if (opp && opp.socketId && opp.socketId !== 'AI') {
+      io.to(opp.socketId).emit('opp_moved', { msg });
+    }
+  }
+}
+
 function endTurn(room) {
   // AI 턴 종료 핸들 정리 — 이중 endTurn 호출이나 stale setTimeout 방지
   const prevPlayerIdx = room.currentPlayerIdx;
+  // ★ 쌍둥이 첫 이동만 하고 턴 종료한 경우 보류된 opp_moved 를 여기서 flush (모든 종료 경로 일괄 처리).
+  flushPendingTwinOppMove(room, prevPlayerIdx);
   if (room._aiTurnEndHandle && room._aiTurnEndHandle[prevPlayerIdx]) {
     clearTimeout(room._aiTurnEndHandle[prevPlayerIdx]);
     room._aiTurnEndHandle[prevPlayerIdx] = null;
@@ -5348,6 +5461,7 @@ function aiUsePreSkills(room) {
       }
     }
   }
+  return _execed;
 }
 
 // AI가 보드 축소 임박 시 외곽 셀에 있는 말을 안쪽으로 대피시킬 행동 찾기
@@ -5498,9 +5612,11 @@ function aiTakeTurn(room) {
   //   화면에서 완전히 사라질 때까지 freeze. 그 다음에야 다음 스킬·행동 가능.
   //   → aiUsePreSkills 가 한 번에 한 개만 시전 (내부 _execed 가드).
   //   → 재진입 대기 시간은 _aiEndTurnEarliest (토스트가 사라지는 시점) 기준 + 안전 마진.
-  const preLenBefore = (aiPlayer.skillsUsedBeforeAction || []).length;
-  aiUsePreSkills(room);
-  const usedPreSkill = ((aiPlayer.skillsUsedBeforeAction || []).length > preLenBefore);
+  // ★ usedPreSkill 은 aiUsePreSkills 의 반환값으로 판정.
+  //   ❌ 이전 버그: skillsUsedBeforeAction.length 비교는 oncePerTurn 스킬에서만 push 되므로
+  //      recon/bomb/herb/divine/ring 등 비-oncePerTurn 스킬은 잘못된 false 가 나와
+  //      AI 가 즉시 액션으로 폴-스루 → 스킬+액션 동시 시전.
+  const usedPreSkill = aiUsePreSkills(room);
   if (usedPreSkill) {
     // 이전 스킬의 토스트/애니메이션이 화면에서 사라질 때까지 대기 — _aiEndTurnEarliest 활용.
     //   skill 의 경우 _aiEndTurnEarliest = now + 5900ms (appear 1500 + display 4000 + fade 350 + 50 buffer).
@@ -5793,8 +5909,12 @@ function aiExecuteAttack(room, action) {
 
   aiProcessAttackResult(brain, atkCells, hitResults);
 
+  // ★ 학살영웅 등 임팩트 발생 시 빗나감 토스트 X (사용자 요청). 적쥐 격파는 hitResults 후처리에 포함.
+  const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
+  const _atkFf = (room._attackerFriendlyFireCount || 0);
   emitToPlayer(room, 0, 'being_attacked', {
     atkCells,
+    attackerImpactedAnything: hitResults.length > 0 || _atkOwnRats > 0 || _atkFf > 0,
     hitPieces: hitResults.map(h => {
       // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
       const dp = (typeof h.defPieceIdx === 'number') ? humanPlayer.pieces[h.defPieceIdx] : null;
@@ -5805,6 +5925,8 @@ function aiExecuteAttack(room, action) {
     }),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
+  room._attackerFriendlyFireCount = 0;
+  room._attackerOwnRatsDestroyedCount = 0;
   // ★ 관전자 일반 공격 애니 (1v1 AI 공격) — defOwnerIdx 0 (인간 = p0)
   emitToSpectators(room, 'spectator_attack_anim', {
     atkCells,
@@ -6686,6 +6808,125 @@ io.on('connection', (socket) => {
     transitionToInitialReveal(room);
   });
 
+  // ── 커스텀 1v1 AI 모드 — 사용자가 AI 덱까지 직접 픽 (히든 모드) ──
+  // 작동: join_ai 와 동일하나 aiSelectPieces() 대신 사용자가 보낸 aiDeck 적용.
+  socket.on('join_ai_custom', ({ playerName, deck, aiDeck }) => {
+    const roomId = `aic_${socket.id}_${Date.now()}`;
+    rooms[roomId] = createRoom(roomId);
+    const room = rooms[roomId];
+    room.isAI = true;
+    room.aiBrain = initAiBrain();
+
+    const playerDraft = validateDeck(deck);
+    const aiDraftCustom = validateDeck(aiDeck);
+
+    const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
+    room.players.push({
+      socketId: socket.id, name: playerName, index: 0,
+      pieces: [], draft: playerDraft, hpDist: null,
+      deckName: humanDeckName,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+    });
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.data.idx = 0;
+
+    room.players.push({
+      socketId: 'AI', name: 'AI', index: 1,
+      pieces: [], draft: aiDraftCustom, hpDist: null,
+      deckName: aiGenerateDeckName(aiDraftCustom),
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+    });
+
+    socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS });
+    socket.emit('opponent_joined', { opponentName: 'AI' });
+
+    room.draftDone[0] = true;
+    room.draftDone[1] = true;
+    // 사용자 요청: 커스텀 1v1 은 캐릭터 선정 후 초기공개·교환 단계 모두 스킵하고 곧장 HP 분배로.
+    transitionToHpPhase(room);
+  });
+
+  // ── 커스텀 2v2 풀 AI 모드 — 사용자 1명 + AI 봇 3명, 사용자가 모든 AI 덱 직접 픽 (히든 모드) ──
+  // drafts: { my: {pick1, pick2}, ally: {pick1, pick2}, enemy1: {pick1, pick2}, enemy2: {pick1, pick2} }
+  socket.on('join_team_custom_ai', ({ playerName, drafts }) => {
+    const roomId = `tac_${socket.id}_${Date.now()}`;
+    rooms[roomId] = createRoom(roomId, { mode: 'team' });
+    const room = rooms[roomId];
+    if (!room.aiBrain) room.aiBrain = initAiBrain();
+
+    // 픽 정규화 — 잘못된/누락된 픽은 무작위로 채움
+    const allTypes = ALL_CHARS.map(c => c.type);
+    const normalizePair = (d, forbidden) => {
+      const pickValid = (t) => allTypes.includes(t) && !forbidden.has(t);
+      let p1 = d?.pick1 && pickValid(d.pick1) ? d.pick1 : null;
+      let p2 = d?.pick2 && pickValid(d.pick2) && d.pick2 !== p1 ? d.pick2 : null;
+      const fallback = allTypes.filter(t => !forbidden.has(t)).sort(() => Math.random() - 0.5);
+      if (!p1) p1 = fallback.find(t => t !== p2);
+      if (!p2) p2 = fallback.find(t => t !== p1);
+      return { pick1: p1, pick2: p2 };
+    };
+
+    const my = normalizePair(drafts?.my, new Set());
+    const ally = normalizePair(drafts?.ally, new Set([my.pick1, my.pick2]));
+    const enemy1 = normalizePair(drafts?.enemy1, new Set());
+    const enemy2 = normalizePair(drafts?.enemy2, new Set([enemy1.pick1, enemy1.pick2]));
+
+    // 플레이어 슬롯: idx 0 = 사용자 (블루팀 자리 0), idx 1 = 팀원 AI (블루팀 자리 1),
+    //                idx 2 = 적 AI 1 (레드팀 자리 0),  idx 3 = 적 AI 2 (레드팀 자리 1).
+    const sessionToken = genSessionToken();
+    room.players.push({
+      socketId: socket.id, name: playerName, index: 0,
+      pieces: [], draft: my, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: 0, slotPos: 0, sessionToken,
+    });
+    room.teams[0].push(0);
+
+    const allyName = '아군봇';
+    room.players.push({
+      socketId: 'AI', name: allyName, index: 1,
+      pieces: [], draft: ally, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: 0, slotPos: 1,
+    });
+    room.teams[0].push(1);
+
+    room.players.push({
+      socketId: 'AI', name: '적봇 MK-1', index: 2,
+      pieces: [], draft: enemy1, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: 1, slotPos: 0,
+    });
+    room.teams[1].push(2);
+
+    room.players.push({
+      socketId: 'AI', name: '적봇 MK-2', index: 3,
+      pieces: [], draft: enemy2, hpDist: null,
+      actionDone: false, actionUsedSkillReplace: false,
+      skillsUsedBeforeAction: [],
+      teamId: 1, slotPos: 1,
+    });
+    room.teams[1].push(3);
+
+    socket.join(roomId);
+    socket.data.roomId = roomId;
+    socket.data.idx = 0;
+    socket.data.sessionToken = sessionToken;
+    socket.data.isTeamMode = true;
+
+    socket.emit('team_joined', { idx: 0, roomId, playerName, sessionToken });
+
+    // 모든 드래프트 확정 → team_draft 단계 건너뛰고 바로 HP 분배 단계로
+    room.draftDone = [true, true, true, true];
+    transitionToTeamHp(room);
+  });
+
   // ── 드래프트 실시간 브라우징 (관전자용) ──
   socket.on('draft_browse', ({ step, type, selected }) => {
     const room = rooms[socket.data.roomId];
@@ -7160,6 +7401,20 @@ io.on('connection', (socket) => {
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
     });
+
+    // ★ 사용자 요청: 쌍둥이 이동은 시전자가 페이즈 마무리에 단 한 번 알림을 받듯이,
+    //   상대도 페이즈 마무리에 단 한 번만 opp_moved 받음.
+    //   첫 쌍둥이 이동 → 알림 보류. 두번째 이동 OR end_turn 시 단일 알림 발송.
+    const isTwinMove = !!piece.subUnit;
+    const suppressOppEmit = isTwinMove && stillCanMoveOtherTwin;
+    if (suppressOppEmit) {
+      // 첫 쌍둥이 이동 — opp_moved 보류. end_turn 또는 두번째 이동 시 단일 발송.
+      player._pendingTwinOppMoveAt = Date.now();
+    } else {
+      // 두번째 쌍둥이 이동이라면 보류 플래그 정리
+      player._pendingTwinOppMoveAt = 0;
+    }
+
     if (room.mode === 'team') {
       // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용)
       const moverPiece = piece;
@@ -7180,28 +7435,34 @@ io.on('connection', (socket) => {
         }
       }
       // 적팀 모두에게 이동 알림 — 1v1과 동일한 토스트/로그 표시
-      const enemyIdxs = getEnemyIndices(room, idx);
-      const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
-      for (const enIdx of enemyIdxs) {
-        const en = room.players[enIdx];
-        if (en && en.socketId && en.socketId !== 'AI') {
-          io.to(en.socketId).emit('opp_moved', {
-            msg: isMarked
-              ? `${room.players[idx].name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
-              : `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`,
-            // 표식된 말은 좌표 노출 (애니메이션용), 일반 이동은 좌표 숨김
-            prevCol: isMarked ? prev.col : undefined,
-            prevRow: isMarked ? prev.row : undefined,
-            col: isMarked ? col : undefined,
-            row: isMarked ? row : undefined,
-          });
+      // 단, 쌍둥이 첫 이동은 보류 (suppressOppEmit). 두번째 이동·end_turn 시 단일 발송.
+      if (!suppressOppEmit) {
+        const enemyIdxs = getEnemyIndices(room, idx);
+        const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
+        for (const enIdx of enemyIdxs) {
+          const en = room.players[enIdx];
+          if (en && en.socketId && en.socketId !== 'AI') {
+            io.to(en.socketId).emit('opp_moved', {
+              msg: isMarked
+                ? `${room.players[idx].name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
+                : `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`,
+              // 표식된 말은 좌표 노출 (애니메이션용), 일반 이동은 좌표 숨김
+              prevCol: isMarked ? prev.col : undefined,
+              prevRow: isMarked ? prev.row : undefined,
+              col: isMarked ? col : undefined,
+              row: isMarked ? row : undefined,
+            });
+          }
         }
       }
       broadcastTeamGameState(room);
     } else {
-      const opp = room.players[1 - idx];
-      if (opp.socketId !== 'AI') {
-        io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+      // 1v1 — 쌍둥이 첫 이동은 보류
+      if (!suppressOppEmit) {
+        const opp = room.players[1 - idx];
+        if (opp.socketId !== 'AI') {
+          io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
+        }
       }
     }
     emitToSpectators(room, 'spectator_log', { msg: `${player.name}, ${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: idx });
@@ -7267,8 +7528,13 @@ io.on('connection', (socket) => {
             bodyguardRedirect: true,
           });
         }
+        // 쌍검무 추가공격도 임팩트 플래그 전달
+        const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
+        const _atkFf = (room._attackerFriendlyFireCount || 0);
+        const attackerImpactedAnything2 = hitResults.length > 0 || _atkOwnRats > 0 || _atkFf > 0;
         socket.emit('attack_result', {
           pieceIdx, cellResults, anyHit: hitResults.length > 0,
+          attackerImpactedAnything: attackerImpactedAnything2,
           oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
           yourPieces: pieceSummary(player.pieces),
         });
@@ -7276,6 +7542,7 @@ io.on('connection', (socket) => {
         if (defender.socketId !== 'AI') {
           io.to(defender.socketId).emit('being_attacked', {
             atkCells,
+            attackerImpactedAnything: attackerImpactedAnything2,
             hitPieces: hitResults.map(h => {
               // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
               const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
@@ -7431,10 +7698,21 @@ io.on('connection', (socket) => {
         bodyguardRedirect: true,
       });
     }
+    // ★ 사용자 요청: 학살영웅 / 쥐 격파 등 어떤 종류의 피격 임팩트가 있었으면 빗나감 토스트 X.
+    //   - 학살영웅 friendly fire (room._attackerFriendlyFireCount > 0)
+    //   - 학살영웅 자기쥐 격파 (room._attackerOwnRatsDestroyedCount > 0)
+    //   - 적쥐 격파 (room._destroyedEnemyRatsCount > 0)
+    //   클라가 빗나감 토스트 출력 여부 판단할 때 anyHit 와 함께 참조.
+    const attackerImpactedAnything =
+      hitResults.length > 0 ||
+      (room._attackerFriendlyFireCount || 0) > 0 ||
+      (room._attackerOwnRatsDestroyedCount || 0) > 0 ||
+      (room._destroyedEnemyRatsCount || 0) > 0;
     if (room.mode === 'team') {
       // 팀전: attack_result에 단일 oppPieces는 의미 없음 (team_game_update로 전체 동기)
       socket.emit('attack_result', {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
+        attackerImpactedAnything,
         yourPieces: pieceSummary(player.pieces),
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
@@ -7449,6 +7727,7 @@ io.on('connection', (socket) => {
         if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells,
+          attackerImpactedAnything,
           hitPieces: hits.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
@@ -7462,6 +7741,23 @@ io.on('connection', (socket) => {
           }),
           yourPieces: pieceSummary(defPlayer.pieces),
         });
+      }
+      // 팀모드: 적팀 멤버 중 hits 안 받은 (그래서 위 루프에서 emit 안 된) 자에게도 attackerImpactedAnything 전달용
+      //   — slaughterHero가 자기팀에만 피해주고 적팀은 영향 없을 때 적팀에게 빗나감 토스트가 떠야 정상이지만,
+      //   사용자 요청: "상대와 나 모두 빗나감 받지 않음" → 영향 받지 않은 적도 알림 받게.
+      if (attackerImpactedAnything) {
+        const enemyIdxs = getEnemyIndices(room, idx);
+        for (const enIdx of enemyIdxs) {
+          if (defenderHitsByOwner.has(enIdx)) continue;  // 이미 위에서 emit 됨
+          const en = room.players[enIdx];
+          if (!en || !en.socketId || en.socketId === 'AI') continue;
+          io.to(en.socketId).emit('being_attacked', {
+            atkCells,
+            attackerImpactedAnything,
+            hitPieces: [],
+            yourPieces: pieceSummary(en.pieces),
+          });
+        }
       }
       // 팀원 피격 알림 — 같은 팀의 다른 멤버에게 애니메이션용 이벤트
       for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
@@ -7490,12 +7786,14 @@ io.on('connection', (socket) => {
     } else {
       socket.emit('attack_result', {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
+        attackerImpactedAnything,
         oppPieces: oppPieceSummary(defender.pieces),
         yourPieces: pieceSummary(player.pieces),
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {
           atkCells,
+          attackerImpactedAnything,
           hitPieces: hitResults.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
@@ -7511,6 +7809,10 @@ io.on('connection', (socket) => {
         });
       }
     }
+    // 사이드채널 정리
+    room._attackerFriendlyFireCount = 0;
+    room._attackerOwnRatsDestroyedCount = 0;
+    room._destroyedEnemyRatsCount = 0;
 
     // ★ 관전자 일반 공격 애니메이션 — 셀 hit 번쩍임 + 카드 hit flash + 본체 도장.
     //   defOwnerIdx 가 hits 에 들어있어 클라가 패널 매핑 가능.
@@ -7704,6 +8006,7 @@ io.on('connection', (socket) => {
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
     // Allow ending turn even without action (player may choose to only use free skills)
+    // (쌍둥이 첫 이동만 하고 턴 종료한 경우 보류된 opp_moved 는 endTurn 안에서 flush)
     endTurn(room);
   });
 

@@ -1189,7 +1189,9 @@ body {
 /* 보드 아래 행동 버튼은 #9 이후 부채꼴로 대체 — 숨김 (취소·턴종료·기권은 유지) */
 body.radial-menu-mode #btn-move,
 body.radial-menu-mode #btn-attack,
-body.radial-menu-mode #btn-skill { display: none; }
+/* ★ 글로벌 스킬 탭 도입 (사용자 요청) — [스킬] 버튼은 보드 아래 4-버튼 액션바의 정식 진입점이므로 숨기지 않음.
+   이전엔 부채꼴 메뉴로만 스킬 입장이 가능했기에 hidden 처리했으나, 이제 글로벌 탭으로 통함.
+body.radial-menu-mode #btn-skill { display: none; } */
 
 /* ── 부채꼴 메뉴 활성 시 시각 강조 ── */
 /* 선택된 캐릭터 셀: 아이콘 스케일 업 + 보드 설치물(덫·쥐·폭탄) 위로 z-index 끌어올림 */
@@ -4351,6 +4353,417 @@ body.team-mode .placement-opp-panel {
   50%  { opacity: 1; transform: rotate(-8deg)  scale(0.92); }
   100% { opacity: 1; transform: rotate(-12deg) scale(1); }
 }
+/* ★ 사용자 요청: 도장 애니메이션은 해당 턴 최초 1회만. 이후 재렌더에는 no-anim 클래스가 붙어
+   pop-in 애니메이션 없이 그 자리에 그대로 고정 표시 (이동/공격 시 도장 깜빡임 방지). */
+.dmg-stamp.no-anim,
+.dmg-stamp.curse.no-anim,
+.dmg-stamp.loyalty.no-anim,
+.dmg-stamp.heal.no-anim {
+  animation: none !important;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   ★ 보드 아래 4-버튼 액션바 (행동 / 스킬 / 턴 종료 / 기권)
+   ────────────────────────────────────────────────────────────────── */
+.legacy-hidden { display: none !important; }
+
+.btn-action {
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+  color: #052e16;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(74, 222, 128, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+  transition: filter 0.15s, transform 0.1s;
+}
+.btn-action:hover:not(.dimmed) { filter: brightness(1.08); transform: translateY(-1px); }
+.btn-action.dimmed,
+.btn-skill.dimmed {
+  filter: grayscale(0.7) brightness(0.7);
+  opacity: 0.55;
+  cursor: pointer;
+}
+.btn-action.dimmed:hover,
+.btn-skill.dimmed:hover { filter: grayscale(0.7) brightness(0.78); }
+
+/* 턴 종료 — 행동 안 했을 때 강조 (살짝 빛남) */
+.btn-warning.attention {
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  animation: btn-end-turn-pulse 1.6s ease-in-out infinite;
+}
+@keyframes btn-end-turn-pulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(251, 191, 36, 0.55), inset 0 1px 0 rgba(255,255,255,0.3); }
+  50%      { box-shadow: 0 0 20px rgba(251, 191, 36, 0.85), inset 0 1px 0 rgba(255,255,255,0.3); }
+}
+
+/* 기권 — 작게 */
+.btn-surrender-mini {
+  font-size: 0.78rem !important;
+  padding: 5px 12px !important;
+  opacity: 0.82;
+}
+
+/* ── 보드 위 [행동가능] / [행동불가] 플로팅 버튼 ── */
+/* 사용자 요청: 가능=녹색 / 불가=붉은색, 텍스트 흰색.
+   인접한 캐릭터들끼리 버튼이 너무 붙어 보이지 않게 패딩 축소 + 짙은 다크 링 그림자로 시각적 분리 + 미세 회전. */
+.action-floating-btn {
+  position: absolute;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  z-index: 30;
+  pointer-events: auto;
+  white-space: nowrap;
+  border: 1px solid;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  /* 인접 버튼 사이 시각적 분리 — 짙은 외곽 링 + 위쪽 글로우 */
+  box-shadow:
+    0 0 0 2px rgba(15, 23, 42, 0.7),
+    0 3px 8px rgba(0, 0, 0, 0.55);
+  /* 회전·페이드 모두 actable/unable 의 keyframes 가 담당 */
+  transform-origin: center bottom;
+}
+/* 사용자 요청: 아이콘에서 튀어나오는 듯한 등장 — 아이콘 위치에서 작게 시작 → 위로 솟구치며 확대 → 살짝 오버슈트 후 안착.
+   actable / unable 별로 회전 방향이 다르므로 keyframes 분리. */
+.action-floating-btn.actable {
+  background: linear-gradient(135deg, #4ade80 0%, #16a34a 100%);
+  color: #ffffff;
+  border-color: rgba(187, 247, 208, 0.7);
+  transform: translate(-50%, -135%) rotate(-2deg);
+  animation: action-float-pop-out-actable 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+.action-floating-btn.actable:hover {
+  filter: brightness(1.1);
+  transform: translate(-50%, -140%) rotate(-2deg);
+}
+.action-floating-btn.unable {
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #ffffff;
+  border-color: rgba(252, 165, 165, 0.6);
+  cursor: not-allowed;
+  transform: translate(-50%, -135%) rotate(2deg);
+  animation: action-float-pop-out-unable 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+}
+/* 아이콘에서 튀어나옴 — 출발점은 아이콘 부근(translate -50%, +30%, scale 0.35)에서 위로 솟구침 */
+@keyframes action-float-pop-out-actable {
+  0%   { opacity: 0; transform: translate(-50%,  30%) scale(0.35) rotate(-8deg); }
+  55%  { opacity: 1; transform: translate(-50%, -160%) scale(1.18) rotate(-4deg); }
+  100% { opacity: 1; transform: translate(-50%, -135%) scale(1) rotate(-2deg); }
+}
+@keyframes action-float-pop-out-unable {
+  0%   { opacity: 0; transform: translate(-50%,  30%) scale(0.35) rotate(8deg); }
+  55%  { opacity: 1; transform: translate(-50%, -160%) scale(1.18) rotate(4deg); }
+  100% { opacity: 1; transform: translate(-50%, -135%) scale(1) rotate(2deg); }
+}
+/* 행동가능 모드 — 활성 캐릭터 보드 아이콘 살짝 scale up */
+.cell.actable-highlight .piece-marker {
+  transform: scale(1.12);
+  filter: drop-shadow(0 0 8px rgba(74, 222, 128, 0.7));
+  transition: transform 0.18s, filter 0.18s;
+}
+
+/* ──────────────────────────────────────────────────────────────────
+   ★ 글로벌 스킬 탭 모달 (스킬 버튼이 열음, 읽기 전용)
+   ────────────────────────────────────────────────────────────────── */
+#global-skill-modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+#global-skill-modal.hidden { display: none; }
+
+.global-skill-bg {
+  width: 100%;
+  max-width: 820px;
+  max-height: 86vh;
+  overflow-y: auto;
+  background:
+    radial-gradient(ellipse at top, rgba(99, 102, 241, 0.18), transparent 60%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 27, 75, 0.94) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(253, 230, 138, 0.08);
+  animation: global-skill-pop 0.22s ease-out 1;
+}
+@keyframes global-skill-pop {
+  0%   { opacity: 0; transform: scale(0.92); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.global-skill-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 18px 11px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  position: sticky; top: 0;
+  background: rgba(15, 23, 42, 0.95);
+  z-index: 1;
+}
+.global-skill-title {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 1.05rem; font-weight: 800; color: #fde68a;
+  letter-spacing: 0.04em;
+}
+.global-skill-title .glyph { font-size: 1.2rem; line-height: 1; }
+.global-skill-close {
+  width: 30px; height: 30px;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #fef3c7;
+  border: 1px solid rgba(252, 165, 165, 0.5);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.4);
+  transition: filter 0.15s, transform 0.1s;
+}
+.global-skill-close:hover { filter: brightness(1.12); transform: translateY(-1px); }
+
+.global-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  padding: 14px;
+}
+
+/* 글로벌 — 캐릭터 카드 */
+.gskill-card {
+  position: relative;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 9px;
+  padding: 10px;
+  transition: border-color 0.2s;
+}
+.gskill-card.has-castable {
+  border-color: rgba(74, 222, 128, 0.5);
+  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.14);
+}
+.gskill-char-row {
+  display: flex; align-items: center; gap: 7px;
+  margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+}
+.gskill-char-row .ic {
+  font-size: 1.05rem;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(67, 56, 202, 0.22);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 5px;
+  flex-shrink: 0; line-height: 1;
+}
+.gskill-char-row .nm {
+  font-size: 0.95rem; font-weight: 800; color: #fef3c7;
+  letter-spacing: 0.02em;
+}
+.gskill-box {
+  position: relative;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  border-radius: 7px;
+  padding: 11px 9px 8px;
+  margin-top: 12px;
+}
+.gskill-box.locked {
+  background: rgba(15, 23, 42, 0.55);
+  border-color: rgba(148, 163, 184, 0.25);
+}
+.gskill-box.locked .gskill-name,
+.gskill-box.locked .gskill-type-text,
+.gskill-box.locked .gskill-sp {
+  opacity: 0.5; filter: saturate(0.45);
+}
+.gskill-status-tag {
+  position: absolute;
+  top: -9px; left: 8px;
+  font-size: 0.66rem; font-weight: 800;
+  padding: 2px 8px; border-radius: 4px;
+  letter-spacing: 0.02em; line-height: 1.2;
+  z-index: 2;
+}
+.gskill-status-tag.ok {
+  color: #052e16;
+  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.gskill-status-tag.no {
+  color: #fef3c7;
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+.gskill-row-inline {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.gskill-name {
+  font-size: 0.86rem; font-weight: 800; color: #fef3c7;
+  letter-spacing: 0.02em;
+}
+.gskill-type-text {
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em;
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.gskill-type-text::before { content: '●'; font-size: 0.55rem; }
+.gskill-type-text.tag-action  { color: #f87171; }
+.gskill-type-text.tag-once    { color: #facc15; }
+.gskill-type-text.tag-free    { color: #34d399; }
+.gskill-type-text.tag-passive { color: #fb923c; }
+.gskill-sp {
+  margin-left: auto;
+  font-size: 0.7rem; font-weight: 700; color: #c4b5fd;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  padding: 1px 6px; border-radius: 4px;
+  flex-shrink: 0;
+}
+.gskill-sp.zero {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.13);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.gskill-block-reason {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 0.7rem; color: #fca5a5;
+  line-height: 1.35;
+}
+.gskill-block-reason::before { content: '⛔ '; opacity: 0.85; }
+
+/* ──────────────────────────────────────────────────────────────────
+   ★ 캐릭터 전용 스킬 탭 — 부채꼴 → [스킬] 진입 시 캐릭터 옆 부유
+   ────────────────────────────────────────────────────────────────── */
+.char-skill-popup {
+  position: fixed;
+  width: 360px;
+  max-width: 92vw;
+  background:
+    radial-gradient(ellipse at top, rgba(99, 102, 241, 0.15), transparent 70%),
+    linear-gradient(170deg, rgba(30, 27, 75, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  border-radius: 12px;
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(253, 230, 138, 0.08),
+    0 0 30px rgba(99, 102, 241, 0.28);
+  z-index: 220;
+  animation: char-skill-pop 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) 1;
+}
+@keyframes char-skill-pop {
+  0%   { opacity: 0; transform: scale(0.7) rotate(-2deg); }
+  60%  { opacity: 1; transform: scale(1.04) rotate(0.5deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+.char-skill-popup .corner-ornament {
+  position: absolute;
+  width: 16px; height: 16px;
+  border: 1px solid rgba(253, 230, 138, 0.45);
+  pointer-events: none;
+}
+.char-skill-popup .corner-ornament.tl { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+.char-skill-popup .corner-ornament.tr { top: 6px; right: 6px; border-left: none; border-bottom: none; }
+.char-skill-popup .corner-ornament.bl { bottom: 6px; left: 6px; border-right: none; border-top: none; }
+.char-skill-popup .corner-ornament.br { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
+.cskill-entries {
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.cskill-entry {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(99, 102, 241, 0.32);
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+}
+.cskill-entry.castable {
+  border-color: rgba(253, 230, 138, 0.45);
+  box-shadow: 0 0 12px rgba(253, 230, 138, 0.12);
+}
+.cskill-entry.locked {
+  border-color: rgba(99, 102, 241, 0.18);
+}
+.cskill-entry.locked .cskill-head,
+.cskill-entry.locked .cskill-desc-text {
+  opacity: 0.5; filter: saturate(0.45);
+}
+.cskill-entry.locked .cskill-desc-box {
+  background: rgba(30, 27, 75, 0.4);
+}
+.cskill-head {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 7px;
+}
+.cskill-name {
+  display: inline-block;
+  font-size: 0.78rem; font-weight: 800;
+  padding: 2px 8px; border-radius: 4px;
+  letter-spacing: 0.02em; line-height: 1.3;
+}
+.cskill-name.mini-header-action  { color: #f87171; background: rgba(224,82,82,0.2);  border: 1px solid rgba(224,82,82,0.5); }
+.cskill-name.mini-header-once    { color: #facc15; background: rgba(234,179,8,0.2);  border: 1px solid rgba(234,179,8,0.5); }
+.cskill-name.mini-header-free    { color: #34d399; background: rgba(52,211,153,0.2); border: 1px solid rgba(52,211,153,0.5); }
+.cskill-type-text {
+  font-size: 0.7rem; font-weight: 700;
+  letter-spacing: 0.02em; padding: 0 4px;
+}
+.cskill-type-text.tag-action  { color: #f87171; }
+.cskill-type-text.tag-once    { color: #facc15; }
+.cskill-type-text.tag-free    { color: #34d399; }
+.cskill-sp-cost {
+  margin-left: auto;
+  font-size: 0.7rem; font-weight: 700; color: #c4b5fd;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  padding: 2px 7px; border-radius: 5px;
+  flex-shrink: 0;
+}
+.cskill-sp-cost.zero {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.13);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+.cskill-desc-box {
+  background: rgba(30, 27, 75, 0.55);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.cskill-desc-text {
+  font-size: 0.72rem; color: #e2e8f0; line-height: 1.5; margin: 0;
+}
+.cskill-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; margin-top: 6px;
+}
+.cskill-actions.has-reason { justify-content: space-between; }
+.cskill-block-reason {
+  font-size: 0.7rem; color: #fca5a5; line-height: 1.3; flex: 1;
+}
+.cskill-block-reason::before { content: '⛔ '; opacity: 0.85; }
+.cskill-cast-btn {
+  padding: 5px 16px;
+  background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 100%);
+  color: #422006;
+  font-weight: 800; border: none; border-radius: 5px;
+  font-size: 0.78rem; letter-spacing: 0.05em; cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.45), 0 2px 5px rgba(0,0,0,0.4);
+  transition: filter 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+.cskill-cast-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.cskill-cast-btn.disabled {
+  background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+  color: #ede9fe; cursor: not-allowed;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 5px rgba(0,0,0,0.4);
+}
 @keyframes dmg-stamp-fade-out {
   0%   { opacity: 1; }
   100% { opacity: 0; }
@@ -5424,3 +5837,171 @@ body.team-mode .placement-opp-panel {
   cursor: default !important;
 }
 .board.preview-board .cell .coord-label { display: none !important; }
+
+/* ── 커스텀 모드 (히든) ── */
+.game-title { cursor: pointer; user-select: none; }
+.game-title:hover { filter: brightness(1.15); }
+
+.custom-mode-content {
+  max-width: 720px;
+  width: 92vw;
+  max-height: 88vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.custom-mode-content h3 { margin: 0 0 4px; text-align: center; }
+
+.custom-mode-tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 14px 0;
+}
+.custom-mode-tab {
+  padding: 8px 22px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-dim);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.custom-mode-tab:hover { background: rgba(148, 163, 184, 0.2); }
+.custom-mode-tab.active {
+  background: linear-gradient(135deg, #4338ca, #6366f1);
+  color: white;
+  border-color: #6366f1;
+}
+
+#custom-mode-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+#custom-mode-name-row label {
+  font-weight: 600;
+  color: var(--text-dim);
+  min-width: 56px;
+}
+#custom-mode-name {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #fef3c7;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.custom-mode-pane.hidden { display: none; }
+
+.custom-mode-section {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+}
+.custom-mode-section-title {
+  font-size: 0.85rem;
+  color: #fde68a;
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+.custom-mode-pickers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.custom-mode-pickers.tier-any {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.custom-pick-slot {
+  min-height: 52px;
+  padding: 6px 8px;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.custom-pick-slot:hover {
+  border-color: #fde68a;
+  background: rgba(253, 230, 138, 0.08);
+}
+.custom-pick-slot.filled {
+  background: rgba(67, 56, 202, 0.18);
+  border-style: solid;
+  border-color: #6366f1;
+  color: #fef3c7;
+}
+.custom-pick-slot .slot-icon { font-size: 1.5rem; }
+.custom-pick-slot .slot-name { font-weight: 700; }
+.custom-pick-slot .slot-tier-label {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+.custom-pick-slot.filled .slot-tier-label { color: #fde68a; }
+
+/* 캐릭터 선택 팝업 */
+.custom-pick-popup-content {
+  max-width: 760px;
+  width: 92vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.custom-pick-popup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+.custom-pick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 6px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.custom-pick-card:hover {
+  background: rgba(67, 56, 202, 0.18);
+  border-color: #6366f1;
+  transform: translateY(-2px);
+}
+.custom-pick-card.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.custom-pick-card .pc-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.custom-pick-card .pc-name {
+  font-size: 0.78rem;
+  color: #fef3c7;
+  font-weight: 700;
+}
+.custom-pick-card .pc-tier {
+  font-size: 0.65rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+

@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스킬 아이콘 갤러리 v3 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.18), transparent 55%),
+      radial-gradient(ellipse at 70% 80%, rgba(244, 114, 182, 0.12), transparent 55%),
+      linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    color: #fef3c7;
+    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    padding: 32px 16px 64px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 1.7rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-align: center;
+  }
+  .sub {
+    color: #94a3b8; font-size: 0.86rem;
+    margin: 0 auto 22px; text-align: center;
+    max-width: 720px; line-height: 1.6;
+  }
+  .controls {
+    display: flex; gap: 14px; justify-content: center;
+    margin-bottom: 28px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 12px 18px; max-width: 720px;
+    margin-left: auto; margin-right: auto;
+  }
+  .controls input[type="range"] { width: 130px; }
+
+  .section { max-width: 1100px; margin: 0 auto 32px; }
+  .section-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px; padding: 0 4px;
+  }
+  .section-head h2 {
+    font-size: 1.1rem; font-weight: 800; color: #fde68a;
+    margin: 0; letter-spacing: 0.04em;
+  }
+  .section-head .count { color: #64748b; font-size: 0.8rem; }
+  .section-head .legend { margin-left: auto; color: #94a3b8; font-size: 0.78rem; font-style: italic; }
+  .skill-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 12px; padding: 18px;
+  }
+  .skill-item {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px; text-align: center;
+  }
+
+  /* ── 베이스 원형 아이콘 ── */
+  .skill-icon {
+    --icon-size: 78px;
+    --ring: rgba(253, 230, 138, 0.5);
+    --ring-strong: rgba(253, 230, 138, 0.95);
+    width: var(--icon-size); height: var(--icon-size);
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+    border: 2px solid var(--ring);
+    box-shadow:
+      0 0 0 2px rgba(15, 23, 42, 0.85),
+      0 4px 14px rgba(0, 0, 0, 0.55);
+    cursor: pointer;
+    transition: transform 0.18s, border-color 0.18s;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .skill-icon:hover { transform: scale(1.07); border-color: var(--ring-strong); }
+  .skill-icon::before {
+    content: '';
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.18) 0%, transparent 45%);
+    pointer-events: none; z-index: 50;
+  }
+
+  /* 유형 테두리 */
+  .skill-icon.type-free    { --ring: rgba(74, 222, 128, 0.55);  --ring-strong: rgba(134, 239, 172, 0.95); }
+  .skill-icon.type-once    { --ring: rgba(250, 204, 21, 0.55);  --ring-strong: rgba(254, 240, 138, 0.95); }
+  .skill-icon.type-action  { --ring: rgba(248, 113, 113, 0.55); --ring-strong: rgba(254, 202, 202, 0.95); }
+  .skill-icon.type-passive { --ring: rgba(251, 146, 60, 0.55);  --ring-strong: rgba(254, 215, 170, 0.95); }
+
+  /* SVG 컨테이너 — 아이콘 안 정중앙 채움 */
+  .skill-icon svg {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+    filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.6));
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     스킬별 배경 그라디언트 + 데코 (이모지 없음)
+     ───────────────────────────────────────────────────────────── */
+
+  /* 폭탄 설치 — 격자 위 폭탄 */
+  .skill-icon.skill-bomb {
+    background: linear-gradient(135deg, #dc2626 0%, #7c2d12 100%);
+  }
+  .skill-icon.skill-bomb::after {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(0deg, transparent 49%, rgba(0,0,0,0.4) 49%, rgba(0,0,0,0.4) 51%, transparent 51%) 50% 70% / 64% 1px no-repeat,
+      linear-gradient(0deg, transparent 49%, rgba(0,0,0,0.4) 49%, rgba(0,0,0,0.4) 51%, transparent 51%) 50% 84% / 64% 1px no-repeat,
+      linear-gradient(90deg, transparent 49%, rgba(0,0,0,0.4) 49%, rgba(0,0,0,0.4) 51%, transparent 51%) 36% 77% / 1px 18% no-repeat,
+      linear-gradient(90deg, transparent 49%, rgba(0,0,0,0.4) 49%, rgba(0,0,0,0.4) 51%, transparent 51%) 64% 77% / 1px 18% no-repeat;
+    z-index: 5;
+  }
+
+  /* 기폭 — 폭발 방사선 */
+  .skill-icon.skill-detonate {
+    background: radial-gradient(circle at center, #fff7ed 0%, #fb923c 25%, #c2410c 60%, #431407 100%);
+  }
+  .skill-icon.skill-detonate::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg, rgba(254, 240, 138, 0.85) 12deg, transparent 24deg,
+      transparent 36deg, rgba(254, 240, 138, 0.85) 48deg, transparent 60deg,
+      transparent 72deg, rgba(254, 240, 138, 0.85) 84deg, transparent 96deg,
+      transparent 108deg, rgba(254, 240, 138, 0.85) 120deg, transparent 132deg,
+      transparent 144deg, rgba(254, 240, 138, 0.85) 156deg, transparent 168deg,
+      transparent 180deg, rgba(254, 240, 138, 0.85) 192deg, transparent 204deg,
+      transparent 216deg, rgba(254, 240, 138, 0.85) 228deg, transparent 240deg,
+      transparent 252deg, rgba(254, 240, 138, 0.85) 264deg, transparent 276deg,
+      transparent 288deg, rgba(254, 240, 138, 0.85) 300deg, transparent 312deg,
+      transparent 324deg, rgba(254, 240, 138, 0.85) 336deg, transparent 348deg
+    );
+    mask: radial-gradient(circle, transparent 35%, black 38%);
+    -webkit-mask: radial-gradient(circle, transparent 35%, black 38%);
+    z-index: 5;
+  }
+
+  /* 정비 — 양방향 화살표 (배경) */
+  .skill-icon.skill-reform {
+    background: radial-gradient(circle at 35% 30%, #facc15 0%, #854d0e 70%, #422006 100%);
+  }
+
+  /* 질주 — 스피드 라인 */
+  .skill-icon.skill-sprint {
+    background: linear-gradient(135deg, #facc15 0%, #b45309 100%);
+  }
+  .skill-icon.skill-sprint::after {
+    content: '';
+    position: absolute;
+    top: 30%; bottom: 30%; left: 0; right: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(254, 240, 138, 0.85) 0 6px,
+      transparent 6px 12px
+    );
+    mask: linear-gradient(90deg, transparent 0%, black 30%, black 70%, transparent 100%);
+    -webkit-mask: linear-gradient(90deg, transparent 0%, black 30%, black 70%, transparent 100%);
+    z-index: 5;
+  }
+
+  /* 약초학 — 잎 SVG */
+  .skill-icon.skill-herb {
+    background: radial-gradient(circle at 50% 40%, #4ade80 0%, #047857 65%, #022c22 100%);
+  }
+
+  /* 정찰 — 동심원 + 십자선 */
+  .skill-icon.skill-recon {
+    background: radial-gradient(circle, #1e3a8a 0%, #172554 70%, #0f172a 100%);
+  }
+  .skill-icon.skill-recon::after {
+    content: '';
+    position: absolute; inset: 14%; border-radius: 50%;
+    border: 1.5px solid rgba(96, 165, 250, 0.85);
+    box-shadow:
+      inset 0 0 0 8px rgba(96, 165, 250, 0.12),
+      inset 0 0 0 9px rgba(96, 165, 250, 0.55);
+    background:
+      linear-gradient(0deg, transparent calc(50% - 0.5px), rgba(191, 219, 254, 0.95) calc(50% - 0.5px), rgba(191, 219, 254, 0.95) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+      linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(191, 219, 254, 0.95) calc(50% - 0.5px), rgba(191, 219, 254, 0.95) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+    z-index: 5;
+  }
+
+  /* 역병의 자손들 — 쥐 SVG */
+  .skill-icon.skill-rats {
+    background: radial-gradient(circle, #65a30d 0%, #3f6212 70%, #1a2e05 100%);
+  }
+
+  /* 절대복종 반지 — 보석 박힌 황금 링 */
+  .skill-icon.skill-ring {
+    background: radial-gradient(circle, #fde68a 0%, #b45309 70%, #422006 100%);
+  }
+  .skill-icon.skill-ring::after {
+    content: '';
+    position: absolute;
+    top: 32%; left: 28%; width: 44%; height: 44%;
+    border: 5px solid #fef3c7;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(254, 240, 138, 0.85), inset 0 0 4px rgba(0,0,0,0.4);
+    z-index: 6;
+  }
+  .skill-icon.skill-ring .gem {
+    position: absolute;
+    top: 18%; left: 50%; transform: translateX(-50%);
+    width: calc(var(--icon-size) * 0.18);
+    height: calc(var(--icon-size) * 0.18);
+    background: radial-gradient(circle, #f0abfc 0%, #c026d3 60%, #701a75 100%);
+    border: 1.5px solid #fce7f3;
+    border-radius: 50%;
+    z-index: 11;
+    box-shadow: 0 0 6px rgba(232, 121, 249, 0.85);
+  }
+
+  /* 신성 — 햇살 광선 + 십자가 SVG */
+  .skill-icon.skill-divine {
+    background: radial-gradient(circle, #fef3c7 0%, #d97706 60%, #451a03 100%);
+  }
+  .skill-icon.skill-divine::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: conic-gradient(
+      from 0deg,
+      rgba(255,255,255,0.55) 0deg, transparent 18deg,
+      rgba(255,255,255,0.55) 60deg, transparent 78deg,
+      rgba(255,255,255,0.55) 120deg, transparent 138deg,
+      rgba(255,255,255,0.55) 180deg, transparent 198deg,
+      rgba(255,255,255,0.55) 240deg, transparent 258deg,
+      rgba(255,255,255,0.55) 300deg, transparent 318deg
+    );
+    mask: radial-gradient(circle, transparent 38%, black 48%, transparent 88%);
+    -webkit-mask: radial-gradient(circle, transparent 38%, black 48%, transparent 88%);
+    z-index: 5;
+  }
+
+  /* 악몽 — 사슬 SVG */
+  .skill-icon.skill-nightmare {
+    background: radial-gradient(circle, #4c1d95 0%, #2e1065 65%, #1e1b4b 100%);
+  }
+
+  /* 그림자 숨기 — 어둠 베일 + 후드 실루엣 SVG */
+  .skill-icon.skill-shadow {
+    background: radial-gradient(circle at 70% 70%, #4338ca 0%, #1e1b4b 50%, #0f172a 100%);
+  }
+  .skill-icon.skill-shadow::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at center, transparent 20%, rgba(15, 23, 42, 0.85) 80%);
+    z-index: 15;
+  }
+  .skill-icon.skill-shadow svg { opacity: 0.55; z-index: 11; }
+
+  /* 쌍검무 — 교차 칼 (CSS 슬래시) */
+  .skill-icon.skill-dualStrike {
+    background: radial-gradient(circle, #facc15 0%, #854d0e 70%, #451a03 100%);
+  }
+  .skill-icon.skill-dualStrike::after {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(45deg, transparent 47%, rgba(241, 245, 249, 0.95) 47%, rgba(241, 245, 249, 0.95) 53%, transparent 53%),
+      linear-gradient(-45deg, transparent 47%, rgba(241, 245, 249, 0.95) 47%, rgba(241, 245, 249, 0.95) 53%, transparent 53%);
+    mask: radial-gradient(circle, black 60%, transparent 80%);
+    -webkit-mask: radial-gradient(circle, black 60%, transparent 80%);
+    z-index: 5;
+  }
+
+  /* 드래곤 — 마법진 + 드래곤 SVG */
+  .skill-icon.skill-dragon {
+    background: radial-gradient(circle, #be123c 0%, #4c0519 70%, #1a0508 100%);
+  }
+  .skill-icon.skill-dragon::after {
+    content: '';
+    position: absolute; inset: 18%;
+    border: 2px solid rgba(254, 205, 211, 0.8);
+    border-radius: 50%;
+    box-shadow:
+      0 0 8px rgba(251, 113, 133, 0.7),
+      inset 0 0 6px rgba(254, 205, 211, 0.5);
+    background:
+      conic-gradient(from 0deg, rgba(254,205,211,0.8), transparent 30deg, rgba(254,205,211,0.8) 60deg, transparent 90deg, rgba(254,205,211,0.8) 120deg, transparent 150deg, rgba(254,205,211,0.8) 180deg, transparent 210deg, rgba(254,205,211,0.8) 240deg, transparent 270deg, rgba(254,205,211,0.8) 300deg, transparent 330deg);
+    mask: radial-gradient(circle, transparent 60%, black 70%, transparent 100%);
+    -webkit-mask: radial-gradient(circle, transparent 60%, black 70%, transparent 100%);
+    z-index: 5;
+  }
+
+  /* 유황범람 — 외곽 화염 링 */
+  .skill-icon.skill-sulfurRiver {
+    background: radial-gradient(circle, #1f2937 0%, #0f172a 60%, #020617 100%);
+  }
+  .skill-icon.skill-sulfurRiver::after {
+    content: '';
+    position: absolute; inset: 8%; border-radius: 50%;
+    background: conic-gradient(from 0deg, #fb923c, #f59e0b, #ef4444, #f59e0b, #fb923c, #f59e0b, #ef4444, #fb923c);
+    mask: radial-gradient(circle, transparent 56%, black 60%, black 88%, transparent 92%);
+    -webkit-mask: radial-gradient(circle, transparent 56%, black 60%, black 88%, transparent 92%);
+    z-index: 5;
+    filter: blur(0.4px);
+  }
+
+  /* 저주 — 보라 안개 + 해골 SVG */
+  .skill-icon.skill-curse {
+    background: radial-gradient(circle, #581c87 0%, #2e1065 70%, #1e1b4b 100%);
+  }
+  .skill-icon.skill-curse::after {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 25% 25%, rgba(192, 132, 252, 0.6) 0%, transparent 30%),
+      radial-gradient(circle at 75% 75%, rgba(192, 132, 252, 0.5) 0%, transparent 30%),
+      radial-gradient(circle at 75% 25%, rgba(192, 132, 252, 0.4) 0%, transparent 25%);
+    z-index: 5;
+  }
+
+  /* 분신 — 두 인물 합치기 SVG */
+  .skill-icon.skill-brothers {
+    background: radial-gradient(circle, #db2777 0%, #831843 70%, #500724 100%);
+  }
+
+  /* 덫 설치 — 덫 SVG */
+  .skill-icon.skill-trap {
+    background: radial-gradient(circle, #991b1b 0%, #450a0a 75%, #1f0202 100%);
+  }
+
+  /* ── 패시브 ── */
+  /* 인스턴트 매직 — 4점 별 (CSS clip-path) */
+  .skill-icon.skill-instantMagic {
+    background: radial-gradient(circle, #6366f1 0%, #312e81 65%, #1e1b4b 100%);
+  }
+  .skill-icon.skill-instantMagic::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at center, rgba(199, 210, 254, 0.7) 0%, transparent 40%);
+    z-index: 5;
+  }
+  .skill-icon.skill-instantMagic .star {
+    position: absolute; top: 50%; left: 50%;
+    width: calc(var(--icon-size) * 0.55);
+    height: calc(var(--icon-size) * 0.55);
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, #ffffff 0%, #c7d2fe 60%, #6366f1 100%);
+    clip-path: polygon(50% 0%, 56% 44%, 100% 50%, 56% 56%, 50% 100%, 44% 56%, 0% 50%, 44% 44%);
+    box-shadow: 0 0 12px rgba(199, 210, 254, 0.9);
+    z-index: 12;
+    filter: drop-shadow(0 0 4px rgba(255,255,255,0.8));
+  }
+
+  /* 아이언 스킨 — 방패 SVG */
+  .skill-icon.skill-ironSkin {
+    background: radial-gradient(circle, #cbd5e1 0%, #475569 60%, #1e293b 100%);
+  }
+
+  /* 충성 — 방패 + 하트 SVG */
+  .skill-icon.skill-loyalty {
+    background: radial-gradient(circle, #3b82f6 0%, #1e40af 65%, #172554 100%);
+  }
+
+  /* 가호 — 후광 + 십자가 SVG */
+  .skill-icon.skill-grace {
+    background: radial-gradient(circle at 50% 65%, #fde047 0%, #ca8a04 60%, #422006 100%);
+  }
+  .skill-icon.skill-grace::after {
+    content: '';
+    position: absolute;
+    top: 14%; left: 50%; transform: translateX(-50%);
+    width: 60%; height: 18%;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(254, 240, 138, 0.95) 0%, transparent 70%);
+    box-shadow: 0 0 14px rgba(254, 240, 138, 0.85);
+    z-index: 6;
+  }
+
+  /* 배반자 — 갈라진 칼 SVG */
+  .skill-icon.skill-betrayer {
+    background: radial-gradient(circle, #dc2626 0%, #7f1d1d 65%, #1f0202 100%);
+  }
+
+  /* 사기증진 — 깃발 SVG */
+  .skill-icon.skill-wrath {
+    background: radial-gradient(circle, #f59e0b 0%, #92400e 70%, #451a03 100%);
+  }
+
+  /* 표식 — 다중 동심원 + 십자선 */
+  .skill-icon.skill-markPassive {
+    background: radial-gradient(circle, #1e1b4b 0%, #0f172a 75%, #020617 100%);
+  }
+  .skill-icon.skill-markPassive::after {
+    content: '';
+    position: absolute; inset: 18%; border-radius: 50%;
+    border: 2px solid rgba(248, 113, 113, 0.9);
+    box-shadow:
+      inset 0 0 0 6px rgba(248, 113, 113, 0.18),
+      inset 0 0 0 7px rgba(248, 113, 113, 0.55),
+      inset 0 0 0 14px rgba(248, 113, 113, 0.18),
+      inset 0 0 0 15px rgba(248, 113, 113, 0.5);
+    background:
+      linear-gradient(0deg, transparent calc(50% - 0.5px), rgba(254, 202, 202, 0.95) calc(50% - 0.5px), rgba(254, 202, 202, 0.95) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+      linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(254, 202, 202, 0.95) calc(50% - 0.5px), rgba(254, 202, 202, 0.95) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+    z-index: 5;
+  }
+
+  /* 폭정 — 왕관 SVG */
+  .skill-icon.skill-tyranny {
+    background: radial-gradient(circle, #be123c 0%, #500724 70%, #1f0202 100%);
+  }
+
+  /* 메타 텍스트 */
+  .skill-meta {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; max-width: 140px;
+  }
+  .skill-meta .name {
+    font-weight: 800; font-size: 0.86rem; color: #fef3c7;
+    letter-spacing: 0.02em;
+  }
+  .skill-meta .type { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.02em; }
+  .skill-meta .type.tag-action  { color: #f87171; }
+  .skill-meta .type.tag-once    { color: #facc15; }
+  .skill-meta .type.tag-free    { color: #34d399; }
+  .skill-meta .type.tag-passive { color: #fb923c; }
+  .skill-meta .owner { font-size: 0.62rem; color: #64748b; margin-top: 2px; }
+
+  .skill-icon.size-l { --icon-size: 96px; }
+  .skill-icon.size-s { --icon-size: 56px; }
+  .skill-icon.size-xs { --icon-size: 40px; }
+  .size-demo {
+    display: flex; gap: 14px; align-items: center;
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 12px; padding: 16px;
+    margin: 0 auto 32px; max-width: 720px;
+    justify-content: center;
+  }
+  .size-demo .label { font-size: 0.7rem; color: #94a3b8; margin-top: 4px; }
+
+  .footer-note {
+    margin-top: 32px; color: #64748b;
+    font-size: 0.78rem; text-align: center; line-height: 1.6;
+  }
+  .footer-note a { color: #fde68a; }
+  .footer-note code {
+    color: #fde68a; background: rgba(0,0,0,0.4);
+    padding: 1px 5px; border-radius: 3px; font-size: 0.75rem;
+  }
+
+  .change-log {
+    max-width: 720px; margin: 0 auto 22px;
+    background: rgba(67, 56, 202, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    border-radius: 10px; padding: 12px 16px;
+    font-size: 0.78rem; color: #cbd5e1; line-height: 1.55;
+  }
+  .change-log h4 { margin: 0 0 6px; color: #fde68a; font-size: 0.84rem; }
+</style>
+</head>
+<body>
+
+<h1>🎨 스킬 아이콘 갤러리 v3 — 이모지 ZERO</h1>
+<div class="sub">
+  순수 CSS (gradient · clip-path · conic · mask) + 인라인 SVG 만 사용. 이모지·유니코드 심볼 모두 제거.
+  각 스킬의 효과를 도형/그래픽으로 재해석.
+</div>
+
+<div class="change-log">
+  <h4>v2 → v3 변경</h4>
+  <ul style="margin:0;padding-left:18px">
+    <li>❌ 모든 이모지 제거 (💣 🌿 🐀 ⛓ 등 전부)</li>
+    <li>✅ 모든 글리프 = <strong>인라인 SVG 또는 순수 CSS 도형</strong></li>
+    <li>✅ 폭탄·잎·쥐·드래곤·해골·방패·왕관·깃발·도끼 등 = SVG path</li>
+    <li>✅ 폭발광선·정찰십자선·후광·표식 = 순수 CSS (conic/mask/border)</li>
+    <li>✅ 정비 화살표·쌍검무 X자·질주 스피드라인 = 순수 CSS</li>
+    <li>✅ 인스턴트 매직 4점 별 = clip-path</li>
+  </ul>
+</div>
+
+<div class="controls">
+  <div style="color:#fde68a;font-weight:700;">아이콘 크기</div>
+  <input type="range" id="size-slider" min="40" max="120" value="78">
+  <span id="size-val" style="color:#fde68a;font-weight:700;">78px</span>
+</div>
+
+<div class="size-demo" id="size-demo"></div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>🟢 자유시전형</h2>
+    <span class="count" id="count-free"></span>
+    <span class="legend">SP만 있으면 행동권 소비 없이 시전 가능</span>
+  </div>
+  <div class="skill-grid" id="grid-free"></div>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>🟡 자유시전·1회</h2>
+    <span class="count" id="count-once"></span>
+    <span class="legend">한 턴에 1번만 — 행동권은 소비 X</span>
+  </div>
+  <div class="skill-grid" id="grid-once"></div>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>🔴 행동소비형</h2>
+    <span class="count" id="count-action"></span>
+    <span class="legend">시전 시 그 턴의 행동을 대체</span>
+  </div>
+  <div class="skill-grid" id="grid-action"></div>
+</div>
+
+<div class="section">
+  <div class="section-head">
+    <h2>🟠 패시브</h2>
+    <span class="count" id="count-passive"></span>
+    <span class="legend">시전 X · 조건 충족 시 자동 발동</span>
+  </div>
+  <div class="skill-grid" id="grid-passive"></div>
+</div>
+
+<div class="footer-note">
+  허브로 — <a href="/previews.html">/previews.html</a><br>
+  통합 시 — <code>.skill-icon.type-X.skill-Y</code> + 그 안의 SVG/추가 자식만 반영하면 됨.
+</div>
+
+<script>
+// ── 인라인 SVG (이모지 대체) ─────────────────────────────
+// 모두 viewBox="0 0 100 100" 기준, 중앙 정렬됨
+const SVG = {
+  bomb: `<svg viewBox="0 0 100 100">
+    <defs><radialGradient id="bombG" cx="0.4" cy="0.35"><stop offset="0" stop-color="#525252"/><stop offset="1" stop-color="#0a0a0a"/></radialGradient></defs>
+    <rect x="46" y="20" width="8" height="14" fill="#92400e"/>
+    <path d="M 50 20 Q 56 14 60 18 Q 56 22 50 20" fill="#fef3c7"/>
+    <circle cx="60" cy="16" r="3" fill="#fbbf24"/>
+    <circle cx="50" cy="58" r="26" fill="url(#bombG)" stroke="#171717" stroke-width="1.5"/>
+    <circle cx="42" cy="50" r="4" fill="rgba(255,255,255,0.35)"/>
+  </svg>`,
+  herb: `<svg viewBox="0 0 100 100">
+    <defs><linearGradient id="leafG" x1="0" x2="1"><stop offset="0" stop-color="#86efac"/><stop offset="1" stop-color="#15803d"/></linearGradient></defs>
+    <path d="M 50 18 Q 26 38 28 64 Q 28 76 50 76 Q 72 76 72 64 Q 74 38 50 18 Z" fill="url(#leafG)" stroke="#14532d" stroke-width="1.5"/>
+    <path d="M 50 18 L 50 80" stroke="#14532d" stroke-width="2" fill="none"/>
+    <path d="M 50 36 L 38 44 M 50 48 L 36 56 M 50 60 L 38 68 M 50 36 L 62 44 M 50 48 L 64 56 M 50 60 L 62 68" stroke="#14532d" stroke-width="1" fill="none"/>
+  </svg>`,
+  rats: `<svg viewBox="0 0 100 100">
+    <g transform="translate(28,30) rotate(-12)">
+      <ellipse cx="0" cy="0" rx="11" ry="7" fill="#1f2937"/>
+      <circle cx="-9" cy="-4" r="3" fill="#1f2937"/>
+      <circle cx="-9" cy="-4" r="1" fill="#fde68a"/>
+      <path d="M 11 0 Q 18 4 16 8" stroke="#1f2937" stroke-width="1.5" fill="none"/>
+    </g>
+    <g transform="translate(70,52) rotate(8)">
+      <ellipse cx="0" cy="0" rx="10" ry="6" fill="#1f2937"/>
+      <circle cx="-8" cy="-3" r="2.5" fill="#1f2937"/>
+      <circle cx="-8" cy="-3" r="0.8" fill="#fde68a"/>
+      <path d="M 10 0 Q 16 4 14 7" stroke="#1f2937" stroke-width="1.3" fill="none"/>
+    </g>
+    <g transform="translate(40,78) rotate(-4)">
+      <ellipse cx="0" cy="0" rx="11" ry="7" fill="#1f2937"/>
+      <circle cx="-9" cy="-4" r="3" fill="#1f2937"/>
+      <circle cx="-9" cy="-4" r="1" fill="#fde68a"/>
+      <path d="M 11 0 Q 17 5 15 9" stroke="#1f2937" stroke-width="1.5" fill="none"/>
+    </g>
+  </svg>`,
+  reform: `<svg viewBox="0 0 100 100">
+    <path d="M 22 38 L 40 38 L 40 30 L 56 44 L 40 58 L 40 50 L 22 50 Z" fill="#fef3c7" stroke="#422006" stroke-width="1.2"/>
+    <path d="M 78 62 L 60 62 L 60 70 L 44 56 L 60 42 L 60 50 L 78 50 Z" fill="#fef3c7" stroke="#422006" stroke-width="1.2"/>
+  </svg>`,
+  shadow: `<svg viewBox="0 0 100 100">
+    <path d="M 50 16 Q 36 20 32 36 L 32 60 L 26 80 L 74 80 L 68 60 L 68 36 Q 64 20 50 16 Z" fill="#1e1b4b" stroke="#312e81" stroke-width="1"/>
+    <ellipse cx="50" cy="38" rx="6" ry="9" fill="#0f172a"/>
+  </svg>`,
+  dragon: `<svg viewBox="0 0 100 100">
+    <path d="M 26 56 Q 32 38 50 38 Q 64 38 70 50 Q 66 46 60 48 Q 64 54 60 60 Q 70 56 74 64 Q 60 70 50 66 Q 38 64 30 60 Z" fill="#fecdd3" stroke="#881337" stroke-width="1.2"/>
+    <path d="M 56 44 L 64 36 L 60 46" fill="#fecdd3" stroke="#881337" stroke-width="0.8"/>
+    <circle cx="60" cy="50" r="1.5" fill="#881337"/>
+    <path d="M 28 56 L 22 62 L 24 50 Z" fill="#fecdd3" stroke="#881337" stroke-width="0.8"/>
+  </svg>`,
+  trap: `<svg viewBox="0 0 100 100">
+    <ellipse cx="50" cy="62" rx="28" ry="6" fill="#451a03" stroke="#1f0202" stroke-width="1.5"/>
+    <path d="M 24 60 L 28 70 L 32 60 L 36 70 L 40 60 L 44 70 L 48 60 L 52 70 L 56 60 L 60 70 L 64 60 L 68 70 L 72 60 L 76 60"
+      fill="none" stroke="#fef3c7" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M 24 60 L 28 50 L 32 60 L 36 50 L 40 60 L 44 50 L 48 60 L 52 50 L 56 60 L 60 50 L 64 60 L 68 50 L 72 60"
+      fill="none" stroke="#fef3c7" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="50" cy="40" r="3" fill="#fbbf24" stroke="#451a03" stroke-width="1"/>
+  </svg>`,
+  brothers: `<svg viewBox="0 0 100 100">
+    <g transform="translate(36,50)">
+      <circle cx="0" cy="-12" r="8" fill="#fce7f3" stroke="#831843" stroke-width="1"/>
+      <path d="M -10 0 Q -10 -6 0 -6 Q 10 -6 10 0 L 10 18 L -10 18 Z" fill="#fce7f3" stroke="#831843" stroke-width="1"/>
+    </g>
+    <g transform="translate(64,50)">
+      <circle cx="0" cy="-12" r="8" fill="#fce7f3" stroke="#831843" stroke-width="1"/>
+      <path d="M -10 0 Q -10 -6 0 -6 Q 10 -6 10 0 L 10 18 L -10 18 Z" fill="#fce7f3" stroke="#831843" stroke-width="1"/>
+    </g>
+    <path d="M 48 64 L 44 60 L 52 60 Z" fill="#fef3c7"/>
+    <path d="M 52 64 L 56 60 L 48 60 Z" fill="#fef3c7"/>
+  </svg>`,
+  curse: `<svg viewBox="0 0 100 100">
+    <path d="M 50 24 Q 30 24 28 46 Q 28 56 34 62 L 34 70 Q 34 76 40 76 L 60 76 Q 66 76 66 70 L 66 62 Q 72 56 72 46 Q 70 24 50 24 Z" fill="#fef3c7" stroke="#1f0202" stroke-width="1.2"/>
+    <ellipse cx="42" cy="50" rx="4" ry="6" fill="#0f172a"/>
+    <ellipse cx="58" cy="50" rx="4" ry="6" fill="#0f172a"/>
+    <path d="M 44 64 L 46 70 L 50 64 L 54 70 L 56 64" stroke="#0f172a" stroke-width="1.5" fill="none"/>
+  </svg>`,
+  divine: `<svg viewBox="0 0 100 100">
+    <path d="M 46 32 L 54 32 L 54 44 L 66 44 L 66 52 L 54 52 L 54 72 L 46 72 L 46 52 L 34 52 L 34 44 L 46 44 Z" fill="#fef3c7" stroke="#451a03" stroke-width="1.2"/>
+  </svg>`,
+  nightmare: `<svg viewBox="0 0 100 100">
+    <ellipse cx="32" cy="42" rx="9" ry="6" fill="none" stroke="#c4b5fd" stroke-width="2.5"/>
+    <ellipse cx="50" cy="50" rx="9" ry="6" fill="none" stroke="#c4b5fd" stroke-width="2.5"/>
+    <ellipse cx="68" cy="42" rx="9" ry="6" fill="none" stroke="#c4b5fd" stroke-width="2.5"/>
+    <ellipse cx="32" cy="70" rx="9" ry="6" fill="none" stroke="#c4b5fd" stroke-width="2.5"/>
+    <ellipse cx="68" cy="70" rx="9" ry="6" fill="none" stroke="#c4b5fd" stroke-width="2.5"/>
+  </svg>`,
+  sprint: `<svg viewBox="0 0 100 100">
+    <path d="M 70 50 L 50 36 L 50 44 L 28 44 L 28 56 L 50 56 L 50 64 Z" fill="#fef3c7" stroke="#422006" stroke-width="1"/>
+  </svg>`,
+  ironSkin: `<svg viewBox="0 0 100 100">
+    <path d="M 50 22 L 76 32 L 76 54 Q 76 70 50 80 Q 24 70 24 54 L 24 32 Z" fill="#e2e8f0" stroke="#0f172a" stroke-width="1.5"/>
+    <path d="M 50 30 L 68 38 L 68 54 Q 68 64 50 72 Q 32 64 32 54 L 32 38 Z" fill="none" stroke="#0f172a" stroke-width="1"/>
+    <circle cx="32" cy="36" r="1.5" fill="#0f172a"/>
+    <circle cx="68" cy="36" r="1.5" fill="#0f172a"/>
+    <circle cx="32" cy="60" r="1.5" fill="#0f172a"/>
+    <circle cx="68" cy="60" r="1.5" fill="#0f172a"/>
+  </svg>`,
+  loyalty: `<svg viewBox="0 0 100 100">
+    <path d="M 50 22 L 76 32 L 76 54 Q 76 70 50 80 Q 24 70 24 54 L 24 32 Z" fill="#dbeafe" stroke="#172554" stroke-width="1.5"/>
+    <path d="M 50 50 Q 38 38 38 48 Q 38 58 50 66 Q 62 58 62 48 Q 62 38 50 50 Z" fill="#ef4444" stroke="#7f1d1d" stroke-width="0.8"/>
+  </svg>`,
+  betrayer: `<svg viewBox="0 0 100 100">
+    <!-- 갈라진 검 -->
+    <path d="M 38 18 L 42 18 L 46 60 L 40 64 Z" fill="#e2e8f0" stroke="#0f172a" stroke-width="1"/>
+    <path d="M 58 18 L 62 18 L 60 64 L 54 60 Z" fill="#e2e8f0" stroke="#0f172a" stroke-width="1"/>
+    <rect x="32" y="66" width="36" height="6" fill="#fbbf24" stroke="#422006" stroke-width="1"/>
+    <rect x="46" y="72" width="8" height="14" fill="#92400e" stroke="#422006" stroke-width="1"/>
+    <!-- 균열 -->
+    <path d="M 50 24 L 48 32 L 52 38 L 49 46 L 53 54" stroke="#dc2626" stroke-width="2" fill="none"/>
+  </svg>`,
+  wrath: `<svg viewBox="0 0 100 100">
+    <line x1="32" y1="20" x2="32" y2="84" stroke="#fef3c7" stroke-width="3"/>
+    <path d="M 32 22 Q 56 20 56 32 Q 56 36 70 38 Q 56 42 56 54 Q 32 52 32 54 Z" fill="#dc2626" stroke="#7f1d1d" stroke-width="1.2"/>
+    <circle cx="32" cy="20" r="3" fill="#fde68a"/>
+  </svg>`,
+  tyranny: `<svg viewBox="0 0 100 100">
+    <path d="M 22 40 L 30 56 L 38 38 L 50 56 L 62 38 L 70 56 L 78 40 L 80 70 L 20 70 Z" fill="#fcd34d" stroke="#422006" stroke-width="1.5"/>
+    <rect x="20" y="68" width="60" height="6" fill="#92400e" stroke="#422006" stroke-width="1"/>
+    <circle cx="30" cy="48" r="2.5" fill="#dc2626" stroke="#422006" stroke-width="0.8"/>
+    <circle cx="50" cy="48" r="2.5" fill="#3b82f6" stroke="#422006" stroke-width="0.8"/>
+    <circle cx="70" cy="48" r="2.5" fill="#dc2626" stroke="#422006" stroke-width="0.8"/>
+  </svg>`,
+};
+
+const SKILLS = [
+  // 자유시전형
+  { id: 'bomb',         name: '폭탄 설치',       svg: SVG.bomb,      type: 'free',    owner: '화약상' },
+  { id: 'herb',         name: '약초학',          svg: SVG.herb,      type: 'free',    owner: '약초전문가' },
+  { id: 'recon',        name: '정찰',            svg: '',            type: 'free',    owner: '척후병' },  // CSS-only
+  { id: 'rats',         name: '역병의 자손들',   svg: SVG.rats,      type: 'free',    owner: '쥐 장수' },
+  { id: 'ring',         name: '절대복종 반지',   svg: '',            type: 'free',    owner: '국왕', extras: '<span class="gem"></span>' },  // CSS-only
+  { id: 'divine',       name: '신성',            svg: SVG.divine,    type: 'free',    owner: '수도승' },
+  { id: 'nightmare',    name: '악몽',            svg: SVG.nightmare, type: 'free',    owner: '고문 기술자' },
+  // 자유시전·1회
+  { id: 'reform',       name: '정비',            svg: SVG.reform,    type: 'once',    owner: '궁수 / 무기상' },
+  { id: 'sprint',       name: '질주',            svg: SVG.sprint,    type: 'once',    owner: '전령' },
+  { id: 'detonate',     name: '기폭',            svg: '',            type: 'once',    owner: '화약상' },  // CSS-only
+  { id: 'shadow',       name: '그림자 숨기',     svg: SVG.shadow,    type: 'once',    owner: '그림자 암살자' },
+  { id: 'dualStrike',   name: '쌍검무',          svg: '',            type: 'once',    owner: '양손 검객' },  // CSS-only
+  { id: 'dragon',       name: '드래곤 소환',     svg: SVG.dragon,    type: 'once',    owner: '드래곤 조련사' },
+  // 행동소비형
+  { id: 'trap',         name: '덫 설치',         svg: SVG.trap,      type: 'action',  owner: '인간 사냥꾼' },
+  { id: 'brothers',     name: '분신',            svg: SVG.brothers,  type: 'action',  owner: '쌍둥이 강도' },
+  { id: 'curse',        name: '저주',            svg: SVG.curse,     type: 'action',  owner: '마녀' },
+  { id: 'sulfurRiver',  name: '유황범람',        svg: '',            type: 'action',  owner: '유황이 끓는 솥' },  // CSS-only
+  // 패시브
+  { id: 'instantMagic', name: '인스턴트 매직',   svg: '',            type: 'passive', owner: '마법사', extras: '<span class="star"></span>' },
+  { id: 'ironSkin',     name: '아이언 스킨',     svg: SVG.ironSkin,  type: 'passive', owner: '갑주무사' },
+  { id: 'loyalty',      name: '충성',            svg: SVG.loyalty,   type: 'passive', owner: '호위 무사' },
+  { id: 'grace',        name: '가호',            svg: SVG.divine,    type: 'passive', owner: '수도승' },
+  { id: 'betrayer',     name: '배반자',          svg: SVG.betrayer,  type: 'passive', owner: '학살 영웅' },
+  { id: 'wrath',        name: '사기증진',        svg: SVG.wrath,     type: 'passive', owner: '지휘관' },
+  { id: 'markPassive',  name: '표식',            svg: '',            type: 'passive', owner: '고문 기술자' },  // CSS-only
+  { id: 'tyranny',      name: '폭정',            svg: SVG.tyranny,   type: 'passive', owner: '백작' },
+];
+
+function makeIconNode(skill) {
+  const item = document.createElement('div');
+  item.className = 'skill-item';
+  item.innerHTML = `
+    <div class="skill-icon type-${skill.type} skill-${skill.id}">
+      ${skill.svg || ''}
+      ${skill.extras || ''}
+    </div>
+    <div class="skill-meta">
+      <span class="name">${skill.name}</span>
+      <span class="type tag-${skill.type}">${typeLabel(skill.type)}</span>
+      <span class="owner">${skill.owner}</span>
+    </div>`;
+  return item;
+}
+function typeLabel(t) {
+  return t === 'free' ? '자유시전형'
+       : t === 'once' ? '자유시전·1회'
+       : t === 'action' ? '행동소비형'
+       : '패시브';
+}
+
+function render() {
+  const groups = { free: [], once: [], action: [], passive: [] };
+  for (const sk of SKILLS) groups[sk.type].push(sk);
+  for (const t of ['free', 'once', 'action', 'passive']) {
+    const grid = document.getElementById('grid-' + t);
+    grid.innerHTML = '';
+    for (const sk of groups[t]) grid.appendChild(makeIconNode(sk));
+    document.getElementById('count-' + t).textContent = `${groups[t].length}개`;
+  }
+  // 사이즈 데모 — 기폭으로
+  const demo = document.getElementById('size-demo');
+  demo.innerHTML = '';
+  const detonateSkill = SKILLS.find(s => s.id === 'detonate');
+  for (const [cls, label] of [['size-xs','XS · 40px'],['size-s','S · 56px'],['','M · 78px (기본)'],['size-l','L · 96px']]) {
+    const wrap = document.createElement('div');
+    wrap.style.textAlign = 'center';
+    wrap.innerHTML = `
+      <div class="skill-icon ${cls} type-${detonateSkill.type} skill-${detonateSkill.id}">${detonateSkill.svg||''}</div>
+      <div class="label">${label}</div>`;
+    demo.appendChild(wrap);
+  }
+}
+
+document.getElementById('size-slider').addEventListener('input', (e) => {
+  const v = e.target.value;
+  document.getElementById('size-val').textContent = v + 'px';
+  document.querySelectorAll('.skill-grid .skill-icon').forEach(el => {
+    el.style.setProperty('--icon-size', v + 'px');
+  });
+});
+
+render();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>캐릭터 전용 스킬 탭 미리보기 · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.18), transparent 55%),
+      radial-gradient(ellipse at 70% 80%, rgba(244, 114, 182, 0.12), transparent 55%),
+      linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    color: #fef3c7; font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    display: flex; flex-direction: column; align-items: center; padding: 32px 16px 64px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub {
+    color: #94a3b8;
+    font-size: 0.84rem;
+    margin-bottom: 22px;
+    text-align: center;
+    max-width: 720px;
+    line-height: 1.6;
+  }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 8px 14px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 10px 16px;
+    margin-bottom: 22px;
+    align-items: center; justify-content: center;
+  }
+  .controls label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.78rem; color: #cbd5e1; cursor: pointer; user-select: none;
+  }
+  .controls .sp-row {
+    display: flex; align-items: center; gap: 8px;
+    color: #fde68a; font-weight: 700; font-size: 0.82rem;
+  }
+  .controls .sp-row input { width: 110px; }
+
+  .char-selector {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    justify-content: center; margin-bottom: 18px;
+  }
+  .char-selector button {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: #cbd5e1;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: all 0.15s;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .char-selector button:hover {
+    border-color: rgba(253, 230, 138, 0.55);
+    background: rgba(67, 56, 202, 0.18);
+  }
+  .char-selector button.active {
+    background: linear-gradient(135deg, #4338ca, #6366f1);
+    color: #fef3c7; border-color: #6366f1;
+  }
+
+  /* ── 더미 보드 ── */
+  .stage {
+    position: relative;
+    width: 720px; max-width: 100%;
+    min-height: 420px;
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 14px;
+    padding: 36px 0 60px;
+    overflow: visible;
+  }
+  .stage-label {
+    position: absolute; top: 12px; left: 18px;
+    font-size: 0.7rem; color: #64748b; letter-spacing: 0.06em;
+  }
+  .char-on-board {
+    position: absolute;
+    top: 50%; left: 22%;
+    transform: translate(-50%, -50%);
+    width: 78px; height: 78px;
+    border-radius: 12px;
+    background:
+      radial-gradient(circle at 30% 25%, rgba(255,255,255,0.18), transparent 60%),
+      linear-gradient(135deg, #4338ca, #6366f1);
+    border: 2px solid rgba(253, 230, 138, 0.55);
+    box-shadow: 0 0 24px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255,255,255,0.18);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.6rem;
+    z-index: 2;
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     ★ 캐릭터 전용 스킬 탭 — v2 (이미지 피드백 반영)
+     ───────────────────────────────────────────────────────────── */
+  .char-skill-panel {
+    position: absolute;
+    top: 50%;
+    left: calc(22% + 60px);
+    transform: translateY(-50%);
+    width: 380px;
+    background:
+      radial-gradient(ellipse at top, rgba(99, 102, 241, 0.15), transparent 70%),
+      linear-gradient(170deg, rgba(30, 27, 75, 0.96) 0%, rgba(15, 23, 42, 0.96) 100%);
+    border: 1px solid rgba(253, 230, 138, 0.35);
+    border-radius: 12px;
+    padding: 0;
+    box-shadow:
+      0 14px 36px rgba(0, 0, 0, 0.7),
+      0 0 0 1px rgba(253, 230, 138, 0.08),
+      0 0 30px rgba(99, 102, 241, 0.28);
+    z-index: 5;
+    animation: char-skill-pop 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) 1;
+  }
+  @keyframes char-skill-pop {
+    0%   { opacity: 0; transform: translateY(-50%) scale(0.7) rotate(-2deg); }
+    60%  { opacity: 1; transform: translateY(-50%) scale(1.04) rotate(0.5deg); }
+    100% { opacity: 1; transform: translateY(-50%) scale(1) rotate(0); }
+  }
+  .char-skill-panel::before {
+    content: '';
+    position: absolute;
+    left: -10px; top: 50%; transform: translateY(-50%);
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 8px 11px 8px 0;
+    border-color: transparent rgba(253, 230, 138, 0.35) transparent transparent;
+  }
+  .char-skill-panel::after {
+    content: '';
+    position: absolute;
+    left: -8px; top: 50%; transform: translateY(-50%);
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 7px 10px 7px 0;
+    border-color: transparent rgba(30, 27, 75, 0.96) transparent transparent;
+  }
+  /* 모서리 장식 */
+  .corner-ornament {
+    position: absolute;
+    width: 16px; height: 16px;
+    border: 1px solid rgba(253, 230, 138, 0.45);
+    pointer-events: none;
+  }
+  .corner-ornament.tl { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+  .corner-ornament.tr { top: 6px; right: 6px; border-left: none; border-bottom: none; }
+  .corner-ornament.bl { bottom: 6px; left: 6px; border-right: none; border-top: none; }
+  .corner-ornament.br { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
+  /* ── 스킬 엔트리 컨테이너 — 헤더 없이 바로 시작 ── */
+  .skill-entries {
+    padding: 12px 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+
+  /* 개별 엔트리 */
+  .skill-entry {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(99, 102, 241, 0.32);
+    border-radius: 8px;
+    padding: 8px 10px 10px;
+    transition: opacity 0.2s, filter 0.2s;
+  }
+  /* 모든 활성 엔트리 — 동일한 노란 테마 (행동 대체 빨강 테마 제거, 사용자 요청) */
+  .skill-entry.castable {
+    border-color: rgba(253, 230, 138, 0.45);
+    box-shadow: 0 0 12px rgba(253, 230, 138, 0.12);
+  }
+  /* 시전 불가 — 엔트리 dim 처리는 head·설명에만 한정. 시전 불가 버튼·사유는 채도 유지 (사용자 요청). */
+  .skill-entry.locked {
+    border-color: rgba(99, 102, 241, 0.18);
+    box-shadow: none;
+  }
+  .skill-entry.locked .skill-entry-head,
+  .skill-entry.locked .skill-desc-text {
+    opacity: 0.5;
+    filter: saturate(0.45);
+  }
+  .skill-entry.locked .skill-desc-box {
+    background: rgba(30, 27, 75, 0.4);
+  }
+
+  /* 엔트리 상단 — 스킬명 미니헤더 + 유형 + SP */
+  .skill-entry-head {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 7px;
+  }
+  /* 미니 헤더 — 캐릭터 슬라이더와 동일 클래스 (mini-header-free/once/action/passive) */
+  .mini-header {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.02em;
+    line-height: 1.3;
+  }
+  .mini-header-action  { color: #f87171; background: rgba(224,82,82,0.2);  border: 1px solid rgba(224,82,82,0.5); }
+  .mini-header-once    { color: #facc15; background: rgba(234,179,8,0.2);  border: 1px solid rgba(234,179,8,0.5); }
+  .mini-header-free    { color: #34d399; background: rgba(52,211,153,0.2); border: 1px solid rgba(52,211,153,0.5); }
+  .mini-header-passive { color: #fb923c; background: rgba(251,146,60,0.2); border: 1px solid rgba(251,146,60,0.5); }
+
+  /* 유형 텍스트 — 박스 제거, 색상만 유지 (사용자 피드백) */
+  .skill-type-text {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0 4px;
+  }
+  .skill-type-text.tag-action  { color: #f87171; }
+  .skill-type-text.tag-once    { color: #facc15; }
+  .skill-type-text.tag-free    { color: #34d399; }
+  .skill-type-text.tag-passive { color: #fb923c; }
+
+  .sp-cost-label {
+    margin-left: auto;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #c4b5fd;
+    background: rgba(99, 102, 241, 0.2);
+    border: 1px solid rgba(99, 102, 241, 0.45);
+    padding: 2px 7px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .sp-cost-label.zero {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.13);
+    border-color: rgba(148, 163, 184, 0.3);
+  }
+
+  /* 설명 박스 — 시전 버튼 / 시전불가 + 사유 포함 */
+  .skill-desc-box {
+    background: rgba(30, 27, 75, 0.55);
+    border: 1px solid rgba(99, 102, 241, 0.18);
+    border-radius: 6px;
+    padding: 8px 10px;
+    position: relative;
+  }
+  .skill-desc-text {
+    font-size: 0.72rem;
+    color: #e2e8f0;
+    line-height: 1.5;
+    margin: 0;
+    /* 시전 버튼 자리 — 우측에 inline-flex 텍스트 wrap */
+    display: block;
+  }
+  /* 활성 시전 버튼 — 설명 박스 우측 하단 (작게) */
+  .skill-actions {
+    display: flex; align-items: center; justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .skill-actions.has-reason {
+    justify-content: space-between;
+  }
+
+  .block-reason {
+    font-size: 0.7rem;
+    color: #fca5a5;
+    line-height: 1.3;
+    flex: 1;
+  }
+  .block-reason::before { content: '⛔ '; opacity: 0.85; }
+
+  /* 시전 버튼 — 황금 (활성), 작게 모서리 */
+  .cast-btn {
+    padding: 5px 16px;
+    background: linear-gradient(135deg, #fcd34d 0%, #f59e0b 100%);
+    color: #422006;
+    font-weight: 800;
+    border: none;
+    border-radius: 5px;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.18),
+      0 2px 5px rgba(0, 0, 0, 0.4);
+    transition: transform 0.1s, filter 0.15s;
+    flex-shrink: 0;
+  }
+  .cast-btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .cast-btn:active { transform: translateY(0); filter: brightness(0.92); }
+  /* 행동 대체 스킬도 동일한 황금 시전 버튼 — 빨강 테마 제거 (사용자 요청) */
+  /* 시전 불가 버튼 — 선명한 인디고 톤 (엔트리는 dim 되지만 버튼은 선명) */
+  .cast-btn.disabled {
+    background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+    color: #ede9fe;
+    cursor: not-allowed;
+    opacity: 1 !important;
+    filter: none !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.25),
+      0 2px 5px rgba(0, 0, 0, 0.4);
+  }
+
+  .panel-footer {
+    padding: 0 12px 10px;
+    text-align: center;
+    color: #64748b;
+    font-size: 0.62rem;
+    letter-spacing: 0.05em;
+  }
+
+  .design-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 32px;
+    max-width: 760px;
+    width: 100%;
+  }
+  .design-compare > div {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 0.78rem;
+    color: #cbd5e1;
+    line-height: 1.6;
+  }
+  .design-compare h4 {
+    margin: 0 0 8px;
+    color: #fde68a;
+    font-size: 0.86rem;
+    letter-spacing: 0.04em;
+  }
+  .design-compare ul { padding-left: 18px; margin: 4px 0; }
+  .design-compare li { margin-bottom: 3px; }
+
+  .footer-note {
+    margin-top: 26px;
+    color: #64748b;
+    font-size: 0.78rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  .footer-note a { color: #fde68a; }
+
+  .change-log {
+    max-width: 720px; width: 100%;
+    margin: 18px auto 0;
+    background: rgba(67, 56, 202, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.78rem; color: #cbd5e1; line-height: 1.55;
+  }
+  .change-log h4 {
+    margin: 0 0 6px; color: #fde68a; font-size: 0.84rem;
+  }
+  .change-log ul { padding-left: 18px; margin: 4px 0; }
+  .change-log li { margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<h1>캐릭터 전용 스킬 탭 — v2</h1>
+<div class="sub">
+  사용자 이미지 피드백 반영판. 헤더 (이름·티어·HP) 제거 → 공간 확보. 스킬명은 캐릭터 슬라이더의 미니헤더 클래스 그대로 사용. 시전 버튼은 우측 하단 작게. 시전 불가 시 엔트리는 딤되지만 시전 불가 버튼은 인디고로 선명, 사유는 버튼 좌측에 배치.
+</div>
+
+<div class="change-log">
+  <h4>v1 → v2 변경 사항</h4>
+  <ul>
+    <li>❌ 캐릭터 헤더 (포트레이트 / 이름 / 티어 / HP / 보유 SP) 전부 제거 → 스킬 엔트리만 표시</li>
+    <li>✅ 스킬명 = 캐릭터 슬라이더의 <code style="color:#fde68a;">.mini-header-{free/once/action}</code> 클래스</li>
+    <li>✅ 스킬 유형 텍스트 = 게임 통일 표기 (<strong>자유시전형 / 자유시전·1회 / 행동소비형</strong>)</li>
+    <li>✅ SP 라벨 = <strong>SP 2 소모 / SP 소모 없음</strong> (게임 통일 표기)</li>
+    <li>✅ 스킬 설명 = 캐릭터 슬라이더의 정규 본문 그대로 (코드 <code>CHAR_DETAILS</code> 의 desc/body)</li>
+    <li>✅ 시전 / 시전 불가 버튼 — 작게 + 우측 하단 배치 (여백 축소)</li>
+    <li>✅ 시전 불가 시 엔트리 전체 딤, 단 <strong>시전 불가 버튼은 채도 100% 인디고</strong> + 사유는 버튼 좌측</li>
+  </ul>
+</div>
+
+<div class="char-selector" id="char-selector"></div>
+
+<div class="controls">
+  <div class="sp-row">
+    <span>SP</span>
+    <input type="range" id="sp-slider" min="0" max="10" value="3">
+    <span id="sp-val">3</span>
+  </div>
+  <label><input type="checkbox" id="toggle-action-used"> 행동 사용</label>
+  <label><input type="checkbox" id="toggle-skill-replace-used"> 행동 대체 스킬 사용</label>
+  <label><input type="checkbox" id="toggle-curse"> 저주 걸림</label>
+  <label><input type="checkbox" id="toggle-shadow"> 그림자 발동 중</label>
+  <label><input type="checkbox" id="toggle-bomb-placed"> 폭탄 설치됨</label>
+  <label><input type="checkbox" id="toggle-once-used"> 턴당 1회 이미 사용</label>
+</div>
+
+<div class="stage">
+  <span class="stage-label">// 캐릭터 + 부유 스킬 패널 시뮬</span>
+  <div class="char-on-board" id="char-on-board">💣</div>
+  <div class="char-skill-panel" id="skill-panel">
+    <span class="corner-ornament tl"></span>
+    <span class="corner-ornament tr"></span>
+    <span class="corner-ornament bl"></span>
+    <span class="corner-ornament br"></span>
+
+    <div class="skill-entries" id="skill-entries"></div>
+  </div>
+</div>
+
+<div class="design-compare">
+  <div>
+    <h4>📜 캐릭터 전용 (이 미리보기)</h4>
+    <ul>
+      <li>캐릭터 옆 부유 — 말풍선 꼬리</li>
+      <li>그 캐릭터의 스킬만 펼침</li>
+      <li><strong>황금 시전 버튼 활성</strong> — 즉시 행동</li>
+      <li>pop-in 회전 애니 + 글로우</li>
+    </ul>
+  </div>
+  <div>
+    <h4>📖 글로벌 스킬 탭 (별도 미리보기)</h4>
+    <ul>
+      <li>모달 풀스크린</li>
+      <li>모든 캐릭터 카드 그리드</li>
+      <li><strong>읽기 전용</strong> — 시전 X</li>
+      <li>전략 점검용 정적 레이아웃</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer-note">
+  허브로 — <a href="/previews.html">/previews.html</a> &nbsp;·&nbsp;
+  글로벌 탭 — <a href="/global-skill-tab-preview.html">global-skill-tab-preview.html</a>
+</div>
+
+<script>
+// ── 캐릭터 데이터 (game.js CHAR_DETAILS 의 정규 desc 사용) ────────────
+// 미니헤더 클래스 / 유형 텍스트 / SP 라벨 — 모두 게임 통일 표기.
+const CHARACTERS = [
+  {
+    type: 'archer', name: '궁수', icon: '🏹',
+    skills: [
+      { id: 'reform', name: '정비',
+        miniHeaderCls: 'mini-header-once', tagCls: 'tag-once', tagLabel: '자유시전·1회',
+        cost: 1, replacesAction: false, oncePerTurn: true,
+        desc: '스킬 사용 시 공격 범위의 대각선 방향을 영구적으로 좌우 반전시킵니다.' }
+    ],
+  },
+  {
+    type: 'gunpowder', name: '화약상', icon: '💣',
+    skills: [
+      { id: 'bomb', name: '폭탄 설치',
+        miniHeaderCls: 'mini-header-free', tagCls: 'tag-free', tagLabel: '자유시전형',
+        cost: 2, replacesAction: false, oncePerTurn: false,
+        desc: '스킬 사용 시 화약상의 주변 8칸 중 한 곳에 폭탄을 설치합니다.' },
+      { id: 'detonate', name: '기폭',
+        miniHeaderCls: 'mini-header-once', tagCls: 'tag-once', tagLabel: '자유시전·1회',
+        cost: 0, replacesAction: false, oncePerTurn: true,
+        desc: '스킬 사용 시 보드 위에 설치한 폭탄을 전부 폭발시켜, 해당 칸에 위치한 모든 적에게 1 피해를 줍니다. 해당 스킬은 화약상이 사망할 때도 자동으로 발동됩니다.' },
+    ],
+  },
+  {
+    type: 'monk', name: '수도승', icon: '🙏',
+    skills: [
+      { id: 'divine', name: '신성',
+        miniHeaderCls: 'mini-header-free', tagCls: 'tag-free', tagLabel: '자유시전형',
+        cost: 3, replacesAction: false, oncePerTurn: false,
+        desc: '스킬 사용 시 자신을 제외한 아군 한 명의 체력을 2 회복하고 상태 이상을 제거합니다.' }
+    ],
+  },
+  {
+    type: 'witch', name: '마녀', icon: '🧹',
+    skills: [
+      { id: 'curse', name: '저주',
+        miniHeaderCls: 'mini-header-action', tagCls: 'tag-action', tagLabel: '행동소비형',
+        cost: 3, replacesAction: true, oncePerTurn: false,
+        desc: '스킬 사용 시 체력이 1 이상인 적 한 명을 선택해 저주 상태로 만듭니다. 저주 상태의 적은 차례마다 0.5 피해를 받으며 스킬을 사용할 수 없게 됩니다.' }
+    ],
+  },
+  {
+    type: 'shadowAssassin', name: '그림자 암살자', icon: '🗡',
+    skills: [
+      { id: 'shadow', name: '그림자 숨기',
+        miniHeaderCls: 'mini-header-once', tagCls: 'tag-once', tagLabel: '자유시전·1회',
+        cost: 1, replacesAction: false, oncePerTurn: true,
+        desc: '스킬 사용 시 그림자 상태가 되어 다음 턴까지 공격과 상태 이상에 완전 면역이 됩니다.' }
+    ],
+  },
+];
+
+// ── castability 평가 ──
+function evalCastable(piece, skill, ctx) {
+  if (ctx.cursedTypes.has(piece.type)) return { ok: false, why: '저주에 걸려 스킬 봉인됨' };
+  const total = ctx.sp + ctx.instantSp;
+  if (total < skill.cost) return { ok: false, why: `SP 부족 (필요 ${skill.cost} · 보유 ${total})` };
+  if (skill.replacesAction && (ctx.actionUsed || ctx.skillReplaceUsed)) {
+    return { ok: false, why: '이번 턴에 이미 행동을 사용함' };
+  }
+  if (skill.oncePerTurn && ctx.onceUsed) return { ok: false, why: '이 스킬은 턴당 1회 — 이미 사용' };
+  if (skill.id === 'shadow' && ctx.shadowActive) return { ok: false, why: '이미 그림자 상태입니다' };
+  if (skill.id === 'detonate' && !ctx.bombPlaced) return { ok: false, why: '설치된 폭탄이 없습니다' };
+  return { ok: true, why: null };
+}
+
+let currentChar = CHARACTERS[1];
+
+const selector = document.getElementById('char-selector');
+for (const c of CHARACTERS) {
+  const btn = document.createElement('button');
+  btn.innerHTML = `<span>${c.icon}</span><span>${c.name}</span>`;
+  if (c === currentChar) btn.classList.add('active');
+  btn.addEventListener('click', () => {
+    currentChar = c;
+    selector.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const panel = document.getElementById('skill-panel');
+    panel.style.animation = 'none';
+    void panel.offsetWidth;
+    panel.style.animation = '';
+    render();
+  });
+  selector.appendChild(btn);
+}
+
+function render() {
+  const sp = parseInt(document.getElementById('sp-slider').value);
+  document.getElementById('sp-val').textContent = sp;
+  const ctx = {
+    sp, instantSp: 0,
+    actionUsed: document.getElementById('toggle-action-used').checked,
+    skillReplaceUsed: document.getElementById('toggle-skill-replace-used').checked,
+    cursedTypes: document.getElementById('toggle-curse').checked ? new Set([currentChar.type]) : new Set(),
+    shadowActive: document.getElementById('toggle-shadow').checked,
+    bombPlaced: document.getElementById('toggle-bomb-placed').checked,
+    onceUsed: document.getElementById('toggle-once-used').checked,
+  };
+  document.getElementById('char-on-board').textContent = currentChar.icon;
+
+  const wrap = document.getElementById('skill-entries');
+  wrap.innerHTML = '';
+
+  if (currentChar.skills.length === 0) {
+    wrap.innerHTML = `<div style="text-align:center;color:#64748b;font-size:0.8rem;padding:18px 0;font-style:italic;">— 액티브 스킬 없음 —</div>`;
+    return;
+  }
+
+  for (const skill of currentChar.skills) {
+    const ev = evalCastable(currentChar, skill, ctx);
+    const entry = document.createElement('div');
+    entry.className = 'skill-entry' + (ev.ok ? ' castable' : ' locked');
+    const spLabel = skill.cost === 0 ? 'SP 소모 없음' : `SP ${skill.cost} 소모`;
+    const spClass = skill.cost === 0 ? 'sp-cost-label zero' : 'sp-cost-label';
+    entry.innerHTML = `
+      <div class="skill-entry-head">
+        <span class="mini-header ${skill.miniHeaderCls}">${skill.name}</span>
+        <span class="skill-type-text ${skill.tagCls}">${skill.tagLabel}</span>
+        <span class="${spClass}">${spLabel}</span>
+      </div>
+      <div class="skill-desc-box">
+        <p class="skill-desc-text">${skill.desc}</p>
+        <div class="skill-actions${ev.ok ? '' : ' has-reason'}">
+          ${ev.ok ? '' : `<span class="block-reason">${ev.why}</span>`}
+          <button class="cast-btn ${ev.ok ? '' : 'disabled'}" ${ev.ok ? '' : 'disabled'}>
+            ${ev.ok ? '시전' : '시전 불가'}
+          </button>
+        </div>
+      </div>`;
+    wrap.appendChild(entry);
+  }
+}
+
+document.getElementById('sp-slider').addEventListener('input', render);
+['toggle-action-used','toggle-skill-replace-used','toggle-curse','toggle-shadow','toggle-bomb-placed','toggle-once-used']
+  .forEach(id => document.getElementById(id).addEventListener('change', render));
+
+render();
+</script>
+
+</body>
+</html>

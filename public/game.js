@@ -830,6 +830,207 @@ document.getElementById('input-room').addEventListener('keydown', e => {
   if (e.key === 'Enter') document.getElementById('btn-join').click();
 });
 
+// ══════════════════════════════════════════════════════════════════
+// ── 커스텀 모드 (히든) — 타이틀 로고 클릭 진입 ──
+// ══════════════════════════════════════════════════════════════════
+(function setupCustomMode() {
+  const titleEl = document.querySelector('.game-title');
+  const modal = document.getElementById('custom-mode-modal');
+  const popup = document.getElementById('custom-pick-popup');
+  if (!titleEl || !modal || !popup) return;
+
+  let allCharacters = null;            // { 1: [...], 2: [...], 3: [...] }
+  let currentMode = '1v1';             // '1v1' | '2v2'
+  // picks[target][slot] = { type, name, icon, tier }
+  const picks = {
+    'my-1v1': {}, 'ai-1v1': {},
+    'my-2v2': {}, 'ally-2v2': {}, 'enemy1-2v2': {}, 'enemy2-2v2': {},
+  };
+
+  async function ensureCharacters() {
+    if (allCharacters) return allCharacters;
+    try {
+      const r = await fetch('/characters');
+      allCharacters = await r.json();
+    } catch (e) {
+      allCharacters = { 1: [], 2: [], 3: [] };
+    }
+    return allCharacters;
+  }
+
+  function getAllCharsFlat() {
+    if (!allCharacters) return [];
+    return [
+      ...(allCharacters[1] || []).map(c => ({ ...c, tier: 1 })),
+      ...(allCharacters[2] || []).map(c => ({ ...c, tier: 2 })),
+      ...(allCharacters[3] || []).map(c => ({ ...c, tier: 3 })),
+    ];
+  }
+
+  function findChar(type) {
+    return getAllCharsFlat().find(c => c.type === type) || null;
+  }
+
+  function renderPickSlot(slotEl) {
+    const target = slotEl.parentElement.dataset.target;
+    const slotKey = slotEl.dataset.slot;
+    const tierLabel = slotEl.dataset.tier === 'any' ? '' : `${slotEl.dataset.tier}티어`;
+    const pick = picks[target]?.[slotKey];
+    if (pick) {
+      slotEl.classList.add('filled');
+      slotEl.innerHTML = `
+        <span class="slot-icon">${pick.icon || '◯'}</span>
+        <span class="slot-name">${pick.name || pick.type}</span>
+        <span class="slot-tier-label">T${pick.tier}</span>`;
+    } else {
+      slotEl.classList.remove('filled');
+      slotEl.innerHTML = `<span class="slot-name" style="color:#94a3b8">+ 캐릭터 선택</span><span class="slot-tier-label">${tierLabel}</span>`;
+    }
+  }
+
+  function renderAllSlots() {
+    document.querySelectorAll('#custom-mode-modal .custom-pick-slot').forEach(renderPickSlot);
+  }
+
+  function openPickPopup(slotEl) {
+    const target = slotEl.parentElement.dataset.target;
+    const slotKey = slotEl.dataset.slot;
+    const tierLock = slotEl.dataset.tier;          // '1'|'2'|'3'|'any'
+
+    // 1v1 의 같은 target 내에선 같은 캐릭터 안 됨 (티어가 달라서 자연 회피)
+    // 2v2 의 같은 target 내에선 pick1/pick2 가 같은 캐릭터일 수 없음
+    // 2v2 팀 내 다른 멤버와도 중복 X (블루팀: my+ally / 레드팀: enemy1+enemy2)
+    const forbidden = new Set();
+    Object.entries(picks[target] || {}).forEach(([k, v]) => {
+      if (k !== slotKey && v?.type) forbidden.add(v.type);
+    });
+    if (currentMode === '2v2') {
+      // 같은 팀 멤버의 픽 중복 금지
+      const teamMates = (target === 'my-2v2' || target === 'ally-2v2')
+        ? ['my-2v2', 'ally-2v2']
+        : ['enemy1-2v2', 'enemy2-2v2'];
+      teamMates.filter(t => t !== target).forEach(t => {
+        Object.values(picks[t] || {}).forEach(v => { if (v?.type) forbidden.add(v.type); });
+      });
+    }
+
+    let pool = getAllCharsFlat();
+    if (tierLock !== 'any') pool = pool.filter(c => c.tier === Number(tierLock));
+
+    const grid = document.getElementById('custom-pick-popup-grid');
+    grid.innerHTML = '';
+    for (const c of pool) {
+      const card = document.createElement('div');
+      card.className = 'custom-pick-card';
+      if (forbidden.has(c.type)) card.classList.add('disabled');
+      card.innerHTML = `
+        <span class="pc-icon">${c.icon || '◯'}</span>
+        <span class="pc-name">${c.name || c.type}</span>
+        <span class="pc-tier">T${c.tier}</span>`;
+      card.addEventListener('click', () => {
+        if (forbidden.has(c.type)) return;
+        picks[target] = picks[target] || {};
+        picks[target][slotKey] = { type: c.type, name: c.name, icon: c.icon, tier: c.tier };
+        renderAllSlots();
+        popup.classList.add('hidden');
+      });
+      grid.appendChild(card);
+    }
+
+    document.getElementById('custom-pick-popup-title').textContent =
+      `${tierLock === 'any' ? '캐릭터' : tierLock + '티어'} 선택`;
+    popup.classList.remove('hidden');
+    popup._activeSlot = slotEl;
+  }
+
+  document.getElementById('custom-pick-popup-clear').addEventListener('click', () => {
+    const slotEl = popup._activeSlot;
+    if (slotEl) {
+      const target = slotEl.parentElement.dataset.target;
+      const slotKey = slotEl.dataset.slot;
+      if (picks[target]) delete picks[target][slotKey];
+      renderAllSlots();
+    }
+    popup.classList.add('hidden');
+  });
+  document.getElementById('custom-pick-popup-cancel').addEventListener('click', () => {
+    popup.classList.add('hidden');
+  });
+  popup.addEventListener('click', e => { if (e.target === popup) popup.classList.add('hidden'); });
+
+  // 모드 탭 전환
+  modal.querySelectorAll('.custom-mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      modal.querySelectorAll('.custom-mode-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentMode = tab.dataset.mode;
+      document.getElementById('custom-mode-1v1').classList.toggle('hidden', currentMode !== '1v1');
+      document.getElementById('custom-mode-2v2').classList.toggle('hidden', currentMode !== '2v2');
+    });
+  });
+
+  // 슬롯 클릭 → 팝업
+  modal.addEventListener('click', e => {
+    const slot = e.target.closest('.custom-pick-slot');
+    if (slot) openPickPopup(slot);
+  });
+
+  // 시작
+  document.getElementById('custom-mode-start').addEventListener('click', () => {
+    const errEl = document.getElementById('custom-mode-error');
+    errEl.textContent = '';
+    const name = document.getElementById('custom-mode-name').value.trim()
+              || document.getElementById('input-name').value.trim()
+              || '플레이어';
+
+    if (currentMode === '1v1') {
+      const my = picks['my-1v1'];
+      const ai = picks['ai-1v1'];
+      if (!my.t1 || !my.t2 || !my.t3) { errEl.textContent = '내 덱 1·2·3티어를 모두 선택하세요.'; return; }
+      if (!ai.t1 || !ai.t2 || !ai.t3) { errEl.textContent = 'AI 상대 덱 1·2·3티어를 모두 선택하세요.'; return; }
+      S.myName = name; S.opponentName = 'AI 🤖';
+      socket.emit('join_ai_custom', {
+        playerName: name,
+        deck: { t1: my.t1.type, t2: my.t2.type, t3: my.t3.type, deckName: '커스텀' },
+        aiDeck: { t1: ai.t1.type, t2: ai.t2.type, t3: ai.t3.type, deckName: '커스텀-AI' },
+      });
+    } else {
+      const my = picks['my-2v2'], ally = picks['ally-2v2'], e1 = picks['enemy1-2v2'], e2 = picks['enemy2-2v2'];
+      const allOk = (s) => s.pick1 && s.pick2;
+      if (!allOk(my) || !allOk(ally) || !allOk(e1) || !allOk(e2)) {
+        errEl.textContent = '4명의 픽(각 2개)을 모두 선택하세요.'; return;
+      }
+      S.myName = name; S.isTeamMode = true;
+      socket.emit('join_team_custom_ai', {
+        playerName: name,
+        drafts: {
+          my:     { pick1: my.pick1.type,    pick2: my.pick2.type },
+          ally:   { pick1: ally.pick1.type,  pick2: ally.pick2.type },
+          enemy1: { pick1: e1.pick1.type,    pick2: e1.pick2.type },
+          enemy2: { pick1: e2.pick1.type,    pick2: e2.pick2.type },
+        },
+      });
+    }
+    modal.classList.add('hidden');
+  });
+
+  document.getElementById('custom-mode-cancel').addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.add('hidden'); });
+
+  // 타이틀 클릭 진입
+  titleEl.addEventListener('click', async () => {
+    await ensureCharacters();
+    // 닉네임 동기화 — 로비 입력값이 있으면 모달에 반영
+    const nameInput = document.getElementById('input-name');
+    const customName = document.getElementById('custom-mode-name');
+    if (nameInput.value.trim() && !customName.value.trim()) customName.value = nameInput.value.trim();
+    renderAllSlots();
+    modal.classList.remove('hidden');
+  });
+})();
+
 // ── 관전하기 버튼 ──
 document.getElementById('btn-spectate').addEventListener('click', () => {
   const modal = document.getElementById('spectate-modal');
@@ -3621,7 +3822,7 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPieces }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces }) => {
   // 쥐 격파 감지: 공격 범위에 있던 상대 쥐 찾기 (서버가 자동 제거)
   const destroyedRats = [];
   if (S.boardObjects) {
@@ -3683,37 +3884,35 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
     // c.redirectedToBodyguard === true: 본체는 0 피해라 도장 없음 (BG 가 받음)
   }
 
+  // ★ 사용자 요청:
+  //   1. "명중!" 토스트 제거 — 공격자 피드백 토스트는 빗나감 / 격파 / 쥐 격파 만.
+  //   2. 쥐를 잡았거나 학살영웅 임팩트 (friendly fire / 자기쥐 / 적쥐) 가 있으면 빗나감 토스트 X.
+  const _attackerHadAnyImpact = !!attackerImpactedAnything || destroyedRats.length > 0;
   if (!anyHit) {
-    // 본인 공격 빗나감 — 인벤토리 C1 본인 셀: "빗나감"
-    addLog(`빗나감`, 'miss');
-    showSkillToast(`빗나감`);
+    // 본인 공격 빗나감 — 임팩트 (쥐 격파 / 학살영웅 등) 발생 시 빗나감 출력 X.
+    if (!_attackerHadAnyImpact) {
+      addLog(`빗나감`, 'miss');
+      showSkillToast(`빗나감`);
+    }
   } else {
     // 호위무사 가로채기·0데미지 비격파 hit은 토스트/로그 생략
-    // (호위무사의 충성 패시브 알림과 본체 피격 애니메이션이 별도로 표시됨)
     const meaningfulHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
-    // 메시지는 호위무사 가로채기 hit도 제외 (passive_alert가 따로 알림). 호위무사 격파 시는 사망 알림만 노출.
     const messageHits = meaningfulHits.filter(c => !c.bodyguardRedirect || c.destroyed);
-    // 사용자 요청: 모든 공격 반응의 원인은 공격이므로 "명중!" 이 항상 먼저,
-    //   그 후 0.8초 텀 두고 격파 알림이 따름. (공격받았습니다와 동일 패턴, 대칭)
     const killed = messageHits.filter(h => h.destroyed);
     const hitOnly = messageHits.filter(h => !h.destroyed);
     if (killed.length > 0) playSfx('kill');
     else if (hitOnly.length > 0) playSfx('hit');
-    // ① 명중! — 즉시 (격파/명중 무관)
-    showSkillToast(`명중!`);
-    // ① 로그 — 명중 좌표 (생존자만 — 격파는 별도 알림)
+    // ① 명중 로그만 (좌표) — 토스트는 출력 X (사용자 요청).
     if (hitOnly.length > 0) {
       const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
       addLog(`${coords} 명중`, 'hit');
     }
-    // ② 격파 알림 — 명중 이후 0.8초 텀
+    // ② 격파 토스트/로그 — 즉시 발화 (이전엔 명중 토스트 후 0.8초 대기였으나, 명중 토스트가 사라져 대기 불필요).
     if (killed.length > 0) {
       const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
       const coords = killed.map(h => coord(h.col, h.row)).join(', ');
-      setTimeout(() => {
-        showSkillToast(`${labels} 격파!`);
-        addLog(`${coords} ${labels} 격파`, 'hit');
-      }, 800);
+      showSkillToast(`${labels} 격파!`);
+      addLog(`${coords} ${labels} 격파`, 'hit');
     }
   }
   // 공격자 측에도 동일 — '명중!/격파!' 출력 후 방어형 패시브(충성 등) flush
@@ -3809,7 +4008,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, oppPieces, yourPiec
 });
 
 // ── 피격 ──
-socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
+socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything }) => {
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
   if (S._bodyguardIntercepted) {
@@ -3870,27 +4069,36 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces }) => {
   //    "공격받았습니다!" 토스트는 본체 직접 피격이 있을 때만 출력.
   //    호위무사가 모두 가로챈 경우는 passive_alert("🛡 충성: ...") 가 알림 담당.
   const directHits = meaningfulHits.filter(h => !h.bodyguardRedirect);
+  // ★ 사용자 요청: 공격자가 무언가 임팩트 (학살영웅 friendly fire / 자기쥐 / 적쥐) 를 입힌 경우 빗나감 출력 X.
+  //    내 쥐가 격파됐어도 무언가 일어난 것이므로 빗나감 X.
+  const _myDestroyedRatsFlag = (myDestroyedRats && myDestroyedRats.length > 0);
+  const _attackerHadAnyImpact = !!attackerImpactedAnything || _myDestroyedRatsFlag;
   if (hitPieces.length === 0) {
-    addLog(`${oppN()} 공격 빗나감`, 'miss');
-    showSkillToast(`${oppN()} 공격 빗나감`, true);
+    if (!_attackerHadAnyImpact) {
+      addLog(`${oppN()} 공격 빗나감`, 'miss');
+      showSkillToast(`${oppN()} 공격 빗나감`, true);
+    }
   } else if (directHits.length > 0) {
-    // 본체에 직접 피격 발생 → 공격받았습니다 즉시, 사망 알림 0.8초 텀 후
+    // 본체에 직접 피격 발생.
+    // ★ 사용자 요청: 사망 시 사망 토스트가 곧 피격 시그널 → 공격받았습니다 토스트 중복 제거.
+    //   대칭성 — 공격자는 [격파!] 토스트, 피격자는 [격파됨] 토스트.
+    //   사망 없을 때만 [공격받았습니다!] 토스트.
     const killedSelf = directHits.filter(h => h.destroyed);
     const hitOnlySelf = directHits.filter(h => !h.destroyed);
     if (killedSelf.length > 0) playSfx('kill');
     else if (hitOnlySelf.length > 0) playSfx('hit');
-    // ① 공격받았습니다 — 항상 먼저 (사망/피격 무관)
-    showSkillToast(`공격받았습니다!`, true);
+    if (killedSelf.length === 0) {
+      showSkillToast(`공격받았습니다!`, true);
+    }
     if (hitOnlySelf.length > 0) {
       const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
-    // ② 사망 — 본인 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만
+    // 사망 — 토스트 + 로그 즉시 (공격자 측 [격파!] 와 동일 문구 통일, 사용자 요청).
     if (killedSelf.length > 0) {
       const killedLabels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      setTimeout(() => {
-        addLog(`${killedLabels} 사망`, 'hit');
-      }, 800);
+      showSkillToast(`${killedLabels} 격파!`, true);
+      addLog(`${killedLabels} 격파`, 'hit');
     }
   }
   // ★ "공격받았습니다!" (있으면) 출력 후 → 방어형 패시브 알림(충성·폭정·아이언스킨·가호) flush.
@@ -5925,6 +6133,9 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
       S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
     }
     animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
+    // ★ 사용자 요청: 동시간대 사망자/피해자는 단일 토스트·로그로 통합.
+    const _killedLabelsSpec = [];
+    const _hurtLabelsSpec = [];
     for (const h of hits) {
       if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
       const dmg = (typeof h.damage === 'number') ? h.damage : 0;
@@ -5932,16 +6143,23 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
         const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
         addBodyDamage(key, dmg);
       }
-      // ★ 폭탄 피해/사망 로그 — 일반 공격과 구분 (피해량 1 고정이라 표기 생략)
       if (h.name) {
         const label = h.icon ? `${h.icon}${h.name}` : h.name;
-        if (h.destroyed) addLog(`${label} 폭탄 사망`, 'hit');
-        else if (dmg > 0) addLog(`${label} 폭탄 피해`, 'hit');
+        if (h.destroyed) _killedLabelsSpec.push(label);
+        else if (dmg > 0) _hurtLabelsSpec.push(label);
       }
       const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
       const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
       const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
       if (card) applyHitFlashWithBrighten(card);
+    }
+    if (_killedLabelsSpec.length > 0) {
+      const lbl = _killedLabelsSpec.join(', ');
+      showSkillToast(`${lbl} 격파!`);
+      addLog(`${lbl} 격파`, 'hit');
+    }
+    if (_hurtLabelsSpec.length > 0) {
+      addLog(`${_hurtLabelsSpec.join(', ')} 폭탄 피해`, 'hit');
     }
     if (S.specGameState) renderSpectatorGame(S.specGameState);
     return;
@@ -5950,19 +6168,26 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   if (Array.isArray(S.boardObjects)) {
     S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && o.col === col && o.row === row));
   }
-  // ★ 폭탄 피해/사망 로그 — 일반 공격(공격받았습니다!)과 구분되는 명확한 표기.
-  //   사용자 요청: 폭탄 피격은 "공격받았습니다!" 토스트 출력 X (혼동 방지).
-  //   로그는 "[icon][name] 폭탄 피해" / "[icon][name] 폭탄 사망" — 피해량은 1 고정이라 생략.
+  // ★ 사용자 요청: 동시간대 사망/피해는 단일 토스트·로그로 통합 (한 hit 마다 X).
+  //   격파 토스트는 일반 공격과 동일한 [labels 격파!] 양식 (사용자 요청: 통일).
+  //   폭탄 피해 로그만 폭탄 식별을 위해 [labels 폭탄 피해] 표기 유지.
+  const _killedLabels = [];
+  const _hurtLabels = [];
   for (const h of hits) {
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
     if (h.name) {
       const label = h.icon ? `${h.icon}${h.name}` : h.name;
-      if (h.destroyed) {
-        addLog(`${label} 폭탄 사망`, 'hit');
-      } else if (typeof h.damage === 'number' && h.damage > 0) {
-        addLog(`${label} 폭탄 피해`, 'hit');
-      }
+      if (h.destroyed) _killedLabels.push(label);
+      else if (typeof h.damage === 'number' && h.damage > 0) _hurtLabels.push(label);
     }
+  }
+  if (_killedLabels.length > 0) {
+    const lbl = _killedLabels.join(', ');
+    showSkillToast(`${lbl} 격파!`);
+    addLog(`${lbl} 격파`, 'hit');
+  }
+  if (_hurtLabels.length > 0) {
+    addLog(`${_hurtLabels.join(', ')} 폭탄 피해`, 'hit');
   }
   if (hits.length === 0) {
     S.attackLog.push({ col, row, hit: false, turn: S.turnNumber });
@@ -10379,6 +10604,9 @@ function snapshotTurnStartHps(preCurseHps) {
   S.loyaltyDamageThisTurn = {};
   S.bodyDamageThisTurn = {};   // 본체 직접 피해 — 매 턴 초기화
   S.healThisTurn = {};         // 회복 — 매 턴 초기화 (녹색 도장 + HP 바 녹색 오버레이)
+  // ★ 사용자 요청: 도장 애니메이션은 해당 턴에 최초 1회만. 매 턴 시작 시 추적 셋 초기화 →
+  //   buildDamageOverlay 가 한번 도장 렌더하면 셋에 등록, 다음 재렌더부터 no-anim 클래스 부여.
+  S._stampAnimationsSeen = {};
   // 저주 데미지: preHps 가 주어졌으면 새로운 턴이라 이전 누적을 버리고 newCurseDmg 로 덮어씀.
   // preHps 없이 호출된 경우(게임 시작 등)는 그대로 비움.
   S.curseDamageThisTurn = newCurseDmg;
@@ -10426,16 +10654,25 @@ function buildDamageOverlay(key, hp, maxHp) {
   const healAmt    = (S.healThisTurn          && S.healThisTurn[key])          || 0;
   const fmtDmg = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
   const fmtHeal = (d) => Number.isInteger(d) ? `${d} 회복` : `${d.toFixed(1)} 회복`;
+  // ★ 사용자 요청: 도장 애니메이션은 해당 턴 최초 1회만. 같은 도장이 이미 표시된 적 있으면 no-anim.
+  if (!S._stampAnimationsSeen) S._stampAnimationsSeen = {};
+  const seenKey = (type) => `${key}:${type}`;
+  const seenCls = (type) => S._stampAnimationsSeen[seenKey(type)] ? ' no-anim' : '';
+  const markSeen = (type) => { S._stampAnimationsSeen[seenKey(type)] = true; };
   let stamp = '';
   if (bodyDmg > 0) {
-    stamp += `<div class="dmg-stamp">${fmtDmg(bodyDmg)}</div>`;
+    stamp += `<div class="dmg-stamp${seenCls('body')}">${fmtDmg(bodyDmg)}</div>`;
+    markSeen('body');
   } else if (curseDmg > 0) {
-    stamp += `<div class="dmg-stamp curse">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
+    stamp += `<div class="dmg-stamp curse${seenCls('curse')}">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
+    markSeen('curse');
   } else if (healAmt > 0) {
-    stamp += `<div class="dmg-stamp heal">${fmtHeal(healAmt)}</div>`;
+    stamp += `<div class="dmg-stamp heal${seenCls('heal')}">${fmtHeal(healAmt)}</div>`;
+    markSeen('heal');
   }
   if (loyaltyDmg > 0) {
-    stamp += `<div class="dmg-stamp loyalty">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
+    stamp += `<div class="dmg-stamp loyalty${seenCls('loyalty')}">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
+    markSeen('loyalty');
   }
   // HP 바 표시 로직 (사용자 요청):
   //   기본 HP 바 자체는 *시작 HP 와 현재 HP 중 더 작은 쪽*에 머물러 있음.
@@ -11636,10 +11873,11 @@ function exitTwinMovePhase(emitToast) {
   _closeTwinDisabledButton();
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   document.getElementById('btn-cancel').classList.add('hidden');
-  // 페이즈 종료 시 단일 토스트/로그 (이미 표시 안 했고 실제 이동이 일어났을 때만)
+  // 페이즈 종료 시 단일 토스트/로그 (이미 표시 안 했고 실제 이동이 일어났을 때만).
+  // 사용자 요청: 이모지 제거 + 일반 이동 토스트 양식 (`이름 이동`) 그대로 따름.
   if (emitToast && !S._twinPhaseToastShown) {
-    addLog(`👫 쌍둥이 강도 이동`, 'move');
-    showSkillToast(`👫 쌍둥이 강도 이동`);
+    addLog(`쌍둥이 강도 이동`, 'move');
+    showSkillToast(`쌍둥이 강도 이동`);
     S._twinPhaseToastShown = true;
   }
   renderGameBoard();
@@ -12075,7 +12313,9 @@ function handleGameCellClick(col, row) {
   // 행동 진행 중 (move/attack/skill_target/twin_move) — 다른 내 유닛 클릭 차단.
   //   사용자가 selected piece 의 행동만 완료할 수 있게 (취소 버튼으로만 해제 가능).
   //   단, twin_move 페이즈에서는 위 분기에서 별도 처리 (이동한 쌍둥이 [행동불가] / 그린 셀 이동).
-  if (S.isMyTurn && S.action && S.action !== 'twin_move') {
+  //   ★ 예외: 마녀/그림자 암살자 타겟 선택 모드에서는 내 유닛이 있는 셀도 타겟으로 지정 가능
+  //      (마녀의 저주는 적팀 대상이지만 일반 공격 타겟은 아무 셀이든 선택 가능).
+  if (S.isMyTurn && S.action && S.action !== 'twin_move' && !S.targetSelectMode) {
     const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
     const selPc = (S.selectedPiece != null) ? S.myPieces[S.selectedPiece] : null;
     if (myPc && selPc && myPc !== selPc) {
@@ -13545,20 +13785,20 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   const hitAlly = directHits.filter(h => !h.destroyed);
   if (killedAlly.length > 0) playSfx('kill');
   else if (hitAlly.length > 0) playSfx('hit');
-  // ① 공격받았습니다 — 본체 직접 피격이 있을 때만 (BG-only intercept 는 passive_alert 가 처리)
+  // ★ 사용자 요청: 사망 시 격파됨 토스트만 (공격받았습니다 중복 제거).
   if (directHits.length > 0) {
-    showSkillToast(`공격받았습니다!`, true);
+    if (killedAlly.length === 0) {
+      showSkillToast(`공격받았습니다!`, true);
+    }
     if (hitAlly.length > 0) {
       const hitLabels = hitAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
   }
-  // ② 사망 — 우리 편(팀원) 유닛 사망은 카드에서 보이므로 토스트 생략, 로그만
   if (killedAlly.length > 0) {
     const labels = killedAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-    setTimeout(() => {
-      addLog(`${labels} 사망`, 'hit');
-    }, 800);
+    showSkillToast(`${labels} 격파!`, true);
+    addLog(`${labels} 격파`, 'hit');
   }
   // 호위무사 가로채기 — passive_alert가 메시지 담당 (중복 토스트 제거)
   // 팀원 프로필 카드에 hit 애니메이션 — 호위무사 가로채기 시 본체 카드는 제외
@@ -16174,4 +16414,434 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !overlay.classList.contains('hidden')) closeDict();
   });
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// ★ 보드 아래 4-버튼 액션바 통합 (행동 / 스킬 / 턴종료 / 기권)
+// ══════════════════════════════════════════════════════════════════
+(function setupBottomActionBar() {
+
+  // ── 어떤 캐릭터가 행동 가능한가? ─────────────────────────────────
+  function getActablePieces() {
+    if (!S.myPieces || !S.isMyTurn) return [];
+    const out = [];
+    for (let i = 0; i < S.myPieces.length; i++) {
+      const pc = S.myPieces[i];
+      if (!pc || !pc.alive) continue;
+      if (typeof pieceCanTakeBasicAction === 'function' && pieceCanTakeBasicAction(pc)) out.push(i);
+      else if (typeof canPieceUseAnySkill === 'function' && canPieceUseAnySkill(i)) out.push(i);
+    }
+    return out;
+  }
+
+  // 시전 가능한 스킬이 한 개라도 있는가? — 스킬 버튼 dim 판정용
+  function anyCastableSkill() {
+    if (!S.myPieces || !S.isMyTurn) return false;
+    for (let i = 0; i < S.myPieces.length; i++) {
+      if (typeof canPieceUseAnySkill === 'function' && canPieceUseAnySkill(i)) return true;
+    }
+    return false;
+  }
+
+  // 기본 행동권 사용 가능한가? — 행동 버튼 dim 판정용
+  function anyActableForBasic() {
+    if (!S.myPieces || !S.isMyTurn) return false;
+    for (const pc of S.myPieces) {
+      if (pc && pc.alive && typeof pieceCanTakeBasicAction === 'function' && pieceCanTakeBasicAction(pc)) return true;
+    }
+    return false;
+  }
+
+  // ── 보드 위 [행동가능] / [행동불가] 플로팅 버튼 ────────────────────
+  function _clearActionFloatingBtns() {
+    document.querySelectorAll('.action-floating-btn').forEach(b => b.remove());
+    document.querySelectorAll('#game-board .cell.actable-highlight').forEach(c => c.classList.remove('actable-highlight'));
+  }
+  function _placeActionFloatingBtn(pc, mode) {
+    const board = document.getElementById('game-board');
+    if (!board) return;
+    const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+    if (!cellEl) return;
+    if (mode === 'actable') cellEl.classList.add('actable-highlight');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'action-floating-btn ' + (mode === 'actable' ? 'actable' : 'unable');
+    btn.textContent = mode === 'actable' ? '행동가능' : '행동불가';
+    btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+    btn.style.top = cellEl.offsetTop + 'px';
+    btn.dataset.pieceIdx = String(S.myPieces.indexOf(pc));
+    if (mode === 'actable') {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _clearActionFloatingBtns();
+        const idx = Number(btn.dataset.pieceIdx);
+        if (Number.isInteger(idx) && typeof _showRadialActionMenu === 'function') {
+          _showRadialActionMenu(pc.col, pc.row, idx);
+        }
+      });
+    } else {
+      btn.addEventListener('click', (e) => e.stopPropagation());
+    }
+    board.appendChild(btn);
+  }
+
+  function showActableHighlights() {
+    _clearActionFloatingBtns();
+    const idxs = getActablePieces();
+    for (const i of idxs) {
+      const pc = S.myPieces[i];
+      if (pc) _placeActionFloatingBtn(pc, 'actable');
+    }
+  }
+  function showUnableHighlights() {
+    _clearActionFloatingBtns();
+    if (!S.myPieces) return;
+    for (const pc of S.myPieces) {
+      if (pc && pc.alive) _placeActionFloatingBtn(pc, 'unable');
+    }
+  }
+  // 다른 곳 클릭 시 자동 닫힘
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.action-floating-btn')) return;
+    if (e.target.closest('#btn-action')) return;
+    _clearActionFloatingBtns();
+  });
+
+  // ── 행동 버튼 핸들러 ──────────────────────────────────────────
+  let _actionBtnState = 'idle';   // 'idle' | 'actable-shown' | 'unable-shown'
+  function onActionButtonClick() {
+    if (!S.isMyTurn) return;
+    const btn = document.getElementById('btn-action');
+    const dimmed = btn && btn.classList.contains('dimmed');
+    // 토글: 이미 표시 중이면 닫기
+    if (_actionBtnState !== 'idle') {
+      _clearActionFloatingBtns();
+      _actionBtnState = 'idle';
+      return;
+    }
+    if (dimmed) {
+      showUnableHighlights();
+      _actionBtnState = 'unable-shown';
+    } else {
+      showActableHighlights();
+      _actionBtnState = 'actable-shown';
+    }
+  }
+  // 외부 트리거: 보드 셀 클릭 / 라디얼 등장 / 행동 완료 시 — state idle 로 리셋
+  function _resetActionBtnState() { _actionBtnState = 'idle'; }
+  // export to window for cleanup
+  window._caligoResetActionBtnState = _resetActionBtnState;
+  window._caligoClearActionFloatingBtns = _clearActionFloatingBtns;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const btnAct = document.getElementById('btn-action');
+    if (btnAct) btnAct.addEventListener('click', onActionButtonClick);
+    const btnSkillEl = document.getElementById('btn-skill');
+    if (btnSkillEl) {
+      // 기본 동작 가로채기 — 글로벌 스킬 탭 열기
+      btnSkillEl.addEventListener('click', (e) => {
+        e.stopImmediatePropagation();
+        if (!S.isMyTurn) return;
+        openGlobalSkillTab();
+      }, true);
+    }
+    // 글로벌 탭 닫기
+    const closeBtn = document.getElementById('global-skill-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeGlobalSkillTab);
+    const modal = document.getElementById('global-skill-modal');
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeGlobalSkillTab(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeGlobalSkillTab();
+        closeCharSkillPopup();
+      }
+    });
+  });
+
+  // ── 글로벌 스킬 탭 모달 (읽기 전용) ─────────────────────────────
+  function openGlobalSkillTab() {
+    const modal = document.getElementById('global-skill-modal');
+    if (!modal) return;
+    renderGlobalSkillGrid();
+    modal.classList.remove('hidden');
+  }
+  function closeGlobalSkillTab() {
+    const modal = document.getElementById('global-skill-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+  }
+  window.openGlobalSkillTab = openGlobalSkillTab;
+
+  function renderGlobalSkillGrid() {
+    const grid = document.getElementById('global-skill-grid');
+    if (!grid || !S.myPieces) return;
+    grid.innerHTML = '';
+    // 액티브 스킬 보유 + 살아있는 캐릭터만
+    const visible = [];
+    const seenTwin = { elder: false, younger: false };
+    for (let i = 0; i < S.myPieces.length; i++) {
+      const pc = S.myPieces[i];
+      if (!pc || !pc.alive) continue;
+      const skills = (pc.skills && pc.skills.length > 0) ? pc.skills : [];
+      if (skills.length === 0) continue;
+      // 쌍둥이 중복 방지 — elder 만 표시
+      if (pc.subUnit === 'elder' || pc.subUnit === 'younger') {
+        if (seenTwin.elder || seenTwin.younger) continue;
+        seenTwin.elder = true;
+      }
+      visible.push({ pc, idx: i, skills });
+    }
+    for (const { pc, idx, skills } of visible) {
+      const card = document.createElement('div');
+      card.className = 'gskill-card';
+      // 캐릭터 행
+      const charRow = document.createElement('div');
+      charRow.className = 'gskill-char-row';
+      charRow.innerHTML = `<span class="ic">${pc.icon || '◯'}</span><span class="nm">${pc.name || pc.type}</span>`;
+      card.appendChild(charRow);
+      let anyOk = false;
+      for (const sk of skills) {
+        const ev = evalSkillCastable(idx, pc, sk);
+        const box = document.createElement('div');
+        box.className = 'gskill-box' + (ev.ok ? '' : ' locked');
+        const tagInfo = getSkillTagInfo(sk);
+        const spLabel = (sk.cost === 0 || sk.cost == null) ? '0 SP' : `${sk.cost} SP`;
+        const spClass = (sk.cost === 0 || sk.cost == null) ? 'gskill-sp zero' : 'gskill-sp';
+        box.innerHTML = `
+          <span class="gskill-status-tag ${ev.ok ? 'ok' : 'no'}">${ev.ok ? '✓ 가능' : '✗ 불가'}</span>
+          <div class="gskill-row-inline">
+            <span class="gskill-name">${sk.name || sk.id}</span>
+            <span class="gskill-type-text ${tagInfo.cls}">${tagInfo.label}</span>
+            <span class="${spClass}">${spLabel}</span>
+          </div>
+          ${ev.ok ? '' : `<div class="gskill-block-reason">${ev.why}</div>`}`;
+        card.appendChild(box);
+        if (ev.ok) anyOk = true;
+      }
+      if (anyOk) card.classList.add('has-castable');
+      grid.appendChild(card);
+    }
+  }
+
+  // ── 캐릭터 전용 스킬 탭 팝업 (부채꼴 → [스킬] 진입) ────────────────
+  function openCharSkillPopup(pieceIdx, anchorRect) {
+    closeCharSkillPopup();
+    const pc = S.myPieces && S.myPieces[pieceIdx];
+    if (!pc) return;
+    const skills = (pc.skills && pc.skills.length > 0) ? pc.skills : [];
+    if (skills.length === 0) return;
+    const popup = document.createElement('div');
+    popup.id = 'char-skill-popup';
+    popup.className = 'char-skill-popup';
+    popup.innerHTML = `
+      <span class="corner-ornament tl"></span>
+      <span class="corner-ornament tr"></span>
+      <span class="corner-ornament bl"></span>
+      <span class="corner-ornament br"></span>
+      <div class="cskill-entries"></div>`;
+    document.body.appendChild(popup);
+    const wrap = popup.querySelector('.cskill-entries');
+    for (const sk of skills) {
+      const ev = evalSkillCastable(pieceIdx, pc, sk);
+      const tagInfo = getSkillTagInfo(sk);
+      const miniHeaderCls = tagInfo.cls.replace('tag-', 'mini-header-');
+      const entry = document.createElement('div');
+      entry.className = 'cskill-entry' + (ev.ok ? ' castable' : ' locked');
+      const spLabel = (sk.cost === 0 || sk.cost == null) ? 'SP 소모 없음' : `SP ${sk.cost} 소모`;
+      const spClass = (sk.cost === 0 || sk.cost == null) ? 'cskill-sp-cost zero' : 'cskill-sp-cost';
+      const desc = getSkillBodyDesc(pc.type, sk.id, sk.desc || '');
+      entry.innerHTML = `
+        <div class="cskill-head">
+          <span class="cskill-name ${miniHeaderCls}">${sk.name || sk.id}</span>
+          <span class="cskill-type-text ${tagInfo.cls}">${tagInfo.label}</span>
+          <span class="${spClass}">${spLabel}</span>
+        </div>
+        <div class="cskill-desc-box">
+          <p class="cskill-desc-text">${desc}</p>
+          <div class="cskill-actions${ev.ok ? '' : ' has-reason'}">
+            ${ev.ok ? '' : `<span class="cskill-block-reason">${ev.why}</span>`}
+            <button class="cskill-cast-btn ${ev.ok ? '' : 'disabled'}" ${ev.ok ? '' : 'disabled'}>
+              ${ev.ok ? '시전' : '시전 불가'}
+            </button>
+          </div>
+        </div>`;
+      if (ev.ok) {
+        entry.querySelector('.cskill-cast-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeCharSkillPopup();
+          // 기존 스킬 시전 흐름 — openSkillModal 의 시전 라우팅 재사용
+          if (typeof openSkillModal === 'function') openSkillModal(pieceIdx);
+        });
+      }
+      wrap.appendChild(entry);
+    }
+    // 위치 — anchorRect 옆 (오른쪽이 화면 밖이면 왼쪽으로 fallback)
+    const margin = 14;
+    const popupW = 360;
+    const popupH = popup.offsetHeight || 240;
+    let left = (anchorRect ? anchorRect.right + margin : window.innerWidth / 2 - popupW / 2);
+    let top  = (anchorRect ? anchorRect.top + (anchorRect.height / 2) - (popupH / 2) : window.innerHeight / 2 - popupH / 2);
+    if (left + popupW > window.innerWidth - 12) {
+      left = (anchorRect ? anchorRect.left - popupW - margin : 12);
+    }
+    if (left < 12) left = 12;
+    if (top < 12) top = 12;
+    if (top + popupH > window.innerHeight - 12) top = window.innerHeight - popupH - 12;
+    popup.style.left = left + 'px';
+    popup.style.top  = top + 'px';
+  }
+  function closeCharSkillPopup() {
+    const popup = document.getElementById('char-skill-popup');
+    if (popup) popup.remove();
+  }
+  document.addEventListener('click', (e) => {
+    const popup = document.getElementById('char-skill-popup');
+    if (popup && !popup.contains(e.target) && !e.target.closest('.radial-btn')) closeCharSkillPopup();
+  });
+  window.openCharSkillPopup = openCharSkillPopup;
+  window.closeCharSkillPopup = closeCharSkillPopup;
+
+  // ── 스킬 castability 평가 (글로벌·캐릭터 탭 공통) ───────────────
+  function evalSkillCastable(pieceIdx, pc, sk) {
+    if (!pc || !pc.alive) return { ok: false, why: '사망 — 시전 불가' };
+    const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
+    if (isCursed) return { ok: false, why: '저주에 걸려 스킬 봉인' };
+    const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+    const totalSP = ((S.sp && S.sp[spSlot]) || 0) + ((S.instantSp && S.instantSp[spSlot]) || 0);
+    if ((sk.cost || 0) > totalSP) return { ok: false, why: `SP 부족 (필요 ${sk.cost} · 보유 ${totalSP})` };
+    if (sk.replacesAction && S.actionDone) return { ok: false, why: '이미 행동을 사용함' };
+    if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) {
+      return { ok: false, why: '이 스킬은 턴당 1회 — 이미 사용' };
+    }
+    if (sk.id === 'sprint' && pc.messengerSprintActive) return { ok: false, why: '이미 질주 활성' };
+    if (sk.id === 'dualStrike' && pc.dualBladeAttacksLeft > 0) return { ok: false, why: '이미 쌍검무 활성' };
+    if (sk.id === 'detonate') {
+      const bombs = (S.boardObjects || []).filter(o => o.type === 'bomb');
+      if (bombs.length === 0) return { ok: false, why: '설치된 폭탄 없음' };
+    }
+    if (typeof skillHasValidTarget === 'function' && !skillHasValidTarget(pc, sk)) {
+      return { ok: false, why: '유효한 대상이 없음' };
+    }
+    return { ok: true, why: null };
+  }
+
+  // 스킬 유형 클래스/라벨 — 게임 통일 표기
+  function getSkillTagInfo(sk) {
+    if (sk.replacesAction) return { cls: 'tag-action', label: '행동소비형' };
+    if (sk.oncePerTurn)    return { cls: 'tag-once',   label: '자유시전·1회' };
+    return                       { cls: 'tag-free',   label: '자유시전형' };
+  }
+
+  // 정규 본문 설명 — CHAR_DETAILS 참조 (없으면 fallback)
+  function getSkillBodyDesc(pieceType, skillId, fallback) {
+    try {
+      if (typeof CHAR_DETAILS === 'undefined') return fallback || '';
+      const baseType = pieceType === 'twins_elder' || pieceType === 'twins_younger' ? 'twins' : pieceType;
+      const detail = CHAR_DETAILS[baseType];
+      if (!detail) return fallback || '';
+      // 다중 스킬 (gunpowder 등) — blocks 의 desc
+      if (Array.isArray(detail.blocks)) {
+        for (const blk of detail.blocks) {
+          if (blk.desc && (blk.head === skillId || _matchesSkillName(blk.head, skillId, baseType))) {
+            return blk.desc;
+          }
+        }
+      }
+      // 단일 스킬 — body
+      return detail.body || fallback || '';
+    } catch (e) { return fallback || ''; }
+  }
+  function _matchesSkillName(head, skillId, pieceType) {
+    // skillId 매핑 (서버의 id ↔ blocks 의 head 한글명)
+    const map = {
+      reform: '정비', sprint: '질주', recon: '정찰', trap: '덫 설치',
+      bomb: '폭탄 설치', detonate: '기폭', herb: '약초학', shadow: '그림자 숨기',
+      curse: '저주', dualStrike: '쌍검무', rats: '역병의 자손들',
+      ring: '절대복종 반지', dragon: '드래곤 소환', divine: '신성',
+      sulfurRiver: '유황범람', nightmare: '악몽', brothers: '분신',
+    };
+    return head === map[skillId];
+  }
+
+  // ── 라디얼 메뉴 [스킬] 클릭 시 — openSkillModal 대신 캐릭터 전용 팝업 ──
+  // monkey-patch: openSkillModal 호출 인자가 piece-specific 일 때만 가로채기
+  if (typeof window.openSkillModal === 'function' || true) {
+    const _origOpen = window.openSkillModal;
+    // openSkillModal 자체는 시전 처리에 활용되므로 별도 wrap 함수 export
+    window.openCharSkillFromRadial = function(pieceIdx, anchorRect) {
+      openCharSkillPopup(pieceIdx, anchorRect);
+    };
+  }
+
+  // ── 행동 / 스킬 / 턴종료 버튼 dim 상태 갱신 (showActionBar 후 호출) ──
+  function refreshBottomBarStates() {
+    const btnAct  = document.getElementById('btn-action');
+    const btnSkill = document.getElementById('btn-skill');
+    const btnEnd  = document.getElementById('btn-end-turn');
+    if (!btnAct || !btnSkill || !btnEnd) return;
+    if (!S.isMyTurn) {
+      btnAct.classList.remove('dimmed');
+      btnSkill.classList.remove('dimmed');
+      btnEnd.classList.remove('attention');
+      return;
+    }
+    btnAct.classList.toggle('dimmed', !anyActableForBasic());
+    btnSkill.classList.toggle('dimmed', !anyCastableSkill());
+    // 턴 종료 — 행동 안 했으면 attention pulse
+    const noActionDone = !S.actionDone && !S.actionUsedSkillReplace
+      && !(S.skillsUsedThisTurn && S.skillsUsedThisTurn.length > 0);
+    btnEnd.classList.toggle('attention', noActionDone);
+  }
+  window._caligoRefreshBottomBar = refreshBottomBarStates;
+
+  // showActionBar 호출 후 자동으로 refreshBottomBarStates 도 실행되도록 patch
+  if (typeof window.showActionBar === 'function' || typeof showActionBar === 'function') {
+    const origShow = (typeof window.showActionBar === 'function') ? window.showActionBar : null;
+    // showActionBar 는 module-scoped 라 직접 patch 어려움 → 주기적 갱신 + 수동 호출 콤보로 처리
+    // 보드 클릭 / 행동 / 스킬 / 턴 진입 등 모든 트리거에서 refresh 가 필요한데,
+    // 가장 확실한 방법은 짧은 인터벌 (200ms) 로 주기적 갱신.
+    setInterval(refreshBottomBarStates, 250);
+  }
+
+  // 라디얼 메뉴가 열릴 때 행동 플로팅 버튼 닫기
+  const observer = new MutationObserver(() => {
+    if (document.getElementById('radial-action-menu')) {
+      _clearActionFloatingBtns();
+      _actionBtnState = 'idle';
+    }
+  });
+  document.addEventListener('DOMContentLoaded', () => {
+    observer.observe(document.body, { childList: true, subtree: false });
+  });
+
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// ★ 라디얼 메뉴 [스킬] 클릭 → 캐릭터 전용 팝업으로 라우팅 (override)
+// ══════════════════════════════════════════════════════════════════
+(function patchRadialSkillFlow() {
+  // 부채꼴 메뉴 [스킬] 버튼이 클릭되면 cell-anchor 기준으로 캐릭터 전용 팝업 열기.
+  // 캡처 단계에서 클릭 가로채기 → openSkillModal 우회.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.radial-btn');
+    if (!btn) return;
+    if (btn.dataset.key !== 'skill') return;
+    if (btn.disabled) return;
+    if (!S.isMyTurn) return;
+    if (typeof window.openCharSkillPopup !== 'function') return;
+    // 라디얼이 닫히기 직전 piece idx 캡처
+    const pieceIdx = S._radialMenuPiece;
+    if (pieceIdx == null) return;
+    // 셀 위치를 anchor 로
+    const pc = S.myPieces && S.myPieces[pieceIdx];
+    if (!pc) return;
+    const cellEl = document.querySelector(`#game-board .cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+    const anchorRect = cellEl ? cellEl.getBoundingClientRect() : null;
+    // 기본 핸들러 (openSkillModal 호출) 차단
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    // 라디얼 닫기 + 캐릭터 팝업 열기
+    if (typeof _closeRadialActionMenu === 'function') _closeRadialActionMenu();
+    setTimeout(() => window.openCharSkillPopup(pieceIdx, anchorRect), 50);
+  }, true);
 })();

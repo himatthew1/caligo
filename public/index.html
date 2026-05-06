@@ -48,6 +48,106 @@
   </div>
 </div>
 
+<!-- ── 커스텀 모드 (히든) — 타이틀 로고 클릭 시 진입 ── -->
+<div id="custom-mode-modal" class="modal hidden">
+  <div class="modal-content custom-mode-content">
+    <h3>🛠 커스텀 모드</h3>
+    <p style="color:var(--text-dim);margin:6px 0 12px;font-size:0.85rem;">상대 AI 의 픽을 직접 골라 연습합니다.</p>
+
+    <div class="custom-mode-tabs">
+      <button class="custom-mode-tab active" data-mode="1v1">1v1</button>
+      <button class="custom-mode-tab" data-mode="2v2">2v2</button>
+    </div>
+
+    <div id="custom-mode-name-row">
+      <label>닉네임</label>
+      <input id="custom-mode-name" type="text" placeholder="닉네임" maxlength="12">
+    </div>
+
+    <div id="custom-mode-1v1" class="custom-mode-pane">
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">내 덱 (1·2·3티어 각 1)</div>
+        <div class="custom-mode-pickers" data-target="my-1v1">
+          <div class="custom-pick-slot" data-tier="1" data-slot="t1"></div>
+          <div class="custom-pick-slot" data-tier="2" data-slot="t2"></div>
+          <div class="custom-pick-slot" data-tier="3" data-slot="t3"></div>
+        </div>
+      </div>
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">AI 상대 덱</div>
+        <div class="custom-mode-pickers" data-target="ai-1v1">
+          <div class="custom-pick-slot" data-tier="1" data-slot="t1"></div>
+          <div class="custom-pick-slot" data-tier="2" data-slot="t2"></div>
+          <div class="custom-pick-slot" data-tier="3" data-slot="t3"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="custom-mode-2v2" class="custom-mode-pane hidden">
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">나 (블루팀 1번) — 2픽</div>
+        <div class="custom-mode-pickers tier-any" data-target="my-2v2">
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick1"></div>
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick2"></div>
+        </div>
+      </div>
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">아군 AI (블루팀 2번)</div>
+        <div class="custom-mode-pickers tier-any" data-target="ally-2v2">
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick1"></div>
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick2"></div>
+        </div>
+      </div>
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">적 AI 1 (레드팀 1번)</div>
+        <div class="custom-mode-pickers tier-any" data-target="enemy1-2v2">
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick1"></div>
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick2"></div>
+        </div>
+      </div>
+      <div class="custom-mode-section">
+        <div class="custom-mode-section-title">적 AI 2 (레드팀 2번)</div>
+        <div class="custom-mode-pickers tier-any" data-target="enemy2-2v2">
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick1"></div>
+          <div class="custom-pick-slot" data-tier="any" data-slot="pick2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-btn-row">
+      <button id="custom-mode-start" class="btn btn-primary">시작</button>
+      <button id="custom-mode-cancel" class="btn btn-muted">취소</button>
+    </div>
+    <p id="custom-mode-error" class="error-msg" style="margin-top:6px;"></p>
+  </div>
+</div>
+
+<!-- ── 커스텀 모드 — 캐릭터 선택 팝업 ── -->
+<div id="custom-pick-popup" class="modal hidden">
+  <div class="modal-content custom-pick-popup-content">
+    <h3 id="custom-pick-popup-title">캐릭터 선택</h3>
+    <div id="custom-pick-popup-grid" class="custom-pick-popup-grid"></div>
+    <div class="modal-btn-row">
+      <button id="custom-pick-popup-clear" class="btn btn-muted">선택 해제</button>
+      <button id="custom-pick-popup-cancel" class="btn btn-muted">취소</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 글로벌 스킬 탭 — 보드 아래 [스킬] 버튼이 열음 (읽기 전용) ── -->
+<div id="global-skill-modal" class="modal hidden">
+  <div class="global-skill-bg">
+    <div class="global-skill-head">
+      <div class="global-skill-title">
+        <span class="glyph">📖</span>
+        <span>스킬 현황</span>
+      </div>
+      <button id="global-skill-close" class="global-skill-close" title="닫기">✕</button>
+    </div>
+    <div id="global-skill-grid" class="global-skill-grid"></div>
+  </div>
+</div>
+
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
@@ -549,13 +649,16 @@
       <div class="turn-banner" id="turn-banner">...</div>
       <div id="game-board" class="board"></div>
       <div id="action-bar" class="action-bar hidden">
-        <button id="btn-move" class="btn btn-secondary">이동</button>
-        <button id="btn-attack" class="btn btn-danger">공격</button>
+        <!-- ★ 새 레이아웃 (사용자 요청): 행동 / 스킬 / 턴종료 / 기권 -->
+        <button id="btn-action" class="btn btn-action">행동</button>
         <button id="btn-skill" class="btn btn-skill">스킬</button>
         <button id="btn-end-turn" class="btn btn-warning">턴 종료</button>
+        <button id="btn-surrender" class="btn btn-surrender btn-surrender-mini" disabled>기권</button>
+        <!-- 레거시 / 임시 버튼 — display:none 으로 hide. JS 에서 .click() 호출은 유지 -->
+        <button id="btn-move" class="btn btn-secondary legacy-hidden">이동</button>
+        <button id="btn-attack" class="btn btn-danger legacy-hidden">공격</button>
         <button id="btn-cancel" class="btn btn-muted hidden">취소</button>
         <button id="btn-twin-skip-elder" class="btn btn-secondary hidden">누나 이동 넘기기</button>
-        <button id="btn-surrender" class="btn btn-surrender" disabled>기권</button>
       </div>
       <div id="action-hint" class="action-hint"></div>
       <!-- 전투 로그 — 보드 아래, 내부 스크롤만 -->
