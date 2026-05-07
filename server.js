@@ -1626,9 +1626,12 @@ function aiTeamTakeTurn(room, idx) {
       }
     }
     if (piece.type === 'twins_elder' || piece.type === 'twins_younger') {
+      // ★ 사용자 요청: 의미있는 합류만 (이미 합쳐졌거나 random 차단).
       const elder = p.pieces.find(pc => pc.subUnit === 'elder' && pc.alive);
       const younger = p.pieces.find(pc => pc.subUnit === 'younger' && pc.alive);
-      if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
+      const alreadyMerged = elder && younger && elder.col === younger.col && elder.row === younger.row;
+      const dist = (elder && younger) ? Math.abs(elder.col - younger.col) + Math.abs(elder.row - younger.row) : 99;
+      if (elder && younger && !alreadyMerged && Math.min(elder.hp, younger.hp) <= 1 && dist <= 3) {
         const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
         aiTeamExecSkill(room, idx, pi, 'brothers', { target: moverSub });
         scheduleAITurnEnd(room, idx, 3000);
@@ -1663,9 +1666,8 @@ function aiTeamTakeTurn(room, idx) {
       for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
         const nc = piece.col + dc, nr = piece.row + dr;
         if (!inBounds(nc, nr, bounds)) continue;
-        // 점유 체크
-        const occupied = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === nc && pc.row === nr));
-        if (occupied) continue;
+        // ★ 룰 통일: 쌍둥이 합류 예외 포함 점유 검사.
+        if (!_canMoveTo(room, piece, nc, nr)) continue;
         const moveScore = aiTeamScoreMove(room, idx, piece, nc, nr) * 0.7;
         if (!bestAction || moveScore > bestAction.score) {
           bestAction = { type: 'move', piece, pieceIdx: pi, score: moveScore, col: nc, row: nr };
@@ -1682,8 +1684,8 @@ function aiTeamTakeTurn(room, idx) {
       for (const [dc, dr] of dirs) {
         const nc = piece.col + dc, nr = piece.row + dr;
         if (!inBounds(nc, nr, bounds)) continue;
-        const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === nc && pc.row === nr));
-        if (occ) continue;
+        // ★ 룰 통일: 쌍둥이 합류 예외 포함 점유 검사.
+        if (!_canMoveTo(room, piece, nc, nr)) continue;
         aiTeamExecuteMove(room, idx, p.pieces.indexOf(piece), nc, nr);
         return;
       }
@@ -1779,6 +1781,9 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       trapArr.splice(ti2, 1);
       const aiPiece2 = (p.pieces || []).find(pp => pp.alive && pp.col === tp.col && pp.row === tp.row);
       if (!aiPiece2) { _continueAfterTrap(); return; }
+      // ★ 패시브 dedupe Set 초기화 (이전 attack 잔재 방지) — 새 damage 이벤트.
+      room._attackPassivesFired = new Set();
+      room._pendingBodyguardPassive = null;
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
       aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
       if (aiPiece2.type === 'wizard' && dmg > 0) {
@@ -3372,6 +3377,11 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   // 시전자의 마법구 비행 애니가 무동작이 되므로, 이 경우엔 sp_update emit 을 생략하고
   // 후속 skill_result 가 sp/instantSp 를 일괄 전달.
   const suppressSpUpdate = deferEmit;
+  // ★ 사용자 보고 (패시브 누설): _attackPassivesFired 가 stale 인 채로 resolveDamage 호출되면
+  //   passive dedupe 가 잘못 동작 (이전 attack 의 fired set 이 남아 새 alert 가 차단되거나,
+  //   알 수 없는 잔재가 남아있음). bomb 폭발마다 fresh Set 으로 초기화.
+  room._attackPassivesFired = new Set();
+  room._pendingBodyguardPassive = null;
   const opponent = room.players[1 - ownerIdx];
   const defOwnerIdx = 1 - ownerIdx;
   const hits = [];
@@ -4544,6 +4554,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         : player.pieces.find(p => p.subUnit === 'elder' && p.alive);
 
       if (!mover || !target) return { ok: false, msg: '대상이 없습니다.' };
+      // ★ 사용자 보고: 이미 같은 칸에 합류된 상태라면 분신 사용 불가 (이동이 무의미).
+      if (mover.col === target.col && mover.row === target.row) {
+        return { ok: false, msg: '이미 합류 상태 — 분신 불필요' };
+      }
       // ★ 비행 애니메이션용 — 이동 전 좌표를 캡쳐 (시전자/상대방/관전자 모두 동일 from→to 사용)
       const _twinFromCol = mover.col, _twinFromRow = mover.row;
       const _twinToCol   = target.col, _twinToRow   = target.row;
@@ -4605,10 +4619,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── MANHUNTER: 덫 설치 ──
     case 'manhunter': {
-      // 같은 칸 중복 설치 방지 (모든 플레이어 오브젝트 검사)
-      const allObjectsAtCell = (room.boardObjects || []).flat()
-        .some(o => o && (o.type === 'trap' || o.type === 'bomb') && o.col === piece.col && o.row === piece.row);
-      if (allObjectsAtCell) {
+      // ★ 사용자 보고: 같은 팀의 덫/폭탄만 중복 차단 (상대 placement 는 fog-of-war — 무관).
+      //   1v1 → 본인만, 팀모드 → 같은 팀 전원.
+      const ownTeamIndices = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      const allyObjAtCell = ownTeamIndices.some(idx =>
+        (room.boardObjects[idx] || []).some(o =>
+          (o.type === 'trap' || o.type === 'bomb') && o.col === piece.col && o.row === piece.row));
+      if (allyObjAtCell) {
         return { ok: false, msg: '이미 덫/폭탄이 설치된 칸입니다.' };
       }
       room.boardObjects[playerIdx].push({ type: 'trap', col: piece.col, row: piece.row, owner: playerIdx });
@@ -4677,9 +4694,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '자신의 칸에는 설치할 수 없습니다.' };
       }
       if (!inBounds(tc, tr, bounds)) return { ok: false, msg: '보드 밖입니다.' };
-      // 같은 칸 중복 설치 방지
-      const bombOverlap = (room.boardObjects || []).flat()
-        .some(o => o && (o.type === 'trap' || o.type === 'bomb') && o.col === tc && o.row === tr);
+      // ★ 사용자 보고: 같은 팀의 덫/폭탄만 중복 차단. 상대 placement 는 fog-of-war — 무관.
+      const ownTeamIndicesB = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      const bombOverlap = ownTeamIndicesB.some(idx =>
+        (room.boardObjects[idx] || []).some(o =>
+          (o.type === 'trap' || o.type === 'bomb') && o.col === tc && o.row === tr));
       if (bombOverlap) {
         return { ok: false, msg: '이미 덫/폭탄이 설치된 칸입니다.' };
       }
@@ -4919,6 +4938,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       dragon.hasSkill = false;
       dragon.skillName = null;
       dragon.skillId = null;
+      dragon.skillCost = 0;
+      dragon.skillReplacesAction = false;
+      dragon.skills = [];        // ★ 사용자 보고: dragonTamer 의 skills 배열이 그대로 복사돼 [드래곤 소환] 미니헤더가 부착됨.
+      dragon.passives = [];      // 드래곤은 패시브도 없음
+      dragon.passiveName = null;
       dragon.tag = null;
       dragon.tier = 3;
       dragon.desc = '자신 + 십자4칸 · 총 5칸';
@@ -5135,6 +5159,35 @@ function boostHuntArea(brain, col, row) {
   }
 }
 
+// ★ 사용자 요청: AI 가 사기증진(commander 버프) 을 활용해야 함.
+//   commander 와 인접한 아군은 +1 ATK 효과. 이 effective atk 를 점수에 반영하면
+//   AI 는 commander 옆으로 이동·공격을 선호하게 됨.
+function _effectiveAtkForAi(piece, room, ownerIdx) {
+  if (!piece || piece.type === 'commander') return piece?.atk || 0;
+  const allies = (room.players[ownerIdx]?.pieces || []).filter(p =>
+    p.alive && p !== piece && p.type === 'commander');
+  for (const cmd of allies) {
+    if ((Math.abs(cmd.col - piece.col) === 1 && cmd.row === piece.row) ||
+        (Math.abs(cmd.row - piece.row) === 1 && cmd.col === piece.col)) {
+      return (piece.atk || 0) + 1;
+    }
+  }
+  return piece.atk || 0;
+}
+function _effectiveAtkAtCellForAi(piece, room, ownerIdx, newCol, newRow) {
+  // 가상의 위치(newCol, newRow) 에서 commander 인접 여부 — 이동 점수용.
+  if (!piece || piece.type === 'commander') return piece?.atk || 0;
+  const allies = (room.players[ownerIdx]?.pieces || []).filter(p =>
+    p.alive && p !== piece && p.type === 'commander');
+  for (const cmd of allies) {
+    if ((Math.abs(cmd.col - newCol) === 1 && cmd.row === newRow) ||
+        (Math.abs(cmd.row - newRow) === 1 && cmd.col === newCol)) {
+      return (piece.atk || 0) + 1;
+    }
+  }
+  return piece.atk || 0;
+}
+
 function aiScoreAttack(brain, piece, room, extra) {
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
@@ -5144,7 +5197,9 @@ function aiScoreAttack(brain, piece, room, extra) {
       score += brain.probMap[cell.row][cell.col];
     }
   }
-  score *= (1 + piece.atk * 0.1);
+  // ★ commander 버프 반영 — 인접 시 +1 ATK 로 점수 증폭.
+  const effAtk = _effectiveAtkForAi(piece, room, 1);
+  score *= (1 + effAtk * 0.1);
   return score;
 }
 
@@ -5156,6 +5211,12 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
     if (inBounds(cell.col, cell.row, bounds)) {
       score += brain.probMap[cell.row][cell.col];
     }
+  }
+  // ★ commander 인접 보너스 — 새 위치에서 사기증진 받으면 점수 증폭.
+  const effAtkAtNew = _effectiveAtkAtCellForAi(piece, room, 1, newCol, newRow);
+  if (effAtkAtNew > (piece.atk || 0)) {
+    // 버프 받은 위치는 미래 공격력이 +1 → 추가 보너스
+    score += 2.5;
   }
   // 보드 축소 회피 — 다음 축소 영역(newBounds) 밖에 들어가면 강한 페널티 (팀모드와 동일 로직)
   // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)
@@ -5386,12 +5447,20 @@ function aiUsePreSkills(room) {
     const pidx = aiPlayer.pieces.indexOf(piece);
 
     switch (piece.type) {
-      // 그림자 암살자: 피격 기억 있거나 HP 낮으면 그림자 (1 SP, 거의 무조건)
+      // 그림자 암살자: 실제 위협이 있을 때만 사용 (사용자 요청 — 의미없는 random 사용 차단).
+      //   조건: 이미 그림자 X + (최근 피격 기억 + 가까운 적 OR 위급 HP)
       case 'shadowAssassin': {
         const mem = brain.hitMemory[piece.type];
         const recentlyHit = mem && brain.turnCount - mem.turn <= 2;
         const hasShadow = piece.statusEffects.some(e => e.type === 'shadow');
-        if (!hasShadow && (recentlyHit || piece.hp <= piece.maxHp * 0.6 || Math.random() < 0.4)) {
+        // 가까운 적 — 인접 4방 안에 적이 있을 가능성 (probMap 기반)
+        let adjacentThreat = 0;
+        for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+          const nc = piece.col + dc, nr = piece.row + dr;
+          adjacentThreat += brain.probMap[nr]?.[nc] || 0;
+        }
+        const inImmediateDanger = (recentlyHit && adjacentThreat >= 4) || piece.hp <= 1;
+        if (!hasShadow && inImmediateDanger) {
           _tryExec(pidx, 'shadow');
         }
         break;
@@ -5691,6 +5760,26 @@ function aiEndTurn(room) {
   room._aiEndTurnEarliest = 0;  // 다음 AI 턴 위해 리셋 (stale future-time 으로 인한 freeze 방지)
 }
 
+// ★ 사용자 룰: 한 셀에 여러 아군 유닛 겹쳐놓기 금지. 예외:
+//   1. 쌍둥이끼리 (같은 owner + 같은 parentType + 둘 다 subUnit) 한 셀에 합류 가능.
+//   2. 절대복종반지로 강제이동된 경우 (별도 흐름 — 이 함수와 무관).
+//   AI 가 자기 아군 위로 이동을 선택하지 않도록 점유 검사 시 사용.
+function _canMoveTo(room, piece, nc, nr) {
+  for (const pl of (room.players || [])) {
+    for (const pc of (pl.pieces || [])) {
+      if (pc.alive && pc !== piece && pc.col === nc && pc.row === nr) {
+        // 쌍둥이 합류 예외 — 같은 owner + 같은 parentType + 둘 다 subUnit.
+        const sameOwner = pl.pieces.includes(piece);
+        if (sameOwner && piece.subUnit && pc.subUnit && piece.parentType && piece.parentType === pc.parentType) {
+          return true;
+        }
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 function aiTakeTurn(room) {
   const aiPlayer = room.players[1];
   const humanPlayer = room.players[0];
@@ -5796,7 +5885,8 @@ function aiTakeTurn(room) {
     for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
       const nc = piece.col + dc, nr = piece.row + dr;
       if (!inBounds(nc, nr, bounds)) continue;
-      if (aiPlayer.pieces.some(p => p.alive && p !== piece && p.col === nc && p.row === nr)) continue;
+      // ★ 룰 통일: 모든 플레이어 점유 검사 + 쌍둥이 합류 예외.
+      if (!_canMoveTo(room, piece, nc, nr)) continue;
       const dist = Math.abs(nc - mem.col) + Math.abs(nr - mem.row);
       const atkAfterMove = aiScoreMove(brain, piece, nc, nr, room);
       const fleeScore = dist * 15 + atkAfterMove;
@@ -5895,10 +5985,13 @@ function aiTakeTurn(room) {
         }
       }
       if (piece.type === 'twins_elder' || piece.type === 'twins_younger') {
-        // 분신: 거의 안 쓰는 게 좋음 — HP 한쪽이 매우 낮을 때만 합류
+        // 분신: 사용자 요청 — 의미있는 합류만. 이미 같은 칸이거나 의미없는 random 차단.
         const elder = aiPlayer.pieces.find(p => p.subUnit === 'elder' && p.alive);
         const younger = aiPlayer.pieces.find(p => p.subUnit === 'younger' && p.alive);
-        if (elder && younger && Math.min(elder.hp, younger.hp) <= 1 && Math.random() < 0.3) {
+        const alreadyMerged = elder && younger && elder.col === younger.col && elder.row === younger.row;
+        // 약한 쪽 HP ≤ 1 + 분리 상태 + 가까이 갈 만한 거리 (맨해튼 ≤ 3)
+        const dist = (elder && younger) ? Math.abs(elder.col - younger.col) + Math.abs(elder.row - younger.row) : 99;
+        if (elder && younger && !alreadyMerged && Math.min(elder.hp, younger.hp) <= 1 && dist <= 3) {
           // 약한 쪽이 강한 쪽 위치로 합류
           const moverSub = elder.hp < younger.hp ? 'elder' : 'younger';
           aiExecSkill(room, pidx, 'brothers', { target: moverSub });
@@ -5945,6 +6038,8 @@ function aiTakeTurn(room) {
       for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
         const nc = piece.col + dc, nr = piece.row + dr;
         if (!inBounds(nc, nr, bounds)) continue;
+        // ★ 사용자 보고 (룰): 아군 유닛이 있는 칸으로 이동 금지 (쌍둥이 합류 제외).
+        if (!_canMoveTo(room, piece, nc, nr)) continue;
         const moveScore = aiScoreMove(brain, piece, nc, nr, room) * 0.7;
         if (!bestAction || moveScore > bestAction.score) {
           bestAction = { type: 'move', piece, pieceIdx, score: moveScore, col: nc, row: nr };
@@ -6002,6 +6097,9 @@ function aiExecuteMove(room, action) {
       trapArr.splice(ti, 1);
       const aiPiece = (room.players[1].pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
       if (!aiPiece) { aiEndTurn(room); return; }
+      // ★ 패시브 dedupe Set 초기화.
+      room._attackPassivesFired = new Set();
+      room._pendingBodyguardPassive = null;
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
       aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
       if (aiPiece.type === 'wizard' && dmg > 0) {
@@ -7617,6 +7715,9 @@ io.on('connection', (socket) => {
         if (!player2) return;
         const piece2 = (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
         if (!piece2) return;
+        // ★ 패시브 dedupe Set 초기화.
+        room._attackPassivesFired = new Set();
+        room._pendingBodyguardPassive = null;
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
         if (piece2.type === 'wizard') {

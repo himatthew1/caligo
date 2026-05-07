@@ -2336,6 +2336,8 @@ socket.on('team_game_update', (state) => {
   if (prevTurnIdx !== S.currentPlayerIdx && S.currentPlayerIdx !== undefined) {
     // 이전 턴 동안 켜져 있던 turn-bright 카드 모두 해제 — 다음 턴부터 다시 dim 으로
     clearAllTurnBright();
+    // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (turn 경계 stale 누설 방지).
+    if (Array.isArray(S._pendingDefensiveAlerts)) S._pendingDefensiveAlerts.length = 0;
     const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
     if (cur) {
       const isMine = cur.idx === S.playerIdx;
@@ -3742,6 +3744,8 @@ function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
 socket.on('your_turn', (data) => {
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
+  // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼는 폐기 (turn 경계 stale 누설 방지).
+  if (Array.isArray(S._pendingDefensiveAlerts)) S._pendingDefensiveAlerts.length = 0;
   // 방어적 — 이전 턴의 쌍둥이 페이즈 잔재 정리 (정상 흐름이면 이미 종료됐어야 함)
   if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
     exitTwinMovePhase(/*emitToast=*/false);
@@ -3783,6 +3787,8 @@ socket.on('your_turn', (data) => {
 socket.on('opp_turn', (data) => {
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
+  // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (stale 누설 방지).
+  if (Array.isArray(S._pendingDefensiveAlerts)) S._pendingDefensiveAlerts.length = 0;
   // 내가 쌍둥이 이동 중이었는데 턴이 넘어가는 케이스 (타이머 만료/강제 종료) — UI 정리 필수
   if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
     exitTwinMovePhase(/*emitToast=*/false);
@@ -5665,6 +5671,12 @@ socket.on('board_shrink_warning', ({ turnsRemaining, key, stalemate, stage }) =>
 socket.on('board_shrink', ({ bounds, eliminated, key }) => {
   // 매칭되는 경고 박스 즉시 제거 (해당 시퀀스 종료) — 다른 시퀀스 박스는 유지
   if (key) _removeShrinkWarnItem(key);
+  // ★ 사용자 보고: 토스트/로그가 fullscreen 락 동안 buffered 되어 애니 끝난 후 늦게 출력 → 어색함.
+  //   애니메이션과 동시에 보이도록 lock 진입 *전* 에 즉시 발사.
+  if (!S.isSpectator) {
+    showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
+    addLog(`🔥 보드 외곽 파괴`, 'shrink');
+  }
   runFullscreenLocked(() => _executeBoardShrinkAnim(bounds, eliminated), 3000);
 });
 
@@ -5693,10 +5705,7 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
       }
     }
   }
-  if (!S.isSpectator) {
-    showSkillToast('🔥 보드 외곽 파괴', false, undefined, 'event');
-    addLog(`🔥 보드 외곽 파괴`, 'shrink');
-  }
+  // ※ 토스트/로그는 board_shrink 핸들러에서 lock 진입 전 즉시 발사됨 (사용자 요청 — 동기화).
   if (eliminated && eliminated.length > 0) {
     // 같은 편(내 편/적 편)끼리 묶어서 한 번에 표시 (인벤토리 #F 외곽 말 파괴 row 빨간 피드백)
     // 1v1: e.owner === S.playerIdx 면 내 편, 아니면 적 편
@@ -6336,10 +6345,13 @@ socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
       if (typeof renderGameBoard === 'function') renderGameBoard();
     }
     // ★ 사용자 요청: 상대편(적팀)은 강림한 칸에 자동 추리 토큰 부여.
-    //   드래곤은 팀모드/1v1 모두 적 측 시점에서 명백히 가시화 — pieceKey 는 owner+drag 형태.
+    //   ★ 사용자 보고 (토큰 사라짐): pieceKey 형식이 pruneDeductionTokens 의 aliveKey 와 다르면
+    //     매 렌더마다 즉시 제거됨. aliveKey 형식: `${type}:${subUnit}${ownerSuffix}` — 드래곤은 subUnit 없음.
+    //     1v1: `dragon:` / 팀모드: `dragon:@${owner}` (ownerIdx 가 oppPieces 에 있을 때만).
     if (isOpponent) {
       try {
-        const pieceKey = `dragon::@${owner}`;   // 드래곤은 다른 piece 와 충돌 없는 고유 키
+        // 팀모드는 oppPieces 의 piece 가 ownerIdx 를 갖고, 1v1 은 안 가짐.
+        const pieceKey = S.isTeamMode ? `dragon:@${owner}` : `dragon:`;
         S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === dragon.col && t.row === dragon.row));
         S.deductionTokens.push({ pieceKey, icon: '🐲', name: '드래곤', col: dragon.col, row: dragon.row });
       } catch (e) {}
@@ -6762,9 +6774,10 @@ socket.on('detonation_intro', ({ bombs }) => {
     }
   }, SKILL_START_MS + 450);
 
-  // 단계 3: blast (T=550 + slot*60) — 순차 + 무작위 셔플 + 각자 SFX
-  //   사용자 요청: "3개 동시 폭발" 처럼 빠른 도미노 + 매번 다른 순서.
-  const BOMB_STAGGER_MS = 60;
+  // 단계 3: blast (T=550 + slot*350) — 순차 + 무작위 셔플 + 각자 SFX
+  //   사용자 보고 (씹힘): stagger 60ms 였을 때 다수 폭탄이 한꺼번에 터져 애니가 인식되지 않음.
+  //   각 폭발이 또렷이 보이도록 350ms 간격 (CSS bomb-blast 키프레임 0.4s 와 비슷).
+  const BOMB_STAGGER_MS = 350;
   const blastOrder = bombs.map((_, i) => i);
   for (let i = blastOrder.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -6894,9 +6907,22 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   //   원래는 후속 game_state/team_game_update 가 HP 를 가져왔지만, 그 사이 시각적으로
   //   HP 바·도장·사망 아이콘이 누락되는 문제가 있어 즉시 반영.
   let bombAnyDestroyed = false;
+  // ★ 사용자 보고 (치명적 버그): 양 측이 같은 이름 캐릭터(예: 양쪽 화약상) 보유 시
+  //   name fallback 이 cross-side 매칭 → 잘못된 piece 의 HP 가 갱신되던 문제.
+  //   trap_triggered 의 victimOwnerIdx 패턴과 동일하게 hits[].defOwnerIdx 로 owner 강제 일치.
+  const _myOwnerIdx = S.playerIdx;
+  const _oneVoneOppIdx = (typeof S.playerIdx === 'number') ? (1 - S.playerIdx) : null;
+  const _teammateOwnerIdx = (S.isTeamMode && Array.isArray(S.teamGamePlayers))
+    ? (S.teamGamePlayers.find(p => p.teamId === S.teamId && p.idx !== S.playerIdx)?.idx)
+    : null;
   for (const h of hits) {
-    const updateInArr = (arr) => {
+    const updateInArr = (arr, expectedOwnerIdx) => {
       if (!Array.isArray(arr)) return -1;
+      // owner 일치 강제 — 다른 owner 면 스킵 (1v1 양 측 같은 이름 cross-match 방지).
+      if (typeof h.defOwnerIdx === 'number' && typeof expectedOwnerIdx === 'number'
+          && h.defOwnerIdx !== expectedOwnerIdx) {
+        return -1;
+      }
       let idx = arr.findIndex(p => p.alive && p.name === h.name && p.col === h.col && p.row === h.row);
       if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === h.name);
       if (idx >= 0) {
@@ -6905,16 +6931,17 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
       }
       return idx;
     };
-    const myI  = updateInArr(S.myPieces);
-    const oppI = updateInArr(S.oppPieces);
-    const tmI  = (S.isTeamMode && S.teammatePieces) ? updateInArr(S.teammatePieces) : -1;
+    const myI  = updateInArr(S.myPieces, _myOwnerIdx);
+    const oppI = updateInArr(S.oppPieces, _oneVoneOppIdx);
+    const tmI  = (S.isTeamMode && S.teammatePieces && _teammateOwnerIdx != null)
+      ? updateInArr(S.teammatePieces, _teammateOwnerIdx)
+      : -1;
     if (h.destroyed) bombAnyDestroyed = true;
     if (typeof h.damage === 'number' && h.damage > 0) {
       if (myI >= 0) addBodyDamage(`my:${myI}`, h.damage);
       else if (oppI >= 0) addBodyDamage(`opp:${oppI}`, h.damage);
-      else if (tmI >= 0 && S.isTeamMode) {
-        const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
-        if (teammate) addBodyDamage(`${teammate.idx}:${tmI}`, h.damage);
+      else if (tmI >= 0 && S.isTeamMode && _teammateOwnerIdx != null) {
+        addBodyDamage(`${_teammateOwnerIdx}:${tmI}`, h.damage);
       }
     }
   }
@@ -6982,6 +7009,14 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   if (!S.isTeamMode) {
     applyProfileHitAnim('#my-pieces-info .my-piece-card', myBombIdx);
     applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppBombIdx);
+  }
+  // ★ 사용자 보고 (갑주무사 패시브 누설): bomb_detonated 핸들러가 flushDefensiveAlerts 호출 누락 →
+  //   서버가 detonateBomb → resolveDamage 에서 발사한 passive_alert 가 클라 버퍼에 쌓이고
+  //   다음 공격까지 잔류해 "갑주무사가 안 맞았는데도 패시브가 나오는" 현상.
+  //   trap_triggered / attack_result / being_attacked 와 동일 패턴으로 즉시 flush.
+  if (typeof flushDefensiveAlerts === 'function') {
+    const _bombKilled = (hits || []).some(h => h.destroyed);
+    flushDefensiveAlerts({ skipReduction: _bombKilled });
   }
   // 팀모드: 팀원 카드 — data-piece-idx 기반 정확 매칭
   if (tmBombIdx.length > 0 && S.isTeamMode) {
@@ -7155,6 +7190,18 @@ function _renderPassiveAlert({ type, msg, playerIdx, targetName }) {
     const passiveSfx = pickPassiveSfxByType(type);
     if (passiveSfx) passiveSfx(); else playSfxPassive();
   }
+  // ★ 사용자 보고 (유황범람 + 마법사 타이밍): wizard 의 SP gain 오브 애니는 toast/log 와 같이
+  //   flush 시점에 발사돼야 함. 이전엔 passive_alert 수신 즉시 spawn → 보드 애니 시작 전 출현.
+  if (type === 'wizard') {
+    let targetSlot = 'mine';
+    if (S.isTeamMode) {
+      const owner = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+      if (owner) targetSlot = (owner.teamId === S.teamId) ? 'mine' : 'opp';
+    } else {
+      targetSlot = (playerIdx === S.playerIdx) ? 'mine' : 'opp';
+    }
+    try { spawnInstantGainOrb(targetSlot); } catch (e) {}
+  }
   // ★ 패시브 말풍선 — 해당 piece 카드에서 주황 말풍선 (저주 관련 type 은 스킬·패시브 와 무관해 제외)
   if (typeof playerIdx === 'number' && PASSIVE_BUBBLE_INFO[type]) {
     showPassiveBubble(type, playerIdx);
@@ -7189,17 +7236,7 @@ socket.on('passive_alert', (payload) => {
   const { type, playerIdx } = payload || {};
   // 호위무사 가로채기 플래그는 being_attacked 측 보호 애니메이션 분기에 사용
   if (type === 'bodyguard') S._bodyguardIntercepted = true;
-  // 마법사 인스턴트 매직 — 황금 마법구 합류 애니 트리거. 토스트·로그는 _renderPassiveAlert 가 처리.
-  if (type === 'wizard') {
-    let targetSlot = 'mine';
-    if (S.isTeamMode) {
-      const owner = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
-      if (owner) targetSlot = (owner.teamId === S.teamId) ? 'mine' : 'opp';
-    } else {
-      targetSlot = (playerIdx === S.playerIdx) ? 'mine' : 'opp';
-    }
-    try { spawnInstantGainOrb(targetSlot); } catch (e) {}
-  }
+  // ★ 사용자 보고: wizard 의 SP gain 오브는 더 이상 즉시 spawn 안 함 — flush 시점(_renderPassiveAlert)에 발사.
   // 공격 반응형 패시브는 버퍼에 쌓아두고 being_attacked 직후 flush
   if (DEFENSIVE_PASSIVE_TYPES.has(type)) {
     S._pendingDefensiveAlerts.push(payload);
@@ -7544,7 +7581,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
+    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다.',
     flavor: '소리 없는 사냥꾼. 당하기 전까지는 아무도 그의 함정을 눈치챌 수 없다.',
   },
   messenger: {
@@ -7588,7 +7625,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('인스턴트 매직'), color: '#f59e0b' },
     ],
-    body: '피격 시 1회용 SP 1개 획득',
+    body: '마법사는 피격 당할 때마다 1회용 SP를 제공합니다. 이 SP는 사용하면 사라집니다.',
     flavor: '신체가 마력으로 이루어진 신비의 존재. 그의 몸은 기꺼이 전우의 연료가 된다.',
   },
   armoredWarrior: {
@@ -13587,9 +13624,10 @@ S._fullscreenBusy = false;
 S._fullscreenQueue = [];          // [{fn, durationMs}]
 S._eventDuringFullscreen = [];    // [() => effect()]
 
-// 애니메이션 페이즈 #24 — 연속 풀스크린 사이에 0.5s 텀.
+// 애니메이션 페이즈 #24 — 연속 풀스크린 사이 텀.
 //   여러 turn-event (보드 파괴 경고/실행, SP 지급) 가 동시 발사되면 큐로 순차 재생.
-const ANIM_PHASE_GAP_MS = 500;
+//   ★ 사용자 요청: 연출 사이 빈 구간이 너무 길어 어색 — 타이트하게 (500 → 120ms).
+const ANIM_PHASE_GAP_MS = 120;
 function runFullscreenLocked(playFn, durationMs) {
   if (S._fullscreenBusy) {
     S._fullscreenQueue.push({ fn: playFn, durationMs });
@@ -17852,6 +17890,10 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
       const partnerSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
       const partner = (S.myPieces || []).find(p => p.subUnit === partnerSub);
       if (!partner || !partner.alive) return { ok: false, why: '쌍둥이 짝이 사망 — 분신 불가' };
+      // ★ 사용자 보고: 이미 같은 칸에 합류돼 있으면 분신 불필요 (이동이 무의미).
+      if (partner.col === pc.col && partner.row === pc.row) {
+        return { ok: false, why: '이미 합류 상태 — 분신 불필요' };
+      }
     }
     // ★ 사용자 요청: 인간 사냥꾼 — 자기 칸에 이미 덫/폭탄이 있으면 잠금 (서버 가드와 매칭).
     if (sk.id === 'trap' && pc.type === 'manhunter') {
