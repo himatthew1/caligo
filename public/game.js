@@ -2410,11 +2410,18 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
   const hasMsg = !!msg;
+
+  // ★ 분신 비행 애니메이션 — 같은 팀(myTeam)에만 공유, 적팀에는 비공유.
+  //   서버는 모두에게 twinJoin 좌표를 보내지만, 클라에서 viewer 팀 기준으로 필터링.
+  if (twinJoin && myTeam && typeof playTwinJoinFlight === 'function') {
+    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
+    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+  }
 
   // 마법구 비행 + dim 시퀀스 (skill_result/status_update 와 동일)
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -2478,8 +2485,65 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
           addBodyDamage(key, dmg);
         }
       }
+      // ★ 사용자 보고 (유황범람 누락): 데미지 스킬로 피격된 카드의 profile-hit 애니 + 밝아짐 누락.
+      //   skill_result 와 동일하게 team-profile-block 매핑으로 즉시 적용.
+      requestAnimationFrame(() => {
+        for (const h of hits) {
+          if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+          if (h.redirectedToBodyguard) continue;
+          const isProtected = (h.damage === 0 && !h.destroyed);
+          const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+          if (!card) continue;
+          if (isProtected) applyProtectedAnim(card);
+          else applyHitFlashWithBrighten(card);
+        }
+      });
+      // 도장 노출을 위해 즉시 재렌더 (renderTeamProfiles 가 buildDamageOverlay 로 도장 표시)
+      if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      // ★ 버퍼된 wizard 등 패시브 alert flush (유황범람 등 데미지 스킬 타이밍 동기화)
+      if (typeof flushDefensiveAlerts === 'function') {
+        const _killed = hits.some(h => h.destroyed);
+        flushDefensiveAlerts({ skipReduction: _killed });
+      }
+      // ★ 자동 추리토큰 — 팀원이 스킬로 1명 hit + 사망 아닌 경우 (시전자 본인의 skill_result 와 동일 조건).
+      //   같은 팀끼리 정찰 정보 공유 — 시전자가 받는 토큰을 ally 도 동일하게 받음.
+      if (myTeam) {
+        const _meaningful = hits.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+        const _eligible = _meaningful.filter(h => !h.destroyed && h.defPieceIdx != null && h.defOwnerIdx != null);
+        if (_meaningful.length === 1 && _eligible.length === 1) {
+          const c = _eligible[0];
+          const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+          const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
+          if (piece) {
+            const pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+            try {
+              S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+              S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+              if (typeof renderGameBoard === 'function') renderGameBoard();
+            } catch (e) {}
+          }
+        }
+      }
     }
 
+    // ★ 저주 부여 turn-bright (사용자 요청)
+    if (typeof cursedPieceIdx === 'number' && typeof cursedOwnerIdx === 'number') {
+      requestAnimationFrame(() => {
+        _persistTurnBright(cursedOwnerIdx, cursedPieceIdx);
+        const card = _findPieceCard(cursedOwnerIdx, cursedPieceIdx);
+        if (card) card.classList.add('turn-bright');
+      });
+    }
+    // ★ 유황범람 라바 애니 — borderCells 모든 셀에 .lava-bubbling 클래스
+    if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
+      animateLavaCells(borderCells);
+    }
+    // ★ 회복 애니메이션 — 약초학/신성 등이 시전자 외 시점(팀원/적팀)에서도 보이도록.
+    //   team_game_update 가 곧이어 도착해 renderTeamProfiles 가 DOM 을 재생성하므로
+    //   살짝 지연 후 적용 — 재렌더 후 카드를 다시 찾아 heal-flash 부여.
+    if (Array.isArray(healedPieces) && healedPieces.length > 0) {
+      setTimeout(() => flashHealPiecesByOwner(healedPieces), 50);
+    }
     if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
       addLog(msg, 'skill');
@@ -2644,6 +2708,10 @@ function renderTeamProfiles() {
   // isAlly = 해당 player의 teamId가 viewer의 teamId와 같으면 true
   leftContainer.innerHTML  = blueTeam.map(pl => renderTeamPlayerBlock(pl, pl.teamId === myTeam)).join('');
   rightContainer.innerHTML = redTeam.map(pl => renderTeamPlayerBlock(pl, pl.teamId === myTeam)).join('');
+  // ★ 사용자 보고 (밀림 현상 수정): innerHTML 재구성으로 wipe 된 진행 중 hit/heal/protected
+  //   애니메이션 클래스를 새 카드에 즉시 복원. 빠르게 연속 도착하는 이벤트 (attack_result →
+  //   team_ally_hit → team_game_update 등) 가 매번 wipe 해도 애니가 끊기지 않음.
+  if (typeof reapplyActiveProfileAnims === 'function') reapplyActiveProfileAnims();
 
   // 내 pieces 카드에 클릭 리스너 연결 — 내 팀이 left든 right든 무관하게 my-piece-idx 가 박힌 카드만
   document.querySelectorAll('#my-pieces-info [data-my-piece-idx], #opp-pieces-info [data-my-piece-idx]').forEach(card => {
@@ -3062,7 +3130,7 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx }) => {
   if (!S.isSpectator) return;
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
@@ -3126,6 +3194,37 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
         if (card) applyHitFlashWithBrighten(card);
       }
       if (S.specGameState) renderSpectatorGame(S.specGameState);
+    }
+    // ★ 회복 애니메이션 — 1v1 관전자 시점: { ownerIdx, pieceIdx } 페어로 카드 매핑.
+    //   1v1 관전자: ownerIdx 0 → #my-pieces-info, 1 → #opp-pieces-info.
+    if (Array.isArray(healedPieces) && healedPieces.length > 0) {
+      setTimeout(() => {
+        for (const h of healedPieces) {
+          if (typeof h.ownerIdx !== 'number' || typeof h.pieceIdx !== 'number') continue;
+          const containerSel = (h.ownerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+          const cardSel = (h.ownerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+          const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.pieceIdx];
+          if (!card) continue;
+          card.classList.add('heal-flash');
+          setTimeout(() => card.classList.remove('heal-flash'), 2000);
+          spawnHealSparkles(card);
+        }
+      }, 50);
+    }
+    // ★ 유황범람 라바 애니 — 1v1 관전자 시점에서도 표시 (사용자 보고 누락 수정).
+    if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
+      animateLavaCells(borderCells);
+    }
+    // ★ 저주 부여 turn-bright — 1v1 관전자 시점 (누락 수정).
+    //   1v1 관전자: ownerIdx 0 → #my-pieces-info, 1 → #opp-pieces-info.
+    if (typeof cursedPieceIdx === 'number' && typeof cursedOwnerIdx === 'number') {
+      requestAnimationFrame(() => {
+        _persistTurnBright(cursedOwnerIdx, cursedPieceIdx);
+        const containerSel = (cursedOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+        const cardSel = (cursedOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+        const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[cursedPieceIdx];
+        if (card) card.classList.add('turn-bright');
+      });
     }
   }, SP_END_MS);
 });
@@ -3991,11 +4090,33 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   renderOppPieces();
   showActionBar(true);
 
-  // 상대 유닛 피격 애니메이션 — 1v1 만 (팀모드는 team_game_update 가 player-idx 기반으로 처리)
+  // 상대 유닛 피격 애니메이션
   if (!S.isTeamMode) {
     applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
     applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
     applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', oppProtectedIndices);
+  } else {
+    // ★ 사용자 보고: 팀모드에서 적팀을 공격해도 피격 유닛이 밝아지는 애니가 안 나옴.
+    //   기존엔 team_game_update 에 위임했으나 broadcast 가 늦게 도착해 실제로는 누락.
+    //   cellResults 의 defOwnerIdx + defPieceIdx 로 즉시 team-profile-block 매핑.
+    requestAnimationFrame(() => {
+      for (const c of cellResults) {
+        if (!c.hit || c.defPieceIdx == null || c.defOwnerIdx == null) continue;
+        const isProtected = (c.damage === 0 && !c.destroyed);
+        if (c.redirectedToBodyguard) continue;
+        const card = document.querySelector(`.team-profile-block[data-player-idx="${c.defOwnerIdx}"] [data-piece-idx="${c.defPieceIdx}"]`);
+        if (!card) continue;
+        if (isProtected) {
+          // 보호됨 (가호/폭정/아이언스킨) — 그림자 상태 piece 는 제외 (피격 정보 숨김).
+          const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+          const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
+          const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
+          if (!isShadow) applyProtectedAnim(card);
+        } else {
+          applyHitFlashWithBrighten(card);
+        }
+      }
+    });
   }
 
   // 쥐 격파 피드백
@@ -4034,9 +4155,15 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     }
   }
 
-  // 피격 셀만 흔들림 (그림자 상태 유닛 셀은 위에서 hitPieces 에서 제거되어 흔들림도 X)
+  // ★ 사용자 요청 (fog-of-war 복원): 피격자(상대)는 공격 범위 셀을 볼 수 없어야 함.
+  //   atkCells 의 ·/딤 셀 마크는 같은 팀 (team_ally_hit/team_ally_attacked) 에서만 공유.
+  //   여기서는 hit 셀 빨간 플래시만 (피격자 본인의 말 위치 노출은 어차피 자신이 알고 있음).
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
   animateAttack([], hitCells);
+  // attackLog 에는 명중 셀만 기록 (·/💥 셀 마크는 자신의 말이 맞은 곳만 — 빗나감 atkCells 누적 X)
+  for (const hc of hitCells) {
+    S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
+  }
 
   S.myPieces = yourPieces;
   // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
@@ -4212,119 +4339,94 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   }
   if (!oldSp || !newSp) return;
   // 가드 ON — 애니 진행 중 외부 updateSPBar 가 큰 숫자/pip 트레이를 NEW 값으로 덮어쓰지 못하게.
-  // SP_ATTN_MS(1500) 이후 외부에서 실제 동기화. 안전하게 2s 후 자동 해제.
   S._spAnimGuard = true;
   if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
-  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2000);
+  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2500);
 
   const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
-  const oppSlot = 1 - mySlot;
-  const myDelta = (newSp[mySlot] || 0) - (oldSp[mySlot] || 0);
-  const oppDelta = (newSp[oppSlot] || 0) - (oldSp[oppSlot] || 0);
-  const myInstantDelta = ((newInstantSp || [])[mySlot] || 0) - ((oldInstantSp || [])[mySlot] || 0);
-  const oppInstantDelta = ((newInstantSp || [])[oppSlot] || 0) - ((oldInstantSp || [])[oppSlot] || 0);
-  const regularConsumed = myDelta < 0 ? -myDelta : 0;
-  const transferToOpp = oppDelta > 0 ? Math.min(oppDelta, regularConsumed) : 0;
-  const instantConsumed = myInstantDelta < 0 ? -myInstantDelta : 0;
-  const oppInstantConsumed = oppInstantDelta < 0 ? -oppInstantDelta : 0;  // 상대(시전자) 측 인스턴트 소비 — 1v1 상대/관전 시점에서 보임
-  const oppCastedRegular = oppDelta < 0 ? -oppDelta : 0;
-  const transferToMe = (myDelta > 0 && oppCastedRegular > 0) ? Math.min(myDelta, oppCastedRegular) : 0;
+  // ★ 사용자 요청: 절대 좌·우 슬롯 매핑 — 팀전: 블루=LEFT(0), 레드=RIGHT(1). 1v1: viewer 상대.
+  //   인스턴트 트레이/숫자 위치가 좌·우에 절대 고정되므로 delta 도 leftSlot/rightSlot 으로 인덱싱해야
+  //   레드팀 viewer 가 인스턴트 SP 소비할 때 RIGHT(레드) 트레이에서 팝되도록 보장.
+  let leftSlot, rightSlot;
+  if (S.isTeamMode) { leftSlot = 0; rightSlot = 1; }
+  else { leftSlot = mySlot; rightSlot = 1 - mySlot; }
 
-  const myNumEl = document.getElementById('sp-my-num');
-  const oppNumEl = document.getElementById('sp-opp-num');
-  if (!myNumEl || !oppNumEl) return;
+  const leftDelta  = (newSp[leftSlot]  || 0) - (oldSp[leftSlot]  || 0);
+  const rightDelta = (newSp[rightSlot] || 0) - (oldSp[rightSlot] || 0);
+  const leftInstantDelta  = ((newInstantSp || [])[leftSlot]  || 0) - ((oldInstantSp || [])[leftSlot]  || 0);
+  const rightInstantDelta = ((newInstantSp || [])[rightSlot] || 0) - ((oldInstantSp || [])[rightSlot] || 0);
+  const leftRegConsumed  = leftDelta  < 0 ? -leftDelta  : 0;
+  const rightRegConsumed = rightDelta < 0 ? -rightDelta : 0;
+  const leftRegGain      = leftDelta  > 0 ?  leftDelta  : 0;
+  const rightRegGain     = rightDelta > 0 ?  rightDelta : 0;
+  const leftInstantConsumed  = leftInstantDelta  < 0 ? -leftInstantDelta  : 0;
+  const rightInstantConsumed = rightInstantDelta < 0 ? -rightInstantDelta : 0;
+  // 일반 SP 비행 — left ↔ right 양방향 모두 처리
+  const transferLR = (leftRegConsumed  > 0 && rightRegGain > 0) ? Math.min(leftRegConsumed,  rightRegGain) : 0;
+  const transferRL = (rightRegConsumed > 0 && leftRegGain  > 0) ? Math.min(rightRegConsumed, leftRegGain)  : 0;
+
+  const leftNumEl  = document.getElementById('sp-my-num');   // DOM 좌측 숫자
+  const rightNumEl = document.getElementById('sp-opp-num');  // DOM 우측 숫자
+  if (!leftNumEl || !rightNumEl) return;
 
   const rectCenter = (el) => {
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
-  const my = rectCenter(myNumEl);
-  const opp = rectCenter(oppNumEl);
+  const leftCenter  = rectCenter(leftNumEl);
+  const rightCenter = rectCenter(rightNumEl);
 
   // 표시되는 숫자(displayed)를 OLD 값으로 보유 — 마법구 도착마다 1씩 변경
-  let displayMyNum = oldSp[mySlot] || 0;
-  let displayOppNum = oldSp[oppSlot] || 0;
-  myNumEl.textContent = String(displayMyNum);
-  oppNumEl.textContent = String(displayOppNum);
+  let dispLeft  = oldSp[leftSlot]  || 0;
+  let dispRight = oldSp[rightSlot] || 0;
+  leftNumEl.textContent  = String(dispLeft);
+  rightNumEl.textContent = String(dispRight);
   const tickDown = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick'); void el.offsetWidth; el.classList.add('sp-num-tick'); };
   const tickUp   = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up'); };
 
   let nextMs = 80;
-  // ① 인스턴트 SP 소비 (mine 측) — 사용자 요청 #16:
-  //    숫자랑 *멀리* 있는 pip 부터 순차 소비.
-  //    mine 트레이는 row-reverse 라 DOM 끝(last)이 시각적으로 가장 왼쪽(숫자에서 멀리). → last 부터 빨아들임.
-  for (let i = 0; i < instantConsumed; i++) {
-    const t = nextMs;
-    setTimeout(() => {
-      const trayId = 'sp-instant-tray-mine';
-      const tray = document.getElementById(trayId);
-      const pips = tray ? tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)') : [];
-      const targetPip = pips.length > 0 ? pips[pips.length - 1] : null;
-      let from = my;
-      if (targetPip) {
-        const r = targetPip.getBoundingClientRect();
-        from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        targetPip.classList.add('sp-pip-consume');
-        setTimeout(() => { if (targetPip.parentNode) targetPip.remove(); }, 420);
-      }
-      spawnSpOrbFlight(from, my, 'instant');
-      try { playSfxInstantConsume(); } catch (e) {}
-    }, t);
-    nextMs += 130;
+  // ① 인스턴트 SP 소비 — pop-in-place (제자리 팝 + 충격파 + 스파크 + dust + FLIP 슬라이드)
+  //   - 양 트레이 모두 DOM-first pip 가 시각적으로 숫자에 가장 가까움 → 가까운 쪽부터 한 개씩
+  //   - 좌·우 모두 동시에 소비될 수 있음 (일반적으론 한 쪽만)
+  if (leftInstantConsumed > 0) {
+    setTimeout(() => popInstantPipsOneByOne('sp-instant-tray-mine', leftNumEl, leftInstantConsumed), nextMs);
+    nextMs += leftInstantConsumed * 220 + 200;
   }
-  // ①' 인스턴트 SP 소비 (opp 측) — 상대/관전 시점.
-  //    opp 트레이는 default row 이고 숫자가 *왼쪽*에 있음. DOM 끝(last)이 시각적으로 가장 오른쪽(숫자에서 멀리).
-  for (let i = 0; i < oppInstantConsumed; i++) {
-    const t = nextMs;
-    setTimeout(() => {
-      const trayId = 'sp-instant-tray-opp';
-      const tray = document.getElementById(trayId);
-      const pips = tray ? tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)') : [];
-      const targetPip = pips.length > 0 ? pips[pips.length - 1] : null;
-      let from = opp;
-      if (targetPip) {
-        const r = targetPip.getBoundingClientRect();
-        from = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-        targetPip.classList.add('sp-pip-consume');
-        setTimeout(() => { if (targetPip.parentNode) targetPip.remove(); }, 420);
-      }
-      spawnSpOrbFlight(from, opp, 'instant');
-      try { playSfxInstantConsume(); } catch (e) {}
-    }, t);
-    nextMs += 130;
+  if (rightInstantConsumed > 0) {
+    setTimeout(() => popInstantPipsOneByOne('sp-instant-tray-opp', rightNumEl, rightInstantConsumed), nextMs);
+    nextMs += rightInstantConsumed * 220 + 200;
   }
-  // ② 인스턴트 소비 후 0.5초 텀
-  if (instantConsumed > 0 || oppInstantConsumed > 0) nextMs += 500;
-  // ③ 일반 SP 마법구 비행 — 출발 시점에 시전자 -1, 도착 시점에 상대 +1
-  if (transferToOpp > 0) {
-    for (let i = 0; i < transferToOpp; i++) {
+  // 인스턴트 끝나고 0.3s 텀 (인스턴트 → 일반 SP 비행 전)
+  if (leftInstantConsumed > 0 || rightInstantConsumed > 0) nextMs += 300;
+
+  // ② 일반 SP 비행 — left → right (블루팀 시전 / 1v1 본인 시전)
+  if (transferLR > 0) {
+    for (let i = 0; i < transferLR; i++) {
       const t = nextMs;
       setTimeout(() => {
-        // 출발 시점: 시전자 카운트 -1 + 효과음
-        displayMyNum = Math.max(0, displayMyNum - 1);
-        tickDown(myNumEl, displayMyNum);
+        dispLeft = Math.max(0, dispLeft - 1);
+        tickDown(leftNumEl, dispLeft);
         try { playSfxSpOrbDepart(); } catch (e) {}
-        // 비행 (0.7s) 후 도착
-        spawnSpOrbFlight(my, opp, 'mine', () => {
-          displayOppNum = displayOppNum + 1;
-          tickUp(oppNumEl, displayOppNum);
+        spawnSpOrbFlight(leftCenter, rightCenter, 'mine', () => {
+          dispRight = dispRight + 1;
+          tickUp(rightNumEl, dispRight);
           try { playSfxSpOrbArrive(); } catch (e) {}
         });
       }, t);
       nextMs += 200;
     }
   }
-  // ④ 상대가 시전한 경우 (opp → my 방향)
-  if (transferToMe > 0) {
-    for (let i = 0; i < transferToMe; i++) {
+  // ③ 일반 SP 비행 — right → left (레드팀 시전 / 1v1 상대 시전)
+  if (transferRL > 0) {
+    for (let i = 0; i < transferRL; i++) {
       const t = nextMs;
       setTimeout(() => {
-        displayOppNum = Math.max(0, displayOppNum - 1);
-        tickDown(oppNumEl, displayOppNum);
+        dispRight = Math.max(0, dispRight - 1);
+        tickDown(rightNumEl, dispRight);
         try { playSfxSpOrbDepart(); } catch (e) {}
-        spawnSpOrbFlight(opp, my, 'opp', () => {
-          displayMyNum = displayMyNum + 1;
-          tickUp(myNumEl, displayMyNum);
+        spawnSpOrbFlight(rightCenter, leftCenter, 'opp', () => {
+          dispLeft = dispLeft + 1;
+          tickUp(leftNumEl, dispLeft);
           try { playSfxSpOrbArrive(); } catch (e) {}
         });
       }, t);
@@ -4333,12 +4435,128 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   }
 }
 
+// ── 인스턴트 SP pip 순차 팝 (가까운 쪽부터, FLIP 슬라이드 포함) ──
+//   사용자 요청: pip 이 제자리에서 팝되며 사라지고, 잔여 pip + 숫자가 자연스럽게 모임.
+//   - 양 트레이 모두 DOM-first 가 숫자에 가장 가까움 (mine: row-reverse, opp: default row)
+//   - 매 팝마다 중앙 플래시 + 링2개 + 스파크 12갈래 + dust 10개 + 인게임 SFX
+function popInstantPipsOneByOne(trayId, numEl, count) {
+  const tray = document.getElementById(trayId);
+  if (!tray || count <= 0) return;
+  let i = 0;
+  const popNext = () => {
+    if (i >= count) return;
+    i++;
+    const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-pop):not(.sp-pip-consume)');
+    const target = pips[0];  // DOM-first = 시각적으로 숫자에 가장 가까운 pip
+    if (!target) return;
+    const targetRect = target.getBoundingClientRect();
+    const cx = targetRect.left + targetRect.width / 2;
+    const cy = targetRect.top + targetRect.height / 2;
+    spawnSpPopBurst(cx, cy);
+    try { playSfxInstantConsume(); } catch (e) {}
+    target.classList.add('sp-pip-pop');
+    // FLIP — 잔여 pip + 숫자 BEFORE rect 캡처
+    const others = Array.from(pips).slice(1);
+    const beforeRects = new Map();
+    for (const p of others) beforeRects.set(p, p.getBoundingClientRect());
+    const numBefore = numEl ? numEl.getBoundingClientRect() : null;
+    // 200ms 후 DOM 제거 → flex layout 재계산 → FLIP 적용
+    setTimeout(() => {
+      if (target.parentNode) target.remove();
+      for (const p of others) {
+        const before = beforeRects.get(p);
+        const after = p.getBoundingClientRect();
+        const dx = before.left - after.left;
+        if (Math.abs(dx) > 0.5) {
+          p.classList.remove('sp-flip-slide');
+          p.style.transform = `translateX(${dx}px)`;
+          void p.offsetWidth;
+          p.classList.add('sp-flip-slide');
+          p.style.transform = 'translateX(0)';
+          setTimeout(() => {
+            p.classList.remove('sp-flip-slide');
+            p.style.transform = '';
+          }, 320);
+        }
+      }
+      if (numEl && numBefore) {
+        const numAfter = numEl.getBoundingClientRect();
+        const numDx = numBefore.left - numAfter.left;
+        if (Math.abs(numDx) > 0.5) {
+          numEl.classList.remove('sp-flip-slide');
+          numEl.style.transform = `translateX(${numDx}px)`;
+          void numEl.offsetWidth;
+          numEl.classList.add('sp-flip-slide');
+          numEl.style.transform = 'translateX(0)';
+          setTimeout(() => {
+            numEl.classList.remove('sp-flip-slide');
+            numEl.style.transform = '';
+          }, 320);
+        }
+      }
+      setTimeout(popNext, 220);
+    }, 200);
+  };
+  popNext();
+}
+
+// ── 인스턴트 SP 팝 버스트 이펙트 ──
+//   중앙 플래시 + 링 2개 + 스파크 12갈래 + dust 10개 — 모두 (cx,cy) 중심 정렬
+function spawnSpPopBurst(x, y) {
+  const flash = document.createElement('div');
+  flash.className = 'sp-pop-flash';
+  flash.style.left = x + 'px';
+  flash.style.top  = y + 'px';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 380);
+
+  const r1 = document.createElement('div');
+  r1.className = 'sp-pop-ring';
+  r1.style.left = x + 'px';
+  r1.style.top  = y + 'px';
+  document.body.appendChild(r1);
+  setTimeout(() => r1.remove(), 650);
+
+  const r2 = document.createElement('div');
+  r2.className = 'sp-pop-ring sp-pop-ring2';
+  r2.style.left = x + 'px';
+  r2.style.top  = y + 'px';
+  document.body.appendChild(r2);
+  setTimeout(() => r2.remove(), 830);
+
+  for (let i = 0; i < 12; i++) {
+    const sp = document.createElement('div');
+    sp.className = 'sp-pop-spark';
+    sp.style.left = x + 'px';
+    sp.style.top  = y + 'px';
+    sp.style.setProperty('--ang', (i * 30 + (Math.random() * 10 - 5)) + 'deg');
+    if (i % 2 === 1) sp.style.height = '13px';
+    document.body.appendChild(sp);
+    setTimeout(() => sp.remove(), 600);
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const d = document.createElement('div');
+    d.className = 'sp-pop-dust';
+    d.style.left = x + 'px';
+    d.style.top  = y + 'px';
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 22 + Math.random() * 20;
+    d.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+    d.style.setProperty('--dy', Math.sin(angle) * dist - 8 + 'px');
+    if (i % 3 === 0) { d.style.width = '3px'; d.style.height = '3px'; }
+    document.body.appendChild(d);
+    setTimeout(() => d.remove(), 850);
+  }
+}
+
 // 인스턴트 SP 트레이 동기화 — count 만큼 .sp-instant-pip 유지
 // 새로 추가되는 pip 은 .sp-pip-spawn 으로 등장 애니. 줄어들 때는 spendSPAttention 측에서 별도 비행 처리.
 function syncInstantTray(trayId, count) {
   const tray = document.getElementById(trayId);
   if (!tray) return;
-  const cur = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)').length;
+  // sp-pip-pop / sp-pip-consume 진행 중인 pip 은 카운트에서 제외 (애니 후 자동 제거됨)
+  const cur = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)').length;
   if (cur < count) {
     // 부족한 pip 추가 (등장 애니)
     for (let i = 0; i < count - cur; i++) {
@@ -4347,13 +4565,14 @@ function syncInstantTray(trayId, count) {
       tray.appendChild(pip);
     }
   } else if (cur > count) {
-    // 많은 pip 제거 (consume 애니가 이미 적용된 것은 제외)
-    const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume)');
+    // 많은 pip 제거 — 가장 안쪽(숫자 가까운) pip 부터
+    const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)');
     const overflow = cur - count;
     for (let i = 0; i < overflow; i++) {
-      // 가장 안쪽(숫자 가까운) pip 부터 제거 — mine: 첫 번째, opp: 마지막
-      const idx = (trayId.endsWith('-mine')) ? 0 : pips.length - 1 - i;
-      const pip = pips[idx + (trayId.endsWith('-mine') ? i : 0)];
+      // mine 트레이 (row-reverse): DOM-first = 시각적 우측 (숫자 가까움) → 첫 번째부터 제거
+      // opp 트레이 (row): DOM-first = 시각적 좌측 (숫자 가까움) → 첫 번째부터 제거
+      // 둘 다 DOM-first 가 숫자에 가장 가까움 (popInstantPipsOneByOne 과 동일한 규칙)
+      const pip = pips[i];
       if (pip) pip.remove();
     }
   }
@@ -4567,15 +4786,99 @@ function reapplyCasterSpotlight() {
 // #18 헬퍼: 피격 / 회복이 발생한 캐릭터 카드에 'turn-bright' 부여 — 그 턴 동안 계속 풀 밝기 유지.
 //   사용자 요청: 한 번 피격되면 다음 턴 시작 전까지 계속 밝게. 블록 전체가 아니라 해당 카드만 밝게.
 //   profile-hit / heal-flash 는 짧은 플래시 애니메이션 (자동 해제), turn-bright 는 turn change 시 일괄 해제.
+// ★ 사용자 보고 (밀림 현상 원인): renderTeamProfiles 가 innerHTML 을 매 이벤트마다 통째로 교체 →
+//   직전에 추가한 profile-hit / profile-protected / heal-flash / turn-bright 클래스가 wipe 됨.
+//   여러 이벤트가 빠르게 도착하면 (attack_result → team_ally_hit → team_game_update → ...) 매번 wipe.
+//   해결: 진행 중 애니메이션을 글로벌 레지스트리에 등록. 매 render 직후 자동 복원.
+//   각 anim 은 expires 시각을 보유 — 만료된 것은 자동 제거.
+if (!window._activeProfileAnims) window._activeProfileAnims = new Map();
+function _registerProfileAnim(playerIdx, pieceIdx, kind, durationMs) {
+  if (playerIdx == null || pieceIdx == null) return;
+  const key = `${kind}:${playerIdx}:${pieceIdx}`;
+  const expiresAt = Date.now() + durationMs;
+  window._activeProfileAnims.set(key, { kind, playerIdx, pieceIdx, expiresAt });
+  setTimeout(() => {
+    const cur = window._activeProfileAnims.get(key);
+    if (cur && cur.expiresAt <= Date.now() + 5) window._activeProfileAnims.delete(key);
+    // 현재 카드에서 클래스 제거 (있으면)
+    const card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${pieceIdx}"]`)
+      || document.querySelectorAll(`#my-pieces-info .my-piece-card, #opp-pieces-info .opp-piece-card`)[pieceIdx];
+    if (card) {
+      if (kind === 'hit') card.classList.remove('profile-hit');
+      else if (kind === 'heal') card.classList.remove('heal-flash');
+      else if (kind === 'protected') card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
+    }
+  }, durationMs + 20);
+}
+// ★ turn-bright 전용 레지스트리 — 저주 데미지 등 turn 끝까지 유지가 필요한 케이스.
+//   _activeProfileAnims 는 짧은 anim 클래스용 (1.1~2초) — turn-bright 는 턴 종료까지 (~30s).
+//   clearAllTurnBright() 가 턴 변경 시점에 이 레지스트리도 함께 비움.
+if (!window._activeTurnBrights) window._activeTurnBrights = new Map();
+function _persistTurnBright(playerIdx, pieceIdx) {
+  if (playerIdx == null || pieceIdx == null) return;
+  const key = `${playerIdx}:${pieceIdx}`;
+  // 만료 시점 — 60초 cap (turn timer 이내 해제 보장)
+  window._activeTurnBrights.set(key, { playerIdx, pieceIdx, expiresAt: Date.now() + 60000 });
+}
+// ── render 후 호출 — 진행 중 애니 클래스를 새 카드에 복원
+function reapplyActiveProfileAnims() {
+  const now = Date.now();
+  // (1) 짧은 anim 클래스 (hit / heal / protected) 복원
+  if (window._activeProfileAnims && window._activeProfileAnims.size > 0) {
+    window._activeProfileAnims.forEach((info, key) => {
+      if (info.expiresAt < now) { window._activeProfileAnims.delete(key); return; }
+      const card = _findPieceCard(info.playerIdx, info.pieceIdx);
+      if (!card) return;
+      if (info.kind === 'hit') {
+        if (!card.classList.contains('profile-hit')) card.classList.add('profile-hit');
+        card.classList.add('turn-bright');
+      } else if (info.kind === 'heal') {
+        if (!card.classList.contains('heal-flash')) card.classList.add('heal-flash');
+        card.classList.add('turn-bright');
+      } else if (info.kind === 'protected') {
+        if (!card.classList.contains('profile-protected')) card.classList.add('profile-protected', 'v3');
+      }
+    });
+  }
+  // (2) turn-bright 전용 레지스트리 복원 (저주 데미지 등)
+  if (window._activeTurnBrights && window._activeTurnBrights.size > 0) {
+    window._activeTurnBrights.forEach((info, key) => {
+      if (info.expiresAt < now) { window._activeTurnBrights.delete(key); return; }
+      const card = _findPieceCard(info.playerIdx, info.pieceIdx);
+      if (card) card.classList.add('turn-bright');
+    });
+  }
+}
+// 카드 찾기 — 1v1 / 팀모드 통합 매핑
+function _findPieceCard(playerIdx, pieceIdx) {
+  if (S.isTeamMode) {
+    return document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${pieceIdx}"]`);
+  } else {
+    const containerSel = (playerIdx === S.playerIdx) ? '#my-pieces-info' : '#opp-pieces-info';
+    const cardSel = (playerIdx === S.playerIdx) ? '.my-piece-card' : '.opp-piece-card';
+    return document.querySelectorAll(`${containerSel} ${cardSel}`)[pieceIdx];
+  }
+}
 function applyHitFlashWithBrighten(card, durationMs) {
   if (!card) return;
   card.classList.remove('profile-hit');
   void card.offsetWidth;
   card.classList.add('profile-hit');
   card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
-  setTimeout(() => {
-    card.classList.remove('profile-hit');
-  }, durationMs || 1800);
+  // ★ 레지스트리 등록 — innerHTML wipe 후에도 복원되도록.
+  const block = card.closest('.team-profile-block');
+  const pIdx = block?.dataset?.playerIdx;
+  const piIdx = card.dataset?.pieceIdx;
+  if (S.isTeamMode && pIdx != null && piIdx != null) {
+    _registerProfileAnim(pIdx, piIdx, 'hit', durationMs || 1800);
+  } else if (!S.isTeamMode) {
+    // 1v1 — 카드 부모 찾아 my/opp 구분
+    const cont = card.closest('#my-pieces-info, #opp-pieces-info');
+    if (cont && piIdx != null) {
+      const ownerIdx = (cont.id === 'my-pieces-info') ? S.playerIdx : (1 - S.playerIdx);
+      _registerProfileAnim(ownerIdx, piIdx, 'hit', durationMs || 1800);
+    }
+  }
 }
 function applyHealFlashWithBrighten(card, durationMs) {
   if (!card) return;
@@ -4583,13 +4886,24 @@ function applyHealFlashWithBrighten(card, durationMs) {
   void card.offsetWidth;
   card.classList.add('heal-flash');
   card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
-  setTimeout(() => {
-    card.classList.remove('heal-flash');
-  }, durationMs || 2000);
+  const block = card.closest('.team-profile-block');
+  const pIdx = block?.dataset?.playerIdx;
+  const piIdx = card.dataset?.pieceIdx;
+  if (S.isTeamMode && pIdx != null && piIdx != null) {
+    _registerProfileAnim(pIdx, piIdx, 'heal', durationMs || 2000);
+  } else if (!S.isTeamMode) {
+    const cont = card.closest('#my-pieces-info, #opp-pieces-info');
+    if (cont && piIdx != null) {
+      const ownerIdx = (cont.id === 'my-pieces-info') ? S.playerIdx : (1 - S.playerIdx);
+      _registerProfileAnim(ownerIdx, piIdx, 'heal', durationMs || 2000);
+    }
+  }
 }
 // 턴 변경 시 모든 turn-bright 해제 — 다음 턴부터 다시 dim 상태로 돌아감.
 function clearAllTurnBright() {
   document.querySelectorAll('.turn-bright').forEach(el => el.classList.remove('turn-bright'));
+  // ★ turn-bright 레지스트리도 함께 비움 — 다음 턴에 stale 복원 차단.
+  if (window._activeTurnBrights) window._activeTurnBrights.clear();
 }
 
 // 마법사 카드 위치 찾기 (instant gain 출발지)
@@ -5288,23 +5602,69 @@ function playStalemateShrinkAlert(msg) {
 }
 
 // ── 보드 축소 경고 ──
-// 사용자 요청: 토스트·로그 출력 제거. 보드 최상단 #shrink-warning 텍스트와 카운트다운=10 오버레이만 유지.
-socket.on('board_shrink_warning', ({ turnsRemaining }) => {
-  const el = document.getElementById('shrink-warning');
-  if (el) {
-    el.classList.remove('hidden');
-    el.textContent = `외곽 파괴까지 ${turnsRemaining}턴`;
+// 사용자 요청: 토스트·로그 출력 제거. 보드 최상단 텍스트와 카운트다운=10 오버레이만 유지.
+// ★ 여러 축소 시퀀스가 동시 활성 가능 (예: 1대1 대치 트리거 + 1v1 40턴 정기 축소) — 각각을
+//   별도 박스로 위/아래 스택. 서버가 'key' (예: '1v1-50', 'stalemate-25') 로 식별.
+function _getShrinkWarnContainer() {
+  let c = document.getElementById('shrink-warning-container');
+  if (!c) {
+    // 호환: 컨테이너가 없으면 legacy 단일 박스 옆에 생성
+    c = document.createElement('div');
+    c.id = 'shrink-warning-container';
+    c.className = 'shrink-warning-container';
+    const legacy = document.getElementById('shrink-warning');
+    if (legacy && legacy.parentNode) legacy.parentNode.insertBefore(c, legacy);
   }
+  return c;
+}
+function _renderShrinkWarnItem(key, text, opts) {
+  const c = _getShrinkWarnContainer();
+  if (!c) return;
+  // key 가 없는 (구 emit) 경우 기존 단일 슬롯 사용
+  const safeKey = key || '__default__';
+  let item = c.querySelector(`[data-shrink-key="${CSS.escape(safeKey)}"]`);
+  if (!item) {
+    item = document.createElement('div');
+    item.className = 'shrink-warning shrink-warning-item';
+    item.dataset.shrinkKey = safeKey;
+    c.appendChild(item);
+  }
+  if (opts && opts.stalemate) item.classList.add('shrink-warning-stalemate');
+  else item.classList.remove('shrink-warning-stalemate');
+  item.textContent = text;
+  return item;
+}
+function _removeShrinkWarnItem(key) {
+  const c = document.getElementById('shrink-warning-container');
+  if (!c) return;
+  const safeKey = key || '__default__';
+  const item = c.querySelector(`[data-shrink-key="${CSS.escape(safeKey)}"]`);
+  if (item && item.parentNode) item.parentNode.removeChild(item);
+}
+socket.on('board_shrink_warning', ({ turnsRemaining, key, stalemate, stage }) => {
+  // 라벨 — stalemate 시퀀스는 별도로 명시
+  const label = stalemate
+    ? `1대1 대치 외곽 파괴까지 ${turnsRemaining}턴`
+    : `외곽 파괴까지 ${turnsRemaining}턴`;
+  _renderShrinkWarnItem(key, label, { stalemate });
   // 카운트다운이 10턴 남았을 때 — 풀스크린 인트로 강제 재생 (페이드 1s + 유지 1s + 페이드 1s)
+  // 같은 stage/key 중복 호출 방지 — 매 턴 emit 이지만 인트로는 한 번만.
   if (turnsRemaining === 10) {
-    runFullscreenLocked(() => playBoardShrinkIntro(), 3000);
+    if (!S._shrinkIntroFiredKeys) S._shrinkIntroFiredKeys = new Set();
+    const introKey = key || `stage-${stage}`;
+    if (!S._shrinkIntroFiredKeys.has(introKey)) {
+      S._shrinkIntroFiredKeys.add(introKey);
+      runFullscreenLocked(() => playBoardShrinkIntro(), 3000);
+    }
   }
 });
 
 // ── 보드 축소 실행 ──
 //   사용자 #24: 애니메이션 페이즈 소속. runFullscreenLocked 로 큐잉되어 다른 phase 애니와
 //   0.5s 텀으로 순차 재생. SP 지급은 항상 이 다음.
-socket.on('board_shrink', ({ bounds, eliminated }) => {
+socket.on('board_shrink', ({ bounds, eliminated, key }) => {
+  // 매칭되는 경고 박스 즉시 제거 (해당 시퀀스 종료) — 다른 시퀀스 박스는 유지
+  if (key) _removeShrinkWarnItem(key);
   runFullscreenLocked(() => _executeBoardShrinkAnim(bounds, eliminated), 3000);
 });
 
@@ -5405,6 +5765,20 @@ function flashHealPieces(indexes, opts) {
     card.classList.add('heal-flash');
     setTimeout(() => card.classList.remove('heal-flash'), 2000);
     // 파티클 반짝이 추가
+    spawnHealSparkles(card);
+  }
+}
+
+// owner-aware 버전 — { ownerIdx, pieceIdx } 페어 배열을 받아 1v1/팀모드 양쪽에서 정확한 카드 매핑.
+//   팀모드 약초학: 시전자뿐 아니라 팀원의 회복 대상도 카드 매핑 가능 (서버가 모든 healed 페어 전달).
+function flashHealPiecesByOwner(healedPieces) {
+  if (!Array.isArray(healedPieces) || healedPieces.length === 0) return;
+  for (const h of healedPieces) {
+    if (h == null || typeof h.ownerIdx !== 'number' || typeof h.pieceIdx !== 'number') continue;
+    const card = (typeof _findPieceCard === 'function') ? _findPieceCard(h.ownerIdx, h.pieceIdx) : null;
+    if (!card) continue;
+    card.classList.add('heal-flash');
+    setTimeout(() => card.classList.remove('heal-flash'), 2000);
     spawnHealSparkles(card);
   }
 }
@@ -5622,10 +5996,32 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (!S.isTeamMode) {
         applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
         applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+      } else if (data && Array.isArray(data.hits)) {
+        // ★ 사용자 보고 (유황범람 누락 — 시전자 시점): 팀모드에서 데미지 스킬 hit 시 피격 카드 밝아짐 누락.
+        requestAnimationFrame(() => {
+          for (const h of data.hits) {
+            if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+            if (h.redirectedToBodyguard) continue;
+            const isProtected = (h.damage === 0 && !h.destroyed);
+            const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+            if (!card) continue;
+            if (isProtected) applyProtectedAnim(card);
+            else applyHitFlashWithBrighten(card);
+          }
+        });
+      }
+      // ★ 유황범람 라바 애니 (시전자 시점)
+      if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
+        animateLavaCells(data.borderCells);
       }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
-      if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
+      const healedPieces = (data && data.healedPieces) || (effects && effects.healedPieces);
+      // 팀모드: healedPieces 가 있으면 owner-aware 매핑 (팀원 회복 카드도 포함)
+      // 1v1: 시전자 본인 카드만 healedIdxs 로 매핑 (기존 동작)
+      if (S.isTeamMode && Array.isArray(healedPieces) && healedPieces.length > 0) {
+        setTimeout(() => flashHealPiecesByOwner(healedPieces), 50);
+      } else if (Array.isArray(healedIdxs) && healedIdxs.length > 0) {
         setTimeout(() => flashHealPieces(healedIdxs), 50);
       }
 
@@ -5633,6 +6029,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (hitsData && hitsData.length > 0) {
         const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         if (cells.length > 0) animateAttack([], cells);
+        // ★ 사용자 보고 (유황범람 누락): 데미지 스킬 hits 도 일반 공격처럼 hit/kill SFX 발생.
+        const _meaningfulSkillHits = hitsData.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+        const _hasKillSkill = _meaningfulSkillHits.some(h => h.destroyed);
+        const _hasHitSkill = _meaningfulSkillHits.some(h => !h.destroyed);
+        if (_hasKillSkill) { try { playSfx('kill'); } catch (e) {} }
+        else if (_hasHitSkill) { try { playSfx('hit'); } catch (e) {} }
 
         // ★ 본체 빨간 도장 / 호위무사 파란 도장 — being_attacked 와 동일하게 처리.
         //   유황범람·악몽 등 데미지 스킬에서 빠져 있던 처리. defPieceIdx + defOwnerIdx 기반.
@@ -5650,6 +6052,17 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
             // 본체에 직접 들어간 피해 → 빨간 도장 (피격 카드)
             addBodyDamage(key, dmg);
           }
+        }
+        // ★ addBodyDamage 후 카드 재렌더 — buildDamageOverlay 가 빨간 도장 표시.
+        //   재렌더 + 진행 중인 profile-hit/turn-bright 자동 복원 (reapplyActiveProfileAnims).
+        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+        else { if (typeof renderMyPieces === 'function') renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); }
+        // ★ 데미지 스킬 hit 처리 직후 — 버퍼된 wizard / 충성 / 가호 등 패시브 alert flush.
+        //   유황범람 같은 데미지 스킬에서 wizard 가 피격되면 server 가 즉시 passive_alert emit →
+        //   클라가 _pendingDefensiveAlerts 에 buffer → 여기서 flush. 마법구 비행이 도장과 동기화됨.
+        if (typeof flushDefensiveAlerts === 'function') {
+          const _killed = (hitsData || []).some(h => h.destroyed);
+          flushDefensiveAlerts({ skipReduction: _killed });
         }
 
         // ★ 사용자 요청: 2명 이상 피격 시 (사망 포함) 자동 추리 토큰 배치 절대 X.
@@ -5681,6 +6094,23 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       }
     }
 
+    // ★ 저주 부여 시 — 부여된 카드는 그 턴 동안 dim 해제 (turn-bright).
+    //   기존엔 저주 데미지(curse_tick) 시점에만 처리. 사용자 요청: 저주 부여 시점에도 동일 처리.
+    if (data && typeof data.cursedPieceIdx === 'number') {
+      const tIdx = data.cursedPieceIdx;
+      const tOwner = (typeof data.cursedOwnerIdx === 'number') ? data.cursedOwnerIdx : null;
+      requestAnimationFrame(() => {
+        if (S.isTeamMode && tOwner != null) {
+          _persistTurnBright(tOwner, tIdx);
+          const card = _findPieceCard(tOwner, tIdx);
+          if (card) card.classList.add('turn-bright');
+        } else if (!S.isTeamMode) {
+          _persistTurnBright(1 - S.playerIdx, tIdx);
+          const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[tIdx];
+          if (card) card.classList.add('turn-bright');
+        }
+      });
+    }
     // 토스트·로그 — 스킬 효과와 동시
     if (msg) {
       addLog(msg, 'skill');
@@ -5690,7 +6120,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, casterPieceIdx, twinJoin, hits }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx }) => {
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
@@ -5775,6 +6205,30 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
         setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
       }
+      // ★ 회복 (newer owner-aware) — 1v1 상대 시점에서도 적용 (누락 수정).
+      if (Array.isArray(healedPieces) && healedPieces.length > 0) {
+        setTimeout(() => flashHealPiecesByOwner(healedPieces), 50);
+      }
+      // ★ 유황범람 라바 애니 — 1v1 상대 시점에서도 표시 (사용자 보고 누락 수정).
+      if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
+        animateLavaCells(borderCells);
+      }
+      // ★ 저주 부여 turn-bright — 1v1 상대 시점 (누락 수정).
+      if (typeof cursedPieceIdx === 'number') {
+        // 1v1: cursedOwnerIdx 가 명시되지 않으면 받는 쪽이 곧 피해자 — my:idx 로 매핑
+        requestAnimationFrame(() => {
+          if (typeof cursedOwnerIdx === 'number') {
+            _persistTurnBright(cursedOwnerIdx, cursedPieceIdx);
+            const card = (typeof _findPieceCard === 'function') ? _findPieceCard(cursedOwnerIdx, cursedPieceIdx) : null;
+            if (card) card.classList.add('turn-bright');
+          } else {
+            // 1v1 받는 쪽 = 피해자 → my-pieces-info 매핑
+            _persistTurnBright(S.playerIdx, cursedPieceIdx);
+            const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[cursedPieceIdx];
+            if (card) card.classList.add('turn-bright');
+          }
+        });
+      }
 
       // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
       //   server status_update 가 hits 를 보내며, defPieceIdx 는 받는 쪽의 yourPieces (= S.myPieces) 인덱스.
@@ -5791,6 +6245,11 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
           } else if (!h.redirectedToBodyguard) {
             addBodyDamage(key, dmg);
           }
+        }
+        // ★ 버퍼된 wizard 등 패시브 alert flush — 1v1 상대 스킬에 의해 본인 wizard 가 피격된 시점.
+        if (typeof flushDefensiveAlerts === 'function') {
+          const _killed = hits.some(h => h.destroyed);
+          flushDefensiveAlerts({ skipReduction: _killed });
         }
       }
     }
@@ -5812,11 +6271,19 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 });
 
 // ── 쥐 소환 ──
-socket.on('rats_spawned', ({ rats, owner, spCost }) => {
-  // ★ 통일 — SP 비행 종료 시점에 SFX + 보드 + 토스트/로그 동시 발사
+socket.on('rats_spawned', ({ rats, owner, spCost, casterCol, casterRow }) => {
   const SP_END_MS = getSpFlightEndMs(spCost || 2);
   const isMine = owner === S.playerIdx;
   const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
+  // ★ 사용자 요청: 애니메이션 완료 전엔 쥐가 보드에 표시되지 않게.
+  //   _ratIncoming Set 에 등록 → renderGameBoard 가 이 key 일치하는 rat span 을 skip.
+  //   animateRatSpawn 의 swapToMarker 가 키 제거 후 renderGameBoard 호출 → 마커 등장.
+  if (!S._ratIncoming) S._ratIncoming = new Set();
+  for (const rat of (rats || [])) {
+    S._ratIncoming.add(`${rat.col},${rat.row},${owner}`);
+  }
+  // 즉시 재렌더 — 이미 boardObjects 에 들어와 있던 쥐 span 즉시 숨김
+  if (typeof renderGameBoard === 'function') renderGameBoard();
   setTimeout(() => {
     if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
     if (isMine) {
@@ -5829,18 +6296,30 @@ socket.on('rats_spawned', ({ rats, owner, spCost }) => {
       addLog(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
       showSkillToast(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
     }
+    // ★ 쥐 비행 애니메이션 + 셀 보라 마크 (사용자 요청)
+    if (typeof animateRatSpawn === 'function') {
+      animateRatSpawn(rats, owner);
+    }
     renderGameBoard();
   }, SP_END_MS);
 });
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
-  // ★ 통일 — SP 비행 종료 시점에 SFX + 토스트/로그 (드래곤 5 SP → 1300ms)
+  // ★ 통일 — SP 비행 종료 시점에 SFX + 토스트/로그 + 강림 애니 (드래곤 5 SP → 1300ms)
+  //   다른 스킬 (역병의 자손들/덫 발동 등) 과 같은 페이즈 정렬: SP 마법구 비행 후 일제히 발동.
   const SP_END_MS = getSpFlightEndMs(spCost || 5);
   const isMine = owner === S.playerIdx;
   const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
+  const isOpponent = !isMine && !isAlly && !S.isSpectator;
+
+  // ★ 애니메이션 완료 전엔 드래곤이 보드에 표시되지 않게 — _dragonIncoming Set 에 등록.
+  //   renderGameBoard 가 이 key 와 일치하는 드래곤 piece 를 skip 하고, 강림 완료 시점에 제거.
+  if (!S._dragonIncoming) S._dragonIncoming = new Set();
+  S._dragonIncoming.add(`${dragon.col},${dragon.row},${owner}`);
+  if (typeof renderGameBoard === 'function') renderGameBoard();
+
   setTimeout(() => {
-    if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill');
     if (isMine || isAlly) {
       addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
       showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
@@ -5848,14 +6327,177 @@ socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
       addLog(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
       showSkillToast(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, true);
     }
+    // ★ 강림 애니메이션 — 거대 광주 + 천둥 + 드래곤 즉시 등장. SFX 는 animateDragonSummon 내부에서 재생.
+    if (typeof animateDragonSummon === 'function') {
+      animateDragonSummon(dragon.col, dragon.row, owner);
+    } else {
+      try { if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); else playSfx('skill'); } catch (e) {}
+      S._dragonIncoming.delete(`${dragon.col},${dragon.row},${owner}`);
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+    }
+    // ★ 사용자 요청: 상대편(적팀)은 강림한 칸에 자동 추리 토큰 부여.
+    //   드래곤은 팀모드/1v1 모두 적 측 시점에서 명백히 가시화 — pieceKey 는 owner+drag 형태.
+    if (isOpponent) {
+      try {
+        const pieceKey = `dragon::@${owner}`;   // 드래곤은 다른 piece 와 충돌 없는 고유 키
+        S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === dragon.col && t.row === dragon.row));
+        S.deductionTokens.push({ pieceKey, icon: '🐲', name: '드래곤', col: dragon.col, row: dragon.row });
+      } catch (e) {}
+    }
   }, SP_END_MS);
 });
 
+// ── 드래곤 강림 애니메이션 (재설계) ──
+//   사용자 요청: "임팩트 강하게, 광주는 굵고 한번에, 드래곤은 빛처럼 즉시 등장, 전설 유닛처럼 위압감"
+//   T+0    : 거대 광주 (빛 기둥) 하늘에서 내리쬠 + 풀스크린 플래시 + 보드 흔들림 + 천둥 SFX (한 방)
+//   T+0    : 셀 강렬한 화이트 폭발 + 충격파 링 3겹 + 드래곤 즉시 등장 (3.5x → 1x 수축)
+//   T+900  : 애니 종료 → _dragonIncoming 키 제거 → 실제 드래곤 piece 표시
+function animateDragonSummon(col, row, owner) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) {
+    if (S._dragonIncoming) S._dragonIncoming.delete(`${col},${row},${owner}`);
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    return;
+  }
+  const rect = cell.getBoundingClientRect();
+  const stage = document.createElement('div');
+  stage.className = 'dragon-summon-stage';
+  stage.style.left = rect.left + 'px';
+  stage.style.top = rect.top + 'px';
+  stage.style.width = rect.width + 'px';
+  stage.style.height = rect.height + 'px';
+  document.body.appendChild(stage);
+
+  // 1. 거대 광주 (빛 기둥) — 굵게 한 번에 내리쬠
+  const pillar = document.createElement('div');
+  pillar.className = 'dragon-light-pillar';
+  stage.appendChild(pillar);
+  const core = document.createElement('div');
+  core.className = 'dragon-light-pillar-core';
+  stage.appendChild(core);
+
+  // 2. 풀스크린 플래시 — 화면 전체가 번쩍 (관전자도 놀라게)
+  const fullFlash = document.createElement('div');
+  fullFlash.className = 'dragon-fullscreen-flash';
+  document.body.appendChild(fullFlash);
+  setTimeout(() => fullFlash.remove(), 600);
+
+  // 3. 셀 강렬한 화이트 폭발
+  cell.classList.remove('dragon-strike-cell');
+  void cell.offsetWidth;
+  cell.classList.add('dragon-strike-cell');
+
+  // 4. 충격파 3겹 — 시간차로 펑펑펑
+  for (const cls of ['r1', 'r2', 'r3']) {
+    const ring = document.createElement('div');
+    ring.className = `dragon-shockwave-ring ${cls}`;
+    stage.appendChild(ring);
+  }
+
+  // 5. 보드 흔들림 — 천둥 진동
+  if (board) {
+    board.classList.remove('dragon-board-quake');
+    void board.offsetWidth;
+    board.classList.add('dragon-board-quake');
+    setTimeout(() => board.classList.remove('dragon-board-quake'), 550);
+  }
+
+  // 6. 드래곤 즉시 등장 — 빛이 사라지면서 거대 → 정상 크기로 수축. 처음부터 자리에 있음.
+  const dragon = document.createElement('div');
+  dragon.className = 'dragon-revealed';
+  dragon.textContent = '🐲';
+  stage.appendChild(dragon);
+
+  // 7. SFX — 거대 천둥 한 방 (드래곤 강림 SFX 가 천둥 + 으르렁을 모두 포함)
+  try { if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); } catch (e) {}
+
+  // 8. 종료 — _dragonIncoming 키 제거 + 실제 드래곤 piece 렌더 + stage 제거
+  setTimeout(() => {
+    if (S._dragonIncoming) S._dragonIncoming.delete(`${col},${row},${owner}`);
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (stage.parentNode) stage.remove();
+  }, 900);
+}
+
+// ── 사냥꾼 카드 찾기 헬퍼 (덫 시전 강조용) ──
+//   ★ 사용자 보고: 사냥꾼이 이미 사망한 경우 (덫 설치 후 죽음) cast intro 스킵 → 본 적 없음.
+//   alive 필터 제거 — 사망한 사냥꾼 카드도 찾아서 강조 애니 적용 (덫은 사후에도 발동).
+function _findHunterCard(trapOwnerIdx) {
+  if (trapOwnerIdx == null) return null;
+  if (S.isTeamMode) {
+    const player = (S.teamGamePlayers || []).find(p => p.idx === trapOwnerIdx);
+    if (!player) return null;
+    const hunterIdx = (player.pieces || []).findIndex(p => p.type === 'manhunter');
+    if (hunterIdx < 0) return null;
+    return document.querySelector(`.team-profile-block[data-player-idx="${trapOwnerIdx}"] [data-piece-idx="${hunterIdx}"]`);
+  }
+  // 1v1
+  if (trapOwnerIdx === S.playerIdx) {
+    const hunterIdx = (S.myPieces || []).findIndex(p => p.type === 'manhunter');
+    if (hunterIdx < 0) return null;
+    return document.querySelectorAll('#my-pieces-info .my-piece-card')[hunterIdx];
+  } else {
+    const hunterIdx = (S.oppPieces || []).findIndex(p => p.type === 'manhunter');
+    if (hunterIdx < 0) return null;
+    return document.querySelectorAll('#opp-pieces-info .opp-piece-card')[hunterIdx];
+  }
+}
+function _findHunterPieceIdx(trapOwnerIdx) {
+  if (trapOwnerIdx == null) return -1;
+  if (S.isTeamMode) {
+    const player = (S.teamGamePlayers || []).find(p => p.idx === trapOwnerIdx);
+    return player ? (player.pieces || []).findIndex(p => p.type === 'manhunter') : -1;
+  }
+  if (trapOwnerIdx === S.playerIdx) {
+    return (S.myPieces || []).findIndex(p => p.type === 'manhunter');
+  }
+  return (S.oppPieces || []).findIndex(p => p.type === 'manhunter');
+}
+
 // ── 함정 발동 ──
-socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, newHp, victimOwnerIdx }) => {
+//   ★ 사용자 요청: 덫 발동을 화약상 기폭처럼 시전 강조 형태로 표현.
+//   1) 사냥꾼 카드에 [덫 발동] 빨간 말풍선 + spotlight (마법구 비행 X — SP 소모 없음)
+//   2) ~700ms 후 — spotlight 해제 + 이빨 스냅 애니 + 데미지/사망/SFX/도장/토스트/로그 동시 발동
+socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, newHp, victimOwnerIdx, trapOwnerIdx }) => {
+  // 시전 도입부 — 사냥꾼 카드 spotlight + 빨간 말풍선 (사냥꾼 사망/생존 무관 — alive 필터 제거됨)
+  const hunterCard = _findHunterCard(trapOwnerIdx);
+  const _hunterPieceIdx = _findHunterPieceIdx(trapOwnerIdx);
+  const _targetInfo = (S.isTeamMode && trapOwnerIdx != null && _hunterPieceIdx >= 0)
+    ? { playerIdx: trapOwnerIdx, pieceIdx: _hunterPieceIdx }
+    : null;
+  if (hunterCard) {
+    startSkillCastDim(hunterCard, _targetInfo);
+    showSkillCastBubble(hunterCard, '덫 발동', 'action');  // 'action' = 빨간 (덫 설치 와 동일)
+  }
+  // ★ 트랩 셀 자체에도 시각 강조 — 사냥꾼이 죽었거나 카드를 못 찾는 경우의 fallback,
+  //   그리고 사냥꾼 카드 강조와 함께 시전이 어디서 일어나는지 명확히 알리는 효과.
+  const board = document.getElementById('game-board');
+  if (board) {
+    const trapCell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (trapCell) {
+      trapCell.classList.remove('trap-cast-cell');
+      void trapCell.offsetWidth;
+      trapCell.classList.add('trap-cast-cell');
+      setTimeout(() => trapCell.classList.remove('trap-cast-cell'), 750);
+    }
+  }
+  // 시전 도입부 SFX — 다른 스킬과 통일 (skill cast wind)
+  try { if (typeof playSfxSkillCastWind === 'function') playSfxSkillCastWind(); } catch (e) {}
+
+  // 시전 도입부 후 (~700ms) 모든 효과 발동
+  setTimeout(() => {
+    if (hunterCard) endSkillCastDim(hunterCard);
+    _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, victimOwnerIdx);
+  }, 700);
+});
+function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, victimOwnerIdx) {
   // 트랩 전용 사운드 + 일반 피격/격파 사운드 레이어링
   playSfxTrapSnap();
   if (destroyed) playSfx('kill'); else playSfx('hit');
+  // ★ 사용자 요청: 맹수 이빨이 콱 무는 애니 — 셀 위·아래에서 이빨이 들어와 중앙에서 스냅.
+  if (typeof animateTrapSnap === 'function') animateTrapSnap(col, row);
 
   // ★ 1v1 관전자 — 별도 처리: spectator 의 S.myPieces/oppPieces 가 비어있어 일반 경로가 무동작.
   //   victimOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
@@ -5890,9 +6532,15 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
 
   // HP 즉시 갱신 — 일반 피격과 동일하게 클라이언트에서 바로 반영
-  // 이름·좌표로 매칭 (트랩 발동 시점은 이동 직후라 좌표가 정확)
-  const updatePiece = (arr) => {
+  // ★ 사용자 보고 (트랩 같은 티어 피격 애니 버그) — victimOwnerIdx 로 정확 분기.
+  //   양 측이 같은 캐릭터(이름)를 보유했을 때 cross-side 이름 매칭으로 잘못된 piece 가 업데이트되던 문제.
+  //   bomb_detonated 핸들러와 동일한 owner 필터링 패턴 적용.
+  const updatePiece = (arr, expectedOwnerIdx) => {
     if (!Array.isArray(arr)) return -1;
+    // owner 가 일치하지 않으면 스킵 (서버가 victimOwnerIdx 를 보냈을 때만 필터링).
+    if (typeof victimOwnerIdx === 'number' && typeof expectedOwnerIdx === 'number' && victimOwnerIdx !== expectedOwnerIdx) {
+      return -1;
+    }
     let idx = arr.findIndex(p => p.alive && p.name === pieceInfo.name && p.col === col && p.row === row);
     if (idx < 0) idx = arr.findIndex(p => p.alive && p.name === pieceInfo.name);
     if (idx >= 0) {
@@ -5901,9 +6549,31 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
     }
     return idx;
   };
-  const myIdx = updatePiece(S.myPieces);
-  const oppIdx = updatePiece(S.oppPieces);
-  const tmIdx = updatePiece(S.teammatePieces);
+  // 1v1: S.myPieces = my(0 or 1). S.oppPieces = other(1 or 0).
+  // 팀모드: S.myPieces = local player only. S.teammatePieces = teammate. S.oppPieces = flattened enemies.
+  const teammateOwnerIdx = (S.isTeamMode && Array.isArray(S.teamGamePlayers))
+    ? (S.teamGamePlayers.find(p => p.teamId === S.teamId && p.idx !== S.playerIdx)?.idx)
+    : null;
+  const oneVoneOppIdx = (typeof S.playerIdx === 'number') ? (1 - S.playerIdx) : null;
+  const myIdx = updatePiece(S.myPieces, S.playerIdx);
+  const tmIdx = (S.isTeamMode && teammateOwnerIdx != null)
+    ? updatePiece(S.teammatePieces, teammateOwnerIdx)
+    : -1;
+  // 팀모드 oppPieces 는 flat enemy 배열 — 자체 ownerIdx 속성으로 필터.
+  let oppIdx = -1;
+  if (S.isTeamMode) {
+    if (Array.isArray(S.oppPieces) && typeof victimOwnerIdx === 'number') {
+      oppIdx = S.oppPieces.findIndex(p => p.alive && p.ownerIdx === victimOwnerIdx
+        && p.name === pieceInfo.name && p.col === col && p.row === row);
+      if (oppIdx < 0) oppIdx = S.oppPieces.findIndex(p => p.alive && p.ownerIdx === victimOwnerIdx && p.name === pieceInfo.name);
+      if (oppIdx >= 0) {
+        if (newHp != null) S.oppPieces[oppIdx].hp = newHp;
+        if (destroyed) S.oppPieces[oppIdx].alive = false;
+      }
+    }
+  } else {
+    oppIdx = updatePiece(S.oppPieces, oneVoneOppIdx);
+  }
 
   // 본체 직접 피해 추적 (덫은 본체에 직접 들어가는 피해)
   if (damage > 0) {
@@ -5912,6 +6582,33 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
     else if (tmIdx >= 0 && victimOwnerIdx != null) addBodyDamage(`${victimOwnerIdx}:${tmIdx}`, damage);
   }
 
+  // ★ 자동 추리토큰 — 덫이 적의 piece 위치를 노출. 사망 아닌 경우에만 토큰 배치.
+  //   1v1: victim 이 상대 (1 - playerIdx) 일 때.
+  //   팀모드: victim 이 적팀 piece (= 내 팀이 아님) 일 때.
+  if (!destroyed && pieceInfo && pieceInfo.name && victimOwnerIdx != null) {
+    let isEnemyVictim = false;
+    let pieceKey = null;
+    if (S.isTeamMode) {
+      const victimPlayer = (S.teamGamePlayers || []).find(p => p.idx === victimOwnerIdx);
+      isEnemyVictim = !!(victimPlayer && victimPlayer.teamId !== S.teamId);
+      if (isEnemyVictim) {
+        const piece = victimPlayer.pieces?.find(p => p.name === pieceInfo.name && p.col === col && p.row === row);
+        if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}@${victimOwnerIdx}`;
+      }
+    } else {
+      isEnemyVictim = (typeof S.playerIdx === 'number') && (victimOwnerIdx !== S.playerIdx);
+      if (isEnemyVictim && oppIdx >= 0 && S.oppPieces?.[oppIdx]) {
+        const piece = S.oppPieces[oppIdx];
+        pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+      }
+    }
+    if (isEnemyVictim && pieceKey) {
+      try {
+        S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === col && t.row === row));
+        S.deductionTokens.push({ pieceKey, icon: pieceInfo.icon, name: pieceInfo.name, col, row });
+      } catch (e) {}
+    }
+  }
   // 사망 시 추리 토큰 즉시 제거
   if (destroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
 
@@ -5946,7 +6643,7 @@ socket.on('trap_triggered', ({ col, row, pieceInfo, damage, owner, destroyed, ne
       });
     }
   }
-});
+}
 
 // ── 사망 기폭 시전 애니메이션 ──
 //   화약상이 죽으면서 자동으로 발동되는 기폭. 서버는 600ms 사망 인지 텀 후 이 이벤트 emit.
@@ -6221,6 +6918,40 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
       }
     }
   }
+  // ★ 자동 추리토큰 — 폭탄도 적의 piece 위치를 노출. 팀원 폭탄 / 본인 폭탄 양쪽 모두 적용.
+  //   조건: meaningful hit (사망 제외) 정확히 1명 + 적팀 piece (1v1: 상대) — 일반 공격과 동일 규칙.
+  {
+    const _meaningful = (hits || []).filter(h => !h.destroyed && typeof h.damage === 'number' && h.damage > 0
+      && h.defPieceIdx != null);
+    if (_meaningful.length === 1) {
+      const h = _meaningful[0];
+      let isEnemyVictim = false;
+      let pieceKey = null;
+      let pieceObj = null;
+      if (S.isTeamMode && h.defOwnerIdx != null) {
+        const victimPlayer = (S.teamGamePlayers || []).find(p => p.idx === h.defOwnerIdx);
+        isEnemyVictim = !!(victimPlayer && victimPlayer.teamId !== S.teamId);
+        if (isEnemyVictim) {
+          pieceObj = victimPlayer.pieces?.[h.defPieceIdx];
+          if (pieceObj) pieceKey = `${pieceObj.type}:${pieceObj.subUnit || ''}@${h.defOwnerIdx}`;
+        }
+      } else if (!S.isTeamMode) {
+        // 1v1 — defOwnerIdx 가 1 - playerIdx 이면 상대
+        const myIdx = S.playerIdx;
+        if (typeof myIdx === 'number' && (h.defOwnerIdx == null || h.defOwnerIdx !== myIdx)) {
+          isEnemyVictim = true;
+          pieceObj = S.oppPieces?.[h.defPieceIdx];
+          if (pieceObj) pieceKey = `${pieceObj.type}:${pieceObj.subUnit || ''}`;
+        }
+      }
+      if (isEnemyVictim && pieceKey && pieceObj) {
+        try {
+          S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === h.col && t.row === h.row));
+          S.deductionTokens.push({ pieceKey, icon: pieceObj.icon || h.icon, name: pieceObj.name || h.name, col: h.col, row: h.row });
+        } catch (e) {}
+      }
+    }
+  }
   // 사망 시 추리 토큰 즉시 제거 (트랩과 동일)
   if (bombAnyDestroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
   // 셀 + 보드 아이콘 피격 애니메이션 (트랩과 동일하게 — 일반 공격 hit 애니)
@@ -6313,21 +7044,27 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
     if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
     else { renderMyPieces(); renderOppPieces(); }
   } catch (e) {}
-  // ★ 데미지 종류 무관 — 피격된 카드는 그 턴 동안 dim 해제 (turn-bright).
-  //   저주는 빨간 profile-hit 대신 보라 도장이 visual cue 라서 turn-bright 만 추가.
+  // ★ 사용자 보고: 저주 데미지로 dim 해제된 turn-bright 가 후속 render 에서 wipe 됨.
+  //   _persistTurnBright 레지스트리에 등록 → reapplyActiveProfileAnims 가 매 render 후 자동 복원.
   requestAnimationFrame(() => {
     if (S.isTeamMode) {
-      const card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${(S.teamGamePlayers || []).find(p => p.idx === playerIdx)?.pieces?.findIndex(p => p.name === targetName) ?? -1}"]`);
-      if (card) card.classList.add('turn-bright');
+      const piIdx = (S.teamGamePlayers || []).find(p => p.idx === playerIdx)?.pieces?.findIndex(p => p.name === targetName) ?? -1;
+      if (piIdx >= 0) {
+        _persistTurnBright(playerIdx, piIdx);
+        const card = _findPieceCard(playerIdx, piIdx);
+        if (card) card.classList.add('turn-bright');
+      }
     } else {
       // 1v1 — 본인/상대 카드 모두 후보
       const myI = S.myPieces?.findIndex(p => p.name === targetName) ?? -1;
       const oppI = S.oppPieces?.findIndex(p => p.name === targetName) ?? -1;
       if (myI >= 0) {
+        _persistTurnBright(S.playerIdx, myI);
         const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[myI];
         if (card) card.classList.add('turn-bright');
       }
       if (oppI >= 0) {
+        _persistTurnBright(1 - S.playerIdx, oppI);
         const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[oppI];
         if (card) card.classList.add('turn-bright');
       }
@@ -6356,6 +7093,11 @@ function attachCurseDamageStamp(card, damage) {
 // '공격받았습니다!' 가 항상 먼저 나오도록 — 공격 반응형 패시브(bodyguard/monk/count/armoredWarrior 등)는
 // being_attacked 처리 후로 출력 순서를 미룬다.
 // 공격 반응형 패시브 — 'wizard' 도 포함 (토스트·로그 출력 + 마법구 애니메이션 동시)
+// ★ 'wizard' 를 다시 DEFENSIVE 버퍼에 포함 — 타이밍 문제 해결용 (사용자 보고: 유황범람 시전 중 wizard
+//   passive 가 sulfur 애니 재생 전에 fire 되어 마법구 비행 도착 시점에 트레이가 비어있음).
+//   ★ 원래 문제 (팀원/관전자 flush 누락) 도 해결 — flush 호출을 적절한 핸들러들에 추가:
+//   attack_result (기존), being_attacked (기존), skill_result (NEW — 시전자), team_skill_notice (NEW — 같은팀/적팀),
+//   team_ally_attacked (NEW), team_ally_hit (NEW), status_update (NEW — 1v1 상대 시전 시점).
 const DEFENSIVE_PASSIVE_TYPES = new Set(['bodyguard', 'monk', 'count', 'armoredWarrior', 'wizard']);
 S._pendingDefensiveAlerts = S._pendingDefensiveAlerts || [];
 
@@ -6724,6 +7466,45 @@ const stBadge = (cls, label) => {
   return `<span class="status-badge ${cls}">${icon ? icon + ' ' : ''}${label}</span>`;
 };
 
+// ── 스킬 PNG 아이콘 매핑 ──────────────────────────────────────
+// 사용자가 직접 만든 PNG 아이콘 (public/<한글파일명>.png).
+// 키: 스킬 id (server 의 skill.id 와 일치). 값: 파일명 (public/ 기준 상대경로).
+// 주의: 일부 파일명은 오타 또는 띄어쓰기 차이가 있어 그대로 참조.
+const SKILL_ICON_PNG = {
+  bomb:         '폭탈 설치.png',      // ⚠ '폭탄' 오타
+  herb:         '약초학.png',
+  recon:        '정찰.png',
+  rats:         '역병의 자손들.png',
+  ring:         '절대복종 반지.png',
+  divine:       '신성.png',
+  nightmare:    '악몽.png',
+  reform:       '정비.png',
+  sprint:       '질주.png',
+  detonate:     '기폭.png',
+  shadow:       '그림자 숨기.png',
+  dualStrike:   '쌍검무.png',
+  dragon:       '드래곤 소환.png',
+  trap:         '덫 설치.png',
+  brothers:     '분신.png',
+  curse:        '저주.png',
+  sulfurRiver:  '유황범람.png',
+  // 패시브 — 보유 캐릭터 카드/툴팁용
+  instantMagic: '인스턴트 매직.png',
+  ironSkin:     '아이언스킨.png',     // ⚠ 띄어쓰기 없음
+  loyalty:      '충성.png',
+  grace:        '가호.png',
+  betrayer:     '배반자.png',
+  wrath:        '사기증진.png',
+  markPassive:  '표식.png',
+  tyranny:      '폭정.png',
+};
+function getSkillIconHtml(skillId, opts) {
+  const file = SKILL_ICON_PNG[skillId];
+  if (!file) return '';
+  const cls = (opts && opts.cls) ? opts.cls : 'skill-png-icon';
+  return `<img class="${cls}" src="${encodeURI(file)}" alt="" loading="lazy">`;
+}
+
 const CHAR_DETAILS = {
   // ── 1티어 ──
   archer: {
@@ -6763,7 +7544,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '현재 위치에 덫 설치. 작동 시 2 피해.',
+    body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다. 이 스킬을 사용한 턴에는 다른 행동을 할 수 없습니다.',
     flavor: '소리 없는 사냥꾼. 당하기 전까지는 아무도 그의 함정을 눈치챌 수 없다.',
   },
   messenger: {
@@ -7355,7 +8136,7 @@ const SKILL_PREVIEW = {
   weaponSmith:   { cells: armorerToggledCells, cat: 'attack', label: '공격 범위 영구 전환' },
   ratMerchant:   { cells: ratLordRandomCells,  cat: 'attack', label: '보드 위 랜덤 위치 쥐 소환', randomEachClick: true, showRats: true },
   manhunter:     { cells: selfOnly,            cat: 'place',  label: '덫 설치 가능 지역' },
-  gunpowder:     { cells: surrounding8WithSelf,cat: 'place',  label: '폭탄 설치 가능 지역' },
+  gunpowder:     { cells: surrounding8,        cat: 'place',  label: '폭탄 설치 가능 지역' },
   sulfurCauldron:{ cells: boardEdge,           cat: 'attack', label: '유황범람 공격 범위' },
   // 드래곤 조련사: 드래곤만 중앙(조련사 사라짐) + 십자 5칸
   dragonTamer:   { cells: dragonOnlyCrossCells,cat: 'attack', label: '체력 3 / 공격력 3의 드래곤 소환', showDragonOnly: true },
@@ -10163,6 +10944,10 @@ function renderGameBoard() {
     // 내 말
     const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
     if (pc) {
+      // ★ 드래곤 강림 애니 진행 중이면 해당 셀의 드래곤 piece 는 표시 X — 애니 종료 시점에 _dragonIncoming 키 제거 후 재렌더.
+      if (pc.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)) {
+        return;
+      }
       const statusIcons = getStatusIcons(pc);
       // 딤 통일: 쌍둥이/쌍검무/질주 중 — 해당 piece 외 전부 흐리게
       const isTwinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
@@ -10242,7 +11027,13 @@ function renderGameBoard() {
     // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
     if (S.isTeamMode && Array.isArray(S.teammatePieces) && !pc) {
       const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
-      if (tmPc) {
+      // ★ 드래곤 강림 애니 진행 중인 팀원 드래곤은 표시 X — 애니 종료 시점에 재렌더가 처리.
+      const _tmIsIncomingDragon = tmPc && tmPc.isDragon && S._dragonIncoming &&
+        (S.teamGamePlayers || []).some(p =>
+          (p.pieces || []).some(pp => pp.col === col && pp.row === row && pp.isDragon) &&
+          S._dragonIncoming.has(`${col},${row},${p.idx}`)
+        );
+      if (tmPc && !_tmIsIncomingDragon) {
         const isTwin = tmPc.subUnit === 'elder' || tmPc.subUnit === 'younger';
         const otherTwin = isTwin ? S.teammatePieces.find(p => p.alive && p !== tmPc &&
           (p.subUnit === 'elder' || p.subUnit === 'younger') &&
@@ -10298,6 +11089,10 @@ function renderGameBoard() {
             cell.innerHTML += '<span style="position:absolute;bottom:1px;right:7px;font-size:0.5rem;z-index:4">💣</span>';
           }
           if (obj.type === 'rat') {
+            // ★ 사용자 요청: 하늘에서 떨어지는 애니메이션 완료 전엔 보드에 표시 X.
+            //   rats_spawned 핸들러가 _ratIncoming Set 에 등록 → 애니 완료 시 swapToMarker 가 제거.
+            const _key = `${obj.col},${obj.row},${obj.owner}`;
+            if (S._ratIncoming && S._ratIncoming.has(_key)) continue;
             const isMyRat = obj.owner === S.playerIdx;
             const ratColor = isMyRat ? 'color:#52b788' : 'color:#e05252';
             // ★ 쥐 — top 라인. 적군 쥐 = top-left 코너, 본인 쥐 = top-left + 5px 오른쪽 (적쥐 위 z-index 4).
@@ -10402,9 +11197,10 @@ function renderGameBoard() {
       const std = S.skillTargetData;
       let inSkillRange = false;
       if (std.type === 'bomb_place') {
-        // 화약상: 자신 + 인접 8칸만 표시
+        // 화약상: 자기 칸 제외, 인접 8칸만 표시 (룰: 자기 자리에는 설치 불가)
         const src = S.myPieces[std.pieceIdx];
         if (src && Math.abs(col - src.col) <= 1 && Math.abs(row - src.row) <= 1 &&
+            !(col === src.col && row === src.row) &&
             col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
           inSkillRange = true;
         }
@@ -10823,6 +11619,8 @@ function renderMyPieces() {
 
     container.appendChild(card);
   }
+  // ★ innerHTML wipe 후 진행 중 애니메이션 클래스 복원
+  if (typeof reapplyActiveProfileAnims === 'function') reapplyActiveProfileAnims();
 }
 
 // 이름 길이별 폰트 축소 클래스 — 한글 7+자면 살짝, 8+자면 더 줄임 (사이드 240px 한계 안에서 태그 잘림 방지)
@@ -10961,6 +11759,8 @@ function renderOppPieces() {
 
     container.appendChild(card);
   }
+  // ★ innerHTML wipe 후 진행 중 애니메이션 클래스 복원 (사용자 보고 — 밀림 현상 수정)
+  if (typeof reapplyActiveProfileAnims === 'function') reapplyActiveProfileAnims();
 
   // 추리 토큰 안내 (한 번만)
   if (!container.querySelector('.deduction-hint')) {
@@ -13528,13 +14328,36 @@ function _showToastNow(msg, isEnemy, specPlayerIdx, toastType) {
     toast.style.background = 'rgba(139, 92, 246, 0.92)';   // violet-500
     toast.style.border = '1px solid #c4b5fd';              // violet-300
   } else if (S.isSpectator && specPlayerIdx !== undefined) {
-    const isP1 = specPlayerIdx === 1;
-    toast.style.background = isP1 ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
-    toast.style.border = isP1 ? '1px solid #ff6b6b' : '1px solid #93c5fd';
+    // 관전자: 액터의 팀 컬러 기준 (팀모드: 그 player 의 teamId / 1v1: idx 0=blue, 1=red)
+    let isRed;
+    if (S.isTeamMode) {
+      const player = (S.teamGamePlayers || []).find(p => p.idx === specPlayerIdx);
+      isRed = player ? player.teamId === 1 : false;
+    } else {
+      isRed = specPlayerIdx === 1;
+    }
+    toast.style.background = isRed ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
+    toast.style.border = isRed ? '1px solid #ff6b6b' : '1px solid #93c5fd';
   } else if (toastType === 'event') {
     toast.style.background = 'rgba(30,30,30,0.92)';
     toast.style.border = '1px solid #555';
+  } else if (S.isTeamMode) {
+    // ★ 사용자 보고: 팀모드 토스트 컬러는 액터의 절대 팀 컬러 기준 (블루팀=파랑, 레드팀=빨강).
+    //   isEnemy 는 viewer 기준이라 잘못된 결과를 줌 (레드팀 자기 행동도 파란 토스트로 나오던 문제).
+    let isRed;
+    if (typeof specPlayerIdx === 'number') {
+      // 액터의 player idx 가 명시된 경우 — 그 player 의 팀 컬러 사용.
+      const player = (S.teamGamePlayers || []).find(p => p.idx === specPlayerIdx);
+      isRed = player ? player.teamId === 1 : false;
+    } else {
+      // 액터 미상 — viewer 의 팀 + isEnemy 로 추정.
+      const myTeamIsRed = S.teamId === 1;
+      isRed = isEnemy ? !myTeamIsRed : myTeamIsRed;
+    }
+    toast.style.background = isRed ? 'rgba(220,50,50,0.92)' : 'rgba(96,165,250,0.92)';
+    toast.style.border = isRed ? '1px solid #ff6b6b' : '1px solid #93c5fd';
   } else {
+    // 1v1 — viewer 시점 (mine=blue, opp=red)
     toast.style.background = isEnemy ? 'rgba(220,50,50,0.92)' : 'rgba(59,130,246,0.92)';
     toast.style.border = isEnemy ? '1px solid #ff6b6b' : '1px solid #93c5fd';
   }
@@ -13688,7 +14511,21 @@ function applyProtectedAnim(card) {
   card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
   void card.offsetWidth;
   card.classList.add('profile-protected', PROTECTED_VARIANT);
-  setTimeout(() => card.classList.remove('profile-protected', PROTECTED_VARIANT), PROTECTED_DURATIONS[PROTECTED_VARIANT] || 1100);
+  const dur = PROTECTED_DURATIONS[PROTECTED_VARIANT] || 1100;
+  setTimeout(() => card.classList.remove('profile-protected', PROTECTED_VARIANT), dur);
+  // ★ 레지스트리 등록 — innerHTML wipe 후에도 복원되도록.
+  const block = card.closest('.team-profile-block');
+  const pIdx = block?.dataset?.playerIdx;
+  const piIdx = card.dataset?.pieceIdx;
+  if (S.isTeamMode && pIdx != null && piIdx != null) {
+    _registerProfileAnim(pIdx, piIdx, 'protected', dur);
+  } else if (!S.isTeamMode) {
+    const cont = card.closest('#my-pieces-info, #opp-pieces-info');
+    if (cont && piIdx != null) {
+      const ownerIdx = (cont.id === 'my-pieces-info') ? S.playerIdx : (1 - S.playerIdx);
+      _registerProfileAnim(ownerIdx, piIdx, 'protected', dur);
+    }
+  }
   // SFX (PROTECTED_SFX 상수로 변종 선택)
   try {
     const sfxFn = (typeof PROTECTED_SFX_FUNCS !== 'undefined') && PROTECTED_SFX_FUNCS[PROTECTED_SFX];
@@ -13787,6 +14624,143 @@ function animateBoardIconHit(cells) {
   }
 }
 
+// ── 유황범람 라바 애니 (사용자 요청) ──
+//   borderCells 의 모든 셀에 .lava-bubbling 클래스 1.6s 부착 → 끓어오르는 라바 표면 + 거품.
+function animateLavaCells(cells) {
+  const board = document.getElementById('game-board');
+  if (!board || !Array.isArray(cells)) return;
+  for (const c of cells) {
+    const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+    if (!cell) continue;
+    cell.classList.remove('lava-bubbling');
+    void cell.offsetWidth;
+    cell.classList.add('lava-bubbling');
+    setTimeout(() => cell.classList.remove('lava-bubbling'), 1700);
+  }
+}
+
+// ── 덫 발동 — 첨부 이미지 이빨 스냅 (옵션 B 확정: 큰 이빨, 살짝 박힘) ──
+//   셀 폭의 1.8배 이빨이 셀 안쪽 15% 까지 박힘 + bite-shake + 셀 흔들림 + 임팩트 광원.
+//   사운드는 trap_triggered 핸들러가 playSfxTrapSnap 호출.
+function animateTrapSnap(col, row) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const r = cell.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const cw = r.width;
+  const ch = r.height;
+  // 옵션 B: 폭 1.8x, 높이 0.85, 셀 안쪽 15% 박힘
+  const widthMul = 1.8;
+  const fhRatio = 0.85;
+  const biteRatio = 0.15;
+  const fw = cw * widthMul;
+  const fh = ch * fhRatio;
+  const startOff = -Math.max(6, ch * 0.1);
+  const endOff = ch * biteRatio;
+  const fangSet = document.createElement('div');
+  fangSet.className = 'trap-fang-set';
+  fangSet.style.left = cx + 'px';
+  fangSet.style.top = cy + 'px';
+  fangSet.style.setProperty('--cw', fw + 'px');
+  fangSet.style.setProperty('--ch', ch + 'px');
+  fangSet.style.setProperty('--fh', fh + 'px');
+  fangSet.style.setProperty('--start-top', startOff + 'px');
+  fangSet.style.setProperty('--end-top', endOff + 'px');
+  fangSet.innerHTML = `
+    <img class="trap-fang-img top" src="/fangs-top.png" alt="">
+    <img class="trap-fang-img bottom" src="/fangs-bottom.png" alt="">`;
+  document.body.appendChild(fangSet);
+  requestAnimationFrame(() => fangSet.classList.add('snap'));
+  // 200ms 후 — 이빨이 셀에 박힌 시점에 임팩트 광원 + 셀 흔들림/빨간 글로우 + bite-shake
+  setTimeout(() => {
+    const cellNow = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (cellNow) {
+      const fRect = cellNow.getBoundingClientRect();
+      const flash = document.createElement('div');
+      flash.className = 'trap-impact-flash';
+      flash.style.left = (fRect.left + fRect.width / 2) + 'px';
+      flash.style.top = (fRect.top + fRect.height / 2) + 'px';
+      document.body.appendChild(flash);
+      setTimeout(() => flash.remove(), 460);
+      cellNow.classList.remove('trap-shake', 'trap-flash');
+      void cellNow.offsetWidth;
+      cellNow.classList.add('trap-shake', 'trap-flash');
+      setTimeout(() => cellNow.classList.remove('trap-shake'), 550);
+      setTimeout(() => cellNow.classList.remove('trap-flash'), 800);
+    }
+    // 무는 압력으로 떨림 — 위·아래 이빨이 셀에 박힌 채 흔들림
+    fangSet.classList.add('bite-shake');
+  }, 280);
+  // 950ms 후 이빨 페이드 아웃 (bite-shake 가 끝난 직후)
+  setTimeout(() => {
+    fangSet.style.transition = 'opacity 0.3s';
+    fangSet.style.opacity = '0';
+    setTimeout(() => fangSet.remove(), 320);
+  }, 950);
+}
+
+// ── 쥐 소환 — 하늘에서 비처럼 떨어짐 + 2회 바운스 (사용자 요청) ──
+//   ★ 변경 이유: 시전자 위치 노출 방지, 차분 모드, 통통 바운스, 페이드 없는 마커 전환.
+//   각 쥐: 도착 셀 바로 위 220px 지점에서 시작 → 1.05s 동안 낙하 + 2회 바운스.
+//   525ms 시점에 보라 셀 highlight 등장. animationend 시점에 orb 자체를 cell 의 자식으로
+//   reparent (절대 좌표 7,1 + 마커 클래스). 같은 element 가 같은 위치에 그대로 머무름 — 페이드 없음.
+if (!S._ratSpawnMarks) S._ratSpawnMarks = [];
+function animateRatSpawn(rats, owner) {
+  if (!Array.isArray(rats) || rats.length === 0) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  rats.forEach((rat, i) => {
+    S._ratSpawnMarks.push({ col: rat.col, row: rat.row, turn: S.turnNumber });
+    setTimeout(() => {
+      const targetCell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
+      if (!targetCell) return;
+      const tRect = targetCell.getBoundingClientRect();
+      const finalLeft = tRect.left + 7;
+      const finalTop = tRect.top + 1;
+      const fallDist = 220;
+      const orb = document.createElement('div');
+      orb.className = 'rat-fly-orb';
+      orb.textContent = '🐀';
+      orb.style.left = finalLeft + 'px';
+      orb.style.top = (finalTop - fallDist) + 'px';
+      orb.style.setProperty('--fall', fallDist + 'px');
+      document.body.appendChild(orb);
+      // 첫 착지 시점 (525ms) — 보라 셀 highlight
+      setTimeout(() => {
+        const cellNow = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
+        if (cellNow) cellNow.classList.add('rat-spawn-mark');
+      }, 525);
+      // animationend 시 — _ratIncoming 에서 키 제거 → renderGameBoard 가 실제 rat span 렌더 →
+      // orb 제거. orb 와 span 이 같은 픽셀 위치 이므로 1프레임 안에 시각 끊김 없이 교체.
+      const swapToMarker = () => {
+        if (S._ratIncoming) S._ratIncoming.delete(`${rat.col},${rat.row},${owner}`);
+        if (typeof renderGameBoard === 'function') renderGameBoard();
+        orb.remove();
+      };
+      let swapped = false;
+      orb.addEventListener('animationend', () => {
+        if (swapped) return;
+        swapped = true;
+        swapToMarker();
+      }, { once: true });
+      setTimeout(() => {
+        if (swapped) return;
+        swapped = true;
+        swapToMarker();
+      }, 1100);
+    }, i * 130);
+  });
+}
+
+// 턴 변경 시 쥐 소환 보라 마크 정리 — 이전 턴 마크는 제거.
+function clearOldRatSpawnMarks() {
+  if (!S._ratSpawnMarks) return;
+  S._ratSpawnMarks = S._ratSpawnMarks.filter(m => m.turn === S.turnNumber);
+}
+
 // ── 팀모드: 팀원이 피격됨 ──
 socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   // 적 공격 휘두름 SFX — 팀원이 공격 받을 때 관전 시점에서도 들림
@@ -13804,7 +14778,12 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   // 호위무사 가로채기·0데미지 비격파는 본체 흔들림 제외 (1v1 being_attacked와 동일)
   const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
+  // ★ 사용자 요청 (fog-of-war): 피격팀의 다른 멤버도 atkCells 의 ·/딤 마크는 보지 않음.
+  //   hit 셀만 빨간 플래시. attackLog 에도 명중 셀만 기록.
   animateAttack([], hitCells);
+  for (const hc of hitCells) {
+    S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
+  }
   // ★ directHits = 본체로 직접 피해 받은 hit (호위무사 가로채기 제외) — "공격받았습니다!" 트리거 기준
   const directHits = meaningful.filter(h => !h.bodyguardRedirect);
   const killedAlly = directHits.filter(h => h.destroyed);
@@ -13858,6 +14837,85 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
         applyProtectedAnimTeam(victimIdx, i);
       }
     }
+  }
+  // ★ 버퍼된 wizard 등 패시브 alert flush — 팀원이 hit 받은 시점에 동기 fire.
+  if (typeof flushDefensiveAlerts === 'function') {
+    flushDefensiveAlerts({ skipReduction: killedAlly.length > 0 });
+  }
+});
+
+// ── 팀모드: 같은 팀이 공격을 시전했음 ──
+//   ★ 사용자 요청: 시전자 본인이 보는 것과 동일한 피드백 — atkCells / hitCells / attackLog
+//     셀 마크 (💥/·) / 빗나감·격파 토스트·로그 / 적 프로필 피격 애니 / 자동 추리토큰.
+//   ★ "공격했습니다!" 같은 별도 토스트 (= being_attacked 의 알림) 만 X.
+socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything }) => {
+  try { playSfx('attack'); } catch (e) {}
+  const meaningful = (hits || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+  const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
+  // 셀 highlight + 보드 아이콘 흔들림.
+  animateAttack(atkCells || [], hitCells);
+  // attackLog 동기화 — renderGameBoard 가 hit-mark / miss-mark 셀 마크 (💥 / ·) 표시.
+  for (const ac of (atkCells || [])) {
+    const wasHit = (hits || []).some(h => h.col === ac.col && h.row === ac.row);
+    S.attackLog.push({ col: ac.col, row: ac.row, hit: wasHit, turn: S.turnNumber });
+  }
+  // 적 프로필 피격 애니메이션 — team-profile-block[data-player-idx][data-piece-idx]
+  requestAnimationFrame(() => {
+    for (const h of (hits || [])) {
+      if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+      if (h.redirectedToBodyguard) continue;
+      const isProtected = (h.damage === 0 && !h.destroyed);
+      const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+      if (!card) continue;
+      if (isProtected) applyProtectedAnim(card);
+      else applyHitFlashWithBrighten(card);
+    }
+  });
+  // 격파/피격 SFX + 로그/토스트 (시전자 본인의 attack_result 와 동일 양식).
+  const killed = meaningful.filter(h => h.destroyed);
+  const hitOnly = meaningful.filter(h => !h.destroyed);
+  if (killed.length > 0) playSfx('kill');
+  else if (hitOnly.length > 0) playSfx('hit');
+  if ((hits || []).length === 0) {
+    // 빗나감 — 임팩트 (학살영웅 / 쥐 등) 발생 시 빗나감 출력 X.
+    if (!attackerImpactedAnything) {
+      addLog(`빗나감`, 'miss');
+      showSkillToast(`빗나감`);
+    }
+  } else {
+    if (hitOnly.length > 0) {
+      const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
+      addLog(`${coords} 명중`, 'hit');
+    }
+    if (killed.length > 0) {
+      const labels = killed.map(h => `${h.hitIcon||''}${h.hitName||'유닛'}`).join(', ');
+      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
+      showSkillToast(`${labels} 격파!`);
+      addLog(`${coords} ${labels} 격파`, 'hit');
+    }
+  }
+  // ★ 자동 추리토큰 — 시전자 본인의 attack_result 와 동일 조건.
+  //   meaningful hit 이 정확히 1 + 사망 아닌 경우에만 토큰 자동 배치 (정보 공유).
+  const _eligibleHits = meaningful.filter(h => !h.destroyed && h.defPieceIdx != null);
+  if (meaningful.length === 1 && _eligibleHits.length === 1) {
+    const c = _eligibleHits[0];
+    if (c.defOwnerIdx != null) {
+      const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+      const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
+      if (piece) {
+        const pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+        try {
+          S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+          S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+        } catch (e) {}
+      }
+    }
+  }
+  // 셀 마크가 즉시 보이도록 보드 재렌더
+  if (typeof renderGameBoard === 'function') renderGameBoard();
+  // ★ 버퍼된 wizard 등 패시브 alert flush — 팀원이 공격 시전한 시점에 동기 fire.
+  if (typeof flushDefensiveAlerts === 'function') {
+    flushDefensiveAlerts({ skipReduction: killed.length > 0 });
   }
 });
 
@@ -14964,13 +16022,19 @@ function playSfxDragonSummon() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 깊은 으르렁 (저주파 sawtooth)
-    _sfxTone(ctx, now, 80, 0.8, 'sawtooth', 0.18, 50);
-    _sfxTone(ctx, now + 0.05, 100, 0.7, 'sawtooth', 0.12, 70);
-    // 고음 사이렌 (드래곤의 비명)
-    _sfxTone(ctx, now + 0.3, 400, 0.5, 'sawtooth', 0.08, 1200);
-    // 거대 노이즈 (날갯짓)
-    _sfxNoise(ctx, now + 0.4, 0.4, 0.08, 100, 800);
+    // ── 거대 천둥 한 방 (KABOOM!) — 한번에 강렬하게 ──
+    // 1) 초기 크랙 — 매우 짧고 매우 큰 화이트노이즈 (sharp transient)
+    _sfxNoise(ctx, now,         0.04, 0.55, 3000, 12000);    // 고역 크랙 (전기방전)
+    _sfxNoise(ctx, now,         0.05, 0.50, 1500, 5000);     // 중역 크랙 (찢어짐)
+    _sfxTone(ctx, now,          3000, 0.04, 'square',  0.30, 800);   // 초기 spark tone
+    // 2) 거대 럼블 — 길고 굵은 저주파 (천둥의 본체)
+    _sfxNoise(ctx, now,         1.2,  0.35, 40,  180);       // 저음 럼블 (긴 잔향)
+    _sfxNoise(ctx, now + 0.05,  0.9,  0.28, 80,  400);       // 중저음 톤
+    _sfxTone(ctx, now,          55,   1.1, 'sawtooth', 0.32, 28);    // 진동 베이스 (sub bass)
+    _sfxTone(ctx, now + 0.02,   90,   0.7, 'sawtooth', 0.22, 35);    // 보강
+    // 3) 드래곤의 위압 (천둥 끝자락에 짧게) — 초저음 으르렁
+    _sfxTone(ctx, now + 0.35,   75,   0.55, 'sawtooth', 0.20, 45);
+    _sfxNoise(ctx, now + 0.5,   0.4,  0.10, 100, 600);       // 날갯짓 잔향
   } catch (e) {}
 }
 
@@ -16411,6 +17475,27 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
   if (btnClose) btnClose.addEventListener('click', closeDict);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDict(); });
 
+  // ★ 사용자 요청: 프로필 더블클릭 → 딕셔너리 해당 캐릭터 페이지로 직행.
+  //   드래곤 → 드래곤 조련사 / 쌍둥이 누나·동생 → 쌍둥이 강도 매핑.
+  //   특정 type 으로 딕셔너리를 열어 해당 캐릭터를 활성 슬라이드로 표시.
+  window.openCharDictAt = function (charType) {
+    if (!charType) return;
+    let target = charType;
+    if (target === 'dragon') target = 'dragonTamer';
+    if (target === 'twins_elder' || target === 'twins_younger') target = 'twins';
+    const characters = S.characters || S.specCharacters || {};
+    let foundTier = null, foundIdx = -1;
+    for (const tier of [1, 2, 3]) {
+      const arr = characters[tier] || [];
+      const idx = arr.findIndex(c => c && c.type === target);
+      if (idx >= 0) { foundTier = tier; foundIdx = idx; break; }
+    }
+    if (foundTier == null) return;
+    dictTier = foundTier;
+    dictIdx = foundIdx;
+    openDict();
+  };
+
   // 화살표
   const prevBtn = document.getElementById('dict-slide-prev');
   const nextBtn = document.getElementById('dict-slide-next');
@@ -16645,6 +17730,7 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
         box.innerHTML = `
           <span class="gskill-status-tag ${ev.ok ? 'ok' : 'no'}">${ev.ok ? '✓ 가능' : '✗ 불가'}</span>
           <div class="gskill-row-inline">
+            ${getSkillIconHtml(sk.id, { cls: 'skill-png-icon gskill-icon' })}
             <span class="gskill-name">${sk.name || sk.id}</span>
             <span class="gskill-type-text ${tagInfo.cls}">${tagInfo.label}</span>
             <span class="${spClass}">${spLabel}</span>
@@ -16687,6 +17773,7 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
       const desc = getSkillBodyDesc(pc.type, sk.id, sk.desc || '');
       entry.innerHTML = `
         <div class="cskill-head">
+          ${getSkillIconHtml(sk.id, { cls: 'skill-png-icon cskill-icon' })}
           <span class="cskill-name ${miniHeaderCls}">${sk.name || sk.id}</span>
           <span class="cskill-type-text ${tagInfo.cls}">${tagInfo.label}</span>
           <span class="${spClass}">${spLabel}</span>
@@ -16701,11 +17788,16 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
           </div>
         </div>`;
       if (ev.ok) {
+        const skId = sk.id;
         entry.querySelector('.cskill-cast-btn').addEventListener('click', (e) => {
           e.stopPropagation();
           closeCharSkillPopup();
-          // 기존 스킬 시전 흐름 — openSkillModal 의 시전 라우팅 재사용
-          if (typeof openSkillModal === 'function') openSkillModal(pieceIdx);
+          // 시전 직행 — 모달 재진입 없이 바로 스킬 핸들러 호출
+          if (typeof handleSkillUse === 'function') {
+            handleSkillUse(pieceIdx, pc, skId);
+          } else if (typeof openSkillModal === 'function') {
+            openSkillModal(pieceIdx);
+          }
         });
       }
       wrap.appendChild(entry);
@@ -16753,6 +17845,36 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     if (sk.id === 'detonate') {
       const bombs = (S.boardObjects || []).filter(o => o.type === 'bomb');
       if (bombs.length === 0) return { ok: false, why: '설치된 폭탄 없음' };
+    }
+    // ★ 사용자 요청: 쌍둥이 한쪽이 사망하면 나머지 한쪽 분신 스킬 무조건 잠금.
+    //   분신 스킬은 elder ↔ younger 합류 — 짝이 없으면 사용 불가.
+    if (sk.id === 'brothers' && (pc.subUnit === 'elder' || pc.subUnit === 'younger')) {
+      const partnerSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
+      const partner = (S.myPieces || []).find(p => p.subUnit === partnerSub);
+      if (!partner || !partner.alive) return { ok: false, why: '쌍둥이 짝이 사망 — 분신 불가' };
+    }
+    // ★ 사용자 요청: 인간 사냥꾼 — 자기 칸에 이미 덫/폭탄이 있으면 잠금 (서버 가드와 매칭).
+    if (sk.id === 'trap' && pc.type === 'manhunter') {
+      const hasObjAtCell = (S.boardObjects || []).some(o =>
+        (o.type === 'trap' || o.type === 'bomb') && o.col === pc.col && o.row === pc.row);
+      if (hasObjAtCell) return { ok: false, why: '이미 덫/폭탄이 설치된 위치' };
+    }
+    // ★ 사용자 요청: 화약상 폭탄 설치 — 자기 칸 제외, 주변 8칸만 후보.
+    //   8칸 모두 덫/폭탄 또는 보드 밖이면 잠금. 한 칸이라도 비어있으면 통과.
+    if (sk.id === 'bomb' && pc.type === 'gunpowder') {
+      const bounds = S.boardBounds || { min: 0, max: 4 };
+      const objs = (S.boardObjects || []).filter(o => o && (o.type === 'trap' || o.type === 'bomb'));
+      let anyOpen = false;
+      for (let dc = -1; dc <= 1 && !anyOpen; dc++) {
+        for (let dr = -1; dr <= 1 && !anyOpen; dr++) {
+          if (dc === 0 && dr === 0) continue;       // 자기 칸 제외 — 8칸만 후보
+          const c = pc.col + dc, r = pc.row + dr;
+          if (c < bounds.min || c > bounds.max || r < bounds.min || r > bounds.max) continue;
+          if (objs.some(o => o.col === c && o.row === r)) continue;
+          anyOpen = true;
+        }
+      }
+      if (!anyOpen) return { ok: false, why: '주변 설치 가능한 칸 없음' };
     }
     if (typeof skillHasValidTarget === 'function' && !skillHasValidTarget(pc, sk)) {
       return { ok: false, why: '유효한 대상이 없음' };
@@ -16880,4 +18002,129 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     if (typeof _closeRadialActionMenu === 'function') _closeRadialActionMenu();
     setTimeout(() => window.openCharSkillPopup(pieceIdx, anchorRect), 50);
   }, true);
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// ── 프로필 더블클릭/더블탭 → 캐릭터 딕셔너리 해당 페이지로 ──
+//   대상: 본인 프로필 (.my-piece-card), 상대 프로필 (.opp-piece-card),
+//         팀모드 4인 프로필 (.team-profile-block 안의 [data-team-piece]).
+//   특수: 드래곤 → 드래곤 조련사, 쌍둥이 누나/동생 → 쌍둥이 강도 (window.openCharDictAt 가 처리).
+//   delegation 으로 처리 — 카드가 자주 재렌더되어도 유지됨.
+// ═══════════════════════════════════════════════════════════════
+(function setupProfileDoubleClickToDictionary() {
+  // 프로필 카드 → 해당 piece type 추출
+  function _resolveTypeFromCard(card) {
+    if (!card) return null;
+    // 팀모드 카드 (data-team-piece) — 부모 .team-profile-block 의 player-idx + 카드의 piece-idx
+    if (card.matches('[data-team-piece="1"]')) {
+      const block = card.closest('.team-profile-block');
+      if (!block) return null;
+      const playerIdx = parseInt(block.getAttribute('data-player-idx'), 10);
+      const pieceIdx = parseInt(card.getAttribute('data-piece-idx'), 10);
+      if (isNaN(playerIdx) || isNaN(pieceIdx)) return null;
+      // 1) 게임 중 — S.teamGamePlayers 우선
+      const player = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+      const pc = player?.pieces?.[pieceIdx];
+      if (pc?.type) return pc.type;
+      // 2) 관전자 — specGameState 의 teamGamePlayers
+      const specPlayer = (S.specGameState?.teamGamePlayers || []).find(p => p.idx === playerIdx);
+      return specPlayer?.pieces?.[pieceIdx]?.type || null;
+    }
+    // 1v1 본인 카드 — #my-pieces-info .my-piece-card 인덱스 → S.myPieces
+    if (card.matches('.my-piece-card') && card.closest('#my-pieces-info')) {
+      const cards = document.querySelectorAll('#my-pieces-info .my-piece-card');
+      const idx = Array.prototype.indexOf.call(cards, card);
+      if (idx < 0) return null;
+      // 관전자 시점 — specGameState.p0Pieces 사용
+      if (S.isSpectator && S.specGameState) {
+        return (S.specGameState.p0Pieces || [])[idx]?.type || null;
+      }
+      return (S.myPieces || [])[idx]?.type || null;
+    }
+    // 1v1 상대 카드 — #opp-pieces-info .opp-piece-card 인덱스 → S.oppPieces
+    if (card.matches('.opp-piece-card') && card.closest('#opp-pieces-info')) {
+      const cards = document.querySelectorAll('#opp-pieces-info .opp-piece-card');
+      const idx = Array.prototype.indexOf.call(cards, card);
+      if (idx < 0) return null;
+      if (S.isSpectator && S.specGameState) {
+        return (S.specGameState.p1Pieces || [])[idx]?.type || null;
+      }
+      return (S.oppPieces || [])[idx]?.type || null;
+    }
+    return null;
+  }
+
+  // ★ 카드의 "논리적 식별자" — DOM element 가 재렌더로 바뀌어도 같은 piece 면 같은 키.
+  //   본인 카드 click 시 renderMyPieces 가 container.innerHTML='' 으로 카드 element 를 새로 만들기 때문에
+  //   기본 dblclick 이벤트가 발사되지 않음. mousedown 두번을 직접 카운트해서 우회.
+  function _logicalKey(card) {
+    if (!card) return null;
+    if (card.matches('[data-team-piece="1"]')) {
+      const block = card.closest('.team-profile-block');
+      const playerIdx = block ? block.getAttribute('data-player-idx') : null;
+      const pieceIdx = card.getAttribute('data-piece-idx');
+      return `team:${playerIdx}:${pieceIdx}`;
+    }
+    if (card.matches('.my-piece-card') && card.closest('#my-pieces-info')) {
+      const cards = document.querySelectorAll('#my-pieces-info .my-piece-card');
+      const idx = Array.prototype.indexOf.call(cards, card);
+      return `my:${idx}`;
+    }
+    if (card.matches('.opp-piece-card') && card.closest('#opp-pieces-info')) {
+      const cards = document.querySelectorAll('#opp-pieces-info .opp-piece-card');
+      const idx = Array.prototype.indexOf.call(cards, card);
+      return `opp:${idx}`;
+    }
+    return null;
+  }
+
+  // 더블클릭/더블탭 — mousedown 으로 직접 카운트. 첫 클릭 후 카드 DOM 이 재생성돼도 logical key 가 같으면 OK.
+  let _lastClickKey = null;
+  let _lastClickTime = 0;
+  let _lastClickType = null;
+  function _handleProfileTap(card) {
+    if (!card) {
+      _lastClickKey = null; _lastClickTime = 0; _lastClickType = null;
+      return;
+    }
+    const key = _logicalKey(card);
+    if (!key) return;
+    const charType = _resolveTypeFromCard(card);
+    if (!charType) return;
+    const now = Date.now();
+    // 두 번째 탭/클릭 — 같은 logical key + 320ms 안
+    if (_lastClickKey === key && (now - _lastClickTime) < 320) {
+      _lastClickKey = null; _lastClickTime = 0; _lastClickType = null;
+      if (typeof window.openCharDictAt === 'function') {
+        window.openCharDictAt(charType);
+      }
+      return;
+    }
+    _lastClickKey = key; _lastClickTime = now; _lastClickType = charType;
+  }
+  // 마우스: mousedown 두 번 — single-click 핸들러가 DOM 을 갈아엎기 전에 카운트.
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const card = e.target.closest('[data-team-piece="1"], .my-piece-card, .opp-piece-card');
+    _handleProfileTap(card);
+  }, true);
+  // 터치: touchend — 모바일 더블탭. 동일 로직.
+  document.addEventListener('touchend', (e) => {
+    const card = e.target.closest('[data-team-piece="1"], .my-piece-card, .opp-piece-card');
+    if (!card) {
+      _lastClickKey = null; _lastClickTime = 0; _lastClickType = null;
+      return;
+    }
+    const key = _logicalKey(card);
+    const charType = _resolveTypeFromCard(card);
+    if (!key || !charType) return;
+    const now = Date.now();
+    if (_lastClickKey === key && (now - _lastClickTime) < 320) {
+      e.preventDefault();   // 줌 방지
+      _lastClickKey = null; _lastClickTime = 0; _lastClickType = null;
+      if (typeof window.openCharDictAt === 'function') window.openCharDictAt(charType);
+      return;
+    }
+    _lastClickKey = key; _lastClickTime = now; _lastClickType = charType;
+  }, { passive: false });
 })();

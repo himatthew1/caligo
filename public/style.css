@@ -1209,13 +1209,16 @@ body.radial-menu-mode #btn-skill { display: none; } */
   position: relative;
   box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.55), 0 0 18px rgba(253, 230, 138, 0.25);
 }
-/* 다른 캐릭터들은 살짝 dim — 호버 시 복원 + 살짝 스케일 업으로 상호작용 가능함을 시각적으로 안내 */
-body.radial-mode-active #game-board .cell.has-piece:not(.radial-active) .piece-marker {
+/* 다른 캐릭터들은 살짝 dim — 호버 시 복원 + 살짝 스케일 업으로 상호작용 가능함을 시각적으로 안내.
+   ★ 사용자 반복 보고: 어느쪽 쌍둥이를 눌러도 둘 다 dim 해제되어야 함 (한 몸 취급).
+     :not(.twin-active) 추가 → 둘 다 살아있는 쌍둥이는 절대 dim X. 이동 마친 쪽은 twin-spent 라
+     twin-active 가 아니므로 그대로 dim 유지. action-locked 와 동일 패턴. */
+body.radial-mode-active #game-board .cell.has-piece:not(.radial-active) .piece-marker:not(.twin-active) {
   opacity: 0.55;
   filter: saturate(0.65) brightness(0.9);
   transition: opacity 0.18s ease, filter 0.18s ease, transform 0.18s ease;
 }
-body.radial-mode-active #game-board .cell.has-piece:not(.radial-active):hover .piece-marker {
+body.radial-mode-active #game-board .cell.has-piece:not(.radial-active):hover .piece-marker:not(.twin-active) {
   opacity: 1;
   filter: none;
   transform: scale(1.06);
@@ -2878,9 +2881,207 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .sp-instant-pip.sp-pip-consume {
   animation: sp-pip-consume 0.4s ease-in forwards;
 }
+/* ★ 사용자 요청: 인스턴트 SP 사용 시 제자리 팝 (1.85배 부풀어 → 사라짐) — 가까운 pip 부터 한 개씩 */
+.sp-instant-pip.sp-pip-pop {
+  animation: sp-pip-pop 0.42s cubic-bezier(.34,.5,.56,1) forwards;
+  z-index: 5;
+}
+/* FLIP 슬라이드 — 잔여 pip + 숫자가 자리 정리하며 부드럽게 이동 */
+.sp-instant-pip.sp-flip-slide,
+.sp-num.sp-flip-slide {
+  transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+}
 @keyframes sp-instant-pip-glow {
   0%,100% { box-shadow: 0 0 6px rgba(250,204,21,0.95), 0 0 12px rgba(245,158,11,0.45); }
   50%     { box-shadow: 0 0 10px rgba(250,204,21,1.0),  0 0 18px rgba(245,158,11,0.7); }
+}
+
+/* ── 유황범람 라바 셀 — 끓어오르며 달궈지는 느낌 (사용자 요청) ── */
+.cell.lava-bubbling {
+  animation: lavaBubble 1.6s ease-in-out forwards;
+  position: relative;
+  z-index: 1;
+}
+.cell.lava-bubbling::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 30% 70%, rgba(255,180,0,.95) 0%, rgba(255,69,0,.65) 30%, transparent 60%),
+    radial-gradient(circle at 70% 30%, rgba(255,140,0,.85) 0%, rgba(220,38,38,.55) 35%, transparent 65%),
+    radial-gradient(circle at 50% 50%, rgba(255,200,40,.7) 0%, rgba(180,40,0,.5) 50%, transparent 80%);
+  pointer-events: none;
+  border-radius: inherit;
+  animation: lavaSurface 1.6s ease-in-out forwards;
+  mix-blend-mode: screen;
+}
+.cell.lava-bubbling::after {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 20% 80%, rgba(255,255,180,1) 0%, transparent 8%),
+    radial-gradient(circle at 60% 20%, rgba(255,255,180,1) 0%, transparent 6%),
+    radial-gradient(circle at 80% 60%, rgba(255,255,180,1) 0%, transparent 7%),
+    radial-gradient(circle at 35% 35%, rgba(255,255,180,1) 0%, transparent 5%);
+  pointer-events: none;
+  border-radius: inherit;
+  animation: lavaBubbles 1.6s ease-out forwards;
+  filter: blur(0.5px);
+}
+@keyframes lavaBubble {
+  0%   { box-shadow: 0 0 0 rgba(255,140,0,0); background-color: transparent; }
+  20%  { box-shadow: 0 0 14px rgba(255,140,0,.7), inset 0 0 8px rgba(255,180,0,.4);
+         background-color: rgba(220,69,0,.18); }
+  50%  { box-shadow: 0 0 28px rgba(255,180,0,1), inset 0 0 18px rgba(255,200,40,.7);
+         background-color: rgba(255,80,0,.42); }
+  80%  { box-shadow: 0 0 22px rgba(255,140,0,.8), inset 0 0 14px rgba(255,160,0,.5);
+         background-color: rgba(220,69,0,.28); }
+  100% { box-shadow: 0 0 0 rgba(255,140,0,0); background-color: transparent; }
+}
+@keyframes lavaSurface {
+  0%   { opacity: 0; }
+  20%  { opacity: 0.65; }
+  50%  { opacity: 0.95; }
+  80%  { opacity: 0.55; }
+  100% { opacity: 0; }
+}
+@keyframes lavaBubbles {
+  0%   { opacity: 0; transform: translateY(2px) scale(0.8); }
+  30%  { opacity: 1; transform: translateY(-2px) scale(1.05); }
+  60%  { opacity: 0.85; transform: translateY(-6px) scale(1); }
+  100% { opacity: 0; transform: translateY(-12px) scale(0.85); }
+}
+
+/* ── 쥐 소환 셀 — 보라 highlight (해당 턴 동안 유지 / 사용자 요청: 더 밝게) ── */
+.cell.rat-spawn-mark {
+  background-color: rgba(139, 92, 246, 0.32) !important;
+  box-shadow: inset 0 0 12px rgba(168,85,247,.5), 0 0 8px rgba(168,85,247,.3);
+  transition: background-color 0.4s, box-shadow 0.4s;
+}
+.cell.rat-spawn-mark::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(circle, rgba(168,85,247,.22) 0%, rgba(139,92,246,0) 70%);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: ratPulseBright 2s ease-in-out infinite;
+  z-index: 0;
+}
+@keyframes ratPulseBright {
+  0%,100% { opacity: 0.6; }
+  50%     { opacity: 1; }
+}
+
+/* ── 쥐 비행 — 하늘에서 비처럼 떨어짐 + 2회 바운스 (사용자 요청) ── */
+/* glow / rotation / impact flash 모두 제거 — 차분한 fade-fall + 통통 바운스. */
+/* font-size 0.5rem = 보드 마커와 동일 사이즈 (시작부터 끝까지 일정). */
+/* ★ opacity 명시 — 모든 50% 이후 키프레임에 1 고정 (안 그러면 .rat-fly-orb 의 base 가 implicit 100%로 적용돼 페이드아웃 발생). */
+.rat-fly-orb {
+  position: fixed;
+  font-size: 0.5rem;
+  color: #52b788;
+  pointer-events: none;
+  z-index: 9500;
+  opacity: 0;
+  animation: ratRainBounce 1.05s linear forwards;
+}
+@keyframes ratRainBounce {
+  0%   { opacity: 0; transform: translateY(0); }
+  20%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) * 0.15)); }
+  50%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+  62%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) - 7px)); }
+  72%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+  82%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) - 3.5px)); }
+  92%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+  100% { opacity: 1; transform: translateY(var(--fall, 220px)); }
+}
+.rat-impact-flash {
+  position: fixed;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168,85,247,.8) 0%, rgba(139,92,246,.4) 40%, transparent 70%);
+  pointer-events: none;
+  z-index: 9499;
+  transform: translate(-50%, -50%) scale(0);
+  animation: ratImpact 0.45s ease-out forwards;
+}
+@keyframes ratImpact {
+  0%   { transform: translate(-50%,-50%) scale(0);   opacity: 0; }
+  25%  { transform: translate(-50%,-50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(2);   opacity: 0; }
+}
+
+/* ── 덫 발동 — 첨부 이미지 (fangs-top.png / fangs-bottom.png), 셀에 동적 매핑 ── */
+/* JS 가 cell.getBoundingClientRect() 로 측정해 --cw/--ch/--fh/--start-top/--end-top 변수 설정. */
+/* 옵션 B (확정): widthMul 1.8 (셀 폭의 1.8배), fhRatio 0.85, biteRatio 0.15 (셀 안쪽 15% 박힘). */
+.trap-fang-set {
+  position: fixed;
+  width: var(--cw, 50px);
+  height: var(--ch, 50px);
+  pointer-events: none;
+  z-index: 9700;
+  transform: translate(-50%, -50%);
+}
+.trap-fang-img {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: var(--fh, 50%);
+  object-fit: contain;
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.85));
+}
+/* top 이빨이 bottom 이빨 위로 (윗턱이 아래턱 위로 덮음) */
+.trap-fang-img.top    { top: var(--start-top, -8px); z-index: 2; }
+.trap-fang-img.bottom { bottom: var(--start-top, -8px); z-index: 1; }
+.trap-fang-set.snap .trap-fang-img.top    { animation: fangSnapTop 0.26s cubic-bezier(.6,0,.4,1) forwards; }
+.trap-fang-set.snap .trap-fang-img.bottom { animation: fangSnapBottom 0.26s cubic-bezier(.6,0,.4,1) forwards; }
+@keyframes fangSnapTop {
+  0%   { top: var(--start-top, -8px); opacity: 0; }
+  20%  { opacity: 0.95; }
+  100% { top: var(--end-top, 0px); opacity: 1; }
+}
+@keyframes fangSnapBottom {
+  0%   { bottom: var(--start-top, -8px); opacity: 0; }
+  20%  { opacity: 0.95; }
+  100% { bottom: var(--end-top, 0px); opacity: 1; }
+}
+.trap-fang-set.bite-shake {
+  animation: trapBiteShake 0.55s ease-in-out;
+}
+@keyframes trapBiteShake {
+  0%,100% { transform: translate(-50%, -50%); }
+  10%     { transform: translate(calc(-50% - 3px), calc(-50% + 1.5px)); }
+  25%     { transform: translate(calc(-50% + 3px), calc(-50% - 1.5px)); }
+  40%     { transform: translate(calc(-50% - 2px), calc(-50% + 2px)); }
+  55%     { transform: translate(calc(-50% + 2.5px), calc(-50% - 1px)); }
+  70%     { transform: translate(calc(-50% - 1.5px), calc(-50% + 1.5px)); }
+  85%     { transform: translate(calc(-50% + 1px), calc(-50% - 1px)); }
+}
+.trap-impact-flash {
+  position: fixed;
+  width: 50px; height: 50px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,200,100,.95) 0%, rgba(220,38,38,.7) 35%, transparent 70%);
+  pointer-events: none;
+  z-index: 9699;
+  transform: translate(-50%, -50%) scale(0);
+  animation: trapImpact 0.45s ease-out forwards;
+}
+@keyframes trapImpact {
+  0%   { transform: translate(-50%,-50%) scale(0);   opacity: 0; }
+  35%  { transform: translate(-50%,-50%) scale(1.4); opacity: 1; }
+  100% { transform: translate(-50%,-50%) scale(2.4); opacity: 0; }
+}
+@keyframes trapShake {
+  0%,100% { transform: translate(0,0); }
+  20%     { transform: translate(-3px, 2px); }
+  40%     { transform: translate(3px, -2px); }
+  60%     { transform: translate(-2px, 1px); }
+  80%     { transform: translate(2px, -1px); }
+}
+.cell.trap-shake { animation: trapShake 0.3s ease; }
+.cell.trap-flash {
+  box-shadow: 0 0 18px rgba(220,38,38,.85), inset 0 0 12px rgba(255,150,80,.6) !important;
+  transition: box-shadow 0.4s;
 }
 @keyframes sp-pip-spawn {
   0%   { transform: scale(0); opacity: 0; }
@@ -2890,6 +3091,93 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 @keyframes sp-pip-consume {
   0%   { transform: scale(1) translateX(0); opacity: 1; }
   100% { transform: scale(0.4); opacity: 0; }
+}
+@keyframes sp-pip-pop {
+  0%   { transform: scale(1); opacity: 1;
+         box-shadow: 0 0 6px rgba(250,204,21,.95), 0 0 12px rgba(245,158,11,.45); }
+  20%  { transform: scale(1.85); opacity: 1;
+         background: radial-gradient(circle at 50% 50%, #fff 0%, #fef3c7 30%, #fde68a 55%, rgba(251,191,36,0) 100%);
+         box-shadow: 0 0 24px rgba(254,243,199,1), 0 0 48px rgba(251,191,36,1), 0 0 70px rgba(245,158,11,.7); }
+  55%  { transform: scale(1.55); opacity: 1; }
+  100% { transform: scale(0.1); opacity: 0;
+         box-shadow: 0 0 4px rgba(245,158,11,0); }
+}
+
+/* ── 인스턴트 SP 팝 버스트 (중앙 플래시 + 링 + 스파크 + dust) ── */
+.sp-pop-flash {
+  position: fixed;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(254,243,199,.9) 35%, rgba(251,191,36,0) 70%);
+  pointer-events: none;
+  z-index: 10000;
+  transform: translate(-50%, -50%) scale(0);
+  animation: sp-pop-flash 0.32s cubic-bezier(.2,.6,.3,1) forwards;
+}
+@keyframes sp-pop-flash {
+  0%   { transform: translate(-50%, -50%) scale(0);    opacity: 0; }
+  35%  { transform: translate(-50%, -50%) scale(1.4);  opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(2.2);  opacity: 0; }
+}
+.sp-pop-ring {
+  position: fixed;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fde68a;
+  box-shadow: 0 0 16px rgba(254,243,199,.9), inset 0 0 8px rgba(254,243,199,.5);
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%) scale(0.4);
+  animation: sp-pop-ring 0.6s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes sp-pop-ring {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 1; border-width: 3px; }
+  50%  { opacity: 0.7; border-width: 2px; }
+  100% { transform: translate(-50%, -50%) scale(4.5); opacity: 0; border-width: 1px; }
+}
+.sp-pop-ring.sp-pop-ring2 {
+  border-color: #fbbf24;
+  box-shadow: 0 0 18px rgba(251,191,36,.9), inset 0 0 8px rgba(251,191,36,.5);
+  animation: sp-pop-ring2 0.78s cubic-bezier(.2,.8,.3,1) forwards;
+}
+@keyframes sp-pop-ring2 {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; border-width: 2px; }
+  18%  { opacity: 0.85; }
+  100% { transform: translate(-50%, -50%) scale(6.5); opacity: 0; border-width: 1px; }
+}
+.sp-pop-spark {
+  position: fixed;
+  width: 3px; height: 18px;
+  background: linear-gradient(to top, rgba(251,191,36,0) 0%, rgba(254,243,199,.9) 40%, rgba(255,255,255,1) 100%);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 10001;
+  transform-origin: 50% 100%;
+  box-shadow: 0 0 8px rgba(254,243,199,1), 0 0 14px rgba(251,191,36,.5);
+  transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(2px) scaleY(0.3);
+  animation: sp-pop-spark 0.55s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes sp-pop-spark {
+  0%   { opacity: 0; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(2px) scaleY(0.3); }
+  20%  { opacity: 1; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-2px) scaleY(1.2); }
+  60%  { opacity: 1; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-12px) scaleY(1); }
+  100% { opacity: 0; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-22px) scaleY(0.5); }
+}
+.sp-pop-dust {
+  position: fixed;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #fef3c7 45%, rgba(251,191,36,0) 100%);
+  box-shadow: 0 0 8px rgba(254,243,199,1), 0 0 14px rgba(251,191,36,.5);
+  pointer-events: none;
+  z-index: 10001;
+  transform: translate(-50%, -50%);
+  animation: sp-pop-dust 0.8s cubic-bezier(.25,.6,.35,1) forwards;
+}
+@keyframes sp-pop-dust {
+  0%   { opacity: 1; transform: translate(-50%, -50%) translate(0, 0) scale(1.2); }
+  30%  { opacity: 1; transform: translate(-50%, -50%) translate(calc(var(--dx,0px) * 0.45), calc(var(--dy,0px) * 0.45)) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) translate(var(--dx,0px), var(--dy,0px)) scale(0.3); }
 }
 .sp-num-mine { color: #4ea8de; }
 .sp-num-opp  { color: #e05252; }
@@ -3490,6 +3778,45 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 .cell.support-range {
   box-shadow: inset 0 0 0 2px rgba(82, 183, 136, 0.5);
   background: rgba(82, 183, 136, 0.12) !important;
+}
+
+/* ── 보드 축소 경고 컨테이너 — 여러 시퀀스(정기 + 1대1 대치) 위/아래 스택 ── */
+.shrink-warning-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.shrink-warning-container:empty {
+  display: none;
+}
+/* 1대1 대치 트리거 — 노란색으로 구분 (정기 축소는 빨강) */
+.shrink-warning.shrink-warning-stalemate {
+  background: linear-gradient(180deg, rgba(234, 179, 8, 0.22), rgba(161, 98, 7, 0.32));
+  border-color: #eab308;
+  color: #fefce8;
+  text-shadow: 0 0 6px rgba(234, 179, 8, 0.85), 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 0 12px rgba(234, 179, 8, 0.55),
+    0 0 24px rgba(234, 179, 8, 0.35),
+    inset 0 0 8px rgba(234, 179, 8, 0.25);
+  animation: pulse-warn-stalemate 1.2s ease-in-out infinite;
+}
+@keyframes pulse-warn-stalemate {
+  0%, 100% {
+    opacity: 1;
+    box-shadow:
+      0 0 12px rgba(234, 179, 8, 0.55),
+      0 0 24px rgba(234, 179, 8, 0.35),
+      inset 0 0 8px rgba(234, 179, 8, 0.25);
+  }
+  50% {
+    opacity: 0.92;
+    box-shadow:
+      0 0 18px rgba(234, 179, 8, 0.85),
+      0 0 36px rgba(234, 179, 8, 0.6),
+      inset 0 0 14px rgba(234, 179, 8, 0.4);
+  }
 }
 
 /* ── 보드 축소 경고 — 강조 (토스트 제거 대신 보드 상단 텍스트 부각) ── */
@@ -4700,6 +5027,24 @@ body.team-mode .placement-opp-panel {
 .cskill-head {
   display: flex; align-items: center; gap: 6px;
   margin-bottom: 7px;
+}
+
+/* ── 스킬 PNG 아이콘 (사용자 제작) — 투명 배경 ── */
+.skill-png-icon {
+  display: inline-block;
+  object-fit: contain;
+  flex-shrink: 0;
+  image-rendering: -webkit-optimize-contrast;
+  background: transparent;
+  border: none;
+}
+.cskill-icon { width: 32px; height: 32px; }
+.gskill-icon { width: 26px; height: 26px; }
+.gskill-box.locked .gskill-icon {
+  filter: grayscale(0.6) opacity(0.55);
+}
+.cskill-entry.locked .cskill-icon {
+  filter: grayscale(0.5) opacity(0.6);
 }
 .cskill-name {
   display: inline-block;
@@ -6024,3 +6369,192 @@ body[data-my-team="red"] #chat-scope-team.active {
   margin-top: 2px;
 }
 
+/* ── 덫 발동 시전 강조 (트랩 셀) — 사냥꾼 카드 강조와 함께 트랩 위치 명시 ── */
+.cell.trap-cast-cell {
+  animation: trapCastCellPulse 0.7s ease-out;
+  position: relative;
+  z-index: 5;
+}
+.cell.trap-cast-cell::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 8px;
+  border: 3px solid rgba(239, 68, 68, 0.95);
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.85);
+  animation: trapCastCellRing 0.7s ease-out;
+}
+@keyframes trapCastCellPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  20%  { box-shadow: 0 0 24px 8px rgba(239, 68, 68, 0.8), inset 0 0 14px rgba(239, 68, 68, 0.55); }
+  60%  { box-shadow: 0 0 14px 4px rgba(239, 68, 68, 0.55), inset 0 0 8px rgba(239, 68, 68, 0.3); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+@keyframes trapCastCellRing {
+  0%   { opacity: 0; transform: scale(0.7); }
+  18%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+
+/* ────────────────────────────────────────────────────────────── */
+/* 🐉 드래곤 강림 — 단일 거대 광주 + 천둥 + 드래곤 즉시 출현      */
+/* 사용자 요청: "굵고 강렬한 빛이 한번에" "드래곤이 빛처럼 즉시" */
+/* ────────────────────────────────────────────────────────────── */
+.dragon-summon-stage {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9100;                 /* skill-cast-dim(8500) 위, 토스트(9700) 아래 */
+}
+/* 거대한 빛 기둥 (광주) — 셀보다 굵게, 하늘에서 직선으로 한번에 내리쬠 */
+.dragon-light-pillar {
+  position: absolute;
+  left: 50%; top: 0;
+  transform: translate(-50%, -100%);
+  width: 70%;                                    /* 셀 폭의 70% — 굵고 위압적 */
+  height: 600vh;                                 /* 화면 끝까지 닿게 */
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 1.0) 0%,
+    rgba(191, 219, 254, 0.95) 35%,
+    rgba(96, 165, 250, 0.85) 70%,
+    rgba(255, 255, 255, 1.0) 100%);
+  border-radius: 50% 50% 0 0 / 6% 6% 0 0;
+  box-shadow:
+    0 0 40px 12px rgba(255, 255, 255, 0.85),
+    0 0 90px 28px rgba(147, 197, 253, 0.7),
+    0 0 160px 50px rgba(59, 130, 246, 0.45);
+  filter: blur(0.5px);
+  opacity: 0;
+  transform-origin: 50% 100%;
+  animation: dragonLightPillar 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes dragonLightPillar {
+  0%   { opacity: 0;   transform: translate(-50%, -100%) scaleX(0.05); }
+  6%   { opacity: 1;   transform: translate(-50%, -100%) scaleX(1.6); }   /* 즉시 펑 */
+  18%  { opacity: 1;   transform: translate(-50%, -100%) scaleX(1.0); }
+  60%  { opacity: 0.85; transform: translate(-50%, -100%) scaleX(0.9); }
+  100% { opacity: 0;   transform: translate(-50%, -100%) scaleX(0.6); }
+}
+/* 빛 기둥 핵 — 가장 밝은 흰색 코어 (안쪽 굵은 줄) */
+.dragon-light-pillar-core {
+  position: absolute;
+  left: 50%; top: 0;
+  transform: translate(-50%, -100%);
+  width: 22%;
+  height: 600vh;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 1.0) 0%,
+    rgba(255, 255, 255, 1.0) 80%,
+    rgba(255, 255, 255, 1.0) 100%);
+  box-shadow: 0 0 24px 6px rgba(255, 255, 255, 1);
+  opacity: 0;
+  animation: dragonLightCore 0.5s cubic-bezier(0.2, 1, 0.3, 1) forwards;
+}
+@keyframes dragonLightCore {
+  0%   { opacity: 0; }
+  4%   { opacity: 1; }
+  35%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* 풀스크린 화이트 플래시 — 거대 임팩트 (관전자도 놀라게) */
+.dragon-fullscreen-flash {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center,
+    rgba(255,255,255,0.95) 0%,
+    rgba(219, 234, 254, 0.65) 35%,
+    rgba(96, 165, 250, 0.25) 70%,
+    transparent 100%);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9050;
+  animation: dragonFullFlash 0.55s cubic-bezier(0.2, 0.95, 0.3, 1) forwards;
+}
+@keyframes dragonFullFlash {
+  0%   { opacity: 0; }
+  6%   { opacity: 1; }
+  30%  { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+/* 셀 자체 — 번쩍하는 강렬한 화이트 폭발 */
+.cell.dragon-strike-cell {
+  animation: dragonStrikeCell 0.9s cubic-bezier(0.2, 1, 0.3, 1);
+}
+@keyframes dragonStrikeCell {
+  0%   { box-shadow: 0 0 0 0 rgba(147,197,253,0); }
+  6%   { box-shadow: 0 0 60px 22px rgba(255,255,255,1), inset 0 0 30px rgba(255,255,255,0.95); }
+  20%  { box-shadow: 0 0 40px 14px rgba(191,219,254,0.9), inset 0 0 20px rgba(191,219,254,0.7); }
+  60%  { box-shadow: 0 0 18px 5px rgba(96,165,250,0.55), inset 0 0 10px rgba(59,130,246,0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(147,197,253,0); }
+}
+/* 거대 충격파 링 (3겹) — 사방으로 퍼지는 위압감 */
+.dragon-shockwave-ring {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 30%; height: 30%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0.2);
+  opacity: 0;
+  pointer-events: none;
+}
+.dragon-shockwave-ring.r1 {
+  border: 4px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 24px rgba(255, 255, 255, 0.8);
+  animation: dragonShockRing 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.dragon-shockwave-ring.r2 {
+  border: 3px solid rgba(147, 197, 253, 0.85);
+  box-shadow: 0 0 18px rgba(96, 165, 250, 0.7);
+  animation: dragonShockRing 0.95s 0.08s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.dragon-shockwave-ring.r3 {
+  border: 2px solid rgba(59, 130, 246, 0.7);
+  animation: dragonShockRing 1.1s 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes dragonShockRing {
+  0%   { opacity: 0;   transform: translate(-50%, -50%) scale(0.2); }
+  10%  { opacity: 1; }
+  100% { opacity: 0;   transform: translate(-50%, -50%) scale(6.5); border-width: 0.5px; }
+}
+/* 드래곤 본체 — 빛이 사라지면서 이미 자리에 있음 (즉시 등장).
+   처음엔 거대 스케일 + 화이트 발광, 점차 정상 크기로 정착 — 위압감 연출. */
+.dragon-revealed {
+  position: absolute;
+  left: 50%; top: 50%;
+  font-size: 2.6rem;
+  transform: translate(-50%, -50%) scale(3.5);
+  opacity: 0;
+  filter:
+    drop-shadow(0 0 18px rgba(255,255,255,1))
+    drop-shadow(0 0 32px rgba(147,197,253,0.9))
+    brightness(2.5);
+  animation: dragonReveal 0.85s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+@keyframes dragonReveal {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(3.5);
+         filter: drop-shadow(0 0 28px #fff) drop-shadow(0 0 50px #93c5fd) brightness(3.5); }
+  8%   { opacity: 1; transform: translate(-50%, -50%) scale(2.4);
+         filter: drop-shadow(0 0 24px #fff) drop-shadow(0 0 42px #bfdbfe) brightness(3.0); }
+  35%  { opacity: 1; transform: translate(-50%, -50%) scale(1.4);
+         filter: drop-shadow(0 0 14px #fff) drop-shadow(0 0 24px #93c5fd) brightness(1.8); }
+  70%  { opacity: 1; transform: translate(-50%, -50%) scale(1.05);
+         filter: drop-shadow(0 0 6px rgba(255,255,255,0.6)) drop-shadow(0 0 14px rgba(96,165,250,0.5)) brightness(1.2); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1.0);
+         filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7)) brightness(1.0); }
+}
+/* 화면 흔들림 — 천둥의 강렬한 진동 */
+.dragon-board-quake {
+  animation: dragonBoardQuake 0.5s ease-out;
+}
+@keyframes dragonBoardQuake {
+  0%   { transform: translate(0, 0); }
+  10%  { transform: translate(-4px, -2px); }
+  20%  { transform: translate(5px, 3px); }
+  30%  { transform: translate(-3px, 4px); }
+  40%  { transform: translate(4px, -3px); }
+  55%  { transform: translate(-2px, 2px); }
+  70%  { transform: translate(2px, -1px); }
+  85%  { transform: translate(-1px, 1px); }
+  100% { transform: translate(0, 0); }
+}

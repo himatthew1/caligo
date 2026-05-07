@@ -622,8 +622,10 @@
         </div>
       </div>
       <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
-      <!-- 보드 축소 경고 -->
-      <div id="shrink-warning" class="shrink-warning hidden"></div>
+      <!-- 보드 축소 경고 — 여러 경고가 동시에 활성화될 수 있어 컨테이너로 처리 (1대1 대치 + 정기 축소 동시) -->
+      <div id="shrink-warning-container" class="shrink-warning-container"></div>
+      <!-- (legacy) 단일 경고 박스 — 호환을 위해 남겨두지만 컨테이너 방식이 우선 -->
+      <div id="shrink-warning" class="shrink-warning hidden" style="display:none;"></div>
     </div>
     <!-- 스킬 시전 dim 오버레이 — SP 마법구 비행 동안 화면 어둡게 (SP 바·시전자 프로필만 밝게) -->
     <div id="skill-cast-dim" class="skill-cast-dim hidden"></div>

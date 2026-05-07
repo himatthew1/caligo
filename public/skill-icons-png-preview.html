@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스킬 아이콘 PNG · CALIGO</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.18), transparent 55%),
+      radial-gradient(ellipse at 70% 80%, rgba(244, 114, 182, 0.12), transparent 55%),
+      linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    color: #fef3c7;
+    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    padding: 32px 16px 64px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-align: center;
+  }
+  .sub {
+    color: #94a3b8; font-size: 0.86rem;
+    margin: 0 auto 22px; text-align: center;
+    max-width: 760px; line-height: 1.6;
+  }
+  .controls {
+    display: flex; gap: 14px; justify-content: center; align-items: center;
+    flex-wrap: wrap;
+    margin: 0 auto 28px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 12px 18px; max-width: 760px;
+  }
+  .controls label { font-size: 0.85rem; color: #cbd5e1; }
+  .controls input[type="range"] { width: 160px; }
+  .controls button {
+    background: rgba(99,102,241,0.25);
+    border: 1px solid rgba(165,180,252,0.4);
+    color: #e0e7ff;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .controls button.active { background: rgba(99,102,241,0.55); }
+
+  .section { max-width: 1180px; margin: 0 auto 32px; }
+  .section-head {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 14px; padding: 0 4px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    padding-bottom: 8px;
+  }
+  .section-head h2 { margin: 0; font-size: 1.1rem; font-weight: 700; color: #fde68a; }
+  .section-head .count { font-size: 0.78rem; color: #94a3b8; }
+
+  .skill-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 18px;
+  }
+  .skill-item {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 16px 10px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+  }
+  .skill-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(252, 211, 77, 0.4);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+  .skill-icon-wrap {
+    width: var(--icon-size, 80px);
+    height: var(--icon-size, 80px);
+    display: grid; place-items: center;
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    transition: width 0.18s, height 0.18s;
+  }
+  body.bg-dark .skill-icon-wrap { background: rgba(15, 23, 42, 0.9); }
+  body.bg-light .skill-icon-wrap { background: rgba(241, 245, 249, 0.85); }
+  body.bg-trans .skill-icon-wrap { background: transparent; border-color: transparent; }
+  .skill-icon-wrap img {
+    width: 100%; height: 100%; object-fit: contain;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  .skill-meta { text-align: center; }
+  .skill-meta .name { display: block; font-size: 0.92rem; font-weight: 700; color: #fef3c7; }
+  .skill-meta .owner { display: block; font-size: 0.72rem; color: #94a3b8; margin-top: 2px; }
+  .skill-meta .type {
+    display: inline-block; margin-top: 6px;
+    font-size: 0.66rem; padding: 2px 8px; border-radius: 999px;
+    background: rgba(99, 102, 241, 0.2); color: #c7d2fe;
+    border: 1px solid rgba(165, 180, 252, 0.3);
+  }
+  .skill-meta .type.tag-once   { background: rgba(244, 114, 182, 0.2); color: #fbcfe8; border-color: rgba(244, 114, 182, 0.4); }
+  .skill-meta .type.tag-action { background: rgba(248, 113, 113, 0.2); color: #fecaca; border-color: rgba(248, 113, 113, 0.4); }
+  .skill-meta .type.tag-passive{ background: rgba(34, 197, 94, 0.2);   color: #bbf7d0; border-color: rgba(34, 197, 94, 0.4); }
+
+  .missing { color: #fb7185; font-size: 0.7rem; margin-top: 4px; }
+
+  .note {
+    max-width: 760px; margin: 0 auto 30px;
+    background: rgba(120, 53, 15, 0.25);
+    border: 1px solid rgba(252, 211, 77, 0.35);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 0.84rem; color: #fde68a; line-height: 1.65;
+  }
+  .note strong { color: #fbbf24; }
+  .note code { background: rgba(0,0,0,0.3); padding: 1px 6px; border-radius: 3px; font-size: 0.85em; color: #fcd34d; }
+</style>
+</head>
+<body class="bg-dark">
+
+<h1>🎨 스킬 아이콘 PNG 미리보기</h1>
+<p class="sub">사용자가 새로 만든 스킬 아이콘 PNG 25개 — 카테고리별 묶음. 크기/배경 토글로 게임 적용 시 모습 확인.</p>
+
+<div class="note" id="warn-box" style="display:none;"></div>
+
+<div class="controls">
+  <label>크기:
+    <input type="range" id="size-slider" min="48" max="160" value="80" step="4">
+    <span id="size-val" style="margin-left: 6px; color: #fbbf24; font-weight: 700;">80px</span>
+  </label>
+  <span style="color:#475569;">|</span>
+  <label>배경:
+    <button data-bg="bg-dark"  class="active">어두움</button>
+    <button data-bg="bg-light">밝음</button>
+    <button data-bg="bg-trans">투명</button>
+  </label>
+</div>
+
+<div class="section">
+  <div class="section-head"><h2>🟦 자유시전형</h2><span class="count" id="count-free"></span></div>
+  <div class="skill-grid" id="grid-free"></div>
+</div>
+<div class="section">
+  <div class="section-head"><h2>🟪 자유시전·1회</h2><span class="count" id="count-once"></span></div>
+  <div class="skill-grid" id="grid-once"></div>
+</div>
+<div class="section">
+  <div class="section-head"><h2>🟥 행동소비형</h2><span class="count" id="count-action"></span></div>
+  <div class="skill-grid" id="grid-action"></div>
+</div>
+<div class="section">
+  <div class="section-head"><h2>🟩 패시브</h2><span class="count" id="count-passive"></span></div>
+  <div class="skill-grid" id="grid-passive"></div>
+</div>
+
+<script>
+// 사용자가 업로드한 PNG 파일명 (한글) → 실제 스킬과 매핑
+// 폭탄 설치 → "폭탈 설치.png" 오타, 아이언 스킨 → "아이언스킨.png" 띄어쓰기 차이.
+const SKILLS = [
+  // 자유시전형 (free)
+  { id: 'bomb',         name: '폭탄 설치',       file: '폭탈 설치.png',      type: 'free',    owner: '화약상',          fileTypo: '폭탄 → 폭탈 오타' },
+  { id: 'herb',         name: '약초학',          file: '약초학.png',         type: 'free',    owner: '약초전문가' },
+  { id: 'recon',        name: '정찰',            file: '정찰.png',           type: 'free',    owner: '척후병' },
+  { id: 'rats',         name: '역병의 자손들',   file: '역병의 자손들.png',  type: 'free',    owner: '쥐 장수' },
+  { id: 'ring',         name: '절대복종 반지',   file: '절대복종 반지.png',  type: 'free',    owner: '국왕' },
+  { id: 'divine',       name: '신성',            file: '신성.png',           type: 'free',    owner: '수도승' },
+  { id: 'nightmare',    name: '악몽',            file: '악몽.png',           type: 'free',    owner: '고문 기술자' },
+  // 자유시전·1회 (once)
+  { id: 'reform',       name: '정비',            file: '정비.png',           type: 'once',    owner: '궁수 / 무기상' },
+  { id: 'sprint',       name: '질주',            file: '질주.png',           type: 'once',    owner: '전령' },
+  { id: 'detonate',     name: '기폭',            file: '기폭.png',           type: 'once',    owner: '화약상' },
+  { id: 'shadow',       name: '그림자 숨기',     file: '그림자 숨기.png',    type: 'once',    owner: '그림자 암살자' },
+  { id: 'dualStrike',   name: '쌍검무',          file: '쌍검무.png',         type: 'once',    owner: '양손 검객' },
+  { id: 'dragon',       name: '드래곤 소환',     file: '드래곤 소환.png',    type: 'once',    owner: '드래곤 조련사' },
+  // 행동소비형 (action)
+  { id: 'trap',         name: '덫 설치',         file: '덫 설치.png',        type: 'action',  owner: '인간 사냥꾼' },
+  { id: 'brothers',     name: '분신',            file: '분신.png',           type: 'action',  owner: '쌍둥이 강도' },
+  { id: 'curse',        name: '저주',            file: '저주.png',           type: 'action',  owner: '마녀' },
+  { id: 'sulfurRiver',  name: '유황범람',        file: '유황범람.png',       type: 'action',  owner: '유황이 끓는 솥' },
+  // 패시브 (passive)
+  { id: 'instantMagic', name: '인스턴트 매직',   file: '인스턴트 매직.png',  type: 'passive', owner: '마법사' },
+  { id: 'ironSkin',     name: '아이언 스킨',     file: '아이언스킨.png',     type: 'passive', owner: '갑주무사',         fileTypo: '아이언스킨 (스페이스 없음)' },
+  { id: 'loyalty',      name: '충성',            file: '충성.png',           type: 'passive', owner: '호위 무사' },
+  { id: 'grace',        name: '가호',            file: '가호.png',           type: 'passive', owner: '수도승' },
+  { id: 'betrayer',     name: '배반자',          file: '배반자.png',         type: 'passive', owner: '학살 영웅' },
+  { id: 'wrath',        name: '사기증진',        file: '사기증진.png',       type: 'passive', owner: '지휘관' },
+  { id: 'markPassive',  name: '표식',            file: '표식.png',           type: 'passive', owner: '고문 기술자' },
+  { id: 'tyranny',      name: '폭정',            file: '폭정.png',           type: 'passive', owner: '백작' },
+];
+
+function typeLabel(t) {
+  return t === 'free' ? '자유시전형' : t === 'once' ? '자유시전·1회'
+       : t === 'action' ? '행동소비형' : '패시브';
+}
+function makeIconNode(skill) {
+  const item = document.createElement('div');
+  item.className = 'skill-item';
+  const src = encodeURI(skill.file);
+  item.innerHTML = `
+    <div class="skill-icon-wrap">
+      <img src="${src}" alt="${skill.name}" loading="lazy" onerror="this.parentElement.innerHTML='<span style=\\'color:#fb7185;font-size:0.7rem;\\'>이미지 없음</span>';this.parentElement.previousElementSibling;">
+    </div>
+    <div class="skill-meta">
+      <span class="name">${skill.name}</span>
+      <span class="type tag-${skill.type}">${typeLabel(skill.type)}</span>
+      <span class="owner">${skill.owner}</span>
+      ${skill.fileTypo ? `<div class="missing">⚠ 파일명: ${skill.file} (${skill.fileTypo})</div>` : ''}
+    </div>`;
+  return item;
+}
+function render() {
+  const groups = { free: [], once: [], action: [], passive: [] };
+  for (const sk of SKILLS) groups[sk.type].push(sk);
+  for (const t of ['free', 'once', 'action', 'passive']) {
+    const grid = document.getElementById('grid-' + t);
+    grid.innerHTML = '';
+    for (const sk of groups[t]) grid.appendChild(makeIconNode(sk));
+    document.getElementById('count-' + t).textContent = `${groups[t].length}개`;
+  }
+  // 경고
+  const warns = SKILLS.filter(s => s.fileTypo);
+  if (warns.length > 0) {
+    const box = document.getElementById('warn-box');
+    box.style.display = 'block';
+    box.innerHTML = `<strong>⚠ 파일명 알림</strong><br>다음 파일들은 스킬명과 정확히 일치하지 않아 코드에서 그대로 참조해야 합니다:<br>` +
+      warns.map(w => `&nbsp;&nbsp;• <code>${w.file}</code> (${w.name} — ${w.fileTypo})`).join('<br>');
+  }
+}
+render();
+
+document.getElementById('size-slider').addEventListener('input', (e) => {
+  const v = e.target.value;
+  document.getElementById('size-val').textContent = v + 'px';
+  document.querySelectorAll('.skill-icon-wrap').forEach(el => el.style.setProperty('--icon-size', v + 'px'));
+});
+document.querySelectorAll('.controls button[data-bg]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.body.classList.remove('bg-dark', 'bg-light', 'bg-trans');
+    document.body.classList.add(btn.dataset.bg);
+    document.querySelectorAll('.controls button[data-bg]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

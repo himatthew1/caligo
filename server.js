@@ -749,7 +749,8 @@ function turnTimeout(room) {
   const idx = room.currentPlayerIdx;
   if (room.players[idx].socketId === 'AI') return;
   emitToBothAndSpectators(room, 'turn_timeout', { playerIdx: idx });
-  endTurn(room);
+  // ★ timeout 플래그 — endTurn 이 "턴 강제 종료" vs "턴 스킵" 분기에 사용
+  endTurn(room, { timeout: true });
 }
 
 // ── 페이즈 전환 헬퍼 (타이머 연동) ─────────────────────────
@@ -1707,37 +1708,14 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   piece.col = nc; piece.row = nr;
   p._lastActionType = 'move';
   // 트랩 체크 (적팀의 트랩만) — ★ 그림자 숨기 면역
+  // ★ 사용자 요청: 이동 → 트랩 순차 처리. 트랩 데이터만 저장하고 emit/효과는 setTimeout 후.
   const isShadowedTeamAI = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+  let teamAiTrapPending = null;
   for (const eIdx of (isShadowedTeamAI ? [] : getEnemyIndices(room, idx))) {
     const arr = room.boardObjects[eIdx] || [];
     const ti = arr.findIndex(o => o.type === 'trap' && o.col === nc && o.row === nr);
     if (ti >= 0) {
-      arr.splice(ti, 1);
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: nc, row: nr }, piece, eIdx, 2, false, idx);
-      piece.hp = Math.max(0, piece.hp - dmg);
-      // Wizard passive: 마법사가 덫을 밟아 피격되어도 인스턴트 SP 1 획득
-      if (piece.type === 'wizard' && dmg > 0) {
-        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, idx) : idx;
-        room.instantSp[wizSpSlot] += 1;
-        emitSPUpdate(room);
-        // 인스턴트 매직 알림 — 텍스트 메시지 제거 (클라 황금 마법구 애니만 사용). type='wizard' 로만 트리거.
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `🧙 인스턴트 매직 : SP 획득` });
-
-        emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: idx });
-
-      }
-      const willDie = piece.hp <= 0;
-      if (willDie) handleDeath(room, piece, idx);
-      // trap_triggered emit — 1v1과 동일하게
-      emitToBoth(room, 'trap_triggered', {
-        col: nc, row: nr,
-        pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
-        damage: dmg,
-        destroyed: willDie,
-        newHp: piece.hp,
-        owner: eIdx,
-        victimOwnerIdx: idx,
-      });
+      teamAiTrapPending = { trapOwnerIdx: eIdx, col: nc, row: nr };
       break;
     }
   }
@@ -1773,17 +1751,60 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
     piece.messengerMovesLeft--;
     if (piece.messengerMovesLeft <= 0) piece.messengerSprintActive = false;
   }
-  broadcastTeamGameState(room);
-  // 후속 sprint 이동 가능 — 3초 후 aiTeamTakeTurn 재진입 (다음 최적 이동 계산)
-  if (piece.alive && piece.messengerSprintActive && piece.messengerMovesLeft > 0) {
+  // 트랩 보류 시 broadcast 도 지연 — 이동 직후엔 piece 가 alive=true 인 상태로 보드에 노출.
+  if (!teamAiTrapPending) broadcastTeamGameState(room);
+
+  // 트랩 발동 — 이동 emit 후 700ms 지연
+  const _continueAfterTrap = () => {
+    // 후속 sprint 이동 가능 — 3초 후 aiTeamTakeTurn 재진입 (다음 최적 이동 계산)
+    if (piece.alive && piece.messengerSprintActive && piece.messengerMovesLeft > 0) {
+      setTimeout(() => {
+        if (room.phase === 'game' && room.currentPlayerIdx === idx) {
+          aiTeamTakeTurn(room, idx);
+        }
+      }, 3000);
+      return;
+    }
+    scheduleAITurnEnd(room, idx, 3000);
+  };
+
+  if (teamAiTrapPending) {
+    room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + 1500);
+    const tp = teamAiTrapPending;
     setTimeout(() => {
-      if (room.phase === 'game' && room.currentPlayerIdx === idx) {
-        aiTeamTakeTurn(room, idx);
+      if (!rooms[room.id] || room.phase !== 'game') { _continueAfterTrap(); return; }
+      const trapArr = room.boardObjects[tp.trapOwnerIdx] || [];
+      const ti2 = trapArr.findIndex(o => o.type === 'trap' && o.col === tp.col && o.row === tp.row);
+      if (ti2 < 0) { _continueAfterTrap(); return; }
+      trapArr.splice(ti2, 1);
+      const aiPiece2 = (p.pieces || []).find(pp => pp.alive && pp.col === tp.col && pp.row === tp.row);
+      if (!aiPiece2) { _continueAfterTrap(); return; }
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
+      aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
+      if (aiPiece2.type === 'wizard' && dmg > 0) {
+        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, idx) : idx;
+        room.instantSp[wizSpSlot] += 1;
+        emitSPUpdate(room);
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `🧙 인스턴트 매직 : SP 획득` });
+        emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: idx });
       }
-    }, 3000);
-    return;
+      const willDie = aiPiece2.hp <= 0;
+      if (willDie) handleDeath(room, aiPiece2, idx);
+      emitToBoth(room, 'trap_triggered', {
+        col: tp.col, row: tp.row,
+        pieceInfo: { type: aiPiece2.type, name: aiPiece2.name, icon: aiPiece2.icon },
+        damage: dmg,
+        destroyed: willDie,
+        newHp: aiPiece2.hp,
+        victimOwnerIdx: idx,
+        trapOwnerIdx: tp.trapOwnerIdx,  // 덫 설치자 (사냥꾼 owner)
+      });
+      broadcastTeamGameState(room);
+      _continueAfterTrap();
+    }, 700);
+  } else {
+    _continueAfterTrap();
   }
-  scheduleAITurnEnd(room, idx, 3000);
 }
 
 // AI 공격 헬퍼 — processAttack을 직접 호출 (extra: shadowAssassin/witch의 tCol/tRow + ratMerchant rats)
@@ -1844,26 +1865,30 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   }
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
-  // 같은 팀에게 team_ally_hit
+  // 같은 팀에게 team_ally_hit — payload 는 victim 당 1회 빌드 후 ally 들에게 재사용
   for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
     const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+    if (allyIdxs.length === 0) continue;
+    const defPieces = room.players[defOwnerIdx].pieces;
+    const _hitPieces = hits.map(h => {
+      // ★ 합류 쌍둥이 버그 수정 — 동일.
+      const dp = (typeof h.defPieceIdx === 'number') ? defPieces[h.defPieceIdx] : null;
+      return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+        name: dp?.name, icon: dp?.icon,
+        defPieceIdx: h.defPieceIdx,
+        redirectedToBodyguard: h.redirectedToBodyguard || false,
+        bodyguardRedirect: h.bodyguardRedirect || false };
+    });
+    const _payload = {
+      atkCells,
+      victimIdx: defOwnerIdx,
+      victimName: room.players[defOwnerIdx].name,
+      hitPieces: _hitPieces,
+    };
     for (const allyIdx of allyIdxs) {
       const ally = room.players[allyIdx];
       if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
-      io.to(ally.socketId).emit('team_ally_hit', {
-        atkCells,
-        victimIdx: defOwnerIdx,
-        victimName: room.players[defOwnerIdx].name,
-        hitPieces: hits.map(h => {
-          // ★ 합류 쌍둥이 버그 수정 — 동일.
-          const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
-          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-            name: dp?.name, icon: dp?.icon,
-            defPieceIdx: h.defPieceIdx,
-            redirectedToBodyguard: h.redirectedToBodyguard || false,
-            bodyguardRedirect: h.bodyguardRedirect || false };
-        }),
-      });
+      io.to(ally.socketId).emit('team_ally_hit', _payload);
     }
   }
   // ★ 관전자 일반 공격 애니메이션 — 팀모드. defOwnerIdx 포함 hits.
@@ -1920,20 +1945,25 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       }
       for (const [defOwnerIdx, hits] of hitsByOwner2.entries()) {
         const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+        if (allyIdxs.length === 0) continue;
+        const defPieces2 = room.players[defOwnerIdx].pieces;
+        const _hitPieces2 = hits.map(h => {
+          const dp = (typeof h.defPieceIdx === 'number') ? defPieces2[h.defPieceIdx] : null;
+          return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+            name: dp?.name, icon: dp?.icon,
+            defPieceIdx: h.defPieceIdx,
+            redirectedToBodyguard: h.redirectedToBodyguard || false };
+        });
+        const _payload2 = {
+          atkCells: extra2Cells,
+          victimIdx: defOwnerIdx,
+          victimName: room.players[defOwnerIdx].name,
+          hitPieces: _hitPieces2,
+        };
         for (const allyIdx of allyIdxs) {
           const ally = room.players[allyIdx];
           if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
-          io.to(ally.socketId).emit('team_ally_hit', {
-            atkCells: extra2Cells, victimIdx: defOwnerIdx,
-            victimName: room.players[defOwnerIdx].name,
-            hitPieces: hits.map(h => {
-              const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
-              return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-                name: dp?.name, icon: dp?.icon,
-                defPieceIdx: h.defPieceIdx,
-                redirectedToBodyguard: h.redirectedToBodyguard || false };
-            }),
-          });
+          io.to(ally.socketId).emit('team_ally_hit', _payload2);
         }
       }
       // ★ 관전자 — 쌍검무 두 번째 공격 애니
@@ -2258,14 +2288,20 @@ function startTeamGameFromRoom(room) {
     first.skillsUsedBeforeAction = [];
     first.twinMovedSubs = [];
   }
-  // 초기 게임 상태 브로드캐스트
-  for (const p of room.players) {
-    if (!p.socketId) continue;
-    const state = getTeamGameStateFor(room, p.index);
-    io.to(p.socketId).emit('team_game_start', {
-      ...state,
-      teams: room.teams,
-    });
+  // 초기 게임 상태 브로드캐스트 — 팀별 base state 1회 빌드 후 viewer 별 override
+  {
+    const byTeam = _buildTeamBaseStates(room);
+    for (const p of room.players) {
+      if (!p.socketId) continue;
+      const base = byTeam[p.teamId];
+      if (!base) continue;
+      io.to(p.socketId).emit('team_game_start', {
+        ...base,
+        myIdx: p.index,
+        isMyTurn: room.currentPlayerIdx === p.index,
+        teams: room.teams,
+      });
+    }
   }
   // 관전자 (Phase 5에서 보강)
   emitToSpectators(room, 'spectator_log', { msg: `전투 개시. 선공은${first?.name || '?'}`, type: 'event' });
@@ -3728,6 +3764,7 @@ function processTurnStart(room) {
   player.skillsUsedBeforeAction = [];
   player.twinMovedSubs = [];
   player._lastActionType = null;  // 'move' | 'attack' | null
+  player._anySkillUsedThisTurn = false;  // 턴스킵 판정용 (oncePerTurn 외 자유 스킬 포함)
 
   // Reset per-turn skill states for current player
   for (const p of player.pieces) {
@@ -3741,14 +3778,9 @@ function processTurnStart(room) {
     p.statusEffects = p.statusEffects.filter(e => e.type !== 'shadow');
   }
 
-  // ★ Pre-curse HP 스냅샷 — 클라이언트의 저주 보라 도장 표시용.
-  //    snapshotTurnStartHps(preCurseHps) 가 startHp 로 사용해 curse 적용 전 HP 를 복원.
-  //    your_turn / opp_turn / team_game_update 페이로드에 첨부.
-  const preCurseHpsSnap = {};
-  for (let i = 0; i < room.players.length; i++) {
-    preCurseHpsSnap[i] = (room.players[i].pieces || []).map(p => (p && p.alive === false) ? 0 : (p && p.hp != null ? p.hp : 0));
-  }
-  room._preCurseHpsSnap = preCurseHpsSnap;
+  // ★ Pre-curse HP 스냅샷은 보드 축소 *이후* 캡처해야 함 (사용자 보고:
+  //    축소 사망 piece 의 HP 0 이 저주 데미지로 잘못 인식되어 보라 도장 출력).
+  //    snapshot 은 축소 처리 후 line 3876 부근에서 캡처. 여기서는 placeholder 만 초기화.
 
   // ── 애니메이션 페이즈 시작 (#24) ──
   //   여러 turn-event 가 한 턴에 발생할 때, 0.5s 텀으로 순차 재생.
@@ -3777,7 +3809,12 @@ function processTurnStart(room) {
     if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn && room.boardShrinkStage < ev.stage) {
       const remaining = ev.shrinkTurn - room.turnNumber;
       if (remaining > 0) {
-        emitToBoth(room, 'board_shrink_warning', { turnsRemaining: remaining, turnsLeft: remaining, stage: ev.stage });
+        emitToBoth(room, 'board_shrink_warning', {
+          turnsRemaining: remaining, turnsLeft: remaining,
+          stage: ev.stage,
+          key: ev.key,                        // 안정적 식별자 (예: '1v1-50', 'stalemate-25')
+          stalemate: !!ev.stalemate,          // 1대1 대치 트리거 여부
+        });
         emitToSpectators(room, 'spectator_log', { msg: `외곽 파괴까지 ${remaining}턴`, type: 'event' });
         // ★ 픽스: 풀스크린 인트로 (3000ms 락) 는 클라가 turnsRemaining === 10 일 때만 재생.
         //   이전엔 매 턴 queueAnim(3000) 호출해 9턴 동안 4.5s 락이 누적 — 사용자가 턴종료 눌러도
@@ -3820,7 +3857,12 @@ function processTurnStart(room) {
         if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
         if (room.rats[i]) room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
       }
-      emitToBoth(room, 'board_shrink', { newBounds: room.boardBounds, bounds: room.boardBounds, eliminated, stage: ev.stage });
+      emitToBoth(room, 'board_shrink', {
+        newBounds: room.boardBounds, bounds: room.boardBounds,
+        eliminated, stage: ev.stage,
+        key: ev.key,                          // 같은 식별자 — 클라가 매칭되는 경고 박스 제거에 사용
+        stalemate: !!ev.stalemate,
+      });
       emitToSpectators(room, 'spectator_log', { msg: '🔥 보드 외곽 파괴', type: 'event' });
       queueAnim(DUR_BOARD_SHRINK);
       // 축소 애니 후 사망 기폭 시퀀스 — flushPhase 가 적절한 cursor 로 emit 들 스케줄.
@@ -3835,6 +3877,15 @@ function processTurnStart(room) {
       // 현재 위치에서는 일단 그대로 두고, 후속 코드의 win check 가 해결하게 함.
     }
   }
+
+  // ★ Pre-curse HP 스냅샷 — 보드 축소 후 캡처 (이때 축소 사망 piece 는 hp=0).
+  //   curse_tick 이 0.5 데미지 적용하기 전 시점이므로, (preHp - currentHp) 차이는 곧 저주 데미지만 반영.
+  //   축소 사망 piece 는 preHp=0/currentHp=0 → diff=0 → 보라 도장 X. (사용자 보고된 버그 수정).
+  const preCurseHpsSnap = {};
+  for (let i = 0; i < room.players.length; i++) {
+    preCurseHpsSnap[i] = (room.players[i].pieces || []).map(p => (p && p.alive === false) ? 0 : (p && p.hp != null ? p.hp : 0));
+  }
+  room._preCurseHpsSnap = preCurseHpsSnap;
 
   // ── SP 지급 (애니메이션 페이즈의 *마지막* — 사용자 요청 #24) ──
   let spGrantedThisTurn = false;
@@ -4065,7 +4116,8 @@ function flushPendingTwinOppMove(room, idx) {
   }
 }
 
-function endTurn(room) {
+function endTurn(room, opts) {
+  const isTimeout = !!(opts && opts.timeout);
   // AI 턴 종료 핸들 정리 — 이중 endTurn 호출이나 stale setTimeout 방지
   const prevPlayerIdx = room.currentPlayerIdx;
   // ★ 쌍둥이 첫 이동만 하고 턴 종료한 경우 보류된 opp_moved 를 여기서 flush (모든 종료 경로 일괄 처리).
@@ -4078,19 +4130,31 @@ function endTurn(room) {
     clearTimeout(room._aiTurnEndWatchdog[prevPlayerIdx]);
     room._aiTurnEndWatchdog[prevPlayerIdx] = null;
   }
-  // 이전 플레이어가 행동·스킬 없이 턴을 종료했으면 안내 메시지 (모든 플레이어/관전자에게 동등하게 emit)
+  // ★ 사용자 요청: 턴 종료 알림 분기.
+  //   1. 행동·스킬 모두 안 한 경우 → "턴 스킵" (자의 종료든 타임아웃이든 동일)
+  //   2. 행동 또는 스킬 사용 + 타임아웃 → "턴 강제 종료"
+  //   3. 행동 또는 스킬 사용 + 자의 종료 → 토스트 없음 (정상 턴 종료)
+  //   skillsUsedBeforeAction 만 봐서는 자유 스킬 (정찰·정비·신성 등) 누락 → _anySkillUsedThisTurn 사용.
   const prevPlayer = room.players[prevPlayerIdx];
   if (prevPlayer && prevPlayer.alive !== false) {
-    const noAction = !prevPlayer.actionDone &&
-      !prevPlayer.actionUsedSkillReplace &&
-      !(prevPlayer.skillsUsedBeforeAction && prevPlayer.skillsUsedBeforeAction.length > 0) &&
-      prevPlayer._lastActionType !== 'move' &&
-      prevPlayer._lastActionType !== 'attack';
-    if (noAction && prevPlayer.name) {
+    const usedAction = !!prevPlayer.actionDone
+      || !!prevPlayer.actionUsedSkillReplace
+      || prevPlayer._lastActionType === 'move'
+      || prevPlayer._lastActionType === 'attack';
+    const usedSkill = !!prevPlayer._anySkillUsedThisTurn
+      || (prevPlayer.skillsUsedBeforeAction && prevPlayer.skillsUsedBeforeAction.length > 0);
+    const didNothing = !usedAction && !usedSkill;
+    if (didNothing && prevPlayer.name) {
       const msg = `${prevPlayer.name}의 턴 스킵`;
-      if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg });
+      if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg, kind: 'skip' });
+      emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
+    } else if (isTimeout && prevPlayer.name) {
+      // 행동/스킬은 했지만 타임아웃으로 강제 종료된 케이스
+      const msg = `${prevPlayer.name}의 턴 강제 종료`;
+      if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg, kind: 'forced' });
       emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
     }
+    // 자의 종료 + 행동/스킬 사용 → 토스트 없음 (정상)
   }
 
   room.currentPlayerIdx = getNextPlayerIdx(room);
@@ -4189,58 +4253,87 @@ function endTurn(room) {
 }
 
 // ── 팀전 게임 상태 브로드캐스트 ──
-// 각 플레이어에게 개인화된 뷰 전송 (자기팀 pieces full, 적팀 oppSummary)
-function getTeamGameStateFor(room, viewerIdx) {
-  const viewerTeamId = room.players[viewerIdx]?.teamId;
-  const players = room.players.map(p => {
-    const isAlly = p.teamId === viewerTeamId;  // 자기 + 팀원 = ally
-    return {
+// 같은 팀끼리는 동일 페이로드 → 팀당 한 번만 빌드 (viewerIdx/myTeamId/isMyTurn 만 viewer 별 override).
+function _buildTeamBaseStates(room) {
+  const numPlayers = room.players.length;
+  // 캐시: 모든 플레이어의 pieceSummary / oppPieceSummary / eliminated 1회 계산
+  const piecesFull = new Array(numPlayers);
+  const piecesOpp  = new Array(numPlayers);
+  const eliminated = new Array(numPlayers);
+  for (let i = 0; i < numPlayers; i++) {
+    const pcs = room.players[i].pieces || [];
+    piecesFull[i] = pieceSummary(pcs);
+    piecesOpp[i]  = oppPieceSummary(pcs);
+    eliminated[i] = isPlayerEliminated(room, i);
+  }
+  // 팀별 base state
+  const teamIds = [...new Set(room.players.map(p => p.teamId))];
+  const byTeam = {};
+  for (const tid of teamIds) {
+    const players = room.players.map(p => ({
       idx: p.index,
       name: p.name,
       teamId: p.teamId,
-      slotPos: p.slotPos ?? 0,  // 위치 기반 턴오더용
-      pieces: isAlly ? pieceSummary(p.pieces) : oppPieceSummary(p.pieces),
+      slotPos: p.slotPos ?? 0,
+      pieces: (p.teamId === tid) ? piecesFull[p.index] : piecesOpp[p.index],
       actionDone: !!p.actionDone,
-      eliminated: isPlayerEliminated(room, p.index),
-    };
-  });
-  // 보드 오브젝트: 자기팀 것은 full, 상대팀은 공개된 것만
-  const boardObjects = [];
-  for (let i = 0; i < room.players.length; i++) {
-    const pTeam = room.players[i].teamId;
-    if (pTeam === viewerTeamId) {
-      // own team: full objects + own rats
-      for (const o of (room.boardObjects[i] || [])) boardObjects.push({ ...o });
-      for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
-    } else {
-      // enemy team: rats are visible
-      for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+      eliminated: eliminated[p.index],
+    }));
+    const boardObjects = [];
+    for (let i = 0; i < numPlayers; i++) {
+      const pTeam = room.players[i].teamId;
+      if (pTeam === tid) {
+        for (const o of (room.boardObjects[i] || [])) boardObjects.push({ ...o });
+        for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+      } else {
+        for (const r of (room.rats[i] || [])) boardObjects.push({ type: 'rat', col: r.col, row: r.row, owner: i });
+      }
     }
+    byTeam[tid] = {
+      currentPlayerIdx: room.currentPlayerIdx,
+      turnNumber: room.turnNumber,
+      sp: room.sp,
+      instantSp: room.instantSp,
+      boardBounds: room.boardBounds,
+      boardShrinkStage: room.boardShrinkStage,
+      players,
+      boardObjects,
+      myTeamId: tid,
+    };
   }
+  return byTeam;
+}
+
+function getTeamGameStateFor(room, viewerIdx) {
+  // 외부 호출자(개별 emit) 호환용 — 단일 viewer 계산.
+  const byTeam = _buildTeamBaseStates(room);
+  const viewerTeamId = room.players[viewerIdx]?.teamId;
+  const base = byTeam[viewerTeamId];
   return {
-    currentPlayerIdx: room.currentPlayerIdx,
-    turnNumber: room.turnNumber,
-    sp: room.sp,
-    instantSp: room.instantSp,
-    boardBounds: room.boardBounds,
-    boardShrinkStage: room.boardShrinkStage,
-    players,
-    boardObjects,
+    ...base,
     myIdx: viewerIdx,
-    myTeamId: viewerTeamId,
     isMyTurn: room.currentPlayerIdx === viewerIdx,
   };
 }
 
 function broadcastTeamGameState(room, extra) {
   if (!room || room.mode !== 'team') return;
+  // 팀 단위 base state — 각 팀당 1회 빌드 (4 viewer × 4 piece summary = 16회 → 4회로 감축).
+  const byTeam = _buildTeamBaseStates(room);
   for (const p of room.players) {
     if (!p.socketId) continue;
-    const state = getTeamGameStateFor(room, p.index);
+    const base = byTeam[p.teamId];
+    if (!base) continue;
+    // viewer 별 override 만 얹어서 emit (얕은 복사 — players/boardObjects 배열은 팀 내 공유 OK).
+    const state = {
+      ...base,
+      myIdx: p.index,
+      isMyTurn: room.currentPlayerIdx === p.index,
+    };
     if (extra) Object.assign(state, extra);
     io.to(p.socketId).emit('team_game_update', state);
   }
-  // 관전자에게도 전체 정보 송신 (모든 팀의 정보 가시)
+  // 관전자 — 풀데이터 (1회 빌드 후 전 관전자에게 동일 payload 재사용)
   const specs = (room.spectators || []);
   if (specs.length > 0) {
     const specState = getTeamSpectatorGameState(room);
@@ -4571,11 +4664,17 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         result.data.deferredBombEmits = deferredBombEmits;  // 외부에서 사용
         break;
       }
-      // 시한폭탄 설치
-      const tc = params?.col ?? piece.col;
-      const tr = params?.row ?? piece.row;
+      // 시한폭탄 설치 — 자기 칸 제외, 인접 8칸만 가능
+      const tc = params?.col;
+      const tr = params?.row;
+      if (tc === undefined || tr === undefined) {
+        return { ok: false, msg: '설치 위치를 지정하세요.' };
+      }
       if (Math.abs(tc - piece.col) > 1 || Math.abs(tr - piece.row) > 1) {
-        return { ok: false, msg: '자신 또는 인접 8칸에만 설치 가능합니다.' };
+        return { ok: false, msg: '인접 8칸에만 설치 가능합니다.' };
+      }
+      if (tc === piece.col && tr === piece.row) {
+        return { ok: false, msg: '자신의 칸에는 설치할 수 없습니다.' };
       }
       if (!inBounds(tc, tr, bounds)) return { ok: false, msg: '보드 밖입니다.' };
       // 같은 칸 중복 설치 방지
@@ -4595,7 +4694,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // 팀모드: 팀원 아군도 대상 포함
     case 'herbalist': {
       let healed = 0;
-      const healedIdxs = [];
+      const healedIdxs = [];                     // 시전자 자신의 pieces 인덱스만 (1v1 backward compat)
+      const healedPieces = [];                   // ★ 모든 회복 대상 — { ownerIdx, pieceIdx } (팀모드 팀원 포함)
       const allyIndices = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
       for (const aIdx of allyIndices) {
         const allyPlayer = room.players[aIdx];
@@ -4604,13 +4704,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
             if (ally.hp < ally.maxHp) {
               ally.hp = Math.min(ally.maxHp, ally.hp + 1);
               healed++;
-              if (aIdx === playerIdx) healedIdxs.push(allyPlayer.pieces.indexOf(ally));
+              const pIdx = allyPlayer.pieces.indexOf(ally);
+              healedPieces.push({ ownerIdx: aIdx, pieceIdx: pIdx });
+              if (aIdx === playerIdx) healedIdxs.push(pIdx);
             }
           }
         }
       }
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = healedIdxs;
+      result.data.healedPieces = healedPieces;
       result.msg = `🌿 약초학: 범위 내 아군 1 HP 회복`;
       result.oppMsg = `🌿 약초학: 범위 내 아군 1 HP 회복`;
       break;
@@ -4676,6 +4779,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       player.actionDone = true;
       result.msg = `☠ 저주: ${curseTarget.name}${조사(curseTarget.name, '을', '를')} 저주`;
       result.oppMsg = `☠ 저주: 상대 마녀가 ${curseTarget.name}${조사(curseTarget.name, '을', '를')} 저주`;
+      // ★ 저주 대상 정보 — 클라가 turn-bright 적용용
+      const _cursedPieceIdx = room.players[curseTargetOwnerIdx].pieces.indexOf(curseTarget);
+      result.data.cursedPieceIdx = _cursedPieceIdx;
+      result.data.cursedOwnerIdx = curseTargetOwnerIdx;
       break;
     }
 
@@ -4716,7 +4823,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       room.rats[playerIdx].push(...newRats);
       spendSP(room, playerIdx, cost);
-      emitToBoth(room, 'rats_spawned', { rats: newRats, owner: playerIdx, spCost: cost });
+      // 쥐장수 위치 — 보드 비행 시작점 (사용자 요청)
+      emitToBoth(room, 'rats_spawned', {
+        rats: newRats, owner: playerIdx, spCost: cost,
+        casterCol: piece.col, casterRow: piece.row,
+      });
       emitToSpectators(room, 'spectator_log', { msg: `🐀 역병의 자손들: 쥐 ${newRats.length}마리 소환`, type: 'skill', playerIdx });
       result.msg = ``;
       result.skipLog = true;
@@ -4762,33 +4873,27 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `♛ 절대복종 반지: ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
       result.oppMsg = `♛ 반지: 상대 국왕이 ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
 
-      // Check if moved onto a trap
+      // ★ 사용자 요청: 절대복종반지 시전과 덫 발동을 시각적으로 분리.
+      //   ring cast (이동) 가 SP_END_MS 시점에 마무리 → 그때 덫이 별도 phase 로 발동.
+      //   여기서는 "트랩에 걸렸다" 사실만 deferred 데이터에 보관 — HP/사망/SP 처리는 모두 나중에.
       const trapIdx2 = room.boardObjects[playerIdx].findIndex(o => o.type === 'trap' && o.col === destCol && o.row === destRow);
       if (trapIdx2 >= 0) {
         room.boardObjects[playerIdx].splice(trapIdx2, 1);
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
-        enemyPiece.hp = Math.max(0, enemyPiece.hp - dmg);
-        // Wizard passive: 강제 이동된 마법사가 덫을 밟아 피격되어도 인스턴트 SP 1 획득
-        if (enemyPiece.type === 'wizard' && dmg > 0) {
-          const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, kingTargetOwnerIdx) : kingTargetOwnerIdx;
-          room.instantSp[wizSpSlot] += 1;
-          // ❌ emitSPUpdate(room) 제거 — executeSkill 안이라 skill_result 가 sp/instantSp 를 자동 전달.
-          //    여기서 sp_update 가 먼저 가면 시전자의 마법구 비행 애니가 delta=0 으로 무동작이 됨.
-          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: kingTargetOwnerIdx, msg: `🧙 인스턴트 매직 : SP 획득` });
-
-          emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: kingTargetOwnerIdx });
-
-        }
-        const willDie2 = enemyPiece.hp <= 0;
-        if (willDie2) handleDeath(room, enemyPiece, kingTargetOwnerIdx);
-        emitToBoth(room, 'trap_triggered', {
+        // ★ HP/사망/SP 변경은 모두 deferred — skill_result 시점에는 변경 X.
+        //   wizard 패시브 SP 도 deferred (이동확정 후 덫 발동 시점에서 처리).
+        result.data.deferredKingTrap = {
           col: destCol, row: destRow,
-          pieceInfo: { type: enemyPiece.type, name: enemyPiece.name, icon: enemyPiece.icon },
-          damage: dmg,
-          destroyed: willDie2,
-          newHp: enemyPiece.hp,
           victimOwnerIdx: kingTargetOwnerIdx,
-        });
+          trapOwnerIdx: playerIdx,
+          dmg,
+          pieceType: enemyPiece.type,
+          pieceName: enemyPiece.name,
+          pieceIcon: enemyPiece.icon,
+          wizardSpSlot: (enemyPiece.type === 'wizard' && dmg > 0)
+            ? ((room.mode === 'team') ? getTeamOf(room, kingTargetOwnerIdx) : kingTargetOwnerIdx)
+            : null,
+        };
       }
       break;
     }
@@ -4847,6 +4952,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       target.statusEffects = [];
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = [targetIdx2];
+      result.data.healedPieces = [{ ownerIdx: playerIdx, pieceIdx: targetIdx2 }];
       result.msg = `🙏 신성: ${target.name}의 상태이상 제거, 2 HP 회복`;
       result.oppMsg = `🙏 신성: ${target.name}의 상태이상 제거, 2 HP 회복`;
       break;
@@ -4933,6 +5039,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     const usedKey = `${pieceIdx}:${effectiveSkillId}`;
     player.skillsUsedBeforeAction.push(usedKey);
   }
+  // ★ 사용자 보고: 턴스킵 토스트가 자유시전형 스킬 사용 후에도 잘못 발동.
+  //   skillsUsedBeforeAction 은 oncePerTurn 만 기록 → 자유 스킬은 누락.
+  //   _anySkillUsedThisTurn 플래그로 모든 스킬 사용 추적 (정찰·정비·약초학·신성·반지·드래곤 등 포함).
+  player._anySkillUsedThisTurn = true;
 
   return result;
 }
@@ -5451,11 +5561,12 @@ function aiUsePreSkills(room) {
             break;
           }
         }
-        // 신규 설치 — 인접 8칸 중 적 있을 가능성 높은 위치
+        // 신규 설치 — 인접 8칸 (자기 칸 제외) 중 적 있을 가능성 높은 위치
         if ((room.sp[1] + room.instantSp[1]) >= 2) {
           let bestCell = null, bestScore = -1;
           for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {
+              if (dc === 0 && dr === 0) continue;          // 자기 칸 제외 (룰)
               const nc = piece.col + dc, nr = piece.row + dr;
               if (!inBounds(nc, nr, bounds)) continue;
               if (room.boardObjects[1].some(o => o.col === nc && o.row === nr)) continue;
@@ -5864,44 +5975,62 @@ function aiExecuteMove(room, action) {
   piece.row = action.row;
 
   // Check trap — ★ 그림자 숨기 면역: 트랩 자체가 발동하지 않음 (제거도 X, 그대로 남음).
+  // ★ 사용자 요청: 이동 → 트랩 순차 처리. 이동 emit 먼저, 700ms 후 트랩 효과/emit.
   const trapIdx = room.boardObjects[0].findIndex(o => o.type === 'trap' && o.col === action.col && o.row === action.row);
   const isShadowedAI = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+  let aiTrapPending = null;
   if (trapIdx >= 0 && !isShadowedAI) {
-    room.boardObjects[0].splice(trapIdx, 1);
-    const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: action.col, row: action.row }, piece, 0, 2, false);
-    piece.hp = Math.max(0, piece.hp - dmg);
-    // Wizard passive: AI 마법사가 덫을 밟아 피격되어도 인스턴트 SP 1 획득
-    if (piece.type === 'wizard' && dmg > 0) {
-      const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, 1) : 1;
-      room.instantSp[wizSpSlot] += 1;
-      emitSPUpdate(room);
-      emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1, msg: `🧙 인스턴트 매직 : SP 획득` });
-
-      emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: 1 });
-
-    }
-    const willDie3 = piece.hp <= 0;
-    if (willDie3) {
-      handleDeath(room, piece, 1);
-      setKillInfo(room, 'trap', null, [{ name: piece.name }]);
-    }
-    emitToBoth(room, 'trap_triggered', {
-      col: action.col, row: action.row,
-      pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
-      damage: dmg,
-      destroyed: willDie3,
-      newHp: piece.hp,
-      victimOwnerIdx: 1,
-    });
+    aiTrapPending = { trapIdx, col: action.col, row: action.row };
   }
 
   emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}${조사(room.players[1].name, '이', '가')} 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: 1 });
-  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+  if (!aiTrapPending) emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   aiTrackToast(room, 'move');
   aiPlayer.actionDone = true;
-  aiEndTurn(room);
+
+  if (aiTrapPending) {
+    // 이동 애니가 끝난 후 트랩 처리. AI 턴 종료도 그 후에.
+    room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + 1500);
+    const tp = aiTrapPending;
+    setTimeout(() => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      const trapArr = room.boardObjects[0] || [];
+      const ti = trapArr.findIndex(o => o.type === 'trap' && o.col === tp.col && o.row === tp.row);
+      if (ti < 0) { aiEndTurn(room); return; }
+      trapArr.splice(ti, 1);
+      const aiPiece = (room.players[1].pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
+      if (!aiPiece) { aiEndTurn(room); return; }
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
+      aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
+      if (aiPiece.type === 'wizard' && dmg > 0) {
+        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, 1) : 1;
+        room.instantSp[wizSpSlot] += 1;
+        emitSPUpdate(room);
+        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1, msg: `🧙 인스턴트 매직 : SP 획득` });
+        emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: 1 });
+      }
+      const willDie3 = aiPiece.hp <= 0;
+      if (willDie3) {
+        handleDeath(room, aiPiece, 1);
+        setKillInfo(room, 'trap', null, [{ name: aiPiece.name }]);
+      }
+      emitToBoth(room, 'trap_triggered', {
+        col: tp.col, row: tp.row,
+        pieceInfo: { type: aiPiece.type, name: aiPiece.name, icon: aiPiece.icon },
+        damage: dmg,
+        destroyed: willDie3,
+        newHp: aiPiece.hp,
+        victimOwnerIdx: 1,
+        trapOwnerIdx: 0,  // 1v1 AI 가 인간(0)의 덫을 밟음
+      });
+      emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+      aiEndTurn(room);
+    }, 700);
+  } else {
+    aiEndTurn(room);
+  }
 }
 
 function aiExecuteAttack(room, action) {
@@ -7346,34 +7475,12 @@ io.on('connection', (socket) => {
     }
     // ★ 그림자 숨기 면역 — 트랩 발동 자체 차단 (제거도 X, 그대로 남음).
     const isShadowedHuman = piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow');
+    // ★ 사용자 요청: 트랩 발동을 이동 직후 동시 처리에서 분리.
+    //   먼저 이동 emit (move_ok / opp_moved / team_ally_moved / broadcast) 까지 끝낸 후
+    //   ~700ms 지연으로 트랩 효과 적용 + 알림. 클라이언트는 이동 애니 → 트랩 애니 순으로 보임.
+    let trapPending = null;
     if (trapIdx >= 0 && !isShadowedHuman) {
-      room.boardObjects[trapOwnerIdx].splice(trapIdx, 1);
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col, row }, piece, trapOwnerIdx, 2, false, idx);
-      piece.hp = Math.max(0, piece.hp - dmg);
-      // Wizard passive: SP on trap hit
-      if (piece.type === 'wizard') {
-        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, idx) : idx;
-        room.instantSp[wizSpSlot] += 1;
-        emitSPUpdate(room);
-        // 인스턴트 매직 알림 — 텍스트 메시지 제거 (클라 황금 마법구 애니만 사용). type='wizard' 로만 트리거.
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `🧙 인스턴트 매직 : SP 획득` });
-
-        emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: idx });
-
-      }
-      const willDie = piece.hp <= 0;
-      if (willDie) {
-        handleDeath(room, piece, idx);
-        setKillInfo(room, 'trap', null, [{ name: piece.name }]);
-      }
-      emitToBoth(room, 'trap_triggered', {
-        col, row,
-        pieceInfo: { type: piece.type, name: piece.name, icon: piece.icon },
-        damage: dmg,
-        destroyed: willDie,
-        newHp: piece.hp,
-        victimOwnerIdx: idx,
-      });
+      trapPending = { trapIdx, trapOwnerIdx, col, row, idx };
     }
 
     // ★ 쌍둥이 이동: 한쪽만 이동해도 행동 완료. 같은 턴에 다른 쪽 이동은 옵션.
@@ -7426,46 +7533,49 @@ io.on('connection', (socket) => {
     }
 
     if (room.mode === 'team') {
-      // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용)
-      const moverPiece = piece;
+      // 팀모드: 팀원에게 실시간 이동 이벤트(애니메이션용) — payload 1회 빌드 후 ally 들에게 재사용
       const allyIdxs = getAllyIndices(room, idx).filter(i => i !== idx);
-      for (const alIdx of allyIdxs) {
-        const ally = room.players[alIdx];
-        if (ally && ally.socketId && ally.socketId !== 'AI') {
-          io.to(ally.socketId).emit('team_ally_moved', {
-            moverIdx: idx,
-            moverName: room.players[idx].name,
-            pieceType: moverPiece.type,
-            pieceIcon: moverPiece.icon,
-            pieceName: moverPiece.name,
-            subUnit: moverPiece.subUnit || null,
-            prevCol: prev.col, prevRow: prev.row,
-            col, row,
-          });
+      if (allyIdxs.length > 0) {
+        const _allyMovedPayload = {
+          moverIdx: idx,
+          moverName: room.players[idx].name,
+          pieceType: piece.type,
+          pieceIcon: piece.icon,
+          pieceName: piece.name,
+          subUnit: piece.subUnit || null,
+          prevCol: prev.col, prevRow: prev.row,
+          col, row,
+        };
+        for (const alIdx of allyIdxs) {
+          const ally = room.players[alIdx];
+          if (ally && ally.socketId && ally.socketId !== 'AI') {
+            io.to(ally.socketId).emit('team_ally_moved', _allyMovedPayload);
+          }
         }
       }
-      // 적팀 모두에게 이동 알림 — 1v1과 동일한 토스트/로그 표시
+      // 적팀 모두에게 이동 알림 — 1v1과 동일한 토스트/로그 표시. payload 1회 빌드.
       // 단, 쌍둥이 첫 이동은 보류 (suppressOppEmit). 두번째 이동·end_turn 시 단일 발송.
       if (!suppressOppEmit) {
         const enemyIdxs = getEnemyIndices(room, idx);
         const isMarked = (piece.statusEffects || []).some(e => e.type === 'mark');
+        const _oppMovedPayload = {
+          msg: isMarked
+            ? `${room.players[idx].name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
+            : `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`,
+          prevCol: isMarked ? prev.col : undefined,
+          prevRow: isMarked ? prev.row : undefined,
+          col: isMarked ? col : undefined,
+          row: isMarked ? row : undefined,
+        };
         for (const enIdx of enemyIdxs) {
           const en = room.players[enIdx];
           if (en && en.socketId && en.socketId !== 'AI') {
-            io.to(en.socketId).emit('opp_moved', {
-              msg: isMarked
-                ? `${room.players[idx].name}의 표식된 ${piece.name}${조사(piece.name, '이', '가')} 이동했습니다.`
-                : `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`,
-              // 표식된 말은 좌표 노출 (애니메이션용), 일반 이동은 좌표 숨김
-              prevCol: isMarked ? prev.col : undefined,
-              prevRow: isMarked ? prev.row : undefined,
-              col: isMarked ? col : undefined,
-              row: isMarked ? row : undefined,
-            });
+            io.to(en.socketId).emit('opp_moved', _oppMovedPayload);
           }
         }
       }
-      broadcastTeamGameState(room);
+      // 트랩 발동 보류 시 broadcast 도 지연 — 이동 후 piece 가 alive=true 상태로 보드에 노출되도록.
+      if (!trapPending) broadcastTeamGameState(room);
     } else {
       // 1v1 — 쌍둥이 첫 이동은 보류
       if (!suppressOppEmit) {
@@ -7476,17 +7586,73 @@ io.on('connection', (socket) => {
       }
     }
     emitToSpectators(room, 'spectator_log', { msg: `${player.name}, ${piece.icon}${piece.name} 이동`, type: 'move', playerIdx: idx });
-    emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+    if (!trapPending) emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
-    // Check win after trap damage
-    if (room.mode === 'team') {
-      if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
-      if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
-    } else {
-      if (checkWin(room, idx)) {
-        endGame(room, 1 - idx);
-        return;
+    // 트랩이 보류된 경우 — 승리 검사도 트랩 setTimeout 안에서 수행
+    if (!trapPending) {
+      if (room.mode === 'team') {
+        if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+        if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+      } else {
+        if (checkWin(room, idx)) {
+          endGame(room, 1 - idx);
+          return;
+        }
       }
+    }
+
+    // ★ 트랩 지연 발동 — 이동 emit (move_ok / opp_moved / team_ally_moved / broadcast) 가
+    //   끝난 후 ~700ms 뒤 트랩 효과 적용 + 알림. 클라이언트는 이동 애니가 끝난 후 트랩 애니를 봄.
+    if (trapPending) {
+      // AI 다음 행동을 트랩 종료까지 지연 (이동 700ms + 트랩 처리 마진)
+      room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + 1500);
+      const tp = trapPending;
+      setTimeout(() => {
+        if (!rooms[room.id] || room.phase !== 'game') return;
+        const ownerArr = room.boardObjects[tp.trapOwnerIdx] || [];
+        const tIdx = ownerArr.findIndex(o => o.type === 'trap' && o.col === tp.col && o.row === tp.row);
+        if (tIdx < 0) return;
+        ownerArr.splice(tIdx, 1);
+        const player2 = room.players[tp.idx];
+        if (!player2) return;
+        const piece2 = (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
+        if (!piece2) return;
+        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
+        piece2.hp = Math.max(0, piece2.hp - dmg);
+        if (piece2.type === 'wizard') {
+          const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, tp.idx) : tp.idx;
+          room.instantSp[wizSpSlot] += 1;
+          emitSPUpdate(room);
+          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: tp.idx, msg: `🧙 인스턴트 매직 : SP 획득` });
+          emitToSpectators(room, 'spectator_log', { msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: tp.idx });
+        }
+        const willDie = piece2.hp <= 0;
+        if (willDie) {
+          handleDeath(room, piece2, tp.idx);
+          setKillInfo(room, 'trap', null, [{ name: piece2.name }]);
+        }
+        emitToBoth(room, 'trap_triggered', {
+          col: tp.col, row: tp.row,
+          pieceInfo: { type: piece2.type, name: piece2.name, icon: piece2.icon },
+          damage: dmg,
+          destroyed: willDie,
+          newHp: piece2.hp,
+          victimOwnerIdx: tp.idx,
+          trapOwnerIdx: tp.trapOwnerIdx,  // 덫 설치자 (사냥꾼 owner) — 시전 강조용
+        });
+        if (room.mode === 'team') broadcastTeamGameState(room);
+        emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+        // 트랩 후 승리 검사
+        if (room.mode === 'team') {
+          if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
+          if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
+        } else {
+          if (checkWin(room, tp.idx)) {
+            endGame(room, 1 - tp.idx);
+            return;
+          }
+        }
+      }, 700);
     }
 
     // DON'T auto end turn - wait for 'end_turn' event
@@ -7752,13 +7918,13 @@ io.on('connection', (socket) => {
           yourPieces: pieceSummary(defPlayer.pieces),
         });
       }
-      // 팀모드: 적팀 멤버 중 hits 안 받은 (그래서 위 루프에서 emit 안 된) 자에게도 attackerImpactedAnything 전달용
-      //   — slaughterHero가 자기팀에만 피해주고 적팀은 영향 없을 때 적팀에게 빗나감 토스트가 떠야 정상이지만,
-      //   사용자 요청: "상대와 나 모두 빗나감 받지 않음" → 영향 받지 않은 적도 알림 받게.
+      // ★ 사용자 보고 (fog-of-war 복원): 빗나감 시 적팀에 emit 금지.
+      //   pure miss (impact 0) 인데 atkCells 가 적에게 노출되면 공격 범위가 누출됨.
+      //   attackerImpactedAnything (학살영웅 friendly fire / 자기쥐 격파 등) 시에만 emit.
       if (attackerImpactedAnything) {
         const enemyIdxs = getEnemyIndices(room, idx);
         for (const enIdx of enemyIdxs) {
-          if (defenderHitsByOwner.has(enIdx)) continue;  // 이미 위에서 emit 됨
+          if (defenderHitsByOwner.has(enIdx)) continue;
           const en = room.players[enIdx];
           if (!en || !en.socketId || en.socketId === 'AI') continue;
           io.to(en.socketId).emit('being_attacked', {
@@ -7770,27 +7936,59 @@ io.on('connection', (socket) => {
         }
       }
       // 팀원 피격 알림 — 같은 팀의 다른 멤버에게 애니메이션용 이벤트
+      // hitPieces / 페이로드는 victim 당 1회 빌드 후 ally 들에게 재사용 (이전엔 ally 수만큼 .map 반복).
       for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
         const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
+        if (allyIdxs.length === 0) continue;
+        const defPieces = room.players[defOwnerIdx].pieces;
+        const _hitPieces = hits.map(h => {
+          // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
+          const dp = (typeof h.defPieceIdx === 'number') ? defPieces[h.defPieceIdx] : null;
+          return {
+            col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+            name: dp?.name, icon: dp?.icon,
+            defPieceIdx: h.defPieceIdx,
+            redirectedToBodyguard: h.redirectedToBodyguard || false,
+            bodyguardRedirect: h.bodyguardRedirect || false,
+          };
+        });
+        const _allyHitPayload = {
+          atkCells,
+          victimIdx: defOwnerIdx,
+          victimName: room.players[defOwnerIdx].name,
+          hitPieces: _hitPieces,
+        };
         for (const allyIdx of allyIdxs) {
           const ally = room.players[allyIdx];
           if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
-          io.to(ally.socketId).emit('team_ally_hit', {
-            atkCells,
-            victimIdx: defOwnerIdx,
-            victimName: room.players[defOwnerIdx].name,
-            hitPieces: hits.map(h => {
-              // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
-              const dp = (typeof h.defPieceIdx === 'number') ? room.players[defOwnerIdx].pieces[h.defPieceIdx] : null;
-              return {
-                col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-                name: dp?.name, icon: dp?.icon,
-                defPieceIdx: h.defPieceIdx,
-                redirectedToBodyguard: h.redirectedToBodyguard || false,
-                bodyguardRedirect: h.bodyguardRedirect || false,
-              };
-            }),
-          });
+          io.to(ally.socketId).emit('team_ally_hit', _allyHitPayload);
+        }
+      }
+      // ★ 사용자 보고: 시전자 팀의 다른 멤버가 "우리팀이 공격했다"는 알림을 못 받았음.
+      //   같은 팀의 ALLY (시전자 본인 제외) 에게 team_ally_attacked emit — 로그/토스트/애니메이션용.
+      const casterAllyIdxs = getAllyIndices(room, idx).filter(i => i !== idx);
+      if (casterAllyIdxs.length > 0) {
+        const _attackedPayload = {
+          casterIdx: idx,
+          casterName: player.name,
+          atkPieceType: atkPiece.type,
+          atkPieceIcon: atkPiece.icon,
+          atkPieceName: atkPiece.name,
+          atkCells,
+          attackerImpactedAnything,
+          // hits 요약 — 어떤 적을 어디서 맞췄는지 ally 측이 셀 흔들림 + 로그용
+          hits: hitResults.map(h => ({
+            col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed,
+            defOwnerIdx: h.defOwnerIdx, defPieceIdx: h.defPieceIdx,
+            hitName: h.hitName, hitIcon: h.hitIcon,
+            redirectedToBodyguard: h.redirectedToBodyguard || false,
+            bodyguardRedirect: h.bodyguardRedirect || false,
+          })),
+        };
+        for (const aIdx of casterAllyIdxs) {
+          const ally = room.players[aIdx];
+          if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
+          io.to(ally.socketId).emit('team_ally_attacked', _attackedPayload);
         }
       }
     } else {
@@ -8078,44 +8276,46 @@ io.on('connection', (socket) => {
       // 시전자 외 모두에게 skill 알림 — 반드시 broadcastTeamGameState 보다 먼저 보냄.
       // 그렇지 않으면 team_game_update 가 먼저 도착해 S.sp 가 NEW 값으로 갱신되고,
       // 후속 team_skill_notice 핸들러의 oldSpSnap=newSp 가 되어 마법구 delta=0 으로 무동작이 됨.
+      // 상수 부분 1회 빌드 후 재사용 — 루프 내 객체 생성 비용 감축.
+      const _casterTeamId = room.players[idx].teamId;
+      const _explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
+      const _explicitOpp  = (result.oppMsg  !== undefined) ? result.oppMsg  : (result.msg || null);
+      const _baseNotice = {
+        casterIdx: idx,
+        casterName: room.players[idx].name,
+        casterTeamId: _casterTeamId,
+        casterPieceIdx: pieceIdx,
+        sp: room.sp,
+        instantSp: room.instantSp,
+        skillUsed: {
+          icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+        },
+        // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용. defOwnerIdx + defPieceIdx 포함.
+        hits: result.data?.hits || null,
+        // ★ 저주 부여 정보 — 클라가 turn-bright 적용용 (사용자 요청).
+        cursedPieceIdx: result.data?.cursedPieceIdx,
+        cursedOwnerIdx: result.data?.cursedOwnerIdx,
+        // ★ 유황범람 borderCells — 라바 애니 적용용 (사용자 요청).
+        borderCells: result.data?.borderCells || null,
+        // ★ 회복 애니메이션 — { ownerIdx, pieceIdx } 페어로 모든 회복 대상 (팀모드 팀원 포함)
+        healedPieces: result.data?.healedPieces || null,
+        // ★ 분신 비행 — 모든 비시전자에게 좌표 전달. 클라가 같은 팀이면 표시, 적팀이면 무시.
+        twinJoin: result.data?.twinJoin || null,
+      };
       for (const p of room.players) {
         if (!p.socketId || p.index === idx) continue;
-        const isAlly = (p.teamId === room.players[idx].teamId);
-        // allyMsg / oppMsg 명시 분기:
-        //   - undefined  → result.msg (본문) 사용
-        //   - null/'' (빈문자열) → 메시지 출력 차단 (애니메이션만 재생)
-        //   - 그 외 string → 그 메시지 그대로 사용
-        const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
-        const explicitOpp  = (result.oppMsg  !== undefined) ? result.oppMsg  : (result.msg || null);
+        const isAlly = (p.teamId === _casterTeamId);
         io.to(p.socketId).emit('team_skill_notice', {
-          casterIdx: idx,
-          casterName: room.players[idx].name,
-          casterTeamId: room.players[idx].teamId,
-          casterPieceIdx: pieceIdx,
-          sp: room.sp,
-          instantSp: room.instantSp,
-          skillUsed: {
-            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
-          },
-          msg: isAlly ? explicitAlly : explicitOpp,
-          // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용. defOwnerIdx + defPieceIdx 포함.
-          hits: result.data?.hits || null,
+          ..._baseNotice,
+          msg: isAlly ? _explicitAlly : _explicitOpp,
         });
       }
-      for (const s of (room.spectators || [])) {
-        io.to(s.socketId).emit('team_skill_notice', {
-          casterIdx: idx,
-          casterName: room.players[idx].name,
-          casterTeamId: room.players[idx].teamId,
-          casterPieceIdx: pieceIdx,
-          sp: room.sp,
-          instantSp: room.instantSp,
-          skillUsed: {
-            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
-          },
-          hits: result.data?.hits || null,
-          msg: result.oppMsg || result.msg || null,
-        });
+      const specs = room.spectators || [];
+      if (specs.length > 0) {
+        const _specNotice = { ..._baseNotice, msg: result.oppMsg || result.msg || null };
+        for (const s of specs) {
+          io.to(s.socketId).emit('team_skill_notice', _specNotice);
+        }
       }
       // 마지막에 전체 상태 브로드캐스트 — 모든 클라가 이미 시전자 카드/마법구 애니를 트리거한 후 도착
       broadcastTeamGameState(room);
@@ -8155,11 +8355,18 @@ io.on('connection', (socket) => {
           casterPieceIdx: pieceIdx,         // 상대 시점에서 시전자 카드 spotlight 용
           // 상대 측에서도 회복 애니메이션 — 시전자 piece 인덱스 그대로 전달 (상대 oppPieces 동일 순서)
           healedPieceIdxs: result.data?.healedPieceIdxs || null,
+          // ★ 회복 애니 (newer owner-aware 형태) — { ownerIdx, pieceIdx } 페어
+          healedPieces: result.data?.healedPieces || null,
           // 분신 비행 애니메이션 — fog of war 우회용 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
           // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장용
           //   defPieceIdx 는 server 의 opp.pieces (= 받는 쪽의 yourPieces) 인덱스와 일치.
           hits: result.data?.hits || null,
+          // ★ 유황범람 borderCells — 라바 애니 적용용 (1v1 상대 시점 누락 수정)
+          borderCells: result.data?.borderCells || null,
+          // ★ 저주 부여 정보 — 1v1 상대 시점에서도 turn-bright 적용 (누락 수정)
+          cursedPieceIdx: result.data?.cursedPieceIdx,
+          cursedOwnerIdx: result.data?.cursedOwnerIdx,
         });
       }
     }
@@ -8179,6 +8386,13 @@ io.on('connection', (socket) => {
           msg: result.msg || null,
           // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
           hits: result.data?.hits || null,
+          // ★ 회복 애니메이션 — { ownerIdx, pieceIdx } 페어
+          healedPieces: result.data?.healedPieces || null,
+          // ★ 유황범람 borderCells — 라바 애니 (1v1 관전자 시점 누락 수정)
+          borderCells: result.data?.borderCells || null,
+          // ★ 저주 부여 정보 — 1v1 관전자 시점에서도 turn-bright (누락 수정)
+          cursedPieceIdx: result.data?.cursedPieceIdx,
+          cursedOwnerIdx: result.data?.cursedOwnerIdx,
         });
       }
     }
@@ -8188,6 +8402,46 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: specSkillMsg, type: 'skill', playerIdx: idx });
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+
+    // ★ 사용자 요청: 절대복종반지 → 덫 발동 시퀀스 분리.
+    //   ring SP cost 3 → SP_END_MS = 1240ms. 이동 visual 마무리 + breath buffer = 1500ms 후 덫 발동.
+    //   이 시점에 HP 변경/사망/wizard 패시브 SP/passive_alert/trap_triggered 모두 일제히 발동.
+    if (result.data && result.data.deferredKingTrap) {
+      const dt = result.data.deferredKingTrap;
+      setTimeout(() => {
+        if (!rooms[room.id] || room.phase !== 'game') return;
+        // 시점에 도달 — 피해 적용
+        const victim = (room.players[dt.victimOwnerIdx]?.pieces || []).find(p => p.alive && p.col === dt.col && p.row === dt.row);
+        if (!victim) return;   // 그 사이에 다른 효과로 사라졌으면 무시
+        victim.hp = Math.max(0, victim.hp - dt.dmg);
+        const willDie = victim.hp <= 0;
+        // wizard 패시브 SP — 덫 발동과 동시에 SP 갱신 + alert 발사
+        if (dt.wizardSpSlot != null) {
+          room.instantSp[dt.wizardSpSlot] += 1;
+          if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
+          emitToBoth(room, 'passive_alert', {
+            type: 'wizard', playerIdx: dt.victimOwnerIdx,
+            msg: `🧙 인스턴트 매직 : SP 획득`,
+          });
+          emitToSpectators(room, 'spectator_log', {
+            msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: dt.victimOwnerIdx,
+          });
+        }
+        if (willDie) handleDeath(room, victim, dt.victimOwnerIdx);
+        // 덫 발동 emit — 기존 trap_triggered 핸들러 (cast intro 700ms + fang snap 등)
+        emitToBoth(room, 'trap_triggered', {
+          col: dt.col, row: dt.row,
+          pieceInfo: { type: dt.pieceType, name: dt.pieceName, icon: dt.pieceIcon },
+          damage: dt.dmg,
+          destroyed: willDie,
+          newHp: victim.hp,
+          victimOwnerIdx: dt.victimOwnerIdx,
+          trapOwnerIdx: dt.trapOwnerIdx,
+        });
+        // 팀모드: 변경된 보드 상태 broadcast (사망 시 alive=false 반영)
+        if (room.mode === 'team' && willDie) broadcastTeamGameState(room);
+      }, 1500);
+    }
 
     // 기폭 스킬: SP_END(1) + offset 200ms = 980ms + 폭탄 애니(950ms) = ~1930ms
     // 1) 즉시 detonation_intro emit — 클라가 980ms 후 시퀀스 시작
