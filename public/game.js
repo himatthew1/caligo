@@ -6304,6 +6304,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       if (Array.isArray(hits) && hits.length > 0) {
         const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         if (hitCells.length > 0) animateAttack([], hitCells);
+        let _stampsAdded = false;
         for (const h of hits) {
           const dmg = (typeof h.damage === 'number') ? h.damage : 0;
           if (dmg <= 0 || h.defPieceIdx == null) continue;
@@ -6311,10 +6312,31 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
           const key = `my:${h.defPieceIdx}`;
           if (h.bodyguardRedirect) {
             addLoyaltyDamage(key, dmg);
+            _stampsAdded = true;
           } else if (!h.redirectedToBodyguard) {
             addBodyDamage(key, dmg);
+            _stampsAdded = true;
           }
         }
+        // ★ 사용자 보고 (도장 미출력): stamps 가 addBodyDamage/addLoyaltyDamage 로 누적된 후
+        //   renderMyPieces 가 호출되어야 buildDamageOverlay 가 실행되어 도장이 시각화됨.
+        //   line 6264 의 renderMyPieces 는 stamps 추가 전에 실행되어 도장이 누락됨 → 추가 재렌더.
+        if (_stampsAdded) {
+          if (typeof renderMyPieces === 'function') renderMyPieces();
+        }
+        // 피격 카드 brighten/protected 애니 — server status_update 가 보낸 hits 대상에 적용.
+        //   defPieceIdx 는 받는 쪽 (= S.playerIdx) 의 my-pieces 인덱스.
+        requestAnimationFrame(() => {
+          for (const h of hits) {
+            if (h.defPieceIdx == null) continue;
+            if (h.redirectedToBodyguard) continue;
+            const isProtected = (h.damage === 0 && !h.destroyed);
+            const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[h.defPieceIdx];
+            if (!card) continue;
+            if (isProtected) applyProtectedAnim(card);
+            else applyHitFlashWithBrighten(card);
+          }
+        });
         // ★ 버퍼된 wizard 등 패시브 alert flush — 1v1 상대 스킬에 의해 본인 wizard 가 피격된 시점.
         if (typeof flushDefensiveAlerts === 'function') {
           const _killed = hits.some(h => h.destroyed);
@@ -14961,10 +14983,24 @@ function animateRingTeleport(rt, roleHint) {
     toCell.classList.add('aurora-intro');
     setTimeout(() => toCell.classList.remove('aurora-intro'), 1000);
   }
-  // 대상 유닛이 보이는 시점 (피해자 / 관전자) 만 prevanish 글로우 적용
+  // 대상 유닛이 보이는 시점 (피해자 / 관전자) 만 prevanish 글로우 적용.
+  // ★ 사용자 보고: 호출자가 이미 yourPieces 를 commit + renderGameBoard 한 상태로 본 함수를 호출하면
+  //   fromCell 에 piece-marker 가 사라져 vanish 애니가 시각적으로 작동하지 않음.
+  //   → fromCell 에 ghost marker (victimIcon) 를 임시로 주입해 prevanish/vanish 가 작동하게 함.
   const showVanishIntro = (roleHint === 'victim' || roleHint === 'observer');
+  let ghostMarker = null;
   if (showVanishIntro && fromCell) {
-    const fromMarker = fromCell.querySelector('.piece-marker');
+    let fromMarker = fromCell.querySelector('.piece-marker');
+    if (!fromMarker && rt.victimIcon) {
+      ghostMarker = document.createElement('div');
+      ghostMarker.className = 'piece-marker ring-ghost';
+      ghostMarker.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
+      try {
+        if (getComputedStyle(fromCell).position === 'static') fromCell.style.position = 'relative';
+      } catch (e) {}
+      fromCell.appendChild(ghostMarker);
+      fromMarker = ghostMarker;
+    }
     if (fromMarker) {
       fromMarker.classList.remove('ring-prevanish');
       void fromMarker.offsetWidth;
@@ -14973,10 +15009,10 @@ function animateRingTeleport(rt, roleHint) {
   }
 
   // 1초 후 본 애니 시작
-  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell), 1000);
+  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker), 1000);
 }
 
-function _animateRingMain(rt, roleHint, fromCell, toCell) {
+function _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker) {
   // 1. 오로라 펄스 — 도착 셀에 즉시 부여 (1.5s 후 페이드아웃)
   if (toCell) {
     toCell.classList.remove('aurora-target', 'aurora-fade');
@@ -14986,12 +15022,15 @@ function _animateRingMain(rt, roleHint, fromCell, toCell) {
     setTimeout(() => toCell.classList.remove('aurora-target', 'aurora-fade'), 2900);
   }
 
-  // 2. 피해자 / 관전자 시점 — 자기 piece 가 흰빛+오로라로 빛나며 즉시 사라짐 (vanish)
+  // 2. 피해자 / 관전자 시점 — 자기 piece (또는 ghost) 가 흰빛+오로라로 빛나며 즉시 사라짐 (vanish)
   //   사용자 요청: 페이드 X, 띡 사라짐. 관전자도 피해자 애니까지 공유.
   const showVanish = (roleHint === 'victim' || roleHint === 'observer');
   if (showVanish && fromCell) {
-    const fromMarker = fromCell.querySelector('.piece-marker');
-    if (fromMarker) fromMarker.classList.add('ring-vanish');
+    const fromMarker = (ghostMarker && ghostMarker.isConnected) ? ghostMarker : fromCell.querySelector('.piece-marker');
+    if (fromMarker) {
+      fromMarker.classList.add('ring-vanish');
+      if (ghostMarker) setTimeout(() => { try { ghostMarker.remove(); } catch (e) {} }, 400);
+    }
   }
 
   // 3. 도착 piece — vanish 종료 (300ms) 후 등장. 스케일감 있게 + 흰빛 wrap → "뿅" 해제.
@@ -14999,7 +15038,8 @@ function _animateRingMain(rt, roleHint, fromCell, toCell) {
   const ARRIVE_DELAY = showVanish ? 320 : 0;          // vanish 끝나는 시점에 등장
   const POOF_OFFSET = 700;                              // ring-arrived 시작 후 빛 해제 시점
   setTimeout(() => {
-    if (typeof renderGameBoard === 'function') renderGameBoard();
+    // ★ renderGameBoard 는 호출하지 않음 (aurora-target 클래스가 wipe 되어 후광 잘림).
+    //   호출자가 이미 새 좌표로 render 한 상태에서 본 함수가 진행 중.
     const toCellNow = document.querySelector(`#game-board .cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
     if (!toCellNow) return;
     const arrivedMarker = toCellNow.querySelector('.piece-marker');
