@@ -5377,6 +5377,9 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
     if (matched && matched.name) actualSkillName = matched.name;
   }
   // 플레이어에게 status_update — 시전자 카드 spotlight + 마법구 비행 트리거
+  // ★ 사용자 보고 (애니/도장 누락): AI 1v1 status_update 가 hits/borderCells/ringTeleport/healed*/
+  //   cursed*/twinJoin 을 모두 누락하고 있어 receiver 가 데미지 도장·라바·반지·회복 플래시·저주
+  //   turn-bright·분신 비행을 모두 출력 못함. 인간 use_skill 경로 (8480 부근) 와 동일한 페이로드로 통일.
   const human = room.players[0];
   if (human.socketId !== 'AI') {
     io.to(human.socketId).emit('status_update', {
@@ -5392,9 +5395,26 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
         skillName: actualSkillName,
       },
       casterPieceIdx: pieceIdx,
+      // ★ 회복 애니 — 1v1 receiver 측에서 #opp-pieces-info 카드에 heal-flash 적용용.
+      healedPieceIdxs: result.data?.healedPieceIdxs || null,
+      // ★ 회복 (newer owner-aware) — { ownerIdx, pieceIdx } 페어
+      healedPieces: result.data?.healedPieces || null,
+      // ★ 분신 비행 애니 — fog-of-war 우회용 좌표 정보
+      twinJoin: result.data?.twinJoin || null,
+      // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장용 (defPieceIdx, defOwnerIdx 포함)
+      hits: result.data?.hits || null,
+      // ★ 유황범람 borderCells — 라바 애니 적용용
+      borderCells: result.data?.borderCells || null,
+      // ★ 저주 부여 정보 — 1v1 receiver 시점에서도 turn-bright 적용
+      cursedPieceIdx: result.data?.cursedPieceIdx,
+      cursedOwnerIdx: result.data?.cursedOwnerIdx,
+      // ★ 절대복종 반지 — 1v1 receiver (피해자) 시점 순간이동 애니용
+      ringTeleport: result.data?.ringTeleport || null,
+      // ※ herbCenter / divineTarget — 적팀에는 비공개 (사용자 요청).
     });
   }
   // 1v1 관전자: 마법구 비행 + spotlight 전용 이벤트
+  // ★ 사용자 보고 동일 — 관전자도 동일한 페이로드 전달 (인간 use_skill 의 spectator_skill_anim 경로와 통일).
   for (const s of (room.spectators || [])) {
     io.to(s.socketId).emit('spectator_skill_anim', {
       casterIdx: 1,
@@ -5403,8 +5423,23 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       sp: room.sp,
       instantSp: room.instantSp,
       skillUsed: { icon: piece.icon, name: piece.name, skillName: actualSkillName },
+      // ★ 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
+      twinJoin: result.data?.twinJoin || null,
+      msg: result.msg || null,
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
       hits: result.data?.hits || null,
+      // ★ 회복 애니메이션 — { ownerIdx, pieceIdx } 페어
+      healedPieces: result.data?.healedPieces || null,
+      // ★ 유황범람 borderCells — 라바 애니
+      borderCells: result.data?.borderCells || null,
+      // ★ 저주 부여 정보 — turn-bright
+      cursedPieceIdx: result.data?.cursedPieceIdx,
+      cursedOwnerIdx: result.data?.cursedOwnerIdx,
+      // ★ 절대복종 반지 순간이동 (관전자 시점)
+      ringTeleport: result.data?.ringTeleport || null,
+      // ★ 약초학/신성 — 1v1 관전자에게 항상 공유 (관전자는 모든 정보 시각화).
+      herbCenter: result.data?.herbCenter || null,
+      divineTarget: result.data?.divineTarget || null,
     });
   }
   // 관전자 로그
