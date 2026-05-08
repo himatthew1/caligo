@@ -113,9 +113,9 @@ const CHARACTERS = {
       skills:[], passives:['loyalty'] },
   ],
   3: [
-    { type:'prince', name:'왕자', tier:3, atk:3, icon:'👑', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
-    { type:'princess', name:'공주', tier:3, atk:3, icon:'🌸', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
-    { type:'king', name:'국왕', tier:3, atk:2, icon:'♛', tag:'royal', desc:'자신의 칸',
+    { type:'prince', name:'왕자', tier:3, atk:3, icon:'🤴🏼', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
+    { type:'princess', name:'공주', tier:3, atk:3, icon:'👸🏼', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
+    { type:'king', name:'국왕', tier:3, atk:2, icon:'🫅🏼', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null, desc:'X대각선 4칸 · 자기 제외',
       skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
@@ -226,7 +226,13 @@ function getAttackCells(type, col, row, bounds, extra) {
       break;
     case 'shadowAssassin':
       if (extra.tCol !== undefined && extra.tRow !== undefined) {
-        push(extra.tCol, extra.tRow);
+        // ★ 사용자 보고: 공격 범위가 witch 처럼 맵 전역으로 잘못 동작 → 3x3 가드 강제.
+        //   socket.on('attack') 에 이미 가드 있지만 AI processAttack 직접 호출 등 다른 경로 대비.
+        if (Math.abs(extra.tCol - col) <= 1 && Math.abs(extra.tRow - row) <= 1) {
+          push(extra.tCol, extra.tRow);
+        } else {
+          push(col, row);   // 범위 밖이면 자기 칸으로 폴백 (안전 — 적 미타격)
+        }
       } else {
         push(col, row);
       }
@@ -4733,6 +4739,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = healedIdxs;
       result.data.healedPieces = healedPieces;
+      // ★ 약초학 시전 애니용 — 시전자(약초전문가) 위치를 보드 애니의 중심으로.
+      result.data.herbCenter = { col: piece.col, row: piece.row };
       result.msg = `🌿 약초학: 범위 내 아군 1 HP 회복`;
       result.oppMsg = `🌿 약초학: 범위 내 아군 1 HP 회복`;
       break;
@@ -4886,11 +4894,25 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (!enemyPiece) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
       // ★ 사용자 정정: 그림자 암살자는 그림자 상태여도 절대복종 반지의 대상이 됨.
       //   공격·새 상태이상 면역일 뿐, 강제 이동은 상태이상이 아니므로 정상 적용.
+      // ★ 순간이동 애니용 — 이전 좌표 캡쳐 (피해자만 자기 piece 의 사라짐 → 등장 애니 가능)
+      const _ringFromCol = enemyPiece.col, _ringFromRow = enemyPiece.row;
       enemyPiece.col = destCol;
       enemyPiece.row = destRow;
       spendSP(room, playerIdx, cost);
       result.msg = `♛ 절대복종 반지: ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
       result.oppMsg = `♛ 반지: 상대 국왕이 ${enemyPiece.name}${조사(enemyPiece.name, '을', '를')} 강제 이동`;
+      // ★ 사용자 요청: 절대복종반지 애니 — 오로라 펄스 + 순간이동 + 화이트 페이드.
+      //   클라가 좌표/owner/pieceIdx 로 시각화. 자동 추리 토큰 (드래곤처럼 영구).
+      const _ringVictimPieceIdx = kingTargetOwner.pieces.indexOf(enemyPiece);
+      result.data.ringTeleport = {
+        fromCol: _ringFromCol, fromRow: _ringFromRow,
+        toCol: destCol, toRow: destRow,
+        victimOwnerIdx: kingTargetOwnerIdx,
+        victimPieceIdx: _ringVictimPieceIdx,
+        victimType: enemyPiece.type,
+        victimName: enemyPiece.name,
+        victimIcon: enemyPiece.icon,
+      };
 
       // ★ 사용자 요청: 절대복종반지 시전과 덫 발동을 시각적으로 분리.
       //   ring cast (이동) 가 SP_END_MS 시점에 마무리 → 그때 덫이 별도 phase 로 발동.
@@ -4977,6 +4999,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = [targetIdx2];
       result.data.healedPieces = [{ ownerIdx: playerIdx, pieceIdx: targetIdx2 }];
+      // ★ 신성 시전 애니용 — 대상의 위치 (빛 기둥이 내려올 곳).
+      result.data.divineTarget = { col: target.col, row: target.row };
       result.msg = `🙏 신성: ${target.name}의 상태이상 제거, 2 HP 회복`;
       result.oppMsg = `🙏 신성: ${target.name}의 상태이상 제거, 2 HP 회복`;
       break;
@@ -5260,10 +5284,16 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
 
 function aiBestTargetCell(brain, piece, room) {
   const bounds = room.boardBounds;
-  let bestCol = bounds.min, bestRow = bounds.min, bestScore = -1;
+  // ★ 사용자 보고 (치명적 결함): 그림자 암살자는 자신 + 주변 8칸 (3x3) 만 공격 범위.
+  //   이전엔 witch 와 동일하게 보드 전역에서 best target 을 찾아 → AI 그림자가 맵 끝에서도 공격.
+  //   piece.type 으로 분기: shadowAssassin = 3x3 제한, witch = 전역.
+  const isShadow = piece && piece.type === 'shadowAssassin';
+  let bestCol = piece.col, bestRow = piece.row, bestScore = -1;
   for (let r = bounds.min; r <= bounds.max; r++) {
     for (let c = bounds.min; c <= bounds.max; c++) {
       if (c === piece.col && r === piece.row) continue;
+      // 그림자 암살자 — 주변 3x3 안만 후보
+      if (isShadow && (Math.abs(c - piece.col) > 1 || Math.abs(r - piece.row) > 1)) continue;
       const score = brain.probMap[r][c];
       if (score > bestScore) { bestScore = score; bestCol = c; bestRow = r; }
     }
@@ -8402,6 +8432,11 @@ io.on('connection', (socket) => {
         healedPieces: result.data?.healedPieces || null,
         // ★ 분신 비행 — 모든 비시전자에게 좌표 전달. 클라가 같은 팀이면 표시, 적팀이면 무시.
         twinJoin: result.data?.twinJoin || null,
+        // ★ 절대복종 반지 순간이동 — 좌표 + 피해자 정보 전달.
+        ringTeleport: result.data?.ringTeleport || null,
+        // ★ 약초학 / 신성 시전 — 보드 애니용 좌표. 클라가 같은 팀일 때만 표시.
+        herbCenter: result.data?.herbCenter || null,
+        divineTarget: result.data?.divineTarget || null,
       };
       for (const p of room.players) {
         if (!p.socketId || p.index === idx) continue;
@@ -8468,6 +8503,9 @@ io.on('connection', (socket) => {
           // ★ 저주 부여 정보 — 1v1 상대 시점에서도 turn-bright 적용 (누락 수정)
           cursedPieceIdx: result.data?.cursedPieceIdx,
           cursedOwnerIdx: result.data?.cursedOwnerIdx,
+          // ★ 절대복종 반지 — 1v1 상대 (피해자) 시점 순간이동 애니용
+          ringTeleport: result.data?.ringTeleport || null,
+          // ※ herbCenter / divineTarget — 1v1 상대 (적팀) 에는 비공개 (사용자 요청).
         });
       }
     }
@@ -8494,6 +8532,11 @@ io.on('connection', (socket) => {
           // ★ 저주 부여 정보 — 1v1 관전자 시점에서도 turn-bright (누락 수정)
           cursedPieceIdx: result.data?.cursedPieceIdx,
           cursedOwnerIdx: result.data?.cursedOwnerIdx,
+          // ★ 절대복종 반지 순간이동 (관전자 시점)
+          ringTeleport: result.data?.ringTeleport || null,
+          // ★ 약초학/신성 — 1v1 관전자에게 항상 공유 (관전자는 모든 정보 시각화).
+          herbCenter: result.data?.herbCenter || null,
+          divineTarget: result.data?.divineTarget || null,
         });
       }
     }
@@ -8541,7 +8584,7 @@ io.on('connection', (socket) => {
         });
         // 팀모드: 변경된 보드 상태 broadcast (사망 시 alive=false 반영)
         if (room.mode === 'team' && willDie) broadcastTeamGameState(room);
-      }, 1500);
+      }, 3500);  // ★ 사용자 요청: 애니메이션 종료가 이동확정 — SP_END(1240) + intro(1000) + main(~1700) ≈ 3940. 3500ms 후 트랩 발동.
     }
 
     // 기폭 스킬: SP_END(1) + offset 200ms = 980ms + 폭탄 애니(950ms) = ~1930ms

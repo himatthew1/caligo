@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스킬 보드 애니메이션 + 사운드 · CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(30, 41, 59, 0.7), transparent 65%),
+      linear-gradient(135deg, #020617 0%, #0f172a 60%, #020617 100%);
+    color: #fef3c7;
+    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    padding: 32px 16px 64px;
+    display: block !important; align-items: initial !important; justify-content: initial !important;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.7rem; font-weight: 800; letter-spacing: 0.05em;
+       background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%); -webkit-background-clip: text;
+       background-clip: text; color: transparent; text-align: center; }
+  .sub { color: #94a3b8; font-size: 0.85rem; text-align: center; max-width: 800px;
+         margin: 0 auto 14px; line-height: 1.6; }
+  .global-controls {
+    max-width: 920px; margin: 8px auto 22px;
+    background: rgba(15,23,42,0.85); border: 1px solid rgba(148,163,184,0.2);
+    border-radius: 10px; padding: 12px 18px;
+    display: flex; gap: 14px; align-items: center; justify-content: center;
+  }
+  .global-controls button {
+    background: rgba(248, 113, 113, 0.25);
+    border: 1px solid rgba(248, 113, 113, 0.55);
+    color: #fef2f2;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 700;
+  }
+  .global-controls button.active {
+    background: rgba(34, 197, 94, 0.25); border-color: rgba(74, 222, 128, 0.6); color: #f0fdf4;
+  }
+  .anim-block {
+    max-width: 920px; margin: 22px auto;
+    background: rgba(15,23,42,0.7);
+    border: 1px solid rgba(148,163,184,0.2);
+    border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .anim-block h2 {
+    margin: 0 0 4px; font-size: 1.05rem; color: #fde68a;
+    letter-spacing: 0.04em;
+  }
+  .anim-block .desc {
+    font-size: 0.82rem; color: #cbd5e1; margin-bottom: 14px; line-height: 1.55;
+  }
+  .anim-stage {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 18px;
+    align-items: start;
+  }
+  .preview-board {
+    width: 360px; height: 360px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(5, 1fr);
+    gap: 5px; padding: 10px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 2px solid rgba(99, 102, 241, 0.3);
+    border-radius: 10px;
+    position: relative;
+  }
+  .preview-board .cell {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    border-radius: 5px;
+    position: relative;
+    display: grid; place-items: center;
+    font-size: 0.65rem; color: #94a3b8;
+    overflow: hidden;
+  }
+  .preview-board .cell.aurora-target { overflow: visible; }
+  .preview-board .cell .coord-label { font-size: 0.6rem; opacity: 0.45; }
+  .preview-board .piece-marker {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 2;
+  }
+  .preview-board .piece-marker .p-icon { font-size: 1.4rem; line-height: 1; }
+  .preview-board .piece-marker .p-hp { font-size: 0.6rem; color: #fef3c7; }
+  .controls { display: flex; flex-direction: column; gap: 10px; min-width: 220px; }
+  .controls button {
+    background: linear-gradient(135deg, rgba(99,102,241,0.4), rgba(168,85,247,0.45));
+    border: 1px solid rgba(196, 181, 253, 0.45);
+    color: #f5f3ff;
+    padding: 10px 16px; border-radius: 8px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 700;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .controls button:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(168,85,247,0.45); }
+  .controls .label-tip {
+    font-size: 0.72rem; color: #94a3b8; line-height: 1.5;
+    background: rgba(30,41,59,0.5); padding: 8px 10px; border-radius: 6px;
+    border: 1px solid rgba(148,163,184,0.18);
+  }
+</style>
+</head>
+<body>
+
+<h1>🎬 스킬 보드 애니메이션 + 사운드 미리보기</h1>
+<p class="sub">청록 사기증진 / 산뜻 약초학 / 천천히 신성 / 최면 절대복종반지. 각 시연 시 게임 내 SFX 함께 재생.</p>
+
+<div class="global-controls">
+  <button id="btn-mute" class="active">🔊 사운드 ON</button>
+  <span style="font-size:0.78rem;color:#94a3b8;">버튼 클릭 시 게임 내 SFX 와 동일한 사운드 재생</span>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<div class="anim-block">
+  <h2>🐀 쥐 소환 셀 — 3초 서서히 페이드</h2>
+  <p class="desc">0~600ms 풀 강도 후 ~3초에 걸쳐 부드럽게 페이드.</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-rat"></div>
+    <div class="controls">
+      <button onclick="trigRat()">🐀 쥐 3마리 소환</button>
+      <div class="label-tip">셀 색이 보라 → 투명으로 부드럽게 사라지는지 확인</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<div class="anim-block">
+  <h2>🌟 지휘관 사기증진 존 — 청록 + 버프 글로우 (상시)</h2>
+  <p class="desc">지휘관 본인 셀 가장 진한 청록. 인접 셀은 지휘관 측이 가장 밝다가 외곽으로 갈수록 사라짐.
+    <strong>버프 받는 ally piece 가 셀에 있을 때만</strong> 청록 글로우 + ✦✧✨ 랜덤 파티클 (위치/타이밍/크기 모두 랜덤).</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-morale"></div>
+    <div class="controls">
+      <button onclick="trigMorale()">🎖 지휘관 배치 (상승기류 활성화)</button>
+      <div class="label-tip">상시 박동 + 빛이 위로 솟아오름. 사운드: 패시브 톤.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<div class="anim-block">
+  <h2>🌿 약초학 시전 — 시계방향 + 벚꽃 + 꽃향기 마법 사운드</h2>
+  <p class="desc">바로 위 셀부터 시계방향으로 빠르게 펼쳐짐. ✨🌸⭐ 벚꽃 + 반짝이가 위로 솟아오름.
+    글로우는 살짝 약해짐. 사운드: 펜타토닉 chime + 글리산도 + 향기 반짝이 + 마무리 종 (꽃향기 풍기는 귀여운 마법).</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-herb"></div>
+    <div class="controls">
+      <button onclick="trigHerb()">🌿 약초학 시전 (중앙 C3)</button>
+      <div class="label-tip">시계방향 reveal — 보드 가장자리에 잘리는 셀은 invisible.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<div class="anim-block">
+  <h2>🙏 수도승 신성 — 천천히 내려오는 빛 + 다수 반짝이</h2>
+  <p class="desc">2.6s 천천히 내려오는 노란 빛 기둥 + ✝ 십자 떠오름 + 12개 ✨⭐✦ 별이 시간차로 흩날림.</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-divine"></div>
+    <div class="controls">
+      <button onclick="trigDivine('v1')">🙏 v1 — 4성부 코랄 ("Ah" 화음)</button>
+      <button onclick="trigDivine('v2')">🙏 v2 — 대성당 종 + 코랄 패드</button>
+      <button onclick="trigDivine('v3')">🙏 v3 — 상승 아르페지오 (Hallelujah)</button>
+      <div class="label-tip">3가지 성가대 합창 버전 — 듣고 선택해주세요.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<div class="anim-block">
+  <h2>🫅🏼 절대복종 반지 — 인트로 + 순간이동 + "뿅" 해제</h2>
+  <p class="desc"><strong>인트로 (1s)</strong>: 셀이 시안→마젠타→골드 3번 점멸 ("비용 비용 비용" 메탈릭 톤).
+    이후 <strong>메인</strong>: 강한 오로라 후광 + vanish (흰빛+오로라 즉시 사라짐) + arrived (스케일감 등장 → 흰빛 wrap → "뿅" 해제) + 16개 빛 입자 burst.
+    사운드: 인트로 메탈릭 ring 3개 + 메인 웅장 저음 종 + 불협화 톤 + 잔향 (거부할 수 없는 공포).
+    애니 전체 시간 = 이동 중 판정. <strong>관전자도 피해자 vanish 까지 공유</strong>.</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-ring"></div>
+    <div class="controls">
+      <button onclick="trigRing('victim', 'v1')">♛ v1 (피해자) — 깨끗한 클래식 삐삐삐</button>
+      <button onclick="trigRing('victim', 'v2')">♛ v2 (피해자) — 메탈릭 글래스 ring</button>
+      <button onclick="trigRing('victim', 'v3')">♛ v3 (피해자) — 불길한 알람 (불협)</button>
+      <div class="label-tip" style="margin-top:6px;">3가지 인트로 SFX 버전 — 메인 (웅장+공포) 은 동일.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────
+// SFX — game.js 의 함수들을 inline 복제 (mute 토글 가능)
+// ──────────────────────────────────────────────────────────────
+let sfxMuted = false;
+let _audioCtx = null;
+function getAudioCtx() {
+  if (sfxMuted) return null;
+  if (!_audioCtx) { try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function _sfxTone(ctx, when, freq, dur, type, gain, freqEnd) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, when);
+  if (freqEnd != null) o.frequency.exponentialRampToValueAtTime(Math.max(0.01, freqEnd), when + dur);
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(gain, when + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(when); o.stop(when + dur + 0.05);
+}
+function _sfxNoise(ctx, when, dur, gain, lo, hi) {
+  const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = (lo + hi) / 2;
+  filter.Q.value = 1.5;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(gain, when + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+  src.connect(filter).connect(g).connect(ctx.destination);
+  src.start(when); src.stop(when + dur + 0.05);
+}
+// ── 수도승 신성 SFX 후보들 (사용자 선택용 — 성스러운 합창 컨셉) ──
+
+// v1: 4성부 코랄 — "Ah" 모음 (cathedral choir 분위기)
+function playSfxDivine_v1() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // C major chord: C4 E4 G4 C5 (4성부)
+    const voices = [261.63, 329.63, 392.00, 523.25];
+    const masterG = ctx.createGain();
+    masterG.gain.setValueAtTime(0.001, now);
+    masterG.gain.linearRampToValueAtTime(0.18, now + 0.5);
+    masterG.gain.exponentialRampToValueAtTime(0.001, now + 2.6);
+    masterG.connect(ctx.destination);
+    voices.forEach((f, i) => {
+      // 각 성부 — 약간의 비브라토 + harmonic
+      for (const harmM of [1, 2, 3]) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = harmM === 1 ? 'sine' : 'triangle';
+        o.frequency.value = f * harmM;
+        const harmGain = harmM === 1 ? 0.5 : (harmM === 2 ? 0.18 : 0.08);
+        g.gain.value = harmGain * (i === 0 ? 1.0 : 0.7);  // bass 가장 강하게
+        // 비브라토 — 초저주파 LFO
+        const lfo = ctx.createOscillator();
+        const lfoG = ctx.createGain();
+        lfo.frequency.value = 5;
+        lfoG.gain.value = f * harmM * 0.005;
+        lfo.connect(lfoG); lfoG.connect(o.frequency);
+        o.connect(g); g.connect(masterG);
+        o.start(now); o.stop(now + 2.7);
+        lfo.start(now); lfo.stop(now + 2.7);
+      }
+    });
+  } catch (e) {}
+}
+
+// v2: 대성당 종 + 코랄 패드 (Hallelujah 느낌)
+function playSfxDivine_v2() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 큰 종 한 번 (시작)
+    _sfxTone(ctx, now, 261.63, 1.8, 'sine', 0.18);   // C4 종
+    _sfxTone(ctx, now, 523.25, 1.5, 'sine', 0.12);   // C5 보강
+    _sfxTone(ctx, now, 783.99, 1.3, 'sine', 0.08);   // G5 보강
+    // 코랄 패드 — 천천히 들어옴
+    const padNotes = [329.63, 392.00, 493.88];   // E4 G4 B4
+    const padG = ctx.createGain();
+    padG.gain.setValueAtTime(0.001, now);
+    padG.gain.linearRampToValueAtTime(0.10, now + 0.8);
+    padG.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+    padG.connect(ctx.destination);
+    padNotes.forEach(f => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      const lfo = ctx.createOscillator(); const lfoG = ctx.createGain();
+      lfo.frequency.value = 4.5; lfoG.gain.value = f * 0.004;
+      lfo.connect(lfoG); lfoG.connect(o.frequency);
+      o.connect(padG);
+      o.start(now); o.stop(now + 2.6);
+      lfo.start(now); lfo.stop(now + 2.6);
+    });
+    // 끝에 작은 천사 chime
+    _sfxTone(ctx, now + 1.4, 1568, 0.6, 'sine', 0.06);  // G6
+    _sfxTone(ctx, now + 1.6, 2093, 0.5, 'sine', 0.05);  // C7
+  } catch (e) {}
+}
+
+// v3: 상승 아르페지오 코랄 (Hallelujah glissando)
+function playSfxDivine_v3() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // C major scale 상승 — 4성부가 시간차로 합류
+    const baseNotes = [261.63, 329.63, 392.00, 440, 523.25, 587.33, 659.25];
+    baseNotes.forEach((f, i) => {
+      const t = now + i * 0.18;
+      // 메인 voice
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 1.3);
+      // octave 보강 (천사 같은 높은 voice)
+      const oH = ctx.createOscillator(); const gH = ctx.createGain();
+      oH.type = 'sine'; oH.frequency.value = f * 2;
+      gH.gain.setValueAtTime(0.001, t);
+      gH.gain.linearRampToValueAtTime(0.04, t + 0.05);
+      gH.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+      oH.connect(gH).connect(ctx.destination);
+      oH.start(t); oH.stop(t + 1.3);
+    });
+    // 끝에 sustain pad — Amen 느낌
+    _sfxTone(ctx, now + 1.6, 523.25, 1.5, 'triangle', 0.08);
+    _sfxTone(ctx, now + 1.6, 783.99, 1.3, 'sine', 0.05);
+  } catch (e) {}
+}
+
+// 신성 — playSfxHeal (따뜻한 화음)
+function playSfxHeal() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    for (let i = 0; i < notes.length; i++) {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = notes[i];
+      const t = now + i * 0.06;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.10, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + 0.5);
+    }
+    const sus = ctx.createOscillator(); const sg = ctx.createGain();
+    sus.type = 'triangle'; sus.frequency.value = 783.99;
+    sg.gain.setValueAtTime(0.001, now);
+    sg.gain.linearRampToValueAtTime(0.05, now + 0.1);
+    sg.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    sus.connect(sg); sg.connect(ctx.destination);
+    sus.start(now); sus.stop(now + 1.3);
+  } catch (e) {}
+}
+// 약초학 — 꽃향기 풍기는 귀여운 마법 (사용자 요청)
+function playSfxHerbMagic() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const notes = [659.25, 783.99, 880, 1046.5, 1318.5];
+    for (let i = 0; i < notes.length; i++) {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = notes[i];
+      const t = now + i * 0.045;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.07, t + 0.025);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.4);
+    }
+    const glis = ctx.createOscillator(); const gG = ctx.createGain();
+    glis.type = 'sine';
+    glis.frequency.setValueAtTime(880, now + 0.05);
+    glis.frequency.exponentialRampToValueAtTime(1760, now + 0.45);
+    gG.gain.setValueAtTime(0.001, now + 0.05);
+    gG.gain.linearRampToValueAtTime(0.04, now + 0.1);
+    gG.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    glis.connect(gG).connect(ctx.destination);
+    glis.start(now + 0.05); glis.stop(now + 0.6);
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.3));
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'highpass'; filt.frequency.value = 5000;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.001, now + 0.1);
+    nG.gain.linearRampToValueAtTime(0.04, now + 0.2);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    src.connect(filt).connect(nG).connect(ctx.destination);
+    src.start(now + 0.1); src.stop(now + 0.7);
+    const bell = ctx.createOscillator(); const bG = ctx.createGain();
+    bell.type = 'sine'; bell.frequency.value = 2093;
+    bG.gain.setValueAtTime(0.001, now + 0.4);
+    bG.gain.linearRampToValueAtTime(0.05, now + 0.43);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
+    bell.connect(bG).connect(ctx.destination);
+    bell.start(now + 0.4); bell.stop(now + 1.0);
+  } catch (e) {}
+}
+// ── 절대복종반지 SFX 후보들 (인트로 삐삐삐 + 메인 웅장공포) ──
+//   메인은 모두 동일, 인트로의 삐삐삐만 톤 다름.
+function _ringMainBass(ctx, t0) {
+  // 메인 — 웅장 저음 종 + 불협 + 럼블 + 끝 광채
+  _sfxTone(ctx, t0,        110, 1.4, 'sine',     0.15, 88);
+  _sfxTone(ctx, t0,        165, 1.1, 'triangle', 0.10);
+  _sfxTone(ctx, t0 + 0.05, 175, 1.0, 'sawtooth', 0.06, 145);
+  _sfxTone(ctx, t0 + 0.10, 233, 0.9, 'sawtooth', 0.05, 200);
+  _sfxNoise(ctx, t0,       1.4, 0.10, 50, 180);
+  _sfxTone(ctx, t0 + 0.7, 1760, 0.18, 'sine', 0.06);
+  _sfxTone(ctx, t0 + 0.78, 2200, 0.18, 'sine', 0.05);
+  _sfxTone(ctx, t0 + 0.86, 2640, 0.18, 'sine', 0.04);
+}
+
+// v1: 깨끗한 클래식 삐삐삐 (sine 800Hz)
+function playSfxKingRing_v1() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const blinkTimes = [0.1, 0.4, 0.7];
+    blinkTimes.forEach(t => {
+      _sfxTone(ctx, now + t, 880, 0.18, 'sine', 0.14);
+      _sfxTone(ctx, now + t + 0.005, 1760, 0.10, 'sine', 0.06);   // octave
+    });
+    _ringMainBass(ctx, now + 1.0);
+  } catch (e) {}
+}
+
+// v2: 메탈릭 글래스 ring (현재 버전)
+function playSfxKingRing_v2() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const blinkTimes = [0.1, 0.4, 0.7];
+    const bf = [880, 660, 1100];
+    blinkTimes.forEach((t, i) => {
+      _sfxTone(ctx, now + t, bf[i], 0.32, 'sine', 0.10, bf[i] * 0.85);
+      _sfxTone(ctx, now + t + 0.005, bf[i] * 1.51, 0.28, 'triangle', 0.05);
+      _sfxTone(ctx, now + t + 0.01, bf[i] * 3, 0.16, 'sine', 0.03);
+    });
+    _ringMainBass(ctx, now + 1.0);
+  } catch (e) {}
+}
+
+// v3: 불길한 알람 — 두 톤 동시 (불협 minor 2nd) — 호러 영화 시계
+function playSfxKingRing_v3() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const blinkTimes = [0.1, 0.4, 0.7];
+    blinkTimes.forEach(t => {
+      // 두 톤 동시 — minor 2nd (Eb / E) 불협
+      _sfxTone(ctx, now + t, 622.25, 0.22, 'square', 0.08);   // Eb5
+      _sfxTone(ctx, now + t, 659.25, 0.22, 'square', 0.08);   // E5
+      // 작은 메탈릭 click
+      _sfxNoise(ctx, now + t, 0.04, 0.06, 3000, 8000);
+    });
+    _ringMainBass(ctx, now + 1.0);
+  } catch (e) {}
+}
+
+// 기본 (v2 사용 — preview 에서 다른 버전 선택 가능)
+function playSfxKingRing() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    const blinkTimes = [0.1, 0.35, 0.65];
+    const blinkBaseFreqs = [880, 660, 1100];
+    blinkTimes.forEach((t, i) => {
+      _sfxTone(ctx, now + t, blinkBaseFreqs[i], 0.32, 'sine', 0.10, blinkBaseFreqs[i] * 0.85);
+      _sfxTone(ctx, now + t + 0.005, blinkBaseFreqs[i] * 1.51, 0.28, 'triangle', 0.05);
+      _sfxTone(ctx, now + t + 0.01, blinkBaseFreqs[i] * 3, 0.16, 'sine', 0.03);
+    });
+    const t0 = now + 1.0;
+    _sfxTone(ctx, t0, 110, 1.4, 'sine', 0.15, 88);
+    _sfxTone(ctx, t0, 165, 1.1, 'triangle', 0.10);
+    _sfxTone(ctx, t0 + 0.05, 175, 1.0, 'sawtooth', 0.06, 145);
+    _sfxTone(ctx, t0 + 0.10, 233, 0.9, 'sawtooth', 0.05, 200);
+    _sfxNoise(ctx, t0, 1.4, 0.10, 50, 180);
+    _sfxTone(ctx, t0 + 0.7, 1760, 0.18, 'sine', 0.06);
+    _sfxTone(ctx, t0 + 0.78, 2200, 0.18, 'sine', 0.05);
+    _sfxTone(ctx, t0 + 0.86, 2640, 0.18, 'sine', 0.04);
+  } catch (e) {}
+}
+// 사기증진 (commander) — 패시브 톤 (warm chord 위로 부드럽게 상승)
+function playSfxCommanderAura() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now,        440, 0.6, 'sine',     0.10, 660);     // glide A4 → E5
+    _sfxTone(ctx, now + 0.05, 660, 0.55, 'sine',    0.07);
+    _sfxTone(ctx, now + 0.10, 880, 0.5,  'triangle',0.05);
+  } catch (e) {}
+}
+// 쥐 소환 — 작은 squeak
+function playSfxRatSummon() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      _sfxTone(ctx, now + i * 0.13, 1200 + i * 200, 0.07, 'square', 0.05, 800);
+    }
+  } catch (e) {}
+}
+
+// 사운드 토글
+const btnMute = document.getElementById('btn-mute');
+btnMute.addEventListener('click', () => {
+  sfxMuted = !sfxMuted;
+  btnMute.textContent = sfxMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+  btnMute.classList.toggle('active', !sfxMuted);
+});
+
+// ──────────────────────────────────────────────────────────────
+// 보드 렌더 헬퍼
+// ──────────────────────────────────────────────────────────────
+const COL = ['A','B','C','D','E'];
+function buildBoard(id, pieces) {
+  const board = document.getElementById(id);
+  board.innerHTML = '';
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.col = c;
+      cell.dataset.row = r;
+      const lbl = document.createElement('span');
+      lbl.className = 'coord-label';
+      lbl.textContent = COL[c] + (r+1);
+      cell.appendChild(lbl);
+      const pc = (pieces || []).find(p => p.col === c && p.row === r);
+      if (pc) {
+        const m = document.createElement('div');
+        m.className = 'piece-marker';
+        m.innerHTML = `<span class="p-icon">${pc.icon}</span><span class="p-hp">${pc.hp || 3}</span>`;
+        cell.appendChild(m);
+      }
+      board.appendChild(cell);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// 1. 쥐 소환
+// ──────────────────────────────────────────────────────────────
+buildBoard('board-rat');
+function trigRat() {
+  playSfxRatSummon();
+  const board = document.getElementById('board-rat');
+  board.querySelectorAll('.cell.rat-spawn-mark').forEach(c => {
+    c.classList.remove('rat-spawn-mark');
+    c.style.removeProperty('--rat-fade-offset');
+  });
+  const targets = [{c:1, r:1}, {c:3, r:2}, {c:2, r:3}];
+  targets.forEach((t, i) => {
+    setTimeout(() => {
+      const cell = board.querySelector(`.cell[data-col="${t.c}"][data-row="${t.r}"]`);
+      if (!cell) return;
+      cell.classList.add('rat-spawn-mark');
+      cell.style.setProperty('--rat-fade-offset', '0s');
+      if (!cell.querySelector('.rat-mark')) {
+        const r = document.createElement('span');
+        r.className = 'rat-mark';
+        r.textContent = '🐀';
+        r.style.cssText = 'position:absolute;bottom:1px;left:2px;font-size:0.7rem;z-index:3;';
+        cell.appendChild(r);
+      }
+    }, i * 130);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────
+// 2. 지휘관 — 청록 상승기류
+// ──────────────────────────────────────────────────────────────
+function trigMorale() {
+  playSfxCommanderAura();
+  const cmdC = 2, cmdR = 2;
+  buildBoard('board-morale', [
+    { col: cmdC, row: cmdR, icon: '🎖', hp: 3 },
+    { col: 1, row: 2, icon: '⚔', hp: 3 },
+    { col: 3, row: 2, icon: '🔱', hp: 3 },
+    { col: 2, row: 1, icon: '🐎', hp: 3 },
+  ]);
+  const board = document.getElementById('board-morale');
+  // 지휘관 본인 셀 — 가장 밝은 morale-zone-center
+  const centerCell = board.querySelector(`.cell[data-col="${cmdC}"][data-row="${cmdR}"]`);
+  if (centerCell) centerCell.classList.add('morale-zone', 'morale-zone-center');
+  // 인접 4칸에 morale-zone + 방향 클래스 (지휘관 측에서 셀로 흘러 들어옴)
+  const dirMap = [
+    { dc: 0,  dr: -1, dir: 'morale-from-s' },   // 셀이 위쪽 — 기류는 s 에서 (지휘관이 아래)
+    { dc: 0,  dr:  1, dir: 'morale-from-n' },   // 셀이 아래쪽 — 기류는 n 에서
+    { dc: -1, dr:  0, dir: 'morale-from-e' },   // 셀이 왼쪽 — 기류는 e 에서
+    { dc:  1, dr:  0, dir: 'morale-from-w' },   // 셀이 오른쪽 — 기류는 w 에서
+  ];
+  for (const { dc, dr, dir } of dirMap) {
+    const cell = board.querySelector(`.cell[data-col="${cmdC+dc}"][data-row="${cmdR+dr}"]`);
+    if (!cell) continue;
+    cell.classList.add('morale-zone', dir);
+    // 사용자 요청: 버프 받는 ally piece 가 셀에 있을 때만 파티클 + 글로우.
+    const marker = cell.querySelector('.piece-marker');
+    if (!marker) continue;     // ally piece 없으면 파티클/글로우 X (테두리 그라데이션만)
+    marker.classList.add('morale-buffed');     // 청록 글로우
+    const sparkleChars = ['✦','✧','✦','✨','✧'];
+    for (let i = 0; i < 5; i++) {
+      const p = document.createElement('span');
+      p.className = 'morale-particle';
+      p.textContent = sparkleChars[i % sparkleChars.length];
+      p.style.left = (5 + Math.random() * 90) + '%';
+      p.style.top = (15 + Math.random() * 70) + '%';
+      const dx = (Math.random() - 0.5) * 18;
+      const dy = -(18 + Math.random() * 18);
+      const rot = (Math.random() - 0.5) * 320;
+      p.style.setProperty('--dx', dx + 'px');
+      p.style.setProperty('--dy', dy + 'px');
+      p.style.setProperty('--rot', rot + 'deg');
+      p.style.setProperty('--size', (0.45 + Math.random() * 0.3) + 'rem');
+      const dur = 1.4 + Math.random() * 1.0;
+      p.style.setProperty('--dur', dur + 's');
+      p.style.setProperty('--delay', (-Math.random() * dur) + 's');
+      cell.appendChild(p);
+    }
+  }
+}
+trigMorale();   // 초기 상태로 활성화 (사운드는 안 울림 — 컨텍스트 미생성 방지)
+
+// ──────────────────────────────────────────────────────────────
+// 3. 약초학 — 시계방향 reveal + 반짝이/데이지
+// ──────────────────────────────────────────────────────────────
+function trigHerb() {
+  playSfxHerbMagic();
+  const ctrC = 2, ctrR = 2;
+  buildBoard('board-herb', [
+    { col: ctrC, row: ctrR, icon: '🌿', hp: 2 },
+    { col: 1, row: 1, icon: '⚔', hp: 2 },
+    { col: 3, row: 3, icon: '🔱', hp: 2 },
+    { col: 2, row: 1, icon: '🐎', hp: 2 },
+  ]);
+  const board = document.getElementById('board-herb');
+  const clockwise = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+  const STEP_MS = 55;
+  const HOLD_MS = 1100;
+  const leafChars = ['✨','🌸','✨','🌸','✨','⭐','🌸','✨'];
+  clockwise.forEach(([dc, dr], i) => {
+    setTimeout(() => {
+      const c = ctrC + dc, r = ctrR + dr;
+      const cell = board.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`);
+      if (!cell) return;
+      cell.classList.remove('herb-cast-cell');
+      void cell.offsetWidth;
+      cell.classList.add('herb-cast-cell');
+      setTimeout(() => cell.classList.remove('herb-cast-cell'), HOLD_MS);
+      const rect = cell.getBoundingClientRect();
+      for (let k = 0; k < 3; k++) {
+        const p = document.createElement('div');
+        p.className = 'herb-leaf-particle';
+        p.textContent = leafChars[(i + k) % leafChars.length];
+        const sx = rect.left + rect.width * (0.25 + Math.random() * 0.5);
+        const sy = rect.top + rect.height * (0.55 + Math.random() * 0.3);
+        p.style.left = sx + 'px';
+        p.style.top = sy + 'px';
+        const dx = (Math.random() - 0.5) * 32;
+        const rot = (Math.random() - 0.5) * 540;
+        p.style.setProperty('--dx', dx + 'px');
+        p.style.setProperty('--rot', rot + 'deg');
+        p.style.setProperty('--rot1', ((Math.random() - 0.5) * 60) + 'deg');
+        p.style.animationDelay = (Math.random() * 0.15) + 's';
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 1500);
+      }
+    }, i * STEP_MS);
+  });
+}
+buildBoard('board-herb', [
+  { col: 2, row: 2, icon: '🌿', hp: 2 },
+  { col: 1, row: 1, icon: '⚔', hp: 2 },
+  { col: 3, row: 3, icon: '🔱', hp: 2 },
+  { col: 2, row: 1, icon: '🐎', hp: 2 },
+]);
+
+// ──────────────────────────────────────────────────────────────
+// 4. 신성 — 천천히 빛 + 다수 반짝이
+// ──────────────────────────────────────────────────────────────
+function trigDivine(version) {
+  if (version === 'v1') playSfxDivine_v1();
+  else if (version === 'v2') playSfxDivine_v2();
+  else if (version === 'v3') playSfxDivine_v3();
+  else playSfxHeal();
+  const tC = 2, tR = 2;
+  buildBoard('board-divine', [
+    { col: 0, row: 0, icon: '🙏', hp: 3 },
+    { col: tC, row: tR, icon: '⚔', hp: 1 },
+  ]);
+  const board = document.getElementById('board-divine');
+  const cell = board.querySelector(`.cell[data-col="${tC}"][data-row="${tR}"]`);
+  if (!cell) return;
+  cell.classList.remove('divine-target-cell');
+  void cell.offsetWidth;
+  cell.classList.add('divine-target-cell');
+  setTimeout(() => cell.classList.remove('divine-target-cell'), 2700);
+  const rect = cell.getBoundingClientRect();
+  const beam = document.createElement('div');
+  beam.className = 'divine-light-beam';
+  const beamW = rect.width * 0.7;
+  beam.style.left = (rect.left + (rect.width - beamW) / 2) + 'px';
+  beam.style.width = beamW + 'px';
+  beam.style.top = '0px';
+  beam.style.height = rect.bottom + 'px';
+  document.body.appendChild(beam);
+  setTimeout(() => beam.remove(), 2700);
+  const cross = document.createElement('div');
+  cross.className = 'divine-cross';
+  cross.textContent = '✝';
+  cross.style.left = (rect.left + rect.width / 2) + 'px';
+  cross.style.top = (rect.top - 4) + 'px';   // 머리 위
+  document.body.appendChild(cross);
+  setTimeout(() => cross.remove(), 2500);
+  // 작은 반짝이 — 빛 줄기 타고 상승 (셀 윗부분~화면 상단)
+  const sparkleChars = ['✨','⭐','✦','✧','✨','⭐','✦','✧','✨','⭐','✦','✨'];
+  const beamLeft = rect.left + rect.width * 0.15;
+  const beamWidth = rect.width * 0.7;
+  for (let i = 0; i < 12; i++) {
+    setTimeout(() => {
+      const s = document.createElement('div');
+      s.className = 'divine-sparkle';
+      s.textContent = sparkleChars[i % sparkleChars.length];
+      const startX = beamLeft + Math.random() * beamWidth;
+      const startY = rect.top + rect.height * (0.4 + Math.random() * 0.55);
+      s.style.left = startX + 'px';
+      s.style.top = startY + 'px';
+      const dx = (Math.random() - 0.5) * 14;
+      const rise = -(80 + Math.random() * (rect.top * 0.7));
+      const rot = (Math.random() - 0.5) * 540;
+      s.style.setProperty('--dx', dx + 'px');
+      s.style.setProperty('--rise', rise + 'px');
+      s.style.setProperty('--rot', rot + 'deg');
+      s.style.setProperty('--dur', (1.8 + Math.random() * 0.8) + 's');
+      document.body.appendChild(s);
+      setTimeout(() => s.remove(), 2700);
+    }, i * 130);
+  }
+}
+buildBoard('board-divine', [
+  { col: 0, row: 0, icon: '🙏', hp: 3 },
+  { col: 2, row: 2, icon: '⚔', hp: 1 },
+]);
+
+// ──────────────────────────────────────────────────────────────
+// 5. 절대복종 반지 — 최면 후광 + 빛 방울
+// ──────────────────────────────────────────────────────────────
+function trigRing(role, version) {
+  // SFX 버전 선택
+  if (version === 'v1') playSfxKingRing_v1();
+  else if (version === 'v3') playSfxKingRing_v3();
+  else playSfxKingRing_v2();
+  const fromC = 0, fromR = 4;
+  const toC = 2, toR = 2;
+  const showVanish = (role === 'victim' || role === 'observer');
+  const initialPieces = showVanish
+    ? [{ col: fromC, row: fromR, icon: '🧙', hp: 2 }, { col: 4, row: 4, icon: '🫅🏼', hp: 3 }]
+    : [{ col: 4, row: 4, icon: '🫅🏼', hp: 3 }];
+  buildBoard('board-ring', initialPieces);
+  const board = document.getElementById('board-ring');
+  const toCell = board.querySelector(`.cell[data-col="${toC}"][data-row="${toR}"]`);
+  // 인트로 — 1s 점멸 (오로라 빛 유지 + 강한 peak)
+  if (toCell) {
+    toCell.classList.remove('aurora-intro');
+    void toCell.offsetWidth;
+    toCell.classList.add('aurora-intro');
+    setTimeout(() => toCell.classList.remove('aurora-intro'), 1000);
+  }
+  // 대상 유닛 — 인트로 동안 흰색으로 빛나며 살짝 스케일업
+  if (showVanish) {
+    const fromCell = board.querySelector(`.cell[data-col="${fromC}"][data-row="${fromR}"]`);
+    const fromMarker = fromCell?.querySelector('.piece-marker');
+    if (fromMarker) {
+      fromMarker.classList.remove('ring-prevanish');
+      void fromMarker.offsetWidth;
+      fromMarker.classList.add('ring-prevanish');
+    }
+  }
+  setTimeout(() => _ringMainAnim(role, fromC, fromR, toC, toR, showVanish), 1000);
+}
+function _ringMainAnim(role, fromC, fromR, toC, toR, showVanish) {
+  const board = document.getElementById('board-ring');
+  const toCell = board.querySelector(`.cell[data-col="${toC}"][data-row="${toR}"]`);
+  // 1. 오로라 후광 — 도착 셀
+  if (toCell) {
+    toCell.classList.remove('aurora-target', 'aurora-fade');
+    void toCell.offsetWidth;
+    toCell.classList.add('aurora-target');
+    setTimeout(() => toCell.classList.add('aurora-fade'), 1500);
+    setTimeout(() => toCell.classList.remove('aurora-target', 'aurora-fade'), 2700);
+  }
+  // 2. 피해자 / 관전자 — vanish 애니 (흰빛+오로라 → 즉시 사라짐, 페이드 X)
+  if (showVanish) {
+    const fromCell = board.querySelector(`.cell[data-col="${fromC}"][data-row="${fromR}"]`);
+    const fromMarker = fromCell?.querySelector('.piece-marker');
+    if (fromMarker) {
+      fromMarker.classList.add('ring-vanish');
+      setTimeout(() => { if (fromMarker.parentNode) fromMarker.parentNode.removeChild(fromMarker); }, 300);
+    }
+  }
+  // 3. 도착 piece — vanish 끝나는 시점 (320ms) 에 등장. 스케일감 + 흰빛 wrap → "뿅" 해제.
+  const ARRIVE_DELAY = showVanish ? 320 : 0;
+  const POOF_OFFSET = 700;
+  setTimeout(() => {
+    if (!toCell) return;
+    let m = toCell.querySelector('.piece-marker');
+    if (!m) {
+      m = document.createElement('div');
+      m.className = 'piece-marker';
+      m.innerHTML = `<span class="p-icon">🧙</span><span class="p-hp">2</span>`;
+      toCell.appendChild(m);
+    }
+    m.classList.add('ring-arrived');
+    setTimeout(() => m.classList.remove('ring-arrived'), 1000);
+    // 4. 빛 입자 — "뿅" 해제 시점 (ring-arrived 시작 후 700ms) 에 사방으로 burst
+    setTimeout(() => {
+      const rect = toCell.getBoundingClientRect();
+      const colors = ['rgba(165, 243, 252, 0.95)','rgba(217, 70, 239, 0.9)','rgba(250, 204, 21, 0.9)'];
+      const BURST_COUNT = 16;
+      for (let i = 0; i < BURST_COUNT; i++) {
+        const p = document.createElement('div');
+        p.className = 'aurora-emit-particle';
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        p.style.left = cx + 'px';
+        p.style.top = cy + 'px';
+        const angle = (Math.PI * 2 * i / BURST_COUNT) + (Math.random() - 0.5) * 0.4;
+        const dist = 38 + Math.random() * 30;
+        p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+        p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+        p.style.setProperty('--aurora-color', colors[i % colors.length]);
+        p.style.setProperty('--dur', (0.9 + Math.random() * 0.5) + 's');
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 1500);
+      }
+    }, POOF_OFFSET);
+  }, ARRIVE_DELAY);
+}
+buildBoard('board-ring', [
+  { col: 0, row: 4, icon: '🧙', hp: 2 },
+  { col: 4, row: 4, icon: '♛', hp: 3 },
+]);
+</script>
+
+</body>
+</html>

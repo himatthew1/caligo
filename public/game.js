@@ -2412,7 +2412,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2545,6 +2545,30 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     //   살짝 지연 후 적용 — 재렌더 후 카드를 다시 찾아 heal-flash 부여.
     if (Array.isArray(healedPieces) && healedPieces.length > 0) {
       setTimeout(() => flashHealPiecesByOwner(healedPieces), 50);
+    }
+    // ★ 약초학 / 신성 보드 시전 애니 — 같은 팀(myTeam)만 표시. 적팀에는 비공개.
+    if (myTeam && herbCenter && typeof animateHerbCast === 'function') {
+      animateHerbCast(herbCenter.col, herbCenter.row);
+    }
+    if (myTeam && divineTarget && typeof animateDivineCast === 'function') {
+      animateDivineCast(divineTarget.col, divineTarget.row);
+    }
+    // ★ 절대복종 반지 — 모든 viewer 가 보는 애니. 같은 팀이면 'observer', 적팀(피해자 팀)은 'victim'.
+    if (ringTeleport && typeof animateRingTeleport === 'function') {
+      // 피해자 팀 = ringTeleport.victimOwnerIdx 의 팀이 내 팀과 같음.
+      const victimPlayer = (S.teamGamePlayers || []).find(p => p.idx === ringTeleport.victimOwnerIdx);
+      const isVictimTeam = victimPlayer && victimPlayer.teamId === S.teamId;
+      animateRingTeleport(ringTeleport, isVictimTeam ? 'victim' : 'observer');
+      // 시전자 측 (myTeam) 일 때 자동 추리 토큰 — 위치 정보 영구 노출
+      if (myTeam && !isVictimTeam) {
+        try {
+          const rt = ringTeleport;
+          const pieceKey = `${rt.victimType}:@${rt.victimOwnerIdx}`;
+          S.deductionTokens = (S.deductionTokens || []).filter(t =>
+            t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
+          S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
+        } catch (e) {}
+      }
     }
     if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
@@ -3132,7 +3156,7 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget }) => {
   if (!S.isSpectator) return;
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
@@ -3227,6 +3251,16 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
         const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[cursedPieceIdx];
         if (card) card.classList.add('turn-bright');
       });
+    }
+    // ★ 1v1 관전자 — 약초학/신성/절대복종반지 보드 애니 (관전자는 모든 정보 시각화).
+    if (herbCenter && typeof animateHerbCast === 'function') {
+      animateHerbCast(herbCenter.col, herbCenter.row);
+    }
+    if (divineTarget && typeof animateDivineCast === 'function') {
+      animateDivineCast(divineTarget.col, divineTarget.row);
+    }
+    if (ringTeleport && typeof animateRingTeleport === 'function') {
+      animateRingTeleport(ringTeleport, 'observer');
     }
   }, SP_END_MS);
 });
@@ -6023,6 +6057,28 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(data.borderCells);
       }
+      // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
+      if (data && data.herbCenter && typeof animateHerbCast === 'function') {
+        animateHerbCast(data.herbCenter.col, data.herbCenter.row);
+      }
+      // ★ 신성 시전 — 대상 셀에 신성한 빛 기둥 + 십자
+      if (data && data.divineTarget && typeof animateDivineCast === 'function') {
+        animateDivineCast(data.divineTarget.col, data.divineTarget.row);
+      }
+      // ★ 절대복종 반지 — 오로라 펄스 + 순간이동 + 화이트 페이드. 시전자 본인은 자동 추리 토큰.
+      if (data && data.ringTeleport && typeof animateRingTeleport === 'function') {
+        animateRingTeleport(data.ringTeleport, 'caster');
+        // 자동 추리 토큰 — 드래곤처럼 영구 유지
+        try {
+          const rt = data.ringTeleport;
+          const subUnit = '';                                // 일반 piece 라 subUnit 없음 (쌍둥이 제외)
+          const ownerSuffix = S.isTeamMode ? `@${rt.victimOwnerIdx}` : '';
+          const pieceKey = `${rt.victimType}:${subUnit}${ownerSuffix}`;
+          S.deductionTokens = (S.deductionTokens || []).filter(t =>
+            t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
+          S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
+        } catch (e) {}
+      }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
       const healedPieces = (data && data.healedPieces) || (effects && effects.healedPieces);
@@ -6129,7 +6185,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport }) => {
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
@@ -6221,6 +6277,10 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       // ★ 유황범람 라바 애니 — 1v1 상대 시점에서도 표시 (사용자 보고 누락 수정).
       if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(borderCells);
+      }
+      // ★ 절대복종 반지 — 1v1 상대(피해자) 시점: 자기 piece 가 vanish 후 재등장.
+      if (ringTeleport && typeof animateRingTeleport === 'function') {
+        animateRingTeleport(ringTeleport, 'victim');
       }
       // ★ 저주 부여 turn-bright — 1v1 상대 시점 (누락 수정).
       if (typeof cursedPieceIdx === 'number') {
@@ -11141,22 +11201,116 @@ function renderGameBoard() {
       }
     }
 
-    // 지휘관/약초전문가 영역 표시 (초록색)
+    // 지휘관 사기증진 존 — 지휘관에서 인접 4칸으로 기류가 흘러 들어가는 시각화.
+    //   각 인접 셀에 방향 클래스 (morale-from-s/n/w/e) 부여 → CSS 가 지휘관 측에서 셀 안쪽으로 흐르는 그라데이션.
+    //   보이는 대상: 본인 + 팀원 + 관전자 (적팀 비공개).
+    const _applyMoraleZoneFor = (cmdCol, cmdRow) => {
+      // 셀이 지휘관 본인 셀이면 morale-zone-center (가장 밝은 청록).
+      if (col === cmdCol && row === cmdRow) {
+        cell.classList.add('morale-zone', 'morale-zone-center');
+        return true;
+      }
+      // 셀 (col, row) 가 지휘관 (cmdCol, cmdRow) 의 어느 쪽인지 판정.
+      const dc = col - cmdCol, dr = row - cmdRow;
+      if (Math.abs(dc) + Math.abs(dr) !== 1) return false;   // 인접 십자 4칸 외엔 무관
+      cell.classList.add('morale-zone');
+      // 셀이 지휘관의 N/S/E/W 어느 쪽이냐 → 기류가 어느 쪽 (s/n/w/e) 에서 들어오는지.
+      //   dr === -1 (셀이 위쪽) → 기류는 셀의 s 쪽에서 들어옴 (지휘관이 아래)
+      //   dr === +1 (셀이 아래쪽) → 기류는 셀의 n 쪽에서 들어옴
+      //   dc === -1 (셀이 왼쪽)  → 기류는 셀의 e 쪽에서 들어옴
+      //   dc === +1 (셀이 오른쪽) → 기류는 셀의 w 쪽에서 들어옴
+      if (dr === -1) cell.classList.add('morale-from-s');
+      else if (dr === 1) cell.classList.add('morale-from-n');
+      else if (dc === -1) cell.classList.add('morale-from-e');
+      else if (dc === 1) cell.classList.add('morale-from-w');
+      return true;
+    };
+    let _isMoraleCell = false;
     for (const myPc of S.myPieces) {
-      if (!myPc.alive) continue;
-      if (myPc.type === 'commander') {
-        // 지휘관: 십자 인접 4칸 버프 영역
-        const adjCells = [[0,-1],[0,1],[-1,0],[1,0]];
-        if (adjCells.some(([dc, dr]) => myPc.col + dc === col && myPc.row + dr === row)) {
-          cell.classList.add('support-range');
+      if (myPc.alive && myPc.type === 'commander' && _applyMoraleZoneFor(myPc.col, myPc.row)) {
+        _isMoraleCell = true; break;
+      }
+    }
+    if (!_isMoraleCell && S.isTeamMode && Array.isArray(S.teammatePieces)) {
+      for (const tmPc of S.teammatePieces) {
+        if (tmPc.alive && tmPc.type === 'commander' && _applyMoraleZoneFor(tmPc.col, tmPc.row)) {
+          _isMoraleCell = true; break;
         }
       }
-      if (myPc.type === 'herbalist') {
-        // 약초전문가: 주변 3x3 힐 영역 (자기 제외)
-        const dc = Math.abs(myPc.col - col), dr = Math.abs(myPc.row - row);
-        if (dc <= 1 && dr <= 1 && !(dc === 0 && dr === 0)) {
-          cell.classList.add('support-range');
+    }
+    if (!_isMoraleCell && S.isSpectator) {
+      const allPlayers = (S.specGameState?.teamGamePlayers || []);
+      for (const pl of allPlayers) {
+        for (const pc of (pl.pieces || [])) {
+          if (pc.alive && pc.type === 'commander' && _applyMoraleZoneFor(pc.col, pc.row)) {
+            _isMoraleCell = true; break;
+          }
         }
+        if (_isMoraleCell) break;
+      }
+      if (!_isMoraleCell) {
+        const p0 = S.specGameState?.p0Pieces || [];
+        const p1 = S.specGameState?.p1Pieces || [];
+        for (const pc of [...p0, ...p1]) {
+          if (pc.alive && pc.type === 'commander' && _applyMoraleZoneFor(pc.col, pc.row)) {
+            _isMoraleCell = true; break;
+          }
+        }
+      }
+    }
+    // ★ 사기증진 — 사용자 요청: 버프받는 유닛이 셀에 있을 때만 파티클 + 청록 글로우.
+    //   지휘관 본인은 제외 (버프 주체이지 받는 대상이 아님).
+    //   adjacent (morale-from-*) 셀에 ally piece 있으면: 파티클 주입 + piece-marker 에 morale-buffed.
+    if (_isMoraleCell && !cell.classList.contains('morale-zone-center')) {
+      // ally piece 가 이 셀에 있는지 — 1v1 = S.myPieces, 팀모드 = 본인+팀원, 관전자 = 양 팀.
+      let allyPieceHere = false;
+      const _allyOnCell = (arr) => Array.isArray(arr) && arr.some(p => p.alive && p.col === col && p.row === row);
+      if (_allyOnCell(S.myPieces)) allyPieceHere = true;
+      if (!allyPieceHere && S.isTeamMode && _allyOnCell(S.teammatePieces)) allyPieceHere = true;
+      if (!allyPieceHere && S.isSpectator && S.specGameState) {
+        // 관전자 — 1v1 의 p0/p1, 팀모드 의 teamGamePlayers
+        if (_allyOnCell(S.specGameState.p0Pieces) || _allyOnCell(S.specGameState.p1Pieces)) allyPieceHere = true;
+        if (!allyPieceHere) {
+          for (const pl of (S.specGameState.teamGamePlayers || [])) {
+            if (_allyOnCell(pl.pieces)) { allyPieceHere = true; break; }
+          }
+        }
+      }
+      if (allyPieceHere) {
+        // 청록 글로우 — 셀 안의 piece-marker 에 morale-buffed (이미 추가된 piece-marker 가 있을 때만)
+        const marker = cell.querySelector('.piece-marker');
+        if (marker) marker.classList.add('morale-buffed');
+        // 랜덤 위치/타이밍 파티클 5개
+        const sparkleChars = ['✦', '✧', '✦', '✨', '✧'];
+        for (let i = 0; i < 5; i++) {
+          const p = document.createElement('span');
+          p.className = 'morale-particle';
+          p.textContent = sparkleChars[i % sparkleChars.length];
+          p.style.left = (5 + Math.random() * 90) + '%';
+          p.style.top = (15 + Math.random() * 70) + '%';
+          const dx = (Math.random() - 0.5) * 18;
+          const dy = -(18 + Math.random() * 18);
+          const rot = (Math.random() - 0.5) * 320;
+          p.style.setProperty('--dx', dx + 'px');
+          p.style.setProperty('--dy', dy + 'px');
+          p.style.setProperty('--rot', rot + 'deg');
+          p.style.setProperty('--size', (0.45 + Math.random() * 0.3) + 'rem');
+          const dur = 1.4 + Math.random() * 1.0;
+          p.style.setProperty('--dur', dur + 's');
+          p.style.setProperty('--delay', (-Math.random() * dur) + 's');
+          cell.appendChild(p);
+        }
+      }
+    }
+    // ★ 쥐 소환 마크 재적용 — renderGameBoard 가 className 을 wipe 해도 3s 동안 유지되도록.
+    //   --rat-fade-offset 음수로 elapsed 만큼 진행된 위치에서 이어 페이드.
+    if (Array.isArray(S._ratSpawnMarks) && S._ratSpawnMarks.length > 0) {
+      const _now = Date.now();
+      const mark = S._ratSpawnMarks.find(m => m.col === col && m.row === row && m.spawnT && (_now - m.spawnT) < 3000);
+      if (mark) {
+        const elapsedSec = (_now - mark.spawnT) / 1000;
+        cell.classList.add('rat-spawn-mark');
+        cell.style.setProperty('--rat-fade-offset', `-${elapsedSec}s`);
       }
     }
 
@@ -14677,6 +14831,207 @@ function animateLavaCells(cells) {
   }
 }
 
+// ── 약초학 시전 — 시계방향 reveal + 반짝이/데이지 파티클 ──
+//   사용자 요청: 약초전문가 바로 위 셀부터 시계방향으로 휘리릭 빠르게 펼쳐짐.
+//   각 셀이 50ms 간격으로 herb-cast-cell 부여 → 휘리릭 뿅! 느낌.
+//   보드 밖으로 잘리는 셀은 자연스레 안 보이고 타이밍은 동일.
+//   대상: 시전자 본인 + 같은 팀 + 관전자 (적팀에는 비공개).
+function animateHerbCast(centerCol, centerRow) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  // 시계방향 순서: 위(N) → 우상(NE) → 우(E) → 우하(SE) → 아래(S) → 좌하(SW) → 좌(W) → 좌상(NW)
+  const clockwise = [
+    [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]
+  ];
+  const STEP_MS = 55;     // 휘리릭 — 타이트한 간격
+  const HOLD_MS = 1100;   // 셀 발광 유지 시간
+  const leafChars = ['✨', '🌸', '✨', '🌸', '✨', '⭐', '🌸', '✨'];   // 벚꽃 + 반짝이 (사용자 요청)
+  clockwise.forEach(([dc, dr], i) => {
+    setTimeout(() => {
+      const c = centerCol + dc, r = centerRow + dr;
+      const cell = board.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`);
+      // 보드 밖 셀은 자연스럽게 스킵 (타이밍은 동일)
+      if (!cell) return;
+      cell.classList.remove('herb-cast-cell');
+      void cell.offsetWidth;
+      cell.classList.add('herb-cast-cell');
+      setTimeout(() => cell.classList.remove('herb-cast-cell'), HOLD_MS);
+      // 반짝이/데이지 파티클 — 셀당 3개
+      const rect = cell.getBoundingClientRect();
+      for (let k = 0; k < 3; k++) {
+        const p = document.createElement('div');
+        p.className = 'herb-leaf-particle';
+        // 각 셀이 받는 chars — clockwise idx + k 로 분산해서 다양화
+        p.textContent = leafChars[(i + k) % leafChars.length];
+        const sx = rect.left + rect.width * (0.25 + Math.random() * 0.5);
+        const sy = rect.top + rect.height * (0.55 + Math.random() * 0.3);
+        p.style.left = sx + 'px';
+        p.style.top = sy + 'px';
+        const dx = (Math.random() - 0.5) * 32;
+        const rot = (Math.random() - 0.5) * 540;
+        p.style.setProperty('--dx', dx + 'px');
+        p.style.setProperty('--rot', rot + 'deg');
+        p.style.setProperty('--rot1', ((Math.random() - 0.5) * 60) + 'deg');
+        p.style.animationDelay = (Math.random() * 0.15) + 's';
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 1500);
+      }
+    }, i * STEP_MS);
+  });
+}
+
+// ── 수도승 신성 — 천천히 내려오는 신성한 빛 + 십자 + 반짝이 다수 ──
+//   사용자 요청: 공격적이지 않은, 부드럽게 아군을 밝혀주는 느낌. 타이밍 충분히, 반짝이 풍성하게.
+//   대상: 시전자 본인 + 같은 팀 + 관전자 (적팀에는 비공개).
+function animateDivineCast(targetCol, targetRow) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${targetCol}"][data-row="${targetRow}"]`);
+  if (!cell) return;
+  cell.classList.remove('divine-target-cell');
+  void cell.offsetWidth;
+  cell.classList.add('divine-target-cell');
+  setTimeout(() => cell.classList.remove('divine-target-cell'), 2700);
+  const rect = cell.getBoundingClientRect();
+  // 빛 기둥 — 셀 위에서 천천히 내려옴
+  const beam = document.createElement('div');
+  beam.className = 'divine-light-beam';
+  const beamW = rect.width * 0.7;
+  beam.style.left = (rect.left + (rect.width - beamW) / 2) + 'px';
+  beam.style.width = beamW + 'px';
+  beam.style.top = '0px';
+  beam.style.height = rect.bottom + 'px';
+  document.body.appendChild(beam);
+  setTimeout(() => beam.remove(), 2700);
+  // 십자
+  const cross = document.createElement('div');
+  cross.className = 'divine-cross';
+  cross.textContent = '✝';
+  // 사용자 요청: 십자가는 유닛 머리 위에. 셀 윗변에서 살짝 위로.
+  cross.style.left = (rect.left + rect.width / 2) + 'px';
+  cross.style.top = (rect.top - 4) + 'px';
+  document.body.appendChild(cross);
+  setTimeout(() => cross.remove(), 2500);
+  // 반짝이 파티클 — 빛 줄기를 타고 위로 상승 (사용자 요청).
+  //   beam 의 폭(70%) 안에서 시작하여 셀 위쪽으로 솟구침. 셀 윗부분~빛 기둥 끝까지.
+  const sparkleChars = ['✨', '⭐', '✦', '✧', '✨', '⭐', '✦', '✧', '✨', '⭐', '✦', '✨'];
+  const beamLeft = rect.left + rect.width * 0.15;     // beam 폭 70% — 0.15 ~ 0.85
+  const beamWidth = rect.width * 0.7;
+  for (let i = 0; i < 12; i++) {
+    setTimeout(() => {
+      const s = document.createElement('div');
+      s.className = 'divine-sparkle';
+      s.textContent = sparkleChars[i % sparkleChars.length];
+      // 시작 — 셀 안 (밑부분 ~ 중간)
+      const startX = beamLeft + Math.random() * beamWidth;
+      const startY = rect.top + rect.height * (0.4 + Math.random() * 0.55);
+      s.style.left = startX + 'px';
+      s.style.top = startY + 'px';
+      // 좌우 흔들림 — 작게 (빛 줄기 폭 안에서)
+      const dx = (Math.random() - 0.5) * 14;
+      // 상승 거리 — 셀 위쪽 ~ 빛 기둥 시작점까지 (대부분 화면 위쪽)
+      const rise = -(80 + Math.random() * (rect.top * 0.7));
+      const rot = (Math.random() - 0.5) * 540;
+      s.style.setProperty('--dx', dx + 'px');
+      s.style.setProperty('--rise', rise + 'px');
+      s.style.setProperty('--rot', rot + 'deg');
+      s.style.setProperty('--dur', (1.8 + Math.random() * 0.8) + 's');
+      document.body.appendChild(s);
+      setTimeout(() => s.remove(), 2700);
+    }, i * 130);    // 시간차 ~1500ms 동안 흩날림
+  }
+}
+
+// ── 절대복종 반지 — 오로라 강한 펄스 + 빛 방울 + 순간이동 + 화이트 페이드 ──
+//   사용자 요청:
+//     · 셀 강조는 최면스럽게, 빛이 계속 빠져나오듯이 방울 파티클로 강화.
+//     · 관전자는 피해자 애니 (vanish) 까지 전부 공유.
+//   roleHint: 'caster' | 'victim' | 'observer'
+function animateRingTeleport(rt, roleHint) {
+  if (!rt) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const fromCell = board.querySelector(`.cell[data-col="${rt.fromCol}"][data-row="${rt.fromRow}"]`);
+  const toCell = board.querySelector(`.cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
+
+  // ── 인트로 (1s): 도착 셀이 오로라 색 3번 점멸 + 대상 유닛 흰색 글로우 (사용자 요청) ──
+  if (toCell) {
+    toCell.classList.remove('aurora-intro');
+    void toCell.offsetWidth;
+    toCell.classList.add('aurora-intro');
+    setTimeout(() => toCell.classList.remove('aurora-intro'), 1000);
+  }
+  // 대상 유닛이 보이는 시점 (피해자 / 관전자) 만 prevanish 글로우 적용
+  const showVanishIntro = (roleHint === 'victim' || roleHint === 'observer');
+  if (showVanishIntro && fromCell) {
+    const fromMarker = fromCell.querySelector('.piece-marker');
+    if (fromMarker) {
+      fromMarker.classList.remove('ring-prevanish');
+      void fromMarker.offsetWidth;
+      fromMarker.classList.add('ring-prevanish');
+    }
+  }
+
+  // 1초 후 본 애니 시작
+  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell), 1000);
+}
+
+function _animateRingMain(rt, roleHint, fromCell, toCell) {
+  // 1. 오로라 펄스 — 도착 셀에 즉시 부여 (1.5s 후 페이드아웃)
+  if (toCell) {
+    toCell.classList.remove('aurora-target', 'aurora-fade');
+    void toCell.offsetWidth;
+    toCell.classList.add('aurora-target');
+    setTimeout(() => toCell.classList.add('aurora-fade'), 1500);
+    setTimeout(() => toCell.classList.remove('aurora-target', 'aurora-fade'), 2900);
+  }
+
+  // 2. 피해자 / 관전자 시점 — 자기 piece 가 흰빛+오로라로 빛나며 즉시 사라짐 (vanish)
+  //   사용자 요청: 페이드 X, 띡 사라짐. 관전자도 피해자 애니까지 공유.
+  const showVanish = (roleHint === 'victim' || roleHint === 'observer');
+  if (showVanish && fromCell) {
+    const fromMarker = fromCell.querySelector('.piece-marker');
+    if (fromMarker) fromMarker.classList.add('ring-vanish');
+  }
+
+  // 3. 도착 piece — vanish 종료 (300ms) 후 등장. 스케일감 있게 + 흰빛 wrap → "뿅" 해제.
+  //   ring-arrived 키프레임 0.9s. 78~82% (~700~740ms) 가 "뿅" 해제 시점.
+  const ARRIVE_DELAY = showVanish ? 320 : 0;          // vanish 끝나는 시점에 등장
+  const POOF_OFFSET = 700;                              // ring-arrived 시작 후 빛 해제 시점
+  setTimeout(() => {
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    const toCellNow = document.querySelector(`#game-board .cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
+    if (!toCellNow) return;
+    const arrivedMarker = toCellNow.querySelector('.piece-marker');
+    if (arrivedMarker) {
+      arrivedMarker.classList.add('ring-arrived');
+      setTimeout(() => arrivedMarker.classList.remove('ring-arrived'), 1000);
+    }
+    // 1.5. 빛 입자 — "뿅" 해제 시점에 사방으로 발사 (사용자 요청: 입자는 흰빛 해제 순간부터)
+    setTimeout(() => {
+      const rect = toCellNow.getBoundingClientRect();
+      const colors = ['rgba(165, 243, 252, 0.95)', 'rgba(217, 70, 239, 0.9)', 'rgba(250, 204, 21, 0.9)'];
+      const BURST_COUNT = 16;
+      for (let i = 0; i < BURST_COUNT; i++) {
+        const p = document.createElement('div');
+        p.className = 'aurora-emit-particle';
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        p.style.left = cx + 'px';
+        p.style.top = cy + 'px';
+        const angle = (Math.PI * 2 * i / BURST_COUNT) + (Math.random() - 0.5) * 0.4;
+        const dist = 38 + Math.random() * 30;
+        p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+        p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+        p.style.setProperty('--aurora-color', colors[i % colors.length]);
+        p.style.setProperty('--dur', (0.9 + Math.random() * 0.5) + 's');
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 1500);
+      }
+    }, POOF_OFFSET);
+  }, ARRIVE_DELAY);
+}
+
 // ── 덫 발동 — 첨부 이미지 이빨 스냅 (옵션 B 확정: 큰 이빨, 살짝 박힘) ──
 //   셀 폭의 1.8배 이빨이 셀 안쪽 15% 까지 박힘 + bite-shake + 셀 흔들림 + 임팩트 광원.
 //   사운드는 trap_triggered 핸들러가 playSfxTrapSnap 호출.
@@ -14751,7 +15106,10 @@ function animateRatSpawn(rats, owner) {
   const board = document.getElementById('game-board');
   if (!board) return;
   rats.forEach((rat, i) => {
-    S._ratSpawnMarks.push({ col: rat.col, row: rat.row, turn: S.turnNumber });
+    // ★ 사용자 요청: 셀이 3s 에 걸쳐 서서히 페이드. spawnT (Date.now) 저장 →
+    //   renderGameBoard 가 매 호출 시 -elapsed ms 만큼 animation-delay 부여하여
+    //   재렌더 후에도 원래 진행 위치에서 이어 페이드.
+    S._ratSpawnMarks.push({ col: rat.col, row: rat.row, turn: S.turnNumber, spawnT: Date.now() });
     setTimeout(() => {
       const targetCell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
       if (!targetCell) return;
@@ -15587,8 +15945,93 @@ function playTimerTick() {
 
 // ── 턴 벨소리 (Web Audio) ──
 // ── 회복(약초학·신성) 전용 효과음 — 부드러운 상승 화음 + 반짝이 ──
-function playSfxHeal() {
+// ── 약초학 — 꽃향기 풍기는 귀여운 마법 (사용자 요청) ──
+//   chime + 글리산도 + 미세 반짝이 노이즈. 가볍고 따뜻하고 향기로운 톤.
+function playSfxHerbMagic() {
   if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // ① 가벼운 chime — 펜타토닉 위로 또르르 (E5 G5 A5 C6 E6)
+    const notes = [659.25, 783.99, 880, 1046.5, 1318.5];
+    for (let i = 0; i < notes.length; i++) {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = notes[i];
+      const t = now + i * 0.045;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.07, t + 0.025);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+      o.connect(g).connect(ctx.destination);
+      o.start(t); o.stop(t + 0.4);
+    }
+    // ② 작은 글리산도 (꽃잎이 흩날리는 듯) — 위로 짧게 미끄러짐
+    const glis = ctx.createOscillator(); const gG = ctx.createGain();
+    glis.type = 'sine';
+    glis.frequency.setValueAtTime(880, now + 0.05);
+    glis.frequency.exponentialRampToValueAtTime(1760, now + 0.45);
+    gG.gain.setValueAtTime(0.001, now + 0.05);
+    gG.gain.linearRampToValueAtTime(0.04, now + 0.1);
+    gG.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    glis.connect(gG).connect(ctx.destination);
+    glis.start(now + 0.05); glis.stop(now + 0.6);
+    // ③ 향기 반짝이 — 짧은 고역 노이즈 (살짝 사삭사삭)
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.3));
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'highpass'; filt.frequency.value = 5000;
+    const nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.001, now + 0.1);
+    nG.gain.linearRampToValueAtTime(0.04, now + 0.2);
+    nG.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    src.connect(filt).connect(nG).connect(ctx.destination);
+    src.start(now + 0.1); src.stop(now + 0.7);
+    // ④ 끝에 종소리 한 번 — 향기 마무리
+    const bell = ctx.createOscillator(); const bG = ctx.createGain();
+    bell.type = 'sine';
+    bell.frequency.value = 2093;     // C7 — 부드럽고 작은 종
+    bG.gain.setValueAtTime(0.001, now + 0.4);
+    bG.gain.linearRampToValueAtTime(0.05, now + 0.43);
+    bG.gain.exponentialRampToValueAtTime(0.001, now + 0.95);
+    bell.connect(bG).connect(ctx.destination);
+    bell.start(now + 0.4); bell.stop(now + 1.0);
+  } catch (e) {}
+}
+
+function playSfxHeal() {
+  // ★ 사용자 선택: 신성 v2 — 대성당 종 + 코랄 패드 + 끝 천사 chime.
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    // 큰 종 한 번 — 시작
+    _sfxTone(ctx, now, 261.63, 1.8, 'sine', 0.18);   // C4 종
+    _sfxTone(ctx, now, 523.25, 1.5, 'sine', 0.12);   // C5 보강
+    _sfxTone(ctx, now, 783.99, 1.3, 'sine', 0.08);   // G5 보강
+    // 코랄 패드 — 천천히 들어옴 (E4 G4 B4 — E minor 풍 화음)
+    const padNotes = [329.63, 392.00, 493.88];
+    const padG = ctx.createGain();
+    padG.gain.setValueAtTime(0.001, now);
+    padG.gain.linearRampToValueAtTime(0.10, now + 0.8);
+    padG.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
+    padG.connect(ctx.destination);
+    padNotes.forEach(f => {
+      const o = ctx.createOscillator();
+      o.type = 'triangle'; o.frequency.value = f;
+      // 비브라토 — 코랄 voice 살아있는 느낌
+      const lfo = ctx.createOscillator(); const lfoG = ctx.createGain();
+      lfo.frequency.value = 4.5; lfoG.gain.value = f * 0.004;
+      lfo.connect(lfoG); lfoG.connect(o.frequency);
+      o.connect(padG);
+      o.start(now); o.stop(now + 2.6);
+      lfo.start(now); lfo.stop(now + 2.6);
+    });
+    // 끝에 작은 천사 chime
+    _sfxTone(ctx, now + 1.4, 1568, 0.6, 'sine', 0.06);   // G6
+    _sfxTone(ctx, now + 1.6, 2093, 0.5, 'sine', 0.05);   // C7
+    return;   // legacy 코드 스킵
+  } catch (e) {}
+  // ── 이하 legacy (도달 안 함) — playSfxHerbMagic 분리 전 공용 사운드. 보존 ──
   try {
     const ctx = getAudioCtx(); if (!ctx) return;
     const now = ctx.currentTime;
@@ -15795,7 +16238,8 @@ function pickPassiveSfxByType(type) {
 function pickSkillSfxByMsg(msg) {
   if (!msg || typeof msg !== 'string') return null;
   if (msg.startsWith('⛓ 악몽:')) return playSfxNightmare;
-  if (msg.startsWith('🌿 약초학:') || msg.startsWith('🙏 신성:')) return (typeof playSfxHeal === 'function' ? playSfxHeal : null);
+  if (msg.startsWith('🌿 약초학:')) return (typeof playSfxHerbMagic === 'function' ? playSfxHerbMagic : null);
+  if (msg.startsWith('🙏 신성:')) return (typeof playSfxHeal === 'function' ? playSfxHeal : null);
   if (msg.startsWith('🔥 유황범람:')) return (typeof playSfxSulfur === 'function' ? playSfxSulfur : null);
   if (msg.startsWith('🏹 정비')) return playSfxArcherTune;       // 궁수 정비 (반전)
   if (msg.startsWith('🔭 정찰')) return playSfxScout;            // 척후병 정찰
@@ -16042,16 +16486,26 @@ function playSfxArmorerTune() {
 
 // ── 12. 국왕 절대복종 반지 — 웅장한 종소리 + 반지 광채 ──
 function playSfxKingRing() {
+  // ★ 사용자 선택: v1 — 깨끗한 클래식 sine 880Hz 삐삐삐 + 메인 웅장 저음.
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 큰 종소리 (저음)
-    _sfxTone(ctx, now,       220, 0.8, 'sine', 0.12);
-    _sfxTone(ctx, now,       330, 0.6, 'sine', 0.08);  // 3rd harmonic
-    // 광채 (고음 떨림)
-    for (let i = 0; i < 4; i++) {
-      _sfxTone(ctx, now + 0.15 + i * 0.08, 1760 + i * 220, 0.12, 'sine', 0.05);
-    }
+    // 인트로 (0~1s): 깨끗한 sine 삐 (셀 점멸 0.1/0.4/0.7 과 동기화) + octave
+    const blinkTimes = [0.1, 0.4, 0.7];
+    blinkTimes.forEach(t => {
+      _sfxTone(ctx, now + t, 880, 0.18, 'sine', 0.14);
+      _sfxTone(ctx, now + t + 0.005, 1760, 0.10, 'sine', 0.06);
+    });
+    // 메인 (T+1s ~ 2.4s): 웅장한 저음 종 + 불협화 + 럼블 + 끝 광채
+    const t0 = now + 1.0;
+    _sfxTone(ctx, t0,        110, 1.4, 'sine',     0.15, 88);
+    _sfxTone(ctx, t0,        165, 1.1, 'triangle', 0.10);
+    _sfxTone(ctx, t0 + 0.05, 175, 1.0, 'sawtooth', 0.06, 145);
+    _sfxTone(ctx, t0 + 0.10, 233, 0.9, 'sawtooth', 0.05, 200);
+    _sfxNoise(ctx, t0,       1.4, 0.10, 50, 180);
+    _sfxTone(ctx, t0 + 0.7, 1760, 0.18, 'sine', 0.06);
+    _sfxTone(ctx, t0 + 0.78, 2200, 0.18, 'sine', 0.05);
+    _sfxTone(ctx, t0 + 0.86, 2640, 0.18, 'sine', 0.04);
   } catch (e) {}
 }
 

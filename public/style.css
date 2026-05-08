@@ -2951,11 +2951,17 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   100% { opacity: 0; transform: translateY(-12px) scale(0.85); }
 }
 
-/* ── 쥐 소환 셀 — 보라 highlight (해당 턴 동안 유지 / 사용자 요청: 더 밝게) ── */
+/* ── 쥐 소환 셀 — 보라 highlight + 3s 서서히 페이드 (사용자 요청) ── */
 .cell.rat-spawn-mark {
-  background-color: rgba(139, 92, 246, 0.32) !important;
-  box-shadow: inset 0 0 12px rgba(168,85,247,.5), 0 0 8px rgba(168,85,247,.3);
-  transition: background-color 0.4s, box-shadow 0.4s;
+  /* --rat-fade-offset (음수) — JS 가 elapsed 만큼 음수 delay 부여 → 재렌더 후에도 지속.
+     pseudo (::after) 에도 동일 변수 적용해 동기화. */
+  animation: ratSpawnFade 3s ease-out forwards;
+  animation-delay: var(--rat-fade-offset, 0s);
+}
+@keyframes ratSpawnFade {
+  0%   { background-color: rgba(139, 92, 246, 0.32); box-shadow: inset 0 0 12px rgba(168,85,247,.5), 0 0 8px rgba(168,85,247,.3); }
+  20%  { background-color: rgba(139, 92, 246, 0.32); box-shadow: inset 0 0 12px rgba(168,85,247,.5), 0 0 8px rgba(168,85,247,.3); }
+  100% { background-color: transparent; box-shadow: none; }
 }
 .cell.rat-spawn-mark::after {
   content: '';
@@ -2963,12 +2969,16 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   background: radial-gradient(circle, rgba(168,85,247,.22) 0%, rgba(139,92,246,0) 70%);
   border-radius: inherit;
   pointer-events: none;
-  animation: ratPulseBright 2s ease-in-out infinite;
+  animation: ratPulseFade 3s ease-out forwards;
+  animation-delay: var(--rat-fade-offset, 0s);
   z-index: 0;
 }
-@keyframes ratPulseBright {
-  0%,100% { opacity: 0.6; }
-  50%     { opacity: 1; }
+@keyframes ratPulseFade {
+  0%   { opacity: 0.6; }
+  10%  { opacity: 1; }
+  20%  { opacity: 0.6; }
+  30%  { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* ── 쥐 비행 — 하늘에서 비처럼 떨어짐 + 2회 바운스 (사용자 요청) ── */
@@ -3774,10 +3784,502 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 /* 슬라이드 컨텐츠 자체의 패딩도 살짝 축소 */
 .char-dict-main .slide-content { padding: 14px 18px; }
 
-/* ── 지원 범위 (지휘관/약초전문가) ── */
+/* ── 지원 범위 (legacy — 약초전문가 보드 미리보기는 제거됨, 호환용) ── */
 .cell.support-range {
   box-shadow: inset 0 0 0 2px rgba(82, 183, 136, 0.5);
   background: rgba(82, 183, 136, 0.12) !important;
+}
+
+/* ── 지휘관 사기증진 존 — 지휘관 본인 셀 가장 밝게, 인접 셀 그라데이션 ── */
+/*    사용자 요청: 지휘관 위치한 쪽이 제일 밝고 멀어질수록 연해짐. */
+.cell.morale-zone {
+  position: relative;
+  overflow: hidden;
+}
+/* 지휘관 본인 셀 — 가장 밝은 청록 (인접 셀의 commander-side 와 같은 강도) */
+.cell.morale-zone-center {
+  background: rgba(94, 234, 212, 0.30) !important;
+  box-shadow:
+    inset 0 0 18px rgba(94, 234, 212, 0.4),
+    inset 0 0 6px rgba(165, 243, 252, 0.55);
+  animation: moraleCenterPulse 3s ease-in-out infinite;
+}
+@keyframes moraleCenterPulse {
+  0%, 100% {
+    background: rgba(94, 234, 212, 0.28) !important;
+    box-shadow: inset 0 0 16px rgba(94, 234, 212, 0.35), inset 0 0 6px rgba(165, 243, 252, 0.45);
+  }
+  50% {
+    background: rgba(94, 234, 212, 0.36) !important;
+    box-shadow: inset 0 0 24px rgba(94, 234, 212, 0.55), inset 0 0 10px rgba(165, 243, 252, 0.7);
+  }
+}
+/* 인접 셀 — 지휘관 측이 가장 밝고, 멀어지는 쪽은 점점 연해져 사라짐 */
+/* 셀이 지휘관 위쪽 (north of commander) — 기류는 셀 *남쪽* (지휘관 측) 가장 밝음, 위로 갈수록 연해짐 */
+.cell.morale-from-s {
+  background: linear-gradient(0deg,
+    rgba(94, 234, 212, 0.30) 0%,
+    rgba(94, 234, 212, 0.20) 35%,
+    rgba(94, 234, 212, 0.08) 70%,
+    transparent 100%) !important;
+}
+/* 셀이 지휘관 아래쪽 — 기류는 셀 *북쪽* (지휘관 측) 가장 밝음 */
+.cell.morale-from-n {
+  background: linear-gradient(180deg,
+    rgba(94, 234, 212, 0.30) 0%,
+    rgba(94, 234, 212, 0.20) 35%,
+    rgba(94, 234, 212, 0.08) 70%,
+    transparent 100%) !important;
+}
+/* 셀이 지휘관 왼쪽 — 기류는 셀 *동쪽* (지휘관 측) 가장 밝음 */
+.cell.morale-from-e {
+  background: linear-gradient(270deg,
+    rgba(94, 234, 212, 0.30) 0%,
+    rgba(94, 234, 212, 0.20) 35%,
+    rgba(94, 234, 212, 0.08) 70%,
+    transparent 100%) !important;
+}
+/* 셀이 지휘관 오른쪽 — 기류는 셀 *서쪽* (지휘관 측) 가장 밝음 */
+.cell.morale-from-w {
+  background: linear-gradient(90deg,
+    rgba(94, 234, 212, 0.30) 0%,
+    rgba(94, 234, 212, 0.20) 35%,
+    rgba(94, 234, 212, 0.08) 70%,
+    transparent 100%) !important;
+}
+/* 인접 셀 부드러운 박동 (기류가 살아있는 느낌만, 너무 거칠지 않게) */
+.cell.morale-zone:not(.morale-zone-center) {
+  animation: moraleAdjacentPulse 3s ease-in-out infinite;
+}
+@keyframes moraleAdjacentPulse {
+  0%, 100% { filter: brightness(1.0); }
+  50%      { filter: brightness(1.18); }
+}
+
+/* 사기증진 파티클 — JS 가 셀 안에 랜덤 위치/타이밍으로 ✦ ✧ 다수 주입 */
+.morale-particle {
+  position: absolute;
+  pointer-events: none;
+  font-size: var(--size, 0.55rem);
+  color: rgba(165, 243, 252, 0.95);
+  text-shadow: 0 0 6px rgba(94, 234, 212, 0.95);
+  opacity: 0;
+  animation: moraleParticleFloat var(--dur, 1.8s) ease-out infinite;
+  animation-delay: var(--delay, 0s);
+  z-index: 1;
+}
+@keyframes moraleParticleFloat {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.3) rotate(0deg); }
+  18%  { opacity: 1; transform: translate(0, -2px) scale(1.0) rotate(45deg); }
+  100% { opacity: 0; transform: translate(var(--dx, 0), var(--dy, -28px)) scale(0.7) rotate(var(--rot, 180deg)); }
+}
+/* 사기증진 존 셀에 piece 가 있을 땐 piece-marker 위로 파티클이 가지 않게 z-index 낮게 유지 */
+.cell.morale-zone .piece-marker { position: relative; z-index: 3; }
+
+/* 사기증진 버프 받는 유닛 — 청록 글로우 (사용자 요청).
+   지휘관 본인은 X — 인접 아군만 적용. JS 가 morale-buffed 클래스 부여. */
+.piece-marker.morale-buffed {
+  filter:
+    drop-shadow(0 0 5px rgba(94, 234, 212, 0.95))
+    drop-shadow(0 0 10px rgba(45, 212, 191, 0.7));
+  animation: moraleBuffedPulse 2.4s ease-in-out infinite;
+}
+@keyframes moraleBuffedPulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(94, 234, 212, 0.85)) drop-shadow(0 0 8px rgba(45, 212, 191, 0.6)); }
+  50%      { filter: drop-shadow(0 0 7px rgba(165, 243, 252, 1)) drop-shadow(0 0 14px rgba(94, 234, 212, 0.9)); }
+}
+
+/* ────────────────────────────────────────────────────────────── */
+/* ♛ 절대복종 반지 — 인트로 (1s 점멸) → 메인 후광 (회전 네모 X)    */
+/* ────────────────────────────────────────────────────────────── */
+/* 인트로 — 1초간 오로라 빛 유지 + 3번 강한 점멸 (사용자 요청) */
+/*    base: 항상 오로라 색이 약하게 깔려있음. 점멸 peak 에서 강력한 발광. */
+.cell.aurora-intro {
+  position: relative;
+  z-index: 5;
+  animation: auroraIntroBlink 1s ease-in-out forwards;
+}
+@keyframes auroraIntroBlink {
+  /* base — 약한 오로라 (사이안) */
+  0%   {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.18), rgba(165, 243, 252, 0.08) 60%, transparent 100%) !important;
+    box-shadow: inset 0 0 12px rgba(34, 211, 238, 0.3), 0 0 14px rgba(34, 211, 238, 0.25);
+  }
+  /* peak 1 — 사이안 강력 */
+  12%  {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.85), rgba(165, 243, 252, 0.55) 50%, rgba(34, 211, 238, 0.2) 100%) !important;
+    box-shadow: inset 0 0 32px rgba(34, 211, 238, 1), 0 0 44px rgba(34, 211, 238, 0.95), 0 0 70px rgba(34, 211, 238, 0.55);
+  }
+  /* base — 약한 마젠타 */
+  25%  {
+    background: radial-gradient(circle, rgba(217, 70, 239, 0.20), rgba(232, 121, 249, 0.08) 60%, transparent 100%) !important;
+    box-shadow: inset 0 0 12px rgba(217, 70, 239, 0.32), 0 0 14px rgba(217, 70, 239, 0.25);
+  }
+  /* peak 2 — 마젠타 강력 */
+  38%  {
+    background: radial-gradient(circle, rgba(217, 70, 239, 0.9), rgba(232, 121, 249, 0.6) 50%, rgba(217, 70, 239, 0.25) 100%) !important;
+    box-shadow: inset 0 0 34px rgba(217, 70, 239, 1), 0 0 48px rgba(217, 70, 239, 0.95), 0 0 76px rgba(217, 70, 239, 0.55);
+  }
+  /* base — 약한 골드 */
+  50%  {
+    background: radial-gradient(circle, rgba(250, 204, 21, 0.20), rgba(254, 240, 138, 0.10) 60%, transparent 100%) !important;
+    box-shadow: inset 0 0 12px rgba(250, 204, 21, 0.32), 0 0 14px rgba(250, 204, 21, 0.28);
+  }
+  /* peak 3 — 골드 강력 */
+  65%  {
+    background: radial-gradient(circle, rgba(250, 204, 21, 0.95), rgba(254, 240, 138, 0.65) 50%, rgba(250, 204, 21, 0.28) 100%) !important;
+    box-shadow: inset 0 0 36px rgba(250, 204, 21, 1), 0 0 50px rgba(250, 204, 21, 0.95), 0 0 78px rgba(250, 204, 21, 0.55);
+  }
+  /* 마지막 — 오로라 base 톤 (사이안+마젠타 혼합), 메인 시작과 자연스럽게 연결 */
+  100% {
+    background: radial-gradient(circle, rgba(165, 243, 252, 0.30), rgba(217, 70, 239, 0.18) 50%, rgba(250, 204, 21, 0.10) 80%, transparent 100%) !important;
+    box-shadow: inset 0 0 22px rgba(165, 243, 252, 0.5), 0 0 22px rgba(34, 211, 238, 0.55);
+  }
+}
+
+/* 대상 유닛 — 인트로 동안 서서히 흰색으로 빛나며 살짝 스케일업 (사용자 요청) */
+.piece-marker.ring-prevanish {
+  animation: ringPrevanish 1s ease-in-out forwards;
+}
+@keyframes ringPrevanish {
+  0%   {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  35%  {
+    transform: scale(1.05);
+    filter: brightness(1.6) drop-shadow(0 0 6px rgba(255,255,255,0.6)) drop-shadow(0 0 10px rgba(165, 243, 252, 0.4));
+  }
+  70%  {
+    transform: scale(1.1);
+    filter: brightness(2.4) drop-shadow(0 0 10px rgba(255,255,255,0.85)) drop-shadow(0 0 18px rgba(217, 70, 239, 0.55));
+  }
+  100% {
+    transform: scale(1.13);
+    filter: brightness(3.2) drop-shadow(0 0 14px rgba(255,255,255,1)) drop-shadow(0 0 24px rgba(165, 243, 252, 0.85)) drop-shadow(0 0 36px rgba(217, 70, 239, 0.7));
+  }
+}
+
+/* 셀 자체 — 오로라 색이 강하게 빠져나오는 느낌. 박동 + 풍부한 외광. */
+.cell.aurora-target {
+  position: relative;
+  z-index: 5;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(165, 243, 252, 0.45) 0%,
+    rgba(217, 70, 239, 0.32) 40%,
+    rgba(250, 204, 21, 0.18) 80%,
+    transparent 100%) !important;
+  animation: auroraTargetPulse 1.4s ease-in-out infinite;
+  overflow: visible;
+}
+@keyframes auroraTargetPulse {
+  0%, 100% {
+    box-shadow:
+      inset 0 0 28px rgba(165, 243, 252, 0.7),
+      0 0 26px rgba(34, 211, 238, 0.7),
+      0 0 60px rgba(34, 211, 238, 0.45);
+  }
+  33% {
+    box-shadow:
+      inset 0 0 32px rgba(232, 121, 249, 0.75),
+      0 0 32px rgba(217, 70, 239, 0.75),
+      0 0 70px rgba(217, 70, 239, 0.5);
+  }
+  66% {
+    box-shadow:
+      inset 0 0 32px rgba(254, 240, 138, 0.8),
+      0 0 30px rgba(250, 204, 21, 0.75),
+      0 0 64px rgba(250, 204, 21, 0.5);
+  }
+}
+/* 후광 — 원형 radial 으로 셀 주변에 짙은 오로라 헤일로 + 박동.
+   회전 네모 (conic) 제거 — 둥근 후광만. */
+.cell.aurora-target::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 260%; height: 260%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(165, 243, 252, 0.5) 0%,
+    rgba(217, 70, 239, 0.32) 25%,
+    rgba(250, 204, 21, 0.20) 55%,
+    rgba(165, 243, 252, 0.10) 75%,
+    transparent 95%);
+  filter: blur(6px);
+  animation: auroraHaloPulse 1.6s ease-in-out infinite;
+  z-index: -1;
+}
+@keyframes auroraHaloPulse {
+  0%, 100% { opacity: 0.85; transform: translate(-50%, -50%) scale(0.95); }
+  50%      { opacity: 1.0;  transform: translate(-50%, -50%) scale(1.10); }
+}
+/* 페이드아웃 — 1.2s 후 셀+후광 모두 사라짐 */
+.cell.aurora-target.aurora-fade {
+  animation: auroraTargetPulse 1.4s ease-in-out infinite, auroraFadeOut 1.2s ease-out forwards;
+}
+.cell.aurora-target.aurora-fade::before {
+  animation: auroraHaloPulse 1.6s ease-in-out infinite, auroraFadeOut 1.2s ease-out forwards;
+}
+@keyframes auroraFadeOut {
+  to { opacity: 0; }
+}
+
+/* 빛 입자 — 흰색 기운이 해제되는 순간 셀에서 사방으로 뿜어져 나옴 */
+.aurora-emit-particle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9090;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(254, 252, 232, 1) 0%,
+    var(--aurora-color, rgba(165, 243, 252, 0.85)) 50%,
+    transparent 100%);
+  box-shadow: 0 0 10px var(--aurora-color, rgba(165, 243, 252, 0.85));
+  opacity: 0;
+  animation: auroraEmitDrift var(--dur, 1.4s) ease-out forwards;
+}
+@keyframes auroraEmitDrift {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.4); }
+  15%  { opacity: 1; transform: translate(0, -4px) scale(1.0); }
+  100% { opacity: 0; transform: translate(var(--dx, 0), var(--dy, -50px)) scale(0.5); }
+}
+
+/* 도착한 piece — 스케일감 있게 등장 + 흰색 발광 wrap → "뿅" 해제 (사용자 요청) */
+.piece-marker.ring-arrived {
+  animation: ringArrived 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes ringArrived {
+  0%   {
+    /* 스케일 작게 등장 */
+    transform: scale(0.4);
+    filter: brightness(4.5)
+      drop-shadow(0 0 18px #ffffff)
+      drop-shadow(0 0 32px rgba(165, 243, 252, 0.95))
+      drop-shadow(0 0 48px rgba(217, 70, 239, 0.7));
+  }
+  25%  {
+    /* 스케일감 있게 부풀어 — 흰빛 wrap */
+    transform: scale(1.6);
+    filter: brightness(4.0)
+      drop-shadow(0 0 22px #ffffff)
+      drop-shadow(0 0 38px rgba(165, 243, 252, 1.0))
+      drop-shadow(0 0 56px rgba(217, 70, 239, 0.8));
+  }
+  60%  {
+    /* 정상 크기로 정착 시작 — 여전히 흰빛 */
+    transform: scale(1.05);
+    filter: brightness(3.0)
+      drop-shadow(0 0 16px #ffffff)
+      drop-shadow(0 0 28px rgba(165, 243, 252, 0.8));
+  }
+  78%  {
+    /* "뿅" 직전 — 마지막 화이트 플래시 (이 시점에 빛 입자 발사) */
+    transform: scale(1.0);
+    filter: brightness(2.5)
+      drop-shadow(0 0 12px #ffffff)
+      drop-shadow(0 0 22px rgba(165, 243, 252, 0.6));
+  }
+  82%  {
+    /* "뿅" — 흰빛 갑자기 해제 (입자 발사 시점) */
+    filter: brightness(1.05) drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1) drop-shadow(0 1px 2px rgba(0,0,0,0.6));
+  }
+}
+
+/* 순간이동 — 흰빛 + 오로라 발광 후 즉시 사라짐 (사용자 요청: 페이드 X, "띡" 사라짐) */
+.piece-marker.ring-vanish {
+  animation: ringVanish 0.3s ease-out forwards;
+}
+@keyframes ringVanish {
+  0%   {
+    opacity: 1; transform: scale(1);
+    filter: brightness(1);
+  }
+  40%  {
+    /* 몸이 새하얗게 + 오로라 — 강한 발광 */
+    opacity: 1; transform: scale(1.15);
+    filter: brightness(4)
+      drop-shadow(0 0 16px #ffffff)
+      drop-shadow(0 0 30px rgba(165, 243, 252, 1))
+      drop-shadow(0 0 44px rgba(217, 70, 239, 0.85));
+  }
+  85%  {
+    /* 정점 발광 유지 */
+    opacity: 1; transform: scale(1.2);
+    filter: brightness(5)
+      drop-shadow(0 0 22px #ffffff)
+      drop-shadow(0 0 38px rgba(165, 243, 252, 1))
+      drop-shadow(0 0 56px rgba(217, 70, 239, 0.9));
+  }
+  100% {
+    /* 즉시 사라짐 — 페이드 X, 갑자기 안 보임 */
+    opacity: 0; transform: scale(1.2);
+    filter: brightness(5)
+      drop-shadow(0 0 22px #ffffff);
+  }
+}
+
+/* ────────────────────────────────────────────────────────────── */
+/* 🌿 약초학 시전 — 옐로우-그린 산뜻한 빛 + 반짝이/데이지 파티클  */
+/* ────────────────────────────────────────────────────────────── */
+.cell.herb-cast-cell {
+  animation: herbCastCell 1.2s ease-out forwards;
+  position: relative;
+  z-index: 4;
+}
+@keyframes herbCastCell {
+  0%   { box-shadow: 0 0 0 0 rgba(190, 242, 100, 0); background-color: transparent !important; }
+  15%  {
+    box-shadow:
+      inset 0 0 14px rgba(217, 249, 157, 0.5),
+      0 0 14px rgba(190, 242, 100, 0.4);
+    background-color: rgba(217, 249, 157, 0.16) !important;
+  }
+  55%  {
+    box-shadow:
+      inset 0 0 9px rgba(190, 242, 100, 0.32),
+      0 0 9px rgba(163, 230, 53, 0.25);
+    background-color: rgba(217, 249, 157, 0.08) !important;
+  }
+  100% { box-shadow: 0 0 0 0 rgba(190, 242, 100, 0); background-color: transparent !important; }
+}
+.cell.herb-cast-cell::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 55%,
+    rgba(254, 252, 232, 0.45) 0%,
+    rgba(217, 249, 157, 0.28) 30%,
+    rgba(190, 242, 100, 0.14) 60%,
+    transparent 80%);
+  animation: herbCastGlow 1.2s ease-out forwards;
+  z-index: 0;
+}
+@keyframes herbCastGlow {
+  0%   { opacity: 0; transform: scale(0.5); }
+  25%  { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0; transform: scale(1.35); }
+}
+
+/* 약초학 파티클 — 반짝이/데이지가 위로 솟아오름 */
+.herb-leaf-particle {
+  position: fixed;
+  font-size: 0.95rem;
+  pointer-events: none;
+  z-index: 9050;
+  text-shadow:
+    0 0 6px rgba(254, 252, 232, 0.9),
+    0 0 12px rgba(217, 249, 157, 0.7);
+  animation: herbLeafFloat 1.4s cubic-bezier(0.34, 1.4, 0.64, 1) forwards;
+}
+@keyframes herbLeafFloat {
+  0%   { opacity: 0; transform: translate(0, 4px) scale(0.4) rotate(0deg); }
+  18%  { opacity: 1; transform: translate(0, -2px) scale(1.1) rotate(var(--rot1, 90deg)); }
+  100% { opacity: 0; transform: translate(var(--dx, 0), -42px) scale(1.0) rotate(var(--rot, 180deg)); }
+}
+
+/* ────────────────────────────────────────────────────────────── */
+/* 🙏 수도승 신성 — 천천히 내려오는 신성한 빛 + 충분한 반짝이      */
+/*    사용자 요청: 공격하는 느낌 X, 부드럽고 천천히 아군 밝혀주기. */
+/* ────────────────────────────────────────────────────────────── */
+.cell.divine-target-cell {
+  animation: divineTargetCell 2.6s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  position: relative;
+  z-index: 5;
+}
+@keyframes divineTargetCell {
+  0%   { box-shadow: 0 0 0 0 rgba(254, 240, 138, 0); background-color: transparent !important; }
+  25%  {
+    box-shadow:
+      inset 0 0 16px rgba(254, 240, 138, 0.55),
+      0 0 18px rgba(253, 224, 71, 0.4);
+    background-color: rgba(254, 240, 138, 0.10) !important;
+  }
+  50%  {
+    box-shadow:
+      inset 0 0 26px rgba(254, 240, 138, 0.95),
+      0 0 36px rgba(253, 224, 71, 0.85);
+    background-color: rgba(254, 240, 138, 0.28) !important;
+  }
+  80%  {
+    box-shadow:
+      inset 0 0 18px rgba(254, 240, 138, 0.55),
+      0 0 22px rgba(253, 224, 71, 0.45);
+    background-color: rgba(254, 240, 138, 0.13) !important;
+  }
+  100% { box-shadow: 0 0 0 0 rgba(254, 240, 138, 0); background-color: transparent !important; }
+}
+/* 신성한 빛 기둥 — 흰빛 위주, 약간 옅게 (사용자 요청) */
+.divine-light-beam {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9100;
+  width: 70%;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.0) 0%,
+    rgba(255, 255, 255, 0.28) 25%,
+    rgba(254, 252, 232, 0.45) 55%,
+    rgba(255, 255, 255, 0.65) 100%);
+  filter: blur(3px);
+  border-radius: 50% 50% 0 0 / 8% 8% 0 0;
+  opacity: 0;
+  transform-origin: 50% 100%;
+  animation: divineLightBeam 2.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+@keyframes divineLightBeam {
+  0%   { opacity: 0; transform: scaleY(0.2); }
+  20%  { opacity: 0.4; transform: scaleY(0.7); }
+  45%  { opacity: 0.85; transform: scaleY(1.0); }
+  78%  { opacity: 0.75; transform: scaleY(1.0); }
+  100% { opacity: 0; transform: scaleY(1.05); }
+}
+/* 신성한 십자 — 유닛 머리 위에 떠오름 (사용자 요청) */
+.divine-cross {
+  position: fixed;
+  font-size: 1.5rem;
+  pointer-events: none;
+  z-index: 9107;     /* 파티클 (9106) 보다 위 */
+  color: #fef9c3;
+  text-shadow:
+    0 0 12px rgba(254, 240, 138, 1),
+    0 0 24px rgba(253, 224, 71, 0.85),
+    0 0 36px rgba(254, 240, 138, 0.55);
+  opacity: 0;
+  animation: divineCrossRise 2.4s cubic-bezier(0.34, 1.5, 0.64, 1) forwards;
+}
+@keyframes divineCrossRise {
+  0%   { opacity: 0; transform: translate(-50%, 6px) scale(0.3); }
+  25%  { opacity: 0.9; transform: translate(-50%, -2px) scale(1.3); }
+  55%  { opacity: 1; transform: translate(-50%, -10px) scale(1.0); }
+  85%  { opacity: 0.7; transform: translate(-50%, -16px) scale(0.95); }
+  100% { opacity: 0; transform: translate(-50%, -22px) scale(0.9); }
+}
+/* 신성 반짝이 파티클 — 작게 (십자가 가리지 않게, 사용자 요청) */
+.divine-sparkle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9106;
+  color: #ffffff;
+  font-size: 0.5rem;
+  text-shadow:
+    0 0 6px rgba(255, 255, 255, 0.95),
+    0 0 12px rgba(254, 252, 232, 0.6);
+  opacity: 0;
+  animation: divineSparkleRise var(--dur, 2.0s) ease-out forwards;
+}
+@keyframes divineSparkleRise {
+  0%   { opacity: 0; transform: translate(var(--dx, 0), 0) scale(0.4) rotate(0deg); }
+  15%  { opacity: 1; transform: translate(var(--dx, 0), -6px) scale(1.0) rotate(60deg); }
+  100% { opacity: 0; transform: translate(var(--dx, 0), var(--rise, -120px)) scale(0.65) rotate(var(--rot, 320deg)); }
 }
 
 /* ── 보드 축소 경고 컨테이너 — 여러 시퀀스(정기 + 1대1 대치) 위/아래 스택 ── */
