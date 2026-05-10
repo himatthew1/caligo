@@ -1168,6 +1168,10 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   // 누락되면 팀원/적의 스킬 사용을 인지 불가 → 토스트·로그 누락
   const skillPiece = room.players[idx]?.pieces[pidx];
   if (skillPiece) {
+    // ★ 사용자 보고 (팀모드 AI 스킬 애니 누락): 인간 use_skill 의 team_skill_notice 페이로드와
+    //   동일하게 모든 애니/도장/플래시 데이터를 포함시켜야 receiver/관전자 측에서 회복 플래시,
+    //   라바, 반지 순간이동, 저주 turn-bright, 분신 비행, 약초학·신성 보드 애니가 정상 작동.
+    //   특히 회복 (healedPieces) 누락이 가장 두드러져 보고 — 팀원 회복도 적팀 영향 없음 (사용자 요청).
     const basePayload = {
       casterIdx: idx,
       casterName: room.players[idx].name,
@@ -1182,6 +1186,20 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       },
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용 (AI 시전 경로)
       hits: result.data?.hits || null,
+      // ★ 저주 부여 정보 — turn-bright 적용
+      cursedPieceIdx: result.data?.cursedPieceIdx,
+      cursedOwnerIdx: result.data?.cursedOwnerIdx,
+      // ★ 유황범람 borderCells — 라바 애니
+      borderCells: result.data?.borderCells || null,
+      // ★ 회복 애니 — { ownerIdx, pieceIdx } 페어 (heal-flash + 스파클)
+      healedPieces: result.data?.healedPieces || null,
+      // ★ 분신 비행 — fog-of-war 우회용 좌표
+      twinJoin: result.data?.twinJoin || null,
+      // ★ 절대복종 반지 순간이동
+      ringTeleport: result.data?.ringTeleport || null,
+      // ★ 약초학/신성 보드 시전 애니 (같은 팀만 표시 — 클라가 팀 분기 처리)
+      herbCenter: result.data?.herbCenter || null,
+      divineTarget: result.data?.divineTarget || null,
     };
     // 본인/팀원/적 분기 (use_skill 핸들러의 explicitAlly/explicitOpp 와 동일 로직)
     const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);

@@ -1330,6 +1330,10 @@ body.action-locked #game-board .cell.skill-caster-mild .piece-marker {
   border-color: #4ade80;
   background: rgba(22, 70, 40, 0.95);
   box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.35), 0 0 18px rgba(74, 222, 128, 0.45);
+  /* ★ 사용자 요청: 이동 선택 후 destination 클릭 시 버튼이 윗칸을 가리는 문제.
+     선택 상태에서 살짝 투명 + 클릭 통과 → 가려지는 셀이 먼저 선택됨. */
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* ── 쌍둥이 분신 비행 애니메이션 ── */
@@ -3889,6 +3893,98 @@ body.sp-granting .game-layout > *:not(.sp-section) {
   50%      { filter: drop-shadow(0 0 7px rgba(165, 243, 252, 1)) drop-shadow(0 0 14px rgba(94, 234, 212, 0.9)); }
 }
 
+/* ★ 사용자 요청: 이동/공격 행동 선택 시 사기증진 셀 효과 약화 (이동·공격 범위 가시성 우선).
+   body.dim-morale-zone 가 부착되면 셀 배경/박동/파티클/유닛 글로우 모두 옅어짐.
+   범위 표시(.movable / .attackable) 가 셀 위에 잘 보이도록.
+   skill 모드 + 평소 시점에서는 클래스 미부여 → 영향 없음. */
+body.dim-morale-zone .cell.morale-zone-center {
+  background: rgba(94, 234, 212, 0.08) !important;
+  box-shadow: inset 0 0 6px rgba(94, 234, 212, 0.12) !important;
+  animation: none !important;
+}
+body.dim-morale-zone .cell.morale-from-s {
+  background: linear-gradient(0deg,
+    rgba(94, 234, 212, 0.08) 0%,
+    rgba(94, 234, 212, 0.05) 35%,
+    rgba(94, 234, 212, 0.02) 70%,
+    transparent 100%) !important;
+}
+body.dim-morale-zone .cell.morale-from-n {
+  background: linear-gradient(180deg,
+    rgba(94, 234, 212, 0.08) 0%,
+    rgba(94, 234, 212, 0.05) 35%,
+    rgba(94, 234, 212, 0.02) 70%,
+    transparent 100%) !important;
+}
+body.dim-morale-zone .cell.morale-from-e {
+  background: linear-gradient(270deg,
+    rgba(94, 234, 212, 0.08) 0%,
+    rgba(94, 234, 212, 0.05) 35%,
+    rgba(94, 234, 212, 0.02) 70%,
+    transparent 100%) !important;
+}
+body.dim-morale-zone .cell.morale-from-w {
+  background: linear-gradient(90deg,
+    rgba(94, 234, 212, 0.08) 0%,
+    rgba(94, 234, 212, 0.05) 35%,
+    rgba(94, 234, 212, 0.02) 70%,
+    transparent 100%) !important;
+}
+body.dim-morale-zone .cell.morale-zone:not(.morale-zone-center) {
+  animation: none !important;
+  filter: brightness(1) !important;
+}
+body.dim-morale-zone .morale-particle {
+  opacity: 0 !important;
+  animation: none !important;
+}
+body.dim-morale-zone .piece-marker.morale-buffed {
+  filter: drop-shadow(0 0 2px rgba(94, 234, 212, 0.4)) !important;
+  animation: none !important;
+}
+
+/* ★ 사용자 요청: 이동/공격/스킬 범위 표시는 항상 사기증진 셀 효과 위 최상단 레이어로.
+   morale-zone 의 background:!important + box-shadow(inset 청록 글로우) + animation(박동)
+   + filter(brightness) 가 모두 범위 셀 위에 남아 색이 섞여 가시성 부족 → 모두 강제 끄기.
+   본 규칙이 morale 보다 뒤에 위치 + !important. 범위 alpha·테두리 강화. */
+.cell.move-range,
+.cell.morale-zone.move-range,
+.cell.morale-zone-center.move-range {
+  background: rgba(82,183,136,0.45) !important;
+  box-shadow: inset 0 0 0 2px rgba(82,183,136,0.7) !important;
+  border-color: rgba(82,183,136,0.85) !important;
+  animation: none !important;
+  filter: none !important;
+  z-index: 4;
+}
+.cell.attack-range,
+.cell.morale-zone.attack-range,
+.cell.morale-zone-center.attack-range {
+  background: rgba(226,168,75,0.45) !important;
+  box-shadow: inset 0 0 0 2px rgba(226,168,75,0.75) !important;
+  border-color: rgba(226,168,75,0.9) !important;
+  animation: none !important;
+  filter: none !important;
+  z-index: 4;
+}
+.cell.skill-range,
+.cell.morale-zone.skill-range,
+.cell.morale-zone-center.skill-range {
+  background: rgba(124,58,237,0.4) !important;
+  box-shadow: inset 0 0 0 2px rgba(124,58,237,0.7) !important;
+  border-color: rgba(124,58,237,0.85) !important;
+  animation: none !important;
+  filter: none !important;
+  z-index: 4;
+}
+/* 범위 셀이 morale 위에 있을 때 morale-particle 도 숨김 (입자 위로 떠다녀 가시성 방해) */
+.cell.move-range .morale-particle,
+.cell.attack-range .morale-particle,
+.cell.skill-range .morale-particle {
+  opacity: 0 !important;
+  animation: none !important;
+}
+
 /* ────────────────────────────────────────────────────────────── */
 /* ♛ 절대복종 반지 — 인트로 (1s 점멸) → 메인 후광 (회전 네모 X)    */
 /* ────────────────────────────────────────────────────────────── */
@@ -5125,12 +5221,18 @@ body.team-mode .placement-opp-panel {
   /* 일반 빨강 도장보다 살짝 아래쪽에 표시되도록 위치 조정 */
   top: 32px;
 }
-/* 회복 도장 — 밝은 녹색 (피해 도장과 같은 슬롯 — 피해가 있으면 빨강이 우선) */
+/* 회복 도장 — 밝은 녹색. 데미지/충성 도장과 동시 표시 가능 (사용자 요청). */
 .dmg-stamp.heal {
   background: rgba(34, 197, 94, 0.95);
   border-color: rgba(220, 252, 231, 0.92);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
+/* heal stamp 위치 분기 — 다른 stamp 와 겹치지 않게 슬롯 분리.
+   기본 (다른 stamp 없음 or loyalty 만): top:6px (기본 위치 — top 슬롯 비어있음)
+   heal-stack-1 (body/curse 있음, loyalty 없음): top:32px (loyalty 슬롯이 비어있어 활용)
+   heal-stack-3 (body/curse + loyalty 모두): top:58px (가장 아래 슬롯) */
+.dmg-stamp.heal.heal-stack-1 { top: 32px; }
+.dmg-stamp.heal.heal-stack-3 { top: 58px; }
 /* #24 — 플레이어 프로필 블록 위에 부착되는 큰 '탈락' 도장 (보드 파괴로 모든 캐릭터 탈락 시).
    사용자 요청: 캐릭터 카드 위가 아닌 플레이어 프로필 자체에 두 캐릭터를 덮도록 부착. */
 .player-elim-stamp {

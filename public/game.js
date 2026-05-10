@@ -2330,6 +2330,9 @@ socket.on('team_game_update', (state) => {
     S.skillsUsedThisTurn = [];
     S.lastActionType = null;
     S.lastActionPieceType = null;
+    // ★ 사용자 보고 (유닛 딤 안 풀림): 이전 턴 행동 모드 잔재 방어적 클리어 (팀 모드).
+    document.body.classList.remove('action-locked', 'dim-morale-zone');
+    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
     try { playTurnBell(); } catch (e) {}
   }
   // 턴이 바뀌었으면 — 1v1처럼 로그·토스트로 누구 차례인지 명확히 알림
@@ -2558,8 +2561,9 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
       // 피해자 팀 = ringTeleport.victimOwnerIdx 의 팀이 내 팀과 같음.
       const victimPlayer = (S.teamGamePlayers || []).find(p => p.idx === ringTeleport.victimOwnerIdx);
       const isVictimTeam = victimPlayer && victimPlayer.teamId === S.teamId;
-      animateRingTeleport(ringTeleport, isVictimTeam ? 'victim' : 'observer');
-      // 시전자 측 (myTeam) 일 때 자동 추리 토큰 — 위치 정보 영구 노출
+      // 시전자 측 (myTeam) 일 때 자동 추리 토큰 — 같은 pieceKey 기존 토큰 제거 후 새 위치로 갱신.
+      // ★ 사용자 보고: push 후 refresh 누락으로 DOM 에 토큰이 즉시 안 나타남. animateRingTeleport
+      //   호출 전에 push + refresh 하여 aurora 인트로 시점에는 이미 보드에 토큰이 있도록 함.
       if (myTeam && !isVictimTeam) {
         try {
           const rt = ringTeleport;
@@ -2567,8 +2571,11 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
           S.deductionTokens = (S.deductionTokens || []).filter(t =>
             t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
           S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
+          if (typeof refreshDeductionTokens === 'function') refreshDeductionTokens();
+          if (typeof updateDeductionBadgesInPlace === 'function') updateDeductionBadgesInPlace();
         } catch (e) {}
       }
+      animateRingTeleport(ringTeleport, isVictimTeam ? 'victim' : 'observer');
     }
     if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
@@ -3784,6 +3791,10 @@ socket.on('your_turn', (data) => {
   if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
     exitTwinMovePhase(/*emitToast=*/false);
   }
+  // ★ 사용자 보고 (유닛 딤 안 풀림): 이전 턴의 행동 모드 잔재가 새 턴까지 유지되는 케이스 방어.
+  //   action-locked / dim-morale-zone 강제 클리어 + setActionButtonMode(null) 로 버튼 상태도 통일.
+  document.body.classList.remove('action-locked', 'dim-morale-zone');
+  if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   S.isMyTurn = true;
   S.turnNumber = data.turnNumber;
   S.myPieces = data.yourPieces || S.myPieces;
@@ -6067,8 +6078,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       }
       // ★ 절대복종 반지 — 오로라 펄스 + 순간이동 + 화이트 페이드. 시전자 본인은 자동 추리 토큰.
       if (data && data.ringTeleport && typeof animateRingTeleport === 'function') {
-        animateRingTeleport(data.ringTeleport, 'caster');
-        // 자동 추리 토큰 — 드래곤처럼 영구 유지
+        // ★ 사용자 보고 (자동 추리 토큰 미동작): push 후 refresh 호출이 없어 DOM 에 토큰이 즉시 안 나타남.
+        //   같은 pieceKey 의 기존 토큰은 filter 로 제거 후 새 위치로 push (= 갱신).
+        //   refreshDeductionTokens 는 token DOM 만 재배치 → aurora 클래스 wipe 안 함.
         try {
           const rt = data.ringTeleport;
           const subUnit = '';                                // 일반 piece 라 subUnit 없음 (쌍둥이 제외)
@@ -6077,7 +6089,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           S.deductionTokens = (S.deductionTokens || []).filter(t =>
             t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
           S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
+          if (typeof refreshDeductionTokens === 'function') refreshDeductionTokens();
+          if (typeof updateDeductionBadgesInPlace === 'function') updateDeductionBadgesInPlace();
         } catch (e) {}
+        animateRingTeleport(data.ringTeleport, 'caster');
       }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
@@ -11701,13 +11716,25 @@ function buildDamageOverlay(key, hp, maxHp) {
   } else if (curseDmg > 0) {
     stamp += `<div class="dmg-stamp curse${seenCls('curse')}">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
     markSeen('curse');
-  } else if (healAmt > 0) {
-    stamp += `<div class="dmg-stamp heal${seenCls('heal')}">${fmtHeal(healAmt)}</div>`;
-    markSeen('heal');
   }
   if (loyaltyDmg > 0) {
     stamp += `<div class="dmg-stamp loyalty${seenCls('loyalty')}">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
     markSeen('loyalty');
+  }
+  // ★ 사용자 보고: 회복 도장은 데미지 도장과 별개로 항상 노출되어야 함.
+  //   기존: bodyDmg / curseDmg 중 하나라도 있으면 heal 분기에 진입 못해 회복 표시 누락.
+  //   해결: heal stamp 는 데미지 stamp 와 동시 표시 가능. 위치는 다른 stamp 와 겹치지 않게
+  //         heal-stack-1 (body/curse 만 있을 때) / heal-stack-2 (loyalty 만 있을 때) /
+  //         heal-stack-3 (둘 다 있을 때) 클래스로 슬롯 분기.
+  if (healAmt > 0) {
+    const hasTopStamp = bodyDmg > 0 || curseDmg > 0;        // top:6px 슬롯 점유
+    const hasMidStamp = loyaltyDmg > 0;                      // top:32px 슬롯 점유
+    // top:6 비어있으면 기본 위치, body/curse 있으면 32 (loyalty 위 자리), 둘 다 있으면 58 (가장 아래)
+    const stackCls = hasTopStamp && hasMidStamp ? ' heal-stack-3'
+                   : hasTopStamp ? ' heal-stack-1'
+                   : '';   // hasMidStamp 만 있으면 top:6 비어있어 기본 위치 OK
+    stamp += `<div class="dmg-stamp heal${seenCls('heal')}${stackCls}">${fmtHeal(healAmt)}</div>`;
+    markSeen('heal');
   }
   // HP 바 표시 로직 (사용자 요청):
   //   기본 HP 바 자체는 *시작 HP 와 현재 HP 중 더 작은 쪽*에 머물러 있음.
@@ -12171,6 +12198,9 @@ function setActionButtonMode(mode) {
   // body 액션 락 — 행동 진행 중 다른 유닛 상호작용(클릭/호버/스케일업) 모두 차단.
   if (mode === null) document.body.classList.remove('action-locked');
   else document.body.classList.add('action-locked');
+  // ★ 사용자 요청: 이동/공격 행동 선택 시 사기증진 셀 효과를 약화 (이동·공격 범위 가시성 우선).
+  //   skill 모드는 셀 효과가 다르게 작동하므로 dim 적용 X. 평소·skill 모드에는 영향 없음.
+  document.body.classList.toggle('dim-morale-zone', mode === 'move' || mode === 'attack');
 }
 
 function resetAction() {
@@ -15008,11 +15038,49 @@ function animateRingTeleport(rt, roleHint) {
     }
   }
 
+  // ★ 사용자 보고 (도착 애니 아이콘 오류): toCell 에 이미 다른 piece-marker 가 존재할 수 있음.
+  //   - 시전자 시점: 내 아군이 toCell 에 있으면 그 marker (아군 icon) 가 잡혀 victim 대신 아군이 애니메이트됨 (BUG).
+  //   - 시전자 시점: 표식 상태 적이 toCell 에 있으면 그 marker 도 동일하게 잡힘 (BUG).
+  //   - 관전자 시점: 양 측 piece 모두 보임 → 어떤 marker 가 victim 인지 판단 불가.
+  //   - 피해자 시점: toCell 의 piece-marker 는 본인의 victim piece 자체 → 그대로 활용 OK.
+  //   해결: 'caster'/'observer' 역할은 항상 victimIcon 으로 ghost 생성하여 기존 marker 위 (z-index)
+  //         에 띄움. 기존 aria 마커 (아군 등) 는 영향 없이 그대로 정지 유지.
+  let arrivalGhost = null;
+  if (toCell && rt.victimIcon) {
+    const existingMarker = toCell.querySelector('.piece-marker');
+    const isVictim = (roleHint === 'victim');
+    // victim 역할 + 기존 marker 가 victim 본인 piece 인 경우만 그 marker 를 그대로 활용.
+    // 그 외 (caster, observer, 또는 victim 인데 marker 자체가 없음) 는 ghost 생성.
+    const useExistingMarker = isVictim && !!existingMarker;
+    if (!useExistingMarker) {
+      // ★ 사용자 보고 (ghost 가 셀 구석에 배치되는 버그): position:absolute + translate(-50%) 가
+      //   ring-arrived 의 transform:scale 에 의해 덮어써져 중앙 정렬이 사라졌음.
+      //   해결: ghost 를 셀 전체에 inset:0 으로 채우고 내부 flex centering 사용 → scale 변환은
+      //   중앙 위치 기준으로 작동. 기본 piece-marker 와 동일한 시각 크기/위치로 보임.
+      arrivalGhost = document.createElement('div');
+      arrivalGhost.className = 'piece-marker ring-arrival-ghost';
+      arrivalGhost.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
+      arrivalGhost.style.visibility = 'hidden';
+      arrivalGhost.style.position = 'absolute';
+      arrivalGhost.style.inset = '0';                  // 셀 전체 채움
+      arrivalGhost.style.display = 'flex';
+      arrivalGhost.style.flexDirection = 'column';
+      arrivalGhost.style.alignItems = 'center';
+      arrivalGhost.style.justifyContent = 'center';
+      arrivalGhost.style.zIndex = '20';                // ★ 기존 piece-marker 위
+      arrivalGhost.style.pointerEvents = 'none';
+      try {
+        if (getComputedStyle(toCell).position === 'static') toCell.style.position = 'relative';
+      } catch (e) {}
+      toCell.appendChild(arrivalGhost);
+    }
+  }
+
   // 1초 후 본 애니 시작
-  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker), 1000);
+  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker, arrivalGhost), 1000);
 }
 
-function _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker) {
+function _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker, arrivalGhost) {
   // 1. 오로라 펄스 — 도착 셀에 즉시 부여 (1.5s 후 페이드아웃)
   if (toCell) {
     toCell.classList.remove('aurora-target', 'aurora-fade');
@@ -15042,10 +15110,21 @@ function _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker) {
     //   호출자가 이미 새 좌표로 render 한 상태에서 본 함수가 진행 중.
     const toCellNow = document.querySelector(`#game-board .cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
     if (!toCellNow) return;
-    const arrivedMarker = toCellNow.querySelector('.piece-marker');
+    // arrivalGhost (시전자 fog-of-war 케이스) 가 살아있으면 그것을 사용,
+    // 아니면 toCell 의 실제 piece-marker (피해자/관전자 일반 케이스).
+    const arrivedMarker = (arrivalGhost && arrivalGhost.isConnected)
+      ? arrivalGhost
+      : toCellNow.querySelector('.piece-marker');
     if (arrivedMarker) {
+      arrivedMarker.style.visibility = '';     // 등장 — ring-arrived 와 동시에 노출
       arrivedMarker.classList.add('ring-arrived');
-      setTimeout(() => arrivedMarker.classList.remove('ring-arrived'), 1000);
+      setTimeout(() => {
+        arrivedMarker.classList.remove('ring-arrived');
+        // arrivalGhost 는 애니 종료 시 제거 (추리 토큰은 별도 렌더로 노출).
+        if (arrivalGhost && arrivalGhost.isConnected) {
+          try { arrivalGhost.remove(); } catch (e) {}
+        }
+      }, 1000);
     }
     // 1.5. 빛 입자 — "뿅" 해제 시점에 사방으로 발사 (사용자 요청: 입자는 흰빛 해제 순간부터)
     setTimeout(() => {
@@ -15145,6 +15224,14 @@ function animateRatSpawn(rats, owner) {
   if (!Array.isArray(rats) || rats.length === 0) return;
   const board = document.getElementById('game-board');
   if (!board) return;
+  // ★ 사용자 요청: receiver 시점에서 쥐 색상·셀 내 위치가 다르게 표시됨.
+  //   본인쥐 = 🐀 (color:#52b788, left:7px), 적쥐 = 🐁 (color:#e05252, left:2px).
+  //   애니 orb 도 owner perspective 에 맞춰 emoji + finalLeft + color 일치시켜
+  //   착지 후 실제 span 으로 swap 시 시각적 끊김 없이 자연스럽게 이어지게 함.
+  const isMyRat = owner === S.playerIdx;
+  const ratEmoji = isMyRat ? '🐀' : '🐁';
+  const finalLeftOffset = isMyRat ? 7 : 2;
+  const ratColor = isMyRat ? '#52b788' : '#e05252';
   rats.forEach((rat, i) => {
     // ★ 사용자 요청: 셀이 3s 에 걸쳐 서서히 페이드. spawnT (Date.now) 저장 →
     //   renderGameBoard 가 매 호출 시 -elapsed ms 만큼 animation-delay 부여하여
@@ -15154,12 +15241,13 @@ function animateRatSpawn(rats, owner) {
       const targetCell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
       if (!targetCell) return;
       const tRect = targetCell.getBoundingClientRect();
-      const finalLeft = tRect.left + 7;
+      const finalLeft = tRect.left + finalLeftOffset;
       const finalTop = tRect.top + 1;
       const fallDist = 220;
       const orb = document.createElement('div');
       orb.className = 'rat-fly-orb';
-      orb.textContent = '🐀';
+      orb.textContent = ratEmoji;
+      orb.style.color = ratColor;
       orb.style.left = finalLeft + 'px';
       orb.style.top = (finalTop - fallDist) + 'px';
       orb.style.setProperty('--fall', fallDist + 'px');
