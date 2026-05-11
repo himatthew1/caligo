@@ -1247,6 +1247,30 @@ body.action-locked #game-board .cell.skill-caster-mild .piece-marker {
   pointer-events: none !important;
 }
 
+/* ★ 사용자 요청: 질주/쌍검무 활성 + 행동 모드 진입 시 — 시전 유닛 외 모든 piece 에
+   "행동불가" 오버레이. 셀 전체에 크게 노출되어 클릭 시 행동 불가임을 명확히 함.
+   기존 dim 위에 빨간 반투명 + 큰 텍스트로 겹쳐 보임. */
+#game-board .cell.cant-act {
+  position: relative;
+}
+#game-board .cell.cant-act::after {
+  content: '행동불가';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(220, 38, 38, 0.55);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  z-index: 11;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75), 0 0 4px rgba(127, 29, 29, 0.9);
+  border-radius: inherit;
+}
+
 /* ── 쌍둥이 이동 페이즈 floating 버튼 (이동 선택) ──
    game-board 의 absolute 자식으로 배치 → 셀 innerHTML 재렌더에도 살아남음.
    left/top 은 JS 가 셀의 offsetLeft/offsetTop 을 계산해 부여, transform 은 anchor 보정만 담당. */
@@ -3947,9 +3971,11 @@ body.dim-morale-zone .piece-marker.morale-buffed {
    morale-zone 의 background:!important + box-shadow(inset 청록 글로우) + animation(박동)
    + filter(brightness) 가 모두 범위 셀 위에 남아 색이 섞여 가시성 부족 → 모두 강제 끄기.
    본 규칙이 morale 보다 뒤에 위치 + !important. 범위 alpha·테두리 강화. */
-.cell.move-range,
-.cell.morale-zone.move-range,
-.cell.morale-zone-center.move-range {
+/* ★ 사용자 요청: 강조 스타일은 #game-board (실제 게임 보드) 에서만 적용 →
+   캐릭터 사전 / 드래프트 슬라이드 / 스킬 툴팁 미리보기 는 원래 clean 스타일 유지. */
+#game-board .cell.move-range,
+#game-board .cell.morale-zone.move-range,
+#game-board .cell.morale-zone-center.move-range {
   background: rgba(82,183,136,0.45) !important;
   box-shadow: inset 0 0 0 2px rgba(82,183,136,0.7) !important;
   border-color: rgba(82,183,136,0.85) !important;
@@ -3957,9 +3983,9 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   filter: none !important;
   z-index: 4;
 }
-.cell.attack-range,
-.cell.morale-zone.attack-range,
-.cell.morale-zone-center.attack-range {
+#game-board .cell.attack-range,
+#game-board .cell.morale-zone.attack-range,
+#game-board .cell.morale-zone-center.attack-range {
   background: rgba(226,168,75,0.45) !important;
   box-shadow: inset 0 0 0 2px rgba(226,168,75,0.75) !important;
   border-color: rgba(226,168,75,0.9) !important;
@@ -3967,9 +3993,9 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   filter: none !important;
   z-index: 4;
 }
-.cell.skill-range,
-.cell.morale-zone.skill-range,
-.cell.morale-zone-center.skill-range {
+#game-board .cell.skill-range,
+#game-board .cell.morale-zone.skill-range,
+#game-board .cell.morale-zone-center.skill-range {
   background: rgba(124,58,237,0.4) !important;
   box-shadow: inset 0 0 0 2px rgba(124,58,237,0.7) !important;
   border-color: rgba(124,58,237,0.85) !important;
@@ -3978,9 +4004,9 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   z-index: 4;
 }
 /* 범위 셀이 morale 위에 있을 때 morale-particle 도 숨김 (입자 위로 떠다녀 가시성 방해) */
-.cell.move-range .morale-particle,
-.cell.attack-range .morale-particle,
-.cell.skill-range .morale-particle {
+#game-board .cell.move-range .morale-particle,
+#game-board .cell.attack-range .morale-particle,
+#game-board .cell.skill-range .morale-particle {
   opacity: 0 !important;
   animation: none !important;
 }

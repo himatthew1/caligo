@@ -4665,8 +4665,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       piece.messengerSprintActive = true;
       // 이동권: 아직 이동 안 했으면 2회, 이미 1회 이동했으면 1회 더 남음
       piece.messengerMovesLeft = player.actionDone ? 1 : 2;
-      // 공격은 금지 (actionUsedSkillReplace 로 막음)
-      player.actionUsedSkillReplace = true;
+      // ★ 사용자 정정: 질주는 자유 시전형 1회 (replacesAction:false, oncePerTurn:true) —
+      //   actionUsedSkillReplace 부여 금지. 본 라인이 클라 측 모든 행동 차단을 유발했음.
+      //   공격 차단이 필요하다면 별도 플래그를 도입해야 하지만, 자유시전형 정의상 공격도 가능.
       spendSP(room, playerIdx, cost);
       result.msg = `📯 질주: 전령은 추가 이동 가능`;
       result.oppMsg = `📯 질주: 전령은 추가 이동 가능`;
@@ -7960,6 +7961,12 @@ io.on('connection', (socket) => {
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
     const player = room.players[idx];
+
+    // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
+    if (player.pieces.some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0)) {
+      socket.emit('err', { msg: '전령 질주 중에는 공격할 수 없습니다.' });
+      return;
+    }
 
     if (player.actionDone) {
       // 쌍검무: 2회 공격 중 2번째 공격

@@ -212,6 +212,7 @@
 <!-- ★ 게임 내부와 동일한 모듈 — 미리보기 전용 재구현 X (사용자 요청). -->
 <script src="ring-anim.js"></script>
 <script src="rat-anim.js"></script>
+<script src="herb-anim.js"></script>
 <script>
 // ──────────────────────────────────────────────────────────────
 // SFX — game.js 의 함수들을 inline 복제 (mute 토글 가능)
@@ -604,7 +605,7 @@ function trigMorale() {
 trigMorale();   // 초기 상태로 활성화 (사운드는 안 울림 — 컨텍스트 미생성 방지)
 
 // ──────────────────────────────────────────────────────────────
-// 3. 약초학 — 시계방향 reveal + 반짝이/데이지
+// 3. 약초학 — 게임 내부 herb-anim.js 의 animateHerbCast 직접 호출 (단일 소스).
 // ──────────────────────────────────────────────────────────────
 function trigHerb() {
   playSfxHerbMagic();
@@ -615,40 +616,8 @@ function trigHerb() {
     { col: 3, row: 3, icon: '🔱', hp: 2 },
     { col: 2, row: 1, icon: '🐎', hp: 2 },
   ]);
-  const board = document.getElementById('board-herb');
-  const clockwise = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
-  const STEP_MS = 55;
-  const HOLD_MS = 1100;
-  const leafChars = ['✨','🌸','✨','🌸','✨','⭐','🌸','✨'];
-  clockwise.forEach(([dc, dr], i) => {
-    setTimeout(() => {
-      const c = ctrC + dc, r = ctrR + dr;
-      const cell = board.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`);
-      if (!cell) return;
-      cell.classList.remove('herb-cast-cell');
-      void cell.offsetWidth;
-      cell.classList.add('herb-cast-cell');
-      setTimeout(() => cell.classList.remove('herb-cast-cell'), HOLD_MS);
-      const rect = cell.getBoundingClientRect();
-      for (let k = 0; k < 3; k++) {
-        const p = document.createElement('div');
-        p.className = 'herb-leaf-particle';
-        p.textContent = leafChars[(i + k) % leafChars.length];
-        const sx = rect.left + rect.width * (0.25 + Math.random() * 0.5);
-        const sy = rect.top + rect.height * (0.55 + Math.random() * 0.3);
-        p.style.left = sx + 'px';
-        p.style.top = sy + 'px';
-        const dx = (Math.random() - 0.5) * 32;
-        const rot = (Math.random() - 0.5) * 540;
-        p.style.setProperty('--dx', dx + 'px');
-        p.style.setProperty('--rot', rot + 'deg');
-        p.style.setProperty('--rot1', ((Math.random() - 0.5) * 60) + 'deg');
-        p.style.animationDelay = (Math.random() * 0.15) + 's';
-        document.body.appendChild(p);
-        setTimeout(() => p.remove(), 1500);
-      }
-    }, i * STEP_MS);
-  });
+  // ★ 게임 내부와 동일한 함수 호출 (herb-anim.js).
+  animateHerbCast(ctrC, ctrR, { boardId: 'board-herb' });
 }
 buildBoard('board-herb', [
   { col: 2, row: 2, icon: '🌿', hp: 2 },

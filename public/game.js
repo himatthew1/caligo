@@ -262,9 +262,10 @@ socket.on('timer_start', ({ seconds }) => {
 
 socket.on('turn_timeout', () => {
   if (!isActiveGamePhase()) return;
+  // ★ 사용자 보고 (턴 스킵 메시지 2회 중복): 토스트/로그 제거 — no_action_notice 가
+  //   "${name}의 턴 스킵" 또는 "${name}의 턴 강제 종료" 로 통일 메시지를 송신함.
+  //   turn_timeout 은 시간 만료 SFX + twin phase 정리만 담당.
   if (typeof playSfxTimeout === 'function') playSfxTimeout();
-  addLog('⏰ 턴 스킵', 'system');
-  showSkillToast('⏰ 턴 스킵', false, undefined, 'event');
   // 쌍둥이 이동 페이즈 중 타이머 만료 → 클라 상태/플로팅 버튼/body 클래스 정리
   // (서버는 turnTimeout → endTurn 으로 턴을 진행하지만, 클라가 twin phase 를 자체 정리 안 하면 UI 가 멈춰 보임)
   if (S.twinPhaseActive && typeof exitTwinMovePhase === 'function') {
@@ -10863,12 +10864,19 @@ function updateSPBar() {
 //     3) 양손검객 쌍검무 활성 + 추가 공격 남음
 function pieceCanTakeBasicAction(pc) {
   if (!pc || !pc.alive) return false;
-  if (S.actionUsedSkillReplace) return false;
+  // ★ 사용자 보고 (전령 스킬 사용 시 모든 행동 불가): 전령 질주는 자유 시전형 — 서버가
+  //   actionUsedSkillReplace=true 를 부여해 공격은 막지만 이동은 허용해야 함. 본 함수가
+  //   actionUsedSkillReplace 체크를 먼저 수행해 즉시 false 반환하던 버그 → sprint 체크를
+  //   actionUsedSkillReplace 위로 이동.
   if (pc.messengerSprintActive && pc.messengerMovesLeft > 0) return true;
+  if (S.actionUsedSkillReplace) return false;
   if (S.twinMovePending && pc.subUnit && S.twinMovedSub !== pc.subUnit) return true;
   if (pc.dualBladeAttacksLeft > 0) return true;
   return !S.actionDone;
 }
+
+// 행동불가 오버레이 판정은 renderGameBoard 인라인에서 직접 수행 — sprint/dualBlade 활성 시
+// 시전 유닛 외 모두에 cant-act 클래스 부여. 별도 helper 함수 불필요.
 
 // piece 가 스킬을 보유하는지 (사용 가능 여부와 무관 — 보유 자체).
 function pieceHasAnySkill(pc) {
@@ -10992,6 +11000,8 @@ function showActionBar(enabled) {
     //   호출하므로 여기서 body.action-locked / dim-morale-zone / 액션 버튼 모드 일괄 클리어.
     document.body.classList.remove('action-locked', 'dim-morale-zone');
     if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+    // ★ 사용자 요청: 행동불가 태그는 자신 턴에만 표기 → 상대 턴 진입 시 잔재 클리어.
+    document.querySelectorAll('#game-board .cell.cant-act').forEach(c => c.classList.remove('cant-act'));
   } else {
     // 내 턴 — 상황에 따라 비활성화/흐림
     const alivePieces = S.myPieces ? S.myPieces.filter(p => p.alive) : [];
@@ -11000,13 +11010,13 @@ function showActionBar(enabled) {
     // ── 이동 가능 여부 ──
     // actionDone이면 이동 불가 (이미 이동 또는 공격함)
     // 단, 전령 질주 활성 또는 쌍둥이 한쪽만 이동했을 때 추가 이동 가능
-    // ★ 사용자 보고 (전령 질주 후 행동 불가): 서버가 질주 시 actionUsedSkillReplace=true 를
-    //   부여해 공격을 막는데, 클라가 actionUsedSkillReplace 로 이동까지 차단하던 버그.
-    //   → 질주 활성 시 actionUsedSkillReplace 무시 (이동만 허용, 공격은 별도 canAttack 에서 차단).
+    // ★ 사용자 요청: 쌍검무 활성 시 모든 이동 차단 (검객은 공격 2회 모드 — 이동 의미 없음).
     const hasSprintMove = alivePieces.some(p => p.messengerSprintActive && p.messengerMovesLeft > 0);
+    const hasDualBladeActive = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
     const hasTwinPending = !!S.twinMovePending;
     const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending) &&
-                    (!S.actionUsedSkillReplace || hasSprintMove);
+                    (!S.actionUsedSkillReplace || hasSprintMove) &&
+                    !hasDualBladeActive;
     btnMove.disabled = !canMove;
     btnMove.classList.toggle('action-dimmed', !canMove);
 
@@ -11014,9 +11024,11 @@ function showActionBar(enabled) {
     // actionDone이면 공격 불가 (이미 이동 또는 공격함)
     // 이동했으면 공격 불가 (moveDone 또는 twinMovePending)
     // 단, 쌍검무 추가 공격이 남아있으면 가능
+    // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
     const hasDualBlade = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
     const movedAlready = S.moveDone || S.twinMovePending;
-    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !movedAlready && !S.actionUsedSkillReplace;
+    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !movedAlready
+                    && !S.actionUsedSkillReplace && !hasSprintMove;
     btnAttack.disabled = !canAttack;
     btnAttack.classList.toggle('action-dimmed', !canAttack);
 
@@ -11026,24 +11038,29 @@ function showActionBar(enabled) {
     // 팀모드: SP 풀이 [팀A, 팀B] 인덱싱이라 S.teamId 사용 / 1v1: S.playerIdx
     const skSpSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
     const mySp = (S.sp[skSpSlot] || 0) + (S.instantSp[skSpSlot] || 0);
+    // ★ 사용자 요청: 글로벌 스킬 버튼 판정 — evalSkillCastable 로 통일.
+    //   evalSkillCastable 은 SP/저주/replacesAction/oncePerTurn/스킬별 대상 + sprint/dualStrike 의
+    //   actionType 제약까지 모두 검증 — 글로벌 탭 / 캐릭터 스킬 팝업과 동일 기준.
     let hasUsableSkill = false;
-    for (const p of alivePieces) {
+    const _evalFn = (typeof window.evalSkillCastable === 'function') ? window.evalSkillCastable : null;
+    for (let _i = 0; _i < S.myPieces.length; _i++) {
+      const p = S.myPieces[_i];
+      if (!p || !p.alive) continue;
       if (!p.hasSkill && (!p.skills || p.skills.length === 0)) continue;
-      // 저주 상태인 말은 스킬 사용 불가
-      const isCursed = p.statusEffects && p.statusEffects.some(e => e.type === 'curse');
-      if (isCursed) continue;
       const skills = p.skills && p.skills.length > 0 ? p.skills : (p.hasSkill ? [{ id: p.skillId, cost: p.skillCost, replacesAction: p.skillReplacesAction, oncePerTurn: !!p.skillOncePerTurn }] : []);
       for (const sk of skills) {
-        // SP 체크
-        if ((sk.cost || 0) > mySp) continue;
-        // 행동소비형인데 이미 행동했으면 불가
-        if (sk.replacesAction && S.actionDone) continue;
-        // 턴당 1회인데 이미 사용했으면 불가
-        if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${p.index}:${sk.id}`)) continue;
-        // 스킬별 실제 대상/조건 체크
-        if (!skillHasValidTarget(p, sk)) continue;
-        hasUsableSkill = true;
-        break;
+        if (_evalFn) {
+          const ev = _evalFn(_i, p, sk);
+          if (ev && ev.ok) { hasUsableSkill = true; break; }
+        } else {
+          // fallback (evalSkillCastable 로딩 전): 기존 간이 검증
+          if ((sk.cost || 0) > mySp) continue;
+          if (sk.replacesAction && S.actionDone) continue;
+          if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${p.index}:${sk.id}`)) continue;
+          if (!skillHasValidTarget(p, sk)) continue;
+          hasUsableSkill = true;
+          break;
+        }
       }
       if (hasUsableSkill) break;
     }
@@ -11155,6 +11172,15 @@ function renderGameBoard() {
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
+      // ★ 사용자 요청: 질주/쌍검무 활성 + 행동 모드 진입 시 — 시전 유닛 외 모든 piece 에
+      //   "행동불가" 오버레이 표시 (셀 위 크게). 일반 케이스 (이미 이동/공격, 대상 없음 등) 는
+      //   표기 X — 기존 dim 만으로 충분. 자신 턴에만 표시.
+      if (S.isMyTurn && (S.action === 'move' || S.action === 'twin_move' || S.action === 'attack')) {
+        const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+        const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
+        const caster = sprintCaster || dualBladeCaster;
+        if (caster && pc !== caster) cell.classList.add('cant-act');
+      }
       const idx = S.myPieces.indexOf(pc);
       // ★ 합류 셀 글로우: 같은 칸의 어느 쌍둥이가 선택돼도 selected-piece 적용 (둘 다 쌍둥이 강도이므로)
       const otherTwinIdx = otherTwin ? S.myPieces.indexOf(otherTwin) : -1;
@@ -14916,55 +14942,10 @@ function animateLavaCells(cells) {
   }
 }
 
-// ── 약초학 시전 — 시계방향 reveal + 반짝이/데이지 파티클 ──
-//   사용자 요청: 약초전문가 바로 위 셀부터 시계방향으로 휘리릭 빠르게 펼쳐짐.
-//   각 셀이 50ms 간격으로 herb-cast-cell 부여 → 휘리릭 뿅! 느낌.
-//   보드 밖으로 잘리는 셀은 자연스레 안 보이고 타이밍은 동일.
-//   대상: 시전자 본인 + 같은 팀 + 관전자 (적팀에는 비공개).
-function animateHerbCast(centerCol, centerRow) {
-  const board = document.getElementById('game-board');
-  if (!board) return;
-  // 시계방향 순서: 위(N) → 우상(NE) → 우(E) → 우하(SE) → 아래(S) → 좌하(SW) → 좌(W) → 좌상(NW)
-  const clockwise = [
-    [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]
-  ];
-  const STEP_MS = 55;     // 휘리릭 — 타이트한 간격
-  const HOLD_MS = 1100;   // 셀 발광 유지 시간
-  const leafChars = ['✨', '🌸', '✨', '🌸', '✨', '⭐', '🌸', '✨'];   // 벚꽃 + 반짝이 (사용자 요청)
-  clockwise.forEach(([dc, dr], i) => {
-    setTimeout(() => {
-      const c = centerCol + dc, r = centerRow + dr;
-      const cell = board.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`);
-      // 보드 밖 셀은 자연스럽게 스킵 (타이밍은 동일)
-      if (!cell) return;
-      cell.classList.remove('herb-cast-cell');
-      void cell.offsetWidth;
-      cell.classList.add('herb-cast-cell');
-      setTimeout(() => cell.classList.remove('herb-cast-cell'), HOLD_MS);
-      // 반짝이/데이지 파티클 — 셀당 3개. 사용자 요청: 셀 전체에 랜덤 분포 (셀 하단 X).
-      const rect = cell.getBoundingClientRect();
-      for (let k = 0; k < 3; k++) {
-        const p = document.createElement('div');
-        p.className = 'herb-leaf-particle';
-        // 각 셀이 받는 chars — clockwise idx + k 로 분산해서 다양화
-        p.textContent = leafChars[(i + k) % leafChars.length];
-        // ★ 셀 전체 (0~100% × 0~100%) 랜덤 분포 — 가장자리 약간 마진 두어 보드 경계 침범 방지.
-        const sx = rect.left + rect.width  * (0.08 + Math.random() * 0.84);
-        const sy = rect.top  + rect.height * (0.08 + Math.random() * 0.84);
-        p.style.left = sx + 'px';
-        p.style.top = sy + 'px';
-        const dx = (Math.random() - 0.5) * 32;
-        const rot = (Math.random() - 0.5) * 540;
-        p.style.setProperty('--dx', dx + 'px');
-        p.style.setProperty('--rot', rot + 'deg');
-        p.style.setProperty('--rot1', ((Math.random() - 0.5) * 60) + 'deg');
-        p.style.animationDelay = (Math.random() * 0.15) + 's';
-        document.body.appendChild(p);
-        setTimeout(() => p.remove(), 1500);
-      }
-    }, i * STEP_MS);
-  });
-}
+// ── 약초학 시전 애니메이션 — 별도 파일로 추출 (herb-anim.js).
+//   index.html 이 game.js 보다 먼저 herb-anim.js 를 로드하므로 globalThis 에 animateHerbCast 존재.
+//   미리보기 (skill-board-anims-preview.html) 도 같은 파일을 로드 → 단일 소스로 동작 보장.
+//   호출은 기존과 동일: animateHerbCast(centerCol, centerRow). boardId 기본 'game-board'.
 
 // ── 수도승 신성 — 천천히 내려오는 신성한 빛 + 십자 + 반짝이 다수 ──
 //   사용자 요청: 공격적이지 않은, 부드럽게 아군을 밝혀주는 느낌. 타이밍 충분히, 반짝이 풍성하게.
@@ -18295,6 +18276,20 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     }
     if (sk.id === 'sprint' && pc.messengerSprintActive) return { ok: false, why: '이미 질주 활성' };
     if (sk.id === 'dualStrike' && pc.dualBladeAttacksLeft > 0) return { ok: false, why: '이미 쌍검무 활성' };
+    // ★ 사용자 보고: 전령 질주 — 공격 후 / 다른 유닛 이동 후 사용 불가 (server 가드 동일 — server.js:4657-4663).
+    if (sk.id === 'sprint') {
+      if (S.lastActionType === 'attack') return { ok: false, why: '공격 후에는 질주를 사용할 수 없음' };
+      if (S.lastActionType === 'move' && S.lastActionPieceType && S.lastActionPieceType !== 'messenger') {
+        return { ok: false, why: '다른 유닛이 이동했으므로 질주를 사용할 수 없음' };
+      }
+    }
+    // ★ 사용자 보고: 쌍검무 — 이동 후 / 다른 유닛 공격 후 사용 불가 (server 가드 동일 — server.js:4827-4833).
+    if (sk.id === 'dualStrike') {
+      if (S.lastActionType === 'move') return { ok: false, why: '이미 이동했으므로 쌍검무를 사용할 수 없음' };
+      if (S.lastActionType === 'attack' && S.lastActionPieceType && S.lastActionPieceType !== 'dualBlade') {
+        return { ok: false, why: '다른 유닛이 행동했으므로 쌍검무를 사용할 수 없음' };
+      }
+    }
     if (sk.id === 'detonate') {
       const bombs = (S.boardObjects || []).filter(o => o.type === 'bomb');
       if (bombs.length === 0) return { ok: false, why: '설치된 폭탄 없음' };
@@ -18338,6 +18333,8 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
     }
     return { ok: true, why: null };
   }
+  // ★ 사용자 요청: 글로벌 스킬 버튼 판정 (showActionBar) 도 동일 함수로 통일 — 전역 노출.
+  window.evalSkillCastable = evalSkillCastable;
 
   // 스킬 유형 클래스/라벨 — 게임 통일 표기
   function getSkillTagInfo(sk) {
