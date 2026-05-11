@@ -1584,26 +1584,20 @@ function aiTeamTakeTurn(room, idx) {
       // 학습 메모리 — 같은 타겟에 저주가 계속 해소되면 회피
       // p._curseHistory: { 'ownerIdx:type:subUnit': cleansedCount }
       if (!p._curseHistory) p._curseHistory = {};
-      // 적팀에 신성 시전자(수도승)·정화 가능 유닛이 있으면 저주가 무력화될 가능성 높음
-      const enemyHasMonk = enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(e =>
-        e.alive && (e.type === 'monk' || (e.skills && e.skills.some(s => s.id === 'divine')))));
-
+      // ★ 사용자 정정: 수도승 자신을 0순위 저주 — 신성 스킬 봉인 → 다른 아군 저주 해소 차단.
+      //   적팀에 수도승이 있고 살아있을 때 monk 가 후보에 포함되어 최우선 선택됨.
       const candidates = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
         .map((pc, ti) => ({ pc, ownerIdx: ei, idxInOwner: ti }))
-        .filter(o => o.pc.alive && o.pc.hp > 1 && o.pc.type !== 'monk' &&
+        .filter(o => o.pc.alive && o.pc.hp > 1 &&
           !o.pc.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')));
 
-      // 우선순위: 신성 시전자(monk) 자신을 먼저 표적
-      // — 단, 신성 시전자가 살아있는 동안은 저주가 계속 풀리니까 monk 죽을 때까지 monk 노리기
-      if (enemyHasMonk) {
-        // monk를 후보에 추가 — 저주는 못 걸지만, 마녀의 일반 공격으로 monk를 죽이는 것이 우선
-        // 이 케이스는 일반 공격 점수가 높을 테니 여기서 저주 스킵 (false 반환과 유사하게 다음으로 진행)
-        // 하지만 SP가 충분하고 다른 좋은 타겟이 있으면 저주는 시도
-      }
-
       if (candidates.length > 0) {
-        // 정렬: cleanse 메모리 적은 것 → 스킬 보유 → HP 높음 → tier 높음
+        // 정렬: 수도승 우선 > cleanse 메모리 적음 > 스킬 보유 > HP 높음 > tier 높음
         candidates.sort((a, b) => {
+          // 0순위: monk (신성 스킬 봉인 — 저주 해소 차단)
+          if ((b.pc.type === 'monk' ? 1 : 0) !== (a.pc.type === 'monk' ? 1 : 0)) {
+            return (b.pc.type === 'monk' ? 1 : 0) - (a.pc.type === 'monk' ? 1 : 0);
+          }
           const ka = `${a.ownerIdx}:${a.pc.type}:${a.pc.subUnit || ''}`;
           const kb = `${b.ownerIdx}:${b.pc.type}:${b.pc.subUnit || ''}`;
           const ca = p._curseHistory[ka] || 0;
@@ -1616,8 +1610,9 @@ function aiTeamTakeTurn(room, idx) {
         const t = candidates[0];
         const targetKey = `${t.ownerIdx}:${t.pc.type}:${t.pc.subUnit || ''}`;
         const cleansedTimes = p._curseHistory[targetKey] || 0;
-        // 같은 타겟이 2회 이상 정화됐고 적팀에 monk가 있으면 — 저주 시전 포기 (헛수고)
-        if (cleansedTimes >= 2 && enemyHasMonk) {
+        // ★ 사용자 정정: 같은 monk 가 자기 자신 저주를 풀 수 없으므로 (저주 상태에서 스킬 봉인),
+        //   monk 자체에는 cleansed 추적 무의미 — 무조건 시전. monk 아닌 다른 타겟은 기존 cleansed 2회 가드 유지.
+        if (t.pc.type !== 'monk' && cleansedTimes >= 2) {
           // 저주 스킵 — 다음 행동 후보로 넘어감
         } else {
           aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
@@ -3237,6 +3232,12 @@ function flushPhase(room, onComplete) {
     waveQueue = newPending;  // 다음 wave (체인)
   }
 
+  // ★ 사용자 보고: 마법사 인스턴트 SP 가 죽음 기폭 경로에서 누락되던 버그.
+  //   detonateBomb({ deferEmit: true }) 가 suppressSpUpdate=true 로 동작 → emitSPUpdate
+  //   가 호출 안 됨. 기폭 스킬 경로는 후속 skill_result 가 sp/instantSp 일괄 전달하지만,
+  //   죽음 기폭은 skill_result 없음 → 클라가 SP 갱신을 못 받음. wave 처리 후 즉시 emit.
+  if (waves.length > 0) emitSPUpdate(room);
+
   // === 2) emit 스케줄링 (각 wave 순차 노출) ===
   let cursor = 0;
   for (const wave of waves) {
@@ -3934,9 +3935,11 @@ function processTurnStart(room) {
     spGrantedThisTurn = true;
   }
 
-  // 애니메이션 페이즈 종료 시각 기록 — AI/저주틱 등 모든 후속 처리는 이 시각 + 1.5s 까지 대기
+  // 애니메이션 페이즈 종료 시각 기록 — AI/저주틱 등 후속 처리 대기 시각.
+  // ★ 사용자 요청: 애니메이션 종료 직후 곧바로 저주 데미지 발동 — 버퍼 1500ms → 200ms 로 단축.
+  const ANIM_PHASE_TAIL_BUFFER = 200;
   if (animTotalMs > 0) {
-    room._animPhaseEndsAt = Date.now() + animTotalMs + 1500;
+    room._animPhaseEndsAt = Date.now() + animTotalMs + ANIM_PHASE_TAIL_BUFFER;
   } else {
     room._animPhaseEndsAt = 0;
   }
@@ -3970,8 +3973,9 @@ function processTurnStart(room) {
       }
     }
   };
-  // continueTurnStart — 저주 틱 + 후속 처리. 애니메이션 페이즈가 있으면 그 종료 + 1.5s 후 실행.
-  const _phaseDelay = animTotalMs > 0 ? (animTotalMs + 1500) : 0;
+  // continueTurnStart — 저주 틱 + 후속 처리. 애니메이션 페이즈가 있으면 그 종료 + 짧은 버퍼 후 실행.
+  // ★ 사용자 요청: 1500ms 버퍼 → 200ms 로 단축 (애니 종료 직후 곧바로 저주 데미지 발동).
+  const _phaseDelay = animTotalMs > 0 ? (animTotalMs + ANIM_PHASE_TAIL_BUFFER) : 0;
   if (_phaseDelay > 0) {
     setTimeout(() => {
       if (!rooms[room.id] || room.phase !== 'game') return;
@@ -4168,12 +4172,13 @@ function endTurn(room, opts) {
       || (prevPlayer.skillsUsedBeforeAction && prevPlayer.skillsUsedBeforeAction.length > 0);
     const didNothing = !usedAction && !usedSkill;
     if (didNothing && prevPlayer.name) {
-      const msg = `${prevPlayer.name}의 턴 스킵`;
+      // ★ 사용자 요청: 턴 스킵 관련 문구에 시계 이모지 prefix.
+      const msg = `⏰ ${prevPlayer.name}의 턴 스킵`;
       if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg, kind: 'skip' });
       emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
     } else if (isTimeout && prevPlayer.name) {
       // 행동/스킬은 했지만 타임아웃으로 강제 종료된 케이스
-      const msg = `${prevPlayer.name}의 턴 강제 종료`;
+      const msg = `⏰ ${prevPlayer.name}의 턴 강제 종료`;
       if (typeof emitToBoth === 'function') emitToBoth(room, 'no_action_notice', { playerIdx: prevPlayerIdx, name: prevPlayer.name, msg, kind: 'forced' });
       emitToSpectators(room, 'spectator_log', { msg, type: 'event', playerIdx: prevPlayerIdx });
     }
@@ -6143,13 +6148,15 @@ function aiTakeTurn(room) {
         }
       }
       if (piece.type === 'witch') {
-        // 저주: 스킬 보유자/고HP 대상 우선. 수도승은 가호 패시브로 0.5 받으니 일단 제외.
+        // ★ 사용자 정정: 수도승은 신성 스킬로 다른 아군의 저주를 해소함 — 수도승 본인을 저주하면
+        //   저주 상태인 piece 는 스킬 봉인됨 ([server.js:4507](server.js:4507)) → 신성 차단 = 저주 해소 차단.
+        //   따라서 수도승을 0순위로 저주 (가호 패시브는 villain 공격 데미지에만 적용, 저주 status 와 무관).
         const enemies = room.players[0].pieces.filter(p => p.alive && p.hp > 1 &&
-          !p.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow') &&
-          p.type !== 'monk');
+          !p.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow'));
         if (enemies.length > 0) {
-          // 우선순위: 스킬 보유 > HP 높음 > 티어 높음
+          // 우선순위: 수도승 > 스킬 보유 > HP 높음 > 티어 높음
           enemies.sort((a, b) =>
+            (b.type === 'monk' ? 1 : 0) - (a.type === 'monk' ? 1 : 0) ||
             (b.hasSkill ? 1 : 0) - (a.hasSkill ? 1 : 0) ||
             b.hp - a.hp ||
             (b.tier || 0) - (a.tier || 0)

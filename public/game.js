@@ -10864,19 +10864,18 @@ function updateSPBar() {
 //     3) 양손검객 쌍검무 활성 + 추가 공격 남음
 function pieceCanTakeBasicAction(pc) {
   if (!pc || !pc.alive) return false;
-  // ★ 사용자 보고 (전령 스킬 사용 시 모든 행동 불가): 전령 질주는 자유 시전형 — 서버가
-  //   actionUsedSkillReplace=true 를 부여해 공격은 막지만 이동은 허용해야 함. 본 함수가
-  //   actionUsedSkillReplace 체크를 먼저 수행해 즉시 false 반환하던 버그 → sprint 체크를
-  //   actionUsedSkillReplace 위로 이동.
-  if (pc.messengerSprintActive && pc.messengerMovesLeft > 0) return true;
+  // ★ 사용자 요청: 질주 활성 시 — 메신저만 행동 가능. 다른 유닛은 일괄 불가 (기존
+  //   [행동가능]/[행동불가] 플로팅 버튼 시스템에 반영됨).
+  const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+  if (sprintCaster) return pc === sprintCaster;
+  // ★ 사용자 요청: 쌍검무 활성 시 — 양손검객만 행동 가능. 다른 유닛은 일괄 불가.
+  const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
+  if (dualBladeCaster) return pc === dualBladeCaster;
+  // 일반 케이스
   if (S.actionUsedSkillReplace) return false;
   if (S.twinMovePending && pc.subUnit && S.twinMovedSub !== pc.subUnit) return true;
-  if (pc.dualBladeAttacksLeft > 0) return true;
   return !S.actionDone;
 }
-
-// 행동불가 오버레이 판정은 renderGameBoard 인라인에서 직접 수행 — sprint/dualBlade 활성 시
-// 시전 유닛 외 모두에 cant-act 클래스 부여. 별도 helper 함수 불필요.
 
 // piece 가 스킬을 보유하는지 (사용 가능 여부와 무관 — 보유 자체).
 function pieceHasAnySkill(pc) {
@@ -11000,8 +10999,6 @@ function showActionBar(enabled) {
     //   호출하므로 여기서 body.action-locked / dim-morale-zone / 액션 버튼 모드 일괄 클리어.
     document.body.classList.remove('action-locked', 'dim-morale-zone');
     if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
-    // ★ 사용자 요청: 행동불가 태그는 자신 턴에만 표기 → 상대 턴 진입 시 잔재 클리어.
-    document.querySelectorAll('#game-board .cell.cant-act').forEach(c => c.classList.remove('cant-act'));
   } else {
     // 내 턴 — 상황에 따라 비활성화/흐림
     const alivePieces = S.myPieces ? S.myPieces.filter(p => p.alive) : [];
@@ -11172,15 +11169,6 @@ function renderGameBoard() {
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
-      // ★ 사용자 요청: 질주/쌍검무 활성 + 행동 모드 진입 시 — 시전 유닛 외 모든 piece 에
-      //   "행동불가" 오버레이 표시 (셀 위 크게). 일반 케이스 (이미 이동/공격, 대상 없음 등) 는
-      //   표기 X — 기존 dim 만으로 충분. 자신 턴에만 표시.
-      if (S.isMyTurn && (S.action === 'move' || S.action === 'twin_move' || S.action === 'attack')) {
-        const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
-        const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
-        const caster = sprintCaster || dualBladeCaster;
-        if (caster && pc !== caster) cell.classList.add('cant-act');
-      }
       const idx = S.myPieces.indexOf(pc);
       // ★ 합류 셀 글로우: 같은 칸의 어느 쌍둥이가 선택돼도 selected-piece 적용 (둘 다 쌍둥이 강도이므로)
       const otherTwinIdx = otherTwin ? S.myPieces.indexOf(otherTwin) : -1;
@@ -11717,13 +11705,33 @@ function snapshotTurnStartHps(preCurseHps) {
   S.curseDamageThisTurn = newCurseDmg;
 }
 // 호위무사가 충성으로 대신 받은 피해를 누적
+// ★ 사용자 요청: 새 이벤트 발생 시 다른 type 도장 클리어 → 가장 최신 type 만 표시.
+//   같은 type 내에서는 누적 (예: 공격 1회 + 2회 = 누적 3 데미지). 다른 type 으로 전환 시
+//   이전 type 모두 제거 (예: 저주 → 회복 시 저주 도장 사라지고 회복만 표시).
+function _clearOtherStampTypes(key, exceptType) {
+  const maps = {
+    body: S.bodyDamageThisTurn,
+    curse: S.curseDamageThisTurn,
+    heal: S.healThisTurn,
+    loyalty: S.loyaltyDamageThisTurn,
+  };
+  if (!S._stampAnimationsSeen) S._stampAnimationsSeen = {};
+  for (const t in maps) {
+    if (t === exceptType) continue;
+    if (maps[t]) delete maps[t][key];
+    // 도장 애니메이션 seen 셋도 클리어 — 다음 type 등장 시 stamp-in 애니 재생.
+    delete S._stampAnimationsSeen[`${key}:${t}`];
+  }
+}
 function addLoyaltyDamage(key, dmg) {
   if (!S.loyaltyDamageThisTurn) S.loyaltyDamageThisTurn = {};
+  _clearOtherStampTypes(key, 'loyalty');
   S.loyaltyDamageThisTurn[key] = (S.loyaltyDamageThisTurn[key] || 0) + dmg;
 }
 // 저주(curse) 지속 데미지 — 매 턴 재렌더에도 보존되도록 도장 데이터로 누적
 function addCurseDamageStampValue(key, dmg) {
   if (!S.curseDamageThisTurn) S.curseDamageThisTurn = {};
+  _clearOtherStampTypes(key, 'curse');
   S.curseDamageThisTurn[key] = (S.curseDamageThisTurn[key] || 0) + dmg;
 }
 // 직접 피격(공격/스킬/덫/폭탄) 으로 본체가 받은 데미지를 누적.
@@ -11731,11 +11739,13 @@ function addCurseDamageStampValue(key, dmg) {
 // 가로채는 일이 없도록 (사용자 요청: 정보처리 자체를 막아 가로채지 못하게).
 function addBodyDamage(key, dmg) {
   if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
+  _clearOtherStampTypes(key, 'body');
   S.bodyDamageThisTurn[key] = (S.bodyDamageThisTurn[key] || 0) + dmg;
 }
 // 회복(신성/약초학) 누적 — 녹색 회복 도장 + HP 바 녹색 오버레이용.
 function addHeal(key, amount) {
   if (!S.healThisTurn) S.healThisTurn = {};
+  _clearOtherStampTypes(key, 'heal');
   S.healThisTurn[key] = (S.healThisTurn[key] || 0) + amount;
 }
 // 데미지(이번 턴 기준): 시작 HP − 현재 HP. 음수면 0(회복 등).
@@ -13324,13 +13334,18 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   const canBasic = pieceCanTakeBasicAction(pc);
   const hasSkill = pieceHasAnySkill(pc);
   const canSkill = canPieceUseAnySkill(pieceIdx);
+  // ★ 사용자 요청: 질주 활성 시 — 공격 dim (이동만). 쌍검무 활성 시 — 이동 dim (공격만).
+  const sprintActive = (S.myPieces || []).some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+  const dualBladeActive = (S.myPieces || []).some(p => p.alive && p.dualBladeAttacksLeft > 0);
+  const moveDisabled = !canBasic || dualBladeActive;
+  const attackDisabled = !canBasic || sprintActive;
 
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
   //   기본 행동 소진 시 → 이동·공격 둘 다 disabled. 스킬은 별도 canSkill 로 결정.
   //   스킬 미보유 캐릭터는 -45° 자리 비움 (hideIfMissing).
   const items = [
-    { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: !canBasic },
-    { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: !canBasic },
+    { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: moveDisabled },
+    { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: attackDisabled },
     { angle:  -45, key: 'skill',  icon: '✨',  label: '스킬',   disabled: !canSkill, hideIfMissing: !hasSkill },
   ].filter(it => !it.hideIfMissing);
 
@@ -18041,10 +18056,15 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
 
   function showActableHighlights() {
     _clearActionFloatingBtns();
+    if (!S.myPieces) return;
     const idxs = getActablePieces();
-    for (const i of idxs) {
+    const actableSet = new Set(idxs);
+    // ★ 사용자 요청: 질주/쌍검무 등 일부 piece 만 actable 인 케이스에서 나머지에는 [행동불가]
+    //   플로팅 버튼 부착 — 시전자만 [행동가능], 그 외 모두 [행동불가]. (이전엔 무표시였음.)
+    for (let i = 0; i < S.myPieces.length; i++) {
       const pc = S.myPieces[i];
-      if (pc) _placeActionFloatingBtn(pc, 'actable');
+      if (!pc || !pc.alive) continue;
+      _placeActionFloatingBtn(pc, actableSet.has(i) ? 'actable' : 'unable');
     }
   }
   function showUnableHighlights() {

@@ -1247,29 +1247,6 @@ body.action-locked #game-board .cell.skill-caster-mild .piece-marker {
   pointer-events: none !important;
 }
 
-/* ★ 사용자 요청: 질주/쌍검무 활성 + 행동 모드 진입 시 — 시전 유닛 외 모든 piece 에
-   "행동불가" 오버레이. 셀 전체에 크게 노출되어 클릭 시 행동 불가임을 명확히 함.
-   기존 dim 위에 빨간 반투명 + 큰 텍스트로 겹쳐 보임. */
-#game-board .cell.cant-act {
-  position: relative;
-}
-#game-board .cell.cant-act::after {
-  content: '행동불가';
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(220, 38, 38, 0.55);
-  color: #fff;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  z-index: 11;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75), 0 0 4px rgba(127, 29, 29, 0.9);
-  border-radius: inherit;
-}
 
 /* ── 쌍둥이 이동 페이즈 floating 버튼 (이동 선택) ──
    game-board 의 absolute 자식으로 배치 → 셀 innerHTML 재렌더에도 살아남음.
