@@ -1429,35 +1429,24 @@ function aiTeamUsePreSkills(room, idx) {
         if (!occ) { aiTeamExecSkill(room, idx, pi, 'dragon', { col: c, row: r }); return true; }
       }
     }
-    // ring (국왕) — 가장 위협적인 적을 외곽으로 밀어넣기.
-    // 사용자 요청: 절대 같은 팀원에게 사용하지 못하게 — 적팀(enemyIdxs) 만 후보 + targetOwnerIdx 명시.
+    // ring (국왕) — 사용자 요청 전략적 사용만 (남발 금지).
+    //   1. 보드 축소 임박 시 적을 외곽 파괴 영역으로 / 2. AI 공격범위 즉사 연계 /
+    //   3. AI 덫·폭탄·쥐 위로 / 4. AI 유닛 위협 적을 위협 안 닿는 곳으로.
+    //   _aiPickRingPlay 헬퍼가 4가지 조건을 점수화하여 최선의 play 반환 (없으면 null).
     if (piece.skillId === 'ring') {
-      // 적팀 piece 들을 owner 정보와 함께 수집 (server.executeSkill 'king' 케이스가 type+ownerIdx 로 매칭)
-      const enemyEntries = [];
-      for (const ei of enemyIdxs) {
-        const owner = room.players[ei];
-        if (!owner) continue;
-        if (owner.teamId === room.players[idx].teamId) continue;  // 같은 팀이면 스킵 (이중 안전장치)
-        for (const e of (owner.pieces || [])) {
-          if (e.alive && e.col != null) enemyEntries.push({ piece: e, ownerIdx: ei });
-        }
-      }
-      if (enemyEntries.length > 0) {
-        const target = enemyEntries[0];
-        const bounds = room.boardBounds;
-        for (let r = bounds.min; r <= bounds.max; r += (bounds.max - bounds.min)) {
-          for (let c = bounds.min; c <= bounds.max; c++) {
-            const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
-            if (!occ) {
-              aiTeamExecSkill(room, idx, pi, 'ring', {
-                targetName: target.piece.type,        // server 는 piece.type 으로 매칭
-                targetOwnerIdx: target.ownerIdx,      // 같은 팀원 폴백 방지
-                col: c, row: r,
-              });
-              return true;
-            }
-          }
-        }
+      // ★ 같은 팀 멤버는 적이 아니므로 _aiPickRingPlay 의 enemyOwnerIdxs 에서 제외 (이중 안전장치).
+      const enemyOwners = (enemyIdxs || []).filter(ei => {
+        const o = room.players[ei];
+        return o && o.teamId !== room.players[idx].teamId;
+      });
+      const play = _aiPickRingPlay(room, idx, enemyOwners);
+      if (play) {
+        aiTeamExecSkill(room, idx, pi, 'ring', {
+          targetName: play.target.type,
+          targetOwnerIdx: play.targetOwnerIdx,
+          col: play.destCol, row: play.destRow,
+        });
+        return true;
       }
     }
   }
@@ -5503,6 +5492,145 @@ function aiExecSkill(room, pidx, skillId, params) {
   return result;
 }
 
+// ── AI 절대복종 반지 전략 헬퍼 (사용자 요청) ──
+//   다음 4가지 명확한 이득이 있을 때만 사용 — 그 외 남발 금지:
+//   1. 보드 축소 임박 (≤5턴) 시 적을 보드 파괴 영역으로 이동
+//   2. AI 공격범위에 적을 옮겨 즉사 / 다대미지 연계 (즉사 우선)
+//   3. AI 덫/폭탄/쥐 설치물 위로 적을 이동 → 자동 발동 또는 후속 기폭
+//   4. AI 유닛을 위협하는 적을 위협 안 닿는 곳으로 옮겨 방어
+//   returns: { target, destCol, destRow, score, reasons } | null
+//   ★ aiIdx = 시전자 인덱스, enemyOwnerIdxs = 적 owner 인덱스들 (1v1 [1-aiIdx], 팀모드 enemyIdxs)
+function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
+  const bounds = room.boardBounds;
+  const aiPlayer = room.players[aiIdx];
+
+  // 적 piece 수집 (owner 정보 포함)
+  const enemies = [];
+  for (const eIdx of enemyOwnerIdxs) {
+    const owner = room.players[eIdx];
+    if (!owner) continue;
+    for (const p of (owner.pieces || [])) {
+      if (p.alive && p.col != null) enemies.push({ piece: p, ownerIdx: eIdx });
+    }
+  }
+  if (enemies.length === 0) return null;
+
+  // 모든 셀의 점유 상황
+  const occupied = new Set();
+  for (const pl of room.players) {
+    for (const pc of (pl.pieces || [])) {
+      if (pc.alive && pc.col != null) occupied.add(`${pc.col},${pc.row}`);
+    }
+  }
+
+  // AI 공격 가능 셀 → {atk, killers} 맵
+  const aiAttackMap = new Map();
+  for (const p of aiPlayer.pieces) {
+    if (!p.alive || p.col == null || (p.atk || 0) <= 0) continue;
+    // 그림자 상태 (자기) 는 공격 못함 — 스킵
+    if ((p.statusEffects || []).some(e => e.type === 'shadow')) continue;
+    const cells = getAttackCells(p.type, p.col, p.row, bounds, { toggleState: p.toggleState });
+    for (const c of cells) {
+      const key = `${c.col},${c.row}`;
+      const entry = aiAttackMap.get(key) || { maxAtk: 0 };
+      if ((p.atk || 0) > entry.maxAtk) entry.maxAtk = p.atk || 0;
+      aiAttackMap.set(key, entry);
+    }
+  }
+
+  // AI 보드 설치물 (덫/폭탄/쥐)
+  const aiObjs = room.boardObjects[aiIdx] || [];
+  const trapCells = new Set(aiObjs.filter(o => o.type === 'trap').map(o => `${o.col},${o.row}`));
+  const bombCells = new Set(aiObjs.filter(o => o.type === 'bomb').map(o => `${o.col},${o.row}`));
+  const ratCells  = new Set(aiObjs.filter(o => o.type === 'rat' ).map(o => `${o.col},${o.row}`));
+
+  // 보드 축소 임박 영역
+  let shrinkDoomCells = null;
+  const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  const nextShrink = schedule.find(ev => room.boardShrinkStage < (ev.stage || 0) && room.turnNumber < ev.shrinkTurn);
+  if (nextShrink) {
+    const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
+    if (turnsLeft <= 5) {
+      const baseSize = room.mode === 'team' ? 7 : 5;
+      const nextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+      const newBounds = nextShrink.newBounds || _levelToBounds(nextLevel, baseSize);
+      shrinkDoomCells = new Set();
+      for (let r = bounds.min; r <= bounds.max; r++) {
+        for (let c = bounds.min; c <= bounds.max; c++) {
+          const inSafe = c >= newBounds.min && c <= newBounds.max && r >= newBounds.min && r <= newBounds.max;
+          if (!inSafe) shrinkDoomCells.add(`${c},${r}`);
+        }
+      }
+    }
+  }
+
+  // AI 유닛을 위협하는 적 (방어 전략용)
+  const aiCellSet = new Set(aiPlayer.pieces.filter(p => p.alive && p.col != null).map(p => `${p.col},${p.row}`));
+  const threatening = new Set();    // 위협 중인 적 piece 식별자 (col,row)
+  for (const { piece: e } of enemies) {
+    const cells = getAttackCells(e.type, e.col, e.row, bounds, { toggleState: e.toggleState });
+    if (cells.some(c => aiCellSet.has(`${c.col},${c.row}`))) {
+      threatening.add(`${e.col},${e.row}`);
+    }
+  }
+
+  const candidates = [];
+  for (const { piece: target, ownerIdx: targetOwnerIdx } of enemies) {
+    // 모든 빈 칸 후보 평가
+    for (let r = bounds.min; r <= bounds.max; r++) {
+      for (let c = bounds.min; c <= bounds.max; c++) {
+        if (c === target.col && r === target.row) continue;  // no-op
+        if (occupied.has(`${c},${r}`)) continue;             // 점유된 셀 제외
+        const cellKey = `${c},${r}`;
+        let score = 0;
+        const reasons = [];
+
+        // [1] 보드 축소 도착지
+        if (shrinkDoomCells && shrinkDoomCells.has(cellKey)) {
+          score += 80;
+          reasons.push('shrink');
+        }
+
+        // [2] AI 공격범위 — 즉사 우선
+        const atkEntry = aiAttackMap.get(cellKey);
+        if (atkEntry && atkEntry.maxAtk > 0) {
+          if (atkEntry.maxAtk >= target.hp) {
+            score += 100;                            // 즉사 가능 — 최고 점수
+            reasons.push('oneShot');
+          } else {
+            score += 25 + atkEntry.maxAtk * 8;       // 다대미지 (HP 손실)
+            reasons.push('attackCombo');
+          }
+        }
+
+        // [3] 설치물 위로 이동
+        if (trapCells.has(cellKey))    { score += 75; reasons.push('trap'); }
+        else if (bombCells.has(cellKey)) { score += 45; reasons.push('bomb'); }
+        else if (ratCells.has(cellKey))  { score += 12; reasons.push('rat'); }
+
+        // [4] 방어 — 위협 중이던 적을 위협 안 닿는 곳으로
+        if (threatening.has(`${target.col},${target.row}`)) {
+          const newAttack = getAttackCells(target.type, c, r, bounds, { toggleState: target.toggleState });
+          const stillThreat = newAttack.some(ac => aiCellSet.has(`${ac.col},${ac.row}`));
+          if (!stillThreat) {
+            score += 40;
+            reasons.push('defense');
+          }
+        }
+
+        if (score > 0) candidates.push({ target, targetOwnerIdx, destCol: c, destRow: r, score, reasons });
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  // 임계값 — SP 3 가치 이상의 이득이 명확할 때만 시전 (남발 방지).
+  if (best.score < 40) return null;
+  return best;
+}
+
 // AI 스킬 사용 판단 (free skills — 행동 전에 사용)
 // 적극적 사용: 명백한 이득이 있으면 사용. SP 보존보다 스킬 가치 우선.
 function aiUsePreSkills(room) {
@@ -5641,34 +5769,16 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 국왕: 절대복종 반지 (SP 3) — 적을 덫/폭탄/유리한 위치로 강제 이동
+      // 국왕: 절대복종 반지 (SP 3) — 사용자 요청 전략적 사용만 (남발 금지).
+      //   1. 보드 축소 임박 시 적을 외곽 파괴 영역으로 / 2. AI 공격범위 즉사 연계 /
+      //   3. AI 덫·폭탄·쥐 위로 / 4. AI 유닛 위협 적을 위협 안 닿는 곳으로.
       case 'king': {
-        // 적이 있고 SP 3+ 있으면 50% 확률로 사용 (적을 덫 위치로 끌어들이기)
-        const enemies = human.pieces.filter(p => p.alive);
-        if (enemies.length === 0) break;
-        // 내 덫 위치 탐색
-        const myTraps = (room.boardObjects[1] || []).filter(o => o.type === 'trap');
-        let target = null, destCol, destRow;
-        if (myTraps.length > 0) {
-          // HP 가장 높은 적을 덫으로
-          const trap = myTraps[0];
-          target = enemies.sort((a, b) => b.hp - a.hp)[0];
-          destCol = trap.col; destRow = trap.row;
-        } else if (Math.random() < 0.4) {
-          // 덫이 없어도 가끔 사용 — 적을 보드 가장자리(축소 위험 지역)로
-          target = enemies.sort((a, b) => b.hp - a.hp)[0];
-          // 가장자리 칸 중 비어있는 곳
-          for (let r = bounds.min; r <= bounds.max && !destCol; r++) {
-            for (let c = bounds.min; c <= bounds.max; c++) {
-              const isBorder = r === bounds.min || r === bounds.max || c === bounds.min || c === bounds.max;
-              if (!isBorder) continue;
-              const occ = room.players.some(pl => pl.pieces.some(p => p.alive && p.col === c && p.row === r));
-              if (!occ) { destCol = c; destRow = r; break; }
-            }
-          }
-        }
-        if (target && destCol != null && destRow != null) {
-          _tryExec(pidx, 'ring', { targetName: target.type, col: destCol, row: destRow });
+        const play = _aiPickRingPlay(room, 1, [0]);
+        if (play) {
+          _tryExec(pidx, 'ring', {
+            targetName: play.target.type,
+            col: play.destCol, row: play.destRow,
+          });
         }
         break;
       }

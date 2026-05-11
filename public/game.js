@@ -6402,9 +6402,20 @@ socket.on('rats_spawned', ({ rats, owner, spCost, casterCol, casterRow }) => {
       addLog(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
       showSkillToast(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
     }
-    // ★ 쥐 비행 애니메이션 + 셀 보라 마크 (사용자 요청)
+    // ★ 쥐 비행 애니메이션 + 셀 보라 마크 — rat-anim.js 의 generic animateRatSpawn 호출.
+    //   game 전용 state (viewerIdx, marksArr, turnNumber, onLanded) 를 opts 로 주입.
     if (typeof animateRatSpawn === 'function') {
-      animateRatSpawn(rats, owner);
+      if (!S._ratSpawnMarks) S._ratSpawnMarks = [];
+      animateRatSpawn(rats, owner, {
+        boardId: 'game-board',
+        viewerIdx: S.playerIdx,
+        marksArr: S._ratSpawnMarks,
+        turnNumber: S.turnNumber,
+        onLanded: (rat) => {
+          if (S._ratIncoming) S._ratIncoming.delete(`${rat.col},${rat.row},${owner}`);
+          if (typeof renderGameBoard === 'function') renderGameBoard();
+        },
+      });
     }
     renderGameBoard();
   }, SP_END_MS);
@@ -10977,6 +10988,10 @@ function showActionBar(enabled) {
     btnMove.classList.remove('action-dimmed');
     btnAttack.classList.remove('action-dimmed');
     btnSkill.classList.remove('action-dimmed');
+    // ★ 사용자 보고 (턴 종료 시 유닛 딤 해제 X): 모든 end_turn 경로가 showActionBar(false) 를
+    //   호출하므로 여기서 body.action-locked / dim-morale-zone / 액션 버튼 모드 일괄 클리어.
+    document.body.classList.remove('action-locked', 'dim-morale-zone');
+    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   } else {
     // 내 턴 — 상황에 따라 비활성화/흐림
     const alivePieces = S.myPieces ? S.myPieces.filter(p => p.alive) : [];
@@ -10985,9 +11000,13 @@ function showActionBar(enabled) {
     // ── 이동 가능 여부 ──
     // actionDone이면 이동 불가 (이미 이동 또는 공격함)
     // 단, 전령 질주 활성 또는 쌍둥이 한쪽만 이동했을 때 추가 이동 가능
+    // ★ 사용자 보고 (전령 질주 후 행동 불가): 서버가 질주 시 actionUsedSkillReplace=true 를
+    //   부여해 공격을 막는데, 클라가 actionUsedSkillReplace 로 이동까지 차단하던 버그.
+    //   → 질주 활성 시 actionUsedSkillReplace 무시 (이동만 허용, 공격은 별도 canAttack 에서 차단).
     const hasSprintMove = alivePieces.some(p => p.messengerSprintActive && p.messengerMovesLeft > 0);
     const hasTwinPending = !!S.twinMovePending;
-    const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending) && !S.actionUsedSkillReplace;
+    const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending) &&
+                    (!S.actionUsedSkillReplace || hasSprintMove);
     btnMove.disabled = !canMove;
     btnMove.classList.toggle('action-dimmed', !canMove);
 
@@ -11028,7 +11047,9 @@ function showActionBar(enabled) {
       }
       if (hasUsableSkill) break;
     }
-    btnSkill.disabled = !hasUsableSkill;
+    // ★ 사용자 요청: 사용 가능한 스킬이 없어도 버튼 클릭으로 모달 입장은 가능 (시각만 딤).
+    //   disabled 부여 X — 클릭 핸들러가 자체적으로 action-locked 진입 여부 판단.
+    btnSkill.disabled = false;
     btnSkill.classList.toggle('action-dimmed', !hasUsableSkill);
 
     // 턴 종료: 항상 가능
@@ -11100,18 +11121,26 @@ function renderGameBoard() {
         : `${pc.hp}/${pc.maxHp}`;
       // 팀모드: 내 말도 팀 절대 컬러로 — 관전자/일관성을 위해
       const myTeamColorCls = S.isTeamMode ? (S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red') : '';
-      // 쌍둥이 dim 면제 — 사용자 요청: 둘 다 살아있는 한 쌍둥이 둘 다 항상 면제 (한 몸 취급).
-      //   모드 무관 (이동·공격·스킬·twin_move) — 한쪽 쌍둥이가 선택돼도 나머지 한쪽도 함께 면제.
-      //   ★ 단, twin_move 페이즈에서 분리 상태로 이미 이동을 마친 쪽은 'twin-spent' 로 dim 처리 (행동 끝난 한쪽).
+      // 쌍둥이 dim 면제 — 사용자 정정 요청:
+      //   "쌍둥이 중 어느 쪽이 선택되면" 둘 다 dim 면제 (한 몸 취급).
+      //   다른 유닛이 선택되었거나, 아무것도 선택 안 한 상태에서는 쌍둥이도 일반 유닛처럼 dim.
+      //   ★ 단, twin_move 페이즈 중에는 항상 면제 (행동 주체가 쌍둥이임이 명확) — 단, 이미 이동을
+      //     마친 쪽은 'twin-spent' 로 dim 처리.
       let twinPhaseCls = '';
       if (isTwin) {
         const _myOtherSub = pc.subUnit === 'elder' ? 'younger' : 'elder';
         const _myOtherAlive = (S.myPieces || []).some(p => p.subUnit === _myOtherSub && p.alive);
         if (_myOtherAlive) {
-          twinPhaseCls = ' twin-active';
-          // twin_move 페이즈에서 분리 상태 + 이동을 마친 쪽 → spent (dim)
-          if (S.twinPhaseActive && !otherTwin && pc.subUnit === S.twinFirstSubMoved) {
-            twinPhaseCls = ' twin-spent';
+          // 현재 선택된 유닛이 쌍둥이인지 판정
+          const _selectedPc = (typeof S.selectedPiece === 'number') ? (S.myPieces || [])[S.selectedPiece] : null;
+          const _selectedIsTwin = _selectedPc && _selectedPc.alive &&
+            (_selectedPc.subUnit === 'elder' || _selectedPc.subUnit === 'younger');
+          if (S.twinPhaseActive || _selectedIsTwin) {
+            twinPhaseCls = ' twin-active';
+            // twin_move 페이즈에서 분리 상태 + 이동을 마친 쪽 → spent (dim)
+            if (S.twinPhaseActive && !otherTwin && pc.subUnit === S.twinFirstSubMoved) {
+              twinPhaseCls = ' twin-spent';
+            }
           }
         }
         // _myOtherAlive=false 면 외톨이 쌍둥이 — 일반 유닛처럼 dim 적용 (twinPhaseCls 빈 문자열).
@@ -12307,7 +12336,11 @@ document.getElementById('btn-attack').addEventListener('click', () => {
 // 스킬 버튼
 document.getElementById('btn-skill').addEventListener('click', () => {
   if (!S.isMyTurn) return;
-  setActionButtonMode('skill');
+  // ★ 사용자 요청: 사용 가능 스킬 없음 (action-dimmed) 상태에서도 모달 입장 가능.
+  //   단 action-locked 진입은 사용 가능 스킬이 있을 때만 — 모달만 열고 닫으면 자연 종료.
+  const _btn = document.getElementById('btn-skill');
+  const _noUsable = _btn && _btn.classList.contains('action-dimmed');
+  if (!_noUsable) setActionButtonMode('skill');
   openSkillModal();
 });
 
@@ -14908,15 +14941,16 @@ function animateHerbCast(centerCol, centerRow) {
       void cell.offsetWidth;
       cell.classList.add('herb-cast-cell');
       setTimeout(() => cell.classList.remove('herb-cast-cell'), HOLD_MS);
-      // 반짝이/데이지 파티클 — 셀당 3개
+      // 반짝이/데이지 파티클 — 셀당 3개. 사용자 요청: 셀 전체에 랜덤 분포 (셀 하단 X).
       const rect = cell.getBoundingClientRect();
       for (let k = 0; k < 3; k++) {
         const p = document.createElement('div');
         p.className = 'herb-leaf-particle';
         // 각 셀이 받는 chars — clockwise idx + k 로 분산해서 다양화
         p.textContent = leafChars[(i + k) % leafChars.length];
-        const sx = rect.left + rect.width * (0.25 + Math.random() * 0.5);
-        const sy = rect.top + rect.height * (0.55 + Math.random() * 0.3);
+        // ★ 셀 전체 (0~100% × 0~100%) 랜덤 분포 — 가장자리 약간 마진 두어 보드 경계 침범 방지.
+        const sx = rect.left + rect.width  * (0.08 + Math.random() * 0.84);
+        const sy = rect.top  + rect.height * (0.08 + Math.random() * 0.84);
         p.style.left = sx + 'px';
         p.style.top = sy + 'px';
         const dx = (Math.random() - 0.5) * 32;
@@ -14994,162 +15028,11 @@ function animateDivineCast(targetCol, targetRow) {
   }
 }
 
-// ── 절대복종 반지 — 오로라 강한 펄스 + 빛 방울 + 순간이동 + 화이트 페이드 ──
-//   사용자 요청:
-//     · 셀 강조는 최면스럽게, 빛이 계속 빠져나오듯이 방울 파티클로 강화.
-//     · 관전자는 피해자 애니 (vanish) 까지 전부 공유.
-//   roleHint: 'caster' | 'victim' | 'observer'
-function animateRingTeleport(rt, roleHint) {
-  if (!rt) return;
-  const board = document.getElementById('game-board');
-  if (!board) return;
-  const fromCell = board.querySelector(`.cell[data-col="${rt.fromCol}"][data-row="${rt.fromRow}"]`);
-  const toCell = board.querySelector(`.cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
-
-  // ── 인트로 (1s): 도착 셀이 오로라 색 3번 점멸 + 대상 유닛 흰색 글로우 (사용자 요청) ──
-  if (toCell) {
-    toCell.classList.remove('aurora-intro');
-    void toCell.offsetWidth;
-    toCell.classList.add('aurora-intro');
-    setTimeout(() => toCell.classList.remove('aurora-intro'), 1000);
-  }
-  // 대상 유닛이 보이는 시점 (피해자 / 관전자) 만 prevanish 글로우 적용.
-  // ★ 사용자 보고: 호출자가 이미 yourPieces 를 commit + renderGameBoard 한 상태로 본 함수를 호출하면
-  //   fromCell 에 piece-marker 가 사라져 vanish 애니가 시각적으로 작동하지 않음.
-  //   → fromCell 에 ghost marker (victimIcon) 를 임시로 주입해 prevanish/vanish 가 작동하게 함.
-  const showVanishIntro = (roleHint === 'victim' || roleHint === 'observer');
-  let ghostMarker = null;
-  if (showVanishIntro && fromCell) {
-    let fromMarker = fromCell.querySelector('.piece-marker');
-    if (!fromMarker && rt.victimIcon) {
-      ghostMarker = document.createElement('div');
-      ghostMarker.className = 'piece-marker ring-ghost';
-      ghostMarker.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
-      try {
-        if (getComputedStyle(fromCell).position === 'static') fromCell.style.position = 'relative';
-      } catch (e) {}
-      fromCell.appendChild(ghostMarker);
-      fromMarker = ghostMarker;
-    }
-    if (fromMarker) {
-      fromMarker.classList.remove('ring-prevanish');
-      void fromMarker.offsetWidth;
-      fromMarker.classList.add('ring-prevanish');
-    }
-  }
-
-  // ★ 사용자 보고 (도착 애니 아이콘 오류): toCell 에 이미 다른 piece-marker 가 존재할 수 있음.
-  //   - 시전자 시점: 내 아군이 toCell 에 있으면 그 marker (아군 icon) 가 잡혀 victim 대신 아군이 애니메이트됨 (BUG).
-  //   - 시전자 시점: 표식 상태 적이 toCell 에 있으면 그 marker 도 동일하게 잡힘 (BUG).
-  //   - 관전자 시점: 양 측 piece 모두 보임 → 어떤 marker 가 victim 인지 판단 불가.
-  //   - 피해자 시점: toCell 의 piece-marker 는 본인의 victim piece 자체 → 그대로 활용 OK.
-  //   해결: 'caster'/'observer' 역할은 항상 victimIcon 으로 ghost 생성하여 기존 marker 위 (z-index)
-  //         에 띄움. 기존 aria 마커 (아군 등) 는 영향 없이 그대로 정지 유지.
-  let arrivalGhost = null;
-  if (toCell && rt.victimIcon) {
-    const existingMarker = toCell.querySelector('.piece-marker');
-    const isVictim = (roleHint === 'victim');
-    // victim 역할 + 기존 marker 가 victim 본인 piece 인 경우만 그 marker 를 그대로 활용.
-    // 그 외 (caster, observer, 또는 victim 인데 marker 자체가 없음) 는 ghost 생성.
-    const useExistingMarker = isVictim && !!existingMarker;
-    if (!useExistingMarker) {
-      // ★ 사용자 보고 (ghost 가 셀 구석에 배치되는 버그): position:absolute + translate(-50%) 가
-      //   ring-arrived 의 transform:scale 에 의해 덮어써져 중앙 정렬이 사라졌음.
-      //   해결: ghost 를 셀 전체에 inset:0 으로 채우고 내부 flex centering 사용 → scale 변환은
-      //   중앙 위치 기준으로 작동. 기본 piece-marker 와 동일한 시각 크기/위치로 보임.
-      arrivalGhost = document.createElement('div');
-      arrivalGhost.className = 'piece-marker ring-arrival-ghost';
-      arrivalGhost.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
-      arrivalGhost.style.visibility = 'hidden';
-      arrivalGhost.style.position = 'absolute';
-      arrivalGhost.style.inset = '0';                  // 셀 전체 채움
-      arrivalGhost.style.display = 'flex';
-      arrivalGhost.style.flexDirection = 'column';
-      arrivalGhost.style.alignItems = 'center';
-      arrivalGhost.style.justifyContent = 'center';
-      arrivalGhost.style.zIndex = '20';                // ★ 기존 piece-marker 위
-      arrivalGhost.style.pointerEvents = 'none';
-      try {
-        if (getComputedStyle(toCell).position === 'static') toCell.style.position = 'relative';
-      } catch (e) {}
-      toCell.appendChild(arrivalGhost);
-    }
-  }
-
-  // 1초 후 본 애니 시작
-  setTimeout(() => _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker, arrivalGhost), 1000);
-}
-
-function _animateRingMain(rt, roleHint, fromCell, toCell, ghostMarker, arrivalGhost) {
-  // 1. 오로라 펄스 — 도착 셀에 즉시 부여 (1.5s 후 페이드아웃)
-  if (toCell) {
-    toCell.classList.remove('aurora-target', 'aurora-fade');
-    void toCell.offsetWidth;
-    toCell.classList.add('aurora-target');
-    setTimeout(() => toCell.classList.add('aurora-fade'), 1500);
-    setTimeout(() => toCell.classList.remove('aurora-target', 'aurora-fade'), 2900);
-  }
-
-  // 2. 피해자 / 관전자 시점 — 자기 piece (또는 ghost) 가 흰빛+오로라로 빛나며 즉시 사라짐 (vanish)
-  //   사용자 요청: 페이드 X, 띡 사라짐. 관전자도 피해자 애니까지 공유.
-  const showVanish = (roleHint === 'victim' || roleHint === 'observer');
-  if (showVanish && fromCell) {
-    const fromMarker = (ghostMarker && ghostMarker.isConnected) ? ghostMarker : fromCell.querySelector('.piece-marker');
-    if (fromMarker) {
-      fromMarker.classList.add('ring-vanish');
-      if (ghostMarker) setTimeout(() => { try { ghostMarker.remove(); } catch (e) {} }, 400);
-    }
-  }
-
-  // 3. 도착 piece — vanish 종료 (300ms) 후 등장. 스케일감 있게 + 흰빛 wrap → "뿅" 해제.
-  //   ring-arrived 키프레임 0.9s. 78~82% (~700~740ms) 가 "뿅" 해제 시점.
-  const ARRIVE_DELAY = showVanish ? 320 : 0;          // vanish 끝나는 시점에 등장
-  const POOF_OFFSET = 700;                              // ring-arrived 시작 후 빛 해제 시점
-  setTimeout(() => {
-    // ★ renderGameBoard 는 호출하지 않음 (aurora-target 클래스가 wipe 되어 후광 잘림).
-    //   호출자가 이미 새 좌표로 render 한 상태에서 본 함수가 진행 중.
-    const toCellNow = document.querySelector(`#game-board .cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
-    if (!toCellNow) return;
-    // arrivalGhost (시전자 fog-of-war 케이스) 가 살아있으면 그것을 사용,
-    // 아니면 toCell 의 실제 piece-marker (피해자/관전자 일반 케이스).
-    const arrivedMarker = (arrivalGhost && arrivalGhost.isConnected)
-      ? arrivalGhost
-      : toCellNow.querySelector('.piece-marker');
-    if (arrivedMarker) {
-      arrivedMarker.style.visibility = '';     // 등장 — ring-arrived 와 동시에 노출
-      arrivedMarker.classList.add('ring-arrived');
-      setTimeout(() => {
-        arrivedMarker.classList.remove('ring-arrived');
-        // arrivalGhost 는 애니 종료 시 제거 (추리 토큰은 별도 렌더로 노출).
-        if (arrivalGhost && arrivalGhost.isConnected) {
-          try { arrivalGhost.remove(); } catch (e) {}
-        }
-      }, 1000);
-    }
-    // 1.5. 빛 입자 — "뿅" 해제 시점에 사방으로 발사 (사용자 요청: 입자는 흰빛 해제 순간부터)
-    setTimeout(() => {
-      const rect = toCellNow.getBoundingClientRect();
-      const colors = ['rgba(165, 243, 252, 0.95)', 'rgba(217, 70, 239, 0.9)', 'rgba(250, 204, 21, 0.9)'];
-      const BURST_COUNT = 16;
-      for (let i = 0; i < BURST_COUNT; i++) {
-        const p = document.createElement('div');
-        p.className = 'aurora-emit-particle';
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        p.style.left = cx + 'px';
-        p.style.top = cy + 'px';
-        const angle = (Math.PI * 2 * i / BURST_COUNT) + (Math.random() - 0.5) * 0.4;
-        const dist = 38 + Math.random() * 30;
-        p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
-        p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
-        p.style.setProperty('--aurora-color', colors[i % colors.length]);
-        p.style.setProperty('--dur', (0.9 + Math.random() * 0.5) + 's');
-        document.body.appendChild(p);
-        setTimeout(() => p.remove(), 1500);
-      }
-    }, POOF_OFFSET);
-  }, ARRIVE_DELAY);
-}
+// ── 절대복종 반지 애니메이션 — 별도 파일로 추출 (ring-anim.js).
+//   index.html 이 game.js 보다 먼저 ring-anim.js 를 로드하므로 globalThis 에 함수 존재.
+//   미리보기 (skill-board-anims-preview.html) 도 같은 파일을 로드 → 단일 소스로 동작 보장.
+//   함수 호출은 기존과 동일: animateRingTeleport(rt, roleHint).
+//   (boardId 기본 'game-board' — 게임 내에서는 별도 인자 불필요).
 
 // ── 덫 발동 — 첨부 이미지 이빨 스냅 (옵션 B 확정: 큰 이빨, 살짝 박힘) ──
 //   셀 폭의 1.8배 이빨이 셀 안쪽 15% 까지 박힘 + bite-shake + 셀 흔들림 + 임팩트 광원.
@@ -15220,64 +15103,14 @@ function animateTrapSnap(col, row) {
 //   525ms 시점에 보라 셀 highlight 등장. animationend 시점에 orb 자체를 cell 의 자식으로
 //   reparent (절대 좌표 7,1 + 마커 클래스). 같은 element 가 같은 위치에 그대로 머무름 — 페이드 없음.
 if (!S._ratSpawnMarks) S._ratSpawnMarks = [];
-function animateRatSpawn(rats, owner) {
-  if (!Array.isArray(rats) || rats.length === 0) return;
-  const board = document.getElementById('game-board');
-  if (!board) return;
-  // ★ 사용자 요청: receiver 시점에서 쥐 색상·셀 내 위치가 다르게 표시됨.
-  //   본인쥐 = 🐀 (color:#52b788, left:7px), 적쥐 = 🐁 (color:#e05252, left:2px).
-  //   애니 orb 도 owner perspective 에 맞춰 emoji + finalLeft + color 일치시켜
-  //   착지 후 실제 span 으로 swap 시 시각적 끊김 없이 자연스럽게 이어지게 함.
-  const isMyRat = owner === S.playerIdx;
-  const ratEmoji = isMyRat ? '🐀' : '🐁';
-  const finalLeftOffset = isMyRat ? 7 : 2;
-  const ratColor = isMyRat ? '#52b788' : '#e05252';
-  rats.forEach((rat, i) => {
-    // ★ 사용자 요청: 셀이 3s 에 걸쳐 서서히 페이드. spawnT (Date.now) 저장 →
-    //   renderGameBoard 가 매 호출 시 -elapsed ms 만큼 animation-delay 부여하여
-    //   재렌더 후에도 원래 진행 위치에서 이어 페이드.
-    S._ratSpawnMarks.push({ col: rat.col, row: rat.row, turn: S.turnNumber, spawnT: Date.now() });
-    setTimeout(() => {
-      const targetCell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
-      if (!targetCell) return;
-      const tRect = targetCell.getBoundingClientRect();
-      const finalLeft = tRect.left + finalLeftOffset;
-      const finalTop = tRect.top + 1;
-      const fallDist = 220;
-      const orb = document.createElement('div');
-      orb.className = 'rat-fly-orb';
-      orb.textContent = ratEmoji;
-      orb.style.color = ratColor;
-      orb.style.left = finalLeft + 'px';
-      orb.style.top = (finalTop - fallDist) + 'px';
-      orb.style.setProperty('--fall', fallDist + 'px');
-      document.body.appendChild(orb);
-      // 첫 착지 시점 (525ms) — 보라 셀 highlight
-      setTimeout(() => {
-        const cellNow = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
-        if (cellNow) cellNow.classList.add('rat-spawn-mark');
-      }, 525);
-      // animationend 시 — _ratIncoming 에서 키 제거 → renderGameBoard 가 실제 rat span 렌더 →
-      // orb 제거. orb 와 span 이 같은 픽셀 위치 이므로 1프레임 안에 시각 끊김 없이 교체.
-      const swapToMarker = () => {
-        if (S._ratIncoming) S._ratIncoming.delete(`${rat.col},${rat.row},${owner}`);
-        if (typeof renderGameBoard === 'function') renderGameBoard();
-        orb.remove();
-      };
-      let swapped = false;
-      orb.addEventListener('animationend', () => {
-        if (swapped) return;
-        swapped = true;
-        swapToMarker();
-      }, { once: true });
-      setTimeout(() => {
-        if (swapped) return;
-        swapped = true;
-        swapToMarker();
-      }, 1100);
-    }, i * 130);
-  });
-}
+// ── 쥐 소환 애니메이션 — 별도 파일로 추출 (rat-anim.js).
+//   index.html 이 game.js 보다 먼저 rat-anim.js 를 로드하므로 globalThis 에 animateRatSpawn 존재.
+//   미리보기 (skill-board-anims-preview.html) 도 같은 파일을 로드 → 단일 소스로 동작 보장.
+//   호출자 (rats_spawned 핸들러) 에서 game 전용 opts 주입:
+//     - viewerIdx = S.playerIdx (본인 vs 적 쥐 분기)
+//     - marksArr = S._ratSpawnMarks (renderGameBoard 재렌더 후에도 페이드 위치 유지)
+//     - turnNumber = S.turnNumber (마크 만료 검증)
+//     - onLanded = _ratIncoming 제거 + renderGameBoard (orb → 실제 rat span 시각적 swap)
 
 // 턴 변경 시 쥐 소환 보라 마크 정리 — 이전 턴 마크는 제거.
 function clearOldRatSpawnMarks() {
