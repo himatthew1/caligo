@@ -7957,7 +7957,10 @@ const CHAR_STATS = {
   slaughterHero: { atk: 5, prs: 4, dur: 4, utl: 1, mob: 2 },
   commander:     { atk: 3, prs: 2, dur: 3, utl: 5, mob: 2 },
   sulfurCauldron:{ atk: 1, prs: 5, dur: 3, utl: 3, mob: 1 },
-  torturer:      { atk: 4, prs: 5, dur: 3, utl: 3, mob: 2 },
+  // ★ 리워크 (ATK 2→1, 공격범위 자신+아래 2칸 → 십자 5칸, 피격 시 역방향 표식):
+  //   atk 4→2 (1 dmg × 5칸 십자 ≈ 호위무사 1 dmg × 4칸 십자), utl 3→4 (표식 정보채널 양방향 확장).
+  //   prs 는 area denial + 양방향 표식 보복 위협으로 5 유지, dur 3 유지, mob 2 유지.
+  torturer:      { atk: 2, prs: 5, dur: 3, utl: 4, mob: 2 },
   count:         { atk: 4, prs: 3, dur: 5, utl: 2, mob: 2 },
 };
 
