@@ -2971,12 +2971,20 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .cell.rat-spawn-mark::after {
   content: '';
   position: absolute; inset: 0;
-  background: radial-gradient(circle, rgba(168,85,247,.22) 0%, rgba(139,92,246,0) 70%);
+  /* ★ 사용자 보고: 지휘관 morale-zone 청록 background 와 겹칠 때 보라가 묻힘.
+     z-index 2 (cell background 위 / piece-marker z-index 3 아래) + alpha 강화로 시각화 보장. */
+  background: radial-gradient(circle, rgba(168,85,247,.55) 0%, rgba(139,92,246,0.35) 45%, rgba(139,92,246,0) 80%);
   border-radius: inherit;
   pointer-events: none;
   animation: ratPulseFade 3s ease-out forwards;
   animation-delay: var(--rat-fade-offset, 0s);
-  z-index: 0;
+  z-index: 2;
+}
+/* ★ 사용자 요청: rat-spawn-mark 가 morale-zone 위에 올라올 때 morale 의 overflow:hidden 으로
+   ::after 의 박스섀도/글로우가 잘리지 않도록 visible 로 풀어줌. */
+#game-board .cell.rat-spawn-mark.morale-zone,
+#game-board .cell.rat-spawn-mark.morale-zone-center {
+  overflow: visible;
 }
 @keyframes ratPulseFade {
   0%   { opacity: 0.6; }
@@ -5294,6 +5302,12 @@ body.team-mode .placement-opp-panel {
 .dmg-stamp.heal {
   background: rgba(34, 197, 94, 0.95);
   border-color: rgba(220, 252, 231, 0.92);
+  animation: dmg-stamp-in 0.4s ease-out 1;
+}
+/* ★ 사용자 요청: 보호 (갑주무사/백작 등 데미지 0 으로 줄어든 피격) 도장 — 푸른 톤 (방어 시각화). */
+.dmg-stamp.protected {
+  background: rgba(59, 130, 246, 0.92);
+  border-color: rgba(219, 234, 254, 0.92);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
 /* heal stamp 위치 분기 — 다른 stamp 와 겹치지 않게 슬롯 분리.

@@ -128,7 +128,7 @@ const CHARACTERS = {
       skills:[], passives:['wrath'] },
     { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸 · 자기 제외',
       skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격 · 2 피해'}] },
-    { type:'torturer', name:'고문 기술자', tier:3, atk:2, icon:'⛓', tag:'villain', desc:'자신 + 바로 아래 · 총 2칸',
+    { type:'torturer', name:'고문 기술자', tier:3, atk:1, icon:'⛓', tag:'villain', desc:'십자 4방향 + 자신 · 총 5칸',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:2, icon:'🦇', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
@@ -306,7 +306,12 @@ function getAttackCells(type, col, row, bounds, extra) {
           if (dc !== 0 || dr !== 0) push(col + dc, row + dr);
       break;
     case 'torturer':
-      push(col, row); push(col, row + 1);
+      // ★ 리워크: 자신 + 4방향 인접 = 5칸 십자 (atk 1 너프와 동반된 범위 버프)
+      push(col, row);
+      push(col, row - 1);
+      push(col, row + 1);
+      push(col - 1, row);
+      push(col + 1, row);
       break;
     case 'count':
       push(col, row);
@@ -928,6 +933,20 @@ function aiTeamPlace(room, idx) {
   const isAggressive = (pc) => ['archer','spearman','cavalry','knight','general','dualBlade','prince','princess','slaughterHero','shadowAssassin','torturer','dragonTamer'].includes(pc.type);
   const isSupport = (pc) => ['herbalist','monk','watchman','scout','commander','wizard','ratMerchant','bodyguard','king'].includes(pc.type);
   const isFragile = (pc) => pc.maxHp <= 2 || ['watchman','messenger','sulfurCauldron','herbalist','monk'].includes(pc.type);
+  const isHealer = (pc) => pc.type === 'herbalist' || pc.type === 'monk';
+
+  // ★ 사용자 보고 (외곽 위주 배치): 보드 축소 일정을 배치 단계에서 인식하여, 곧 사라질 외곽 셀에
+  //   강한 페널티 부여 → 처음부터 중앙 쪽에 모이도록 강제.
+  //   팀모드: bounds 0~6 (7x7). 첫 축소 후 5x5 (1~5), 두번째 4x4 (1.5~4.5? 실제 _levelToBounds 사용).
+  const shrinkSchedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  const futureShrinkBounds = [];
+  for (const ev of shrinkSchedule) {
+    if (room.boardShrinkStage >= ev.stage) continue;
+    const _bs = room.mode === 'team' ? 7 : 5;
+    const _nl = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+    const evBounds = ev.newBounds || (typeof _levelToBounds === 'function' ? _levelToBounds(_nl, _bs) : null);
+    if (evBounds) futureShrinkBounds.push(evBounds);
+  }
 
   // 셀 점수 — 높을수록 배치하기 좋음
   const scoreCell = (piece, c, r) => {
@@ -950,45 +969,125 @@ function aiTeamPlace(room, idx) {
     } else {
       score += dRow === 1 ? 5 : 2;  // 중간 우선
     }
-    // 3. 가장자리 페널티 (보드 축소 대비)
-    if (c === bounds.min || c === bounds.max) score -= 4;
-    // 4. 팀원과 너무 인접하면 페널티 (AoE/덫에 휘말리지 않게)
-    for (const tIdx of teammates) {
-      const tp = room.players[tIdx];
-      if (!tp) continue;
-      for (const tpc of (tp.pieces || [])) {
-        if (!tpc.alive || tpc.col < 0) continue;
-        const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
-        if (dist === 1) score -= 6;
+    // 3. 가장자리 페널티 — 보드 축소 일정 기반으로 강화 (사용자 보고 반영)
+    //   곧 축소로 사라질 외곽 셀에는 강한 페널티 → 처음부터 중앙 응집 강제.
+    if (c === bounds.min || c === bounds.max) score -= 6;
+    if (r === bounds.min || r === bounds.max) score -= 4;
+    // 추가: 다음 축소 후 사라질 셀이면 -30 ~ -60 (단계별 누적)
+    for (let sIdx = 0; sIdx < futureShrinkBounds.length; sIdx++) {
+      const sB = futureShrinkBounds[sIdx];
+      const willVanish = (c < sB.min || c > sB.max || r < sB.min || r > sB.max);
+      if (willVanish) {
+        // 첫 축소(가장 임박)는 큰 페널티, 그 이후 축소는 점진적으로 감소
+        score -= sIdx === 0 ? 40 : 15;
       }
     }
-    // 5. 시너지 — commander 인접 (사기증진)
-    if (piece.tag === 'royal' || isAggressive(piece)) {
+    // 보드 중앙 거리 보너스 — 외곽보다 중앙 선호
+    const centerC = (bounds.min + bounds.max) / 2;
+    const centerR = (bounds.min + bounds.max) / 2;
+    const distFromCenter = Math.abs(c - centerC) + Math.abs(r - centerR);
+    score -= distFromCenter * 0.8;
+    // 4. 팀원과 너무 인접하면 페널티 (AoE/덫에 휘말리지 않게) — 단, 호위무사는 예외
+    if (piece.type !== 'bodyguard') {
+      for (const tIdx of teammates) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (!tpc.alive || tpc.col < 0) continue;
+          const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+          if (dist === 1) score -= 6;
+        }
+      }
+    }
+    // 5. 시너지 — commander 인접 (사기증진).
+    //   ★ 사용자 보고: 기존엔 royal/aggressive 만 보너스 받음 → 모든 비-commander 캐릭터로 확대.
+    //   commander 본인이 배치되는 셀에는, 미배치 비-commander 팀원이 인접할 수 있는 위치를 선호.
+    if (piece.type !== 'commander') {
       for (const tIdx of [...teammates, idx]) {
         const tp = room.players[tIdx];
         if (!tp) continue;
         for (const tpc of (tp.pieces || [])) {
           if (tpc.type === 'commander' && tpc.col >= 0) {
             const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
-            if (dist === 1) score += 8;
+            if (dist === 1) score += 10;  // 8 → 10 (사기증진 가치 상향)
           }
         }
       }
+    } else {
+      // commander 본인 — 이미 배치된 인접 비-commander 팀 piece 가 많은 셀 선호
+      let adjCount = 0;
+      for (const tIdx of [...teammates, idx]) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (tpc.type === 'commander' || !tpc.alive || tpc.col < 0) continue;
+          const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+          if (dist === 1) adjCount++;
+        }
+      }
+      score += adjCount * 6;
     }
-    // 6. 약한 유닛은 호위무사 인접 보너스
-    if (isFragile(piece) && piece.tag === 'royal') {
+    // 6. 약한 유닛은 호위무사 인접 보너스 (royal 외에도 적용 — 약한 캐릭터 보호 일반화)
+    if (isFragile(piece) || piece.tag === 'royal') {
       for (const tIdx of [...teammates, idx]) {
         const tp = room.players[tIdx];
         if (!tp) continue;
         for (const tpc of (tp.pieces || [])) {
           if (tpc.type === 'bodyguard' && tpc.col >= 0) {
             const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
-            if (dist <= 2) score += 5;
+            if (dist === 1) score += 8;
+            else if (dist === 2) score += 3;
           }
         }
       }
     }
-    // 7. 무작위 분산 — 같은 점수일 때 랜덤 선택
+    // 6b. 호위무사 본인 — 팀 내 royal/fragile 가까이 배치
+    if (piece.type === 'bodyguard') {
+      for (const tIdx of [...teammates, idx]) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (!tpc.alive || tpc.col < 0) continue;
+          if (tpc.tag === 'royal' || isFragile(tpc)) {
+            const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+            if (dist === 1) score += 10;
+            else if (dist === 2) score += 4;
+          }
+        }
+      }
+    }
+    // 7. 힐러 (약초학/수도승) — 자기 스킬 범위(주변 5x5 십자 / 십자 4방) 안에 아군이 많은 위치 선호.
+    //    약초학 effect: 주변 8칸 (3x3) 아군 회복. 수도승 신성: 인접 1칸 대상.
+    //    배치 시 미래 시너지 평가 — 이미 배치된 아군 + 인접 가능성 높은 위치.
+    if (isHealer(piece)) {
+      let coverage = 0;
+      for (const tIdx of [...teammates, idx]) {
+        const tp = room.players[tIdx];
+        if (!tp) continue;
+        for (const tpc of (tp.pieces || [])) {
+          if (!tpc.alive || tpc.col < 0 || tpc === piece) continue;
+          const dist = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+          if (piece.type === 'herbalist' && dist <= 2) coverage++;
+          else if (piece.type === 'monk' && dist === 1) coverage++;
+        }
+      }
+      score += coverage * 4;
+    }
+    // 8. 공격형 — 자기 공격 범위가 보드 중앙(접전지) 셀을 얼마나 커버하는가
+    if (isAggressive(piece)) {
+      try {
+        const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState });
+        let coverCenter = 0;
+        for (const ac of attackCells) {
+          if (!inBounds(ac.col, ac.row, bounds)) continue;
+          const dc = Math.abs(ac.col - centerC);
+          const dr = Math.abs(ac.row - centerR);
+          if (dc <= 1 && dr <= 1) coverCenter++;  // 중앙 3x3 커버 시 보너스
+        }
+        score += coverCenter * 1.2;
+      } catch (e) {}
+    }
+    // 9. 무작위 분산 — 같은 점수일 때 랜덤 선택
     score += Math.random() * 2;
     return score;
   };
@@ -1097,6 +1196,9 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   // 보드 축소 회피 — 다음 축소 예상 영역에 들어갔는지 강하게 페널티
   // (사용자 요청 #20b: 축소 예고 중 AI가 외곽으로 나도는 바보짓 절대 금지)
   const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  let curIsOutside = false;       // 현재 위치가 곧 파괴될 영역인가
+  let newIsOutside = false;       // 새 위치가 곧 파괴될 영역인가
+  let mostUrgentTurns = 99;       // 가장 임박한 축소까지 남은 턴
   for (const ev of schedule) {
     if (room.boardShrinkStage >= ev.stage) continue;  // 이미 거친 단계
     const turnsToShrink = ev.shrinkTurn - room.turnNumber;
@@ -1108,11 +1210,22 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
     const evBounds = ev.newBounds || _levelToBounds(evNextLevel, evBaseSize);
     const willBeOutside = newCol < evBounds.min || newCol > evBounds.max ||
                           newRow < evBounds.min || newRow > evBounds.max;
+    const curOutside = piece.col < evBounds.min || piece.col > evBounds.max ||
+                       piece.row < evBounds.min || piece.row > evBounds.max;
     if (willBeOutside) {
-      // 임박할수록 강한 페널티 (10턴 전: -50, 1턴 전: -200)
+      // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)
       const urgency = Math.max(1, 11 - turnsToShrink);
       score -= 25 * urgency;
+      newIsOutside = true;
     }
+    if (curOutside) curIsOutside = true;
+    if (turnsToShrink < mostUrgentTurns) mostUrgentTurns = turnsToShrink;
+  }
+  // ★ 사용자 보고 (축소 예고 중 외곽 서성임): 현재 위치가 곧 파괴되는 셀이고 새 위치는 안전하면
+  //   강력한 보너스. 임박할수록 보너스 증가 → 공격 가치가 0 이어도 안쪽으로 도망가도록.
+  if (curIsOutside && !newIsOutside) {
+    const urgency = Math.max(1, 11 - mostUrgentTurns);
+    score += 30 * urgency;  // 1턴 전: +300, 10턴 전: +30
   }
   // 일반 가장자리 회피 (보드 축소 임박 안 해도)
   if (room.turnNumber >= 25 && !room.boardShrunk) {
@@ -1120,6 +1233,13 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
       score *= 0.5;
     }
   }
+  // ★ 추가 — 무조건적인 중앙 회귀 약한 인센티브 (외곽 서성임 방지)
+  //   piece 가 보드 외곽 1칸에 있고 안쪽으로 이동하면 +5 보너스 (공격 가치 0 일 때도 안쪽 선호).
+  const isCurEdge = piece.col === bounds.min || piece.col === bounds.max ||
+                    piece.row === bounds.min || piece.row === bounds.max;
+  const isNewEdge = newCol === bounds.min || newCol === bounds.max ||
+                    newRow === bounds.min || newRow === bounds.max;
+  if (isCurEdge && !isNewEdge) score += 5;
   // HP 낮은데 적 인접 → 멀어지면 보너스 (도망 장려)
   if (piece.hp <= 2) {
     const enemyIdxs = getEnemyIndices(room, idx);
@@ -3452,6 +3572,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   // 사용자 요청: 표식이 한 번에 여러 대상에 새겨지면 단일 로그/토스트로 통합.
   //   per-target emit 대신 이름들을 수집한 뒤 attack 종료 시 한 번만 발송.
   const _markedTargetNames = [];
+  // ★ 리워크: 고문기술자가 피격당했을 때 공격자에게 역방향 표식 부여.
+  //   공격자는 항상 한 명이므로 첫 번째 적용 torturer 의 owner 만 기록.
+  let _reverseMarkSrcOwnerIdx = -1;
+  let _reverseMarkedAttackerName = null;
   // ★ 사용자 요청: 한 공격으로 여러 대상에 같은 패시브 (가호/아이언스킨/폭정/충성) 가 발동돼도
   //   토스트·로그는 단 한 번만 출력. resolveDamage 가 피격자마다 호출되므로 dedupe 필요.
   //   - 메시지가 generic 한 패시브 (monk_attack/monk/armoredWarrior/count): type 별로 1회만 emit
@@ -3521,6 +3645,22 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
               _markedTargetNames.push(markTarget.name);
             }
+          }
+
+          // ★ 리워크 (역방향 표식): 고문기술자가 *피격* 당하면 공격자(atkPiece) 에게 표식 부여.
+          //   - 공격 접촉만으로 적용 (0 데미지 / 호위무사 가로채기 / 사망 여부 무관).
+          //   - 단 호위무사가 대신 받아 torturer 가 실제로 안 맞은 경우는 제외.
+          //   - 공격자가 그림자 상태이거나 이미 표식이면 스킵.
+          //   - 공격자도 torturer 인 상호 박치기는 첫 fall-through 만 적용 (atkPiece 가 한 번 mark 되면 끝).
+          if (defPiece.type === 'torturer' &&
+              !redirectedToBodyguard &&
+              atkPiece.alive &&
+              !atkPiece.statusEffects.some(e => e.type === 'shadow') &&
+              !atkPiece.statusEffects.some(e => e.type === 'mark') &&
+              _reverseMarkSrcOwnerIdx < 0) {
+            atkPiece.statusEffects.push({ type: 'mark', source: defIdx });
+            _reverseMarkSrcOwnerIdx = defIdx;
+            _reverseMarkedAttackerName = atkPiece.name;
           }
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
@@ -3632,6 +3772,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     const namesStr = _markedTargetNames.join(', ');
     emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${namesStr}에게 표식 새김` });
     emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${namesStr}에게 표식 새김`, type: 'passive', playerIdx: attackerIdx });
+  }
+  // ★ 리워크 (역방향 표식) 알림 — torturer 가 피격당해 공격자에게 표식을 새겼을 때.
+  //   playerIdx = torturer 의 owner (defIdx). 메시지는 공격자 이름 사용.
+  if (_reverseMarkSrcOwnerIdx >= 0 && _reverseMarkedAttackerName) {
+    emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: _reverseMarkSrcOwnerIdx, msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김` });
+    emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`, type: 'passive', playerIdx: _reverseMarkSrcOwnerIdx });
   }
 
   // ★ 사용자 요청: 호위무사 충성 통합 알림 — 한 공격으로 보호한 모든 왕실 이름 한 번에 출력.
@@ -4319,6 +4465,10 @@ function _buildTeamBaseStates(room) {
     }
     byTeam[tid] = {
       currentPlayerIdx: room.currentPlayerIdx,
+      // ★ 사용자 보고 (턴오더 양쪽 슬롯 빛남 버그): 팀원 사망으로 슬롯이 대체되는 경우, 활성 슬롯을
+      //   currentPlayerIdx 로만 판정하면 같은 플레이어가 차지한 두 슬롯이 모두 빛남.
+      //   서버에서 turnSlotIdx (4슬롯 중 활성 슬롯 인덱스) 를 함께 보내 클라가 단일 슬롯만 빛나게.
+      turnSlotIdx: room.turnSlotIdx,
       turnNumber: room.turnNumber,
       sp: room.sp,
       instantSp: room.instantSp,
@@ -4391,6 +4541,7 @@ function getTeamSpectatorGameState(room) {
   }
   return {
     currentPlayerIdx: room.currentPlayerIdx,
+    turnSlotIdx: room.turnSlotIdx,  // ★ 관전자도 단일 슬롯 강조용
     turnNumber: room.turnNumber,
     sp: room.sp,
     instantSp: room.instantSp,

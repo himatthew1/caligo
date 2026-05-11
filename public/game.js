@@ -2266,6 +2266,9 @@ function applyTeamGameState(state) {
   S.sp = state.sp;
   S.instantSp = state.instantSp;
   S.currentPlayerIdx = state.currentPlayerIdx;
+  // ★ 사용자 보고 (턴오더 양쪽 슬롯 빛남): 팀원 사망 시 같은 플레이어가 두 슬롯 차지 →
+  //   currentPlayerIdx 만으로는 활성 슬롯 식별 불가. 서버의 turnSlotIdx 를 함께 저장해 단일 슬롯만 강조.
+  if (typeof state.turnSlotIdx === 'number') S.turnSlotIdx = state.turnSlotIdx;
   S.isMyTurn = !!state.isMyTurn;
   S.teamGamePlayers = state.players || [];
   S.boardObjects = state.boardObjects || [];
@@ -2380,18 +2383,23 @@ socket.on('team_game_update', (state) => {
         if (piece && S._recentCurseDamageKeys?.has(`${ch.playerIdx}:${piece.name}`)) {
           continue;
         }
-        const isOwnTeam = player?.teamId === S.teamId;
-        const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
-        const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
+        // ★ 사용자 보고 (2v2 보드파괴 사망 시 내 프로필이 잘못 흔들림): 컨테이너 prefix 가
+        //   뷰어 상대 기준(`isOwnTeam`) 으로 결정됐지만, 실제 DOM 은 절대 팀 색상으로 매핑
+        //   (#my-pieces-info=BLUE, #opp-pieces-info=RED). 뷰어가 RED 팀일 때 prefix 가 뒤집혀
+        //   잘못된 카드를 잡거나 못 잡음 → 플레이어 명시(data-player-idx) 만으로 전역 검색.
+        const card = (typeof _findPieceCard === 'function')
+          ? _findPieceCard(ch.playerIdx, ch.pieceIdx)
+          : document.querySelector(`.team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
         applyHitFlashWithBrighten(card);
       }
       // 힐 효과 제거 — skill_result / team_skill_notice 가 T+1500ms 에 flashHealPieces 호출
       // (team_game_update 가 즉시 발동하면 중복 + SP 마법구 도중에 노출되므로 차단)
       const _legacyHealLoop = false;
       for (const ch of (_legacyHealLoop ? healed : [])) {
-        const isOwnTeam = (S.teamGamePlayers || []).find(p => p.idx === ch.playerIdx)?.teamId === S.teamId;
-        const containerId = isOwnTeam ? '#my-pieces-info' : '#opp-pieces-info';
-        const card = document.querySelector(`${containerId} .team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
+        // ★ 위와 동일 — 컨테이너 prefix 의존 제거, data-player-idx 로 전역 매핑.
+        const card = (typeof _findPieceCard === 'function')
+          ? _findPieceCard(ch.playerIdx, ch.pieceIdx)
+          : document.querySelector(`.team-profile-block[data-player-idx="${ch.playerIdx}"] [data-piece-idx="${ch.pieceIdx}"]`);
         if (card) {
           card.classList.remove('heal-flash');
           void card.offsetWidth;
@@ -2500,8 +2508,13 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
           const isProtected = (h.damage === 0 && !h.destroyed);
           const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
           if (!card) continue;
-          if (isProtected) applyProtectedAnim(card);
-          else applyHitFlashWithBrighten(card);
+          if (isProtected) {
+            applyProtectedAnim(card);
+            // ★ 사용자 요청: 데미지 0 도장.
+            addProtectedHit(`${h.defOwnerIdx}:${h.defPieceIdx}`);
+          } else {
+            applyHitFlashWithBrighten(card);
+          }
         }
       });
       // 도장 노출을 위해 즉시 재렌더 (renderTeamProfiles 가 buildDamageOverlay 로 도장 표시)
@@ -2816,6 +2829,8 @@ function renderTeamPlayerBlock(playerData, isAlly) {
   const teamCommanders = teamPlayers.flatMap(p => (p.pieces || []).filter(pp => pp.alive && pp.type === 'commander'));
 
   const piecesHtml = pieces.map((pc, i) => {
+    // ★ 사용자 요청: 드래곤은 사망 시 프로필에서 삭제. 재소환 시 새 dragon piece 가 추가됨.
+    if (pc.isDragon && !pc.alive) return '';
     // 카드 베이스 클래스 — 1v1 대전과 동일하게 통일: 아군=my-piece-card, 적=opp-piece-card
     const isCursedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
     const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}`;
@@ -2867,24 +2882,35 @@ function renderTeamPlayerBlock(playerData, isAlly) {
         const dir = pc.toggleState === 'vertical' ? '세로' : '가로';
         directionHtml = `<div style="font-size:0.68rem;color:#60a5fa;margin-top:1px">현재 공격 방향 : ${dir}</div>`;
       }
-      // 적팀 사기증진 — 적팀 지휘관 인접한 같은 적팀 piece에 표시
+      // 적팀 사기증진 — 적팀 지휘관 인접한 같은 적팀 piece에 표시.
+      //   ★ 사용자 요청: 적 사기증진 배지는 빨강 톤으로 표시해 아군 녹색과 구분.
       if (pc.type !== 'commander' && pc.col != null) {
         const oppTeamCommanders = teamPlayers.flatMap(pp => (pp.pieces || []).filter(p => p.alive && p.type === 'commander' && p.col != null));
         const enemyMorale = oppTeamCommanders.some(cm =>
           (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
           (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col));
         if (enemyMorale) {
-          moraleHtml = '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>';
+          moraleHtml = '<span class="status-badge" style="color:#ef4444;background:rgba(239,68,68,0.15)">📋 사기증진</span>';
         }
       }
       // 표식 + 기타 상태이상도 표시 (그림자·저주는 적에게 보임)
       statusHtml = renderStatusBadges(pc);
     }
 
-    const atkDisplay = (isAlly && pc.type !== 'commander' && teamCommanders.some(cm =>
-      (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
-      (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col)
-    )) ? `<span style="color:#22c55e;font-weight:800">${(pc.atk || 0) + 1}</span>` : `${pc.atk}`;
+    // ★ 사용자 보고: 적팀 캐릭터가 자기 팀 지휘관과 인접해도 ATK +1 표시가 안 됨.
+    //   기존 조건이 `isAlly && ...` 로 묶여 있어 적팀 표기 누락. teamCommanders 는 이미 playerData
+    //   기준 동일팀(=렌더 대상의 자기팀) 지휘관 목록이므로 isAlly 제약 제거 + col 유효성 체크만 추가.
+    //   ★ 사용자 요청: 색상 구분 — 아군은 초록(#22c55e), 적군은 빨강(#ef4444) 으로 합산 ATK 강조.
+    const _commanderAdjacent = pc.type !== 'commander' && pc.col != null && teamCommanders.some(cm =>
+      cm.col != null && (
+        (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
+        (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col)
+      )
+    );
+    const _buffColor = isAlly ? '#22c55e' : '#ef4444';
+    const atkDisplay = _commanderAdjacent
+      ? `<span style="color:${_buffColor};font-weight:800">${(pc.atk || 0) + 1}</span>`
+      : `${pc.atk}`;
 
     // 위치 표시 — 아군은 항상 / 적은 표식만
     let posText = '';
@@ -3134,6 +3160,7 @@ function applyTeamSpectatorState(state) {
   S.sp = state.sp;
   S.instantSp = state.instantSp;
   S.currentPlayerIdx = state.currentPlayerIdx;
+  if (typeof state.turnSlotIdx === 'number') S.turnSlotIdx = state.turnSlotIdx;  // ★ 관전자도 슬롯 강조 통일
   S.teamGamePlayers = state.players || [];
   S.boardObjects = state.boardObjects || [];
   S.teamTeams = state.teams || S.teamTeams;
@@ -4147,6 +4174,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
     applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
     applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
     applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', oppProtectedIndices);
+    // ★ 사용자 요청: 데미지 0 도장 출력 (보호됨 시각화).
+    for (const idx of oppProtectedIndices) addProtectedHit(`opp:${idx}`);
   } else {
     // ★ 사용자 보고: 팀모드에서 적팀을 공격해도 피격 유닛이 밝아지는 애니가 안 나옴.
     //   기존엔 team_game_update 에 위임했으나 broadcast 가 늦게 도착해 실제로는 누락.
@@ -4163,7 +4192,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
           const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
           const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
           const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
-          if (!isShadow) applyProtectedAnim(card);
+          if (!isShadow) {
+            applyProtectedAnim(card);
+            addProtectedHit(`${c.defOwnerIdx}:${c.defPieceIdx}`);
+          }
         } else {
           applyHitFlashWithBrighten(card);
         }
@@ -4302,10 +4334,13 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   if (!S.isTeamMode) {
     applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
     applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
+    // ★ 사용자 요청: 데미지 0 도장 출력 (보호됨 시각화).
+    for (const i of protectedIndices) addProtectedHit(`my:${i}`);
   } else {
     // 팀모드 — being_attacked 의 victim 은 항상 본인. 본인 player-idx + piece-idx 로 정확 매칭
     for (const i of protectedIndices) {
       applyProtectedAnimTeam(S.playerIdx, i);
+      addProtectedHit(`${S.playerIdx}:${i}`);
     }
   }
 
@@ -4433,8 +4468,17 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   let dispRight = oldSp[rightSlot] || 0;
   leftNumEl.textContent  = String(dispLeft);
   rightNumEl.textContent = String(dispRight);
-  const tickDown = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick'); void el.offsetWidth; el.classList.add('sp-num-tick'); };
-  const tickUp   = (el, val) => { el.textContent = String(val); el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up'); };
+  const tickDown = (el, val) => {
+    el.textContent = String(val);
+    el.classList.remove('sp-num-tick'); void el.offsetWidth; el.classList.add('sp-num-tick');
+    // ★ 사용자 요청: 숫자 변경 시 fill bar 도 즉시 동기화 (그래프가 숫자 따라 움직임).
+    if (typeof _syncSpFillBars === 'function') _syncSpFillBars();
+  };
+  const tickUp = (el, val) => {
+    el.textContent = String(val);
+    el.classList.remove('sp-num-tick-up'); void el.offsetWidth; el.classList.add('sp-num-tick-up');
+    if (typeof _syncSpFillBars === 'function') _syncSpFillBars();
+  };
 
   let nextMs = 80;
   // ① 인스턴트 SP 소비 — pop-in-place (제자리 팝 + 충격파 + 스파크 + dust + FLIP 슬라이드)
@@ -4853,8 +4897,13 @@ function _registerProfileAnim(playerIdx, pieceIdx, kind, durationMs) {
     const cur = window._activeProfileAnims.get(key);
     if (cur && cur.expiresAt <= Date.now() + 5) window._activeProfileAnims.delete(key);
     // 현재 카드에서 클래스 제거 (있으면)
-    const card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${pieceIdx}"]`)
-      || document.querySelectorAll(`#my-pieces-info .my-piece-card, #opp-pieces-info .opp-piece-card`)[pieceIdx];
+    // ★ 팀모드는 반드시 data-player-idx 로 정확 매핑. 1v1 일 때만 인덱스 기반 폴백 허용.
+    //   (팀모드 폴백은 #my-pieces-info 안에 자기+팀원 카드가 섞여 있어 [pieceIdx] 가 잘못된 카드를
+    //    가리킬 수 있으므로 사용 금지 — 사용자 보고: 다른 플레이어 사망 시 내 카드 흔들림 방지.)
+    let card = document.querySelector(`.team-profile-block[data-player-idx="${playerIdx}"] [data-piece-idx="${pieceIdx}"]`);
+    if (!card && !S.isTeamMode) {
+      card = document.querySelectorAll(`#my-pieces-info .my-piece-card, #opp-pieces-info .opp-piece-card`)[pieceIdx];
+    }
     if (card) {
       if (kind === 'hit') card.classList.remove('profile-hit');
       else if (kind === 'heal') card.classList.remove('heal-flash');
@@ -5231,6 +5280,8 @@ function playSpGrantAnimation(finalSp, finalInstantSp) {
   // 애니 동안 OLD 유지 (sp_update 가 더 이상 안 옴 → S.sp 도 OLD)
   if (myNumEl) myNumEl.textContent = String(oldMyNum);
   if (oppNumEl) oppNumEl.textContent = String(oldOppNum);
+  // ★ 사용자 요청: 그래프도 OLD 로 sync — 외부 이벤트가 fill bar 를 미리 NEW 로 만들었을 가능성.
+  if (typeof _syncSpFillBars === 'function') _syncSpFillBars();
 
   setOrbPos(orbL, cx - W * 0.6, cy);  // 멀리 좌측
   setOrbPos(orbR, cx + W * 0.6, cy);  // 멀리 우측
@@ -5330,6 +5381,8 @@ function playSpGrantAnimation(finalSp, finalInstantSp) {
             if (!Array.isArray(S.sp)) S.sp = [0, 0];
             S.sp[mySlot] = finalMyNum;
           }
+          // ★ 사용자 요청: 그래프 동기화 (숫자 변경과 동시).
+          if (typeof _syncSpFillBars === 'function') _syncSpFillBars();
         }
         if (!_oppAbsorbed && oppNumEl) {
           _oppAbsorbed = true;
@@ -5345,6 +5398,7 @@ function playSpGrantAnimation(finalSp, finalInstantSp) {
           if (Array.isArray(finalInstantSp)) {
             S.instantSp = [...finalInstantSp];
           }
+          if (typeof _syncSpFillBars === 'function') _syncSpFillBars();
         }
       }
     }
@@ -5807,6 +5861,8 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
 }
 
 // 힐 애니메이션: 지정된 인덱스의 piece 카드 2초간 초록 glow
+// ★ 1v1 경로 — 회복된 카드에도 turn-bright 부여하여 그 턴 동안 풀 밝기 유지
+//   (applyHealFlashWithBrighten 위임 — 레지스트리 등록 포함).
 function flashHealPieces(indexes, opts) {
   const o = opts || {};
   const containerSelector = o.opp ? '#opp-pieces-info' : '#my-pieces-info';
@@ -5817,8 +5873,12 @@ function flashHealPieces(indexes, opts) {
   for (const idx of indexes) {
     const card = cards[idx];
     if (!card) continue;
-    card.classList.add('heal-flash');
-    setTimeout(() => card.classList.remove('heal-flash'), 2000);
+    if (typeof applyHealFlashWithBrighten === 'function') {
+      applyHealFlashWithBrighten(card);
+    } else {
+      card.classList.add('heal-flash');
+      setTimeout(() => card.classList.remove('heal-flash'), 2000);
+    }
     // 파티클 반짝이 추가
     spawnHealSparkles(card);
   }
@@ -5826,14 +5886,21 @@ function flashHealPieces(indexes, opts) {
 
 // owner-aware 버전 — { ownerIdx, pieceIdx } 페어 배열을 받아 1v1/팀모드 양쪽에서 정확한 카드 매핑.
 //   팀모드 약초학: 시전자뿐 아니라 팀원의 회복 대상도 카드 매핑 가능 (서버가 모든 healed 페어 전달).
+// ★ 사용자 보고 (팀모드 회복 시 딤 미해제): 기존엔 heal-flash 만 추가해 dim 이 풀리지 않음.
+//   applyHealFlashWithBrighten 로 위임해 turn-bright + 레지스트리 등록까지 일괄 처리 → 회복된
+//   대상 (팀원 회복 포함) 카드가 그 턴 동안 풀 밝기 유지.
 function flashHealPiecesByOwner(healedPieces) {
   if (!Array.isArray(healedPieces) || healedPieces.length === 0) return;
   for (const h of healedPieces) {
     if (h == null || typeof h.ownerIdx !== 'number' || typeof h.pieceIdx !== 'number') continue;
     const card = (typeof _findPieceCard === 'function') ? _findPieceCard(h.ownerIdx, h.pieceIdx) : null;
     if (!card) continue;
-    card.classList.add('heal-flash');
-    setTimeout(() => card.classList.remove('heal-flash'), 2000);
+    if (typeof applyHealFlashWithBrighten === 'function') {
+      applyHealFlashWithBrighten(card);
+    } else {
+      card.classList.add('heal-flash');
+      setTimeout(() => card.classList.remove('heal-flash'), 2000);
+    }
     spawnHealSparkles(card);
   }
 }
@@ -6060,8 +6127,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
             const isProtected = (h.damage === 0 && !h.destroyed);
             const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
             if (!card) continue;
-            if (isProtected) applyProtectedAnim(card);
-            else applyHitFlashWithBrighten(card);
+            if (isProtected) {
+              applyProtectedAnim(card);
+              addProtectedHit(`${h.defOwnerIdx}:${h.defPieceIdx}`);
+            } else {
+              applyHitFlashWithBrighten(card);
+            }
           }
         });
       }
@@ -6349,8 +6420,12 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
             const isProtected = (h.damage === 0 && !h.destroyed);
             const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[h.defPieceIdx];
             if (!card) continue;
-            if (isProtected) applyProtectedAnim(card);
-            else applyHitFlashWithBrighten(card);
+            if (isProtected) {
+              applyProtectedAnim(card);
+              addProtectedHit(`my:${h.defPieceIdx}`);
+            } else {
+              applyHitFlashWithBrighten(card);
+            }
           }
         });
         // ★ 버퍼된 wizard 등 패시브 alert flush — 1v1 상대 스킬에 의해 본인 wizard 가 피격된 시점.
@@ -7832,7 +7907,7 @@ const CHAR_DETAILS = {
   },
   torturer: {
     blocks: [
-      { ...mkPassiveHead('표식'), color: '#f59e0b', desc: `고문 기술자는 공격한 대상에게 표식을 부여합니다. ${stBadge('mark', '표식')} 상태의 적은 위치가 항상 노출됩니다.` },
+      { ...mkPassiveHead('표식'), color: '#f59e0b', desc: `고문기술자는 공격 접촉이 있었던 모든 적에게 표식을 부여합니다. ${stBadge('mark', '표식')} 상태의 적은 위치가 항상 노출됩니다.` },
       { ...mkSkillHead('악몽', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: `${stBadge('mark', '표식')} 상태의 모든 적에게 1 피해를 줍니다.` },
     ],
     flavor: '표식을 남기는 인두와 채찍. 한 번 그의 눈에 띈 자는 끝없는 악몽에서 벗어날 수 없다.',
@@ -10699,8 +10774,17 @@ function renderTurnOrderDots() {
   };
   const blue = players.filter(p => p.teamId === 0).sort(teamSort);
   const red  = players.filter(p => p.teamId === 1).sort(teamSort);
+  // 슬롯 매핑 — 서버의 TEAM_SLOT_KEYS 순서와 일치:
+  //   slot 0 = blue[0] (좌상)
+  //   slot 1 = red[0]  (우상)
+  //   slot 2 = blue[1] (좌하)
+  //   slot 3 = red[1]  (우하)
   const slotOwners = [blue[0], red[0], blue[1], red[1]];
   const isElim = (p) => !!(p && (p.eliminated || (Array.isArray(p.pieces) && p.pieces.length > 0 && p.pieces.every(pc => pc && (pc.alive === false || pc.hp <= 0)))));
+  // ★ 사용자 보고: 팀원 사망 시 두 슬롯 모두 빛나는 버그.
+  //   currentPlayerIdx 만으로 isCurrent 판정하면, 같은 플레이어가 차지한 두 슬롯이 모두 매칭되어 빛남.
+  //   서버에서 turnSlotIdx (활성 슬롯) 를 전송하므로, 정확히 그 슬롯만 'current' 클래스 부여.
+  const activeSlot = (typeof S.turnSlotIdx === 'number') ? S.turnSlotIdx : -1;
   const items = [];
   for (let i = 0; i < 4; i++) {
     let p = slotOwners[i];
@@ -10712,12 +10796,32 @@ function renderTurnOrderDots() {
       else continue;  // 팀 전체 탈락 — 이 시점에 게임 종료
     }
     const isMe = p.idx === S.playerIdx;
-    const isCurrent = p.idx === S.currentPlayerIdx;
+    // ★ activeSlot 우선 — 서버가 보낸 단일 슬롯만 빛남.
+    //   activeSlot 정보가 없으면 (구버전 호환) playerIdx 매칭으로 폴백.
+    const isCurrent = (activeSlot >= 0)
+      ? (i === activeSlot)
+      : (p.idx === S.currentPlayerIdx);
     const teamCls = p.teamId === 0 ? 'team-blue' : 'team-red';
     const cls = ['turn-order-dot', teamCls, isCurrent ? 'current' : '', isMe ? 'me' : ''].filter(Boolean).join(' ');
     items.push(`<span class="${cls}">${escapeHtmlGlobal(p.name)}</span>`);
   }
   return items.join('');
+}
+
+// ★ 사용자 요청: SP 그래프는 항상 displayed 숫자 (DOM textContent) 와 동기화.
+//   updateSPBar / spendSPAttention 의 tickDown/tickUp / playSpGrantAnimation 의 absorb 등
+//   숫자가 변경되는 모든 시점에 호출해 fill bar width 를 즉시 갱신.
+function _syncSpFillBars() {
+  const myFillEl = document.getElementById('sp-my-fill');
+  const oppFillEl = document.getElementById('sp-opp-fill');
+  if (!myFillEl || !oppFillEl) return;
+  const myNumEl = document.getElementById('sp-my-num');
+  const oppNumEl = document.getElementById('sp-opp-num');
+  const leftSP = parseInt((myNumEl && myNumEl.textContent) || '0', 10) || 0;
+  const rightSP = parseInt((oppNumEl && oppNumEl.textContent) || '0', 10) || 0;
+  const total = leftSP + rightSP || 1;
+  myFillEl.style.width = `${(leftSP / total) * 100}%`;
+  oppFillEl.style.width = `${(rightSP / total) * 100}%`;
 }
 
 function updateSPBar() {
@@ -10823,8 +10927,10 @@ function updateSPBar() {
 
   const myFillEl = document.getElementById('sp-my-fill');
   const oppFillEl = document.getElementById('sp-opp-fill');
-  myFillEl.style.width = `${(leftSP / total) * 100}%`;
-  oppFillEl.style.width = `${(rightSP / total) * 100}%`;
+  // ★ 사용자 요청: SP 그래프는 항상 displayed 숫자 (DOM textContent) 와 동기화.
+  //   _spAnimGuard 중에는 S.sp 가 NEW 로 미리 commit 될 수 있어서 fill bar 가 숫자보다 앞서 갱신되던 버그.
+  //   _syncSpFillBars() 가 textContent 기반으로 width 계산 → 숫자 tick 과 동시에 fill 도 움직임.
+  _syncSpFillBars();
   // 팀모드: 왼쪽 fill = 파랑 / 오른쪽 fill = 빨강 — 시점 무관, 절대 고정
   if (S.isTeamMode) {
     myFillEl.classList.add('sp-fill-blue');
@@ -11697,6 +11803,7 @@ function snapshotTurnStartHps(preCurseHps) {
   S.loyaltyDamageThisTurn = {};
   S.bodyDamageThisTurn = {};   // 본체 직접 피해 — 매 턴 초기화
   S.healThisTurn = {};         // 회복 — 매 턴 초기화 (녹색 도장 + HP 바 녹색 오버레이)
+  S.protectedHitsThisTurn = {}; // 보호 피격 (데미지 0) — 매 턴 초기화
   // ★ 사용자 요청: 도장 애니메이션은 해당 턴에 최초 1회만. 매 턴 시작 시 추적 셋 초기화 →
   //   buildDamageOverlay 가 한번 도장 렌더하면 셋에 등록, 다음 재렌더부터 no-anim 클래스 부여.
   S._stampAnimationsSeen = {};
@@ -11714,6 +11821,7 @@ function _clearOtherStampTypes(key, exceptType) {
     curse: S.curseDamageThisTurn,
     heal: S.healThisTurn,
     loyalty: S.loyaltyDamageThisTurn,
+    protected: S.protectedHitsThisTurn,
   };
   if (!S._stampAnimationsSeen) S._stampAnimationsSeen = {};
   for (const t in maps) {
@@ -11722,6 +11830,13 @@ function _clearOtherStampTypes(key, exceptType) {
     // 도장 애니메이션 seen 셋도 클리어 — 다음 type 등장 시 stamp-in 애니 재생.
     delete S._stampAnimationsSeen[`${key}:${t}`];
   }
+}
+// ★ 사용자 요청: 갑주무사/백작 등 데미지를 0 으로 줄인 피격 — "0 데미지" 도장 표시용.
+//   값은 boolean (true 만 있으면 stamp 출력).
+function addProtectedHit(key) {
+  if (!S.protectedHitsThisTurn) S.protectedHitsThisTurn = {};
+  _clearOtherStampTypes(key, 'protected');
+  S.protectedHitsThisTurn[key] = true;
 }
 function addLoyaltyDamage(key, dmg) {
   if (!S.loyaltyDamageThisTurn) S.loyaltyDamageThisTurn = {};
@@ -11767,6 +11882,7 @@ function buildDamageOverlay(key, hp, maxHp) {
   const loyaltyDmg = (S.loyaltyDamageThisTurn && S.loyaltyDamageThisTurn[key]) || 0;
   const curseDmg   = (S.curseDamageThisTurn   && S.curseDamageThisTurn[key])   || 0;
   const healAmt    = (S.healThisTurn          && S.healThisTurn[key])          || 0;
+  const isProtected = (S.protectedHitsThisTurn && S.protectedHitsThisTurn[key]) || false;
   const fmtDmg = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
   const fmtHeal = (d) => Number.isInteger(d) ? `${d} 회복` : `${d.toFixed(1)} 회복`;
   // ★ 사용자 요청: 도장 애니메이션은 해당 턴 최초 1회만. 같은 도장이 이미 표시된 적 있으면 no-anim.
@@ -11781,6 +11897,10 @@ function buildDamageOverlay(key, hp, maxHp) {
   } else if (curseDmg > 0) {
     stamp += `<div class="dmg-stamp curse${seenCls('curse')}">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
     markSeen('curse');
+  } else if (isProtected) {
+    // ★ 사용자 요청: 갑주무사/백작 등 데미지 0 으로 줄어든 피격 — "0 데미지" 도장 (보호됨 시각화).
+    stamp += `<div class="dmg-stamp protected${seenCls('protected')}">0 데미지</div>`;
+    markSeen('protected');
   }
   if (loyaltyDmg > 0) {
     stamp += `<div class="dmg-stamp loyalty${seenCls('loyalty')}">${fmtDmg(loyaltyDmg)}<span class="loyalty-tag">충성</span></div>`;
@@ -11835,6 +11955,9 @@ function renderMyPieces() {
   const sprintActive = S.myPieces.find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   for (let i = 0; i < S.myPieces.length; i++) {
     const pc = S.myPieces[i];
+    // ★ 사용자 요청: 드래곤은 사망 시 프로필에서도 삭제. 재소환 시 새 dragon piece 가 추가됨.
+    //   다른 사망 piece (일반 캐릭터) 는 💀 표시로 유지 — 드래곤만 특수.
+    if (pc.isDragon && !pc.alive) continue;
     const card = document.createElement('div');
     const isActive = S.selectedPiece === i;
     // 쌍둥이: 이미 이동한 쪽 흐리게 표시
@@ -11974,6 +12097,8 @@ function renderOppPieces() {
 
   for (let pi = 0; pi < S.oppPieces.length; pi++) {
     const pc = S.oppPieces[pi];
+    // ★ 사용자 요청: 드래곤은 사망 시 프로필에서 삭제. 재소환 시 새 dragon piece 가 추가됨.
+    if (pc.isDragon && !pc.alive) continue;
     const card = document.createElement('div');
     const isCursedOpp = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
     card.className = `opp-piece-card ${pc.alive ? '' : 'dead'} ${isCursedOpp ? 'curse-active' : ''}`;
@@ -13840,7 +13965,10 @@ function getAttackCells(type, col, row, extra) {
       for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
       break;
     case 'torturer':
-      push(col, row); push(col, row+1);
+      // ★ 리워크: 자신 + 4방향 인접 = 5칸 십자
+      push(col, row);
+      push(col, row-1); push(col, row+1);
+      push(col-1, row); push(col+1, row);
       break;
     case 'count':
       push(col, row);
@@ -14038,7 +14166,7 @@ function getPassiveLabel(passiveId) {
     grace: '악인을 공격할 때 3 피해 · 악인의 공격 피해 0.5로 감소',
     betrayer: '공격 범위 내 모든 아군에게도 1 피해',
     wrath: '인접한 아군에게 사기 증진 부여',
-    markPassive: '공격 시 대상에게 표식 부여',
+    markPassive: '공격ㆍ피격 시 대상에게 표식 부여',
     tyranny: '1티어 · 2티어에게 받는 모든 공격 피해 0.5씩 감소',
     loyalty: '다른 왕실 아군이 받을 피해를 1로 감소시켜 대신 받음 · 상태 이상 대신 받음',
   };
@@ -14282,7 +14410,7 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'slaughterHero': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)push(col+dc,row+dr); break;
     case 'commander': push(col-1,row);push(col+1,row); break;
     case 'sulfurCauldron': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
-    case 'torturer': push(col,row);push(col,row+1); break;
+    case 'torturer': push(col,row);push(col,row-1);push(col,row+1);push(col-1,row);push(col+1,row); break;
     case 'count': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
   }
   return cells;
@@ -14829,6 +14957,9 @@ function applyProtectedAnim(card) {
   card.classList.remove('profile-protected', 'v1', 'v2', 'v3', 'v4');
   void card.offsetWidth;
   card.classList.add('profile-protected', PROTECTED_VARIANT);
+  // ★ 사용자 요청: 데미지 0 으로 줄어든 보호 피격도 피격 판정 — applyHitFlashWithBrighten 과 동일하게
+  //   turn-bright 부여하여 이번 턴 동안 dim 해제 + 데미지 0 도장도 표시.
+  card.classList.add('turn-bright');
   const dur = PROTECTED_DURATIONS[PROTECTED_VARIANT] || 1100;
   setTimeout(() => card.classList.remove('profile-protected', PROTECTED_VARIANT), dur);
   // ★ 레지스트리 등록 — innerHTML wipe 후에도 복원되도록.
@@ -15049,7 +15180,9 @@ function animateTrapSnap(col, row) {
   const biteRatio = 0.15;
   const fw = cw * widthMul;
   const fh = ch * fhRatio;
-  const startOff = -Math.max(6, ch * 0.1);
+  // ★ 사용자 보고: 도입 연출이 잘림 — 시작 오프셋이 -6px 로 너무 짧아 snap 거리 ~14px.
+  //   1.4× 셀 높이만큼 위/아래에서 진입하도록 증가 → 이빨이 멀리서 슉! 내려와 박히는 다이내믹.
+  const startOff = -ch * 1.4;
   const endOff = ch * biteRatio;
   const fangSet = document.createElement('div');
   fangSet.className = 'trap-fang-set';
