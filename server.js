@@ -3353,27 +3353,52 @@ function flushMarkPhase(room, onComplete) {
   }, PRE_MARK_DELAY);
 }
 function _flushMarkPhaseInner(room, marks, casters, onComplete) {
-  // (1) Cast intro emit
-  emitToBoth(room, 'mark_cast', { casters });
+  // ★ 사용자 요청: 표식 상태 업데이트가 시전 애니메이션과 동시에 일어나야 함.
+  //   시전자(아이콘 노출) / 피격자(자기 piece statusEffect / 🎯 카드 아이콘) 모두
+  //   mark_cast 도착 시점에 즉시 반영. 기존엔 780ms 후 statusEffect push + passive_alert
+  //   감지 후에야 클라가 상태 갱신 → 시전 애니메이션과 어긋남.
+
+  // (0) statusEffects 즉시 적용 + 시각 정보 사전 계산
+  const byOwner = new Map();
+  // mark_cast 페이로드용 — 어느 cell 에 어느 적/내 piece 가 마크되는지 시점 인지를 위한 데이터
+  const markedTargets = [];
+  for (const m of marks) {
+    const t = m.target;
+    if (!t || !t.alive) continue;
+    if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+    if (t.statusEffects && t.statusEffects.some(e => e.type === 'mark')) continue;
+    t.statusEffects.push({ type: 'mark', source: m.sourceOwnerIdx });
+    if (!byOwner.has(m.sourceOwnerIdx)) byOwner.set(m.sourceOwnerIdx, { names: [], cells: [] });
+    const grp = byOwner.get(m.sourceOwnerIdx);
+    grp.names.push(m.targetName);
+    grp.cells.push({ col: t.col, row: t.row });
+    // targetOwnerIdx — 피격자가 누구인지 (그 owner 의 piece 가 표식 받음)
+    // sourceOwnerIdx — 시전자
+    // 클라가 자기 시점에서 분기 처리 가능 (자기 piece 면 statusEffect, opp piece 면 marked:true)
+    // m.target 의 owner 식별 — pieces 배열에서 어떤 player 의 것인지 검색
+    let targetOwnerIdx = null, targetPieceIdx = null;
+    for (let pi = 0; pi < room.players.length; pi++) {
+      const idx = room.players[pi].pieces.indexOf(t);
+      if (idx >= 0) { targetOwnerIdx = pi; targetPieceIdx = idx; break; }
+    }
+    markedTargets.push({
+      sourceOwnerIdx: m.sourceOwnerIdx,
+      targetOwnerIdx,
+      targetPieceIdx,
+      col: t.col, row: t.row,
+      name: t.name, icon: t.icon,
+    });
+  }
+
+  // (1) Cast intro emit — 이제 markedTargets 도 함께 보내 클라가 즉시 시각 반영
+  emitToBoth(room, 'mark_cast', { casters, markedTargets });
   emitToSpectators(room, 'spectator_log', { msg: '⛓ 표식 발동', type: 'passive' });
 
   const CAST_DURATION = 780;
   const BRAND_DURATION = 1800;
   setTimeout(() => {
     if (!rooms[room.id]) { if (typeof onComplete === 'function') onComplete(); return; }
-    // (2) Apply statusEffects + emit per-owner passive_alert (with markCells)
-    const byOwner = new Map();
-    for (const m of marks) {
-      const t = m.target;
-      if (!t || !t.alive) continue;
-      if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
-      if (t.statusEffects && t.statusEffects.some(e => e.type === 'mark')) continue;
-      t.statusEffects.push({ type: 'mark', source: m.sourceOwnerIdx });
-      if (!byOwner.has(m.sourceOwnerIdx)) byOwner.set(m.sourceOwnerIdx, { names: [], cells: [] });
-      const grp = byOwner.get(m.sourceOwnerIdx);
-      grp.names.push(m.targetName);
-      grp.cells.push({ col: t.col, row: t.row });
-    }
+    // (2) passive_alert — animateMarkBrand 트리거용. statusEffects 는 이미 위에서 적용됨.
     for (const [ownerIdx, { names, cells }] of byOwner) {
       if (names.length === 0) continue;
       emitToBoth(room, 'passive_alert', {

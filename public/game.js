@@ -6899,8 +6899,63 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 // ── 표식 발동 시전 인트로 (사망 기폭과 유사 패턴) ──
 //   서버가 모든 패시브/스킬 연쇄 처리 후 최후반에 emit. 시전자 토르처러 카드 spotlight + "표식" 말풍선.
 //   780ms 후 spotlight 해제 + 별도 passive_alert (type='torturer', markCells) 이 도착 → animateMarkBrand 발동.
-socket.on('mark_cast', ({ casters }) => {
+socket.on('mark_cast', ({ casters, markedTargets }) => {
   if (!Array.isArray(casters) || casters.length === 0) return;
+  // ★ 사용자 요청: 표식 상태 업데이트가 시전 애니메이션과 동시에 일어나야 함.
+  //   서버가 mark_cast 와 함께 markedTargets 를 보내므로 — 시전 인트로 시작 시점에 즉시:
+  //   - 시전자 시점 (자기/팀): 표식된 적 piece 의 marked:true 설정 → renderGameBoard 의 markedOpp 분기로 안개 해제 + 🎯 표시
+  //   - 피격자 시점 (자기 piece 가 표식 받음): myPieces[i].statusEffects 에 mark 추가 → 카드 🎯 아이콘
+  if (Array.isArray(markedTargets) && markedTargets.length > 0) {
+    for (const mt of markedTargets) {
+      if (mt.col == null || mt.row == null) continue;
+      // 피격자가 나? → myPieces 의 statusEffects 갱신
+      if (typeof mt.targetOwnerIdx === 'number' && mt.targetOwnerIdx === S.playerIdx && Array.isArray(S.myPieces)) {
+        const my = (typeof mt.targetPieceIdx === 'number') ? S.myPieces[mt.targetPieceIdx] : null;
+        if (my) {
+          my.statusEffects = my.statusEffects || [];
+          if (!my.statusEffects.some(e => e.type === 'mark')) {
+            my.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
+          }
+        }
+      }
+      // 피격자가 적 / 팀모드 적팀? → oppPieces 의 marked:true (안개 해제 + 🎯) + statusEffects
+      // 시전자가 나/내 팀 일 때 적의 위치 노출
+      const isMyCast = (typeof mt.sourceOwnerIdx === 'number' && mt.sourceOwnerIdx === S.playerIdx);
+      let isTeammateCast = false;
+      if (S.isTeamMode && typeof mt.sourceOwnerIdx === 'number') {
+        const sameTeam = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
+        isTeammateCast = sameTeam.includes(mt.sourceOwnerIdx);
+      }
+      if ((isMyCast || isTeammateCast) && Array.isArray(S.oppPieces)) {
+        const opp = S.oppPieces.find(p => p && p.alive && p.col === mt.col && p.row === mt.row);
+        if (opp) {
+          opp.marked = true;
+          opp.statusEffects = opp.statusEffects || [];
+          if (!opp.statusEffects.some(e => e.type === 'mark')) {
+            opp.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
+          }
+        }
+      }
+      // 팀모드 — 팀원 piece 가 마크된 경우도 statusEffects 갱신
+      if (S.isTeamMode && Array.isArray(S.teammatePieces) && typeof mt.targetOwnerIdx === 'number') {
+        const tm = (S.teamGamePlayers || []).find(p => p.idx === mt.targetOwnerIdx && p.teamId === S.teamId && p.idx !== S.playerIdx);
+        if (tm && typeof mt.targetPieceIdx === 'number') {
+          const tp = S.teammatePieces[mt.targetPieceIdx];
+          if (tp) {
+            tp.statusEffects = tp.statusEffects || [];
+            if (!tp.statusEffects.some(e => e.type === 'mark')) {
+              tp.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
+            }
+          }
+        }
+      }
+    }
+    // 즉시 재렌더 — 시전 인트로와 동기화된 시각 갱신
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (typeof renderMyPieces === 'function') renderMyPieces();
+    if (typeof renderOppPieces === 'function') renderOppPieces();
+  }
+
   const resolveCard = (c) => {
     if (S.isTeamMode) {
       return document.querySelector(`.team-profile-block[data-player-idx="${c.ownerIdx}"] [data-piece-idx="${c.pieceIdx}"]`);
