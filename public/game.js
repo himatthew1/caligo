@@ -210,8 +210,12 @@ const S = {
     enumerable: true,
     get() { return _v; },
     set(next) {
-      _v = !!next;
-      // applyTurnUiState 는 이 시점에 아직 정의 안 됐을 수 있음 — typeof 가드.
+      const v = !!next;
+      // ★ 사용자 보고 (행동 가능/불가 분류 막힘): setter 가 매번 호출되며 applyTurnUiState
+      //   불필요한 재실행 → floating 클리어/스테이트 리셋이 의도치 않은 시점에 발화.
+      //   값이 실제로 변경됐을 때만 호출 (idempotent).
+      if (_v === v) return;
+      _v = v;
       try { if (typeof applyTurnUiState === 'function') applyTurnUiState(); } catch (e) {}
     },
   });

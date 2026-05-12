@@ -3359,9 +3359,10 @@ function _flushMarkPhaseInner(room, marks, casters, onComplete) {
   //   두 시각 효과를 분리. statusEffects.push 는 T+780 시점에서 수행.
 
   // (0) 시전 시점에 보낼 — markedTargets 사전 계산 (실제 적용은 아직 안 함)
-  // 필터: shadow 면 표식 안 됨 / 이미 mark 면 안 됨 (flushMarkPhase 가 이미 필터링)
+  // 필터: shadow 면 표식 안 됨 / 이미 mark 면 안 됨 (flushMarkPhase 도 필터링하지만 PRE_MARK_DELAY
+  // 900ms 사이에 상태 변경 가능 → 한 번 더 검증)
   const targetsForCast = [];
-  const targetsForApply = [];  // T+780 에 실제 적용할 마크 (mid-phase shadow 등 변경 대응)
+  const targetsForApply = [];  // T+780 에 실제 적용할 마크
   for (const m of marks) {
     const t = m.target;
     if (!t || !t.alive) continue;
@@ -3382,9 +3383,31 @@ function _flushMarkPhaseInner(room, marks, casters, onComplete) {
     targetsForApply.push(m);
   }
 
-  // (1) mark_cast emit — markedTargets 포함 → 클라가 즉시 적 위치 노출 (안개 해제)
-  //     단 🎯 아이콘 / statusEffects 는 아직 없음 — 인두 낙하 직전에야 적용됨.
-  emitToBoth(room, 'mark_cast', { casters, markedTargets: targetsForCast });
+  // ★ 사용자 요청: 표식 대상이 전부 무효 (이미 표식·shadow·사망) 이면 시전 자체 발동 X.
+  //   mark_cast 인트로 / 인두 낙하 / passive_alert 모두 emit 안 함.
+  if (targetsForCast.length === 0) {
+    if (typeof onComplete === 'function') onComplete();
+    return;
+  }
+
+  // 시전자 재계산 — 실제 표식 적용되는 대상의 source 만. (이미 표식인 대상만 친 토르처러는 caster X)
+  const effectiveCasters = [];
+  const seenSrc = new Set();
+  for (const t of targetsForCast) {
+    if (t.sourceOwnerIdx == null) continue;
+    // 원래 marks 에서 sourcePieceIdx 매칭
+    const orig = marks.find(m => m.sourceOwnerIdx === t.sourceOwnerIdx &&
+      room.players[t.sourceOwnerIdx]?.pieces.indexOf(m.target) === t.targetPieceIdx);
+    const srcPi = orig?.sourcePieceIdx;
+    if (srcPi == null) continue;
+    const k = `${t.sourceOwnerIdx}:${srcPi}`;
+    if (seenSrc.has(k)) continue;
+    seenSrc.add(k);
+    effectiveCasters.push({ ownerIdx: t.sourceOwnerIdx, pieceIdx: srcPi });
+  }
+
+  // (1) mark_cast emit — markedTargets + 재계산된 casters 만
+  emitToBoth(room, 'mark_cast', { casters: effectiveCasters.length ? effectiveCasters : casters, markedTargets: targetsForCast });
   emitToSpectators(room, 'spectator_log', { msg: '⛓ 표식 발동', type: 'passive' });
 
   const CAST_DURATION = 780;
