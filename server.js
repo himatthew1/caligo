@@ -3307,10 +3307,89 @@ function queueDeathDetonation(room, ownerIdx, casterPieceIdx) {
   return false;
 }
 
-// 페이즈 종료 — 사망 기폭 wave 들 사전 계산 (state 즉시 변경) + emit 만 시간차 스케줄링
+// ★ 사용자 요청: 표식 발동 전용 페이즈 — 모든 패시브/스킬 연쇄 처리 후 *최후반* 에 시전.
+//   processAttack 가 inline 으로 표식을 적용/emit 하지 않고 room._pendingMarks 에 큐잉.
+//   flushPhase (사망 기폭) 가 끝난 후 이 함수가 cast intro + 적용 + brand 애니 시퀀스를 처리.
+//   타임라인:
+//     T+0     : mark_cast emit (시전자 카드 spotlight + "표식" 말풍선)
+//     T+780ms : spotlight 해제 + statusEffect 적용 + passive_alert emit (markCells)
+//               → 클라가 animateMarkBrand 발동 (인두 낙하 1.8s)
+//     T+780ms + 1800ms = T+2580ms : onComplete 호출
+function flushMarkPhase(room, onComplete) {
+  const marks = (room._pendingMarks || []).slice();
+  room._pendingMarks = [];
+  if (marks.length === 0) {
+    if (typeof onComplete === 'function') onComplete();
+    return;
+  }
+  // 시전자 그룹화 — 같은 torturer 가 forward + reverse 둘 다 했어도 단일 entry.
+  const seen = new Set();
+  const casters = [];
+  for (const m of marks) {
+    if (m.sourceOwnerIdx == null || m.sourcePieceIdx == null) continue;
+    const k = `${m.sourceOwnerIdx}:${m.sourcePieceIdx}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    casters.push({ ownerIdx: m.sourceOwnerIdx, pieceIdx: m.sourcePieceIdx });
+  }
+  // ★ 사용자 요청: 피격 데미지 도장 등장 후 0.5초 텀.
+  //   도장 fade-in 약 0.4s + 추가 0.5s = 0.9s 대기 후 mark_cast 시작.
+  //   사망 기폭 페이즈 후엔 이미 충분히 시간이 지났지만, 통일성 위해 동일 텀 적용.
+  const PRE_MARK_DELAY = 900;
+  setTimeout(() => {
+    if (!rooms[room.id]) { if (typeof onComplete === 'function') onComplete(); return; }
+    _flushMarkPhaseInner(room, marks, casters, onComplete);
+  }, PRE_MARK_DELAY);
+}
+function _flushMarkPhaseInner(room, marks, casters, onComplete) {
+  // (1) Cast intro emit
+  emitToBoth(room, 'mark_cast', { casters });
+  emitToSpectators(room, 'spectator_log', { msg: '⛓ 표식 발동', type: 'passive' });
+
+  const CAST_DURATION = 780;
+  const BRAND_DURATION = 1800;
+  setTimeout(() => {
+    if (!rooms[room.id]) { if (typeof onComplete === 'function') onComplete(); return; }
+    // (2) Apply statusEffects + emit per-owner passive_alert (with markCells)
+    const byOwner = new Map();
+    for (const m of marks) {
+      const t = m.target;
+      if (!t || !t.alive) continue;
+      if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+      if (t.statusEffects && t.statusEffects.some(e => e.type === 'mark')) continue;
+      t.statusEffects.push({ type: 'mark', source: m.sourceOwnerIdx });
+      if (!byOwner.has(m.sourceOwnerIdx)) byOwner.set(m.sourceOwnerIdx, { names: [], cells: [] });
+      const grp = byOwner.get(m.sourceOwnerIdx);
+      grp.names.push(m.targetName);
+      grp.cells.push({ col: t.col, row: t.row });
+    }
+    for (const [ownerIdx, { names, cells }] of byOwner) {
+      if (names.length === 0) continue;
+      emitToBoth(room, 'passive_alert', {
+        type: 'torturer', playerIdx: ownerIdx,
+        msg: `⛓ 표식: ${names.join(', ')}에게 표식 새김`,
+        markCells: cells,
+      });
+      emitToSpectators(room, 'spectator_log', {
+        msg: `⛓ 표식: ${names.join(', ')}에게 표식 새김`,
+        type: 'passive', playerIdx: ownerIdx,
+        markCells: cells,
+      });
+    }
+    // (3) After brand animation finishes — onComplete
+    setTimeout(() => {
+      if (typeof onComplete === 'function') onComplete();
+    }, BRAND_DURATION);
+  }, CAST_DURATION);
+}
+
+// 페이즈 종료 — 사망 기폭 wave 들 사전 계산 (state 즉시 변경) + emit 만 시간차 스케줄링.
+// ★ 사용자 요청: 사망 기폭 처리 후 표식 페이즈를 체이닝 (flushMarkPhase).
 function flushPhase(room, onComplete) {
+  // ★ 표식 페이즈를 onComplete 직전에 항상 체이닝 — 모든 flushPhase callsite 자동 적용.
+  const wrappedComplete = () => flushMarkPhase(room, onComplete);
   if (!room._currentPhase) {
-    if (onComplete) onComplete();
+    wrappedComplete();
     return;
   }
   const phase = room._currentPhase;
@@ -3413,11 +3492,11 @@ function flushPhase(room, onComplete) {
     room._phaseDeferredGameEndCheck = true;
   }
 
-  // === 4) 모든 wave 종료 후 callback ===
+  // === 4) 모든 wave 종료 후 callback (표식 페이즈 자동 체이닝) ===
   setTimeout(() => {
     if (rooms[room.id]) {
       room._phaseDeferredGameEndCheck = false;
-      if (onComplete) onComplete();
+      wrappedComplete();
     }
   }, cursor + 100);
 }
@@ -3575,16 +3654,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   const hitResults = [];
   // #1: 호위무사 hit 사이드채널 초기화
   room._pendingBodyguardHits = [];
-  // 사용자 요청: 표식이 한 번에 여러 대상에 새겨지면 단일 로그/토스트로 통합.
-  //   per-target emit 대신 이름들을 수집한 뒤 attack 종료 시 한 번만 발송.
-  const _markedTargetNames = [];
-  // ★ 리워크: 인두 낙하 애니메이션용 표식 셀 좌표 (forward).
-  const _markedTargetCells = [];
-  // ★ 리워크: 고문기술자가 피격당했을 때 공격자에게 역방향 표식 부여.
-  //   공격자는 항상 한 명이므로 첫 번째 적용 torturer 의 owner 만 기록.
-  let _reverseMarkSrcOwnerIdx = -1;
-  let _reverseMarkedAttackerName = null;
-  let _reverseMarkedAttackerCell = null;
+  // ★ 사용자 요청: 표식은 모든 패시브/스킬 연쇄 처리 후 *최후반* 에 시전.
+  //   processAttack 안에서는 statusEffect 적용·emit 안 함 — room._pendingMarks 큐에 push.
+  //   flushPhase callback 의 flushMarkPhase 가 cast intro + 적용 + brand 애니 처리.
+  if (!room._pendingMarks) room._pendingMarks = [];
   // ★ 사용자 요청: 한 공격으로 여러 대상에 같은 패시브 (가호/아이언스킨/폭정/충성) 가 발동돼도
   //   토스트·로그는 단 한 번만 출력. resolveDamage 가 피격자마다 호출되므로 dedupe 필요.
   //   - 메시지가 generic 한 패시브 (monk_attack/monk/armoredWarrior/count): type 별로 1회만 emit
@@ -3639,8 +3712,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             attackerIcon: atkPiece.icon,
           });
 
-          // Post-damage: torturer passive mark — 다중 대상 시 단일 통합 알림으로 처리 (사용자 요청).
-          //   여기서는 이름만 수집하고 emit 은 processAttack 종료 시 한 번만.
+          // Post-damage: torturer 표식 — 큐에 push (즉시 적용/emit 안 함).
+          //   flushMarkPhase 가 cast intro + 적용 + brand 시퀀스를 최후반에 처리.
           if (atkPiece.type === 'torturer' && !destroyed) {
             let markTarget = defPiece;
             // 호위무사 패시브: 왕실 아군 상태이상도 대신 받음
@@ -3648,30 +3721,32 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               const bg = defender.pieces.find(p => p.type === 'bodyguard' && p.alive);
               if (bg) markTarget = bg;
             }
-            // 그림자 상태 면역
-            if (!markTarget.statusEffects.some(e => e.type === 'shadow') &&
-                !markTarget.statusEffects.some(e => e.type === 'mark')) {
-              markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
-              _markedTargetNames.push(markTarget.name);
-              _markedTargetCells.push({ col: markTarget.col, row: markTarget.row });
+            // 그림자 상태 면역 — 큐에 넣지 않음. (이미 표식 / 사망 등의 final check 는 flushMarkPhase 에서.)
+            if (!markTarget.statusEffects.some(e => e.type === 'shadow')) {
+              const srcPieceIdx = attacker.pieces.indexOf(atkPiece);
+              room._pendingMarks.push({
+                type: 'forward',
+                sourceOwnerIdx: attackerIdx,
+                sourcePieceIdx: srcPieceIdx,
+                target: markTarget,
+                targetName: markTarget.name,
+              });
             }
           }
 
-          // ★ 리워크 (역방향 표식): 고문기술자가 *피격* 당하면 공격자(atkPiece) 에게 표식 부여.
-          //   - 공격 접촉만으로 적용 (0 데미지 / 호위무사 가로채기 / 사망 여부 무관).
-          //   - 단 호위무사가 대신 받아 torturer 가 실제로 안 맞은 경우는 제외.
-          //   - 공격자가 그림자 상태이거나 이미 표식이면 스킵.
-          //   - 공격자도 torturer 인 상호 박치기는 첫 fall-through 만 적용 (atkPiece 가 한 번 mark 되면 끝).
+          // ★ 리워크 (역방향 표식): 고문기술자가 *피격* 당하면 공격자에게 표식 부여 — 큐에 push.
+          //   공격 접촉만으로 적용 (0 데미지 / 사망 여부 무관). 호위무사 가로채기는 제외.
+          //   공격자 그림자 상태도 큐에 넣지 않음. ('이미 표식' 체크는 flushMarkPhase 의 final check.)
           if (defPiece.type === 'torturer' &&
               !redirectedToBodyguard &&
-              atkPiece.alive &&
-              !atkPiece.statusEffects.some(e => e.type === 'shadow') &&
-              !atkPiece.statusEffects.some(e => e.type === 'mark') &&
-              _reverseMarkSrcOwnerIdx < 0) {
-            atkPiece.statusEffects.push({ type: 'mark', source: defIdx });
-            _reverseMarkSrcOwnerIdx = defIdx;
-            _reverseMarkedAttackerName = atkPiece.name;
-            _reverseMarkedAttackerCell = { col: atkPiece.col, row: atkPiece.row };
+              !atkPiece.statusEffects.some(e => e.type === 'shadow')) {
+            room._pendingMarks.push({
+              type: 'reverse',
+              sourceOwnerIdx: defIdx,
+              sourcePieceIdx: dpi,
+              target: atkPiece,
+              targetName: atkPiece.name,
+            });
           }
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
@@ -3778,36 +3853,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   // sp_update suppress 플래그 정리
   room._suppressSpUpdate = false;
 
-  // 표식 통합 알림 — 이번 공격으로 새겨진 표식 대상 모두 한 번에 출력 (사용자 요청)
-  // ★ 리워크: 인두 낙하 애니메이션 트리거를 위해 markCells 좌표 페이로드 추가.
-  if (_markedTargetNames.length > 0) {
-    const namesStr = _markedTargetNames.join(', ');
-    emitToBoth(room, 'passive_alert', {
-      type: 'torturer', playerIdx: attackerIdx,
-      msg: `⛓ 표식: ${namesStr}에게 표식 새김`,
-      markCells: _markedTargetCells,
-    });
-    emitToSpectators(room, 'spectator_log', {
-      msg: `⛓ 표식: ${namesStr}에게 표식 새김`,
-      type: 'passive', playerIdx: attackerIdx,
-      markCells: _markedTargetCells,
-    });
-  }
-  // ★ 리워크 (역방향 표식) 알림 — torturer 가 피격당해 공격자에게 표식을 새겼을 때.
-  //   playerIdx = torturer 의 owner (defIdx). 메시지는 공격자 이름 사용.
-  if (_reverseMarkSrcOwnerIdx >= 0 && _reverseMarkedAttackerName) {
-    const cells = _reverseMarkedAttackerCell ? [_reverseMarkedAttackerCell] : [];
-    emitToBoth(room, 'passive_alert', {
-      type: 'torturer', playerIdx: _reverseMarkSrcOwnerIdx,
-      msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`,
-      markCells: cells,
-    });
-    emitToSpectators(room, 'spectator_log', {
-      msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`,
-      type: 'passive', playerIdx: _reverseMarkSrcOwnerIdx,
-      markCells: cells,
-    });
-  }
+  // ★ 사용자 요청 (표식 전용 페이즈): 표식은 inline 으로 emit 안 함.
+  //   processAttack 안에서는 room._pendingMarks 에 큐만 쌓고, flushPhase callback 의
+  //   flushMarkPhase 가 모든 패시브/스킬 연쇄 처리 후 최후반에 cast intro + 적용 + brand 시퀀스 처리.
 
   // ★ 사용자 요청: 호위무사 충성 통합 알림 — 한 공격으로 보호한 모든 왕실 이름 한 번에 출력.
   if (room._pendingBodyguardPassive) {

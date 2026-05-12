@@ -7589,3 +7589,846 @@ body[data-my-team="red"] #chat-scope-team.active {
 /* 보드 설치물 (실제 게임의 board-object) 도 위로. */
 .cell.nightmare-spiral-host .board-object,
 .cell.nightmare-spiral-host [class*="board-installation"] { z-index: 33 !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   체험형 튜토리얼 (v2) — 인게임 1v1 UI 모사 + 말풍선 오버레이 가이드
+   ══════════════════════════════════════════════════════════════════════ */
+/* 튜토리얼 화면 — 기본 .screen 규칙을 그대로 사용. */
+#screen-tutorial-interactive {
+  position: relative;
+}
+
+/* ── 드래프트 / HP / 배치 phase 컨테이너 ── */
+.tut-phase-container {
+  display: none;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 60px 20px 30px;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.tut-phase-container.active { display: flex; }
+.tut-phase-title {
+  font-size: 1.55rem; font-weight: 800;
+  background: linear-gradient(135deg, #fde68a 0%, #c084fc 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+.tut-phase-subtitle {
+  color: #94a3b8; font-size: 0.88rem; text-align: center;
+  max-width: 640px; line-height: 1.55;
+}
+.tut-draft-options {
+  display: flex; gap: 16px; justify-content: center;
+  flex-wrap: wrap;
+}
+.tut-draft-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  padding: 16px 18px;
+  width: 200px;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+  text-align: center;
+}
+.tut-draft-card .icon { font-size: 2.4rem; line-height: 1; }
+.tut-draft-card .name { font-size: 1.1rem; font-weight: 800; color: #fef3c7; margin-top: 6px; }
+.tut-draft-card .tier { font-size: 0.7rem; color: #c4b5fd; margin-top: 2px; }
+.tut-draft-card .desc { font-size: 0.78rem; color: #cbd5e1; margin-top: 8px; line-height: 1.5; min-height: 38px; }
+.tut-draft-card .stat { font-size: 0.72rem; color: #94a3b8; margin-top: 6px; }
+.tut-draft-card.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  filter: grayscale(0.7);
+}
+.tut-draft-card.correct {
+  border-color: rgba(253, 230, 138, 0.85);
+  box-shadow: 0 0 0 4px rgba(253, 230, 138, 0.18), 0 0 24px rgba(253, 230, 138, 0.45);
+  animation: tutDraftPulse 1.6s ease-in-out infinite;
+}
+.tut-draft-card.correct:hover {
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 0 0 6px rgba(253, 230, 138, 0.3), 0 0 32px rgba(253, 230, 138, 0.7);
+}
+@keyframes tutDraftPulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(253, 230, 138, 0.18), 0 0 24px rgba(253, 230, 138, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(253, 230, 138, 0.35), 0 0 32px rgba(253, 230, 138, 0.75); }
+}
+/* HP 분배 phase */
+.tut-hp-cards {
+  display: flex; gap: 14px; justify-content: center;
+  flex-wrap: wrap;
+}
+.tut-hp-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 180px;
+  text-align: center;
+}
+.tut-hp-card .icon { font-size: 1.8rem; line-height: 1; }
+.tut-hp-card .name { font-size: 0.95rem; font-weight: 700; color: #fef3c7; margin-top: 4px; }
+.tut-hp-card .hp-display {
+  margin-top: 10px;
+  font-size: 1.4rem; font-weight: 800;
+  color: #4ade80;
+}
+.tut-hp-card .hp-display .hp-num {
+  display: inline-block; min-width: 32px;
+  padding: 2px 8px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  border-radius: 6px;
+}
+.tut-confirm-btn {
+  margin-top: 18px;
+  padding: 12px 32px;
+  border-radius: 10px;
+  font-size: 1.0rem; font-weight: 800;
+  cursor: pointer;
+  background: linear-gradient(135deg, #fde68a 0%, #fb923c 100%);
+  color: #4c1d05;
+  border: 1px solid rgba(253, 186, 116, 0.65);
+  transition: transform 0.12s, box-shadow 0.12s;
+  animation: tutDraftPulse 1.6s ease-in-out infinite;
+}
+.tut-confirm-btn:hover { transform: translateY(-1px); }
+/* 배치 phase 보드 */
+.tut-placement-board {
+  width: 380px; height: 380px;
+  display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+  gap: 5px; padding: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  border-radius: 10px;
+}
+.tut-placement-board .cell {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 5px;
+  position: relative;
+  cursor: pointer;
+  display: grid; place-items: center;
+  font-size: 0.65rem; color: #94a3b8;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.tut-placement-board .cell.tut-target-cell {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(74, 222, 128, 0.7);
+  animation: tutDraftPulse 1.4s ease-in-out infinite;
+}
+.tut-placement-board .cell .coord-label {
+  position: absolute; top: 3px; left: 5px;
+  font-size: 0.6rem; opacity: 0.5;
+}
+.tut-placement-board .piece-marker {
+  position: absolute; inset: 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.tut-placement-board .piece-marker .p-icon { font-size: 1.7rem; line-height: 1; }
+.tut-placement-board .piece-marker .p-hp { font-size: 0.62rem; color: #fef3c7; }
+.tut-placement-hint {
+  color: #fde68a; font-size: 0.92rem; font-weight: 700;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  border-radius: 8px;
+  padding: 8px 16px;
+}
+
+/* ── UI reveal 시스템 (게임 phase 내부) ── */
+#screen-tutorial-interactive .tut-hide-init {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.55s ease-out, visibility 0s 0.55s;
+}
+#screen-tutorial-interactive .tut-hide-init.tut-revealed {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.55s ease-out;
+  animation: tutRevealIn 0.6s ease-out;
+}
+@keyframes tutRevealIn {
+  0%   { transform: scale(0.94); filter: brightness(0.5); }
+  60%  { transform: scale(1.02); filter: brightness(1.2); }
+  100% { transform: scale(1);    filter: brightness(1); }
+}
+
+/* 상단 오버레이 — 진행도 + 나가기 */
+.tut-mock-header-overlay {
+  position: absolute; top: 14px; left: 18px; right: 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  z-index: 200;
+  pointer-events: none;
+}
+.tut-mock-header-overlay > * { pointer-events: auto; }
+.tut-mock-progress-pill {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  border-radius: 22px;
+  padding: 6px 16px;
+  display: flex; gap: 10px; align-items: center;
+}
+.tut-mock-progress-label { color: #94a3b8; font-size: 0.75rem; letter-spacing: 0.06em; }
+.tut-mock-progress {
+  font-size: 0.95rem; font-weight: 800;
+  background: linear-gradient(135deg, #fde68a 0%, #c084fc 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* 인게임 모사 shell — 좌패널 | 중앙 (보드+액션) | 우패널 */
+/* ★ 튜토리얼 mockup CSS 폐기 — 이제 실제 screen-game 의 .game-layout 등을 그대로 사용.
+   여기는 튜토리얼 전용 오버레이 (말풍선·spotlight·진행도 pill) 만 정의. */
+
+/* 어두운 오버레이 — 항상 숨김 (사용자 요청: dim 전혀 사용 안 함) */
+.tut-mock-overlay {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 9000;
+  background: transparent;   /* 더 이상 화면 어둡게 안 함 */
+  display: none;
+}
+/* (옛 클래스 호환 — body.tut-no-dim 은 더 이상 의미 없음, 항상 dim off) */
+/* 말풍선 숨김 (require 2단계) */
+.tut-mock-bubble.tut-bubble-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+/* 2단계 (클릭 대기) — 더 강한 안쪽 글로우 (액자 없이) */
+.tut-spotlight.tut-spotlight-strong {
+  animation: tutSpotlightStrongSoft 1.0s ease-in-out infinite;
+}
+@keyframes tutSpotlightStrongSoft {
+  0%, 100% { filter: brightness(1.25) drop-shadow(0 0 14px rgba(253, 230, 138, 0.8)); }
+  50%      { filter: brightness(1.5)  drop-shadow(0 0 28px rgba(253, 230, 138, 1)); }
+}
+/* 말풍선 — 전투 로그 아래에 가깝게 붙는 좁은 패널.
+   기본 위치: 하단 — JS 가 게임 phase 에서는 .center-log-wrap 바로 아래로 옮김. */
+.tut-mock-bubble {
+  position: fixed;
+  z-index: 100000;
+  left: 50%;
+  bottom: 16px;
+  top: auto;
+  transform: translateX(-50%);
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  min-width: 240px;
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 14, 51, 0.97) 100%);
+  border: 2px solid rgba(253, 230, 138, 0.55);
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.7),
+    0 0 0 2px rgba(168, 85, 247, 0.18),
+    0 0 16px rgba(253, 230, 138, 0.22);
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.85rem;
+}
+.tut-mock-bubble .tut-mock-bubble-text { font-size: 0.85rem; }
+.tut-mock-bubble .tut-mock-bubble-text {
+  flex: 1;
+}
+.tut-mock-bubble .tut-mock-bubble-actions {
+  flex-shrink: 0;
+  border-top: none !important;
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+  border-left: 1px solid rgba(168, 85, 247, 0.25);
+  padding-left: 14px;
+}
+/* 꼬리 제거 — 포인터 SVG 가 대신함 */
+.tut-mock-bubble .tut-mock-bubble-tail { display: none !important; }
+.tut-mock-bubble.tut-bubble-hidden {
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+/* ── 포인팅 SVG — 말풍선에서 설명 대상으로 가는 점선 + 화살표 ── */
+.tut-pointer-svg {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 99999;
+  filter: drop-shadow(0 0 6px rgba(253, 230, 138, 0.6));
+}
+.tut-pointer-svg.hidden { display: none; }
+#tut-pointer-line {
+  animation: tutPointerDash 1.2s linear infinite;
+}
+@keyframes tutPointerDash {
+  to { stroke-dashoffset: -26; }
+}
+.tut-mock-bubble-text {
+  font-size: 0.92rem; color: #e2e8f0; line-height: 1.65;
+}
+.tut-mock-bubble-text p { margin: 0 0 8px; }
+.tut-mock-bubble-text p:last-child { margin-bottom: 0; }
+.tut-mock-bubble-text strong { color: #fde68a; }
+.tut-mock-bubble-text ul { margin: 4px 0 6px; padding-left: 18px; }
+.tut-mock-bubble-text li { margin-bottom: 4px; color: #cbd5e1; }
+/* 이모지 그 자체가 버튼 — 컨테이너 (배경/테두리/패딩) 모두 제거. */
+.tut-bubble-btn {
+  all: unset;                 /* 모든 button 기본 스타일 제거 */
+  cursor: pointer;
+  font-size: 1.7rem;          /* 이모지 크게 */
+  line-height: 1;
+  padding: 0; margin: 0;
+  background: none;
+  border: none;
+  display: inline-block;
+  transition: transform 0.12s, filter 0.12s;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.tut-bubble-btn:hover {
+  transform: scale(1.18) translateY(-1px);
+  filter: drop-shadow(0 0 8px rgba(253, 230, 138, 0.85)) drop-shadow(0 2px 4px rgba(0,0,0,0.7));
+}
+.tut-bubble-btn:active {
+  transform: scale(0.95);
+}
+.tut-bubble-btn:disabled {
+  opacity: 0.28; cursor: not-allowed;
+  transform: none;
+  filter: grayscale(1);
+}
+/* 좌우 정렬 */
+.tut-mock-bubble-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 16px; margin-top: 14px; padding-top: 10px;
+  border-top: 1px solid rgba(168, 85, 247, 0.2);
+}
+/* 말풍선 꼬리 (anchor 방향) */
+.tut-mock-bubble-tail {
+  position: absolute;
+  width: 16px; height: 16px;
+  background: inherit;
+  border: 2px solid rgba(253, 230, 138, 0.5);
+  transform: rotate(45deg);
+  display: none;  /* 기본 안 보임 — anchor 모드일 때만 켜짐 */
+}
+.tut-mock-bubble.with-tail .tut-mock-bubble-tail { display: block; }
+.tut-mock-bubble.tail-top .tut-mock-bubble-tail {
+  top: -10px; left: 50%; transform: translateX(-50%) rotate(45deg);
+  border-right: none; border-bottom: none;
+}
+.tut-mock-bubble.tail-bottom .tut-mock-bubble-tail {
+  bottom: -10px; left: 50%; transform: translateX(-50%) rotate(45deg);
+  border-left: none; border-top: none;
+}
+.tut-mock-bubble.tail-left .tut-mock-bubble-tail {
+  left: -10px; top: 50%; transform: translateY(-50%) rotate(45deg);
+  border-top: none; border-right: none;
+}
+.tut-mock-bubble.tail-right .tut-mock-bubble-tail {
+  right: -10px; top: 50%; transform: translateY(-50%) rotate(45deg);
+  border-bottom: none; border-left: none;
+}
+
+/* ★ 사용자 요청: 액자식 글로우 프레임 제거 — SVG 포인터가 이미 가리키므로 굳이 외곽 box 안 침범.
+   대상 요소 자체에 부드러운 안쪽 글로우만 살짝 (filter brightness) — 시선 유도용. */
+.tut-spotlight {
+  position: relative;
+  z-index: 9001;
+  filter: brightness(1.15) drop-shadow(0 0 8px rgba(253, 230, 138, 0.5));
+  animation: tutSpotlightSoft 1.8s ease-in-out infinite;
+}
+@keyframes tutSpotlightSoft {
+  0%, 100% { filter: brightness(1.15) drop-shadow(0 0 8px rgba(253, 230, 138, 0.45)); }
+  50%      { filter: brightness(1.28) drop-shadow(0 0 18px rgba(253, 230, 138, 0.85)); }
+}
+
+@media (max-width: 1000px) {
+  .tut-mock-shell { grid-template-columns: 1fr; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   체험형 튜토리얼 v6 — 게임 phase 상호작용 강조 CSS
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* 이동 가능 셀 — 녹색 펄스 */
+#screen-tutorial-interactive #tut-game-board .cell.tut-move-target {
+  background: rgba(34, 197, 94, 0.30);
+  border-color: rgba(74, 222, 128, 0.85);
+  cursor: pointer;
+  animation: tutMoveTargetPulse 1.2s ease-in-out infinite;
+  z-index: 5;
+}
+@keyframes tutMoveTargetPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.4), 0 0 12px rgba(74, 222, 128, 0.3); }
+  50%      { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.6), 0 0 22px rgba(74, 222, 128, 0.7); }
+}
+/* 공격 대상 셀 — 빨간 펄스 */
+#screen-tutorial-interactive #tut-game-board .cell.tut-attack-target {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(248, 113, 113, 0.85);
+  cursor: pointer;
+  animation: tutAttackTargetPulse 1.0s ease-in-out infinite;
+  z-index: 5;
+}
+@keyframes tutAttackTargetPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.4), 0 0 14px rgba(248, 113, 113, 0.45); }
+  50%      { box-shadow: 0 0 0 5px rgba(248, 113, 113, 0.65), 0 0 26px rgba(248, 113, 113, 0.8); }
+}
+/* 공격 적중 셀 — 빨간 플래시 + 흔들림 */
+#screen-tutorial-interactive #tut-game-board .cell.tut-attack-flash {
+  animation: tutAttackFlash 0.55s ease-out;
+  z-index: 6;
+}
+@keyframes tutAttackFlash {
+  0%   { background: rgba(255, 60, 60, 0.0); transform: translate(0, 0); }
+  10%  { background: rgba(255, 60, 60, 0.65); transform: translate(-2px, 1px); }
+  25%  { background: rgba(255, 90, 90, 0.7); transform: translate(3px, -2px); }
+  40%  { background: rgba(255, 60, 60, 0.55); transform: translate(-2px, 2px); }
+  55%  { background: rgba(255, 60, 60, 0.4); transform: translate(2px, 0); }
+  100% { background: rgba(255, 60, 60, 0); transform: translate(0, 0); }
+}
+/* 보드 위 piece 아이콘 피격 — 흔들 + 빨간 글로우 */
+#screen-tutorial-interactive .piece-marker .p-icon.tut-p-icon-hit {
+  animation: tutPIconHit 0.7s ease-out;
+  filter: drop-shadow(0 0 8px rgba(255, 80, 80, 0.85));
+}
+@keyframes tutPIconHit {
+  0%    { transform: translate(0, 0); filter: drop-shadow(0 0 0 transparent); }
+  15%   { transform: translate(-3px, 1px) rotate(-8deg); filter: drop-shadow(0 0 14px rgba(255,60,60,1)); }
+  30%   { transform: translate(3px, -2px) rotate(7deg); filter: drop-shadow(0 0 14px rgba(255,60,60,1)); }
+  45%   { transform: translate(-2px, 2px) rotate(-5deg); }
+  60%   { transform: translate(2px, 0) rotate(3deg); }
+  100%  { transform: translate(0, 0); filter: drop-shadow(0 0 0 transparent); }
+}
+/* 사이드 카드 피격 — 노란 외광 + 살짝 흔들 */
+#screen-tutorial-interactive .my-piece-card.tut-card-hit,
+#screen-tutorial-interactive .opp-piece-card.tut-card-hit {
+  animation: tutCardHit 0.75s ease-out;
+}
+@keyframes tutCardHit {
+  0%   { transform: translateX(0); box-shadow: none; }
+  20%  { transform: translateX(-4px); box-shadow: 0 0 0 2px rgba(255,80,80,0.85), 0 0 20px rgba(255,80,80,0.55); }
+  40%  { transform: translateX(4px);  box-shadow: 0 0 0 2px rgba(255,80,80,0.85), 0 0 20px rgba(255,80,80,0.55); }
+  60%  { transform: translateX(-2px); box-shadow: 0 0 0 2px rgba(255,80,80,0.65), 0 0 16px rgba(255,80,80,0.4); }
+  100% { transform: translateX(0); box-shadow: none; }
+}
+/* 격파된 카드 — 흑백 + 반투명 */
+#screen-tutorial-interactive .my-piece-card.card-dead,
+#screen-tutorial-interactive .opp-piece-card.card-dead {
+  filter: grayscale(1) brightness(0.5);
+  opacity: 0.55;
+  position: relative;
+}
+#screen-tutorial-interactive .my-piece-card.card-dead::after,
+#screen-tutorial-interactive .opp-piece-card.card-dead::after {
+  content: '💀 격파됨';
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: #ef4444; font-weight: 800; font-size: 0.95rem;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* 추리 토큰 표시 행 (opp 카드 내부) */
+#screen-tutorial-interactive .opp-piece-card .opp-mark-row {
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(253, 230, 138, 0.15);
+  border: 1px solid rgba(253, 230, 138, 0.4);
+  border-radius: 6px;
+  color: #fef3c7;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: center;
+}
+/* 로그 패널 깜빡 강조 (상대가 무언가 했을 때) */
+#screen-tutorial-interactive .center-log-wrap.flash-once {
+  animation: tutLogFlash 0.85s ease-out;
+}
+@keyframes tutLogFlash {
+  0%   { box-shadow: none; }
+  20%  { box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.7), 0 0 22px rgba(96, 165, 250, 0.55); }
+  100% { box-shadow: none; }
+}
+/* opp piece 보드 위 표시 — 살짝 다른 색 (안개에서 나타날 때) */
+#screen-tutorial-interactive #tut-game-board .piece-marker.opp-piece .p-icon {
+  filter: drop-shadow(0 0 4px rgba(248, 113, 113, 0.75));
+}
+/* 상대 차례일 때 turn banner 빨간 톤 */
+#screen-tutorial-interactive #tut-turn-banner.opp-turn {
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.85) 0%, rgba(159, 18, 57, 0.85) 100%);
+  border-color: rgba(248, 113, 113, 0.7);
+  color: #fecaca;
+}
+/* 클릭 가드 — require 신에선 piece/버튼 외 클릭을 시각적으로 못 누르게 */
+#screen-tutorial-interactive .tut-mock-bubble {
+  /* 말풍선 위 클릭은 항상 허용 */
+}
+/* require 안내 — 게임보드 piece-marker 가 anchor 일 때 .tut-spotlight 가 좁게 끼게 */
+#screen-tutorial-interactive #tut-game-board .cell .piece-marker.tut-spotlight,
+#screen-tutorial-interactive #tut-game-board .cell.tut-spotlight {
+  /* tutSpotlightPulse 그대로 — outline 형태로 강조 */
+}
+/* 잘못된 클릭 시 한 번 더 강조 (액자 없이 brightness/scale) */
+.tut-spotlight.tut-spotlight-bump {
+  animation: tutSpotlightBump 0.5s ease-out;
+}
+@keyframes tutSpotlightBump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.06); filter: brightness(1.6) drop-shadow(0 0 28px rgba(253, 230, 138, 1)); }
+  100% { transform: scale(1); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   v6.1 — 인게임 화면 모방 (draft / hp / placement)
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* phase container 가 인게임 화면을 모방할 때 폭 확장 */
+.tut-phase-container.tut-mimic-real { max-width: 1100px; width: 100%; }
+
+/* ── 드래프트 화면 ── */
+.tut-draft-layout .tut-draft-viewer {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.85) 0%, rgba(30, 14, 51, 0.85) 100%);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-top: 12px;
+}
+.tut-draft-top {
+  display: flex; gap: 18px; align-items: stretch;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(168, 85, 247, 0.2);
+}
+.tut-draft-left { flex: 1; display: flex; gap: 14px; align-items: center; min-width: 0; }
+.tut-draft-icon-large {
+  font-size: 4rem; line-height: 1;
+  filter: drop-shadow(0 0 12px rgba(253, 230, 138, 0.55));
+  flex-shrink: 0;
+}
+.tut-draft-info { flex: 1; min-width: 0; text-align: left; }
+.tut-draft-name { font-size: 1.3rem; font-weight: 800; color: #fde68a; }
+.tut-draft-atk { font-size: 0.95rem; color: #fbbf24; margin-top: 4px; font-weight: 700; }
+.tut-draft-flavor {
+  margin-top: 8px; font-size: 0.82rem; color: #cbd5e1;
+  font-style: italic; line-height: 1.5;
+}
+.tut-draft-right {
+  width: 150px; flex-shrink: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.tut-draft-range-label {
+  font-size: 0.72rem; color: #94a3b8; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.tut-draft-mini-board {
+  width: 110px; height: 110px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 6px; padding: 4px;
+}
+.tut-mini-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+  gap: 2px; width: 100%; height: 100%;
+}
+.tut-mini-cell {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+}
+.tut-mini-cell.self {
+  background: rgba(56, 189, 248, 0.5);
+  border-color: rgba(56, 189, 248, 0.9);
+}
+.tut-mini-cell.in-range {
+  background: rgba(248, 113, 113, 0.45);
+  border-color: rgba(248, 113, 113, 0.85);
+}
+.tut-mini-cell.self.in-range {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.55), rgba(248, 113, 113, 0.55));
+}
+.tut-draft-skill-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 8px;
+}
+.tut-draft-skill-head {
+  display: flex; gap: 10px; align-items: center;
+  font-size: 0.95rem; color: #fde68a;
+}
+.tut-tag {
+  font-size: 0.7rem; padding: 2px 8px;
+  background: rgba(168, 85, 247, 0.25);
+  border-radius: 10px; color: #c4b5fd;
+}
+.tut-sp-cost {
+  font-size: 0.75rem; padding: 2px 8px;
+  background: rgba(56, 189, 248, 0.2);
+  border-radius: 10px; color: #93c5fd; font-weight: 700;
+}
+.tut-draft-skill-body {
+  margin-top: 8px;
+  font-size: 0.85rem; color: #cbd5e1; line-height: 1.55;
+  text-align: left;
+}
+#tut-btn-draft-select {
+  margin-top: 14px;
+}
+/* 사이드바 — 현재 활성 슬롯 강조 */
+.tut-draft-layout .draft-slot.tut-active-slot {
+  border-color: rgba(253, 230, 138, 0.7);
+  background: rgba(253, 230, 138, 0.08);
+  animation: tutDraftPulse 1.6s ease-in-out infinite;
+}
+@keyframes tutDraftPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(253, 230, 138, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(253, 230, 138, 0.18); }
+}
+
+/* ── HP 분배 화면 ── */
+.tut-hp-container { margin: 0 auto; }
+.tut-hp-pieces-row {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 18px 0;
+}
+.tut-hp-piece-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+}
+.tut-hp-piece-head { display: flex; gap: 10px; align-items: center; }
+.tut-hp-piece-head .hp-piece-icon { font-size: 1.5rem; }
+.tut-tier-badge {
+  font-size: 0.7rem; padding: 2px 8px;
+  background: rgba(168, 85, 247, 0.25);
+  border-radius: 10px; color: #c4b5fd;
+}
+.tut-hp-controls {
+  display: flex; gap: 12px; align-items: center;
+  font-size: 1.1rem; font-weight: 700;
+}
+.tut-hp-controls button {
+  width: 32px; height: 32px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px; color: #94a3b8;
+  font-size: 1.1rem; cursor: not-allowed;
+}
+.tut-hp-value {
+  min-width: 32px; text-align: center; color: #fde68a;
+  font-size: 1.4rem; font-weight: 800;
+}
+.tut-hp-total {
+  margin: 14px 0;
+  padding: 8px 14px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+  font-size: 0.85rem; color: #cbd5e1;
+}
+.tut-hp-total .hp-remaining { color: #34d399; font-weight: 800; }
+
+/* ── 배치 화면 ── */
+.tut-placement-layout {
+  display: grid; grid-template-columns: 220px auto 220px;
+  gap: 20px; align-items: start;
+  margin-top: 18px;
+}
+.tut-piece-list {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.tut-place-piece-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  position: relative;
+}
+.tut-place-piece-item.selected {
+  border-color: rgba(253, 230, 138, 0.7);
+  background: rgba(253, 230, 138, 0.08);
+  animation: tutDraftPulse 1.6s ease-in-out infinite;
+}
+.tut-place-piece-item.placed { opacity: 0.55; }
+.tut-placed-badge {
+  position: absolute; right: 10px;
+  font-size: 0.7rem; color: #34d399;
+  font-weight: 700;
+}
+.tut-placement-board {
+  width: 360px; height: 360px;
+  display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(5, 1fr);
+  gap: 4px; padding: 8px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 2px solid rgba(99, 102, 241, 0.35);
+  border-radius: 8px;
+}
+.tut-placement-board .cell {
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  position: relative;
+}
+.tut-placement-board .cell .coord-label {
+  position: absolute; top: 2px; left: 4px;
+  font-size: 0.6rem; opacity: 0.4; color: #94a3b8;
+}
+.tut-placement-board .cell.tut-target-cell {
+  background: rgba(34, 197, 94, 0.28);
+  border-color: rgba(74, 222, 128, 0.7);
+  cursor: pointer;
+  animation: tutDraftPulse 1.4s ease-in-out infinite;
+}
+.tut-placement-board .piece-marker {
+  position: absolute; inset: 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.tut-placement-board .piece-marker .p-icon { font-size: 1.5rem; line-height: 1; }
+.tut-placement-board .piece-marker .p-hp { font-size: 0.6rem; color: #fef3c7; }
+.tut-placement-opp {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  border-radius: 8px;
+  padding: 14px;
+}
+.tut-placement-opp h4 {
+  margin: 0 0 10px 0; font-size: 0.95rem; color: #fde68a;
+}
+.tut-opp-place-piece {
+  padding: 8px 10px; margin-bottom: 6px;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  display: flex; gap: 8px; align-items: center;
+}
+.tut-opp-place-piece .hp-piece-icon { font-size: 1.2rem; }
+
+/* ── SP 지급 오버레이 ── */
+.tut-sp-grant-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 50000;
+  display: grid; place-items: center;
+  opacity: 0; transition: opacity 0.4s;
+}
+.tut-sp-grant-overlay.show { opacity: 1; }
+.tut-sp-grant-overlay.hide { opacity: 0; }
+.tut-sp-grant-content {
+  display: flex; gap: 36px; align-items: center;
+}
+.tut-sp-grant-orb {
+  font-size: 4rem;
+  filter: drop-shadow(0 0 18px rgba(253, 230, 138, 0.9));
+  animation: tutSpOrbFloat 2.4s ease-in-out infinite;
+}
+.tut-sp-grant-orb-right { animation-delay: 0.5s; }
+@keyframes tutSpOrbFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-12px) scale(1.15); }
+}
+.tut-sp-grant-text {
+  font-size: 1.8rem; font-weight: 800;
+  color: #fde68a;
+  text-shadow: 0 0 22px rgba(253, 230, 138, 0.7);
+  letter-spacing: 0.02em;
+}
+/* SP 숫자 tick bump */
+.tut-sp-bump { animation: tutSpBump 0.7s ease-out; }
+@keyframes tutSpBump {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.5); color: #34d399; text-shadow: 0 0 18px rgba(52, 211, 153, 0.9); }
+  100% { transform: scale(1); }
+}
+
+/* ── 보드 축소 인트로 ── */
+.tut-shrink-intro {
+  position: fixed; inset: 0;
+  background: rgba(127, 29, 29, 0.55);
+  z-index: 50000;
+  display: grid; place-items: center;
+  opacity: 0; transition: opacity 0.4s;
+}
+.tut-shrink-intro.show { opacity: 1; }
+.tut-shrink-intro.hide { opacity: 0; }
+.tut-shrink-intro-content {
+  text-align: center;
+}
+.tut-shrink-intro-title {
+  font-size: 2.6rem; font-weight: 800; color: #fecaca;
+  text-shadow: 0 0 24px rgba(248, 113, 113, 0.9);
+  animation: tutShrinkPulse 1s ease-in-out infinite;
+}
+.tut-shrink-intro-sub {
+  margin-top: 12px; font-size: 1.1rem; color: #fef3c7;
+}
+@keyframes tutShrinkPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.05); }
+}
+/* 축소 경고 박스 */
+.tut-shrink-warning-box {
+  margin-top: 10px;
+  display: inline-block;
+  padding: 6px 14px;
+  background: rgba(127, 29, 29, 0.75);
+  border: 2px solid rgba(248, 113, 113, 0.85);
+  border-radius: 20px;
+  color: #fecaca;
+  font-size: 0.85rem;
+  font-weight: 700;
+  animation: tutShrinkPulse 1.2s ease-in-out infinite;
+}
+/* 외곽 셀 — 빨갛게 활활 타오름 */
+#tut-game-board .cell.tut-shrink-burning {
+  animation: tutShrinkBurn 0.6s ease-in-out infinite alternate;
+}
+@keyframes tutShrinkBurn {
+  0%   { background: rgba(127, 29, 29, 0.45); box-shadow: inset 0 0 12px rgba(248, 113, 113, 0.55); }
+  100% { background: rgba(220, 38, 38, 0.65); box-shadow: inset 0 0 24px rgba(255, 100, 100, 0.85); }
+}
+#tut-game-board .cell.tut-shrink-destroyed {
+  background: rgba(15, 23, 42, 0.3) !important;
+  border: 1px dashed rgba(127, 29, 29, 0.6) !important;
+  filter: brightness(0.4);
+  opacity: 0.5;
+  animation: none;
+}
+
+/* ─── 사거리/추리 시각화 (좌표 나열 대체) ─── */
+#tut-game-board .cell.tut-range-hilite {
+  background: rgba(56, 189, 248, 0.25) !important;
+  border-color: rgba(96, 165, 250, 0.7) !important;
+  box-shadow: inset 0 0 8px rgba(56, 189, 248, 0.4);
+  animation: tutRangePulse 1.4s ease-in-out infinite;
+}
+@keyframes tutRangePulse {
+  0%, 100% { box-shadow: inset 0 0 6px rgba(56, 189, 248, 0.3); }
+  50%      { box-shadow: inset 0 0 14px rgba(56, 189, 248, 0.7); }
+}
+#tut-game-board .cell.tut-deduce-hilite {
+  background: rgba(253, 230, 138, 0.2) !important;
+  border-color: rgba(253, 230, 138, 0.7) !important;
+  box-shadow: inset 0 0 10px rgba(253, 230, 138, 0.45);
+  animation: tutDeducePulse 1.2s ease-in-out infinite;
+}
+@keyframes tutDeducePulse {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(253, 230, 138, 0.35); }
+  50%      { box-shadow: inset 0 0 16px rgba(253, 230, 138, 0.7); }
+}
+
+/* ─── 드래프트 화면 — disabled UI (arrows / tabs) 시각적 비활성 ─── */
+.tut-disabled-arrow {
+  opacity: 0.25; pointer-events: none; cursor: not-allowed;
+}
+.tut-disabled-tab {
+  opacity: 0.4; cursor: not-allowed; pointer-events: none;
+}
+/* 현재 활성 슬롯 강조 (이미 있던 것 유지 — alias) */
+

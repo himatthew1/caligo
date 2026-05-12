@@ -39,6 +39,20 @@ function _animateSingleBrand(board, col, row, opts) {
   // ★ 인두가 셀 밖까지 보이도록 overflow:visible 강제 — 애니메이션 종료 후 자동 해제.
   cell.classList.add('mark-brand-host');
 
+  // ★ 사용자 보고: 표식 대상 유닛이 다른 유닛 아래에 깔려 보임 → 애니 중에만 최상단으로.
+  //   대상 셀의 piece-marker (대상 유닛) + cell-mark 의 z-index 를 임시로 매우 높게.
+  //   애니 종료 (1.82s) 후 inline style 제거로 원복.
+  const targetMarker = cell.querySelector('.piece-marker');
+  if (targetMarker) {
+    targetMarker.dataset.markBrandOrigZ = targetMarker.style.zIndex || '';
+    targetMarker.style.zIndex = '40';   // iron z-index 30 보다 위
+  }
+  const existingMark = cell.querySelector('.cell-mark');
+  if (existingMark) {
+    existingMark.dataset.markBrandOrigZ = existingMark.style.zIndex || '';
+    existingMark.style.zIndex = '45';   // 모든 표식 요소 위
+  }
+
   // ── 인두 본체 — 단일 연속 시퀀스 (markBrandSeq 1.8s, 슬램 강조) ──
   const iron = document.createElement('div');
   iron.className = 'mark-brand-iron';
@@ -111,5 +125,18 @@ function _animateSingleBrand(board, col, row, opts) {
   setTimeout(() => {
     try { iron.remove(); } catch (e) {}
     cell.classList.remove('mark-brand-host');
+    // ★ piece-marker / cell-mark z-index 원복
+    if (targetMarker) {
+      targetMarker.style.zIndex = targetMarker.dataset.markBrandOrigZ || '';
+      delete targetMarker.dataset.markBrandOrigZ;
+    }
+    // cell-mark 는 spawn-anim 이후에도 표시되므로 spawn 이 만든 mk 가 있을 수 있음 → 다시 조회.
+    const mkAll = cell.querySelectorAll('.cell-mark');
+    mkAll.forEach(mk => {
+      if (mk.dataset.markBrandOrigZ !== undefined) {
+        mk.style.zIndex = mk.dataset.markBrandOrigZ || '';
+        delete mk.dataset.markBrandOrigZ;
+      }
+    });
   }, 1820);
 }

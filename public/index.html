@@ -178,19 +178,92 @@
   </div>
 </div>
 
-<!-- ── 튜토리얼 ── -->
-<div id="screen-tutorial" class="screen">
-  <div class="tutorial-container">
-    <div class="tutorial-header">
-      <button id="btn-tutorial-back" class="btn btn-small">✕ 나가기</button>
-      <div id="tutorial-progress" class="tutorial-progress"></div>
+<!-- ── 튜토리얼 (드래프트 → HP → 배치 → 게임 UI 투어) ── -->
+<div id="screen-tutorial-interactive" class="screen">
+  <!-- 드래프트 / HP / 배치 phase 컨테이너 (게임 시작 전) -->
+  <div id="tut-phase-container" class="tut-phase-container"></div>
+  <!-- 게임 UI (게임 phase 에서만 노출) — 실제 screen-game 구조 그대로 -->
+  <div class="game-layout" id="tut-game-layout">
+    <!-- SP 영향력 그래프 (상단) — 실제 게임과 동일 마크업 -->
+    <div class="sp-section">
+      <div class="sp-bar-container sp-bar-v2">
+        <div class="sp-side sp-side-mine">
+          <div class="sp-side-title">내 SP</div>
+          <div class="sp-num-row">
+            <div class="sp-instant-tray sp-instant-tray-mine"></div>
+            <div id="tut-sp-my-num" class="sp-num sp-num-mine">3</div>
+          </div>
+        </div>
+        <div class="sp-bar">
+          <div id="tut-sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
+          <div id="tut-sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
+        </div>
+        <div class="sp-side sp-side-opp">
+          <div class="sp-side-title">상대 SP</div>
+          <div class="sp-num-row">
+            <div id="tut-sp-opp-num" class="sp-num sp-num-opp">3</div>
+            <div class="sp-instant-tray sp-instant-tray-opp"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sp-countdown">다음 SP 지급까지 10턴</div>
     </div>
-    <div id="tutorial-content" class="tutorial-content"></div>
-    <div class="tutorial-nav">
-      <button id="btn-tut-prev" class="btn btn-secondary">← 이전</button>
-      <span id="tutorial-step-label" class="tutorial-step-label"></span>
-      <button id="btn-tut-next" class="btn btn-primary">다음 →</button>
+    <!-- 왼쪽: 내 말 정보 (실제와 동일) -->
+    <div class="side-panel left-panel">
+      <h3>내 말</h3>
+      <div id="tut-my-pieces-info"></div>
     </div>
+    <!-- 중앙: 보드 + 컨트롤 + 로그 (실제와 동일) -->
+    <div class="center-panel">
+      <div class="turn-banner" id="tut-turn-banner">1턴 : 내 차례</div>
+      <div id="tut-game-board" class="board"></div>
+      <div id="tut-action-bar" class="action-bar">
+        <button id="tut-btn-action" class="btn btn-action">행동</button>
+        <button id="tut-btn-skill" class="btn btn-skill">스킬</button>
+        <button id="tut-btn-end-turn" class="btn btn-warning">턴 종료</button>
+        <button id="tut-btn-surrender" class="btn btn-surrender btn-surrender-mini" disabled>기권</button>
+      </div>
+      <div class="action-hint"></div>
+      <div class="center-log-wrap">
+        <h3 class="center-log-title">전투 로그</h3>
+        <div id="tut-game-log" class="game-log"></div>
+      </div>
+    </div>
+    <!-- 오른쪽: 상대 말 (실제와 동일) -->
+    <div class="side-panel right-panel">
+      <h3>상대방 말</h3>
+      <div id="tut-opp-pieces-info"></div>
+    </div>
+  </div>
+  <!-- 상단 진행도 + 나가기 (튜토리얼 전용) -->
+  <div class="tut-mock-header-overlay">
+    <button id="tut-mock-back" class="btn btn-small">✕ 나가기</button>
+    <div class="tut-mock-progress-pill">
+      <span class="tut-mock-progress-label">튜토리얼</span>
+      <span id="tut-mock-progress" class="tut-mock-progress">1 / 8</span>
+    </div>
+  </div>
+  <!-- 어두운 오버레이 (dim) — 기본 숨김. 필요 시 body.tut-dim-on 으로 활성 -->
+  <div id="tut-mock-overlay" class="tut-mock-overlay"></div>
+  <!-- 포인팅 SVG — 말풍선에서 설명 대상까지 점선 + 원형 팁 (사용자 요청: 삼각형 → 원형) -->
+  <svg id="tut-pointer-svg" class="tut-pointer-svg" aria-hidden="true">
+    <defs>
+      <marker id="tut-arrowhead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+        <circle cx="4" cy="4" r="3.5" fill="#fde68a" stroke="rgba(253, 230, 138, 0.5)" stroke-width="0.8"/>
+      </marker>
+    </defs>
+    <line id="tut-pointer-line" x1="0" y1="0" x2="0" y2="0"
+          stroke="#fde68a" stroke-width="2.2" stroke-dasharray="6,4"
+          marker-end="url(#tut-arrowhead)"/>
+  </svg>
+  <!-- 말풍선 — 하단 고정 패널 -->
+  <div id="tut-mock-bubble" class="tut-mock-bubble">
+    <div id="tut-mock-bubble-text" class="tut-mock-bubble-text"></div>
+    <div class="tut-mock-bubble-actions">
+      <button id="tut-mock-bubble-prev" class="tut-bubble-btn tut-bubble-btn-secondary" aria-label="이전">⬅️</button>
+      <button id="tut-mock-bubble-next" class="tut-bubble-btn tut-bubble-btn-primary" aria-label="다음">➡️</button>
+    </div>
+    <div class="tut-mock-bubble-tail"></div>
   </div>
 </div>
 
@@ -935,5 +1008,6 @@
 <script src="mark-anim.js"></script>
 <script src="nightmare-anim.js"></script>
 <script src="game.js"></script>
+<script src="tutorial-interactive.js"></script>
 </body>
 </html>

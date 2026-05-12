@@ -4001,8 +4001,22 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
     if (markedMover) {
       markedMover.col = col;
       markedMover.row = row;
+      // ★ 사용자 요청: 표식 적 이동 시 추리 토큰도 자동 위치 동기화.
+      //   pieceKey: 1v1 = `${type}:${subUnit}`, 팀모드 = `${type}:${subUnit}@${ownerIdx}`.
+      const pieceKey = S.isTeamMode && typeof markedMover.ownerIdx === 'number'
+        ? `${markedMover.type}:${markedMover.subUnit || ''}@${markedMover.ownerIdx}`
+        : `${markedMover.type}:${markedMover.subUnit || ''}`;
+      let tokenUpdated = false;
+      for (const t of (S.deductionTokens || [])) {
+        if (t.pieceKey === pieceKey) {
+          t.col = col;
+          t.row = row;
+          tokenUpdated = true;
+        }
+      }
       renderGameBoard();
       renderOppPieces();
+      if (tokenUpdated && typeof refreshDeductionTokens === 'function') refreshDeductionTokens();
       const boardEl = document.getElementById('game-board');
       const cellEl = boardEl && boardEl.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (cellEl) {
@@ -6874,6 +6888,50 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 //   여러 화약상이 동시 사망 (학살영웅 attack / 보드 축소 등) 한 wave 면 casters 배열에 다수 포함.
 //   클라는 각 caster 카드에 "사망 기폭" 노란 말풍선 + spotlight 동시 출력.
 //   SP 마법구 비행 없음 (cost 0 자동 발동).
+// ── 표식 발동 시전 인트로 (사망 기폭과 유사 패턴) ──
+//   서버가 모든 패시브/스킬 연쇄 처리 후 최후반에 emit. 시전자 토르처러 카드 spotlight + "표식" 말풍선.
+//   780ms 후 spotlight 해제 + 별도 passive_alert (type='torturer', markCells) 이 도착 → animateMarkBrand 발동.
+socket.on('mark_cast', ({ casters }) => {
+  if (!Array.isArray(casters) || casters.length === 0) return;
+  const resolveCard = (c) => {
+    if (S.isTeamMode) {
+      return document.querySelector(`.team-profile-block[data-player-idx="${c.ownerIdx}"] [data-piece-idx="${c.pieceIdx}"]`);
+    } else if (S.isSpectator) {
+      const containerSel = (c.ownerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+      const cardSel = (c.ownerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+      return document.querySelectorAll(`${containerSel} ${cardSel}`)[c.pieceIdx];
+    } else {
+      if (c.ownerIdx === S.playerIdx) {
+        return document.querySelectorAll('#my-pieces-info .my-piece-card')[c.pieceIdx];
+      } else {
+        return document.querySelectorAll('#opp-pieces-info .opp-piece-card')[c.pieceIdx];
+      }
+    }
+  };
+  for (const c of casters) {
+    if (c.ownerIdx == null || c.pieceIdx == null) continue;
+    const card = resolveCard(c);
+    if (!card) continue;
+    if (typeof startSkillCastDim === 'function') {
+      const _targetInfo = (S.isTeamMode && c.ownerIdx != null && c.pieceIdx != null)
+        ? { playerIdx: c.ownerIdx, pieceIdx: c.pieceIdx }
+        : null;
+      startSkillCastDim(card, _targetInfo);
+    }
+    // 표식 — 패시브 톤 (자유시전형 'free' 와 비슷한 톤 또는 'once') — 일관성 위해 'once' 사용
+    if (typeof showSkillCastBubble === 'function') {
+      showSkillCastBubble(card, '표식', 'once');
+    }
+  }
+  setTimeout(() => {
+    for (const c of casters) {
+      if (c.ownerIdx == null || c.pieceIdx == null) continue;
+      const card = resolveCard(c);
+      if (card && typeof endSkillCastDim === 'function') endSkillCastDim(card);
+    }
+  }, 780);
+});
+
 socket.on('death_detonate_cast', ({ casters, bombs }) => {
   if (!Array.isArray(casters) || casters.length === 0) return;
   // 각 caster 카드 찾아서 spotlight + 말풍선
@@ -11033,6 +11091,13 @@ function pieceHasAnySkill(pc) {
 function canPieceUseAnySkill(pieceIdx) {
   const pc = S.myPieces && S.myPieces[pieceIdx];
   if (!pc || !pc.alive) return false;
+  // ★ 사용자 보고: 쌍검무/질주 활성 시 시전자 외 piece 는 스킬도 불가.
+  //   기존 로직은 pieceCanTakeBasicAction 만 exclusivity 가드 → canPieceUseAnySkill 미가드 →
+  //   getActablePieces 가 fallback 으로 스킬 체크 → 비-시전자가 actable 로 잘못 표시됨 (사용자 보고).
+  const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+  if (sprintCaster && pc !== sprintCaster) return false;
+  const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
+  if (dualBladeCaster && pc !== dualBladeCaster) return false;
   if (!pc.hasSkill && !(pc.skills && pc.skills.length > 0)) return false;
   const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
   if (isCursed) return false;
