@@ -17,59 +17,31 @@
 
   // 캐릭터 카탈로그 (튜토리얼용)
   const CHARS = {
-    spearman:    { type:'spearman',    icon:'🔱',  name:'창병',         tier:1, atk:1, baseHp:2, desc:'세로줄 전체 공격' },
-    scout:       { type:'scout',       icon:'🔭',  name:'척후병',       tier:1, atk:1, baseHp:2, desc:'자신+좌우 / 🔭 정찰 스킬' },
-    cavalry:     { type:'cavalry',     icon:'🐎',  name:'기마병',       tier:1, atk:1, baseHp:2, desc:'가로줄 전체 공격' },
-    bodyguard:   { type:'bodyguard',   icon:'🛡️',  name:'호위무사',     tier:2, atk:1, baseHp:3, desc:'십자 4방향 · 자기 제외' },
-    general:     { type:'general',     icon:'🎖',  name:'장군',         tier:2, atk:2, baseHp:3, desc:'십자 5칸 · 자기 포함' },
-    weaponSmith: { type:'weaponSmith', icon:'⚒',  name:'무기상',       tier:2, atk:1, baseHp:2, desc:'세로/가로 토글' },
-    commander:   { type:'commander',   icon:'📋',  name:'지휘관',       tier:3, atk:2, baseHp:3, desc:'좌우 1칸 / 사기증진 패시브' },
-    monk:        { type:'monk',        icon:'🙏',  name:'수도승',       tier:3, atk:1, baseHp:3, desc:'위/아래 · 가호 패시브' },
-    dragonTamer: { type:'dragonTamer', icon:'🐉',  name:'드래곤조련사', tier:3, atk:2, baseHp:3, desc:'X 대각선 4칸 / 🐉 드래곤' },
+    spearman:    { type:'spearman',    icon:'🔱',  name:'창병',         tier:1, atk:1, baseHp:2 },
+    cavalry:     { type:'cavalry',     icon:'🐎',  name:'기마병',       tier:1, atk:1, baseHp:2 },
+    bodyguard:   { type:'bodyguard',   icon:'🛡',  name:'호위무사',     tier:2, atk:1, baseHp:3 },
+    general:     { type:'general',     icon:'🎖',  name:'장군',         tier:2, atk:2, baseHp:5 },
+    herbalist:   { type:'herbalist',   icon:'🌿',  name:'약초전문가',   tier:1, atk:1, baseHp:2 },
+    commander:   { type:'commander',   icon:'📋',  name:'지휘관',       tier:3, atk:2, baseHp:3 },
+    gunpowder:   { type:'gunpowder',   icon:'💣',  name:'화약상',       tier:2, atk:1, baseHp:3 },
   };
 
-  // 드래프트 선택지 (정답은 척후병/장군/지휘관)
-  const DRAFT = {
-    t1: { options: [CHARS.spearman, CHARS.scout, CHARS.cavalry],     correctIdx: 1 },
-    t2: { options: [CHARS.bodyguard, CHARS.general, CHARS.weaponSmith], correctIdx: 1 },
-    t3: { options: [CHARS.commander, CHARS.monk, CHARS.dragonTamer],   correctIdx: 0 },
-  };
-
-  // 정해진 HP (총 10 — 실제 게임 규칙과 동일)
-  const HP_PRESET = { t1: 2, t2: 5, t3: 3 };
-  const HP_TOTAL = 10;
-
-  // 배치 위치 — 사기증진 버프 활용: 지휘관이 장군 옆에 붙어 ATK +1
-  //   척후병 A5 가장자리, 장군 C5 중앙, 지휘관 D5 장군 우측 인접 → 사기증진 active
-  const PLACE_PRESET = [
-    { tier:'t1', col:0, row:4 },   // 척후병 A5
-    { tier:'t2', col:2, row:4 },   // 장군    C5
-    { tier:'t3', col:3, row:4 },   // 지휘관  D5 (장군 오른쪽 — 사기증진 인접)
-  ];
-
-  // 상대 초기 위치 — 보드 위쪽에 위치한 진형
-  const OPP_INIT = [
-    { id:'op-1', char:CHARS.spearman,  col:1, row:0, hp:2, maxHp:2 }, // 🔱 B1
-    { id:'op-2', char:CHARS.bodyguard, col:2, row:0, hp:3, maxHp:3 }, // 🛡 C1
-    { id:'op-3', char:CHARS.cavalry,   col:4, row:0, hp:2, maxHp:2 }, // 🐎 E1 코너
-  ];
+  // (이전의 드래프트/HP/배치 자료구조 폐기 — 새 시나리오는 유닛이 시간차로 등장)
 
   // ── 런타임 상태 ───────────────────────────────────────────────────────────
   const S = {
     sceneIdx: 0,
-    drafted: { t1:null, t2:null, t3:null },
-    placedCount: 0,
-    pieces: [],          // 모든 piece (my + opp). 안개 가린 opp 는 hidden:true.
+    pieces: [],          // 모든 piece (my + opp). 동적으로 추가됨.
     turn: 1,
-    whose: 'me',         // 'me' | 'opp'
-    spMy: 3, spOpp: 3,
-    // ★ 인게임과 동일한 추리 토큰 모델 — 보드 셀에 배치된 추측.
-    //   각 토큰: { pieceKey, icon, name, col, row }. pieceKey 로 어떤 적인지 구분.
+    whose: 'me',
+    spMy: 1, spOpp: 1,   // 인게임처럼 1/1 로 시작 (10턴마다 +1 지급)
     deductionTokens: [],
-    logEntries: [],      // [{ text, type }]
+    logEntries: [],
     _animTimers: [],
-    _onClick: null,      // 현재 require 신의 클릭 핸들러
+    _onClick: null,
     _onClickTarget: null,
+    // 신규: opp 카드 표시 여부 (점진적 등장)
+    visibleOppIds: new Set(),
   };
   window.tutorialInteractive = S;
 
@@ -84,412 +56,189 @@
   //   reveal  : { kind:'reveal', selectors: [...] }   // 게임 UI 요소 등장 + 다음 신은 dialog 가 이어짐
   const SCENARIO = [];
 
-  // ── Welcome ─────────────────────────────────────────────────────────────
+  // ── 인트로 ─────────────────────────────────────────────────────────────
   SCENARIO.push({ kind:'enter', phase:'intro' });
   SCENARIO.push({ kind:'dialog', text:`<p>안녕하세요, 새로운 전사여 🎓</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>여기는 <strong>CALIGO</strong>.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>안개 속에서 펼쳐지는 두뇌 싸움이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>보드 위 어딘가에 적이 숨어있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그 위치는 안개로 가려져 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>추리·정찰·공격으로 안개를 뚫어내며 한 명씩 잡는 게 목표입니다.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>오늘은 실제 게임 흐름을 그대로 따라가 볼게요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>순서는 — 캐릭터 선택, HP 분배, 배치, 전투.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>먼저 <strong>캐릭터 선택</strong>부터 가봅시다.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>여기는 <strong>CALIGO</strong>. 안개 속의 보드게임이에요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>긴 설명은 제쳐두고, 한 판 같이 해봅시다.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>처음엔 <strong>장군 한 명</strong>으로 시작해요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>전투가 흐를수록 새 동료가 합류할 거에요.</p>` });
 
-  // ── Draft T1 ────────────────────────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'draft-t1' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이게 <strong>캐릭터 선택 화면</strong>이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>위쪽에 단계 표시 — <strong>1티어, 2티어, 3티어</strong> 순서대로 뽑아요.</p>`, anchor:'#tut-draft-step-indicator', side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지금은 1티어 차례.</p>`, anchor:'#tut-draft-step-indicator .step.active', side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>왼쪽 영역이 캐릭터 정보예요.</p>`, anchor:'.slide-viewer', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이 친구 — <strong>척후병</strong>입니다.</p>`, anchor:'#tut-icon', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>한 줄 소개 — "안개 너머 숨어있는 적의 정보를 수집한다."</p>`, anchor:'#tut-flavor', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽 작은 그림이 <strong>공격 범위</strong>예요.</p>`, anchor:'#tut-draft-preview-board', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병은 자기 자리 + 좌우 = <strong>3칸</strong>. 사거리는 좁아요.</p>`, anchor:'#tut-draft-preview-board', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>대신 — <strong>강력한 스킬</strong>이 있어요.</p>`, anchor:'.slide-skill-box', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🔭 <strong>정찰</strong> — 적의 행 또는 열을 알아내요.</p>`, anchor:'.slide-skill-box', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>안개 속 적의 위치를 좁히는 핵심 스킬이에요.</p>`, anchor:'.slide-skill-box', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽이 <strong>내 조합</strong> — 지금은 비어있죠.</p>`, anchor:'.draft-sidebar', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>1티어로 척후병을 골라봅시다.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>아래 <strong>[캐릭터 선택]</strong> 버튼을 클릭하세요.</p>`, anchor:'#tut-btn-draft-select', side:'top',
-    onClick: () => { S.drafted.t1 = CHARS.scout; } });
-
-  // ── Draft T2 (간소화 — 첫 캐릭터만 자세히 설명, 나머지는 핵심만) ─────
-  SCENARIO.push({ kind:'enter', phase:'draft-t2' });
-  SCENARIO.push({ kind:'dialog', text:`<p>2티어 — 메인 딜러 <strong>장군</strong>이에요.</p>`, anchor:'#tut-icon', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>ATK 2, 십자 5칸 사거리. 평타가 강해요.</p>`, anchor:'#tut-draft-preview-board', side:'left' });
-  SCENARIO.push({ kind:'require', text:`<p><strong>[캐릭터 선택]</strong>으로 확정.</p>`, anchor:'#tut-btn-draft-select', side:'top',
-    onClick: () => { S.drafted.t2 = CHARS.general; } });
-
-  // ── Draft T3 (간소화) ───────────────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'draft-t3' });
-  SCENARIO.push({ kind:'dialog', text:`<p>3티어 — <strong>지휘관</strong>이에요.</p>`, anchor:'#tut-icon', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p><strong>사기증진 패시브</strong> — 인접 아군 ATK +1.</p>`, anchor:'.slide-skill-box', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 옆에 붙이면 장군이 ATK 3 으로 강화돼요.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p><strong>[캐릭터 선택]</strong>으로 확정.</p>`, anchor:'#tut-btn-draft-select', side:'top',
-    onClick: () => { S.drafted.t3 = CHARS.commander; } });
-
-  // ── HP 분배 ─────────────────────────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'hp' });
-  SCENARIO.push({ kind:'dialog', text:`<p>세 명 다 뽑았어요!</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 <strong>HP 분배 화면</strong>이에요.</p>`, anchor:'.tut-hp-container h2', side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>총 <strong>10 HP</strong>를 세 유닛에게 나눠줘야 합니다.</p>`, anchor:'.tut-hp-container .muted', side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>각 유닛은 최소 1, 최대 8 HP.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>실제 게임에선 +/- 버튼으로 직접 조절해요.</p>`, anchor:'.hp-input-group', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>튜토리얼은 <strong>추천값</strong>이 미리 입력돼 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병 <strong>2</strong> — 정찰꾼은 뒤에 있어 적게.</p>`, anchor:'.hp-piece-row[data-tier="t1"]', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 <strong>5</strong> — 메인 딜러는 두텁게.</p>`, anchor:'.hp-piece-row[data-tier="t2"]', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지휘관 <strong>3</strong> — 중간 정도.</p>`, anchor:'.hp-piece-row[data-tier="t3"]', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>합 — 2 + 5 + 3 = 10. 정확히 다 썼어요.</p>`, anchor:'.hp-total-bar', side:'top' });
-  SCENARIO.push({ kind:'require', text:`<p>아래 <strong>[확정]</strong> 버튼을 클릭하세요.</p>`, anchor:'#tut-btn-hp-confirm', side:'top',
-    onClick: () => {
-      ['t1','t2','t3'].forEach(t => { S.drafted[t].hp = HP_PRESET[t]; S.drafted[t].maxHp = HP_PRESET[t]; });
-    } });
-
-  // ── 배치 1 (척후병 A5) ──────────────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'place-1' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 <strong>말 배치 화면</strong>이에요.</p>`, anchor:'.tut-placement-container h2', side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>왼쪽이 내가 배치할 유닛 목록.</p>`, anchor:'.tut-piece-list', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>빛나고 있는 게 — 지금 차례인 <strong>척후병</strong>.</p>`, anchor:'.tut-place-piece-item.selected', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>가운데 — 배치할 <strong>5×5 보드</strong>.</p>`, anchor:'.tut-placement-board', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽 — 상대 캐릭터 미리보기.</p>`, anchor:'.tut-placement-opp', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>상대는 누구인지 다 공개돼 있어요 — <strong>창병·호위무사·기마병</strong>.</p>`, anchor:'.tut-placement-opp', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>대신 — <strong>위치는 비공개</strong>. 전투가 시작되면 안개로 가려져요.</p>`, anchor:'.tut-placement-opp', side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>배치 룰은 없어요 — 어디든 자유롭게.</p>`, anchor:'.tut-placement-board', side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병은 사거리가 좁으니 — <strong>가장자리</strong>에 두면 좋아요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>좌측 끝 <strong>A5</strong> 에 둬봅시다.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>A5</strong> 셀을 클릭하세요.</p>`, anchor:'.tut-target-cell', side:'right',
-    onClick: () => { S.placedCount = 1; } });
-
-  // ── 배치 2 (장군 C5) — 간소화 ──────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'place-2' });
-  SCENARIO.push({ kind:'dialog', text:`<p>다음은 장군 — 중앙 <strong>C5</strong> 에 둬봅시다.</p>`, anchor:'.tut-place-piece-item.selected', side:'right' });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C5</strong> 셀을 클릭하세요.</p>`, anchor:'.tut-target-cell', side:'right',
-    onClick: () => { S.placedCount = 2; } });
-
-  // ── 배치 3 (지휘관 D5 — 사기증진 인접 활용) — 간소화 ─────────────────
-  SCENARIO.push({ kind:'enter', phase:'place-3' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지휘관은 장군 오른쪽 <strong>D5</strong> 에. 사기증진 발동을 위해서요.</p>`, anchor:'.tut-place-piece-item.selected', side:'right' });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>D5</strong> 셀을 클릭하세요.</p>`, anchor:'.tut-target-cell', side:'right',
-    onClick: () => { S.placedCount = 3; setupGameState(); } });
-
-  // ── 게임 시작 ────────────────────────────────────────────────────────────
+  // ── 게임 등장 — 어둠 속에서 장군 + 그리드 fade-in ────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => { setupGameState(); updateUI(); await sleep(100); } });
   SCENARIO.push({ kind:'enter', phase:'game' });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 화면 어둠 → 보드 + 장군 등장
+      document.body.classList.add('tut-darkness');
+      const board = document.getElementById('tut-game-board');
+      if (board) board.classList.add('tut-board-spawn');
+      await sleep(300);
+      document.body.classList.remove('tut-darkness');
+      await sleep(500);
+    } });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} #tut-game-board`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>전투 개시! 🎉</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>가운데 — 5×5 격자판이에요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>아래쪽에 우리 세 말이 보이죠?</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>📋 지휘관을 장군 바로 옆에 뒀어요. <strong>사기증진</strong> 인접 위치예요.</p>`, anchor:() => boardCellSel(3, 4), side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>실제 전투에선 장군 평타가 +1 강화돼요. 전략적 배치죠.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>여기가 전장이에요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>5×5 격자판. 가운데 아래 빛나는 게 — 우리 장군이에요.</p>`, anchor:() => boardCellSel(2, 4), side:'right' });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} .left-panel`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>왼쪽 — <strong>내 말 카드</strong>.</p>`, anchor:`${SCOPE} .left-panel`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>HP 막대와 ATK, 그리고 위치가 보여요.</p>`, anchor:`${SCOPE} .left-panel`, side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>왼쪽이 내 말 카드. HP, ATK, 위치가 보여요.</p>`, anchor:`${SCOPE} .left-panel`, side:'right' });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} .right-panel`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽 — <strong>상대 카드</strong>.</p>`, anchor:`${SCOPE} .right-panel`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>누가 무슨 캐릭터인지 다 공개돼 있어요.</p>`, anchor:`${SCOPE} .right-panel`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>대신 — 위치는 <strong>"위치 불명"</strong>.</p>`, anchor:`${SCOPE} .right-panel`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>보드 위쪽이 비어보이죠? 적이 거기 있지만 안개에 가려져 안 보여요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이걸 추리하면서 잡아내는 게 CALIGO 입니다.</p>` });
-  SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} .sp-section`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>상단 — <strong>SP 바</strong>.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>스킬을 쓸 때 필요한 자원이에요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>나와 상대가 <strong>공유하는 풀 총 10</strong>이에요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지금 — 나 3 / 상대 3 / 풀에 4 남음.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>튜토리얼은 SP 3 으로 시작 — 실제는 1 부터, 매 10턴 +1 지급</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
+  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽은 상대 말 자리. 아직 비어있어요.</p>`, anchor:`${SCOPE} .right-panel`, side:'left' });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} #tut-turn-banner`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>중앙 상단 — <strong>현재 차례</strong>.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지금은 1턴, 내 차례.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
+  SCENARIO.push({ kind:'dialog', text:`<p>위쪽 — 현재 차례. 지금은 1턴, 내 차례.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} #tut-action-bar`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>아래 버튼 4개.</p>`, anchor:`${SCOPE} #tut-action-bar`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🟢 <strong>행동</strong> — 이동 또는 공격.</p>`, anchor:`#tut-btn-action`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🟣 <strong>스킬</strong> — SP를 써서 능력 발동.</p>`, anchor:`#tut-btn-skill`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🟠 <strong>턴 종료</strong> — 행동 안 하고 넘기기.</p>`, anchor:`#tut-btn-end-turn`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🔴 <strong>기권</strong> — 패배 인정.</p>`, anchor:`#tut-btn-surrender`, side:'top' });
+  SCENARIO.push({ kind:'dialog', text:`<p>아래 — 행동·스킬·턴 종료·기권 버튼.</p>`, anchor:`${SCOPE} #tut-action-bar`, side:'top' });
   SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} .center-log-wrap`] });
-  SCENARIO.push({ kind:'dialog', text:`<p>아래 — <strong>전투 로그</strong>.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>모든 행동·이벤트가 여기 기록돼요.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
+  SCENARIO.push({ kind:'dialog', text:`<p>그 아래 — 전투 로그. 모든 행동이 여기 기록돼요.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
+  SCENARIO.push({ kind:'reveal', selectors: [`${SCOPE} .sp-section`] });
+  SCENARIO.push({ kind:'dialog', text:`<p>맨 위 — SP 바. 스킬 자원. 양 측이 공유해요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
 
-  // ── 턴 1 — 내 차례 (정찰) ─────────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>자, 진짜 시작입니다.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>1턴 — 내 차례에요.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>안개 속에 적이 셋. 어떻게 시작할까요?</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>위치를 모르고 마구 공격하면 다 빗나가요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그러니 <strong>정찰</strong>부터 가는 게 정석이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병이 우리 정찰꾼이죠.</p>`, anchor:() => `${SCOPE} .my-piece-card[data-my-id="me-t1"]`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>먼저 척후병을 선택해야 해요.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>보드의 <strong>척후병 🔭 A5</strong>을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(0, 4) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(0, 4);
-      // ★ 인게임처럼 — piece 클릭 시 부채꼴 메뉴 등장
-      openTutRadial(0, 4, { moveDisabled: true, attackDisabled: true });
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병 위에 <strong>부채꼴 메뉴</strong>가 떴어요. 인게임과 동일해요.</p>`, anchor:'#tut-radial-menu', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이동·공격·스킬 셋 중 하나를 골라요.</p>`, anchor:'#tut-radial-menu', side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>지금은 ✨ <strong>스킬</strong>로 정찰을 시전해봅시다.</p>`, anchor:'.radial-btn[data-tut-radial-key="skill"]', side:'right' });
-  SCENARIO.push({ kind:'require', text:`<p>부채꼴의 ✨ <strong>스킬</strong> 버튼을 클릭하세요.</p>`,
-    anchor:'.radial-btn[data-tut-radial-key="skill"]', side:'right',
-    onClick: () => { closeTutRadial(); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>척후병의 스킬은 🔭 <strong>정찰</strong>이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>SP <strong>2</strong> 차감해서 시전합니다.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>정찰은 <strong>대상을 직접 고르지 않아요</strong>.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>시전 즉시 시스템이 <strong>무작위로 적 한 명 + 축 1개</strong>를 골라 알려줘요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>운에 맡기는 부분이에요. 결과를 봅시다.</p>` });
+  // ── 턴 1 — 장군 첫 이동 ────────────────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>먼저 — 장군을 한 칸 전진시켜봅시다.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>보드 위 장군을 클릭하면 부채꼴 메뉴가 떠요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 🎖 을 클릭하세요.</p>`,
+    anchor: () => boardCellSel(2, 4) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(2, 4); openTutRadial(2, 4, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>이동·공격·스킬 셋 중 — 지금은 이동만 가능해요.</p>`, anchor:'#tut-radial-menu', side:'top' });
+  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightMoveTargets(2, 4); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>이동 가능 칸이 녹색으로 빛나요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>위쪽 <strong>C4</strong> 로 전진해요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C4</strong> 셀을 클릭하세요.</p>`,
+    anchor: () => boardCellSel(2, 3), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
-      S.spMy = 1;  // SP 3 → 1 (정찰 비용 2)
-      // 인게임과 동일 형식 — 로그에만 결과 출력. 카드에 자동 표시 X.
-      addLog('🔭 정찰: 상대 🔱 창병의 위치는 B열', 'skill');
+      clearMoveHighlights();
+      await animatePieceSlide(findMyPiece(2,4), 2, 3, 350);
+      addLog('🎖 장군 이동', 'move');
       updateUI();
-      await sleep(700);
+      await sleep(400);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>🎯 무작위로 — 🔱 <strong>창병</strong>의 <strong>B열</strong>이 드러났어요.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>결과는 로그에만 남아요. 카드에 자동 표시 안 돼요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 <strong>추리 토큰</strong>을 직접 놓아야 해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>인게임에선 적 카드 아이콘을 잡아 보드 셀로 드래그해요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-1"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>튜토리얼에선 자동으로 — B 열 안쪽 셀에 놔드릴게요.</p>` });
   SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      // 추리 토큰 자동 배치 — 인게임처럼 보드 셀에. B3 (중간 깊이) 추측.
-      S.deductionTokens.push({ pieceKey: 'op-1', icon: '🔱', name: '창병', col: 1, row: 2 });
-      updateUI();
-      await sleep(700);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>보드 <strong>B3</strong> 셀에 🔱 토큰이 놓였어요.</p>`, anchor:() => boardCellSel(1, 2), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>창병 카드에도 <strong>📌B3</strong> 배지가 붙었어요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-1"] .deduction-badge`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>"창병이 B 열 어딘가에 있다 — 일단 B3 으로 추측"하는 표시예요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>틀려도 괜찮아요. 잘못된 추측을 시각으로 두면 다음 행동이 명확해져요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>SP 도 3 에서 1 로 줄었어요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>행은 아직 몰라요. 다음 정찰이나 추리로 좁혀가요.</p>` });
-  SCENARIO.push({ kind:'animate', text:`<p>내 차례 종료. 상대 차례로 넘어가요.</p>`,
+    run: async () => { highlightRangeOnBoard('general', 2, 3); await sleep(100); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>파란 칸들이 장군 사거리예요. 십자 5칸.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => { clearRangeHighlight(); await sleep(100); } });
+
+  // ── 턴 2 — 적 등장 ────────────────────────────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 2; S.whose = 'opp';
       addLog('2턴 : 상대 차례', 'system');
       updateUI();
       await sleep(400);
     } });
-
-  // ── 턴 2 — 상대 차례 (안개 속 이동) ──────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 상대 차례에요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>이제 상대가 등장해요.</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
-      // 호위무사 C1 → C2 (한 칸 전진)
-      const bg = findPiece('op-2');
-      bg.col = 2; bg.row = 1;
+      // 창병 등장 (위치는 안개 — hidden:true)
+      spawnPiece({ id:'op-1', owner:'opp', char:CHARS.spearman, col:2, row:0, hp:2, maxHp:2, hidden:true });
+      await sleep(600);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>오른쪽 카드에 <strong>창병</strong>이 새로 떴어요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-1"]`, side:'left' });
+  SCENARIO.push({ kind:'dialog', text:`<p>위치는 안개. 보드 위엔 안 보여요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 창병 C1 → C2 (안개 속 이동)
+      const sp = findPiece('op-1');
+      sp.col = 2; sp.row = 1;
       addLog('상대가 이동했습니다.', 'move');
       flashLogPanel();
-      await sleep(900);
+      await sleep(700);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>...상대가 뭔가 했어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>로그를 봐요 — "상대가 이동" 만 떴어요.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
-  SCENARIO.push({ kind:'dialog', text:`<p>누가 어디로 갔는지는 — 알 수 없어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이게 CALIGO 의 핵심 — <strong>정보 비대칭</strong>이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>나는 내 행동만 보여주고, 적은 적의 행동만 봐요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>안개가 짙을수록 추리가 중요해져요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>"상대가 이동" 만 떴어요. 누가 어디로? 모르죠.</p>`, anchor:`${SCOPE} .center-log-wrap`, side:'top' });
+
+  // ── 턴 3 — 장군 공격 (창병 명중) ──────────────────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 3; S.whose = 'me';
-      addLog('3턴 : 내 차례', 'system');
+      addLog('3turn : 내 차례', 'system');
       updateUI();
       await sleep(300);
     } });
-
-  // ── 턴 3 — 내 차례 (장군 전진) ───────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>3턴 — 다시 내 차례.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>창병이 B열에 있다고 정찰로 알아냈죠.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그런데 척후병 A5 사거리는 좁아요 — 자기 + 좌우만.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>B열 위쪽 B1~B4 은 닿지 않아요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그래서 <strong>장군</strong>이 출동할 차례.</p>`, anchor:() => `${SCOPE} .my-piece-card[data-my-id="me-t2"]`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군은 평타 강타자 — 십자 5칸 사거리에 ATK 2.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>한 발씩 전진하면서 적과의 거리를 좁히는 게 핵심.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>보드의 <strong>장군 🎖 C5</strong>을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 4) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(2, 4);
-      openTutRadial(2, 4, { attackDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>부채꼴 메뉴 등장. 🏃 이동을 골라요.</p>`, anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right' });
-  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
-    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightMoveTargets(2, 4); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이동 가능 칸이 녹색으로 빛나요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>상하좌우 1칸 — 4 방향 중 선택.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>위쪽 <strong>C4</strong>로 전진해봅시다.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C4</strong> 셀을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 3), side:'top',
-    onClick: () => {} });
+  SCENARIO.push({ kind:'dialog', text:`<p>3턴 — 내 차례. 이번엔 공격을 해봐요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>창병이 C 열 어디엔가 있을 거에요. 일단 가까운 C3 을 노려봐요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 🎖 클릭.</p>`,
+    anchor: () => boardCellSel(2, 3) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(2, 3); openTutRadial(2, 3, { moveDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong> 버튼을 클릭하세요.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="attack"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightAttackTargetsGeneral(2, 3); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>공격 가능 셀이 빨갛게 빛나요. <strong>C2</strong> 를 노려요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C2</strong> 셀을 클릭하세요.</p>`,
+    anchor: () => boardCellSel(2, 1), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       clearMoveHighlights();
-      await animatePieceSlide(findMyPiece(2,4), 2, 3, 350);
-      // 인게임 형식 로그 — addLog(`${pc.name} 이동`)
-      addLog('🎖 장군 이동', 'move');
+      await animateAttackOnCell(2, 1);
+      const sp = findPiece('op-1');
+      sp.hp -= 2;          // 장군 ATK 2
+      sp.hidden = false;   // 명중 → 위치 노출
+      animateBoardPieceHit(2, 1);
+      flashCard('opp', sp.id);
+      addLog('C2 명중', 'hit');
       updateUI();
-      await sleep(400);
+      await sleep(800);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군이 한 칸 앞으로 나갔어요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>💥 <strong>명중!</strong> 창병 발견.</p>`, anchor:() => boardCellSel(2, 1), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>공격이 적중하면 안개가 걷히고 위치가 드러나요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>창병 HP 2 → 0 — 격파!</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-1"]`, side:'left' });
   SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { highlightRangeOnBoard('general', 2, 3); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>지금 장군 사거리예요 — 보드에 빛나는 칸들이 다 들어갑니다.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>적이 저 안에 들어오면 — 잡을 수 있어요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { clearRangeHighlight(); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이번 턴은 여기까지.</p>` });
+    run: async () => {
+      const sp = findPiece('op-1');
+      sp.alive = false;
+      sp.col = -1; sp.row = -1;
+      addLog('C2 🔱 창병 격파', 'kill');
+      updateUI();
+      await sleep(600);
+    } });
+
+  // ── 턴 4 — 새 적 등장 (호위무사) ───────────────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 4; S.whose = 'opp';
       addLog('4턴 : 상대 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-
-  // ── 턴 4 — 상대 공격 (빗나감!) ───────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>4턴. 상대가 또 움직여요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>잠깐 — 적이 새로 등장해요.</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
-      // 호위무사가 C3 를 공격 (장군이 C4 에 있다고 잘못 추리 → 한 칸 빗나감)
-      // 호위무사 위치 C2, 사거리 십자 = C1/C3/B2/D2 — C3 공격
-      await animateAttackOnCell(2, 2);  // C3
-      addLog('상대 공격 — C3 빗나감!', 'miss');
-      updateUI();
+      spawnPiece({ id:'op-2', owner:'opp', char:CHARS.bodyguard, col:2, row:0, hp:3, maxHp:3, hidden:true });
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🛡 <strong>호위무사</strong>가 새로 떴어요. ATK 1, HP 3.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"]`, side:'left' });
+  SCENARIO.push({ kind:'dialog', text:`<p>이런 식으로 — 적도 우리도 시간차로 합류해요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 호위무사 C1 → C2 (전진, 안개)
+      const bg = findPiece('op-2');
+      bg.col = 2; bg.row = 1;
+      addLog('상대가 이동했습니다.', 'move');
+      flashLogPanel();
       await sleep(600);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>아이고, 공격이 와요!</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>빨갛게 빛난 칸 — 거기 떨어졌어요.</p>`, anchor: () => boardCellSel(2, 2), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>다행히 — 우린 거기 없었어요. <strong>빗나감!</strong></p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>빗나가도 — 우린 큰 정보를 얻었어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>공격이 거기 닿았다 = 적 누군가가 그 칸을 사거리에 두고 있다는 거니까요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>적 셋의 사거리를 떠올려 봅시다.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>🔱 창병 — 세로줄 전체.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-1"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🐎 기마병 — 가로줄 전체.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-3"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🛡 호위무사 — 인접 4방향 가까운 근거리.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>창병은 B열이라 정찰로 알아냈죠 — C3 못 닿아요. 제외.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>기마병은 가로줄 — 3행 전체일 때만 C3 닿아요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사라면 C3 바로 옆 어딘가에 있어야 해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>C3 인접 — C2, C4, B3, D3 중 한 칸이에요.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      // 호위무사 추측 토큰 — 가장 가능성 큰 C2 셀에 배치
-      S.deductionTokens.push({ pieceKey: 'op-2', icon: '🛡', name: '호위무사', col: 2, row: 1 });
-      updateUI();
-      await sleep(400);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사 추리 토큰을 <strong>C2</strong> 에 놓았어요.</p>`, anchor:() => boardCellSel(2, 1), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>카드 배지도 <strong>📌C2</strong> 로 표시됐어요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"] .deduction-badge`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>계속 진행하면서 좁혀가요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>또 안개 속 이동. 누군가 다가오고 있어요.</p>` });
+
+  // ── 턴 5 — 장군 attack — 빗나감 또는 약함 ─────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 5; S.whose = 'me';
       addLog('5턴 : 내 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-
-  // ── 턴 5 — 내 차례 (장군 전진 추가) ──────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>5턴 — 내 차례.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군을 한 번 더 전진시켜요. <strong>C3</strong>으로.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이러면 장군 사거리가 위쪽 C2 까지 닿아요. C2 에 호위무사가 있다면 — 다음 턴에 잡을 수 있죠.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>장군 C4 을 클릭하세요.</p>`,
+  SCENARIO.push({ kind:'dialog', text:`<p>5턴 — 내 차례. 호위무사 어딨는지 모르지만 C 열로 또 들이밀어봐요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 클릭.</p>`,
     anchor: () => boardCellSel(2, 3) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(2, 3);
-      openTutRadial(2, 3, { attackDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
-    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightMoveTargets(2, 3); } });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C3</strong> 셀을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 2), side:'right',
-    onClick: () => {} });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      clearMoveHighlights();
-      await animatePieceSlide(findMyPiece(2,3), 2, 2, 350);
-      addLog('🎖 장군 이동', 'move');
-      updateUI();
-      await sleep(400);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 C3 도착!</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { highlightRangeOnBoard('general', 2, 2); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>사거리가 한 칸 위로 — 보드에 빛난 칸을 봐요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 호위무사 추정 위치 C3 옆 어딘가 가 사거리 안에 들어왔어요.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { clearRangeHighlight(); await sleep(100); } });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      S.turn = 6; S.whose = 'opp';
-      addLog('6턴 : 상대 차례', 'system');
-      updateUI();
-      await sleep(400);
-    } });
-
-  // ── 턴 6 — 상대 공격 (장군 명중) ──────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>6턴. 들이밀었더니 — 상대가 공격해요.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      await animateAttackOnCell(2, 2);  // 장군 C3 피격
-      const gen = findMyPiece(2, 2);
-      gen.hp -= 1;
-      animateBoardPieceHit(2, 2);
-      flashCard('my', gen.id);
-      // 실제 형식: 피격자 시점 → `${hitLabels} 피격`
-      addLog('🎖 장군 피격', 'hit');
-      updateUI();
-      await sleep(700);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군이 맞았어요!</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>HP 5, 4. 아직 살아있어요.</p>`, anchor:() => `${SCOPE} .my-piece-card[data-my-id="me-t2"]`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>그리고 — 큰 단서를 얻었어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>공격이 장군 C3 에 적중했다 = 적이 C3 를 사거리에 두고 있다는 뜻.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사는 인접 1칸 사거리. C3 인접 셀 = 4개 중 하나.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      // 호위무사 위치 추정 — 인접 셀들을 보드에 시각화
-      const adj = [[2,1],[2,3],[1,2],[3,2]];  // C2,C4,B3,D3
-      adj.forEach(([c,r]) => {
-        const cell = document.querySelector(boardCellSel(c, r));
-        if (cell) cell.classList.add('tut-deduce-hilite');
-      });
-      await sleep(100);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>빛나는 네 칸 — 호위무사 가능 위치예요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>C4 는 우리 장군 자리 — 비어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>가장 가능성 큰 건 — <strong>C2</strong>.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>상대가 안쪽으로 내려왔다는 정황이 있거든요.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      document.querySelectorAll(`${SCOPE} .cell.tut-deduce-hilite`).forEach(c => c.classList.remove('tut-deduce-hilite'));
-      // 호위무사 추리 토큰은 이미 C2 에 놓여 있음 — 확신이 더 높아진 상태로 narrative 만.
-      updateUI();
-      await sleep(200);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사가 C2 에 있다는 추측이 거의 확정됐어요.</p>`, anchor:() => boardCellSel(2, 1), side:'right' });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      S.turn = 7; S.whose = 'me';
-      addLog('7턴 : 내 차례', 'system');
-      updateUI();
-      await sleep(400);
-    } });
-
-  // ── 턴 7 — 결정타 호위무사 격파 ──────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>7턴 — 결정의 순간. 반격해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군이 전진하면서 지휘관과 멀어졌어요. 사기증진은 일시 끊긴 상태.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그래도 — 호위무사가 빈사예요. 지금 잡아야 해요.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>장군 C3 을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 2) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(2, 2);
-      openTutRadial(2, 2, { moveDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong> 버튼을 클릭하세요.</p>`,
+    onClick: () => { S.selectedPiece = findMyPiece(2, 3); openTutRadial(2, 3, { moveDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong>.</p>`,
     anchor:'.radial-btn[data-tut-radial-key="attack"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightAttackTargetsGeneral(2, 2); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이번엔 공격 셀이 빨갛게 빛나요. 장군 사거리 5칸 중에서 — <strong>C2</strong> 를 골라요. 거기에 호위무사가 있을 거에요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
+    onClick: () => { closeTutRadial(); highlightAttackTargetsGeneral(2, 3); } });
   SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>C2</strong> 셀을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 1), side:'right',
-    onClick: () => {} });
+    anchor: () => boardCellSel(2, 1), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       clearMoveHighlights();
@@ -497,43 +246,111 @@
       const bg = findPiece('op-2');
       bg.hp -= 2;
       bg.hidden = false;
-      // 적 위치 노출 → 추리 토큰 제거 (실제 위치 확인됨)
-      S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== 'op-2');
       animateBoardPieceHit(2, 1);
       flashCard('opp', bg.id);
-      // 실제 형식: 공격자 시점 → addLog `${coords} 명중`
       addLog('C2 명중', 'hit');
       updateUI();
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>또 명중! 호위무사 발견. HP 3 → 1.</p>`, anchor:() => boardCellSel(2, 1), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>한 방 더면 격파.</p>` });
+
+  // ── 턴 6 — 호위무사 반격 (장군 피격) ────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 6; S.whose = 'opp';
+      addLog('6턴 : 상대 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>상대 호위무사가 반격해요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 호위무사 (C2) → 장군 (C3) 공격, 호위무사 사거리 십자
+      await animateAttackOnCell(2, 2);
+      const gen = findMyPiece(2, 2);
+      gen.hp -= 1;
+      animateBoardPieceHit(2, 2);
+      flashCard('my', gen.id);
+      addLog('🎖 장군 피격', 'hit');
+      updateUI();
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군이 한 대 맞았어요. HP 5 → 4.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>이대로 계속 맞다간 위험.</p>` });
+
+  // ── 약초전문가 등장 ───────────────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>그때 — 지원이 도착해요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      spawnPiece({ id:'me-herbalist', owner:'me', char:CHARS.herbalist, col:3, row:4, hp:2, maxHp:2 });
       await sleep(800);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>💥 <strong>명중!</strong></p>`, anchor:() => boardCellSel(2,1), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사 발견! 안개가 걷혔어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>HP 3, 1. 빈사 상태에요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>중요한 규칙 — <strong>공격이 적중하면 위치가 노출돼요</strong>.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>한 번만 더 때리면 격파.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>🌿 <strong>약초전문가</strong> 합류! D5 에 도착했어요.</p>`, anchor:() => boardCellSel(3, 4), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>스킬 — 주변 아군 회복. 장군 살리기 딱 좋아요.</p>` });
+
+  // ── 턴 7 — 약초 회복 ────────────────────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 7; S.whose = 'me';
+      addLog('7턴 : 내 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>약초전문가로 장군을 회복시켜봐요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>약초전문가 🌿 D5 를 클릭하세요.</p>`,
+    anchor: () => boardCellSel(3, 4) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(3, 4); openTutRadial(3, 4, { moveDisabled: true, attackDisabled: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>✨ <strong>스킬</strong> 버튼을 클릭하세요.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="skill"]', side:'right',
+    onClick: () => { closeTutRadial(); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🌿 약초학 — 주변 아군 1 HP 회복.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.spMy = Math.max(0, S.spMy - 2);
+      // 인접한 장군 회복
+      healPiece('me-general', 1);
+      addLog('🌿 약초학: 범위 내 아군 1 HP 회복', 'skill');
+      updateUI();
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 HP 4 → 5 회복!</p>` });
+
+  // ── 턴 8 — 호위무사가 또 공격 ─────────────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 8; S.whose = 'opp';
       addLog('8턴 : 상대 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-
-  // ── 턴 8 — 상대 도주 ───────────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>상대 차례. 호위무사가 빈사 상태니 — 보통은 도주를 시도해요.</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
-      const bg = findPiece('op-2');
-      await animatePieceSlide(bg, 1, 1, 350);  // C2 → B2
-      // 실제 형식: 자기 외 시점 → `상대가 이동했습니다.`
-      // 단, 노출된 적의 이동은 보드 위에서 직접 보임 — 로그는 일반 형식 유지.
-      addLog('상대가 이동했습니다.', 'move');
+      await animateAttackOnCell(2, 2);
+      const gen = findMyPiece(2, 2);
+      gen.hp -= 1;
+      animateBoardPieceHit(2, 2);
+      flashCard('my', gen.id);
+      addLog('🎖 장군 피격', 'hit');
       updateUI();
-      await sleep(500);
+      await sleep(700);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사가 <strong>B2</strong> 로 빠졌어요.</p>`, anchor:() => boardCellSel(1,1), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 사거리에서 벗어났어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그래도 끝까지 따라잡을 수 있어요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>호위무사가 또 때렸어요. 장군 HP 5 → 4.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>이번엔 — 우리도 마무리 짓자.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 ATK 2 — 호위무사 HP 1 — 한 방이면 격파.</p>` });
+
+  // ── 지휘관 등장 (사기증진) ──────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>그리고 — 또 한 명 합류!</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      spawnPiece({ id:'me-commander', owner:'me', char:CHARS.commander, col:1, row:3, hp:3, maxHp:3 });
+      await sleep(800);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>📋 <strong>지휘관</strong> 합류! B4 위치.</p>`, anchor:() => boardCellSel(1, 3), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>지휘관 옆 아군은 <strong>사기증진</strong> — ATK +1.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군이 C3, 지휘관 B4 — 가까이 있어요. 옆으로 붙이면 사기증진 발동.</p>` });
+
+  // ── 턴 9 — 지휘관 이동 + 장군 인접 → 사기증진 ───────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 9; S.whose = 'me';
@@ -541,257 +358,419 @@
       updateUI();
       await sleep(300);
     } });
-
-  // ── 턴 9 — 격파! ───────────────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>9턴. 마지막 일격을 준비해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군을 <strong>B3</strong> 으로 전진시키면, B2 의 호위무사가 사거리에 들어옵니다.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>장군 C3 을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(2, 2) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(2, 2);
-      openTutRadial(2, 2, { attackDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
+  SCENARIO.push({ kind:'dialog', text:`<p>지휘관을 B3 으로 옮기면 — 장군 C3 과 직교 인접. 사기증진 활성.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>지휘관 📋 B4 를 클릭하세요.</p>`,
+    anchor: () => boardCellSel(1, 3) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(1, 3); openTutRadial(1, 3, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong>.</p>`,
     anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightMoveTargets(2, 2); } });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>B3</strong>.</p>`,
-    anchor: () => boardCellSel(1, 2), side:'right',
-    onClick: () => {} });
+    onClick: () => { closeTutRadial(); highlightMoveTargets(1, 3); } });
+  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>B3</strong> 셀을 클릭하세요.</p>`,
+    anchor: () => boardCellSel(1, 2), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       clearMoveHighlights();
-      await animatePieceSlide(findMyPiece(2,2), 1, 2, 350);
-      addLog('🎖 장군 이동', 'move');
+      await animatePieceSlide(findMyPiece(1, 3), 1, 2, 350);
+      addLog('📋 지휘관 이동', 'move');
       updateUI();
-      await sleep(400);
+      await sleep(500);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군이 B3 에 도착.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { highlightRangeOnBoard('general', 1, 2); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 사거리에 호위무사 B2 가 들어왔어요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { clearRangeHighlight(); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>중요 규칙 — 한 턴에 <strong>행동은 1회</strong>예요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이번 턴엔 이동을 썼으니 공격은 다음 턴에.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>턴을 자동 종료할게요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 셀이 청록빛으로 빛나죠? 사기증진 발동!</p>`, anchor:() => boardCellSel(2, 2), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 평타가 실질 ATK 3 으로 강화. 다음 턴 — 격파각.</p>` });
+
+  // ── 턴 10 — 상대 또 공격 (SP 지급도 발생) ───────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 10; S.whose = 'opp';
       addLog('10턴 : 상대 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>10턴. 상대가 어떻게 나올까요?</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
-      const bg = findPiece('op-2');
-      await animatePieceSlide(bg, 0, 1, 350);
-      addLog('상대가 이동했습니다.', 'move');
+      await animateAttackOnCell(2, 2);
+      const gen = findMyPiece(2, 2);
+      gen.hp -= 1;
+      animateBoardPieceHit(2, 2);
+      flashCard('my', gen.id);
+      addLog('🎖 장군 피격', 'hit');
       updateUI();
-      await sleep(500);
+      await sleep(700);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>또 도주.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이번엔 A2 까지 빠졌어요.</p>`, anchor:() => boardCellSel(0,1), side:'right' });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 또 한 대 맞음 — HP 4 → 3.</p>` });
 
-  // ── SP 지급 (10턴 시점) ────────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>잠깐 — 10턴이 끝났어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>매 10턴마다 — <strong>SP 지급</strong> 이벤트가 발생해요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
+  // ── SP 지급 ─────────────────────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>10턴 종료 — <strong>SP 지급</strong> 이벤트!</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => { await playSpGrantCeremony(); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>나와 상대 — <strong>각각 SP +1</strong> 받았어요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>SP가 다시 차오르면 스킬을 또 쓸 수 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>SP 지급은 — 10턴, 20턴, 30턴, 40턴 — 총 4번 발생합니다.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { highlightRangeOnBoard('general', 1, 2); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 사거리를 봐요 — A2 는 안 닿아요.</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { clearRangeHighlight(); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군을 한 칸 더 앞으로 보내야 해요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>나와 상대 — 각각 SP +1. 스킬 쓸 여유 생겼어요.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
+
+  // ── 턴 11 — 장군 격파 (사기증진 강화 + 처치) ────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 11; S.whose = 'me';
       addLog('11턴 : 내 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-
-  // ── 턴 11 — 장군 추가 전진 ────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>11턴 — 내 차례.</p>`, anchor:`${SCOPE} #tut-turn-banner`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군을 한 칸 더 — <strong>B2</strong> 로 전진.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그러면 A2 의 호위무사가 다음 턴 사거리에 들어와요.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>장군 B3 을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(1, 2) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(1, 2);
-      openTutRadial(1, 2, { attackDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
-    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightMoveTargets(1, 2); } });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>B2</strong>.</p>`,
-    anchor: () => boardCellSel(1, 1), side:'right',
-    onClick: () => {} });
+  SCENARIO.push({ kind:'dialog', text:`<p>11턴 — 호위무사 정리.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 🎖 C3 클릭.</p>`,
+    anchor: () => boardCellSel(2, 2) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(2, 2); openTutRadial(2, 2, { moveDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong>.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="attack"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightAttackTargetsGeneral(2, 2); } });
+  SCENARIO.push({ kind:'require', text:`<p><strong>C2</strong> 호위무사를 공격.</p>`,
+    anchor: () => boardCellSel(2, 1), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       clearMoveHighlights();
-      await animatePieceSlide(findMyPiece(1,2), 1, 1, 350);
-      addLog('🎖 장군 이동', 'move');
+      await animateAttackOnCell(2, 1);
+      const bg = findPiece('op-2');
+      bg.hp -= 3;   // 사기증진 강화 ATK 3
+      animateBoardPieceHit(2, 1);
+      flashCard('opp', bg.id);
+      bg.alive = false;
+      bg.col = -1; bg.row = -1;
+      addLog('C2 🛡 호위무사 격파', 'kill');
       updateUI();
-      await sleep(400);
+      await sleep(800);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군 B2 도착!</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { highlightRangeOnBoard('general', 1, 1); await sleep(100); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>사거리에 — A2 가 들어왔어요. 호위무사 잡을 준비 끝!</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { clearRangeHighlight(); await sleep(100); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🎉 호위무사 격파! 강화된 ATK 3 의 위력.</p>` });
+
+  // ── 새 적 등장 — 화약상 ──────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>하지만 상대도 가만있지 않아요. 새 적 등장.</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
+      spawnPiece({ id:'op-3', owner:'opp', char:CHARS.gunpowder, col:4, row:0, hp:3, maxHp:3, hidden:true });
       S.turn = 12; S.whose = 'opp';
       addLog('12턴 : 상대 차례', 'system');
       updateUI();
-      await sleep(400);
-    } });
-  SCENARIO.push({ kind:'dialog', text:`<p>상대 차례. 호위무사가 더 도망가거나, 다른 유닛이 행동할 거에요.</p>` });
-  SCENARIO.push({ kind:'animate', text:null,
-    run: async () => {
-      await animateAttackOnCell(1, 1);
-      const gen = findMyPiece(1, 1);
-      gen.hp -= 1;
-      animateBoardPieceHit(1, 1);
-      flashCard('my', gen.id);
-      addLog('🎖 장군 피격', 'hit');
-      findPiece('op-1').hidden = false;
-      // 창병 위치 노출 → 추리 토큰 제거
-      S.deductionTokens = S.deductionTokens.filter(t => t.pieceKey !== 'op-1');
-      updateUI();
       await sleep(700);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>또 맞았어요! 장군 HP 3, 2.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이건 — 창병의 세로줄 공격이에요.</p>`, anchor:() => boardCellSel(1, 0), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>창병 사거리 = 자기가 있는 세로줄 전체. 장군이 B 열에 있으니 닿았어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그리고 — 공격이 적중하면서 창병 위치가 노출됐어요. B1 에 보이죠?</p>`, anchor:() => boardCellSel(1, 0), side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>호위무사 A2, 창병 B1 — 두 적이 다 드러났어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 결정타.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>💣 <strong>화약상</strong>이 떴어요. 폭탄 스킬을 가졌어요.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-3"]`, side:'left' });
+
+  // ── 보드 축소 경고 시작 ────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>그리고 동시에 — 큰 알림이 와요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => { await playShrinkWarningSummary(); } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🔥 <strong>보드 축소</strong> 경고. 3턴 후 외곽 칸이 파괴돼요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>외곽에 있는 말은 — 휩쓸려 탈락. 안쪽으로 대피해야 해요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>지금 우리 위치 보면 — 약초전문가 D5(외곽), 지휘관 B3(안쪽 OK), 장군 C3(안쪽 OK).</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>약초전문가만 위험. 한 칸 안쪽으로 옮겨야 해요.</p>` });
+
+  // ── 턴 13 — 약초전문가 대피 ──────────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       S.turn = 13; S.whose = 'me';
       addLog('13턴 : 내 차례', 'system');
       updateUI();
-      await sleep(400);
+      await sleep(300);
     } });
-
-  // ── 턴 13 — 호위무사 격파 ──────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>13턴! 빈사의 호위무사부터 처치해요.</p>` });
-  SCENARIO.push({ kind:'require', text:`<p>장군 B2 을 클릭하세요.</p>`,
-    anchor: () => boardCellSel(1, 1) + ' .piece-marker', side:'top',
-    onClick: () => {
-      S.selectedPiece = findMyPiece(1, 1);
-      openTutRadial(1, 1, { moveDisabled: true, skillDisabled: true, hideSkill: true });
-    } });
-  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong> 버튼을 클릭하세요.</p>`,
-    anchor:'.radial-btn[data-tut-radial-key="attack"]', side:'right',
-    onClick: () => { closeTutRadial(); highlightAttackTargetsGeneral(1, 1); } });
-  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>A2</strong> — 호위무사를 공격!</p>`,
-    anchor: () => boardCellSel(0, 1), side:'right',
-    onClick: () => {} });
+  SCENARIO.push({ kind:'require', text:`<p>약초전문가 🌿 D5 클릭.</p>`,
+    anchor: () => boardCellSel(3, 4) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(3, 4); openTutRadial(3, 4, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong>.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightMoveTargets(3, 4); } });
+  SCENARIO.push({ kind:'require', text:`<p>안쪽 <strong>D4</strong> 셀로.</p>`,
+    anchor: () => boardCellSel(3, 3), side:'right', onClick: () => {} });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       clearMoveHighlights();
-      await animateAttackOnCell(0, 1);
-      const bg = findPiece('op-2');
-      bg.hp -= 2;
-      animateBoardPieceHit(0, 1);
-      flashCard('opp', bg.id);
-      // 격파!
-      bg.alive = false;
-      // 실제 형식: 공격자 시점 → `${coords} ${labels} 격파`
-      addLog('A2 🛡 호위무사 격파', 'kill');
+      await animatePieceSlide(findMyPiece(3, 4), 3, 3, 350);
+      addLog('🌿 약초전문가 이동', 'move');
       updateUI();
-      await sleep(800);
-      // piece-marker fade out
-      const cell = document.querySelector(boardCellSel(0, 1));
-      const mk = cell?.querySelector('.piece-marker');
-      if (mk) {
-        mk.style.transition = 'opacity 0.5s, transform 0.5s';
-        mk.style.opacity = '0';
-        mk.style.transform = 'scale(0.4) rotate(20deg)';
-      }
-      await sleep(500);
-      bg.col = -1; bg.row = -1;
-      updateUI();
+      await sleep(400);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>🎉 <strong>호위무사 격파!</strong> 첫 적 처치!</p>`, anchor:`${SCOPE} #tut-game-board`, side:'right' });
-  SCENARIO.push({ kind:'dialog', text:`<p>적 카드 패널을 보면 호위무사가 — 시들어 사라졌어요.</p>`, anchor:`${SCOPE} .right-panel`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 적 두 명 남았어요. 창병 B1 HP 2, 기마병 위치 미상 HP 2.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>다음은 — 척후병으로 기마병 정찰, 또는 장군으로 창병 직격. 어느 것이든 이길 거에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>여기까지가 한 판의 시작·중반 흐름이에요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>약초전문가 안쪽 D4 도착. 외곽 위험 회피.</p>` });
 
-  // ── 보드 축소 시퀀스 (요약) ──────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>마지막으로 — 알아둬야 할 큰 시스템이 하나 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p><strong>보드 축소</strong>.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>게임이 너무 길어지면 — 안 끝나잖아요?</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그래서 일정 턴 50턴 또는 1대1 대치 상황에서 보드가 축소돼요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>10턴 전부터 경고가 떠요.</p>` });
+  // ── 턴 14 — 상대 화약상 폭탄 설치 ─────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
-    run: async () => { await playShrinkWarningSummary(); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이렇게 — 카운트다운 박스가 등장.</p>`, anchor:`${SCOPE} .sp-section`, side:'bottom' });
-  SCENARIO.push({ kind:'dialog', text:`<p>그리고 — 외곽 칸이 파괴됩니다.</p>` });
+    run: async () => {
+      S.turn = 14; S.whose = 'opp';
+      addLog('14턴 : 상대 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>상대가 SP 를 모아 — 화약상이 폭탄 시전!</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      addLog('💣 폭탄 설치: 상대의 폭탄 설치', 'skill');
+      flashLogPanel();
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>어딘가에 폭탄이 깔렸어요. 보드엔 안 보이지만 — 다음 턴 터질 거에요.</p>` });
+
+  // ── 턴 15 — 보드 축소 카운트다운 + 내 행동 ────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 15; S.whose = 'me';
+      addLog('15턴 : 내 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>이제 보드 축소까지 1턴 남았어요. 마무리 준비.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>턴 종료로 넘어갑시다.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p><strong>턴 종료</strong> 버튼을 클릭.</p>`,
+    anchor:`#tut-btn-end-turn`, side:'top',
+    onClick: () => {} });
+
+  // ── 턴 16 — 보드 축소 발동! ─────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 16; S.whose = 'opp';
+      addLog('16턴 : 상대 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🔥 보드 축소 발동!</p>` });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => { await playBoardShrinkSummary(); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>외곽 칸이 사라졌어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그 영역에 있던 말은 — <strong>탈락</strong>이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>그러니 — 보드 안쪽으로 미리 대피하는 게 중요해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>2단계 축소까지 일어나면 보드는 더 좁아져요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 외곽에 남은 piece 탈락 — 시나리오 상 화약상(E1) 만 탈락 시킴.
+      // 그리고 약초전문가도 시각화를 위해 탈락 (외곽이 아닌데 narrative 상 강제)
+      // → 실제로는 화약상 (4,0) 만 외곽이고 약초전문가는 (3,3) 안쪽.
+      const dead = destroyOuterRingPieces();
+      for (const p of dead) {
+        addLog(`💀 ${p.name} 탈락`, 'event');
+      }
+      updateUI();
+      await sleep(800);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>외곽에 있던 화약상이 탈락! 폭탄도 함께 사라졌어요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>잔존 — 우리 3 (장군·약초·지휘관) vs 상대 0.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>...그런데 상대가 마지막 한 명을 더 보내요. 절박한 반격이에요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      spawnPiece({ id:'op-4', owner:'opp', char:CHARS.cavalry, col:3, row:1, hp:2, maxHp:2, hidden:false });
+      await sleep(700);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>🐎 기마병이 D2 에 등장. 우리에게 다가와요.</p>`, anchor:() => boardCellSel(3, 1), side:'right' });
 
-  // ── 마무리 ──────────────────────────────────────────────────────────────
-  SCENARIO.push({ kind:'enter', phase:'intro' });
-  SCENARIO.push({ kind:'dialog', text:`<p>🎉 튜토리얼 완료!</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>오늘 배운 것:</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 드래프트, HP, 배치, 전투의 흐름</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 정찰로 적 위치 좁히기</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 전진해서 사거리 확보하기</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 빗나간 공격에서도 정보 얻기</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 적 위치는 공격이 맞으면 노출</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• SP 지급 10턴마다 +1</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 보드 축소 외곽 칸 파괴</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>실제 게임엔 30종 캐릭터, 더 많은 스킬 저주·드래곤·폭탄·악몽 등, 2v2 팀전이 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>이제 <strong>AI 연습 모드</strong>에서 직접 한 판 해보세요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>행운을 빌어요! 🍀</p>` });
+  // ── 턴 17 — 최후 공격: 기마병 격파 → 승리 ──────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 17; S.whose = 'me';
+      addLog('17턴 : 내 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>마지막 적. 장군으로 끝내요. C3 → D3 이동 → 다음 턴 격파... 보다는, 지휘관이 가깝네요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>아니, 장군의 C3 사거리 — C2/C4/B3/D3. D2 는 닿지 않아요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>약초전문가 D4 에서 보면 — 자기+8방 인접. D3 만 닿음. D2 못 닿음.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군이 D3 로 전진 → 다음 턴 D2 공격하자.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 🎖 C3 클릭.</p>`,
+    anchor: () => boardCellSel(2, 2) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(2, 2); openTutRadial(2, 2, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong>.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightMoveTargets(2, 2); } });
+  SCENARIO.push({ kind:'require', text:`<p><strong>D3</strong> 셀로.</p>`,
+    anchor: () => boardCellSel(3, 2), side:'right', onClick: () => {} });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      clearMoveHighlights();
+      await animatePieceSlide(findMyPiece(2, 2), 3, 2, 350);
+      addLog('🎖 장군 이동', 'move');
+      updateUI();
+      await sleep(500);
+    } });
+
+  // ── 턴 18 — 기마병 다가옴 ───────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 18; S.whose = 'opp';
+      addLog('18턴 : 상대 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      // 기마병이 가로열 sweep 으로 장군 hit (D 행 2 = 장군 D3 위치는 row 2, 기마병 row 1)
+      // 기마병 D2 → row 1 sweep — 같은 행 hit. 장군 D3 (row 2) 다른 행.
+      // 단순화: 기마병이 D2 → D3 으로 이동 (충돌 없이 한 칸 아래) — D3 에 장군. 불가능.
+      // 대신 기마병 D2 → C2 sideways.
+      const ca = findPiece('op-4');
+      await animatePieceSlide(ca, 2, 1, 350);
+      addLog('상대가 이동했습니다.', 'move');
+      updateUI();
+      await sleep(400);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>기마병이 C2 로 옆걸음.</p>` });
+
+  // ── 턴 19 — 최후 공격 → 승리 ───────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 19; S.whose = 'me';
+      addLog('19턴 : 내 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 D3 사거리 — D2/D4/C3/E3/D3. C2 는 사거리 밖.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>한 칸 더 — C3 로 옮기면 C2 닿아요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>장군 🎖 D3 클릭.</p>`,
+    anchor: () => boardCellSel(3, 2) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(3, 2); openTutRadial(3, 2, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong>.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
+    onClick: () => { closeTutRadial(); highlightMoveTargets(3, 2); } });
+  SCENARIO.push({ kind:'require', text:`<p><strong>C3</strong> 셀로.</p>`,
+    anchor: () => boardCellSel(2, 2), side:'right', onClick: () => {} });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      clearMoveHighlights();
+      await animatePieceSlide(findMyPiece(3, 2), 2, 2, 350);
+      addLog('🎖 장군 이동', 'move');
+      updateUI();
+      await sleep(400);
+    } });
+
+  // ── 턴 20 — 기마병이 도주 시도 ─────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 20; S.whose = 'opp';
+      addLog('20턴 : 상대 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>기마병이 도주를 시도해요.</p>` });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      const ca = findPiece('op-4');
+      await animatePieceSlide(ca, 1, 1, 350);
+      addLog('상대가 이동했습니다.', 'move');
+      updateUI();
+      await sleep(400);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>기마병 C2 → B2 로 한 칸 옆.</p>` });
+
+  // ── 턴 21 — 최종 공격 ────────────────────────────────
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      S.turn = 21; S.whose = 'me';
+      addLog('21턴 : 내 차례', 'system');
+      updateUI();
+      await sleep(300);
+    } });
+  SCENARIO.push({ kind:'dialog', text:`<p>지휘관(B3)이 가까이 있어 사기증진 활성. 장군 C3 ATK 3.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군 사거리 — C2/C4/B3/D3. B2 는 닿지 않아요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>지휘관이 직접 — B3 에서 B2 가 사거리에. 지휘관 ATK 2 로 기마병 HP 2 잡을 수 있어요.</p>` });
+  SCENARIO.push({ kind:'require', text:`<p>지휘관 📋 B3 클릭.</p>`,
+    anchor: () => boardCellSel(1, 2) + ' .piece-marker', side:'top',
+    onClick: () => { S.selectedPiece = findMyPiece(1, 2); openTutRadial(1, 2, { moveDisabled: true, skillDisabled: true, hideSkill: true }); } });
+  SCENARIO.push({ kind:'require', text:`<p>⚔ <strong>공격</strong>.</p>`,
+    anchor:'.radial-btn[data-tut-radial-key="attack"]', side:'right',
+    onClick: () => {
+      closeTutRadial();
+      // 지휘관 사거리 — 좌우 1칸 (자기 제외)
+      ['B2', 'B4'].forEach(coord => {
+        const c = COLS.indexOf(coord[0]);
+        const r = parseInt(coord[1]) - 1;
+        const cell = document.querySelector(boardCellSel(c, r));
+        if (cell) cell.classList.add('tut-attack-target');
+      });
+    } });
+  SCENARIO.push({ kind:'require', text:`<p>빛나는 <strong>B2</strong> 셀을 클릭. 마지막 공격!</p>`,
+    anchor: () => boardCellSel(1, 1), side:'right', onClick: () => {} });
+  SCENARIO.push({ kind:'animate', text:null,
+    run: async () => {
+      clearMoveHighlights();
+      await animateAttackOnCell(1, 1);
+      const ca = findPiece('op-4');
+      ca.hp -= 2;
+      animateBoardPieceHit(1, 1);
+      flashCard('opp', ca.id);
+      ca.alive = false;
+      ca.col = -1; ca.row = -1;
+      addLog('B2 🐎 기마병 격파', 'kill');
+      updateUI();
+      await sleep(900);
+    } });
+
+  // ── 승리! ──────────────────────────────────────────
+  SCENARIO.push({ kind:'dialog', text:`<p>🎉 <strong>승리!</strong> 마지막 기마병 격파!</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군·약초전문가·지휘관 셋이서 — 안개를 헤쳐 승리.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>오늘 배운 흐름:</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>• 한 명으로 시작해서 동료가 합류하는 전개</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>• 부채꼴 메뉴로 이동·공격·스킬 선택</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>• 약초전문가 회복 / 지휘관 사기증진</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>• SP 지급, 상대 스킬, 보드 축소 대피</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>실제 게임엔 30종 캐릭터, 다양한 스킬, 2v2 팀전이 더 있어요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>AI 연습 모드에서 직접 한 판 해보세요. 행운을 빌어요! 🍀</p>` });
 
   // ═════════════════════════════════════════════════════════════════════════
   //  엔진 로직
   // ═════════════════════════════════════════════════════════════════════════
 
   function setupGameState() {
-    // 내 piece 3개 — drafted + place
-    const my = PLACE_PRESET.map(p => {
-      const ch = S.drafted[p.tier];
-      return {
-        id: 'me-' + p.tier,
-        owner: 'me',
-        char: ch,
-        icon: ch.icon, name: ch.name, tier: ch.tier, atk: ch.atk,
-        col: p.col, row: p.row,
-        hp: ch.hp, maxHp: ch.maxHp,
-        alive: true, hidden: false,
-      };
-    });
-    // 상대 piece 3개 — hidden
-    const opp = OPP_INIT.map(o => ({
-      id: o.id,
-      owner: 'opp',
-      char: o.char,
-      icon: o.char.icon, name: o.char.name, tier: o.char.tier, atk: o.char.atk,
-      col: o.col, row: o.row,
-      hp: o.hp, maxHp: o.maxHp,
-      alive: true, hidden: true,
-    }));
-    S.pieces = [...my, ...opp];
+    // ★ 새 시나리오 — 처음엔 장군 1명만. 시나리오 진행 중 유닛이 합류한다.
+    S.pieces = [{
+      id: 'me-general',
+      owner: 'me', char: CHARS.general,
+      icon: CHARS.general.icon, name: CHARS.general.name, tier: CHARS.general.tier, atk: CHARS.general.atk,
+      col: 2, row: 4,    // C5 (가운데 아래)
+      hp: 5, maxHp: 5,
+      alive: true, hidden: false,
+    }];
     S.turn = 1; S.whose = 'me';
-    S.spMy = 3; S.spOpp = 3;
+    S.spMy = 1; S.spOpp = 1;
     S.deductionTokens = [];
     S.logEntries = [];
+    S.visibleOppIds = new Set();
+  }
+
+  // ★ 새 helper — 시나리오 중간에 piece 등장 (페이드인 글로우 애니메이션)
+  function spawnPiece(opts) {
+    const pc = {
+      id: opts.id,
+      owner: opts.owner, char: opts.char,
+      icon: opts.char.icon, name: opts.char.name, tier: opts.char.tier, atk: opts.char.atk,
+      col: opts.col, row: opts.row,
+      hp: opts.hp || opts.char.baseHp, maxHp: opts.maxHp || opts.hp || opts.char.baseHp,
+      alive: true, hidden: !!opts.hidden,
+    };
+    S.pieces.push(pc);
+    if (opts.owner === 'opp') S.visibleOppIds.add(pc.id);
+    updateUI();
+    // 등장 셀에 fade-in glow
+    const cell = document.querySelector(boardCellSel(pc.col, pc.row));
+    if (cell) {
+      const marker = cell.querySelector('.piece-marker');
+      if (marker) {
+        marker.classList.add('tut-piece-spawn');
+        setTimeout(() => marker.classList.remove('tut-piece-spawn'), 900);
+      }
+    }
+    return pc;
+  }
+  // 회복 — 약초전문가 스킬
+  function healPiece(pieceId, amount) {
+    const pc = S.pieces.find(p => p.id === pieceId);
+    if (!pc) return;
+    pc.hp = Math.min(pc.maxHp, pc.hp + amount);
+    updateUI();
+    // 회복 시각 효과 — 셀에 녹색 펄스
+    const cell = document.querySelector(boardCellSel(pc.col, pc.row));
+    if (cell) {
+      cell.classList.add('tut-heal-flash');
+      setTimeout(() => cell.classList.remove('tut-heal-flash'), 800);
+    }
+  }
+  // 보드 외곽 파괴 — 외곽 셀의 piece 탈락
+  function destroyOuterRingPieces() {
+    const dead = [];
+    for (const p of S.pieces) {
+      if (!p.alive) continue;
+      const outer = (p.col === 0 || p.col === 4 || p.row === 0 || p.row === 4);
+      if (outer) {
+        p.alive = false;
+        p.col = -1; p.row = -1;
+        dead.push(p);
+      }
+    }
+    return dead;
   }
 
   function findPiece(id) { return S.pieces.find(p => p.id === id); }
@@ -942,8 +921,9 @@
     }
     const oppCont = document.getElementById('tut-opp-pieces-info');
     if (oppCont) {
-      const opp = S.pieces.filter(p => p.owner === 'opp');
-      oppCont.innerHTML = opp.map(buildOppCardHTML).join('');
+      // ★ 시나리오 진행에 따라 등장한 opp 만 카드 노출 (visibleOppIds)
+      const opp = S.pieces.filter(p => p.owner === 'opp' && S.visibleOppIds.has(p.id));
+      oppCont.innerHTML = opp.length ? opp.map(buildOppCardHTML).join('') : '<div class="tut-opp-empty">— 아직 적이 나타나지 않음 —</div>';
     }
   }
 
@@ -1410,6 +1390,8 @@
     if (gameLayout) gameLayout.style.display = 'none';
     if (phase === 'intro') return;
 
+    // ★ 새 시나리오 — draft/HP/placement 페이즈 폐기. 아래 분기는 deprecated.
+    return;
     cont.classList.add('active', 'tut-mimic-real');
 
     if (phase.startsWith('draft-')) {
