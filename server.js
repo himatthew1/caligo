@@ -3316,13 +3316,24 @@ function queueDeathDetonation(room, ownerIdx, casterPieceIdx) {
 //               → 클라가 animateMarkBrand 발동 (인두 낙하 1.8s)
 //     T+780ms + 1800ms = T+2580ms : onComplete 호출
 function flushMarkPhase(room, onComplete) {
-  const marks = (room._pendingMarks || []).slice();
+  const rawMarks = (room._pendingMarks || []).slice();
   room._pendingMarks = [];
+  // ★ 사용자 요청: 이미 표식 상태인 유닛은 표식 대상이 안 됨.
+  //   공격한 모든 유닛이 이미 표식 상태이면 — 표식 페이즈가 아예 발동 안 함 (mark_cast 도 X).
+  //   일부만 표식 상태가 아니면 — 그 일부에 대해서만 표식 발동.
+  //   기존엔 cast 후 적용 시점에 필터링 → cast 애니메이션은 발생했음. 이제 cast 전에 필터링.
+  const marks = rawMarks.filter(m => {
+    const t = m.target;
+    if (!t || !t.alive) return false;
+    if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) return false;
+    if (t.statusEffects && t.statusEffects.some(e => e.type === 'mark')) return false;
+    return true;
+  });
   if (marks.length === 0) {
     if (typeof onComplete === 'function') onComplete();
     return;
   }
-  // 시전자 그룹화 — 같은 torturer 가 forward + reverse 둘 다 했어도 단일 entry.
+  // 시전자 그룹화 — 표식이 실제로 적용될 마크만 기준 (이미 표식인 대상만 공격한 시전자는 캐스터 X).
   const seen = new Set();
   const casters = [];
   for (const m of marks) {
