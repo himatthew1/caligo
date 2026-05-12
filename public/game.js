@@ -3815,10 +3815,11 @@ socket.on('game_start', (data) => {
 
   buildGameUI();
   showScreen('screen-game');
-  // 패널 제목을 닉네임으로 갱신
-  const leftH3 = document.querySelector('.left-panel h3');
+  // 패널 제목을 닉네임으로 갱신 — #screen-game 스코프로 한정 (튜토리얼 동명 패널 방지)
+  const _gs = document.getElementById('screen-game');
+  const leftH3 = _gs ? _gs.querySelector('.left-panel h3') : null;
   if (leftH3) leftH3.textContent = `${myN()}의 말`;
-  const rightH3 = document.querySelector('.right-panel h3');
+  const rightH3 = _gs ? _gs.querySelector('.right-panel h3') : null;
   if (rightH3) rightH3.textContent = `${oppN()}의 말`;
   refreshGameView();
   showActionBar(S.isMyTurn);
@@ -11025,8 +11026,11 @@ function updateTurnBanner() {
   banner.textContent = `${S.turnNumber}턴 : ${whose}의 차례`;
 
   // 현재 턴 플레이어 패널 강조 (1v1 전용)
-  const leftPanel = document.querySelector('.left-panel');
-  const rightPanel = document.querySelector('.right-panel');
+  // ★ #screen-game 으로 스코프 한정 — 튜토리얼도 동일 클래스명(.left-panel/.right-panel)을 사용해
+  //   document.querySelector 가 튜토리얼 패널을 먼저 반환하던 버그 수정.
+  const gameScreen = document.getElementById('screen-game');
+  const leftPanel = gameScreen ? gameScreen.querySelector('.left-panel') : null;
+  const rightPanel = gameScreen ? gameScreen.querySelector('.right-panel') : null;
   if (leftPanel) leftPanel.classList.toggle('turn-active', S.isMyTurn);
   if (rightPanel) rightPanel.classList.toggle('turn-active', !S.isMyTurn);
 
@@ -15059,7 +15063,8 @@ function renderSpectatorGame(gs) {
   // ★ 관전자 패널에도 데미지 도장 + HP 바 빨간 오버레이 적용 (1v1 spec 기준 my:idx / opp:idx 키).
   const leftPanel = document.getElementById('my-pieces-info');
   if (leftPanel) {
-    document.querySelector('.left-panel h3').textContent = gs.p0Name;
+    const _gs2 = document.getElementById('screen-game');
+    if (_gs2 && _gs2.querySelector('.left-panel h3')) _gs2.querySelector('.left-panel h3').textContent = gs.p0Name;
     leftPanel.innerHTML = '';
     for (let i = 0; i < (gs.p0Pieces || []).length; i++) {
       const pc = gs.p0Pieces[i];
@@ -15081,8 +15086,9 @@ function renderSpectatorGame(gs) {
   // 우측: P1 말 정보
   const rightPanel = document.getElementById('opp-pieces-info');
   if (rightPanel) {
-    document.querySelector('.right-panel h3').textContent = gs.p1Name;
-    const sub = document.querySelector('.right-panel p');
+    const _gs3 = document.getElementById('screen-game');
+    if (_gs3 && _gs3.querySelector('.right-panel h3')) _gs3.querySelector('.right-panel h3').textContent = gs.p1Name;
+    const sub = _gs3 ? _gs3.querySelector('.right-panel p') : null;
     if (sub) sub.textContent = '';
     rightPanel.innerHTML = '';
     for (let i = 0; i < (gs.p1Pieces || []).length; i++) {
