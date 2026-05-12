@@ -200,6 +200,23 @@ const S = {
   teamHpDist: null,
 };
 
+// ★ 사용자 보고 (행동버튼 dim 누락): S.isMyTurn 이 여러 곳에서 직접 할당되는데
+//   대다수가 applyTurnUiState() 호출을 빠뜨림. setter property 로 변환해
+//   set 시점마다 자동으로 UI 갱신.
+(function _wrapIsMyTurn() {
+  let _v = !!S.isMyTurn;
+  Object.defineProperty(S, 'isMyTurn', {
+    configurable: true,
+    enumerable: true,
+    get() { return _v; },
+    set(next) {
+      _v = !!next;
+      // applyTurnUiState 는 이 시점에 아직 정의 안 됐을 수 있음 — typeof 가드.
+      try { if (typeof applyTurnUiState === 'function') applyTurnUiState(); } catch (e) {}
+    },
+  });
+})();
+
 // ── 오디오 설정 ─────────────────────────────────────────────
 let bgmMuted = false;
 let sfxMuted = false;

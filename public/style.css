@@ -1237,13 +1237,26 @@ body.opp-turn #btn-skill,
 body.opp-turn #btn-move,
 body.opp-turn #btn-attack,
 body.opp-turn #btn-end-turn,
-.btn.turn-disabled {
+.btn.turn-disabled,
+#btn-action[disabled],
+#btn-action:disabled,
+#btn-skill[disabled],
+#btn-skill:disabled,
+#btn-move[disabled],
+#btn-move:disabled,
+#btn-attack[disabled],
+#btn-attack:disabled,
+#btn-end-turn[disabled],
+#btn-end-turn:disabled {
   opacity: 0.35 !important;
   cursor: not-allowed !important;
-  filter: grayscale(0.6);
-  pointer-events: none;
+  filter: grayscale(0.6) !important;
+  pointer-events: none !important;
 }
-.btn.turn-disabled:hover {
+.btn.turn-disabled:hover,
+#btn-action:disabled:hover,
+#btn-skill:disabled:hover,
+#btn-end-turn:disabled:hover {
   transform: none !important;
 }
 
