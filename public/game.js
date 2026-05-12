@@ -124,12 +124,16 @@ function animateRatDestruction(cells, isMyRat) {
   if (cells && cells.length > 0) playSfxRatDeath();
   const emoji = isMyRat ? '🐀' : '🐁';
   const color = isMyRat ? '#52b788' : '#e05252';
-  const posStyle = isMyRat ? 'top:1px;right:2px' : 'bottom:1px;left:2px';
+  // ★ 사용자 보고 수정: 죽음 애니가 라이브 쥐의 렌더링 위치(코너)와 달라 격파 시 점프하는 것처럼 보임.
+  //   라이브 쥐 — renderGameBoard line 11513: my=top:1px;left:7px / opp=top:1px;left:2px
+  //   spawn 종료 위치 — rat-anim.js: my=tRect.left+7 / opp=tRect.left+2 (top+1)
+  //   세 군데 좌표 통일 → 라이브 쥐가 그대로 그 자리에서 페이드.
+  const posStyle = isMyRat ? 'top:1px;left:7px;z-index:4' : 'top:1px;left:2px;z-index:3';
   for (const { col, row } of cells) {
     const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
     if (!cell) continue;
     const ratEl = document.createElement('span');
-    ratEl.style.cssText = `position:absolute;${posStyle};font-size:0.5rem;color:${color};z-index:10;pointer-events:none`;
+    ratEl.style.cssText = `position:absolute;${posStyle};font-size:0.5rem;color:${color};pointer-events:none`;
     ratEl.textContent = emoji;
     ratEl.classList.add('rat-fading');
     cell.appendChild(ratEl);
