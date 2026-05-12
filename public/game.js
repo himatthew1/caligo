@@ -211,12 +211,62 @@ const S = {
     get() { return _v; },
     set(next) {
       const v = !!next;
-      // ★ 사용자 보고 (행동 가능/불가 분류 막힘): setter 가 매번 호출되며 applyTurnUiState
-      //   불필요한 재실행 → floating 클리어/스테이트 리셋이 의도치 않은 시점에 발화.
-      //   값이 실제로 변경됐을 때만 호출 (idempotent).
       if (_v === v) return;
       _v = v;
       try { if (typeof applyTurnUiState === 'function') applyTurnUiState(); } catch (e) {}
+    },
+  });
+})();
+
+// ★ 사용자 보고 (표식 시전 시 적 위치 안 보임 / 턴 종료해야 갱신):
+//   mark_cast 핸들러가 S.oppPieces[i].marked/col/row 를 mutate 해도 직후 attack_result /
+//   기타 이벤트가 `S.oppPieces = newArr` 로 통째 교체 → mutation 사라짐 → 보드 표시 X.
+//   해결: oppPieces 를 setter property 로 wrap + _revealedMarkedOpps Map 에 보존.
+//   set 호출 시마다 Map 정보로 자동 reseed.
+(function _wrapOppPieces() {
+  let _v = Array.isArray(S.oppPieces) ? S.oppPieces : [];
+  Object.defineProperty(S, 'oppPieces', {
+    configurable: true,
+    enumerable: true,
+    get() { return _v; },
+    set(next) {
+      _v = next || [];
+      // 보존된 표식 노출 정보 자동 reseed
+      if (S._revealedMarkedOpps instanceof Map && Array.isArray(_v) && _v.length > 0) {
+        const toDelete = [];
+        for (const [key, info] of S._revealedMarkedOpps.entries()) {
+          const parts = key.split(':');
+          const ownerIdx = parseInt(parts[0], 10);
+          const pieceIdx = parseInt(parts[1], 10);
+          let opp = null;
+          if (S.isTeamMode) {
+            opp = _v.find(p => p && p.ownerIdx === ownerIdx && p.index === pieceIdx);
+          } else {
+            opp = _v[pieceIdx];
+          }
+          if (!opp) {
+            if (info.name && info.icon) {
+              opp = _v.find(p => p && p.name === info.name && p.icon === info.icon);
+            }
+          }
+          if (!opp || !opp.alive) { toDelete.push(key); continue; }
+          // 표식이 소비/해제된 경우 (악몽 등) — Map 엔트리 정리하고 reseed 안 함
+          const hasMarkNow = (opp.statusEffects || []).some(e => e.type === 'mark');
+          if (info.hasMarkStatus && !hasMarkNow) { toDelete.push(key); continue; }
+          opp.marked = true;
+          // col/row 는 opp 가 아직 null 인 경우 (서버 hasMark 미적용 단계) 에만 보충
+          if (opp.col == null && info.col != null) opp.col = info.col;
+          if (opp.row == null && info.row != null) opp.row = info.row;
+          // 인두 낙하 이후라면 statusEffects 에도 mark push (🎯 인디케이터 보장)
+          if (info.hasMarkStatus) {
+            opp.statusEffects = opp.statusEffects || [];
+            if (!opp.statusEffects.some(e => e.type === 'mark')) {
+              opp.statusEffects.push({ type: 'mark' });
+            }
+          }
+        }
+        for (const key of toDelete) S._revealedMarkedOpps.delete(key);
+      }
     },
   });
 })();
@@ -2311,6 +2361,8 @@ function applyTeamGameState(state) {
 
 socket.on('team_game_start', (state) => {
   S.isTeamMode = true;          // buildBoard가 7x7로 그리도록 보장
+  // ★ 표식 노출 정보 — 새 팀전 시작 시 stale 엔트리 모두 정리
+  if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
   applyTeamGameState(state);
   if (typeof buildGameUI === 'function') {
     try { buildGameUI(); } catch (e) {}
@@ -3745,6 +3797,8 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
   S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
+  // ★ 표식 노출 정보 — 새 게임 시작 시 stale 엔트리 모두 정리
+  if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
   S.myPieces = data.yourPieces || [];
   S.oppPieces = data.oppPieces || [];
   S.turnNumber = data.turnNumber;
@@ -6922,10 +6976,11 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 //   780ms 후 spotlight 해제 + 별도 passive_alert (type='torturer', markCells) 이 도착 → animateMarkBrand 발동.
 socket.on('mark_cast', ({ casters, markedTargets }) => {
   if (!Array.isArray(casters) || casters.length === 0) return;
-  // ★ 사용자 보고 (안 보임): 서버 oppPieceSummary 가 col/row 를 'hasMark 일 때만' 보냄
-  //   → mark_cast 시점엔 아직 statusEffects 미적용 → 클라 oppPieces[i].col = undefined
-  //   따라서 col/row 기반 find 실패. targetPieceIdx + index 필드로 직접 매칭 + 위치 강제 주입.
+  // ★ 사용자 보고 (시전 시 적 위치 안 보임 / 턴 종료해야 갱신):
+  //   mark_cast 직후 attack_result 등이 S.oppPieces 를 새 배열로 통째 교체하며 mutation 손실.
+  //   해결: _revealedMarkedOpps Map 에 보존 + oppPieces setter 가 매 할당 시 자동 reseed.
   if (Array.isArray(markedTargets) && markedTargets.length > 0) {
+    S._revealedMarkedOpps = S._revealedMarkedOpps || new Map();
     for (const mt of markedTargets) {
       if (mt.col == null || mt.row == null) continue;
       const isMyCast = (typeof mt.sourceOwnerIdx === 'number' && mt.sourceOwnerIdx === S.playerIdx);
@@ -6934,9 +6989,15 @@ socket.on('mark_cast', ({ casters, markedTargets }) => {
         const sameTeam = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
         isTeammateCast = sameTeam.includes(mt.sourceOwnerIdx);
       }
-      // 적 piece 가 표식 대상 — 안개 해제 + 위치 노출 (시전자 측에서만)
       if ((isMyCast || isTeammateCast) && Array.isArray(S.oppPieces)) {
-        // 1v1: targetPieceIdx 가 곧 oppPieces 인덱스. 팀모드: index 필드로 매칭.
+        // Map 에 보존
+        const key = `${mt.targetOwnerIdx}:${mt.targetPieceIdx}`;
+        S._revealedMarkedOpps.set(key, {
+          col: mt.col, row: mt.row,
+          name: mt.name, icon: mt.icon,
+          hasMarkStatus: false,  // 인두 낙하 후 true (passive_alert 에서 갱신)
+        });
+        // 즉시 mutation — Map 도 set 됐으니 oppPieces 새 할당 시에도 setter 가 reseed
         let opp = null;
         if (typeof mt.targetPieceIdx === 'number') {
           if (S.isTeamMode) {
@@ -6947,13 +7008,12 @@ socket.on('mark_cast', ({ casters, markedTargets }) => {
           }
         }
         if (!opp) {
-          // fallback — name + icon 매칭
           opp = S.oppPieces.find(p => p && p.alive && p.name === mt.name && p.icon === mt.icon);
         }
         if (opp && opp.alive) {
-          opp.col = mt.col;          // 위치 강제 주입 — 안개 해제
+          opp.col = mt.col;
           opp.row = mt.row;
-          opp.marked = true;          // renderGameBoard 의 markedOpp 분기 트리거
+          opp.marked = true;
         }
       }
     }
@@ -7604,6 +7664,17 @@ socket.on('passive_alert', (payload) => {
           opp.statusEffects = opp.statusEffects || [];
           if (!opp.statusEffects.some(e => e.type === 'mark')) {
             opp.statusEffects.push({ type: 'mark', source: playerIdx });
+          }
+          // ★ 사용자 보고 (턴 종료해야 갱신): Map 의 hasMarkStatus 갱신 — 다음 reseed 에서도 🎯 보장
+          if (S._revealedMarkedOpps instanceof Map) {
+            const targetOwnerIdx = (typeof opp.ownerIdx === 'number') ? opp.ownerIdx : (1 - S.playerIdx);
+            const pieceIdx = (typeof opp.index === 'number') ? opp.index : S.oppPieces.indexOf(opp);
+            const key = `${targetOwnerIdx}:${pieceIdx}`;
+            if (S._revealedMarkedOpps.has(key)) {
+              const info = S._revealedMarkedOpps.get(key);
+              info.hasMarkStatus = true;
+              S._revealedMarkedOpps.set(key, info);
+            }
           }
         }
       }
@@ -11420,10 +11491,55 @@ function setActionHint(msg, urgent) {
   el.classList.toggle('urgent', !!urgent);
 }
 
+// ── 표식 노출 정보 reseed 헬퍼 ──────────────────────────────
+// ★ 사용자 보고 (표식 시전시 적 위치/모습이 안 보임 — 턴 종료해야 갱신):
+//   mark_cast 시점 mutation 이 후속 oppPieces 교체로 소실 → setter wrap 으로 보완했지만
+//   확실히 하기 위해 renderGameBoard 진입 직전에도 Map 정보를 강제 적용. 매 렌더에 idempotent.
+function _reseedMarkedOppsFromMap() {
+  if (!(S._revealedMarkedOpps instanceof Map)) return;
+  if (S._revealedMarkedOpps.size === 0) return;
+  if (!Array.isArray(S.oppPieces) || S.oppPieces.length === 0) return;
+  const toDelete = [];
+  for (const [key, info] of S._revealedMarkedOpps.entries()) {
+    const parts = key.split(':');
+    const ownerIdx = parseInt(parts[0], 10);
+    const pieceIdx = parseInt(parts[1], 10);
+    let opp = null;
+    if (S.isTeamMode) {
+      opp = S.oppPieces.find(p => p && p.ownerIdx === ownerIdx && p.index === pieceIdx);
+    } else {
+      opp = S.oppPieces[pieceIdx];
+    }
+    if (!opp) {
+      if (info.name && info.icon) {
+        opp = S.oppPieces.find(p => p && p.name === info.name && p.icon === info.icon);
+      }
+    }
+    if (!opp || !opp.alive) { toDelete.push(key); continue; }
+    // ★ 표식이 이미 statusEffects 에 한 번 push 됐는데 (hasMarkStatus=true) 현재 statusEffects 에 없다면
+    //   = 서버측에서 표식이 소비/해제 됨 (악몽 등). Map 엔트리 정리하고 reseed 안 함.
+    const hasMarkNow = (opp.statusEffects || []).some(e => e.type === 'mark');
+    if (info.hasMarkStatus && !hasMarkNow) { toDelete.push(key); continue; }
+    opp.marked = true;
+    // col/row 는 서버가 아직 안 보낸 경우 (= opp.col == null) 에만 Map 정보로 보충.
+    if (opp.col == null && info.col != null) opp.col = info.col;
+    if (opp.row == null && info.row != null) opp.row = info.row;
+    if (info.hasMarkStatus) {
+      opp.statusEffects = opp.statusEffects || [];
+      if (!opp.statusEffects.some(e => e.type === 'mark')) {
+        opp.statusEffects.push({ type: 'mark' });
+      }
+    }
+  }
+  for (const key of toDelete) S._revealedMarkedOpps.delete(key);
+}
+
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
 function renderGameBoard() {
   const board = document.getElementById('game-board');
   if (!board) return;
+  // ★ 매 렌더 전에 표식 노출 정보 강제 적용 — direct mutation 이 소실된 경우 보완
+  try { _reseedMarkedOppsFromMap(); } catch (e) {}
   const bounds = S.boardBounds;
 
   board.querySelectorAll('.cell').forEach(cell => {
@@ -12606,9 +12722,16 @@ function applyTurnUiState() {
     b.classList.toggle('turn-disabled', !isMy);
   }
   document.body.classList.toggle('opp-turn', !isMy);
+  // ★ 사용자 보고 (내 차례에도 내 말 프로필 딤): 패널 .turn-active 동기화 — updateTurnBanner 외 다른
+  //   경로로 isMyTurn 이 바뀔 때 panel dim 이 stale 한 채로 남는 케이스 보완.
+  //   1v1: leftPanel = 내 패널 (isMy 면 turn-active) / rightPanel = 상대 (isMy 면 비활성).
+  if (!S.isTeamMode) {
+    const leftPanel = document.querySelector('.left-panel');
+    const rightPanel = document.querySelector('.right-panel');
+    if (leftPanel) leftPanel.classList.toggle('turn-active', isMy);
+    if (rightPanel) rightPanel.classList.toggle('turn-active', !isMy);
+  }
   // 떠있던 floating action 버튼/취소 등 모두 해제 + 행동 버튼 상태 리셋
-  // ★ 사용자 보고 (행동가능/불가 분류 안 됨): _actionBtnState 가 stale 한 채 남아
-  //   다음 클릭이 close 로 인식되던 버그. floating 클리어할 때 상태도 idle 로 리셋.
   if (!isMy) {
     if (typeof window._caligoClearActionFloatingBtns === 'function') {
       window._caligoClearActionFloatingBtns();
@@ -18539,15 +18662,22 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
       if (pc && pc.alive) _placeActionFloatingBtn(pc, 'unable');
     }
   }
+  // ── 행동 버튼 상태 (let → 호이스팅 안 됨 → click 핸들러보다 먼저 선언 필수) ──
+  // ★ 사용자 보고 (행동 버튼이 행동가능/행동불가 분류를 더이상 출력하지 않음):
+  //   document click 핸들러는 floating 버튼을 지웠지만 _actionBtnState 는 그대로 두어
+  //   다음 클릭 때 "이미 표시 중" 분기로 진입 → close-only → 표시되지 않음 (사용자 보고).
+  //   해결: 클릭 시 floating 을 지울 때 state 도 idle 로 동기 리셋.
+  let _actionBtnState = 'idle';   // 'idle' | 'actable-shown' | 'unable-shown'
+
   // 다른 곳 클릭 시 자동 닫힘
   document.addEventListener('click', (e) => {
     if (e.target.closest('.action-floating-btn')) return;
     if (e.target.closest('#btn-action')) return;
     _clearActionFloatingBtns();
+    _actionBtnState = 'idle';   // ★ 상태도 동기화 — stale 'actable-shown' 잔존 차단
   });
 
   // ── 행동 버튼 핸들러 ──────────────────────────────────────────
-  let _actionBtnState = 'idle';   // 'idle' | 'actable-shown' | 'unable-shown'
   function onActionButtonClick() {
     if (!S.isMyTurn) return;
     const btn = document.getElementById('btn-action');
@@ -18558,6 +18688,8 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
       _actionBtnState = 'idle';
       return;
     }
+    // ★ floating 잔존물이 있다면 우선 클린 (방어적)
+    _clearActionFloatingBtns();
     if (dimmed) {
       showUnableHighlights();
       _actionBtnState = 'unable-shown';
