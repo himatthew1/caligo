@@ -59,10 +59,8 @@
   // ── 인트로 ─────────────────────────────────────────────────────────────
   SCENARIO.push({ kind:'enter', phase:'intro' });
   SCENARIO.push({ kind:'dialog', text:`<p>안녕하세요, 새로운 전사여 🎓</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>여기는 <strong>CALIGO</strong>. 안개 속의 보드게임이에요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>긴 설명은 제쳐두고, 한 판 같이 해봅시다.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>처음엔 <strong>장군 한 명</strong>으로 시작해요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>전투가 흐를수록 새 동료가 합류할 거에요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>여기는 <strong>CALIGO</strong>, 안개 속의 보드게임.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>한 판 같이 해봅시다.</p>` });
 
   // ── 게임 등장 — 어둠 속에서 장군 + 그리드 fade-in ────────────────────────
   SCENARIO.push({ kind:'animate', text:null,
@@ -100,7 +98,7 @@
   SCENARIO.push({ kind:'require', text:`<p>장군 🎖 을 클릭하세요.</p>`,
     anchor: () => boardCellSel(2, 4) + ' .piece-marker', side:'top',
     onClick: () => { S.selectedPiece = findMyPiece(2, 4); openTutRadial(2, 4, { attackDisabled: true, skillDisabled: true, hideSkill: true }); } });
-  SCENARIO.push({ kind:'dialog', text:`<p>이동·공격·스킬 셋 중 — 지금은 이동만 가능해요.</p>`, anchor:'#tut-radial-menu', side:'top' });
+  SCENARIO.push({ kind:'dialog', text:`<p>이동·공격·스킬 셋 중에서 골라요.</p>`, anchor:'#tut-radial-menu', side:'top' });
   SCENARIO.push({ kind:'require', text:`<p>🏃 <strong>이동</strong> 버튼을 클릭하세요.</p>`,
     anchor:'.radial-btn[data-tut-radial-key="move"]', side:'right',
     onClick: () => { closeTutRadial(); highlightMoveTargets(2, 4); } });
@@ -209,8 +207,7 @@
       spawnPiece({ id:'op-2', owner:'opp', char:CHARS.bodyguard, col:2, row:0, hp:3, maxHp:3, hidden:true });
       await sleep(700);
     } });
-  SCENARIO.push({ kind:'dialog', text:`<p>🛡 <strong>호위무사</strong>가 새로 떴어요. ATK 1, HP 3.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"]`, side:'left' });
-  SCENARIO.push({ kind:'dialog', text:`<p>이런 식으로 — 적도 우리도 시간차로 합류해요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>🛡 <strong>호위무사</strong>. ATK 1, HP 3.</p>`, anchor:() => `${SCOPE} .opp-piece-card[data-opp-id="op-2"]`, side:'left' });
   SCENARIO.push({ kind:'animate', text:null,
     run: async () => {
       // 호위무사 C1 → C2 (전진, 안개)
@@ -690,15 +687,9 @@
     } });
 
   // ── 승리! ──────────────────────────────────────────
-  SCENARIO.push({ kind:'dialog', text:`<p>🎉 <strong>승리!</strong> 마지막 기마병 격파!</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>장군·약초전문가·지휘관 셋이서 — 안개를 헤쳐 승리.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>오늘 배운 흐름:</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 한 명으로 시작해서 동료가 합류하는 전개</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 부채꼴 메뉴로 이동·공격·스킬 선택</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• 약초전문가 회복 / 지휘관 사기증진</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>• SP 지급, 상대 스킬, 보드 축소 대피</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>실제 게임엔 30종 캐릭터, 다양한 스킬, 2v2 팀전이 더 있어요.</p>` });
-  SCENARIO.push({ kind:'dialog', text:`<p>AI 연습 모드에서 직접 한 판 해보세요. 행운을 빌어요! 🍀</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>🎉 <strong>승리!</strong></p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>장군·약초전문가·지휘관 — 셋이서 안개를 헤쳤어요.</p>` });
+  SCENARIO.push({ kind:'dialog', text:`<p>이제 직접 한 판 해보세요. 행운을 빌어요 🍀</p>` });
 
   // ═════════════════════════════════════════════════════════════════════════
   //  엔진 로직
