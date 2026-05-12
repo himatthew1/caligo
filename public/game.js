@@ -2271,6 +2271,7 @@ function applyTeamGameState(state) {
   //   currentPlayerIdx 만으로는 활성 슬롯 식별 불가. 서버의 turnSlotIdx 를 함께 저장해 단일 슬롯만 강조.
   if (typeof state.turnSlotIdx === 'number') S.turnSlotIdx = state.turnSlotIdx;
   S.isMyTurn = !!state.isMyTurn;
+  if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.teamGamePlayers = state.players || [];
   S.boardObjects = state.boardObjects || [];
   // 내 pieces / 팀원 pieces / 적팀 pieces 재구성
@@ -3843,6 +3844,7 @@ socket.on('your_turn', (data) => {
   document.body.classList.remove('action-locked', 'dim-morale-zone');
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   S.isMyTurn = true;
+  if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.turnNumber = data.turnNumber;
   S.myPieces = data.yourPieces || S.myPieces;
   S.oppPieces = data.oppPieces || S.oppPieces;
@@ -3886,6 +3888,7 @@ socket.on('opp_turn', (data) => {
     exitTwinMovePhase(/*emitToast=*/false);
   }
   S.isMyTurn = false;
+  if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.turnNumber = data.turnNumber;
   S.oppPieces = data.oppPieces || S.oppPieces;
   S.sp = data.sp || S.sp;
@@ -7517,9 +7520,31 @@ socket.on('passive_alert', (payload) => {
   //   sound 는 animateMarkBrand 의 onSizzle 콜백에서 playSfxTorturerMark 호출 → _renderPassiveAlert
   //   의 기본 패시브 사운드와 중복 방지를 위해 type='torturer' 일 때 pickPassiveSfxByType 가 이미
   //   playSfxTorturerMark 를 반환하므로, anim 의 onSizzle 은 생략하고 기본 SFX 만 사용.
-  if (type === 'torturer' && Array.isArray(markCells) && markCells.length > 0 &&
-      typeof animateMarkBrand === 'function') {
-    try { animateMarkBrand(markCells); } catch (e) {}
+  if (type === 'torturer' && Array.isArray(markCells) && markCells.length > 0) {
+    // ★ 사용자 보고 수정: 표식 상태가 된 순간 — 시전자(자기) 시점에서 적 위치 즉시 노출.
+    //   markCells 의 좌표에 위치한 적 piece 들을 marked:true 로 마킹 + 보드 재렌더.
+    //   인두 낙하 애니메이션 도중에도, 그 후에도 표식 유닛이 보드에 노출됨.
+    if (typeof playerIdx === 'number' && playerIdx === S.playerIdx && Array.isArray(S.oppPieces)) {
+      for (const cell of markCells) {
+        const opp = S.oppPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
+        if (opp) opp.marked = true;
+      }
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+    }
+    // 팀모드 — 시전자 팀원이 마킹 했을 때도 같은 팀이면 노출
+    if (S.isTeamMode && typeof playerIdx === 'number' && Array.isArray(S.oppPieces)) {
+      const teammates = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
+      if (teammates.includes(playerIdx)) {
+        for (const cell of markCells) {
+          const opp = S.oppPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
+          if (opp) opp.marked = true;
+        }
+        if (typeof renderGameBoard === 'function') renderGameBoard();
+      }
+    }
+    if (typeof animateMarkBrand === 'function') {
+      try { animateMarkBrand(markCells); } catch (e) {}
+    }
   }
   _renderPassiveAlert(payload);
 });
@@ -12466,6 +12491,30 @@ function buildPieceTooltip(pc, side) {
 // ═══════════════════════════════════════════════════════════════
 
 // 행동 모드별 액션 바 시각 표시 — 선택된 버튼은 글로우, 나머지는 잠금 표시
+// ★ 사용자 보고: 상대 차례에도 행동 버튼이 활성처럼 보임 + 클릭 무반응.
+//   isMyTurn === false 일 때 행동 / 스킬 / 턴종료 버튼을 비활성 (disabled + dim)
+//   body.opp-turn 클래스로 CSS 도 dim 처리.
+function applyTurnUiState() {
+  const isMy = !!S.isMyTurn;
+  const btns = [
+    document.getElementById('btn-action'),
+    document.getElementById('btn-skill'),
+    document.getElementById('btn-move'),
+    document.getElementById('btn-attack'),
+    document.getElementById('btn-end-turn'),
+  ];
+  for (const b of btns) {
+    if (!b) continue;
+    b.disabled = !isMy;
+    b.classList.toggle('turn-disabled', !isMy);
+  }
+  document.body.classList.toggle('opp-turn', !isMy);
+  // 떠있던 floating action 버튼/취소 등 모두 해제
+  if (!isMy && typeof window._caligoClearActionFloatingBtns === 'function') {
+    window._caligoClearActionFloatingBtns();
+  }
+}
+
 function setActionButtonMode(mode) {
   // mode: 'move' | 'attack' | 'skill' | null
   const buttons = {

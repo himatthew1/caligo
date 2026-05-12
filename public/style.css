@@ -1231,6 +1231,22 @@ body.radial-mode-active #game-board .cell.has-piece:not(.radial-active):hover .p
    - skill-caster-mild (skill_target 시전자 — 폭탄 설치·드래곤 소환 등) : 약한 dim (선명하게)
    - 그 외 (twin-spent 포함) : dim + 클릭 차단
    ★ :not(.twin-active) 추가 — 쌍둥이 페이즈에서 미이동 쌍둥이가 dim 되는 버그 차단. */
+/* ★ 사용자 보고: 상대 차례에는 행동/스킬/턴종료 버튼 시각적으로 비활성 */
+body.opp-turn #btn-action,
+body.opp-turn #btn-skill,
+body.opp-turn #btn-move,
+body.opp-turn #btn-attack,
+body.opp-turn #btn-end-turn,
+.btn.turn-disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(0.6);
+  pointer-events: none;
+}
+.btn.turn-disabled:hover {
+  transform: none !important;
+}
+
 body.action-locked #game-board .cell.has-piece:not(.radial-active):not(.selected-piece):not(.skill-caster-mild) .piece-marker:not(.twin-active) {
   opacity: 0.4 !important;
   filter: saturate(0.5) brightness(0.7) !important;
