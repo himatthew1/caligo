@@ -12722,15 +12722,6 @@ function applyTurnUiState() {
     b.classList.toggle('turn-disabled', !isMy);
   }
   document.body.classList.toggle('opp-turn', !isMy);
-  // ★ 사용자 보고 (내 차례에도 내 말 프로필 딤): 패널 .turn-active 동기화 — updateTurnBanner 외 다른
-  //   경로로 isMyTurn 이 바뀔 때 panel dim 이 stale 한 채로 남는 케이스 보완.
-  //   1v1: leftPanel = 내 패널 (isMy 면 turn-active) / rightPanel = 상대 (isMy 면 비활성).
-  if (!S.isTeamMode) {
-    const leftPanel = document.querySelector('.left-panel');
-    const rightPanel = document.querySelector('.right-panel');
-    if (leftPanel) leftPanel.classList.toggle('turn-active', isMy);
-    if (rightPanel) rightPanel.classList.toggle('turn-active', !isMy);
-  }
   // 떠있던 floating action 버튼/취소 등 모두 해제 + 행동 버튼 상태 리셋
   if (!isMy) {
     if (typeof window._caligoClearActionFloatingBtns === 'function') {
