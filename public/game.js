@@ -11285,6 +11285,7 @@ function showActionBar(enabled) {
   bar.classList.remove('hidden');
   bar.style.display = 'flex';
 
+  const btnAction = document.getElementById('btn-action');  // ★ 누락 추가 — 후공 dim
   const btnMove = document.getElementById('btn-move');
   const btnAttack = document.getElementById('btn-attack');
   const btnSkill = document.getElementById('btn-skill');
@@ -11308,6 +11309,7 @@ function showActionBar(enabled) {
 
   if (!enabled) {
     // 상대 턴 — 모두 비활성화 (단, 탈락한 경우 방 나가기는 가능)
+    if (btnAction) btnAction.disabled = true;   // ★ 누락 보완 — 후공 시 btn-action 도 dim
     btnMove.disabled = true;
     btnAttack.disabled = true;
     btnSkill.disabled = true;
@@ -11322,6 +11324,7 @@ function showActionBar(enabled) {
     if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
   } else {
     // 내 턴 — 상황에 따라 비활성화/흐림
+    if (btnAction) btnAction.disabled = false;   // ★ 내 턴 — btn-action 활성
     const alivePieces = S.myPieces ? S.myPieces.filter(p => p.alive) : [];
     const hasAlive = alivePieces.length > 0;
 
