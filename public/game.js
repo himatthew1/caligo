@@ -18701,7 +18701,10 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
   window._caligoResetActionBtnState = _resetActionBtnState;
   window._caligoClearActionFloatingBtns = _clearActionFloatingBtns;
 
-  document.addEventListener('DOMContentLoaded', () => {
+  // ★ game.js 는 </body> 직전에 로드 → IIFE 실행 시점에 DOM 이미 완성.
+  //   DOMContentLoaded 를 기다릴 필요 없이 즉시 핸들러 등록.
+  //   (DOMContentLoaded 리스너는 이미 fired 후 추가되면 영원히 실행 안 됨 — 타이밍 버그 원천 차단)
+  (function _registerBottomBarHandlers() {
     const btnAct = document.getElementById('btn-action');
     if (btnAct) btnAct.addEventListener('click', onActionButtonClick);
     const btnSkillEl = document.getElementById('btn-skill');
@@ -18724,7 +18727,7 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
         closeCharSkillPopup();
       }
     });
-  });
+  })();
 
   // ── 글로벌 스킬 탭 모달 (읽기 전용) ─────────────────────────────
   function openGlobalSkillTab() {
@@ -19036,9 +19039,8 @@ document.getElementById('btn-tut-next').addEventListener('click', () => {
       _actionBtnState = 'idle';
     }
   });
-  document.addEventListener('DOMContentLoaded', () => {
-    observer.observe(document.body, { childList: true, subtree: false });
-  });
+  // ★ game.js 는 </body> 직전에 로드 → DOM 이미 완성. 즉시 observe.
+  observer.observe(document.body, { childList: true, subtree: false });
 
 })();
 
