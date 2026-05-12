@@ -6901,25 +6901,13 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 //   780ms 후 spotlight 해제 + 별도 passive_alert (type='torturer', markCells) 이 도착 → animateMarkBrand 발동.
 socket.on('mark_cast', ({ casters, markedTargets }) => {
   if (!Array.isArray(casters) || casters.length === 0) return;
-  // ★ 사용자 요청: 표식 상태 업데이트가 시전 애니메이션과 동시에 일어나야 함.
-  //   서버가 mark_cast 와 함께 markedTargets 를 보내므로 — 시전 인트로 시작 시점에 즉시:
-  //   - 시전자 시점 (자기/팀): 표식된 적 piece 의 marked:true 설정 → renderGameBoard 의 markedOpp 분기로 안개 해제 + 🎯 표시
-  //   - 피격자 시점 (자기 piece 가 표식 받음): myPieces[i].statusEffects 에 mark 추가 → 카드 🎯 아이콘
+  // ★ 사용자 요청 (분리):
+  //   - 시전 시점 (mark_cast, T+0): 적 위치만 노출 (S.oppPieces[i].marked = true → 안개 해제)
+  //   - 인두 낙하 시점 (passive_alert, T+780): 🎯 아이콘 + statusEffects 실제 적용
+  //   statusEffects.push 는 여기서 안 함 — passive_alert 핸들러에서 처리.
   if (Array.isArray(markedTargets) && markedTargets.length > 0) {
     for (const mt of markedTargets) {
       if (mt.col == null || mt.row == null) continue;
-      // 피격자가 나? → myPieces 의 statusEffects 갱신
-      if (typeof mt.targetOwnerIdx === 'number' && mt.targetOwnerIdx === S.playerIdx && Array.isArray(S.myPieces)) {
-        const my = (typeof mt.targetPieceIdx === 'number') ? S.myPieces[mt.targetPieceIdx] : null;
-        if (my) {
-          my.statusEffects = my.statusEffects || [];
-          if (!my.statusEffects.some(e => e.type === 'mark')) {
-            my.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
-          }
-        }
-      }
-      // 피격자가 적 / 팀모드 적팀? → oppPieces 의 marked:true (안개 해제 + 🎯) + statusEffects
-      // 시전자가 나/내 팀 일 때 적의 위치 노출
       const isMyCast = (typeof mt.sourceOwnerIdx === 'number' && mt.sourceOwnerIdx === S.playerIdx);
       let isTeammateCast = false;
       if (S.isTeamMode && typeof mt.sourceOwnerIdx === 'number') {
@@ -6928,32 +6916,10 @@ socket.on('mark_cast', ({ casters, markedTargets }) => {
       }
       if ((isMyCast || isTeammateCast) && Array.isArray(S.oppPieces)) {
         const opp = S.oppPieces.find(p => p && p.alive && p.col === mt.col && p.row === mt.row);
-        if (opp) {
-          opp.marked = true;
-          opp.statusEffects = opp.statusEffects || [];
-          if (!opp.statusEffects.some(e => e.type === 'mark')) {
-            opp.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
-          }
-        }
-      }
-      // 팀모드 — 팀원 piece 가 마크된 경우도 statusEffects 갱신
-      if (S.isTeamMode && Array.isArray(S.teammatePieces) && typeof mt.targetOwnerIdx === 'number') {
-        const tm = (S.teamGamePlayers || []).find(p => p.idx === mt.targetOwnerIdx && p.teamId === S.teamId && p.idx !== S.playerIdx);
-        if (tm && typeof mt.targetPieceIdx === 'number') {
-          const tp = S.teammatePieces[mt.targetPieceIdx];
-          if (tp) {
-            tp.statusEffects = tp.statusEffects || [];
-            if (!tp.statusEffects.some(e => e.type === 'mark')) {
-              tp.statusEffects.push({ type: 'mark', source: mt.sourceOwnerIdx });
-            }
-          }
-        }
+        if (opp) opp.marked = true;   // 안개 해제만. 🎯/statusEffects 는 인두 낙하 때.
       }
     }
-    // 즉시 재렌더 — 시전 인트로와 동기화된 시각 갱신
     if (typeof renderGameBoard === 'function') renderGameBoard();
-    if (typeof renderMyPieces === 'function') renderMyPieces();
-    if (typeof renderOppPieces === 'function') renderOppPieces();
   }
 
   const resolveCard = (c) => {
@@ -7580,27 +7546,53 @@ socket.on('passive_alert', (payload) => {
   //   의 기본 패시브 사운드와 중복 방지를 위해 type='torturer' 일 때 pickPassiveSfxByType 가 이미
   //   playSfxTorturerMark 를 반환하므로, anim 의 onSizzle 은 생략하고 기본 SFX 만 사용.
   if (type === 'torturer' && Array.isArray(markCells) && markCells.length > 0) {
-    // ★ 사용자 보고 수정: 표식 상태가 된 순간 — 시전자(자기) 시점에서 적 위치 즉시 노출.
-    //   markCells 의 좌표에 위치한 적 piece 들을 marked:true 로 마킹 + 보드 재렌더.
-    //   인두 낙하 애니메이션 도중에도, 그 후에도 표식 유닛이 보드에 노출됨.
-    if (typeof playerIdx === 'number' && playerIdx === S.playerIdx && Array.isArray(S.oppPieces)) {
-      for (const cell of markCells) {
+    // ★ 사용자 요청 (분리): 🎯 아이콘 / statusEffects 는 인두 낙하 시점 (이 핸들러) 에서 적용.
+    //   적 위치 노출(marked) 은 이미 mark_cast 시점에 처리됨 — 여기선 statusEffects 갱신만.
+    const isMyOrTeammate = (() => {
+      if (typeof playerIdx !== 'number') return false;
+      if (playerIdx === S.playerIdx) return true;
+      if (S.isTeamMode) {
+        const mates = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
+        return mates.includes(playerIdx);
+      }
+      return false;
+    })();
+    for (const cell of markCells) {
+      // 시전자 시점에서 적 piece 의 statusEffects 갱신 (🎯 아이콘 렌더링 트리거)
+      if (isMyOrTeammate && Array.isArray(S.oppPieces)) {
         const opp = S.oppPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
-        if (opp) opp.marked = true;
-      }
-      if (typeof renderGameBoard === 'function') renderGameBoard();
-    }
-    // 팀모드 — 시전자 팀원이 마킹 했을 때도 같은 팀이면 노출
-    if (S.isTeamMode && typeof playerIdx === 'number' && Array.isArray(S.oppPieces)) {
-      const teammates = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
-      if (teammates.includes(playerIdx)) {
-        for (const cell of markCells) {
-          const opp = S.oppPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
-          if (opp) opp.marked = true;
+        if (opp) {
+          opp.marked = true;
+          opp.statusEffects = opp.statusEffects || [];
+          if (!opp.statusEffects.some(e => e.type === 'mark')) {
+            opp.statusEffects.push({ type: 'mark', source: playerIdx });
+          }
         }
-        if (typeof renderGameBoard === 'function') renderGameBoard();
+      }
+      // 피격자 시점 — 자기 piece 가 그 셀에 있으면 자기 statusEffects 갱신 (카드 🎯 표시용)
+      if (Array.isArray(S.myPieces)) {
+        const my = S.myPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
+        if (my) {
+          my.statusEffects = my.statusEffects || [];
+          if (!my.statusEffects.some(e => e.type === 'mark')) {
+            my.statusEffects.push({ type: 'mark', source: playerIdx });
+          }
+        }
+      }
+      // 팀모드 — 팀원 piece 도 statusEffects 갱신 (카드 🎯 표시)
+      if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+        const tp = S.teammatePieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
+        if (tp) {
+          tp.statusEffects = tp.statusEffects || [];
+          if (!tp.statusEffects.some(e => e.type === 'mark')) {
+            tp.statusEffects.push({ type: 'mark', source: playerIdx });
+          }
+        }
       }
     }
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (typeof renderMyPieces === 'function') renderMyPieces();
+    if (typeof renderOppPieces === 'function') renderOppPieces();
     if (typeof animateMarkBrand === 'function') {
       try { animateMarkBrand(markCells); } catch (e) {}
     }
@@ -11529,9 +11521,10 @@ function renderGameBoard() {
     }
 
     // 표식 상태인 적 — 위치 공개. 팀모드에선 적 팀 컬러로 표시.
+    //   ★ 사용자 요청 (분리): 적 위치 노출(marked)은 시전 시점부터 / 🎯 인디케이터는
+    //   statusEffects 에 mark 가 들어간 인두 낙하 시점부터 — 두 시각 효과를 분리.
     const markedOpp = S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
     if (markedOpp && !pc) {
-      // 팀모드: 적 팀 절대 컬러로 (적 팀 = 내 팀의 반대)
       let oppColorCls = '';
       if (S.isTeamMode) {
         const oppTeamId = S.teamId === 0 ? 1 : 0;
@@ -11542,7 +11535,11 @@ function renderGameBoard() {
           <span class="p-icon">${markedOpp.icon}</span>
           <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
         </div>`;
-      cell.innerHTML += `<span class="cell-mark">🎯</span>`;
+      // 🎯 cell-mark — statusEffects 에 mark 가 들어있을 때만 (인두 낙하 후)
+      const hasMarkStatus = (markedOpp.statusEffects || []).some(e => e.type === 'mark');
+      if (hasMarkStatus) {
+        cell.innerHTML += `<span class="cell-mark">🎯</span>`;
+      }
       cell.classList.add('has-piece');
     }
 
