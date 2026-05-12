@@ -341,6 +341,7 @@ function showScreen(id) {
   else if (id === 'screen-draft' && S.deckBuilderMode) bgmPlay('lobby');
   else if (setupScreens.includes(id)) bgmPlay('setup');
   else if (id === 'screen-game') bgmPlay('game');
+  else if (id === 'screen-tutorial-interactive') bgmPlay('tutorial');
   // gameover는 game_over 핸들러에서 직접 호출
   // #7: 설정 단계 나가기 버튼 표시/숨김
   const exitScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement'];
@@ -17122,6 +17123,7 @@ document.addEventListener('click', function _bgmFirstClick() {
       if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
       else if (setupScreens.includes(id)) bgmPlay('setup');
       else if (id === 'screen-game') bgmPlay('game');
+      else if (id === 'screen-tutorial-interactive') bgmPlay('tutorial');
       else if (id === 'screen-gameover') {
         // 게임오버 트랙은 game_over 핸들러가 별도 호출 — 여기선 무시
       }
@@ -17149,9 +17151,61 @@ function bgmPlay(trackName) {
     case 'lobby': bgmLobby(ctx, gain); break;
     case 'setup': bgmSetup(ctx, gain); break;
     case 'game':  bgmGame(ctx, gain); break;
+    case 'tutorial': bgmTutorial(ctx, gain); break;
     case 'victory': bgmVictory(ctx, gain); break;
     case 'defeat':  bgmDefeat(ctx, gain); break;
   }
+}
+
+// ── 튜토리얼 BGM: 안개 속 탐험 — 5음계 펜타토닉 + 저음 드론 + 가끔의 sparkle ──
+function bgmTutorial(ctx, dest) {
+  // D minor pentatonic — 신비롭고 차분한 톤
+  const notes = [
+    293.66, 349.23, 392.00, 349.23, 293.66, 261.63, 220.00, 261.63,
+    293.66, 392.00, 440.00, 392.00, 349.23, 293.66, 261.63, 220.00,
+  ];
+  const dur = 0.55;
+  function playLoop() {
+    if (BGM.currentTrack !== 'tutorial') return;
+    const now = ctx.currentTime;
+    // 메인 멜로디 — 부드러운 sine
+    for (let i = 0; i < notes.length; i++) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = notes[i];
+      g.gain.setValueAtTime(0, now + i*dur);
+      g.gain.linearRampToValueAtTime(0.09, now + i*dur + 0.06);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i*dur + dur*0.92);
+      osc.connect(g); g.connect(dest);
+      osc.start(now + i*dur); osc.stop(now + i*dur + dur);
+      BGM.nodes.push(osc);
+    }
+    // 베이스 드론 — D2 낮은 음
+    const drone = ctx.createOscillator();
+    const dg = ctx.createGain();
+    drone.type = 'sine';
+    drone.frequency.value = 73.42;
+    dg.gain.value = 0.05;
+    drone.connect(dg); dg.connect(dest);
+    drone.start(now); drone.stop(now + notes.length*dur);
+    BGM.nodes.push(drone);
+    // 고음 sparkle — 8박마다 한 번씩 (안개 속 별빛 느낌)
+    for (let i = 0; i < notes.length; i += 8) {
+      const sp = ctx.createOscillator();
+      const sg = ctx.createGain();
+      sp.type = 'triangle';
+      sp.frequency.value = 880;
+      sg.gain.setValueAtTime(0, now + i*dur);
+      sg.gain.linearRampToValueAtTime(0.035, now + i*dur + 0.12);
+      sg.gain.exponentialRampToValueAtTime(0.001, now + i*dur + 1.4);
+      sp.connect(sg); sg.connect(dest);
+      sp.start(now + i*dur); sp.stop(now + i*dur + 1.5);
+      BGM.nodes.push(sp);
+    }
+    BGM.timers.push(setTimeout(playLoop, notes.length * dur * 1000));
+  }
+  playLoop();
 }
 
 // ── 로비 BGM: 기대감 있는 준비 선율 (루프) ──
