@@ -128,7 +128,7 @@ const CHARACTERS = {
       skills:[], passives:['wrath'] },
     { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal', desc:'주변 8칸 · 자기 제외',
       skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격 · 2 피해'}] },
-    { type:'torturer', name:'고문 기술자', tier:3, atk:1, icon:'⛓', tag:'villain', desc:'십자 4방향 + 자신 · 총 5칸',
+    { type:'torturer', name:'고문 기술자', tier:3, atk:1, icon:'⛓', tag:'villain', desc:'십자 4방향 · 자기 제외 · 총 4칸',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:2, icon:'🦇', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
@@ -306,8 +306,7 @@ function getAttackCells(type, col, row, bounds, extra) {
           if (dc !== 0 || dr !== 0) push(col + dc, row + dr);
       break;
     case 'torturer':
-      // ★ 리워크: 자신 + 4방향 인접 = 5칸 십자 (atk 1 너프와 동반된 범위 버프)
-      push(col, row);
+      // ★ 사용자 밸런스 조정: 자기 셀 제외 — 십자 4방향만 (총 4칸).
       push(col, row - 1);
       push(col, row + 1);
       push(col - 1, row);

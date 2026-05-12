@@ -14004,8 +14004,7 @@ function getAttackCells(type, col, row, extra) {
       for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
       break;
     case 'torturer':
-      // ★ 리워크: 자신 + 4방향 인접 = 5칸 십자
-      push(col, row);
+      // ★ 자기 셀 제외 — 십자 4방향만 (총 4칸).
       push(col, row-1); push(col, row+1);
       push(col-1, row); push(col+1, row);
       break;
@@ -14449,7 +14448,7 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'slaughterHero': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)push(col+dc,row+dr); break;
     case 'commander': push(col-1,row);push(col+1,row); break;
     case 'sulfurCauldron': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
-    case 'torturer': push(col,row);push(col,row-1);push(col,row+1);push(col-1,row);push(col+1,row); break;
+    case 'torturer': push(col,row-1);push(col,row+1);push(col-1,row);push(col+1,row); break;
     case 'count': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
   }
   return cells;
