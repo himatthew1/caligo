@@ -2424,7 +2424,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2556,6 +2556,11 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     // ★ 유황범람 라바 애니 — borderCells 모든 셀에 .lava-bubbling 클래스
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
+    }
+    // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀 보라 펄스 + scale.
+    if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
+        typeof animateNightmareCast === 'function') {
+      animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
     }
     // ★ 회복 애니메이션 — 약초학/신성 등이 시전자 외 시점(팀원/적팀)에서도 보이도록.
     //   team_game_update 가 곧이어 도착해 renderTeamProfiles 가 DOM 을 재생성하므로
@@ -3191,7 +3196,7 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget, nightmareCells }) => {
   if (!S.isSpectator) return;
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
@@ -3276,6 +3281,11 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
     }
+    // ★ 악몽 시전 (1v1 관전자 시점) — 표식 적 셀 보라 펄스.
+    if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
+        typeof animateNightmareCast === 'function') {
+      animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
+    }
     // ★ 저주 부여 turn-bright — 1v1 관전자 시점 (누락 수정).
     //   1v1 관전자: ownerIdx 0 → #my-pieces-info, 1 → #opp-pieces-info.
     if (typeof cursedPieceIdx === 'number' && typeof cursedOwnerIdx === 'number') {
@@ -3353,7 +3363,7 @@ socket.on('spectator_attack_anim', ({ atkCells, hits }) => {
 });
 
 // ── 관전자 전투 로그 ──
-socket.on('spectator_log', ({ msg, type, playerIdx }) => {
+socket.on('spectator_log', ({ msg, type, playerIdx, markCells }) => {
   if (!S.isSpectator) return;
   addLog(msg, type || 'system');
   if (type === 'event') {
@@ -3361,13 +3371,21 @@ socket.on('spectator_log', ({ msg, type, playerIdx }) => {
   } else if (type === 'skill' || type === 'hit' || type === 'passive' || type === 'move' || type === 'miss' || type === 'attack') {
     showSkillToast(msg, false, playerIdx);
   }
+  // ★ 표식 리워크 (관전자): 인두 낙하 애니메이션
+  if (type === 'passive' && msg.startsWith('⛓ 표식:') && Array.isArray(markCells) && markCells.length > 0 &&
+      typeof animateMarkBrand === 'function') {
+    try { animateMarkBrand(markCells); } catch (e) {}
+  }
   // 관전자 전용 효과음: 메시지 내용으로 판단
   if (type === 'passive' && msg.startsWith('☠ 저주:') && msg.includes('0.5 피해')) {
     playSfxCurseDamage();
+  } else if (type === 'passive' && msg.startsWith('⛓ 표식:')) {
+    // 표식 — 인두 시즐 (animateMarkBrand 의 사운드와 통일)
+    playSfxTorturerMark();
   } else if (type === 'passive') {
     // 그 외 패시브는 전용 차임
     playSfxPassive();
-  } else if (type === 'skill' && msg.startsWith('⛓ 악몽:')) {
+  } else if (type === 'skill' && msg.startsWith('⛓ 악몽')) {
     playSfxNightmare();
   } else if (type === 'hit' && msg.includes('🪤')) {
     playSfxTrapSnap();
@@ -6140,6 +6158,11 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(data.borderCells);
       }
+      // ★ 악몽 시전 (시전자 시점) — 표식 상태 적 셀에 보라 펄스 + scale.
+      if (data && Array.isArray(data.nightmareCells) && data.nightmareCells.length > 0 &&
+          typeof animateNightmareCast === 'function') {
+        animateNightmareCast(data.nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
+      }
       // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
       if (data && data.herbCenter && typeof animateHerbCast === 'function') {
         animateHerbCast(data.herbCenter.col, data.herbCenter.row);
@@ -6272,7 +6295,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells }) => {
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
@@ -6384,6 +6407,11 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
             if (card) card.classList.add('turn-bright');
           }
         });
+      }
+      // ★ 악몽 시전 (1v1 상대 시점) — 표식 적 셀 보라 펄스.
+      if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
+          typeof animateNightmareCast === 'function') {
+        animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
       }
 
       // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
@@ -7417,7 +7445,7 @@ function flushDefensiveAlerts(opts) {
 }
 
 socket.on('passive_alert', (payload) => {
-  const { type, playerIdx } = payload || {};
+  const { type, playerIdx, markCells } = payload || {};
   // 호위무사 가로채기 플래그는 being_attacked 측 보호 애니메이션 분기에 사용
   if (type === 'bodyguard') S._bodyguardIntercepted = true;
   // ★ 사용자 보고: wizard 의 SP gain 오브는 더 이상 즉시 spawn 안 함 — flush 시점(_renderPassiveAlert)에 발사.
@@ -7425,6 +7453,14 @@ socket.on('passive_alert', (payload) => {
   if (DEFENSIVE_PASSIVE_TYPES.has(type)) {
     S._pendingDefensiveAlerts.push(payload);
     return;
+  }
+  // ★ 표식 리워크: 인두 낙하 보드 애니메이션 — 셀 좌표가 있을 때만 발사.
+  //   sound 는 animateMarkBrand 의 onSizzle 콜백에서 playSfxTorturerMark 호출 → _renderPassiveAlert
+  //   의 기본 패시브 사운드와 중복 방지를 위해 type='torturer' 일 때 pickPassiveSfxByType 가 이미
+  //   playSfxTorturerMark 를 반환하므로, anim 의 onSizzle 은 생략하고 기본 SFX 만 사용.
+  if (type === 'torturer' && Array.isArray(markCells) && markCells.length > 0 &&
+      typeof animateMarkBrand === 'function') {
+    try { animateMarkBrand(markCells); } catch (e) {}
   }
   _renderPassiveAlert(payload);
 });
@@ -16693,17 +16729,39 @@ function playSfxButcherBetrayer() {
     _sfxTone(ctx, now + 0.08, 200, 0.25, 'sawtooth', 0.1, 80);  // 어두운 비명
   } catch (e) {}
 }
-// 21. 표식 (고문 기술자) — 사슬 짤랑 + 날카로운 클릭
+// 21. 표식 (고문 기술자) — 리워크: 인두가 살을 지지는 "치이익ㅡ" 시즐.
+//   고대역 노이즈 (sizzle) + 저주파 험 (인두 무게) + 마지막 "탁" 박힘 임팩트.
 function playSfxTorturerMark() {
   if (sfxMuted) return;
   try {
     const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 사슬
-    for (let i = 0; i < 4; i++) {
-      _sfxNoise(ctx, now + i * 0.04, 0.025, 0.07, 3000, 8000);
-    }
-    // 날카로운 클릭
-    _sfxTone(ctx, now + 0.2, 2200, 0.06, 'square', 0.1);
+    // ① 임팩트 — 인두가 셀에 박히는 둔탁한 "탁" (저주파 짧은 thud)
+    _sfxTone(ctx, now, 90, 0.08, 'sine', 0.35, 40);
+    _sfxNoise(ctx, now, 0.04, 0.2, 200, 1200);
+    // ② 시즐 (치이익ㅡ) — 고대역 화이트 노이즈를 700ms 동안 점점 감쇠.
+    //    bandpass 필터로 "지글지글" 질감.
+    const noiseDur = 0.7;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * noiseDur, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = 4500; filter.Q.value = 1.2;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now + 0.06);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.12);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06 + noiseDur);
+    src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    src.start(now + 0.05); src.stop(now + 0.06 + noiseDur);
+    // ③ 살 타는 저주파 험 (60Hz drone) — 임팩트 후 짧게.
+    const hum = ctx.createOscillator(); const humG = ctx.createGain();
+    hum.type = 'sine'; hum.frequency.value = 70;
+    humG.gain.setValueAtTime(0.0001, now + 0.06);
+    humG.gain.linearRampToValueAtTime(0.12, now + 0.15);
+    humG.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    hum.connect(humG); humG.connect(ctx.destination);
+    hum.start(now + 0.05); hum.stop(now + 0.75);
   } catch (e) {}
 }
 

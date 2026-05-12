@@ -7244,3 +7244,348 @@ body[data-my-team="red"] #chat-scope-team.active {
   85%  { transform: translate(-1px, 1px); }
   100% { transform: translate(0, 0); }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   고문기술자 표식 발동 (v3) — 단일 연속 시퀀스 (낙하 → 임팩트 → 홀드 → 들어올림)
+   인두의 head 중심이 셀 우상단 🎯 표식 위치 (대략 cell-mark 중심: top 14%, right 14%) 와
+   *정확히 일치* 하도록 정렬. head 가 표식을 완전히 덮음.
+   셀에 .mark-brand-host 클래스 부여로 overflow:visible — 인두 낙하 궤적 셀 밖까지 보임.
+   ══════════════════════════════════════════════════════════════════════ */
+.cell.mark-brand-host {
+  overflow: visible !important;
+  z-index: 35;       /* 인접 셀이 인두를 가리지 않도록 위로 띄움 */
+}
+/* 인두 본체 — 픽셀 기반 정렬 (cell-mark CSS top:2px right:3px 와 매칭).
+   iron 컨테이너:
+     top: -46px (셀 위 46px) / right: 4px (보드 안쪽으로 4px 들여 위치) / width: 18px / height: 64px
+     head (bottom 16px) 차지 영역: cell 좌표 top 2~18px, right 4~22px.
+     mark 박스 (top 2~14, right 3~15) 와 비교 — head 가 mark 전체를 덮으며 약간 더 안쪽/아래로 확장.
+   transform-origin: 50% 100% — head (bottom) 기준 회전. */
+.mark-brand-iron {
+  position: absolute;
+  top: -46px;
+  right: 4px;
+  width: 18px;
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: 50% 100%;
+  z-index: 30;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(251, 113, 36, 0.8));
+  animation: markBrandSeq 1.8s linear forwards;
+}
+.mark-brand-iron-handle {
+  width: 5px;
+  height: 48px;
+  background: linear-gradient(180deg, #44302a 0%, #2a1a16 60%, #1a0e0a 100%);
+  border-radius: 2px;
+  box-shadow: inset -1px 0 0 rgba(0,0,0,0.35), inset 1px 0 0 rgba(255,255,255,0.06);
+}
+.mark-brand-iron-head {
+  width: 18px;
+  height: 16px;
+  margin-top: -1px;
+  border-radius: 4px 4px 2px 2px;
+  background:
+    radial-gradient(ellipse at 50% 35%, #fff8c4 0%, #fef08a 18%, #f97316 45%, #b91c1c 75%, #450a0a 100%);
+  box-shadow:
+    0 0 14px rgba(249, 115, 22, 0.95),
+    0 0 26px rgba(248, 113, 113, 0.75),
+    inset 0 -3px 6px rgba(180, 30, 0, 0.55);
+}
+/* 단일 시퀀스 키프레임 (v3, 슬램 강조) — 0~15% 낙하(빠른 슬램) / 15~28% 임팩트 bounce /
+   28~52% 홀드 / 52~100% 들어올림 (절반 높이).
+   per-keyframe animation-timing-function 으로 단계별 가속/감속:
+     0% : 중력 가속 (낙하 점점 빨라짐)
+     15%: 오버슈트 (살짝 튕김)
+     32%: 선형 (정지 유지)
+     52%: 부드러운 ease-in (점점 올라감) */
+@keyframes markBrandSeq {
+  0%   { transform: translateY(-360%) rotate(22deg); opacity: 0;
+         animation-timing-function: cubic-bezier(0.6, 0.04, 0.98, 0.3); }
+  3%   { opacity: 1; }
+  15%  { transform: translateY(0%) rotate(0deg) scale(1.15);
+         animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1); }
+  21%  { transform: translateY(0%) rotate(0deg) scale(0.88); }
+  28%  { transform: translateY(0%) rotate(0deg) scale(1);
+         animation-timing-function: linear; }
+  52%  { transform: translateY(0%) rotate(0deg); opacity: 1;
+         animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
+  72%  { transform: translateY(-50%) rotate(-3deg); opacity: 1; }
+  100% { transform: translateY(-180%) rotate(-8deg); opacity: 0; }
+}
+/* 셀 흔들림 — 인두 임팩트 시점에 셀 자체 짧게 진동 */
+.cell.mark-brand-cell-shake {
+  animation: markBrandCellShake 0.42s ease-out;
+}
+@keyframes markBrandCellShake {
+  0%, 100% { transform: translate(0, 0); }
+  15%      { transform: translate(-2px, 1px); }
+  30%      { transform: translate(2px, -1px); }
+  45%      { transform: translate(-2px, 1px); }
+  60%      { transform: translate(1.5px, 1px); }
+  78%      { transform: translate(-1px, 0); }
+}
+/* 표식 인디케이터 (🎯) — 인두 임팩트 시 붉게 오래 빛나다 천천히 원래대로.
+   총 2.6s — 7% 에 빠른 등장 → 8~12% 강렬 정점 → 12~50% 진한 글로우 유지 → 50~100% 천천히 감쇠. */
+.cell-mark.mark-brand-spawn-anim {
+  animation: markBrandEmojiGlow 2.6s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+@keyframes markBrandEmojiGlow {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-25deg);
+    filter: drop-shadow(0 0 0 transparent) brightness(1);
+    text-shadow: none;
+  }
+  8% {
+    opacity: 1;
+    transform: scale(1.6) rotate(8deg);
+    filter: drop-shadow(0 0 16px rgba(254, 226, 226, 1))
+            drop-shadow(0 0 28px rgba(220, 38, 38, 1))
+            brightness(1.95);
+    text-shadow:
+      0 0 16px rgba(254, 240, 138, 1),
+      0 0 26px rgba(220, 38, 38, 1),
+      0 0 8px #fff;
+  }
+  18% {
+    opacity: 1;
+    transform: scale(1.32) rotate(2deg);
+    filter: drop-shadow(0 0 14px rgba(254, 226, 226, 0.95))
+            drop-shadow(0 0 24px rgba(220, 38, 38, 0.95))
+            brightness(1.7);
+    text-shadow:
+      0 0 14px rgba(254, 226, 226, 0.95),
+      0 0 22px rgba(220, 38, 38, 0.95);
+  }
+  40% {
+    /* 강한 붉은 글로우를 비교적 오래 유지 */
+    opacity: 1;
+    transform: scale(1.22);
+    filter: drop-shadow(0 0 12px rgba(248, 113, 113, 0.92))
+            drop-shadow(0 0 20px rgba(220, 38, 38, 0.85))
+            brightness(1.55);
+    text-shadow:
+      0 0 12px rgba(254, 226, 226, 0.85),
+      0 0 18px rgba(220, 38, 38, 0.85);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.14);
+    filter: drop-shadow(0 0 9px rgba(248, 113, 113, 0.65))
+            drop-shadow(0 0 14px rgba(220, 38, 38, 0.55))
+            brightness(1.32);
+    text-shadow: 0 0 8px rgba(220, 38, 38, 0.6);
+  }
+  78% {
+    opacity: 1;
+    transform: scale(1.07);
+    filter: drop-shadow(0 0 5px rgba(248, 113, 113, 0.4)) brightness(1.16);
+    text-shadow: 0 0 4px rgba(220, 38, 38, 0.32);
+  }
+  92% {
+    opacity: 1;
+    transform: scale(1.02);
+    filter: drop-shadow(0 0 2px rgba(248, 113, 113, 0.18)) brightness(1.05);
+    text-shadow: 0 0 1px rgba(220, 38, 38, 0.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 transparent) brightness(1);
+    text-shadow: none;
+  }
+}
+/* 연기 파티클 — 표식 위치에서 위로 사라지는 회색 wisp */
+.mark-smoke-particle {
+  position: fixed;
+  width: 7px; height: 7px;
+  background: radial-gradient(circle, rgba(180, 180, 180, 0.75) 0%, rgba(120, 120, 120, 0.4) 50%, rgba(80, 80, 80, 0) 100%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9000;
+  animation: markSmokeRise var(--dur, 1.2s) ease-out forwards;
+}
+@keyframes markSmokeRise {
+  0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+  15%  { opacity: 0.85; }
+  100% { transform: translate(calc(-50% + var(--dx, 0)), -130%) scale(2.2); opacity: 0; }
+}
+/* 불티 — 오렌지/노랑 작은 점이 부채꼴로 튐 */
+.mark-spark-particle {
+  position: fixed;
+  width: 4px; height: 4px;
+  background: radial-gradient(circle, #fde68a 0%, #f97316 60%, rgba(180, 60, 0, 0) 100%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9001;
+  box-shadow: 0 0 6px rgba(249, 115, 22, 0.9);
+  animation: markSparkBurst var(--dur, 0.8s) ease-out forwards;
+}
+@keyframes markSparkBurst {
+  0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx, 0)), calc(-50% + var(--dy, 0))) scale(0.2); opacity: 0; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   고문기술자 악몽 시전 (v2) — 사슬 떨림 + 사방 수렴 파티클
+   둥실둥실 펄스 → 사슬에 묶여 고통스럽게 떨리는 연출.
+   파티클은 보드 가장자리 4면에서 *각 표식 인디케이터 위치* 로 빨려 들어옴.
+   ══════════════════════════════════════════════════════════════════════ */
+/* 표식 인디케이터 (🎯) — 위치는 *고정*, 보라 글로우 breathing 만 (사용자 요청).
+   이전엔 사슬 떨림으로 translate/rotate 가 있었으나, 표식은 새겨진 상태이므로 정적인 게 자연스러움. */
+.cell-mark.nightmare-chained {
+  animation: nightmareMarkBreath 1.4s ease-in-out infinite;
+  z-index: 32;
+}
+@keyframes nightmareMarkBreath {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 8px rgba(168, 85, 247, 1))
+      drop-shadow(0 0 16px rgba(217, 70, 239, 0.9))
+      drop-shadow(0 0 26px rgba(168, 85, 247, 0.5));
+    text-shadow:
+      0 0 12px rgba(168, 85, 247, 1),
+      0 0 20px rgba(217, 70, 239, 0.9),
+      0 0 6px #fff;
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 14px rgba(168, 85, 247, 1))
+      drop-shadow(0 0 24px rgba(217, 70, 239, 1))
+      drop-shadow(0 0 36px rgba(168, 85, 247, 0.7))
+      brightness(1.25);
+    text-shadow:
+      0 0 16px rgba(168, 85, 247, 1),
+      0 0 28px rgba(217, 70, 239, 1),
+      0 0 10px #fff;
+  }
+}
+/* 임팩트 플래시 — 시퀀스 마지막 짧게 강렬 글로우. ★ 위치 고정 (사용자 요청): transform 사용 X.
+   글로우 강도와 brightness 만 변화 — 표식 위치는 그대로. */
+.cell-mark.nightmare-impact-flash {
+  animation: nightmareImpactFlash 0.55s ease-out;
+}
+@keyframes nightmareImpactFlash {
+  0% {
+    filter:
+      drop-shadow(0 0 8px rgba(168, 85, 247, 1))
+      drop-shadow(0 0 16px rgba(217, 70, 239, 0.9))
+      brightness(1);
+  }
+  30% {
+    filter:
+      drop-shadow(0 0 18px rgba(244, 114, 182, 1))
+      drop-shadow(0 0 32px rgba(217, 70, 239, 1))
+      drop-shadow(0 0 14px #fff)
+      brightness(2.0);
+  }
+  100% {
+    filter:
+      drop-shadow(0 0 8px rgba(168, 85, 247, 1))
+      drop-shadow(0 0 16px rgba(217, 70, 239, 0.9))
+      brightness(1);
+  }
+}
+/* 희생자 piece-marker — 미세 떨림만. 시각 보정 없음. */
+.piece-marker.nightmare-tremble {
+  animation: nightmareVictimTremble 0.12s ease-in-out infinite;
+}
+@keyframes nightmareVictimTremble {
+  0%, 100% { transform: translate(0, 0); }
+  20%      { transform: translate(-2px, 1px); }
+  40%      { transform: translate(2px, 0px); }
+  60%      { transform: translate(-1px, -1px); }
+  80%      { transform: translate(1.5px, 1px); }
+}
+/* 보드 안개 — 어두운 보라 톤이 보드 전체에 깔림 */
+.nightmare-board-fog {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+  background:
+    radial-gradient(ellipse at 50% 50%, rgba(76, 29, 149, 0.22) 0%, rgba(76, 29, 149, 0.10) 50%, rgba(20, 0, 35, 0.18) 100%);
+  animation: nightmareBoardFogPulse 2.1s ease-out forwards;
+}
+@keyframes nightmareBoardFogPulse {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  75%  { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+/* ══════════════════════════════════════════════════════════════════════
+   악몽 — *SVG 나선형* 어두운 보라 소용돌이 (느린 회전, 5가지 스타일 A~E)
+   ★ ::before 의사 요소 로 셀 배경 위에 깔림 → 셀 자식 (유닛/표식/설치물) 자동으로 위 표시.
+   ★ 회전 잘림 방지를 위해 inset: -25% (컨테이너 150% × 150%) + SVG endR 50 으로 viewBox 가득 채움.
+   ══════════════════════════════════════════════════════════════════════ */
+@keyframes nightmareSpinSlow { to { transform: rotate(360deg); } }
+@keyframes nightmareCellPulse {
+  0%, 100% { box-shadow: inset 0 0 16px rgba(76, 29, 149, 0.55), 0 0 12px rgba(126, 34, 206, 0.4); }
+  50%      { box-shadow: inset 0 0 28px rgba(76, 29, 149, 0.85), 0 0 26px rgba(168, 85, 247, 0.75), 0 0 44px rgba(168, 85, 247, 0.3); }
+}
+/* 나선형 호스트 셀 — 어두운 보라 배경 + 셀 펄스.
+   배경색은 commander buff 셀 (morale-zone) 의 청록 background 위에 alpha 로 합성됨 (반투명). */
+.cell.nightmare-spiral-host {
+  position: relative;
+  overflow: hidden;
+  /* ★ stacking context 강제 격리 — 셀 내부 z-index 가 외부와 섞이지 않도록.
+     이로써 ::after 스파이럴(z 2) 과 자식 유닛(z 30+) 의 상대 순서가 명확해짐. */
+  isolation: isolate;
+  animation: nightmareCellPulse 1.4s ease-in-out infinite;
+  /* 스타일별 회전 속도 — CSS 변수로 ::after 에 전달 */
+  --nightmare-spiral-dur: 6s;
+  /* 오퍼시티 — 5단계 (옵션 A 확정 후 세부 미세 조정용). 기본 lvl-3 (0.62). */
+  --nightmare-spiral-opacity: 0.62;
+}
+.cell.nightmare-spiral-host.style-a { --nightmare-spiral-dur: 6.0s; }
+.cell.nightmare-spiral-host.style-b { --nightmare-spiral-dur: 8.0s; }
+.cell.nightmare-spiral-host.style-c { --nightmare-spiral-dur: 5.5s; }
+.cell.nightmare-spiral-host.style-d { --nightmare-spiral-dur: 7.5s; }
+.cell.nightmare-spiral-host.style-e { --nightmare-spiral-dur: 6.5s; }
+/* 오퍼시티 5단계 — opt-1 (가장 옅음) ~ opt-5 (가장 짙음). */
+.cell.nightmare-spiral-host.opt-1 { --nightmare-spiral-opacity: 0.30; }
+.cell.nightmare-spiral-host.opt-2 { --nightmare-spiral-opacity: 0.45; }
+.cell.nightmare-spiral-host.opt-3 { --nightmare-spiral-opacity: 0.62; }
+.cell.nightmare-spiral-host.opt-4 { --nightmare-spiral-opacity: 0.78; }
+.cell.nightmare-spiral-host.opt-5 { --nightmare-spiral-opacity: 0.95; }
+/* ::before — 어두운 보라 배경. 오퍼시티 낮춰 commander buff cyan 이 살짝 비침. */
+.cell.nightmare-spiral-host::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: rgba(35, 8, 55, 0.45);  /* 0.78 → 0.45 — 존재감 약화 */
+  pointer-events: none;
+  z-index: 1;
+}
+/* ::after — 회전하는 SVG 나선. 셀 크기보다 150% 로 확장.
+   오퍼시티는 CSS 변수 --nightmare-spiral-opacity 로 5단계 (opt-1 ~ opt-5) 제어. */
+.cell.nightmare-spiral-host::after {
+  content: '';
+  position: absolute;
+  inset: -25%;
+  background-image: var(--nightmare-spiral-bg, none);
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: var(--nightmare-spiral-opacity, 0.62);
+  pointer-events: none;
+  z-index: 2;
+  animation: nightmareSpinSlow var(--nightmare-spiral-dur, 6s) linear infinite;
+  will-change: transform;
+}
+/* 셀 직속 자식 (유닛/표식/설치물 모두) — 나선 위로 끌어올림.
+   ★ position 은 변경 X — cell-mark 의 absolute top:2px/right:3px 등 원본 positioning 유지.
+   직속 자식들은 이미 모두 position:absolute 상태이므로 z-index 만 부여하면 stacking 적용됨.
+   ★ z-index 를 큰 값으로 — morale-zone 등 기존 z-index 3 보다 확실히 위로. */
+.cell.nightmare-spiral-host > * { z-index: 30; }
+/* piece-marker 가 morale-zone 등에서 이미 z-index:3 이 있어도 강제 override. */
+.cell.nightmare-spiral-host .piece-marker { z-index: 35 !important; }
+.cell.nightmare-spiral-host .cell-mark    { z-index: 36 !important; }
+.cell.nightmare-spiral-host .preview-installation { z-index: 34 !important; }
+/* 보드 설치물 (실제 게임의 board-object) 도 위로. */
+.cell.nightmare-spiral-host .board-object,
+.cell.nightmare-spiral-host [class*="board-installation"] { z-index: 33 !important; }

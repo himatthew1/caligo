@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>고문기술자 표식·악몽 애니메이션 미리보기 · CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body {
+    margin: 0; min-height: 100vh;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(50, 20, 60, 0.45), transparent 65%),
+      linear-gradient(135deg, #0a0410 0%, #1a0a20 60%, #04020a 100%);
+    color: #fef3c7;
+    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+    padding: 32px 16px 64px;
+    display: block !important; align-items: initial !important; justify-content: initial !important;
+  }
+  h1 {
+    margin: 0 0 6px; font-size: 1.7rem; font-weight: 800; letter-spacing: 0.05em;
+    background: linear-gradient(135deg, #fde68a 0%, #f59e0b 50%, #c026d3 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-align: center;
+  }
+  .sub {
+    color: #c4b5fd; font-size: 0.85rem; text-align: center; max-width: 820px;
+    margin: 0 auto 14px; line-height: 1.65;
+  }
+  .global-controls {
+    max-width: 920px; margin: 8px auto 22px;
+    background: rgba(15, 8, 23, 0.85); border: 1px solid rgba(168, 85, 247, 0.25);
+    border-radius: 10px; padding: 12px 18px;
+    display: flex; gap: 14px; align-items: center; justify-content: center;
+  }
+  .global-controls button {
+    background: rgba(168, 85, 247, 0.25);
+    border: 1px solid rgba(196, 181, 253, 0.45);
+    color: #f5f3ff;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 0.85rem; font-weight: 700;
+  }
+  .global-controls button.active {
+    background: rgba(34, 197, 94, 0.22); border-color: rgba(74, 222, 128, 0.55); color: #f0fdf4;
+  }
+  .anim-block {
+    max-width: 920px; margin: 22px auto;
+    background: rgba(15, 8, 23, 0.6);
+    border: 1px solid rgba(168, 85, 247, 0.22);
+    border-radius: 12px;
+    padding: 18px 22px;
+  }
+  .anim-block h2 {
+    margin: 0 0 6px; font-size: 1.1rem;
+    color: #fde68a; letter-spacing: 0.04em;
+  }
+  .anim-block .desc {
+    font-size: 0.82rem; color: #cbd5e1; margin-bottom: 14px; line-height: 1.6;
+  }
+  .anim-stage {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 18px; align-items: start;
+  }
+  .preview-board {
+    width: 360px; height: 360px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(5, 1fr);
+    gap: 5px; padding: 10px;
+    background: rgba(20, 10, 30, 0.5);
+    border: 2px solid rgba(196, 181, 253, 0.3);
+    border-radius: 10px;
+    position: relative;
+  }
+  .preview-board .cell {
+    background: rgba(35, 25, 50, 0.6);
+    border: 1px solid rgba(168, 85, 247, 0.18);
+    border-radius: 5px;
+    position: relative;
+    display: grid; place-items: center;
+    font-size: 0.65rem; color: #94a3b8;
+    overflow: hidden;
+  }
+  .preview-board .cell .coord-label {
+    font-size: 0.55rem; opacity: 0.4;
+    position: absolute; top: 2px; left: 4px;
+  }
+  .preview-board .piece-marker {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 2;
+  }
+  .preview-board .piece-marker .p-icon { font-size: 1.45rem; line-height: 1; }
+  .preview-board .piece-marker .p-name { font-size: 0.55rem; color: #fef3c7; margin-top: 2px; }
+  .preview-board .cell.mark-target {
+    /* 표식이 새겨질 셀 — 약한 노란 외곽 (식별용) */
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+  }
+  /* 설치물 (덫/폭탄/쥐) — 셀 모서리에 작은 아이콘으로 표시. */
+  .preview-board .preview-installation {
+    position: absolute;
+    font-size: 0.85rem;
+    line-height: 1;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .preview-board .preview-installation.install-trap { bottom: 3px; left: 4px; }
+  .preview-board .preview-installation.install-bomb { bottom: 3px; right: 4px; }
+  .preview-board .preview-installation.install-rat  { top: 3px; left: 4px; }
+  .controls { display: flex; flex-direction: column; gap: 10px; min-width: 240px; }
+  .controls button {
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.5), rgba(217, 70, 239, 0.45));
+    border: 1px solid rgba(244, 114, 182, 0.5);
+    color: #f5f3ff;
+    padding: 11px 16px; border-radius: 8px; cursor: pointer;
+    font-size: 0.88rem; font-weight: 700;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .controls button.brand {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.45), rgba(220, 38, 38, 0.5));
+    border-color: rgba(252, 165, 165, 0.6);
+  }
+  .controls button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 12px rgba(168, 85, 247, 0.55);
+  }
+  .controls .label-tip {
+    font-size: 0.72rem; color: #c4b5fd; line-height: 1.5;
+    background: rgba(30, 15, 45, 0.55); padding: 8px 10px; border-radius: 6px;
+    border: 1px solid rgba(168, 85, 247, 0.22);
+  }
+  /* 인벤토리 표시 */
+  .info-table {
+    width: 100%; max-width: 920px; margin: 18px auto;
+    border-collapse: collapse;
+    background: rgba(15, 8, 23, 0.4);
+    border: 1px solid rgba(168, 85, 247, 0.2);
+    border-radius: 8px; overflow: hidden;
+    font-size: 0.82rem;
+  }
+  .info-table th, .info-table td {
+    padding: 8px 14px; text-align: left;
+    border-bottom: 1px solid rgba(168, 85, 247, 0.13);
+  }
+  .info-table th { background: rgba(168, 85, 247, 0.18); color: #fde68a; font-weight: 700; }
+  .info-table td { color: #cbd5e1; }
+  .info-table .key { color: #fde68a; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>⛓ 고문기술자 — 표식 · 악몽 보드 애니메이션 미리보기</h1>
+<p class="sub">
+  하늘에서 인두가 떨어져 박히는 <strong>표식 발동</strong> · 표식된 적 셀이 보라색으로 펄스하는 <strong>악몽 시전</strong>.<br>
+  게임 내부 (mark-anim.js / nightmare-anim.js / playSfxTorturerMark / playSfxNightmare) 와 동일한 모듈·사운드 사용.
+</p>
+
+<div class="global-controls">
+  <button id="btn-mute" class="active">🔊 사운드 ON</button>
+  <span style="font-size:0.78rem;color:#c4b5fd;">버튼 클릭 시 게임 내 SFX 와 동일한 사운드 재생</span>
+</div>
+
+<table class="info-table">
+  <tr><th colspan="2">고문기술자 리워크 요약</th></tr>
+  <tr><td class="key">ATK</td><td>2 → <strong>1</strong></td></tr>
+  <tr><td class="key">공격 범위</td><td>자신 + 바로 아래 (2칸) → <strong>십자 4방향 + 자신 (5칸)</strong></td></tr>
+  <tr><td class="key">표식 패시브</td><td>공격 시에만 → <strong>공격 · 피격 양방향 표식 부여</strong></td></tr>
+  <tr><td class="key">악몽 토스트</td><td>"표식 상태 적 1 피해" → <strong>"⛓ 악몽 발동"</strong> (피해·격파 토스트 제거)</td></tr>
+</table>
+
+<!-- ───────────────────── 표식 발동 ───────────────────── -->
+<div class="anim-block">
+  <h2>① 표식 발동 — 픽셀 정렬 슬램 + 표식 길게 붉은 글로우</h2>
+  <p class="desc">
+    인두는 <strong>픽셀 기반 위치 (top:-50px right:0 width:18px height:64px)</strong> 로 cell-mark CSS (top:2px right:3px font:0.75rem) 와 정확히 매칭 — head 가 표식 위치를 픽셀 단위로 덮음.<br>
+    중력 가속 (15% = 270ms) 으로 슬램 임팩트 + 셀 흔들림 + 치이익 시즐.<br>
+    🎯 표식 이모지는 <strong>2.6초에 걸쳐 진하게 빛나다 천천히 복귀</strong> — 8% 정점 → 40% 강한 글로우 유지 → 60% 옅어짐 → 100% 원상태.<br>
+    이후 들어올림 거리 절반 (translateY -180%) 으로 부드럽게 사라짐.
+  </p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-mark"></div>
+    <div class="controls">
+      <button class="brand" onclick="trigMark('single')">단일 대상 (C3)</button>
+      <button class="brand" onclick="trigMark('double')">2 대상 (B2, D4)</button>
+      <button class="brand" onclick="trigMark('triple')">3 대상 — 십자 공격 가정 (B3, C2, C3)</button>
+      <button class="brand" onclick="trigMark('reverse')">역방향 표식 — 공격자가 표식 받음 (E1)</button>
+      <div class="label-tip">노란 외곽선이 표식이 새겨질 대상 셀. 인두 낙하 후 ⛓ imprint 가 잔류.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 악몽 시전 ───────────────────── -->
+<div class="anim-block">
+  <h2>② 악몽 시전 — 옵션 A 확정, 나선 오퍼시티 5단계 비교</h2>
+  <p class="desc">
+    옵션 A (2-arm 아르키메데스, 6.0s 회전) 확정. 이 안에서 <strong>나선 오퍼시티만 5단계로 비교</strong>해서 가장 적절한 존재감 선택.<br>
+    유닛/🎯표식/설치물은 z-index 5~7 로 자동 위에. 표식 🎯 위치 고정 (보라 breathing 글로우만).<br>
+    시연 케이스 — B1 표식+🪤덫 · D1 표식+💣폭탄 · A3 표식+🐀쥐 · E5 표식+커맨더 버프 셀 · E4 지휘관 📋.
+  </p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-nightmare"></div>
+    <div class="controls">
+      <button onclick="trigNightmareOpacity(1)">레벨 1 — 0.30 (매우 옅음)</button>
+      <button onclick="trigNightmareOpacity(2)">레벨 2 — 0.45 (옅음)</button>
+      <button onclick="trigNightmareOpacity(3)">레벨 3 — 0.62 (균형, 현재)</button>
+      <button onclick="trigNightmareOpacity(4)">레벨 4 — 0.78 (짙음)</button>
+      <button onclick="trigNightmareOpacity(5)">레벨 5 — 0.95 (가장 짙음)</button>
+      <button onclick="resetNightmareBoard()" style="background:linear-gradient(135deg,rgba(120,120,140,0.4),rgba(80,80,100,0.45));">⟲ 표식 다시 부여</button>
+      <div class="label-tip">5개 레벨 차례로 클릭해 비교 후 게임 기본값으로 확정할 레벨 알려주세요.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────── 연속 시연 ───────────────────── -->
+<div class="anim-block">
+  <h2>③ 연속 시연 — 표식 → 악몽</h2>
+  <p class="desc">실제 게임 흐름: 공격으로 표식 → 다음 턴에 악몽 시전. 두 애니메이션이 자연스럽게 이어짐.</p>
+  <div class="anim-stage">
+    <div class="preview-board" id="board-combo"></div>
+    <div class="controls">
+      <button class="brand" onclick="trigCombo()">▶ 표식 새김 → 2.5s 후 악몽 시전</button>
+      <div class="label-tip">셀 3곳에 인두 낙하 후 2.5초 뒤 모두 보라 펄스.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────────────────────────────────────────── -->
+<!-- 게임 내부와 동일한 애니메이션 모듈 — 재구현 X -->
+<script src="mark-anim.js"></script>
+<script src="nightmare-anim.js"></script>
+<script>
+// ──────────────────────────────────────────────────────────────
+// SFX — game.js 의 함수들 inline 복제 (mute 토글 가능)
+// ──────────────────────────────────────────────────────────────
+let sfxMuted = false;
+let _audioCtx = null;
+function getAudioCtx() {
+  if (sfxMuted) return null;
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+function _sfxTone(ctx, when, freq, dur, type, gain, freqEnd) {
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, when);
+  if (freqEnd != null) o.frequency.exponentialRampToValueAtTime(Math.max(0.01, freqEnd), when + dur);
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(gain, when + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(when); o.stop(when + dur + 0.05);
+}
+function _sfxNoise(ctx, when, dur, gain, fLow, fHigh) {
+  const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const f = ctx.createBiquadFilter();
+  f.type = 'bandpass'; f.frequency.value = (fLow + fHigh) / 2; f.Q.value = 0.8;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain, when);
+  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+  src.connect(f); f.connect(g); g.connect(ctx.destination);
+  src.start(when); src.stop(when + dur + 0.05);
+}
+
+// 인두 시즐 — game.js 의 playSfxTorturerMark 와 동일
+function playSfxTorturerMark() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+    _sfxTone(ctx, now, 90, 0.08, 'sine', 0.35, 40);
+    _sfxNoise(ctx, now, 0.04, 0.2, 200, 1200);
+    const noiseDur = 0.7;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * noiseDur, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = 4500; filter.Q.value = 1.2;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now + 0.06);
+    gain.gain.linearRampToValueAtTime(0.22, now + 0.12);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06 + noiseDur);
+    src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    src.start(now + 0.05); src.stop(now + 0.06 + noiseDur);
+    const hum = ctx.createOscillator(); const humG = ctx.createGain();
+    hum.type = 'sine'; hum.frequency.value = 70;
+    humG.gain.setValueAtTime(0.0001, now + 0.06);
+    humG.gain.linearRampToValueAtTime(0.12, now + 0.15);
+    humG.gain.exponentialRampToValueAtTime(0.0001, now + 0.7);
+    hum.connect(humG); humG.connect(ctx.destination);
+    hum.start(now + 0.05); hum.stop(now + 0.75);
+  } catch (e) {}
+}
+
+// 악몽 — game.js 의 playSfxNightmare 와 동일
+function playSfxNightmare() {
+  if (sfxMuted) return;
+  try {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const sub = ctx.createOscillator();
+    const subG = ctx.createGain();
+    sub.type = 'sine'; sub.frequency.value = 40;
+    subG.gain.setValueAtTime(0.001, now);
+    subG.gain.linearRampToValueAtTime(0.32, now + 0.4);
+    subG.gain.linearRampToValueAtTime(0.32, now + 1.4);
+    subG.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+    sub.connect(subG); subG.connect(out);
+    sub.start(now); sub.stop(now + 1.85);
+    const cluster = [110, 117, 138.59, 146.83, 165];
+    for (let i = 0; i < cluster.length; i++) {
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'square'; o.frequency.value = cluster[i];
+      const t = now + i * 0.05;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.linearRampToValueAtTime(0.06, t + 0.07);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass'; f.frequency.value = 800;
+      o.connect(f); f.connect(g); g.connect(out);
+      o.start(t); o.stop(t + 0.65);
+    }
+  } catch (e) {}
+}
+
+// ──────────────────────────────────────────────────────────────
+// 보드 / 셀 빌드 헬퍼
+// ──────────────────────────────────────────────────────────────
+const COLS = ['A','B','C','D','E'];
+function colToChar(c) { return COLS[c] || ''; }
+function buildBoard(boardId, opts) {
+  const board = document.getElementById(boardId);
+  if (!board) return;
+  board.innerHTML = '';
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.col = c; cell.dataset.row = r;
+      const lbl = document.createElement('span');
+      lbl.className = 'coord-label';
+      lbl.textContent = `${colToChar(c)}${r+1}`;
+      cell.appendChild(lbl);
+      board.appendChild(cell);
+    }
+  }
+  if (opts && opts.pieces) {
+    for (const p of opts.pieces) {
+      const cell = board.querySelector(`.cell[data-col="${p.col}"][data-row="${p.row}"]`);
+      if (!cell) continue;
+      const marker = document.createElement('div');
+      marker.className = 'piece-marker';
+      marker.innerHTML = `<span class="p-icon">${p.icon}</span><span class="p-name">${p.name||''}</span>`;
+      cell.appendChild(marker);
+    }
+  }
+  if (opts && opts.markTargets) {
+    for (const t of opts.markTargets) {
+      const cell = board.querySelector(`.cell[data-col="${t.col}"][data-row="${t.row}"]`);
+      if (cell) cell.classList.add('mark-target');
+    }
+  }
+}
+// 실제 게임의 cell-mark (🎯) 인디케이터를 미리 그려둠 — 악몽 시전 대상은 이미 표식 받은 적.
+function paintExistingMarks(boardId, positions) {
+  const board = document.getElementById(boardId);
+  if (!board) return;
+  for (const p of positions) {
+    const cell = board.querySelector(`.cell[data-col="${p.col}"][data-row="${p.row}"]`);
+    if (!cell) continue;
+    if (cell.querySelector('.cell-mark')) continue;
+    const mk = document.createElement('span');
+    mk.className = 'cell-mark';
+    mk.textContent = '🎯';
+    cell.appendChild(mk);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+// 트리거 함수
+// ──────────────────────────────────────────────────────────────
+function trigMark(mode) {
+  let pieces, targets;
+  if (mode === 'single') {
+    pieces = [{ col:2, row:1, icon:'⛓', name:'고문' }, { col:2, row:2, icon:'🛡', name:'적' }];
+    targets = [{ col:2, row:2 }];
+  } else if (mode === 'double') {
+    pieces = [{ col:2, row:2, icon:'⛓', name:'고문' }, { col:1, row:1, icon:'🏹', name:'적' }, { col:3, row:3, icon:'⚔', name:'적' }];
+    targets = [{ col:1, row:1 }, { col:3, row:3 }];
+  } else if (mode === 'triple') {
+    pieces = [{ col:2, row:2, icon:'⛓', name:'고문' }, { col:1, row:2, icon:'🏹', name:'적' }, { col:2, row:1, icon:'⚔', name:'적' }];
+    targets = [{ col:1, row:2 }, { col:2, row:1 }, { col:2, row:2 }];
+  } else if (mode === 'reverse') {
+    pieces = [{ col:2, row:2, icon:'⛓', name:'고문' }, { col:4, row:0, icon:'🐉', name:'공격자' }];
+    targets = [{ col:4, row:0 }];
+  }
+  buildBoard('board-mark', { pieces, markTargets: targets });
+  setTimeout(() => {
+    animateMarkBrand(targets, {
+      boardId: 'board-mark',
+      onSizzle: () => playSfxTorturerMark(),
+      stagger: 140,
+      simulateCellMark: true,    // 미리보기 — 임팩트 시 🎯 인디케이터 생성
+    });
+  }, 100);
+}
+
+// ── 설치물 시각 (실제 게임의 board-object 와 유사). 셀 모서리에 작은 아이콘으로 표시. ──
+function addInstallation(cell, type) {
+  const el = document.createElement('span');
+  el.className = `preview-installation install-${type}`;
+  const icons = { trap: '🪤', bomb: '💣', rat: '🐀' };
+  el.textContent = icons[type] || '?';
+  cell.appendChild(el);
+}
+
+// ── 커맨더 버프 셀 적용 (실제 게임의 morale-zone 마크업과 동일 클래스 사용). ──
+//   dir: 'center' | 's' | 'n' | 'e' | 'w'  — center = 지휘관 본인, 나머지는 지휘관 방향.
+function addMoraleZone(cell, dir) {
+  cell.classList.add('morale-zone');
+  if (dir === 'center') cell.classList.add('morale-zone-center');
+  else cell.classList.add(`morale-from-${dir}`);
+}
+
+// ── 풍부한 시연 보드 — 표식 4명 + 설치물 + 커맨더 버프 셀 ──
+function setupNightmareBoard(boardId, markedPositions) {
+  const torturer = { col: 0, row: 0, icon: '⛓', name: '고문' };
+  // 각 표식 적에 다양한 시나리오 부여
+  const enemyPieces = markedPositions.map((p, i) => {
+    const icons = ['🛡', '🏹', '⚔', '🦇'];
+    const names = ['적 1', '적 2', '적 3', '적 4'];
+    return { ...p, icon: icons[i % icons.length], name: names[i % names.length] };
+  });
+  buildBoard(boardId, { pieces: [torturer, ...enemyPieces] });
+  paintExistingMarks(boardId, markedPositions);
+
+  // ── 설치물 시연 — 표식 셀에 다양한 설치물 부여해 가림 여부 확인 ──
+  const board = document.getElementById(boardId);
+  if (board && markedPositions[0]) {
+    const c0 = board.querySelector(`.cell[data-col="${markedPositions[0].col}"][data-row="${markedPositions[0].row}"]`);
+    if (c0) addInstallation(c0, 'trap');
+  }
+  if (board && markedPositions[1]) {
+    const c1 = board.querySelector(`.cell[data-col="${markedPositions[1].col}"][data-row="${markedPositions[1].row}"]`);
+    if (c1) addInstallation(c1, 'bomb');
+  }
+  if (board && markedPositions[2]) {
+    const c2 = board.querySelector(`.cell[data-col="${markedPositions[2].col}"][data-row="${markedPositions[2].row}"]`);
+    if (c2) addInstallation(c2, 'rat');
+  }
+
+  // ── 커맨더 버프 영역 시연 — 표식 4번째 셀에 morale-zone (적팀 지휘관 인접) ──
+  //   추가로 그 옆 셀 (지휘관 본인) 에 morale-zone-center 부여, 인접 두 셀에 morale-from-X.
+  if (board && markedPositions[3]) {
+    const c3 = board.querySelector(`.cell[data-col="${markedPositions[3].col}"][data-row="${markedPositions[3].row}"]`);
+    if (c3) addMoraleZone(c3, 's');   // 표식 적 자체가 commander south 방향에 있음
+  }
+  // 지휘관 본인 셀 (표식과 무관) — 별도 시연용
+  if (board) {
+    const cmd = board.querySelector(`.cell[data-col="4"][data-row="3"]`);
+    if (cmd) {
+      addMoraleZone(cmd, 'center');
+      const cmdMarker = document.createElement('div');
+      cmdMarker.className = 'piece-marker';
+      cmdMarker.innerHTML = `<span class="p-icon">📋</span><span class="p-name">지휘관</span>`;
+      cmd.appendChild(cmdMarker);
+    }
+  }
+}
+
+// 옵션 A 확정 — 오퍼시티만 1~5 단계로 비교
+function trigNightmareOpacity(level) {
+  const marks = [{ col:1, row:0 }, { col:3, row:0 }, { col:0, row:2 }, { col:4, row:4 }];
+  setupNightmareBoard('board-nightmare', marks);
+  setTimeout(() => {
+    animateNightmareCast(marks, {
+      boardId: 'board-nightmare',
+      onCast: () => playSfxNightmare(),
+      simulateCellMark: true,
+      spiralStyle: 'a',
+      opacityLevel: level,
+    });
+  }, 150);
+}
+
+function resetNightmareBoard() {
+  const marks = [{ col:1, row:0 }, { col:3, row:0 }, { col:0, row:2 }, { col:4, row:4 }];
+  setupNightmareBoard('board-nightmare', marks);
+}
+
+function trigCombo() {
+  // 공격 직전 보드 — 고문 + 적 3
+  const torturer = { col: 2, row: 2, icon: '⛓', name: '고문' };
+  const enemies = [
+    { col: 1, row: 2, icon: '🏹', name: '적' },
+    { col: 2, row: 1, icon: '⚔', name: '적' },
+    { col: 3, row: 2, icon: '🛡', name: '적' },
+  ];
+  buildBoard('board-combo', { pieces: [torturer, ...enemies] });
+  const marks = enemies.map(e => ({ col: e.col, row: e.row }));
+  // 1단계: 표식 발동 — 인두 낙하 후 🎯 cell-mark 가 자동 생성됨 (simulateCellMark)
+  setTimeout(() => {
+    animateMarkBrand(marks, {
+      boardId: 'board-combo',
+      onSizzle: () => playSfxTorturerMark(),
+      stagger: 160,
+      simulateCellMark: true,
+    });
+  }, 200);
+  // 2단계: 악몽 시전 — 기본 옵션 A (다른 스타일은 ② 패널에서 비교)
+  setTimeout(() => {
+    animateNightmareCast(marks, {
+      boardId: 'board-combo',
+      onCast: () => playSfxNightmare(),
+      spiralStyle: 'a',
+    });
+  }, 3000);
+}
+
+// 사운드 토글
+document.getElementById('btn-mute').addEventListener('click', (e) => {
+  sfxMuted = !sfxMuted;
+  e.target.textContent = sfxMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+  e.target.classList.toggle('active', !sfxMuted);
+});
+
+// 초기 보드 세팅
+buildBoard('board-mark', {
+  pieces: [{ col:2, row:1, icon:'⛓', name:'고문' }, { col:2, row:2, icon:'🛡', name:'적' }],
+  markTargets: [{ col:2, row:2 }],
+});
+resetNightmareBoard();
+buildBoard('board-combo', {
+  pieces: [
+    { col:2, row:2, icon:'⛓', name:'고문' },
+    { col:1, row:2, icon:'🏹', name:'적' },
+    { col:2, row:1, icon:'⚔', name:'적' },
+    { col:3, row:2, icon:'🛡', name:'적' },
+  ],
+});
+</script>
+</body>
+</html>

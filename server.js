@@ -1320,6 +1320,8 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       // ★ 약초학/신성 보드 시전 애니 (같은 팀만 표시 — 클라가 팀 분기 처리)
       herbCenter: result.data?.herbCenter || null,
       divineTarget: result.data?.divineTarget || null,
+      // ★ 악몽 시전 — 표식 적 셀 보라 펄스 + scale 애니용
+      nightmareCells: result.data?.nightmareCells || null,
     };
     // 본인/팀원/적 분기 (use_skill 핸들러의 explicitAlly/explicitOpp 와 동일 로직)
     const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
@@ -3572,10 +3574,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   // 사용자 요청: 표식이 한 번에 여러 대상에 새겨지면 단일 로그/토스트로 통합.
   //   per-target emit 대신 이름들을 수집한 뒤 attack 종료 시 한 번만 발송.
   const _markedTargetNames = [];
+  // ★ 리워크: 인두 낙하 애니메이션용 표식 셀 좌표 (forward).
+  const _markedTargetCells = [];
   // ★ 리워크: 고문기술자가 피격당했을 때 공격자에게 역방향 표식 부여.
   //   공격자는 항상 한 명이므로 첫 번째 적용 torturer 의 owner 만 기록.
   let _reverseMarkSrcOwnerIdx = -1;
   let _reverseMarkedAttackerName = null;
+  let _reverseMarkedAttackerCell = null;
   // ★ 사용자 요청: 한 공격으로 여러 대상에 같은 패시브 (가호/아이언스킨/폭정/충성) 가 발동돼도
   //   토스트·로그는 단 한 번만 출력. resolveDamage 가 피격자마다 호출되므로 dedupe 필요.
   //   - 메시지가 generic 한 패시브 (monk_attack/monk/armoredWarrior/count): type 별로 1회만 emit
@@ -3644,6 +3649,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
                 !markTarget.statusEffects.some(e => e.type === 'mark')) {
               markTarget.statusEffects.push({ type: 'mark', source: attackerIdx });
               _markedTargetNames.push(markTarget.name);
+              _markedTargetCells.push({ col: markTarget.col, row: markTarget.row });
             }
           }
 
@@ -3661,6 +3667,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             atkPiece.statusEffects.push({ type: 'mark', source: defIdx });
             _reverseMarkSrcOwnerIdx = defIdx;
             _reverseMarkedAttackerName = atkPiece.name;
+            _reverseMarkedAttackerCell = { col: atkPiece.col, row: atkPiece.row };
           }
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
@@ -3768,16 +3775,34 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   room._suppressSpUpdate = false;
 
   // 표식 통합 알림 — 이번 공격으로 새겨진 표식 대상 모두 한 번에 출력 (사용자 요청)
+  // ★ 리워크: 인두 낙하 애니메이션 트리거를 위해 markCells 좌표 페이로드 추가.
   if (_markedTargetNames.length > 0) {
     const namesStr = _markedTargetNames.join(', ');
-    emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: attackerIdx, msg: `⛓ 표식: ${namesStr}에게 표식 새김` });
-    emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${namesStr}에게 표식 새김`, type: 'passive', playerIdx: attackerIdx });
+    emitToBoth(room, 'passive_alert', {
+      type: 'torturer', playerIdx: attackerIdx,
+      msg: `⛓ 표식: ${namesStr}에게 표식 새김`,
+      markCells: _markedTargetCells,
+    });
+    emitToSpectators(room, 'spectator_log', {
+      msg: `⛓ 표식: ${namesStr}에게 표식 새김`,
+      type: 'passive', playerIdx: attackerIdx,
+      markCells: _markedTargetCells,
+    });
   }
   // ★ 리워크 (역방향 표식) 알림 — torturer 가 피격당해 공격자에게 표식을 새겼을 때.
   //   playerIdx = torturer 의 owner (defIdx). 메시지는 공격자 이름 사용.
   if (_reverseMarkSrcOwnerIdx >= 0 && _reverseMarkedAttackerName) {
-    emitToBoth(room, 'passive_alert', { type: 'torturer', playerIdx: _reverseMarkSrcOwnerIdx, msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김` });
-    emitToSpectators(room, 'spectator_log', { msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`, type: 'passive', playerIdx: _reverseMarkSrcOwnerIdx });
+    const cells = _reverseMarkedAttackerCell ? [_reverseMarkedAttackerCell] : [];
+    emitToBoth(room, 'passive_alert', {
+      type: 'torturer', playerIdx: _reverseMarkSrcOwnerIdx,
+      msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`,
+      markCells: cells,
+    });
+    emitToSpectators(room, 'spectator_log', {
+      msg: `⛓ 표식: ${_reverseMarkedAttackerName}에게 표식 새김`,
+      type: 'passive', playerIdx: _reverseMarkSrcOwnerIdx,
+      markCells: cells,
+    });
   }
 
   // ★ 사용자 요청: 호위무사 충성 통합 알림 — 한 공격으로 보호한 모든 왕실 이름 한 번에 출력.
@@ -5219,26 +5244,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const nightmareKilled = hits.filter(h => h.destroyed);
       if (nightmareKilled.length > 0) {
         setKillInfo(room, 'nightmare', piece.name, nightmareKilled.map(k => ({ name: k.name })));
-        // 사망 알림 — 악몽으로 격파된 각 대상에 대해 1회씩 (인벤토리 #E 악몽 row의 빨간 피드백)
-        for (const k of nightmareKilled) {
-          const victimOwner = room.players[k.ownerIdx];
-          const victimOwnerName = victimOwner ? victimOwner.name : '';
-          const prefix = victimOwnerName ? `${victimOwnerName}의 ` : '';
-          emitToBoth(room, 'passive_alert', {
-            type: 'nightmare_kill',
-            playerIdx: playerIdx,
-            msg: `⛓ 악몽: ${prefix}${k.name} 격파!`,
-          });
-          emitToSpectators(room, 'spectator_log', {
-            msg: `⛓ 악몽: ${player.name}의 고문기술자가 ${prefix}${k.name}${조사(k.name, '을', '를')} 격파`,
-            type: 'passive', playerIdx: playerIdx,
-          });
-        }
+        // ★ 사용자 요청 (리워크): 악몽 시전 시 격파/피해 토스트 제거 — "악몽 발동" 토스트만 노출.
+        //   사망 자체는 데미지 도장/HP 갱신/profile-hit 등 기존 시각 피드백으로 전달됨.
       }
       spendSP(room, playerIdx, cost);
-      result.msg = `⛓ 악몽: 모든 표식 상태 적 1 피해`;
-      result.oppMsg = `⛓ 악몽: 모든 표식 상태 유닛 1 피해`;
+      // ★ 사용자 요청: 시전 토스트는 "악몽 발동" 한 줄만. 피해·격파 정보 제거.
+      result.msg = `⛓ 악몽 발동`;
+      result.oppMsg = `⛓ 악몽 발동`;
       result.data.hits = hits;
+      // ★ 클라이언트 애니메이션용: 표식 상태 적 셀 좌표 (보라 펄스 + scale 타깃).
+      result.data.nightmareCells = hits.map(h => ({ col: h.col, row: h.row }));
       break;
     }
 
@@ -5574,6 +5589,8 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       cursedOwnerIdx: result.data?.cursedOwnerIdx,
       // ★ 절대복종 반지 — 1v1 receiver (피해자) 시점 순간이동 애니용
       ringTeleport: result.data?.ringTeleport || null,
+      // ★ 악몽 시전 — 표식 적 셀 보라 펄스용 좌표
+      nightmareCells: result.data?.nightmareCells || null,
       // ※ herbCenter / divineTarget — 적팀에는 비공개 (사용자 요청).
     });
   }
@@ -5601,6 +5618,8 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       cursedOwnerIdx: result.data?.cursedOwnerIdx,
       // ★ 절대복종 반지 순간이동 (관전자 시점)
       ringTeleport: result.data?.ringTeleport || null,
+      // ★ 악몽 시전 — 관전자도 표식 적 셀 보라 펄스 표시
+      nightmareCells: result.data?.nightmareCells || null,
       // ★ 약초학/신성 — 1v1 관전자에게 항상 공유 (관전자는 모든 정보 시각화).
       herbCenter: result.data?.herbCenter || null,
       divineTarget: result.data?.divineTarget || null,
@@ -8765,6 +8784,8 @@ io.on('connection', (socket) => {
         // ★ 약초학 / 신성 시전 — 보드 애니용 좌표. 클라가 같은 팀일 때만 표시.
         herbCenter: result.data?.herbCenter || null,
         divineTarget: result.data?.divineTarget || null,
+        // ★ 악몽 시전 — 표식 적 셀 보라 펄스 + scale (적/팀원/관전자 모두 표시)
+        nightmareCells: result.data?.nightmareCells || null,
       };
       for (const p of room.players) {
         if (!p.socketId || p.index === idx) continue;
@@ -8833,6 +8854,8 @@ io.on('connection', (socket) => {
           cursedOwnerIdx: result.data?.cursedOwnerIdx,
           // ★ 절대복종 반지 — 1v1 상대 (피해자) 시점 순간이동 애니용
           ringTeleport: result.data?.ringTeleport || null,
+          // ★ 악몽 시전 — 표식 적 셀 보라 펄스 (1v1 상대 시점)
+          nightmareCells: result.data?.nightmareCells || null,
           // ※ herbCenter / divineTarget — 1v1 상대 (적팀) 에는 비공개 (사용자 요청).
         });
       }
@@ -8862,6 +8885,8 @@ io.on('connection', (socket) => {
           cursedOwnerIdx: result.data?.cursedOwnerIdx,
           // ★ 절대복종 반지 순간이동 (관전자 시점)
           ringTeleport: result.data?.ringTeleport || null,
+          // ★ 악몽 시전 — 표식 적 셀 보라 펄스 (관전자 시점)
+          nightmareCells: result.data?.nightmareCells || null,
           // ★ 약초학/신성 — 1v1 관전자에게 항상 공유 (관전자는 모든 정보 시각화).
           herbCenter: result.data?.herbCenter || null,
           divineTarget: result.data?.divineTarget || null,
