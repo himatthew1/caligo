@@ -1351,6 +1351,11 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       for (const bd of deferred) {
         emitToBoth(room, 'bomb_detonated', bd);
       }
+      // ★ 사용자 보고: 마법사가 폭탄에 피격 시 인스턴트 SP 즉시 반영 누락.
+      //   detonateBomb({deferEmit:true}) 는 suppressSpUpdate=true 로 호출되어 emitSPUpdate 가 생략됨.
+      //   bomb_detonated 페이로드도 sp/instantSp 미포함 → 다음 state sync (턴 종료 등) 까지 클라가 모름.
+      //   해결: deferred 폭발 직후 emitSPUpdate 로 즉시 동기화.
+      if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
     }, 1930);
   }
 
@@ -5645,6 +5650,9 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       for (const bd of deferred) {
         emitToBoth(room, 'bomb_detonated', bd);
       }
+      // ★ 사용자 보고: 마법사 폭탄 피격 시 인스턴트 SP 즉시 반영 누락.
+      //   detonateBomb({deferEmit:true}) suppressSpUpdate=true 로 호출 → bomb_detonated 직후 emit.
+      if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
     }, 1930);
   }
 
@@ -8954,6 +8962,9 @@ io.on('connection', (socket) => {
         for (const bd of deferred) {
           emitToBoth(room, 'bomb_detonated', bd);
         }
+        // ★ 사용자 보고: 마법사 폭탄 피격 시 인스턴트 SP 즉시 반영 누락.
+        //   detonateBomb({deferEmit:true}) suppressSpUpdate=true 로 호출 → bomb_detonated 직후 emit.
+        if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
       }, 1930);
     }
 
