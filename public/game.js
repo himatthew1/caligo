@@ -6918,10 +6918,9 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 //   780ms 후 spotlight 해제 + 별도 passive_alert (type='torturer', markCells) 이 도착 → animateMarkBrand 발동.
 socket.on('mark_cast', ({ casters, markedTargets }) => {
   if (!Array.isArray(casters) || casters.length === 0) return;
-  // ★ 사용자 요청 (분리):
-  //   - 시전 시점 (mark_cast, T+0): 적 위치만 노출 (S.oppPieces[i].marked = true → 안개 해제)
-  //   - 인두 낙하 시점 (passive_alert, T+780): 🎯 아이콘 + statusEffects 실제 적용
-  //   statusEffects.push 는 여기서 안 함 — passive_alert 핸들러에서 처리.
+  // ★ 사용자 보고 (안 보임): 서버 oppPieceSummary 가 col/row 를 'hasMark 일 때만' 보냄
+  //   → mark_cast 시점엔 아직 statusEffects 미적용 → 클라 oppPieces[i].col = undefined
+  //   따라서 col/row 기반 find 실패. targetPieceIdx + index 필드로 직접 매칭 + 위치 강제 주입.
   if (Array.isArray(markedTargets) && markedTargets.length > 0) {
     for (const mt of markedTargets) {
       if (mt.col == null || mt.row == null) continue;
@@ -6931,9 +6930,27 @@ socket.on('mark_cast', ({ casters, markedTargets }) => {
         const sameTeam = (S.teamGamePlayers || []).filter(p => p.teamId === S.teamId).map(p => p.idx);
         isTeammateCast = sameTeam.includes(mt.sourceOwnerIdx);
       }
+      // 적 piece 가 표식 대상 — 안개 해제 + 위치 노출 (시전자 측에서만)
       if ((isMyCast || isTeammateCast) && Array.isArray(S.oppPieces)) {
-        const opp = S.oppPieces.find(p => p && p.alive && p.col === mt.col && p.row === mt.row);
-        if (opp) opp.marked = true;   // 안개 해제만. 🎯/statusEffects 는 인두 낙하 때.
+        // 1v1: targetPieceIdx 가 곧 oppPieces 인덱스. 팀모드: index 필드로 매칭.
+        let opp = null;
+        if (typeof mt.targetPieceIdx === 'number') {
+          if (S.isTeamMode) {
+            opp = S.oppPieces.find(p => p && p.alive && p.index === mt.targetPieceIdx
+              && (typeof mt.targetOwnerIdx !== 'number' || p.ownerIdx === mt.targetOwnerIdx));
+          } else {
+            opp = S.oppPieces[mt.targetPieceIdx];
+          }
+        }
+        if (!opp) {
+          // fallback — name + icon 매칭
+          opp = S.oppPieces.find(p => p && p.alive && p.name === mt.name && p.icon === mt.icon);
+        }
+        if (opp && opp.alive) {
+          opp.col = mt.col;          // 위치 강제 주입 — 안개 해제
+          opp.row = mt.row;
+          opp.marked = true;          // renderGameBoard 의 markedOpp 분기 트리거
+        }
       }
     }
     if (typeof renderGameBoard === 'function') renderGameBoard();
@@ -12582,9 +12599,16 @@ function applyTurnUiState() {
     b.classList.toggle('turn-disabled', !isMy);
   }
   document.body.classList.toggle('opp-turn', !isMy);
-  // 떠있던 floating action 버튼/취소 등 모두 해제
-  if (!isMy && typeof window._caligoClearActionFloatingBtns === 'function') {
-    window._caligoClearActionFloatingBtns();
+  // 떠있던 floating action 버튼/취소 등 모두 해제 + 행동 버튼 상태 리셋
+  // ★ 사용자 보고 (행동가능/불가 분류 안 됨): _actionBtnState 가 stale 한 채 남아
+  //   다음 클릭이 close 로 인식되던 버그. floating 클리어할 때 상태도 idle 로 리셋.
+  if (!isMy) {
+    if (typeof window._caligoClearActionFloatingBtns === 'function') {
+      window._caligoClearActionFloatingBtns();
+    }
+    if (typeof window._caligoResetActionBtnState === 'function') {
+      window._caligoResetActionBtnState();
+    }
   }
 }
 
