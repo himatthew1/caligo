@@ -183,7 +183,7 @@
   <!-- 드래프트 / HP / 배치 phase 컨테이너 (게임 시작 전) -->
   <div id="tut-phase-container" class="tut-phase-container"></div>
   <!-- 게임 UI (게임 phase 에서만 노출) — 실제 screen-game 구조 그대로 -->
-  <div class="game-layout" id="tut-game-layout">
+  <div class="game-layout" id="tut-game-layout" style="display:none">
     <!-- SP 영향력 그래프 (상단) — 실제 게임과 동일 마크업 -->
     <div class="sp-section">
       <div class="sp-bar-container sp-bar-v2">
@@ -207,6 +207,7 @@
         </div>
       </div>
       <div class="sp-countdown">다음 SP 지급까지 10턴</div>
+      <div id="tut-shrink-warning-container" class="shrink-warning-container"></div>
     </div>
     <!-- 왼쪽: 내 말 정보 (실제와 동일) -->
     <div class="side-panel left-panel">
@@ -1007,7 +1008,7 @@
 <script src="herb-anim.js"></script>
 <script src="mark-anim.js"></script>
 <script src="nightmare-anim.js"></script>
-<script src="game.js?v=20260513"></script>
-<script src="tutorial-interactive.js"></script>
+<script src="game.js?v=20260514a"></script>
+<script src="tutorial-interactive.js?v=20260513k"></script>
 </body>
 </html>
