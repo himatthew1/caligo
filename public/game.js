@@ -11578,6 +11578,9 @@ function renderGameBoard() {
         (p.subUnit === 'elder' || p.subUnit === 'younger') &&
         p.col === col && p.row === row) : null;
       const displayIcon = otherTwin ? '👫' : pc.icon;
+      const _gifHtml = typeof getPieceGifHtml === 'function'
+        ? getPieceGifHtml(pc.type, pc.subUnit, !!otherTwin) : null;
+      const _iconContent = _gifHtml || displayIcon;
       const hpText = otherTwin
         ? `${pc.hp + otherTwin.hp}/${pc.maxHp + otherTwin.maxHp}`
         : `${pc.hp}/${pc.maxHp}`;
@@ -11610,7 +11613,7 @@ function renderGameBoard() {
       const twinCls = isTwin ? (' twin-piece' + twinPhaseCls) : '';
       cell.innerHTML += `
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
-          <span class="p-icon">${displayIcon}</span>
+          <span class="p-icon">${_iconContent}</span>
           <span class="p-hp">${hpText}</span>
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
@@ -11664,6 +11667,9 @@ function renderGameBoard() {
           (p.subUnit === 'elder' || p.subUnit === 'younger') &&
           p.col === col && p.row === row) : null;
         const tmDisplayIcon = otherTwin ? '👫' : tmPc.icon;
+        const _tmGifHtml = typeof getPieceGifHtml === 'function'
+          ? getPieceGifHtml(tmPc.type, tmPc.subUnit, !!otherTwin) : null;
+        const _tmIconContent = _tmGifHtml || tmDisplayIcon;
         const tmHpText = otherTwin
           ? `${tmPc.hp + otherTwin.hp}/${tmPc.maxHp + otherTwin.maxHp}`
           : `${tmPc.hp}/${tmPc.maxHp}`;
@@ -11672,7 +11678,7 @@ function renderGameBoard() {
         const teamColorCls = S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red';
         cell.innerHTML += `
           <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
-            <span class="p-icon">${tmDisplayIcon}</span>
+            <span class="p-icon">${_tmIconContent}</span>
             <span class="p-hp">${tmHpText}</span>
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
@@ -11691,9 +11697,11 @@ function renderGameBoard() {
         const oppTeamId = S.teamId === 0 ? 1 : 0;
         oppColorCls = oppTeamId === 0 ? 'piece-team-blue' : 'piece-team-red';
       }
+      const _oppGifHtml = typeof getPieceGifHtml === 'function'
+        ? getPieceGifHtml(markedOpp.type, markedOpp.subUnit, false) : null;
       cell.innerHTML += `
         <div class="piece-marker opp-marked ${oppColorCls}">
-          <span class="p-icon">${markedOpp.icon}</span>
+          <span class="p-icon">${_oppGifHtml || markedOpp.icon}</span>
           <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
         </div>`;
       // 🎯 cell-mark — statusEffects 에 mark 가 들어있을 때만 (인두 낙하 후)
@@ -18530,6 +18538,11 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     openDict();
   };
 
+  // 튜토리얼 전용: 게임 외부에서 specCharacters 를 주입할 수 있도록 노출
+  window.setSpecCharactersForTutorial = function(chars) {
+    if (!S.characters) S.specCharacters = chars;
+  };
+
   // 화살표
   const prevBtn = document.getElementById('dict-slide-prev');
   const nextBtn = document.getElementById('dict-slide-next');
@@ -18878,6 +18891,18 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   });
   window.openCharSkillPopup = openCharSkillPopup;
   window.closeCharSkillPopup = closeCharSkillPopup;
+
+  // 튜토리얼 전용: myPieces / sp / actionDone 임시 주입용 setter
+  window.setMyPiecesForTutorial = function(pieces, sp, actionDone) {
+    S.myPieces   = pieces;
+    S.sp         = sp;
+    S.actionDone = actionDone;
+  };
+  window.restoreMyPiecesAfterTutorial = function(origMyPieces, origSp, origActionDone) {
+    S.myPieces   = origMyPieces;
+    S.sp         = origSp;
+    S.actionDone = origActionDone;
+  };
 
   // ── 스킬 castability 평가 (글로벌·캐릭터 탭 공통) ───────────────
   function evalSkillCastable(pieceIdx, pc, sk) {

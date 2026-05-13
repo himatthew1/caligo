@@ -1518,7 +1518,9 @@
           if (commanderPc && pc.owner === 'me' && pc !== commanderPc && cell.classList.contains('morale-zone') && !cell.classList.contains('morale-zone-center')) {
             marker.classList.add('morale-buffed');
           }
-          marker.innerHTML = `<span class="p-icon">${pc.icon}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>`;
+          const _tutGifHtml = typeof getPieceGifHtml === 'function'
+            ? getPieceGifHtml(pc.type || (pc.char && pc.char.type), pc.subUnit, false) : null;
+          marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pc.icon}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>`;
           // 호버 툴팁 — 인게임 buildPieceTooltip() 재사용
           if (typeof buildPieceTooltip === 'function') {
             try {
