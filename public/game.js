@@ -18374,12 +18374,12 @@ function renderTutorial() {
   }
 }
 
-document.getElementById('btn-tutorial').addEventListener('click', openTutorial);
-document.getElementById('btn-tutorial-back').addEventListener('click', () => showScreen('screen-lobby'));
-document.getElementById('btn-tut-prev').addEventListener('click', () => {
+document.getElementById('btn-tutorial')?.addEventListener('click', openTutorial);
+document.getElementById('btn-tutorial-back')?.addEventListener('click', () => showScreen('screen-lobby'));
+document.getElementById('btn-tut-prev')?.addEventListener('click', () => {
   if (tutStep > 0) { tutStep--; renderTutorial(); }
 });
-document.getElementById('btn-tut-next').addEventListener('click', () => {
+document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   if (tutStep < TUTORIAL_STEPS.length - 1) {
     tutStep++;
     renderTutorial();
