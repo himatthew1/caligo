@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CALIGO 체험형 튜토리얼 (v20260513k) — 길 잃은 장군 이야기.
+// CALIGO 체험형 튜토리얼 (v20260514m) — 길 잃은 장군 이야기.
 //
 //   • 신(scene) 단위 진행. 신 종류:
 //       - dialog  : 말풍선 + "➡️" 로 다음. anchor/side 지원.
@@ -125,6 +125,7 @@
     marks: {},
     selectedPiece: null,
     freePlay: false,
+    actionDone: false,
   };
   window.tutorialInteractive = S;
 
@@ -140,13 +141,10 @@
   // [1] dialog: 인사
   SCENARIO.push({ kind: 'dialog', text: '<p>안녕하세요, 용사님.</p>' });
 
-  // [2] dialog: 세계 소개
-  SCENARIO.push({ kind: 'dialog', text: '<p>여기는 <strong>CALIGO</strong>, 마법의 안개로 뒤덮인 폐허입니다.</p>' });
-
   // [3] enter game
   SCENARIO.push({ kind: 'enter', phase: 'game' });
 
-  // [4] animate: setupGameState + board spawn
+  // [4] animate: setupGameState (보드만, 장군 없음) + board spawn
   SCENARIO.push({
     kind: 'animate', run: async () => {
       setupGameState();
@@ -160,8 +158,19 @@
     }
   });
 
-  // [5] reveal board
+  // [5] reveal board (빈 보드)
   SCENARIO.push({ kind: 'reveal', selectors: [`${SCOPE} #tut-game-board`] });
+
+  // [NEW] dialog: 세계 소개 (빈 보드 배경으로 표시)
+  SCENARIO.push({ kind: 'dialog', text: '<p>여기는 <strong>CALIGO</strong>, 마법의 안개로 뒤덮인 폐허입니다.</p>' });
+
+  // [NEW] animate: 장군 등장 (빈 보드 위에 아이콘이 나타남)
+  SCENARIO.push({
+    kind: 'animate', run: async () => {
+      spawnGeneral();
+      await sleep(600);
+    }
+  });
 
   // [6] dialog: 장군 발견
   SCENARIO.push({ kind: 'dialog', text: '<p>안개 속에 길 잃은 장군이 보이네요.</p>', anchor: `${SCOPE} #tut-game-board`, side: 'right' });
@@ -176,7 +185,7 @@
   SCENARIO.push({ kind: 'reveal', selectors: [`${SCOPE} .left-panel`] });
 
   // [NEW] animate: wait for left panel to be visible before dialog
-  SCENARIO.push({ kind: 'animate', run: async () => { await sleep(1200); } });
+  SCENARIO.push({ kind: 'animate', run: async () => { await sleep(1500); } });
 
   // [10] dialog: HP 설명
   SCENARIO.push({ kind: 'dialog', text: '<p>HP와 공격력, 위치가 보이는 캐릭터 프로필입니다. 장군이 많이 다쳐 있네요.</p>', anchor: `${SCOPE} .left-panel`, side: 'top' });
@@ -248,7 +257,7 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       await sleep(1000);
-      addOppPiece('op-sp', CHARS.spearman, 2, 2, CHARS.spearman.baseHp, CHARS.spearman.baseHp, true);
+      addOppPiece('op-sp', CHARS.spearman, 2, 1, CHARS.spearman.baseHp, CHARS.spearman.baseHp, true);
       S.visibleOppIds.add('op-sp');
       updateUI();
       await sleep(600);
@@ -259,7 +268,7 @@
   SCENARIO.push({ kind: 'reveal', selectors: [`${SCOPE} .right-panel`] });
 
   // [NEW] animate: wait for right panel to be visible before dialog
-  SCENARIO.push({ kind: 'animate', run: async () => { await sleep(1200); } });
+  SCENARIO.push({ kind: 'animate', run: async () => { await sleep(1500); } });
 
   // [20] dialog: 인기척
   SCENARIO.push({ kind: 'dialog', text: '<p>잠시만요! 인기척을 느낀 것 같아요.</p>' });
@@ -268,7 +277,7 @@
   SCENARIO.push({ kind: 'dialog', text: '<p>모습은 볼 순 없지만 분명히 이 곳에 있습니다!</p>' });
 
   // [22] dialog: 프로필 설명
-  SCENARIO.push({ kind: 'dialog', text: '<p>상대의 HP와 공격력, 위치가 보이는 프로필입니다. 클릭해서 더 자세한 정보를 볼 수도 있어요.</p>', anchor: `${SCOPE} .right-panel`, side: 'top' });
+  SCENARIO.push({ kind: 'dialog', text: '<p>상대의 HP와 공격력, 위치가 보이는 프로필입니다. 클릭해서 더 자세한 정보를 볼 수도 있어요.</p>', anchor: `${SCOPE} .opp-piece-card`, side: 'top' });
 
   // === TURN 2 — OPP TURN (scripted) ===
 
@@ -283,6 +292,7 @@
       S.turn = 2; S.whose = 'opp';
       updateUI();
       addLog('2턴 : 상대 차례', 'system');
+      addToast('상대 차례', true);
       await sleep(1000);
     }
   });
@@ -290,13 +300,16 @@
   // [24] dialog: 상대 차례
   SCENARIO.push({ kind: 'dialog', text: '<p>상대도 움직이려 합니다!</p>' });
 
-  // [25] animate: spearman moves C3→D3 (col:2,row:2 → col:2,row:3)
+  // [25] animate: 창병 B3→C3 이동 (안개전쟁 — 적 이동 아이콘 숨김, 위치만 갱신)
   SCENARIO.push({
     kind: 'animate', run: async () => {
       const sp = findPiece('op-sp');
-      if (sp) await animatePieceSlide(sp, 2, 3, 380);
-      addLog('창병 이동', 'move');
-      await sleep(500);
+      if (sp) { sp.col = 2; sp.row = 2; }   // 애니메이션 없이 위치만 갱신 (인게임 opp_moved 처리와 동일)
+      if (typeof playSfx === 'function') playSfx('move');
+      updateUI();
+      addLog('상대가 이동했습니다.', 'move');
+      addToast('상대가 이동했습니다.', true);
+      await sleep(700);
     }
   });
 
@@ -304,8 +317,11 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       S.turn = 3; S.whose = 'me';
+      S.actionDone = false;
       updateUI();
+      if (typeof playTurnBell === 'function') playTurnBell();
       addLog('3턴 : 내 차례', 'system');
+      addToast('내 차례');
       await sleep(800);
     }
   });
@@ -346,8 +362,8 @@
       closeTutRadial();
       clearSpotlights();
       highlightAttackTargetsAt(2, 3);
-      selectAttackTarget(2, 3);
-      showAttackConfirmBtn(2, 3);
+      selectAttackTarget(2, 2);
+      showAttackConfirmBtn(2, 2);
       setHint('공격 확정 버튼을 누르세요');
     }
   });
@@ -365,6 +381,8 @@
       }
       hideAttackConfirmBtn();
       clearMoveHighlights();
+      S.actionDone = true;    // 행동 완료 — 버튼 딤 처리
+      updateUI();
     }
   });
 
@@ -374,11 +392,12 @@
       const sp = findPiece('op-sp');
       if (sp) {
         await animateAttackOnCell(sp.col, sp.row);
+        if (typeof playSfx === 'function') playSfx('hit');
         animateBoardPieceHit(sp.col, sp.row);
         flashCard('opp', 'op-sp');
       }
       updateUI();
-      addLog('장군 → 창병 명중', 'hit');
+      addLog(`${sp ? coord(sp.col, sp.row) : 'C3'} 명중`, 'hit');   // 인게임 형식
       await sleep(400);
       clearHint();
       // 행동+턴종료 버튼 등장
@@ -386,6 +405,7 @@
         const el = document.getElementById(id);
         if (el) { el.style.display = ''; el.style.animation = 'tut-btn-appear 0.4s ease'; }
       });
+      updateUI(); // 버튼 딤 반영 (S.actionDone = true)
     }
   });
 
@@ -430,6 +450,7 @@
       S.turn = 4; S.whose = 'opp';
       updateUI();
       addLog('4턴 : 상대 차례', 'system');
+      addToast('상대 차례', true);
       await sleep(800);
     }
   });
@@ -445,7 +466,9 @@
         gen.hp = Math.max(0, gen.hp - 1);
         updateUI();
       }
-      addLog('창병 → 장군 명중', 'hit');
+      addToast('공격받았습니다!', true);
+      if (typeof playSfx === 'function') playSfx('hit');
+      addLog(`${CHARS.general.icon}장군 피격`, 'hit');   // 인게임 opp_attack_result 형식
       await sleep(1500);
     }
   });
@@ -454,8 +477,11 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       S.turn = 5; S.whose = 'me';
+      S.actionDone = false;
       updateUI();
+      if (typeof playTurnBell === 'function') playTurnBell();
       addLog('5턴 : 내 차례', 'system');
+      addToast('내 차례');
       await sleep(800);
     }
   });
@@ -476,8 +502,8 @@
     }
   });
 
-  // [45] dialog: 창병 설명
-  SCENARIO.push({ kind: 'dialog', text: '<p>창병의 경우 위치한 곳의 세로열 전부를 공격합니다.</p>', anchor: '#dict-slide-detail-blocks', side: 'left' });
+  // [45] dialog: 창병 설명 — 미니 공격범위 그리드 포인팅 (말풍선이 그리드를 가리지 않도록 bottom)
+  SCENARIO.push({ kind: 'dialog', text: '<p>창병의 경우 위치한 곳의 세로열 전부를 공격합니다.</p>', anchor: '#dict-slide-mini-headers', side: 'bottom' });
 
   // [46] dialog: 회피 방법 (dict still open)
   SCENARIO.push({ kind: 'dialog', text: '<p>때문에 창병의 공격을 회피하려면 좌우로 대피하는 것이 안전합니다.</p>' });
@@ -495,36 +521,36 @@
   // [48b] original split: 행동 규칙
   SCENARIO.push({ kind: 'dialog', text: '<p>턴 중에는 하나의 캐릭터를 단 한 번만 조작할 수 있습니다. 이를 <strong>행동</strong>이라고 합니다.</p>' });
 
-  // [49a] dialog: 행동 종류
+  // [NEW animate]: 행동 설명 시작 — 장군의 부채꼴 메뉴 자동 펼치기 (이동버튼과 공격버튼 시각적으로 제시)
+  SCENARIO.push({
+    kind: 'animate', run: async () => {
+      S.selectedPiece = findPiece('me-general');
+      openTutRadial(2, 3, { attackDisabled: true, skillDisabled: true, hideSkill: true });
+      await sleep(150);
+    }
+  });
+
+  // [49a] dialog: 행동 종류 (부채꼴 메뉴 펼쳐진 채로 표시)
   SCENARIO.push({ kind: 'dialog', text: '<p><strong>행동</strong>은 이동과 공격, 둘 뿐입니다.</p>' });
-  // [49b] dialog: 택일 규칙
+  // [49b] dialog: 택일 규칙 (부채꼴 메뉴 유지)
   SCENARIO.push({ kind: 'dialog', text: '<p>이동한 턴엔 공격할 수 없고, 공격한 턴엔 이동할 수 없습니다.</p>' });
 
-  // [50] dialog: 도망 결정
+  // [50] dialog: 도망 결정 (부채꼴 메뉴 여전히 열려있음 → 이동 버튼 바로 클릭 유도)
   SCENARIO.push({ kind: 'dialog', text: '<p>이대로 공격해도 다시 역공당할 게 뻔하니 도망쳐야겠습니다.</p>' });
 
   // === TURN 5 — MY MOVE (escape) ===
 
-  // [51] animate: setHint
+  // [51] animate: setHint (부채꼴 메뉴 이미 열려있으므로 이동 버튼 바로 안내)
   SCENARIO.push({
     kind: 'animate', run: async () => {
-      setHint('장군의 아이콘을 눌러 행동하세요');
-      spotlightCell(2, 3);
+      setHint('이동 버튼을 누르세요');
       await sleep(200);
     }
   });
 
-  // [52] require(hintMode): click general at D3 (col:2,row:3)
-  SCENARIO.push({
-    kind: 'require', hintMode: true,
-    anchor: () => boardCellSel(2, 3) + ' .piece-marker', side: 'top',
-    onClick: () => {
-      S.selectedPiece = findPiece('me-general');
-      openTutRadial(2, 3, { attackDisabled: true, skillDisabled: true, hideSkill: true });
-    }
-  });
+  // [52-removed]: 장군 아이콘 클릭 불필요 — 부채꼴 메뉴 이미 열려있음
 
-  // [53] require(hintMode): click 이동 button
+  // [53] require(hintMode): click 이동 button (부채꼴 메뉴에서 바로 클릭)
   SCENARIO.push({
     kind: 'require', hintMode: true,
     anchor: '.radial-btn[data-tut-radial-key="move"]', side: 'right',
@@ -551,6 +577,7 @@
       const gen = findPiece('me-general');
       if (gen) await animatePieceSlide(gen, 1, 3, 380);
       addLog('장군 이동', 'move');
+      S.actionDone = true;
       updateUI();
       clearHint();
       await sleep(800);
@@ -584,6 +611,7 @@
       S.turn = 6; S.whose = 'opp';
       updateUI();
       addLog('6턴 : 상대 차례', 'system');
+      addToast('상대 차례', true);
       await sleep(800);
     }
   });
@@ -591,7 +619,8 @@
   // [59] animate: spearman misses
   SCENARIO.push({
     kind: 'animate', run: async () => {
-      addLog('창병 공격 — 빗나감', 'miss');
+      addLog('창병 공격 빗나감', 'miss');      // 인게임 opp_attack_result 형식 (— 없음)
+      addToast('창병 공격 빗나감', true);
       await sleep(1500);
     }
   });
@@ -600,8 +629,11 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       S.turn = 7; S.whose = 'me';
+      S.actionDone = false;
       updateUI();
+      if (typeof playTurnBell === 'function') playTurnBell();
       addLog('7턴 : 내 차례', 'system');
+      addToast('내 차례');
       await sleep(800);
     }
   });
@@ -722,6 +754,7 @@
         p.hp = Math.min(p.maxHp, p.hp + 1);
       });
       S.spMy = Math.max(0, S.spMy - 2);
+      S.actionDone = true;
       updateUI();
       clearHint();
     }
@@ -772,20 +805,20 @@
       S.turn = 8; S.whose = 'opp';
       updateUI();
       addLog('8턴 : 상대 차례', 'system');
+      addToast('상대 차례', true);
       await sleep(800);
     }
   });
 
-  // [84] animate: spearman moves D4→D3 (col:3,row:3 → col:2,row:3)
+  // [84] animate: 창병 공격 — 아군이 세로열 이탈하여 빗나감
   SCENARIO.push({
     kind: 'animate', run: async () => {
-      const sp = findPiece('op-sp');
-      if (sp) {
-        // reset spearman position back to D4 area if displaced, then move toward general
-        await animatePieceSlide(sp, 2, 3, 380);
-      }
-      addLog('창병 이동', 'move');
+      // 창병 세로열(col:2) 공격 — 모든 아군이 col:2 이탈, 빗나감
       await sleep(400);
+      await animateAttackOnCell(2, 3);
+      addLog('창병 공격 빗나감', 'miss');
+      addToast('창병 공격 빗나감', true);
+      await sleep(800);
     }
   });
 
@@ -793,8 +826,11 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       S.turn = 9; S.whose = 'me';
+      S.actionDone = false;
       updateUI();
+      if (typeof playTurnBell === 'function') playTurnBell();
       addLog('9턴 : 내 차례', 'system');
+      addToast('내 차례');
       await sleep(800);
     }
   });
@@ -837,8 +873,8 @@
       closeTutRadial();
       clearSpotlights();
       highlightAttackTargetsAt(1, 2);
-      selectAttackTarget(2, 3);
-      showAttackConfirmBtn(2, 3);
+      selectAttackTarget(2, 2);
+      showAttackConfirmBtn(2, 2);
       setHint('공격 확정 버튼을 누르세요');
     }
   });
@@ -854,6 +890,8 @@
       }
       hideAttackConfirmBtn();
       clearMoveHighlights();
+      S.actionDone = true;
+      updateUI();
     }
   });
 
@@ -863,11 +901,12 @@
       const sp = findPiece('op-sp');
       if (sp) {
         await animateAttackOnCell(sp.col, sp.row);
+        if (typeof playSfx === 'function') playSfx('hit');
         animateBoardPieceHit(sp.col, sp.row);
         flashCard('opp', 'op-sp');
         updateUI();
       }
-      addLog('지휘관 → 창병 명중', 'hit');
+      addLog(`${sp ? coord(sp.col, sp.row) : 'C3'} 명중`, 'hit');   // 인게임 형식
       await sleep(1000);
       clearHint();
     }
@@ -900,6 +939,7 @@
       S.turn = 10; S.whose = 'opp';
       updateUI();
       addLog('10턴 : 상대 차례', 'system');
+      addToast('상대 차례', true);
       await sleep(800);
     }
   });
@@ -930,7 +970,7 @@
         herb.col = -1; herb.row = -1;
         updateUI();
       }
-      addLog('공주 → 약초전문가 격파', 'hit');
+      addLog(`${CHARS.herbalist.icon}약초전문가 격파`, 'hit');   // 인게임 kill 로그 형식
       await sleep(1500);
     }
   });
@@ -952,8 +992,11 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       S.turn = 11; S.whose = 'me';
+      S.actionDone = false;
       updateUI();
+      if (typeof playTurnBell === 'function') playTurnBell();
       addLog('11턴 : 내 차례', 'system');
+      addToast('내 차례');
       await sleep(800);
     }
   });
@@ -1032,15 +1075,19 @@
   // ═════════════════════════════════════════════════════════════════════════
 
   // ── 게임 상태 초기화 ────────────────────────────────────────────────────
-  function setupGameState() {
-    S.pieces = [{
-      id: 'me-general',
-      owner: 'me', char: CHARS.general,
+  function spawnGeneral() {
+    if (S.pieces.find(p => p.id === 'me-general')) return; // 이미 존재
+    S.pieces.push({
+      id: 'me-general', owner: 'me', char: CHARS.general,
       icon: CHARS.general.icon, name: CHARS.general.name, tier: CHARS.general.tier, atk: CHARS.general.atk,
-      col: 3, row: 3,
-      hp: 2, maxHp: CHARS.general.baseHp,
-      alive: true, hidden: false,
-    }];
+      col: 3, row: 3, hp: 2, maxHp: CHARS.general.baseHp, alive: true, hidden: false,
+    });
+    updateUI();
+    popAnimation('me-general');
+  }
+
+  function setupGameState() {
+    S.pieces = []; // 장군은 spawnGeneral() 에서 별도 등장
     S.turn = 1; S.whose = 'me';
     S.spMy = 0; S.spOpp = 0;
     S.deductionTokens = [];
@@ -1048,6 +1095,7 @@
     S.visibleOppIds = new Set();
     S.selectedPiece = null;
     S.freePlay = false;
+    S.actionDone = false;
 
     // 버튼 초기 숨김 (지정 타이밍에 순차 등장)
     ['tut-btn-action','tut-btn-skill','tut-btn-end-turn','tut-btn-surrender'].forEach(id => {
@@ -1077,6 +1125,33 @@
         }
       `;
       document.head.appendChild(style);
+    }
+
+    // 행동 버튼 — 이미 행동한 경우 행동불가 스티커 표시 (인게임 action-floating-btn 재사용)
+    const actionBtn = document.getElementById('tut-btn-action');
+    if (actionBtn && !actionBtn._tutActed) {
+      actionBtn._tutActed = true; // 중복 핸들러 방지
+      actionBtn.addEventListener('click', () => {
+        if (!S.actionDone || S.whose !== 'me' || S.freePlay) return;
+        const board = document.getElementById('tut-game-board');
+        if (!board) return;
+        // 이미 행동불가 스티커 있으면 무시
+        if (board.querySelector('.action-floating-btn.unable')) return;
+        // 현재 내 피스 중 살아있는 것 (우선순위: 지휘관>장군>기타)
+        const pc = S.pieces.find(p => p.alive && p.owner === 'me' && p.id === 'me-commander')
+                || S.pieces.find(p => p.alive && p.owner === 'me' && p.id === 'me-general')
+                || S.pieces.find(p => p.alive && p.owner === 'me');
+        if (!pc) return;
+        const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+        if (!cellEl) return;
+        const btn = document.createElement('div');
+        btn.className = 'action-floating-btn unable';
+        btn.textContent = '행동불가';
+        btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+        btn.style.top = cellEl.offsetTop + 'px';
+        board.appendChild(btn);
+        setTimeout(() => btn.remove(), 1500);
+      });
     }
   }
 
@@ -1209,49 +1284,24 @@
   function showAttackConfirmBtn(col, row) {
     hideAttackConfirmBtn();
     _attackTargetCol = col; _attackTargetRow = row;
+    const board = document.getElementById('tut-game-board');
     const cellEl = document.querySelector(boardCellSel(col, row));
+    if (!board || !cellEl) return;
     const btn = document.createElement('button');
     btn.id = 'tut-attack-confirm-btn';
-    btn.textContent = '공격 확정 ⚔';
-    btn.style.cssText = `
-      position: fixed; z-index: 9100;
-      background: #dc2626; color: #fff; border: none; border-radius: 8px;
-      padding: 8px 16px; font-size: 0.95rem; font-weight: 700; cursor: pointer;
-      box-shadow: 0 2px 12px rgba(220,38,38,0.5);
-      animation: tut-confirm-pulse 0.8s ease-in-out infinite alternate;
-    `;
-    if (!document.getElementById('tut-confirm-keyframes')) {
-      const style = document.createElement('style');
-      style.id = 'tut-confirm-keyframes';
-      style.textContent = `
-        @keyframes tut-confirm-pulse {
-          from { box-shadow: 0 2px 12px rgba(220,38,38,0.5); }
-          to   { box-shadow: 0 4px 24px rgba(220,38,38,0.9); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
-    document.body.appendChild(btn);
-    // Position near the cell
-    if (cellEl) {
-      const r = cellEl.getBoundingClientRect();
-      const btnW = 130, btnH = 40;
-      let left = r.left + r.width / 2 - btnW / 2;
-      let top = r.top - btnH - 10;
-      if (top < 8) top = r.bottom + 10;
-      left = Math.max(8, Math.min(window.innerWidth - btnW - 8, left));
-      btn.style.left = left + 'px';
-      btn.style.top = top + 'px';
-      btn.style.width = btnW + 'px';
-    } else {
-      btn.style.left = '50%';
-      btn.style.top = '40%';
-      btn.style.transform = 'translateX(-50%)';
-    }
+    btn.type = 'button';
+    // 인게임 attack-confirm-btn 클래스 그대로 사용 (CSS 포함)
+    btn.className = 'attack-confirm-btn';
+    btn.innerHTML = '<span class="lbl">공격 확정</span>';
+    // position: absolute 기준은 #tut-game-board (position: relative)
+    btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+    btn.style.top  = cellEl.offsetTop + 'px';
+    board.appendChild(btn);
   }
 
   function hideAttackConfirmBtn() {
-    document.getElementById('tut-attack-confirm-btn')?.remove();
+    // board 내 또는 document 어디에나 있을 수 있음 (위치 호환성)
+    document.querySelectorAll('#tut-attack-confirm-btn').forEach(b => b.remove());
     _attackTargetCol = -1; _attackTargetRow = -1;
   }
 
@@ -1318,7 +1368,7 @@
     for (const [dc, dr] of deltas) {
       const c = col + dc, r = row + dr;
       if (c < 0 || c > 4 || r < 0 || r > 4) continue;
-      const occupied = S.pieces.find(p => p.alive && p.owner === 'me' && p.col === c && p.row === r);
+      const occupied = S.pieces.find(p => p.alive && p.col === c && p.row === r);
       if (occupied) continue;
       const cell = document.querySelector(boardCellSel(c, r));
       if (cell) cell.classList.add('tut-move-target');
@@ -1413,6 +1463,14 @@
         cd.textContent = `다음 SP 지급까지 ${left === 0 ? 10 : left}턴`;
       }
     }
+    // 행동 버튼 딤 — 이미 행동했으면 인게임처럼 흐릿하게
+    const actBtn = document.getElementById('tut-btn-action');
+    if (actBtn) {
+      const acted = S.actionDone && S.whose === 'me';
+      actBtn.style.opacity = acted ? '0.38' : '';
+      actBtn.style.filter  = acted ? 'grayscale(0.5) brightness(0.7)' : '';
+    }
+
     // Free play: update end-turn button state
     if (S.freePlay) {
       const endBtn = document.getElementById('tut-btn-end-turn');
@@ -1823,6 +1881,41 @@
     }
   }
 
+  // ── 자유 진행 — 캐릭터 타입별 공격 범위 반환 ────────────────────────────
+  function getFreePlayAttackCells(pc) {
+    const col = pc.col, row = pc.row;
+    const type = (pc.char && pc.char.type) || pc.type || '';
+    const cells = [];
+    const add = (c, r) => { if (c >= 0 && c <= 4 && r >= 0 && r <= 4) cells.push([c, r]); };
+    switch (type) {
+      case 'spearman':
+        // 세로열 전체 (자신 제외)
+        for (let r = 0; r <= 4; r++) { if (r !== row) add(col, r); }
+        break;
+      case 'archer':
+        // 상하좌우 2칸
+        for (let i = 1; i <= 2; i++) { add(col, row - i); add(col, row + i); add(col - i, row); add(col + i, row); }
+        break;
+      case 'princess':
+        // 십자 1칸 (자신 제외)
+        add(col, row - 1); add(col, row + 1); add(col - 1, row); add(col + 1, row);
+        break;
+      default:
+        // 기본 십자 5칸 (자신 포함)
+        add(col, row); add(col, row - 1); add(col, row + 1); add(col - 1, row); add(col + 1, row);
+        break;
+    }
+    return cells;
+  }
+
+  function freePlayHighlightAttackTargets(pc) {
+    const cells = getFreePlayAttackCells(pc);
+    for (const [c, r] of cells) {
+      const cell = document.querySelector(boardCellSel(c, r));
+      if (cell) cell.classList.add('tut-attack-target');
+    }
+  }
+
   function freePlayRadialMove() {
     if (!_freePlaySelectedPiece) return;
     closeTutRadial();
@@ -1834,7 +1927,8 @@
   function freePlayRadialAttack() {
     if (!_freePlaySelectedPiece) return;
     closeTutRadial();
-    highlightAttackTargetsAt(_freePlaySelectedPiece.col, _freePlaySelectedPiece.row);
+    clearMoveHighlights();
+    freePlayHighlightAttackTargets(_freePlaySelectedPiece);
     _freePlayPhase = 'attack-targets';
     setHint('공격할 칸을 선택하세요');
   }
@@ -1846,6 +1940,7 @@
     _freePlaySelectedPiece = null;
     if (!pc) return;
     await animatePieceSlide(pc, toCol, toRow, 350);
+    if (typeof playSfx === 'function') { try { playSfx('move'); } catch(e) {} }
     _freePlayPieceActed.add(pc.id);
     addLog(`${pc.name} 이동`, 'move');
     updateUI();
@@ -1885,6 +1980,7 @@
       target.hidden = false;
       animateBoardPieceHit(col, row);
       flashCard('opp', target.id);
+      if (typeof playSfx === 'function') { try { playSfx(target.hp <= 0 ? 'kill' : 'hit'); } catch(e) {} }
       addLog(`${pc.name} → ${target.name} 명중 (ATK ${dmg})`, 'hit');
       if (target.hp <= 0) {
         target.alive = false;
@@ -1892,6 +1988,7 @@
         addLog(`${target.name} 격파!`, 'hit');
       }
     } else {
+      if (typeof playSfx === 'function') { try { playSfx('miss'); } catch(e) {} }
       addLog(`${pc.name} 공격 — 빗나감`, 'miss');
     }
     _freePlayPieceActed.add(pc.id);
@@ -1922,6 +2019,7 @@
     S.whose = 'opp';
     updateUI();
     addLog(`${S.turn}턴 : 상대 차례`, 'system');
+    addToast('상대 차례', true);
     await sleep(800);
 
     // Opp scripted AI
@@ -1936,8 +2034,12 @@
 
     S.turn++;
     S.whose = 'me';
+    S.actionDone = false;
+    _freePlayPieceActed = new Set(); // 새 턴 — 행동 가능 초기화
     updateUI();
     addLog(`${S.turn}턴 : 내 차례`, 'system');
+    addToast('내 차례');
+    if (typeof playTurnBell === 'function') playTurnBell();
 
     const endBtn = document.getElementById('tut-btn-end-turn');
     if (endBtn) endBtn.disabled = false;
@@ -1949,6 +2051,8 @@
     const oppPieces = S.pieces.filter(p => p.owner === 'opp' && p.alive);
     const myPieces  = S.pieces.filter(p => p.owner === 'me'  && p.alive);
     if (!myPieces.length || !oppPieces.length) return;
+
+    await sleep(700); // 상대 턴 시작 페이싱
 
     // 가장 가까운 적 1개만 행동
     let best = oppPieces[0], bestDist = 999;
@@ -1962,31 +2066,41 @@
     const nearest = myPieces.reduce((a, b) =>
       Math.abs(best.col - a.col) + Math.abs(best.row - a.row) < Math.abs(best.col - b.col) + Math.abs(best.row - b.row) ? a : b
     );
-    const dist = Math.abs(best.col - nearest.col) + Math.abs(best.row - nearest.row);
 
-    if (dist <= 1) {
+    // 캐릭터 공격 범위 내에 있는지 확인
+    const attackCells = getFreePlayAttackCells(best);
+    const canAttack = attackCells.some(([c, r]) => c === nearest.col && r === nearest.row);
+
+    if (canAttack) {
       // 공격
+      await sleep(400);
       await animateAttackOnCell(nearest.col, nearest.row);
-      const hit = Math.random() > 0.25;
+      const hit = Math.random() > 0.2;
       if (hit) {
         nearest.hp -= best.atk;
         if (nearest.hp <= 0) { nearest.hp = 0; nearest.alive = false; nearest.col = -1; nearest.row = -1; }
         animateBoardPieceHit(nearest.col >= 0 ? nearest.col : 0, nearest.row >= 0 ? nearest.row : 0);
         flashCard('my', nearest.id);
+        if (typeof playSfx === 'function') { try { playSfx(nearest.hp <= 0 ? 'kill' : 'hit'); } catch(e) {} }
         addLog(`${best.name} → ${nearest.name} 명중 (ATK ${best.atk})`, 'hit');
+        addToast('공격받았습니다!', true);
       } else {
+        if (typeof playSfx === 'function') { try { playSfx('miss'); } catch(e) {} }
         addLog(`${best.name} 공격 — 빗나감`, 'miss');
       }
+      await sleep(900);
     } else {
-      // 이동 (최대 1칸)
+      // 이동 (최대 1칸, 가장 가까운 아군 방향)
+      await sleep(300);
       const dc = Math.sign(nearest.col - best.col);
       const dr = Math.sign(nearest.row - best.row);
       const nc = dc !== 0 ? best.col + dc : best.col;
       const nr = dc !== 0 ? best.row : best.row + dr;
       const blocked = S.pieces.some(p => p.alive && p.col === nc && p.row === nr);
       if (!blocked) { best.col = nc; best.row = nr; }
+      if (typeof playSfx === 'function') { try { playSfx('move'); } catch(e) {} }
       addLog(`${best.name} 이동`, 'move');
-      await sleep(400);
+      await sleep(600);
     }
     updateUI();
     // 내 유닛 전멸 체크

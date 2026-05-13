@@ -7857,20 +7857,19 @@ body[data-my-team="red"] #chat-scope-team.active {
     0 0 0 2px rgba(168, 85, 247, 0.18),
     0 0 16px rgba(253, 230, 138, 0.22);
   pointer-events: auto;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
   font-size: 0.85rem;
 }
 .tut-mock-bubble .tut-mock-bubble-text { font-size: 0.85rem; }
 .tut-mock-bubble .tut-mock-bubble-text {
   flex: 1;
+  margin-bottom: 12px;
 }
 .tut-mock-bubble .tut-mock-bubble-actions {
   flex-shrink: 0;
-  border-top: none !important;
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-  border-left: 1px solid rgba(168, 85, 247, 0.25);
-  padding-left: 14px;
+  border-left: none !important;
+  padding-left: 0 !important;
+  margin-left: 0 !important;
 }
 /* 꼬리 제거 — 포인터 SVG 가 대신함 */
 .tut-mock-bubble .tut-mock-bubble-tail { display: none !important; }
@@ -7930,7 +7929,7 @@ body[data-my-team="red"] #chat-scope-team.active {
 /* 좌우 정렬 */
 .tut-mock-bubble-actions {
   display: flex; justify-content: space-between; align-items: center;
-  gap: 16px; margin-top: 14px; padding-top: 10px;
+  gap: 16px; margin-top: 0; padding-top: 10px;
   border-top: 1px solid rgba(168, 85, 247, 0.2);
 }
 /* 말풍선 꼬리 (anchor 방향) */
@@ -7993,17 +7992,14 @@ body[data-my-team="red"] #chat-scope-team.active {
   0%, 100% { box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.4), 0 0 12px rgba(74, 222, 128, 0.3); }
   50%      { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.6), 0 0 22px rgba(74, 222, 128, 0.7); }
 }
-/* 공격 대상 셀 — 인게임 .attack-range 와 동일한 앰버/골드 톤 */
+/* 공격 대상 셀 — 인게임 #game-board .cell.attack-range 와 완전히 동일한 정적 스타일 (애니메이션 없음) */
 #screen-tutorial-interactive #tut-game-board .cell.tut-attack-target {
-  background: rgba(226, 168, 75, 0.22);
-  border-color: rgba(226, 168, 75, 0.55);
+  background: rgba(226, 168, 75, 0.45) !important;
+  box-shadow: inset 0 0 0 2px rgba(226, 168, 75, 0.75) !important;
+  border-color: rgba(226, 168, 75, 0.9) !important;
   cursor: pointer;
-  animation: tutAttackTargetPulse 1.0s ease-in-out infinite;
+  animation: none !important;
   z-index: 5;
-}
-@keyframes tutAttackTargetPulse {
-  0%, 100% { box-shadow: 0 0 0 2px rgba(226, 168, 75, 0.35), 0 0 10px rgba(226, 168, 75, 0.3); }
-  50%      { box-shadow: 0 0 0 4px rgba(226, 168, 75, 0.6),  0 0 20px rgba(226, 168, 75, 0.5); }
 }
 /* 공격 타깃 선택 확정 셀 — 인게임 target-locked-cell 동일 (빨간 인셋 글로우) */
 #screen-tutorial-interactive #tut-game-board .cell.tut-attack-selected {
@@ -8017,6 +8013,15 @@ body[data-my-team="red"] #chat-scope-team.active {
   0%, 100% { box-shadow: inset 0 0 0 2px #ef4444, 0 0 10px rgba(239, 68, 68, 0.45); }
   50%      { box-shadow: inset 0 0 0 3px #ef4444, 0 0 22px rgba(239, 68, 68, 0.75); }
 }
+/* 공격 확정 버튼 — 인게임 .attack-confirm-btn 그대로 재사용 (absolute 위치 지원) */
+#screen-tutorial-interactive #tut-game-board .attack-confirm-btn {
+  position: absolute;
+}
+/* 행동불가/행동가능 플로팅 버튼 — 인게임 .action-floating-btn 그대로 재사용 */
+#screen-tutorial-interactive #tut-game-board .action-floating-btn {
+  position: absolute;
+}
+
 /* 공격 적중 셀 — 빨간 플래시 + 흔들림 */
 #screen-tutorial-interactive #tut-game-board .cell.tut-attack-flash {
   animation: tutAttackFlash 0.55s ease-out;
