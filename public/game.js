@@ -2420,6 +2420,9 @@ socket.on('team_game_update', (state) => {
   }
   // 턴이 바뀌었으면 — 1v1처럼 로그·토스트로 누구 차례인지 명확히 알림
   if (prevTurnIdx !== S.currentPlayerIdx && S.currentPlayerIdx !== undefined) {
+    // ★ 방어적: 이전 턴에 스킬 시전 dim 이 걸린 채로 턴이 넘어가는 케이스 — 강제 해제.
+    //   endSkillCastDim 은 idempotent (hidden 클래스 추가 + 포인터 정리) 이라 중복 호출 무해.
+    if (typeof endSkillCastDim === 'function') endSkillCastDim();
     // 이전 턴 동안 켜져 있던 turn-bright 카드 모두 해제 — 다음 턴부터 다시 dim 으로
     clearAllTurnBright();
     // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (turn 경계 stale 누설 방지).
@@ -2837,8 +2840,31 @@ function renderTeamProfiles() {
   const redTeam  = players.filter(p => p.teamId === 1).sort(teamSort);
 
   // isAlly = 해당 player의 teamId가 viewer의 teamId와 같으면 true
-  leftContainer.innerHTML  = blueTeam.map(pl => renderTeamPlayerBlock(pl, pl.teamId === myTeam)).join('');
-  rightContainer.innerHTML = redTeam.map(pl => renderTeamPlayerBlock(pl, pl.teamId === myTeam)).join('');
+  // ★ 사용자 보고 (프로필 구버전 데이터): team_game_update 가 늦게 도착하면 renderTeamPlayerBlock 이
+  //   S.teamGamePlayers 의 구버전 pieces 를 그리게 됨. S.myPieces / S.teammatePieces 는 개별 이벤트
+  //   (move_ok, attack_result, being_attacked, skill_result) 가 즉시 갱신하므로 이를 우선 사용.
+  const _augmentPl = (pl) => {
+    if (S.isSpectator) return pl;  // 관전자는 teamGamePlayers 원본 그대로
+    // ① 내 피스 — move_ok/attack_result/being_attacked/skill_result 가 즉시 갱신
+    if (pl.idx === S.playerIdx && Array.isArray(S.myPieces) && S.myPieces.length > 0) {
+      return { ...pl, pieces: S.myPieces };
+    }
+    // ② 팀원 피스 — team_ally_moved 가 S.teammatePieces 좌표 즉시 갱신
+    const isTeammate = (pl.teamId === S.teamId && pl.idx !== S.playerIdx);
+    if (isTeammate && Array.isArray(S.teammatePieces) && S.teammatePieces.length > 0) {
+      return { ...pl, pieces: S.teammatePieces };
+    }
+    // ③ 적 플레이어 — attack_result/skill_result 후 S.oppPieces 가 최신이면 HP 공급.
+    //   applyTeamGameState 가 ownerIdx 를 붙여 만드는 구조 활용 — ownerIdx 없으면 폴백.
+    const isEnemy = pl.teamId !== S.teamId;
+    if (isEnemy && Array.isArray(S.oppPieces) && S.oppPieces.length > 0) {
+      const enemyPieces = S.oppPieces.filter(p => p.ownerIdx === pl.idx);
+      if (enemyPieces.length > 0) return { ...pl, pieces: enemyPieces };
+    }
+    return pl;
+  };
+  leftContainer.innerHTML  = blueTeam.map(pl => renderTeamPlayerBlock(_augmentPl(pl), pl.teamId === myTeam)).join('');
+  rightContainer.innerHTML = redTeam.map(pl => renderTeamPlayerBlock(_augmentPl(pl), pl.teamId === myTeam)).join('');
   // ★ 사용자 보고 (밀림 현상 수정): innerHTML 재구성으로 wipe 된 진행 중 hit/heal/protected
   //   애니메이션 클래스를 새 카드에 즉시 복원. 빠르게 연속 도착하는 이벤트 (attack_result →
   //   team_ally_hit → team_game_update 등) 가 매번 wipe 해도 애니가 끊기지 않음.
@@ -3991,7 +4017,7 @@ socket.on('opp_turn', (data) => {
 // ── 이동 결과 ──
 socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twinMovePending, twinMovedSub }) => {
   const pc = yourPieces[pieceIdx];
-  animateMove(pc.icon, prev.col, prev.row, col, row);
+  animateMove(pc.icon, prev.col, prev.row, col, row, pc.type, pc.subUnit, `${S.playerIdx}:${pieceIdx}`);
   playSfx('move');
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
@@ -4045,6 +4071,10 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, twin
 socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subUnit, prevCol, prevRow, col, row }) => {
   // 팀원 이동 SFX — 1v1의 자기 이동(playSfx('move'))과 동일하게 발화
   try { playSfx('move'); } catch (e) {}
+  // 팀원 이동 플로팅 애니 (방향 반전 + 잔상 + 화이트 아웃라인)
+  // 팀원 pieceKey: 'ally:type[:subUnit]' — 방향 상태 추적용
+  const allyKey = 'ally:' + pieceType + (subUnit ? ':' + subUnit : '');
+  animateMove(pieceIcon, prevCol, prevRow, col, row, pieceType, subUnit, allyKey);
   if (!Array.isArray(S.teammatePieces)) return;
   // S.teammatePieces 좌표 즉시 갱신 (broadcastTeamGameState 도착 직전 시각효과용)
   let target = null;
@@ -4056,6 +4086,9 @@ socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subU
   }
   if (target) { target.col = col; target.row = row; }
   if (typeof renderGameBoard === 'function') renderGameBoard();
+  // ★ 팀원 프로필 카드 좌표도 즉시 갱신 — renderGameBoard 만으로는 프로필 카드 미갱신.
+  //   _augmentPl 이 S.teammatePieces 를 쓰므로, renderTeamProfiles 호출만 하면 됨.
+  if (typeof renderMyPieces === 'function') renderMyPieces();
   // 새 위치 셀 강조 + 이전 위치는 잔상
   const boardEl = document.getElementById('game-board');
   if (boardEl) {
@@ -4446,18 +4479,26 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   renderMyPieces();
 
   // 피격 유닛 프로필 흔들림 + 금색 플래시
-  // 팀모드에서는 #my-pieces-info 가 팀원 카드까지 포함하므로 인덱스가 어긋남 → team_game_update 의 player-idx 기반 처리가 담당. 1v1 만 적용
   if (!S.isTeamMode) {
     applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
     applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
     // ★ 사용자 요청: 데미지 0 도장 출력 (보호됨 시각화).
     for (const i of protectedIndices) addProtectedHit(`my:${i}`);
   } else {
-    // 팀모드 — being_attacked 의 victim 은 항상 본인. 본인 player-idx + piece-idx 로 정확 매칭
+    // 팀모드 — being_attacked 의 victim 은 항상 본인. 본인 player-idx + piece-idx 로 정확 매핑.
     for (const i of protectedIndices) {
       applyProtectedAnimTeam(S.playerIdx, i);
       addProtectedHit(`${S.playerIdx}:${i}`);
     }
+    // ★ 사용자 보고 (팀모드 피격 애니 누락): 1v1 에서는 applyProfileHitAnim 으로 처리되나
+    //   팀모드 분기에 applyHitFlashWithBrighten 이 없어 공격받아도 카드가 안 흔들림.
+    //   team_game_update 에 위임하면 애니 타이밍이 늦어 즉각 피드백이 안 보임 → 직접 처리.
+    requestAnimationFrame(() => {
+      for (const i of hitIndices) {
+        const card = document.querySelector(`.team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${i}"]`);
+        if (card) applyHitFlashWithBrighten(card);
+      }
+    });
   }
 
   // 쥐 격파 피드백
@@ -15291,32 +15332,144 @@ function showTurnPopup(isMyTurn) {
 }
 
 // ── 이동 모션 애니메이션 ──
-function animateMove(icon, fromCol, fromRow, toCol, toRow) {
+// ── 피스별 바라보는 방향 상태 ──────────────────────────────────
+// key: `${playerIdx}:${pieceIdx}`  value: 'left' | 'right'  기본값: 'right'
+const _pieceFacingDir = {};
+
+/**
+ * 이동 플로팅 애니메이션
+ *
+ * @param {string}  icon       이모지 아이콘 (PNG 없을 때 폴백)
+ * @param {number}  fromCol
+ * @param {number}  fromRow
+ * @param {number}  toCol
+ * @param {number}  toRow
+ * @param {string}  [pieceType]   pc.type  (PNG 선택용)
+ * @param {string}  [subUnit]     pc.subUnit (쌍둥이 elder/younger)
+ * @param {string}  [pieceKey]    `${playerIdx}:${pieceIdx}` (방향 상태 키)
+ */
+function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, pieceKey) {
   const board = document.getElementById('game-board');
   if (!board) return;
   const cells = board.querySelectorAll('.cell');
   const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
-  const toCell = [...cells].find(c => parseInt(c.dataset.col) === toCol && parseInt(c.dataset.row) === toRow);
+  const toCell   = [...cells].find(c => parseInt(c.dataset.col) === toCol   && parseInt(c.dataset.row) === toRow);
   if (!fromCell || !toCell) return;
 
-  const boardRect = board.getBoundingClientRect();
   const fromRect = fromCell.getBoundingClientRect();
-  const toRect = toCell.getBoundingClientRect();
+  const toRect   = toCell.getBoundingClientRect();
+  const cellSize = Math.min(fromRect.width, fromRect.height);
+  const imgSize  = Math.round(cellSize * 0.88);
 
-  const el = document.createElement('div');
-  el.textContent = icon;
+  // ── 방향 결정 ──────────────────────────────────────────────
+  let scaleX;
+  if (toCol < fromCol) {
+    scaleX = -1;
+    if (pieceKey) _pieceFacingDir[pieceKey] = 'left';
+  } else if (toCol > fromCol) {
+    scaleX = 1;
+    if (pieceKey) _pieceFacingDir[pieceKey] = 'right';
+  } else {
+    const dir = pieceKey ? (_pieceFacingDir[pieceKey] || 'right') : 'right';
+    scaleX = (dir === 'left') ? -1 : 1;
+  }
+
+  // ── 필터 ───────────────────────────────────────────────────
+  const blackF = 'drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))';
+  const glowF = 'drop-shadow(0 0 8px rgba(82,183,136,0.85))';
+  const fullF = blackF + ' ' + glowF;
+
+  // ── 이미지 URL ─────────────────────────────────────────────
+  const imgUrl = (typeof getPieceMoveUrl === 'function')
+    ? getPieceMoveUrl(pieceType, subUnit)
+    : null;
+
+  const makeEl = () => {
+    if (imgUrl) {
+      const img = document.createElement('img');
+      img.src = imgUrl;
+      img.onerror = () => { img.style.display = 'none'; img.onerror = null; };
+      return img;
+    }
+    const d = document.createElement('div');
+    d.textContent = icon;
+    d.style.fontSize = '1.6rem';
+    d.style.lineHeight = '1';
+    return d;
+  };
+
+  // ── 출발칸 유닛 즉시 숨김 ─────────────────────────────────
+  // (renderGameBoard 호출 전 단계 — 보드에 아직 fromCell 유닛이 남아있을 때)
+  const fromGif = fromCell.querySelector('.p-gif');
+  if (fromGif) fromGif.style.opacity = '0';
+
+  // ── 플로터 생성 (초기 위치, transition 없음) ──────────────
+  const cx = fromRect.left + fromRect.width  / 2;
+  const cy = fromRect.top  + fromRect.height / 2;
+  const tx = toRect.left   + toRect.width    / 2 - imgSize / 2;
+  const ty = toRect.top    + toRect.height   / 2 - imgSize / 2;
+
+  const DURATION = 350;
+
+  const el = makeEl();
   el.style.cssText = `
-    position:fixed; z-index:2500; font-size:1.6rem; pointer-events:none;
-    left:${fromRect.left + fromRect.width/2}px; top:${fromRect.top + fromRect.height/2}px;
-    transform:translate(-50%,-50%); transition: left 0.35s ease, top 0.35s ease;
-    filter: drop-shadow(0 0 8px rgba(82,183,136,0.8));
+    position:fixed; z-index:2500; pointer-events:none;
+    width:${imgSize}px; height:${imgSize}px;
+    object-fit:contain; image-rendering:pixelated;
+    left:${cx - imgSize/2}px; top:${cy - imgSize/2}px;
+    transform:scaleX(${scaleX}); transform-origin:center center;
+    filter:${fullF};
   `;
   document.body.appendChild(el);
+
+  // ── 잔상(trail) 인터벌 ────────────────────────────────────
+  // el.getBoundingClientRect() 로 CSS transition 중 실제 위치 추적
+  let trailCount = 0;
+  const trailIv = setInterval(() => {
+    trailCount++;
+    const ghost = makeEl();
+    const cur = el.getBoundingClientRect();
+    ghost.style.cssText = `
+      position:fixed; z-index:2490; pointer-events:none;
+      width:${imgSize}px; height:${imgSize}px;
+      object-fit:contain; image-rendering:pixelated;
+      left:${cur.left}px; top:${cur.top}px;
+      transform:scaleX(${scaleX}); transform-origin:center center;
+      opacity:${0.48 - trailCount * 0.08};
+      filter:${blackF + ' ' + glowF};
+      transition:opacity 0.4s ease-out;
+    `;
+    document.body.appendChild(ghost);
+    requestAnimationFrame(() => { ghost.style.opacity = '0'; });
+    setTimeout(() => ghost.remove(), 450);
+    if (trailCount >= 4) clearInterval(trailIv);
+  }, 58);
+
+  // ── rAF 1: 도착칸 유닛 숨김 ──────────────────────────────
+  // 이 시점에 renderGameBoard() 는 이미 동기 실행 완료 → toCell 에 .p-gif 존재
   requestAnimationFrame(() => {
-    el.style.left = `${toRect.left + toRect.width/2}px`;
-    el.style.top = `${toRect.top + toRect.height/2}px`;
+    const freshBoard = document.getElementById('game-board');
+    const destCell = freshBoard?.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
+    const destGif = destCell?.querySelector('.p-gif');
+    if (destGif) destGif.style.opacity = '0';
+
+    // ── rAF 2: 슬라이드 시작 ──────────────────────────────
+    requestAnimationFrame(() => {
+      el.style.transition = `left ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94), top ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94)`;
+      el.style.left = `${tx}px`;
+      el.style.top  = `${ty}px`;
+    });
   });
-  setTimeout(() => el.remove(), 400);
+
+  // ── 완료: 플로터 제거 + 도착칸 유닛 다시 표시 ───────────
+  setTimeout(() => {
+    clearInterval(trailIv);
+    el.remove();
+    const freshBoard = document.getElementById('game-board');
+    const finalCell = freshBoard?.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
+    const finalGif  = finalCell?.querySelector('.p-gif');
+    if (finalGif) finalGif.style.opacity = '';
+  }, DURATION + 80);
 }
 
 // ── 공격 모션 애니메이션 ──
@@ -15698,7 +15851,9 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
       if (hitIdxs.length > 0) {
         requestAnimationFrame(() => {
           for (const i of hitIdxs) {
-            const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
+            // ★ 사용자 보고 (#my-pieces-info 하드코딩): 레드팀 피해자 카드가 #opp-pieces-info 에
+            //   있으면 못 찾음. 컨테이너 제약 없이 player-idx 로만 전역 검색.
+            const card = document.querySelector(`.team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
             applyHitFlashWithBrighten(card);
           }
         });

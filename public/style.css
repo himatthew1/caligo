@@ -2854,6 +2854,8 @@ img.p-gif {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   image-rendering: -moz-crisp-edges;
+  /* 블랙 아웃라인 — 균일 가우시안 1px 2중 적용 */
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
 }
 /* GIF 포함 시 span 의 기본 line-height 여백 제거 */
 .piece-marker .p-icon:has(> img.p-gif) {

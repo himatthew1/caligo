@@ -44,6 +44,72 @@
     dragon:         '/art/dragon_idle.gif',
   };
 
+  // ── 이동 플로팅용 PNG 맵 ─────────────────────────────
+  window.PIECE_MOVE_PNGS = {
+    // ── Tier 1 ──────────────────────────────
+    archer:         '/art/archer_move.png',
+    spearman:       '/art/spearman_move.png',
+    cavalry:        '/art/cavalry_move.png',
+    watchman:       '/art/watchman_move.png',
+    scout:          '/art/scout_move.png',
+    manhunter:      '/art/manhunter_move.png',
+    messenger:      '/art/messenger_move.png',
+    gunpowder:      '/art/gunpowder_move.png',
+    herbalist:      '/art/herbalist_move.png',
+    twins_red:      '/art/twins_red_move.png',
+    twins_blue:     '/art/twins_blue_move.png',
+    // ── Tier 2 ──────────────────────────────
+    general:        '/art/general_move.png',
+    knight:         '/art/knight_move.png',
+    shadowAssassin: '/art/shadowAssassin_move.png',
+    wizard:         '/art/wizard_move.png',
+    armoredWarrior: '/art/armoredWarrior_move.png',
+    witch:          '/art/witch_move.png',
+    dualBlade:      '/art/dualBlade_move.png',
+    ratMerchant:    '/art/ratMerchant_move.png',
+    ratcatcher:     '/art/ratMerchant_move.png',
+    weaponSmith:    '/art/weaponSmith_move.png',
+    bodyguard:      '/art/bodyguard_move.png',
+    // ── Tier 3 ──────────────────────────────
+    prince:         '/art/prince_move.png',
+    princess:       '/art/princess_move.png',
+    king:           '/art/king_move.png',
+    dragonTamer:    '/art/dragonTamer_move.png',
+    monk:           '/art/monk_move.png',
+    slaughterHero:  '/art/slaughterHero_move.png',
+    commander:      '/art/commander_move.png',
+    sulfurCauldron: '/art/sulfurCauldron_move.png',
+    torturer:       '/art/torturer_move.png',
+    count:          '/art/count_move.png',
+    // ── 소환 유닛 ────────────────────────────
+    dragon:         '/art/dragon_move.png',
+  };
+
+  /**
+   * 이동 플로팅용 PNG URL 반환
+   * PNG 없으면 idle GIF URL 반환 (폴백)
+   *
+   * @param {string}  type
+   * @param {string}  [subUnit]  'elder' | 'younger' (쌍둥이)
+   * @param {boolean} [isJoined] 쌍둥이 합류 상태
+   */
+  window.getPieceMoveUrl = function (type, subUnit, isJoined) {
+    const mmap = window.PIECE_MOVE_PNGS;
+    const gmap = window.PIECE_GIFS;
+    let url;
+    if (isJoined)                  url = null; // 합류 — move PNG 없음
+    else if (subUnit === 'elder')   url = mmap && mmap.twins_red;
+    else if (subUnit === 'younger') url = mmap && mmap.twins_blue;
+    else                            url = mmap && mmap[type];
+    if (url) return url;
+    // 폴백: idle GIF
+    if (isJoined)                  url = gmap && gmap.twins_joined;
+    else if (subUnit === 'elder')   url = gmap && gmap.twins_red;
+    else if (subUnit === 'younger') url = gmap && gmap.twins_blue;
+    else                            url = gmap && gmap[type];
+    return url || null;
+  };
+
   /**
    * 캐릭터 타입 → <img class="p-gif"> HTML 문자열
    * GIF 없으면 null 반환 → 호출 측에서 이모지 폴백

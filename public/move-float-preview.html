@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>이동 플로팅 스타일 프리뷰</title>
+  <style>
+    :root {
+      /* ── 인게임 색상 그대로 ── */
+      --bg:       #0f0f1a;
+      --surf:     #1a1a2e;
+      --surf2:    #16213e;
+      --border:   #2a2a4a;
+      --text:     #e2e8f0;
+      --dim:      #94a3b8;
+      --accent:   #e2a84b;
+      --cell:     #1e1e35;
+      --cell-h:   #2a2a50;
+      --cell-piece: #1a2040;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 20px 60px;
+      gap: 28px;
+      min-height: 100vh;
+    }
+
+    h1 { color: var(--accent); font-size: 1.3rem; letter-spacing: 0.03em; }
+    .subtitle { color: var(--dim); font-size: 0.82rem; margin-top: 4px; text-align: center; }
+
+    /* ── 보드 ── */
+    .board-wrap {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(7, 68px);
+      grid-template-rows: repeat(7, 68px);
+      gap: 3px;
+      position: relative;
+    }
+
+    .cell {
+      background: var(--cell);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      font-size: 0.65rem;
+      color: #5a4a38;
+    }
+
+    .cell.has-piece {
+      background: var(--cell-piece);
+      border-color: #3a4a80;
+    }
+
+    /* ── 보드 위 유닛 이미지 + 블랙 아웃라인 상시 적용 ── */
+    .board-piece-img {
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      pointer-events: none;
+      /* 블랙 아웃라인 — 1px blur 방식: 8방향 누적 대신 단일 가우시안으로 균일하게 */
+      filter:
+        drop-shadow(0 0 1px rgba(0,0,0,1))
+        drop-shadow(0 0 1px rgba(0,0,0,1));
+    }
+
+    /* ── 컨트롤 ── */
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ctrl-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .ctrl-btn {
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 1.1rem;
+      width: 44px;
+      height: 44px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ctrl-btn:hover { background: #3a2c20; border-color: var(--accent); }
+    .ctrl-btn:active { background: #4a3c2a; }
+    .ctrl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .dir-badge {
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 14px;
+      font-size: 0.8rem;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+    }
+
+    /* ── 옵션 토글 ── */
+    .options {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .opt-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 7px 14px;
+      cursor: pointer;
+      font-size: 0.83rem;
+      transition: border-color 0.15s;
+      user-select: none;
+    }
+
+    .opt-label:hover { border-color: var(--accent); }
+
+    .opt-label input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+
+    /* ── 플로팅 이동 이미지 (JS 로 생성) ── */
+    .move-floater {
+      position: fixed;
+      z-index: 3000;
+      pointer-events: none;
+      /* 크기 — 보드 셀에 맞춤 */
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      transform-origin: center center;
+    }
+
+    /* 이동 중 CSS transition */
+    .move-floater.sliding {
+      transition: left 0.38s cubic-bezier(0.25,0.46,0.45,0.94),
+                  top  0.38s cubic-bezier(0.25,0.46,0.45,0.94);
+    }
+
+    /* ── 잔상 ghost ── */
+    .move-ghost {
+      position: fixed;
+      z-index: 2990;
+      pointer-events: none;
+      width: 52px;
+      height: 52px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      transform-origin: center center;
+      transition: opacity 0.42s ease-out;
+    }
+
+    /* ── 섹션 구분 ── */
+    .section-label {
+      font-size: 0.75rem;
+      color: var(--dim);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      align-self: flex-start;
+    }
+
+    .hint {
+      font-size: 0.76rem;
+      color: var(--dim);
+      text-align: center;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<h1>이동 플로팅 스타일 프리뷰</h1>
+<p class="subtitle">화살표 버튼으로 유닛을 이동하며 플로팅 효과를 확인하세요</p>
+
+<!-- 옵션 토글 -->
+<div class="options">
+  <label class="opt-label">
+    <input type="checkbox" id="opt-dir" checked>
+    방향 반전 (좌우 이동 시 flip)
+  </label>
+  <label class="opt-label">
+    <input type="checkbox" id="opt-trail" checked>
+    잔상 (afterimage trail)
+  </label>
+  <label class="opt-label">
+    <input type="checkbox" id="opt-outline" checked>
+    화이트 아웃라인
+  </label>
+</div>
+
+<!-- 보드 -->
+<div class="board-wrap">
+  <div id="board"></div>
+</div>
+
+<!-- 방향 표시 -->
+<div class="dir-badge" id="dir-badge">현재 방향: 오른쪽 →</div>
+
+<!-- 컨트롤 -->
+<div class="controls">
+  <div class="ctrl-row">
+    <div style="width:44px"></div>
+    <button class="ctrl-btn" id="btn-up" title="위">↑</button>
+    <div style="width:44px"></div>
+  </div>
+  <div class="ctrl-row">
+    <button class="ctrl-btn" id="btn-left" title="왼쪽">←</button>
+    <div style="width:44px; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:0.75rem;">이동</div>
+    <button class="ctrl-btn" id="btn-right" title="오른쪽">→</button>
+  </div>
+  <div class="ctrl-row">
+    <div style="width:44px"></div>
+    <button class="ctrl-btn" id="btn-down" title="아래">↓</button>
+    <div style="width:44px"></div>
+  </div>
+</div>
+
+<p class="hint">
+  보드 위 유닛: <strong>idle GIF</strong> (애니메이션) / 이동 플로팅 + 잔상: <strong>move PNG</strong>
+</p>
+
+<script>
+/* ================================================================
+   설정
+================================================================ */
+const COLS = 7, ROWS = 7;
+const MOVE_DURATION = 380; // ms — CSS transition 과 동일
+
+// 테스트용 유닛 목록 (보드에 배치)
+const UNITS = [
+  { type: 'knight',         col: 3, row: 3, icon: '♞' },
+  { type: 'archer',         col: 1, row: 1, icon: '🏹' },
+  { type: 'shadowAssassin', col: 5, row: 5, icon: '🗡' },
+];
+
+// 선택된 유닛 (항상 knight)
+let activeUnit = UNITS[0];
+
+// 방향 상태 — 기본: 오른쪽 (false = right, true = left)
+let facingLeft = false;
+
+/* ================================================================
+   보드 렌더
+================================================================ */
+const board = document.getElementById('board');
+
+function buildBoard() {
+  board.innerHTML = '';
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.col = c;
+      cell.dataset.row = r;
+      // 좌표 표시
+      cell.textContent = `${c},${r}`;
+      board.appendChild(cell);
+    }
+  }
+  renderUnits();
+}
+
+function getCell(col, row) {
+  return board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+}
+
+function renderUnits() {
+  // 기존 유닛 이미지 제거
+  board.querySelectorAll('.board-piece-img').forEach(el => el.remove());
+  board.querySelectorAll('.cell').forEach(c => c.classList.remove('has-piece'));
+
+  for (const u of UNITS) {
+    const cell = getCell(u.col, u.row);
+    if (!cell) continue;
+    cell.classList.add('has-piece');
+    cell.textContent = ''; // 좌표 숨김
+
+    const img = document.createElement('img');
+    img.className = 'board-piece-img';
+    // 보드 위 고정 유닛은 항상 idle GIF (애니메이션)
+    img.src = `/art/${u.type}_idle.gif`;
+
+    // 방향 반전 (활성 유닛만)
+    if (u === activeUnit && facingLeft) {
+      img.style.transform = 'scaleX(-1)';
+    }
+
+    // 활성 유닛 하이라이트 — 블랙 아웃라인 + 골드 글로우 합산
+    // (인라인 filter 는 CSS filter 를 완전히 덮어쓰므로 블랙 아웃라인도 같이 포함)
+    if (u === activeUnit) {
+      img.style.filter = [
+        'drop-shadow(0 0 1px rgba(0,0,0,1))',
+        'drop-shadow(0 0 1px rgba(0,0,0,1))',
+        'drop-shadow(0 0 6px rgba(240,192,64,0.9))',
+      ].join(' ');
+    }
+
+    cell.appendChild(img);
+  }
+}
+
+/* ================================================================
+   플로팅 애니메이션
+================================================================ */
+let isMoving = false;
+
+function getFloaterStyle() {
+  const useOutline = document.getElementById('opt-outline').checked;
+  // 화이트 아웃라인: 8방향 drop-shadow 중첩
+  const outlineFilter = useOutline
+    ? 'drop-shadow(2px 0 0 #fff) drop-shadow(-2px 0 0 #fff) drop-shadow(0 2px 0 #fff) drop-shadow(0 -2px 0 #fff) drop-shadow(1px 1px 0 #fff) drop-shadow(-1px 1px 0 #fff) drop-shadow(1px -1px 0 #fff) drop-shadow(-1px -1px 0 #fff)'
+    : '';
+  // 이동 광채
+  const glowFilter = 'drop-shadow(0 0 8px rgba(82,183,136,0.85))';
+  return outlineFilter ? `${outlineFilter} ${glowFilter}` : glowFilter;
+}
+
+function animateMoveFloater(unit, fromCol, fromRow, toCol, toRow, goingLeft) {
+  if (isMoving) return;
+  isMoving = true;
+
+  const fromCell = getCell(fromCol, fromRow);
+  const toCell   = getCell(toCol,   toRow);
+  if (!fromCell || !toCell) { isMoving = false; return; }
+
+  const useDir   = document.getElementById('opt-dir').checked;
+  const useTrail = document.getElementById('opt-trail').checked;
+
+  const fromRect = fromCell.getBoundingClientRect();
+  const toRect   = toCell.getBoundingClientRect();
+  const SZ = 52;
+
+  const cx = (r) => r.left + r.width  / 2 - SZ / 2;
+  const cy = (r) => r.top  + r.height / 2 - SZ / 2;
+
+  // 방향 결정
+  let scaleX = 1;
+  if (useDir) {
+    if (goingLeft !== null) scaleX = goingLeft ? -1 : 1;
+    else scaleX = facingLeft ? -1 : 1;
+  }
+
+  const blackOutline = 'drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))';
+  const glowFilter = 'drop-shadow(0 0 8px rgba(82,183,136,0.85))';
+  const fullFilter = blackOutline + ' ' + glowFilter;
+
+  // ── 출발칸 유닛 즉시 숨김 ──
+  const fromImg = fromCell.querySelector('.board-piece-img');
+  if (fromImg) fromImg.style.opacity = '0';
+
+  // ── 플로터 생성 (transition 없음) ──
+  const floater = document.createElement('img');
+  floater.src = `/art/${unit.type}_move.png`;
+  floater.onerror = () => { floater.src = `/art/${unit.type}_idle.gif`; floater.onerror = null; };
+  floater.style.cssText = `
+    position:fixed; z-index:3000; pointer-events:none;
+    width:${SZ}px; height:${SZ}px; object-fit:contain; image-rendering:pixelated;
+    left:${cx(fromRect)}px; top:${cy(fromRect)}px;
+    transform:scaleX(${scaleX}); transform-origin:center center;
+    filter:${fullFilter};
+  `;
+  document.body.appendChild(floater);
+
+  // ── 잔상 인터벌 (getBoundingClientRect 로 실제 위치 추적) ──
+  let trailIv = null;
+  if (useTrail) {
+    let trailCount = 0;
+    trailIv = setInterval(() => {
+      trailCount++;
+      const cur = floater.getBoundingClientRect();
+      const ghost = document.createElement('img');
+      ghost.src = floater.src;
+      ghost.style.cssText = `
+        position:fixed; z-index:2990; pointer-events:none;
+        width:${SZ}px; height:${SZ}px; object-fit:contain; image-rendering:pixelated;
+        left:${cur.left}px; top:${cur.top}px;
+        transform:scaleX(${scaleX}); transform-origin:center center;
+        opacity:${0.48 - trailCount * 0.08};
+        filter:${blackOutline + ' ' + glowFilter};
+        transition:opacity 0.4s ease-out;
+      `;
+      document.body.appendChild(ghost);
+      requestAnimationFrame(() => { ghost.style.opacity = '0'; });
+      setTimeout(() => ghost.remove(), 450);
+      if (trailCount >= 4) { clearInterval(trailIv); trailIv = null; }
+    }, 58);
+  }
+
+  // ── rAF 1: 도착칸 유닛 숨김 → rAF 2: 슬라이드 시작 ──
+  requestAnimationFrame(() => {
+    // 보드 위치 갱신 (renderUnits 역할: 도착칸에 idle GIF 표시)
+    unit.col = toCol;
+    unit.row = toRow;
+    renderUnits(); // 이 시점에 도착칸에 .board-piece-img 생성됨
+
+    const toImg = toCell.querySelector('.board-piece-img');
+    if (toImg) toImg.style.opacity = '0';
+
+    requestAnimationFrame(() => {
+      floater.style.transition = `left ${MOVE_DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94), top ${MOVE_DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94)`;
+      floater.style.left = `${cx(toRect)}px`;
+      floater.style.top  = `${cy(toRect)}px`;
+    });
+  });
+
+  // ── 완료: 플로터 제거 + 도착칸 유닛 표시 ──
+  setTimeout(() => {
+    if (trailIv) { clearInterval(trailIv); trailIv = null; }
+    floater.remove();
+    const toImg = toCell.querySelector('.board-piece-img');
+    if (toImg) toImg.style.opacity = '';
+    isMoving = false;
+  }, MOVE_DURATION + 80);
+}
+
+/* ================================================================
+   컨트롤
+================================================================ */
+function updateButtons() {
+  document.getElementById('btn-up').disabled    = isMoving || activeUnit.row <= 0;
+  document.getElementById('btn-down').disabled  = isMoving || activeUnit.row >= ROWS - 1;
+  document.getElementById('btn-left').disabled  = isMoving || activeUnit.col <= 0;
+  document.getElementById('btn-right').disabled = isMoving || activeUnit.col >= COLS - 1;
+}
+
+function move(dc, dr) {
+  if (isMoving) return;
+
+  const nc = activeUnit.col + dc;
+  const nr = activeUnit.row + dr;
+  if (nc < 0 || nc >= COLS || nr < 0 || nr >= ROWS) return;
+
+  // 방향 결정
+  let goingLeft = null;
+  const useDir  = document.getElementById('opt-dir').checked;
+  if (useDir && dc !== 0) {
+    goingLeft = dc < 0;
+    facingLeft = goingLeft;
+    const badge = document.getElementById('dir-badge');
+    badge.textContent = facingLeft ? '현재 방향: 왼쪽 ←' : '현재 방향: 오른쪽 →';
+  }
+
+  animateMoveFloater(activeUnit, activeUnit.col, activeUnit.row, nc, nr, dc !== 0 ? goingLeft : null);
+  updateButtons();
+}
+
+document.getElementById('btn-up').onclick    = () => move(0, -1);
+document.getElementById('btn-down').onclick  = () => move(0,  1);
+document.getElementById('btn-left').onclick  = () => move(-1, 0);
+document.getElementById('btn-right').onclick = () => move( 1, 0);
+
+// 옵션 변경 시 보드 리렌더
+document.querySelectorAll('.options input').forEach(inp => {
+  inp.addEventListener('change', renderUnits);
+});
+
+/* ================================================================
+   키보드 지원
+================================================================ */
+document.addEventListener('keydown', e => {
+  if (isMoving) return;
+  if (e.key === 'ArrowUp')    { e.preventDefault(); move(0, -1); }
+  if (e.key === 'ArrowDown')  { e.preventDefault(); move(0,  1); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); move(-1, 0); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); move( 1, 0); }
+});
+
+/* ================================================================
+   초기화
+================================================================ */
+buildBoard();
+updateButtons();
+
+// 이동 완료마다 버튼 상태 갱신 (polling 대신 주기적으로)
+setInterval(() => updateButtons(), 100);
+</script>
+</body>
+</html>
