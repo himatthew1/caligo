@@ -12241,7 +12241,7 @@ function snapshotTurnStartHps(preCurseHps) {
 // ★ 사용자 요청: 새 이벤트 발생 시 다른 type 도장 클리어 → 가장 최신 type 만 표시.
 //   같은 type 내에서는 누적 (예: 공격 1회 + 2회 = 누적 3 데미지). 다른 type 으로 전환 시
 //   이전 type 모두 제거 (예: 저주 → 회복 시 저주 도장 사라지고 회복만 표시).
-function _clearOtherStampTypes(key, exceptType) {
+function _clearOtherStampTypes(key, exceptType, alsoKeep) {
   const maps = {
     body: S.bodyDamageThisTurn,
     curse: S.curseDamageThisTurn,
@@ -12249,9 +12249,11 @@ function _clearOtherStampTypes(key, exceptType) {
     loyalty: S.loyaltyDamageThisTurn,
     protected: S.protectedHitsThisTurn,
   };
+  // alsoKeep: 공존 허용 타입 배열 — 이 타입들은 클리어하지 않음
+  const keepSet = new Set([exceptType, ...(alsoKeep || [])]);
   if (!S._stampAnimationsSeen) S._stampAnimationsSeen = {};
   for (const t in maps) {
-    if (t === exceptType) continue;
+    if (keepSet.has(t)) continue;
     if (maps[t]) delete maps[t][key];
     // 도장 애니메이션 seen 셋도 클리어 — 다음 type 등장 시 stamp-in 애니 재생.
     delete S._stampAnimationsSeen[`${key}:${t}`];
@@ -12266,7 +12268,8 @@ function addProtectedHit(key) {
 }
 function addLoyaltyDamage(key, dmg) {
   if (!S.loyaltyDamageThisTurn) S.loyaltyDamageThisTurn = {};
-  _clearOtherStampTypes(key, 'loyalty');
+  // ★ body 와 공존 가능 — 호위무사가 본체 피해 + 충성 피해를 동시에 받을 때 둘 다 표시
+  _clearOtherStampTypes(key, 'loyalty', ['body']);
   S.loyaltyDamageThisTurn[key] = (S.loyaltyDamageThisTurn[key] || 0) + dmg;
 }
 // 저주(curse) 지속 데미지 — 매 턴 재렌더에도 보존되도록 도장 데이터로 누적
@@ -12280,7 +12283,8 @@ function addCurseDamageStampValue(key, dmg) {
 // 가로채는 일이 없도록 (사용자 요청: 정보처리 자체를 막아 가로채지 못하게).
 function addBodyDamage(key, dmg) {
   if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
-  _clearOtherStampTypes(key, 'body');
+  // ★ loyalty 와 공존 가능 — 호위무사가 본체 피해 + 충성 피해를 동시에 받을 때 둘 다 표시
+  _clearOtherStampTypes(key, 'body', ['loyalty']);
   S.bodyDamageThisTurn[key] = (S.bodyDamageThisTurn[key] || 0) + dmg;
 }
 // 회복(신성/약초학) 누적 — 녹색 회복 도장 + HP 바 녹색 오버레이용.
