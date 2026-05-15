@@ -12066,6 +12066,36 @@ function renderGameBoard() {
   }
   // 공격 확정 floating 버튼 재배치 — 셀 재생성 / piece 위치 변경 / 선택 변경 대응.
   if (typeof refreshAttackConfirmBtn === 'function') refreshAttackConfirmBtn();
+
+  // ── 이동 방향(facing) 재적용 — renderGameBoard 재렌더 후에도 방향 유지 ──
+  // animateMove 에서 _pieceFacingDir 에 저장한 방향을 .p-gif inline transform 으로 반영.
+  // 'right'(기본) 는 transform 불필요, 'left' 만 scaleX(-1) 적용.
+  if (typeof _pieceFacingDir !== 'undefined') {
+    for (const [key, dir] of Object.entries(_pieceFacingDir)) {
+      if (dir !== 'left') continue;
+      let targetPc = null;
+      if (key.startsWith('ally:')) {
+        // 팀원 말: 'ally:type' 또는 'ally:type:subUnit'
+        const parts = key.slice(5).split(':');
+        const [aType, aSub] = parts;
+        if (Array.isArray(S.teammatePieces)) {
+          targetPc = S.teammatePieces.find(p => p.alive && p.type === aType && (!aSub || p.subUnit === aSub));
+        }
+      } else {
+        // 내 말: '${playerIdx}:${pieceIdx}'
+        const colIdx = key.indexOf(':');
+        const pidx = parseInt(key.slice(colIdx + 1), 10);
+        if (!isNaN(pidx) && Array.isArray(S.myPieces)) {
+          const p = S.myPieces[pidx];
+          if (p && p.alive) targetPc = p;
+        }
+      }
+      if (!targetPc) continue;
+      const fCell = board.querySelector(`.cell[data-col="${targetPc.col}"][data-row="${targetPc.row}"]`);
+      const fGif = fCell?.querySelector('.p-gif');
+      if (fGif) fGif.style.transform = 'scaleX(-1)';
+    }
+  }
 }
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
