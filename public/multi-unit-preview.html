@@ -657,12 +657,6 @@
 }
 /* 인게임 cell-mark 와 동일한 상태이상 표시 */
 .cell-mark { font-size: 0.75rem; position: absolute; top: 2px; right: 3px; z-index: 6; }
-/* 하단 카운터 (n / total) */
-.cr-counter {
-  position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
-  font-size: 0.42rem; color: rgba(255,255,255,0.38); z-index: 4; white-space: nowrap;
-  letter-spacing: 0.04em;
-}
 /* 삼각형 화살표 버튼 */
 .cr-arrow {
   position: absolute; top: 50%; transform: translateY(-50%);
@@ -693,14 +687,6 @@
 .cell-d.opp-active { border-color: rgba(239,68,68,0.5); }
 .cell-d.my-active  { border-color: rgba(82,183,136,0.5); }
 
-/* 이름 태그 (셀 하단 오버레이) */
-.cr-name-tag {
-  position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%);
-  font-size: 0.4rem; color: rgba(255,255,255,0.5);
-  white-space: nowrap; z-index: 4;
-  background: rgba(0,0,0,0.45); padding: 1px 4px; border-radius: 3px;
-  pointer-events: none;
-}
 </style>
 
 <div class="section">
@@ -732,8 +718,6 @@
               <span class="cr-main-hp"  id="cr1-hp"></span>
             </div>
             <span class="cell-mark"    id="cr1-statuses"></span>
-            <span class="cr-name-tag"  id="cr1-name"></span>
-            <span class="cr-counter"   id="cr1-count"></span>
             <!-- 화살표 -->
             <button class="cr-arrow left"  onclick="crPrev(1)"><div class="arrow-tri"></div></button>
             <button class="cr-arrow right" onclick="crNext(1)"><div class="arrow-tri"></div></button>
@@ -763,8 +747,6 @@
               <span class="cr-main-hp"  id="cr2-hp"></span>
             </div>
             <span class="cell-mark"    id="cr2-statuses"></span>
-            <span class="cr-name-tag"  id="cr2-name"></span>
-            <span class="cr-counter"   id="cr2-count"></span>
             <button class="cr-arrow left"  onclick="crPrev(2)"><div class="arrow-tri"></div></button>
             <button class="cr-arrow right" onclick="crNext(2)"><div class="arrow-tri"></div></button>
             <span class="coord-lbl" style="z-index:10">B3</span>
@@ -897,8 +879,6 @@
     document.getElementById(`cr${id}-gif`).src = cur.gif;
     document.getElementById(`cr${id}-hp`).textContent = cur.hp;
     document.getElementById(`cr${id}-hp`).style.color = cur.isEnemy ? '#f87171' : 'var(--green)';
-    document.getElementById(`cr${id}-name`).textContent = cur.name;
-    document.getElementById(`cr${id}-count`).textContent = `${st.idx+1} / ${n}`;
 
     // 인게임 cell-mark 와 동일 — ☠🎯👻 이모지 그대로
     const statusEl = document.getElementById(`cr${id}-statuses`);
