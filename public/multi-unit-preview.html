@@ -606,48 +606,341 @@
 
 <hr class="sep">
 
+<!-- ══════════════════════════════════════════
+     옵션 D — 캐러셀 회전형
+     ══════════════════════════════════════════ -->
+<style>
+/* ── 캐러셀 셀 ── */
+.cell-d {
+  position: relative;
+  overflow: visible;
+  background: var(--cell);
+  border: 1px solid var(--border);
+}
+/* 실루엣 — 양옆에 위치, 완전히 어두운 그림자 느낌 */
+.cr-sil {
+  position: absolute;
+  top: 50%; transform: translateY(-56%);
+  width: 22px; height: 22px;
+  object-fit: contain; image-rendering: pixelated;
+  opacity: 0;
+  transition: opacity 0.22s, transform 0.22s;
+  pointer-events: none;
+  z-index: 1;
+}
+.cr-sil.sil-left  { left: 3px; }
+.cr-sil.sil-right { right: 3px; }
+.cr-sil.sil-enemy {
+  filter: brightness(0.07) saturate(0) contrast(2)
+          drop-shadow(0 0 4px rgba(200,60,60,0.55));
+  opacity: 0.75;
+}
+.cr-sil.sil-ally {
+  filter: brightness(0.07) saturate(0) contrast(2)
+          drop-shadow(0 0 4px rgba(60,200,130,0.55));
+  opacity: 0.75;
+}
+/* 중앙 메인 슬롯 */
+.cr-main {
+  position: absolute; z-index: 3;
+  top: 50%; left: 50%; transform: translate(-50%, -58%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  transition: transform 0.22s cubic-bezier(.4,0,.2,1), opacity 0.22s;
+}
+.cr-main-gif {
+  display: block; width: 34px; height: 34px;
+  object-fit: contain; image-rendering: pixelated;
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+}
+.cr-main-hp {
+  font-size: 0.52rem; font-weight: 700; white-space: nowrap;
+}
+/* 하단 카운터 (n / total) */
+.cr-counter {
+  position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+  font-size: 0.42rem; color: rgba(255,255,255,0.38); z-index: 4; white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+/* 삼각형 화살표 버튼 */
+.cr-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  z-index: 5; cursor: pointer;
+  background: none; border: none; padding: 0;
+  display: flex; align-items: center;
+  opacity: 0.55; transition: opacity 0.15s;
+}
+.cr-arrow:hover { opacity: 1; }
+.cr-arrow.left  { left: 0px; }
+.cr-arrow.right { right: 0px; }
+/* CSS 삼각형 */
+.arrow-tri {
+  width: 0; height: 0;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+}
+.cr-arrow.left  .arrow-tri { border-right: 9px solid rgba(255,255,255,0.75); }
+.cr-arrow.right .arrow-tri { border-left:  9px solid rgba(255,255,255,0.75); }
+
+/* 슬라이드 아웃 클래스 */
+.cr-main.slide-left  { transform: translate(calc(-50% - 28px), -58%); opacity: 0; }
+.cr-main.slide-right { transform: translate(calc(-50% + 28px), -58%); opacity: 0; }
+/* 실루엣 확대 (이동 중) */
+.cr-sil.sil-grow { opacity: 1 !important; transform: translateY(-56%) scale(1.22); }
+
+/* 셀 글로우 — 현재 유닛이 적이면 붉은 테두리 힌트 */
+.cell-d.opp-active { border-color: rgba(239,68,68,0.5); }
+.cell-d.my-active  { border-color: rgba(82,183,136,0.5); }
+
+/* 이름 태그 (셀 하단 오버레이) */
+.cr-name-tag {
+  position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%);
+  font-size: 0.4rem; color: rgba(255,255,255,0.5);
+  white-space: nowrap; z-index: 4;
+  background: rgba(0,0,0,0.45); padding: 1px 4px; border-radius: 3px;
+  pointer-events: none;
+}
+</style>
+
+<div class="section">
+  <div class="section-head">
+    <div class="section-label" style="color:#38bdf8;">🅓 캐러셀 회전형</div>
+    <div class="section-title">삼각 화살표 클릭 → 다음 유닛으로 전환 · 양옆 실루엣</div>
+  </div>
+  <p class="section-desc">
+    한 번에 한 명씩 전면에 표시. 양옆에 인접 유닛의 실루엣(어두운 그림자)이 보임.
+    삼각 화살표 클릭 시 회전 애니메이션으로 다음/이전 유닛으로 전환.
+    하단에 <code>1/4</code> 카운터. <strong style="color:var(--accent)">화살표를 직접 클릭</strong>해보세요.
+  </p>
+  <br>
+
+  <div class="demo-row" style="gap:48px; align-items:flex-start;">
+
+    <!-- 캐러셀 A: 아군 1 + 적 3 -->
+    <div>
+      <div class="compare-label">아군 1 + 표식 적 3</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell cell-d my-active" id="cr-cell-1">
+            <!-- 실루엣 -->
+            <img class="cr-sil sil-left"  id="cr1-sil-l" src="" alt="">
+            <img class="cr-sil sil-right" id="cr1-sil-r" src="" alt="">
+            <!-- 메인 -->
+            <div class="cr-main" id="cr1-main">
+              <img class="cr-main-gif" id="cr1-gif" src="" alt="">
+              <span class="cr-main-hp"  id="cr1-hp"></span>
+            </div>
+            <span class="cr-name-tag"  id="cr1-name"></span>
+            <span class="cr-counter"   id="cr1-count"></span>
+            <!-- 화살표 -->
+            <button class="cr-arrow left"  onclick="crPrev(1)"><div class="arrow-tri"></div></button>
+            <button class="cr-arrow right" onclick="crNext(1)"><div class="arrow-tri"></div></button>
+            <span class="coord-lbl" style="z-index:10">A1</span>
+          </div>
+          <div class="cell" style="background:#1e1e1e;">
+            <div class="piece-marker">
+              <img class="p-gif" src="/art/torturer_idle.gif" style="filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))">
+              <span class="p-hp" style="color:#f87171">9/10</span>
+            </div>
+            <span class="coord-lbl">A2</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 캐러셀 B: 적만 3명 -->
+    <div>
+      <div class="compare-label">표식 적만 3명</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell cell-d opp-active" id="cr-cell-2">
+            <img class="cr-sil sil-left"  id="cr2-sil-l" src="" alt="">
+            <img class="cr-sil sil-right" id="cr2-sil-r" src="" alt="">
+            <div class="cr-main" id="cr2-main">
+              <img class="cr-main-gif" id="cr2-gif" src="" alt="">
+              <span class="cr-main-hp"  id="cr2-hp"></span>
+            </div>
+            <span class="cr-name-tag"  id="cr2-name"></span>
+            <span class="cr-counter"   id="cr2-count"></span>
+            <button class="cr-arrow left"  onclick="crPrev(2)"><div class="arrow-tri"></div></button>
+            <button class="cr-arrow right" onclick="crNext(2)"><div class="arrow-tri"></div></button>
+            <span class="coord-lbl" style="z-index:10">B3</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">B4</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 단계별 설명 -->
+  <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:160px; background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:8px; padding:12px; font-size:0.75rem; color:var(--dim); line-height:1.7;">
+      <div style="color:#38bdf8; font-weight:800; margin-bottom:5px;">정지 상태</div>
+      메인 유닛 중앙 표시<br>
+      양옆 실루엣은 잔상처럼 대기<br>
+      카운터로 총 수 인지
+    </div>
+    <div style="flex:1; min-width:160px; background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:8px; padding:12px; font-size:0.75rem; color:var(--dim); line-height:1.7;">
+      <div style="color:#38bdf8; font-weight:800; margin-bottom:5px;">화살표 클릭 시</div>
+      현재 유닛 → 반대 방향으로 슬라이드 아웃<br>
+      실루엣이 중앙으로 이동하며 선명해짐<br>
+      새 유닛이 반대편에서 슬라이드 인
+    </div>
+    <div style="flex:1; min-width:160px; background:rgba(56,189,248,0.07); border:1px solid rgba(56,189,248,0.22); border-radius:8px; padding:12px; font-size:0.75rem; color:var(--dim); line-height:1.7;">
+      <div style="color:#38bdf8; font-weight:800; margin-bottom:5px;">셀 테두리 힌트</div>
+      현재 유닛이 아군이면 초록<br>
+      적이면 붉은 테두리<br>
+      팀 구분이 자연스럽게 유지
+    </div>
+  </div>
+
+  <div class="verdict" style="background:rgba(56,189,248,0.07); border-color:rgba(56,189,248,0.25); margin-top:16px;">
+    <strong style="color:#38bdf8;">장점</strong>: 메인 GIF가 가장 크고 또렷. 실루엣으로 다른 유닛의 존재를 시각적으로 암시. 전환 애니메이션이 존재감 있음.<br>
+    <strong style="color:#38bdf8;">단점</strong>: 한 번에 한 명만 전면 확인 가능 → 여러 적의 HP를 동시에 비교하기 위해 클릭 필요.
+  </div>
+</div>
+
+<hr class="sep">
+
 <!-- ── 총평 ── -->
 <div class="section" style="max-width:900px;">
   <div class="section-head">
     <div class="section-label">총평</div>
   </div>
-  <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px; font-size:0.78rem; color:var(--dim); line-height:1.7;">
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; font-size:0.76rem; color:var(--dim); line-height:1.7;">
     <div style="background:rgba(82,183,136,0.08);border:1px solid rgba(82,183,136,0.25);border-radius:8px;padding:12px;">
       <div style="color:var(--green);font-weight:800;margin-bottom:6px;">🅐 미니 스트립</div>
-      셀 레이아웃 변경 최소<br>
       인터랙션 불필요<br>
-      메인 유닛 시인성 ◎<br>
+      메인 시인성 ◎<br>
       미니 GIF 식별성 △
     </div>
     <div style="background:rgba(167,139,250,0.07);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:12px;">
       <div style="color:#a78bfa;font-weight:800;margin-bottom:6px;">🅑 클릭 팝오버</div>
-      평소 화면 깔끔<br>
+      평소 깔끔<br>
       GIF 크기 충분<br>
-      클릭 필요 △<br>
-      팝오버 오버랩 △
+      클릭 필요 △
     </div>
     <div style="background:rgba(251,146,60,0.07);border:1px solid rgba(251,146,60,0.25);border-radius:8px;padding:12px;">
       <div style="color:#fb923c;font-weight:800;margin-bottom:6px;">🅒 2×2 그리드</div>
-      모든 유닛 동등 표시<br>
+      동등 표시<br>
       클릭 불필요<br>
-      GIF 크기 가장 작음 △<br>
-      셀 레이아웃 변경 필요
+      GIF 가장 작음 △
+    </div>
+    <div style="background:rgba(56,189,248,0.07);border:1px solid rgba(56,189,248,0.25);border-radius:8px;padding:12px;">
+      <div style="color:#38bdf8;font-weight:800;margin-bottom:6px;">🅓 캐러셀</div>
+      메인 GIF 가장 큼 ◎<br>
+      실루엣 연출 ◎<br>
+      HP 동시 비교 △
     </div>
   </div>
 </div>
 
 <script>
+  /* ── 팝오버 (옵션 B) ── */
   function togglePopover() {
-    const p = document.getElementById('popover-b');
-    p.classList.toggle('open');
+    document.getElementById('popover-b').classList.toggle('open');
   }
-  // 바깥 클릭 시 팝오버 닫기
   document.addEventListener('click', (e) => {
     const cellB = document.getElementById('cell-b');
-    if (!cellB.contains(e.target)) {
+    if (cellB && !cellB.contains(e.target))
       document.getElementById('popover-b').classList.remove('open');
-    }
   });
+
+  /* ════════════════════════════════════════
+     옵션 D — 캐러셀 로직
+     ════════════════════════════════════════ */
+  const CR_DATA = {
+    1: {
+      idx: 0,
+      busy: false,
+      pieces: [
+        { gif:'/art/king_idle.gif',        hp:'8/10', name:'국왕',         isEnemy:false },
+        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true  },
+        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true  },
+        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true  },
+      ]
+    },
+    2: {
+      idx: 0,
+      busy: false,
+      pieces: [
+        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true },
+        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true },
+        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true },
+      ]
+    }
+  };
+
+  function crRender(id) {
+    const st = CR_DATA[id];
+    const n  = st.pieces.length;
+    const cur  = st.pieces[st.idx];
+    const prev = st.pieces[(st.idx - 1 + n) % n];
+    const next = st.pieces[(st.idx + 1) % n];
+
+    document.getElementById(`cr${id}-gif`).src  = cur.gif;
+    document.getElementById(`cr${id}-hp`).textContent  = cur.hp;
+    document.getElementById(`cr${id}-hp`).style.color  = cur.isEnemy ? '#f87171' : 'var(--green)';
+    document.getElementById(`cr${id}-name`).textContent = cur.name;
+    document.getElementById(`cr${id}-count`).textContent = `${st.idx+1} / ${n}`;
+
+    const silL = document.getElementById(`cr${id}-sil-l`);
+    const silR = document.getElementById(`cr${id}-sil-r`);
+    silL.src = prev.gif;
+    silR.src = next.gif;
+    // 실루엣 적/아군에 따라 글로우 색상
+    silL.className = 'cr-sil sil-left '  + (prev.isEnemy ? 'sil-enemy' : 'sil-ally');
+    silR.className = 'cr-sil sil-right ' + (next.isEnemy ? 'sil-enemy' : 'sil-ally');
+
+    // 셀 테두리
+    const cell = document.getElementById(`cr-cell-${id}`);
+    cell.classList.toggle('my-active',  !cur.isEnemy);
+    cell.classList.toggle('opp-active',  cur.isEnemy);
+  }
+
+  function crAnimate(id, dir) {
+    const st = CR_DATA[id];
+    if (st.busy) return;
+    st.busy = true;
+
+    const main = document.getElementById(`cr${id}-main`);
+    const silL = document.getElementById(`cr${id}-sil-l`);
+    const silR = document.getElementById(`cr${id}-sil-r`);
+    const grow = dir === 'right' ? silR : silL;
+
+    // Phase 1: 현재 메인 슬라이드 아웃 + 도착 실루엣 확대
+    main.classList.add(dir === 'right' ? 'slide-left' : 'slide-right');
+    grow.classList.add('sil-grow');
+
+    setTimeout(() => {
+      // 인덱스 변경
+      const n = st.pieces.length;
+      st.idx = dir === 'right'
+        ? (st.idx + 1) % n
+        : (st.idx - 1 + n) % n;
+
+      // 반대편에서 슬라이드 인 준비
+      main.style.transition = 'none';
+      main.classList.remove('slide-left', 'slide-right');
+      main.classList.add(dir === 'right' ? 'slide-right' : 'slide-left');
+      grow.classList.remove('sil-grow');
+
+      crRender(id);
+
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        main.style.transition = '';
+        main.classList.remove('slide-left', 'slide-right');
+        st.busy = false;
+      }));
+    }, 220);
+  }
+
+  function crNext(id) { crAnimate(id, 'right'); }
+  function crPrev(id) { crAnimate(id, 'left');  }
+
+  // 초기 렌더
+  crRender(1);
+  crRender(2);
 </script>
 </body>
 </html>
