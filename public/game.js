@@ -15763,36 +15763,57 @@ function animateAttack(atkCells, hitCells) {
   animateBoardIconHit(hitCells);
 }
 
-// GIF 바이너리에서 Graphic Control Extension 블록을 스캔해 전체 재생 시간(ms) 반환.
-// 브라우저 HTTP 캐시에 이미 있으므로 force-cache fetch 는 거의 즉시 완료.
-// 결과는 window._gifDurCache 에 영구 캐싱 — 같은 URL 두 번째 호출은 동기로 반환.
-if (!window._gifDurCache) window._gifDurCache = {};
-async function _fetchGifDuration(url) {
-  if (window._gifDurCache[url] !== undefined) return window._gifDurCache[url];
+// GIF 바이너리에서 프레임 수(Graphic Control Extension 블록 수) 반환.
+// URL 별 영구 캐시 — 같은 캐릭터 두 번째 피격부터는 동기 반환.
+if (!window._gifFrameCountCache) window._gifFrameCountCache = {};
+async function _fetchGifFrameCount(url) {
+  if (window._gifFrameCountCache[url] !== undefined) return window._gifFrameCountCache[url];
   try {
     const bytes = new Uint8Array(
       await (await fetch(url, { cache: 'force-cache' })).arrayBuffer()
     );
-    let ms = 0;
-    for (let i = 0; i < bytes.length - 7; i++) {
-      // Graphic Control Extension 시그니처: 21 F9 04
-      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
-        const cs = bytes[i+4] | (bytes[i+5] << 8); // 센티초 단위
-        ms += cs === 0 ? 100 : cs * 10;            // 0cs → 브라우저 기본값 100ms
-        i += 7;
-      }
+    let n = 0;
+    for (let i = 0; i < bytes.length - 2; i++) {
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) { n++; i += 7; }
     }
-    return (window._gifDurCache[url] = ms || 600);
+    return (window._gifFrameCountCache[url] = n || 1);
   } catch (e) {
-    return (window._gifDurCache[url] = 800);
+    return (window._gifFrameCountCache[url] = 5);
   }
 }
 
+// canvas 로 GIF 프레임 전환을 감지 — frameCount 번 전환되면 (= 1회 루프 완료) cb 호출.
+// img 가 DOM 에서 사라지거나 3초 이상 변화 없으면 자동 종료.
+function _watchGifFrames(img, frameCount, cb) {
+  const W = img.naturalWidth  || 38;
+  const H = img.naturalHeight || 38;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  let transitions = 0, stale = 0, prevData = null;
+  (function tick() {
+    if (!img.parentNode) return;
+    cx.drawImage(img, 0, 0, W, H);
+    const cur = cx.getImageData(0, 0, W, H).data;
+    if (prevData) {
+      let changed = false;
+      for (let i = 0; i < cur.length; i++) {
+        if (cur[i] !== prevData[i]) { changed = true; break; }
+      }
+      if (changed) {
+        stale = 0;
+        if (++transitions >= frameCount) { cb(); return; }
+      } else if (++stale > 180) { cb(); return; } // 3초 안전 탈출
+    }
+    prevData = cur;
+    requestAnimationFrame(tick);
+  })();
+}
+
 // 보드 위 말 아이콘 피격 모션 — idle GIF → 피격 GIF 정확히 1회 재생 → idle 복원
-//   ★ GIF 바이너리 파싱으로 정확한 1회 재생 시간을 구해 타이머에 사용
+//   ★ canvas 프레임 감지로 마지막 프레임이 끝나는 순간 즉시 복원 (타이머 추정 없음)
 //   ★ img.decode() 완료 후 교체 → 팝인(빈 프레임) 방지
 //   ★ requestAnimationFrame 래핑 → renderGameBoard() 완료 후 새 DOM 에 적용
-//   ★ parentNode 확인 → renderGameBoard 가 먼저 재구성했으면 스킵
 function animateBoardIconHit(cells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -15818,35 +15839,29 @@ function animateBoardIconHit(cells) {
       hitImg.alt = '';
       hitImg.src = hitUrl;
 
-      // decode + 재생시간 파싱을 동시에 → 둘 다 완료되면 교체
-      Promise.all([hitImg.decode(), _fetchGifDuration(hitUrl)])
-        .then(([, dur]) => {
+      const restore = () => {
+        if (!hitImg.parentNode) return;
+        const restoreImg = document.createElement('img');
+        restoreImg.className = hitImg.className;
+        restoreImg.alt = '';
+        restoreImg.src = idleSrc;
+        restoreImg.decode()
+          .then(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); })
+          .catch(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); });
+      };
+
+      // decode 완료 + 프레임 수 파싱 → 교체 후 canvas 감시 시작
+      Promise.all([hitImg.decode(), _fetchGifFrameCount(hitUrl)])
+        .then(([, frameCount]) => {
           if (!idleImg.parentNode) return;
           idleImg.parentNode.replaceChild(hitImg, idleImg);
-
-          hitImg._restoreTimer = setTimeout(() => {
-            if (!hitImg.parentNode) return;
-            const restoreImg = document.createElement('img');
-            restoreImg.className = hitImg.className;
-            restoreImg.alt = '';
-            restoreImg.src = idleSrc;
-            restoreImg.decode()
-              .then(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); })
-              .catch(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); });
-          }, dur);
+          _watchGifFrames(hitImg, frameCount, restore);
         })
         .catch(() => {
-          // 폴백: decode/fetch 실패 시 800ms 고정
+          // 폴백: fetch/decode 실패 시 800ms 고정
           if (!idleImg.parentNode) return;
           idleImg.parentNode.replaceChild(hitImg, idleImg);
-          hitImg._restoreTimer = setTimeout(() => {
-            if (!hitImg.parentNode) return;
-            const restoreImg = document.createElement('img');
-            restoreImg.className = hitImg.className;
-            restoreImg.alt = '';
-            restoreImg.src = idleSrc;
-            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
-          }, 800);
+          setTimeout(restore, 800);
         });
     }
   });
