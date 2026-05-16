@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>복수 유닛 같은 칸 — 시각화 옵션 비교</title>
+  <style>
+    :root {
+      --bg:        #0f0f1a;
+      --surf:      #1a1a2e;
+      --surf2:     #16213e;
+      --border:    #2a2a4a;
+      --text:      #e2e8f0;
+      --dim:       #94a3b8;
+      --accent:    #e2a84b;
+      --cell:      #1e1e35;
+      --cell-h:    #2a2a50;
+      --green:     #52b788;
+      --danger:    #ef4444;
+      --blue:      #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+      min-height: 100vh;
+      padding: 32px 24px 80px;
+      display: flex; flex-direction: column; align-items: center; gap: 40px;
+    }
+    h1 { color: var(--accent); font-size: 1.4rem; letter-spacing: 0.04em; }
+    .page-sub { color: var(--dim); font-size: 0.82rem; margin-top: 6px; text-align: center; max-width: 560px; line-height: 1.6; }
+
+    /* ── 섹션 ── */
+    .section {
+      width: 100%; max-width: 900px;
+      background: var(--surf); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px 28px 28px;
+    }
+    .section-head {
+      display: flex; align-items: baseline; gap: 12px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border); padding-bottom: 14px;
+    }
+    .section-label {
+      font-size: 1rem; font-weight: 800; color: var(--accent);
+    }
+    .section-title { font-size: 1rem; color: var(--text); }
+    .section-desc { font-size: 0.78rem; color: var(--dim); margin-top: 8px; line-height: 1.65; }
+
+    /* ── 미니 보드 컨테이너 ── */
+    .demo-row {
+      display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap;
+    }
+    .demo-board {
+      background: var(--surf2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px; display: inline-flex; flex-direction: column; gap: 2px;
+    }
+    .board-row { display: flex; gap: 2px; }
+
+    /* ── 셀 기본 ── */
+    .cell {
+      width: 68px; height: 68px;
+      background: var(--cell);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cell.active   { border-color: var(--green); background: #1a2a2a; }
+    .cell.coord    { background: #12121e; }
+    .cell.empty    {}
+    .coord-lbl { font-size: 0.5rem; color: #3a3a5a; position: absolute; bottom: 2px; left: 3px; }
+
+    /* ── 기본 piece-marker ── */
+    .piece-marker {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 1px; padding: 2px; position: relative; z-index: 2;
+    }
+    .p-gif {
+      display: block; width: 38px; height: 38px; object-fit: contain;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    }
+    .p-hp {
+      font-size: 0.55rem; font-weight: 700; color: #94a3b8; white-space: nowrap;
+    }
+    .piece-marker.my-piece .p-hp { color: var(--green); }
+    .piece-marker.opp-piece .p-hp { color: #f87171; }
+
+    /* ── 현재 상태 ── */
+    .now-badge {
+      position: absolute; top: 4px; right: 4px; background: rgba(239,68,68,0.9);
+      color:#fff; font-size:0.48rem; font-weight:800; padding:1px 4px; border-radius:3px; z-index:10;
+    }
+
+    /* =========================================================
+       옵션 A — 오버플로우 미니 스트립
+       ========================================================= */
+    .cell-a { flex-direction: column; justify-content: flex-end; padding: 0; overflow: hidden; }
+    .cell-a .main-slot {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .mini-strip {
+      width: 100%; background: rgba(0,0,0,0.55);
+      border-top: 1px solid rgba(239,68,68,0.35);
+      display: flex; align-items: center; justify-content: center;
+      gap: 3px; padding: 3px 4px;
+    }
+    .mini-unit {
+      position: relative; display: flex; flex-direction: column; align-items: center;
+      gap: 1px;
+    }
+    .mini-gif {
+      display: block; width: 16px; height: 16px; object-fit: contain;
+      image-rendering: pixelated;
+      border-radius: 2px;
+    }
+    .mini-gif.enemy { filter: drop-shadow(0 0 2px rgba(239,68,68,0.8)); }
+    .mini-gif.ally  { filter: drop-shadow(0 0 2px rgba(82,183,136,0.8)); }
+    .mini-tint {
+      position: absolute; inset: 0;
+      background: rgba(239,68,68,0.2); border-radius: 2px; pointer-events: none;
+    }
+    .mini-hp { font-size: 0.38rem; color: #f87171; font-weight: 700; white-space: nowrap; }
+    .mini-hp.ally-hp { color: var(--green); }
+    .extra-badge {
+      font-size: 0.5rem; color: var(--dim); font-weight: 800; white-space: nowrap;
+    }
+
+    /* =========================================================
+       옵션 B — 뱃지 + 클릭 팝오버
+       ========================================================= */
+    .stack-badge {
+      position: absolute; top: 4px; left: 4px;
+      background: rgba(239,68,68,0.92); color: #fff;
+      font-size: 0.48rem; font-weight: 800;
+      padding: 2px 5px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.3);
+      z-index: 8; cursor: pointer;
+      display: flex; align-items: center; gap: 2px;
+    }
+    .popover {
+      position: absolute; top: 72px; left: 0; z-index: 30;
+      background: #1a1a2e; border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 12px;
+      display: none; flex-direction: column; gap: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.7);
+      min-width: 160px;
+    }
+    .popover.open { display: flex; }
+    .popover-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .popover-gif {
+      width: 28px; height: 28px; object-fit: contain;
+      image-rendering: pixelated;
+      filter: drop-shadow(0 0 1px rgba(0,0,0,1));
+    }
+    .popover-info { display: flex; flex-direction: column; gap: 2px; }
+    .popover-name { font-size: 0.68rem; font-weight: 700; color: var(--text); }
+    .popover-hp   { font-size: 0.58rem; color: #f87171; }
+    .popover-hp.my { color: var(--green); }
+    .popover-divider { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+    .popover-title {
+      font-size: 0.6rem; font-weight: 800; color: var(--dim); margin-bottom: 2px;
+      letter-spacing: 0.04em;
+    }
+
+    /* =========================================================
+       옵션 C — 2×2 그리드
+       ========================================================= */
+    .cell-c { flex-wrap: wrap; gap: 2px; padding: 4px; align-items: flex-start; justify-content: flex-start; }
+    .grid-unit {
+      width: 29px; display: flex; flex-direction: column;
+      align-items: center; gap: 1px;
+    }
+    .grid-gif {
+      width: 26px; height: 26px; object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .grid-gif.enemy { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(239,68,68,0.7)); }
+    .grid-gif.mine  { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(82,183,136,0.7)); }
+    .grid-hp { font-size: 0.38rem; color: #f87171; font-weight: 700; }
+    .grid-hp.my { color: var(--green); }
+
+    /* ── 설명 패널 ── */
+    .verdict {
+      margin-top: 16px;
+      background: rgba(82,183,136,0.08); border: 1px solid rgba(82,183,136,0.25);
+      border-radius: 8px; padding: 12px 16px;
+      font-size: 0.78rem; color: var(--text); line-height: 1.7;
+    }
+    .verdict strong { color: var(--green); }
+    .verdict.warn { background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.2); }
+    .verdict.warn strong { color: #f87171; }
+
+    /* ── 시나리오 설명 ── */
+    .scenario-box {
+      background: var(--surf2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px 18px;
+      font-size: 0.8rem; line-height: 1.75; color: var(--dim);
+      max-width: 860px; width: 100%;
+    }
+    .scenario-box strong { color: var(--text); }
+    .scenario-box .tag {
+      display: inline-block;
+      padding: 1px 7px; border-radius: 10px; font-size: 0.68rem; font-weight: 800;
+      margin: 0 2px; vertical-align: middle;
+    }
+    .tag.my   { background: rgba(82,183,136,0.2); color: var(--green); border: 1px solid rgba(82,183,136,0.4); }
+    .tag.opp  { background: rgba(239,68,68,0.18); color: #f87171;      border: 1px solid rgba(239,68,68,0.35); }
+    .tag.mark { background: rgba(251,191,36,0.18); color: #fbbf24;     border: 1px solid rgba(251,191,36,0.35); }
+
+    /* ── 범례 ── */
+    .legend {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-size: 0.72rem; color: var(--dim);
+      margin-top: 14px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot.my  { background: var(--green); box-shadow: 0 0 4px var(--green); }
+    .dot.opp { background: var(--danger); box-shadow: 0 0 4px var(--danger); }
+
+    /* ── 현재 vs 옵션 비교 헤더 ── */
+    .compare-label {
+      font-size: 0.68rem; font-weight: 800; color: var(--dim);
+      text-align: center; margin-bottom: 6px; letter-spacing: 0.04em;
+    }
+    .compare-pair { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; }
+    .compare-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+    hr.sep { border: none; border-top: 1px solid var(--border); width: 100%; max-width: 900px; }
+  </style>
+</head>
+<body>
+
+<h1>복수 유닛 — 같은 칸 시각화 비교</h1>
+<p class="page-sub">극단 시나리오: 국왕의 절대복종반지로 적 3명이 같은 칸에 강제 이동 → 고문기술자 공격 → 표식 상태<br>아래에서 <strong style="color:var(--accent)">현재 상태</strong>와 세 가지 개선 옵션을 비교해보세요.</p>
+
+<!-- 시나리오 -->
+<div class="scenario-box">
+  <strong>시나리오</strong> — A1 칸 점유 현황<br>
+  <span class="tag my">국왕 (나)</span> HP 8/10 &nbsp;
+  <span class="tag opp mark">🎯 드래곤조련사</span> HP 7/10 &nbsp;
+  <span class="tag opp mark">🎯 전령</span> HP 5/8 &nbsp;
+  <span class="tag opp mark">🎯 양손검객</span> HP 3/6
+  <br><br>
+  A2에 있는 <strong>고문기술자</strong>가 A1을 공격 → 적 3명 표식 상태. 현재 화면: 국왕만 보임.
+  <div class="legend">
+    <div class="legend-item"><div class="dot my"></div> 아군 (항상 보임)</div>
+    <div class="legend-item"><div class="dot opp"></div> 표식 적 (위치 공개)</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     현재 상태
+     ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-label">현재</div>
+    <div class="section-title">국왕만 보임 — 표식 적 3명은 렌더링 안 됨</div>
+  </div>
+  <div class="demo-row">
+    <div>
+      <div class="compare-label">A1 칸</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <!-- A1 -->
+          <div class="cell active" style="position:relative;">
+            <div class="now-badge">현재</div>
+            <div class="piece-marker my-piece">
+              <img class="p-gif" src="/art/king_idle.gif" alt="국왕">
+              <span class="p-hp" style="color:var(--green)">8/10</span>
+            </div>
+            <span class="coord-lbl">A1</span>
+          </div>
+          <!-- A2 -->
+          <div class="cell" style="background:#1e1e1e;">
+            <div class="piece-marker">
+              <img class="p-gif" src="/art/torturer_idle.gif" alt="고문기술자" style="filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))">
+              <span class="p-hp" style="color:#f87171">9/10</span>
+            </div>
+            <span class="coord-lbl">A2</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="verdict warn" style="flex:1; min-width:200px;">
+      <strong>문제</strong>: A1에 적 3명이 있다는 사실을 화면만 봐서는 알 수 없음.<br>
+      <code>if (markedOpp &amp;&amp; !pc)</code> 조건 때문에 아군이 있는 칸에선 표식 적이 아예 렌더링되지 않음.<br>
+      표식 적끼리도 <code>find()</code>로 첫 번째만 표시.
+    </div>
+  </div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════════════════════════════
+     옵션 A — 오버플로우 미니 스트립
+     ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-label" style="color:#52b788;">🅐 오버플로우 미니 스트립</div>
+    <div class="section-title">항상 보임 · 클릭 불필요 · 메인 슬롯 보존</div>
+  </div>
+  <p class="section-desc">
+    셀 하단에 얇은 반투명 바를 붙여, 보조 유닛을 미니 GIF(16px)로 나란히 나열.
+    아군은 초록 글로우, 표식 적은 빨간 글로우로 색 구별.
+    3개 초과분은 <code>+N</code> 배지.
+  </p>
+  <br>
+  <div class="demo-row">
+
+    <!-- 케이스 1: 아군 1 + 적 3 -->
+    <div>
+      <div class="compare-label">아군 1 + 표식 적 3</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-a" style="display:flex; flex-direction:column; padding:0; overflow:hidden;">
+            <div class="main-slot">
+              <div class="piece-marker my-piece" style="padding:0;">
+                <img class="p-gif" src="/art/king_idle.gif" alt="국왕">
+                <span class="p-hp" style="color:var(--green)">8/10</span>
+              </div>
+            </div>
+            <div class="mini-strip">
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/dragonTamer_idle.gif" alt="드래곤조련사">
+                <div class="mini-hp">7/10</div>
+              </div>
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/messenger_idle.gif" alt="전령">
+                <div class="mini-hp">5/8</div>
+              </div>
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/dualBlade_idle.gif" alt="양손검객">
+                <div class="mini-hp">3/6</div>
+              </div>
+            </div>
+            <span class="coord-lbl" style="z-index:20;">A1</span>
+          </div>
+          <div class="cell" style="background:#1e1e1e;">
+            <div class="piece-marker">
+              <img class="p-gif" src="/art/torturer_idle.gif" alt="고문기술자" style="filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))">
+              <span class="p-hp" style="color:#f87171">9/10</span>
+            </div>
+            <span class="coord-lbl">A2</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 케이스 2: 적만 여러 명 -->
+    <div>
+      <div class="compare-label">표식 적만 3명 (아군 없음)</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-a" style="display:flex; flex-direction:column; padding:0; overflow:hidden;">
+            <div class="main-slot">
+              <div class="piece-marker" style="padding:0;">
+                <img class="p-gif" src="/art/dragonTamer_idle.gif" alt="드래곤조련사" style="filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 5px rgba(239,68,68,0.5))">
+                <span class="p-hp" style="color:#f87171">7/10</span>
+              </div>
+            </div>
+            <div class="mini-strip">
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/messenger_idle.gif" alt="전령">
+                <div class="mini-hp">5/8</div>
+              </div>
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/dualBlade_idle.gif" alt="양손검객">
+                <div class="mini-hp">3/6</div>
+              </div>
+            </div>
+            <span class="coord-lbl" style="z-index:20;">B3</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">B4</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 케이스 3: 적 5명 (초과 배지) -->
+    <div>
+      <div class="compare-label">초과 시 +N 배지</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-a" style="display:flex; flex-direction:column; padding:0; overflow:hidden;">
+            <div class="main-slot">
+              <div class="piece-marker my-piece" style="padding:0;">
+                <img class="p-gif" src="/art/king_idle.gif" alt="국왕">
+                <span class="p-hp" style="color:var(--green)">8/10</span>
+              </div>
+            </div>
+            <div class="mini-strip">
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/dragonTamer_idle.gif" alt="">
+                <div class="mini-hp">7/10</div>
+              </div>
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/messenger_idle.gif" alt="">
+                <div class="mini-hp">5/8</div>
+              </div>
+              <div class="mini-unit">
+                <img class="mini-gif enemy" src="/art/dualBlade_idle.gif" alt="">
+                <div class="mini-hp">3/6</div>
+              </div>
+              <div class="extra-badge">+2</div>
+            </div>
+            <span class="coord-lbl" style="z-index:20;">A1</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">A2</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="verdict">
+    <strong>장점</strong>: 클릭/호버 없이 항상 보임. 메인 유닛 시인성 유지. 셀 구조 변경 최소화.<br>
+    <strong>단점</strong>: 미니 GIF 16px — 캐릭터 식별은 글로우 색상과 HP 수치에 의존. 아주 작은 화면에선 읽기 어려울 수 있음.
+  </div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════════════════════════════
+     옵션 B — 뱃지 + 클릭 팝오버
+     ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-label" style="color:#a78bfa;">🅑 뱃지 + 클릭 팝오버</div>
+    <div class="section-title">평소 깔끔 · 클릭 시 상세 확인</div>
+  </div>
+  <p class="section-desc">
+    칸에 표식 배지 <code>🎯×3</code> 만 표시. 클릭하면 모든 점유 유닛을 풀 사이즈 카드로 확인.
+    아래 셀을 <strong style="color:var(--accent)">직접 클릭</strong>해보세요.
+  </p>
+  <br>
+  <div class="demo-row">
+
+    <div>
+      <div class="compare-label">클릭 전 / 후 비교</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <!-- 클릭 가능한 셀 -->
+          <div class="cell active" id="cell-b" style="cursor:pointer; position:relative;" onclick="togglePopover()">
+            <div class="piece-marker my-piece">
+              <img class="p-gif" src="/art/king_idle.gif" alt="국왕">
+              <span class="p-hp" style="color:var(--green)">8/10</span>
+            </div>
+            <div class="stack-badge" onclick="togglePopover(); event.stopPropagation();">🎯 ×3</div>
+            <span class="coord-lbl">A1</span>
+            <!-- 팝오버 -->
+            <div class="popover" id="popover-b">
+              <div class="popover-title">📍 A1 점유 유닛 (총 4명)</div>
+              <div class="popover-row">
+                <img class="popover-gif" src="/art/king_idle.gif" alt="국왕" style="filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(82,183,136,0.5))">
+                <div class="popover-info">
+                  <div class="popover-name" style="color:var(--green)">국왕 <small style="color:var(--dim);font-weight:400">(나)</small></div>
+                  <div class="popover-hp my">HP 8 / 10</div>
+                </div>
+              </div>
+              <hr class="popover-divider">
+              <div class="popover-title">🎯 표식 적</div>
+              <div class="popover-row">
+                <img class="popover-gif" src="/art/dragonTamer_idle.gif" alt="" style="filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(239,68,68,0.5))">
+                <div class="popover-info">
+                  <div class="popover-name">드래곤조련사</div>
+                  <div class="popover-hp">HP 7 / 10</div>
+                </div>
+              </div>
+              <div class="popover-row">
+                <img class="popover-gif" src="/art/messenger_idle.gif" alt="" style="filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(239,68,68,0.5))">
+                <div class="popover-info">
+                  <div class="popover-name">전령</div>
+                  <div class="popover-hp">HP 5 / 8</div>
+                </div>
+              </div>
+              <div class="popover-row">
+                <img class="popover-gif" src="/art/dualBlade_idle.gif" alt="" style="filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(239,68,68,0.5))">
+                <div class="popover-info">
+                  <div class="popover-name">양손검객</div>
+                  <div class="popover-hp">HP 3 / 6</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="cell" style="background:#1e1e1e;">
+            <div class="piece-marker">
+              <img class="p-gif" src="/art/torturer_idle.gif" alt="고문기술자" style="filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))">
+              <span class="p-hp" style="color:#f87171">9/10</span>
+            </div>
+            <span class="coord-lbl">A2</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="verdict" style="background:rgba(167,139,250,0.07); border-color:rgba(167,139,250,0.25);">
+    <strong style="color:#a78bfa;">장점</strong>: 셀이 평소에 깔끔. 팝오버에서 GIF를 충분한 크기로 확인 가능.<br>
+    <strong style="color:#a78bfa;">단점</strong>: 클릭해야 정보가 보임 → 긴장된 전투 중 놓칠 수 있음. 팝오버가 주변 셀을 가릴 수 있음.
+  </div>
+</div>
+
+<hr class="sep">
+
+<!-- ══════════════════════════════════════════
+     옵션 C — 2×2 그리드 분할
+     ══════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="section-label" style="color:#fb923c;">🅒 2×2 그리드 분할</div>
+    <div class="section-title">모든 유닛 동등 표시 · 클릭 불필요</div>
+  </div>
+  <p class="section-desc">
+    복수 유닛 시 셀 내부를 격자로 분할. GIF를 26px로 줄여 최대 4칸까지.
+    5명 이상은 마지막 칸에 <code>+N</code>. 아군/적 구별은 글로우 색상.
+  </p>
+  <br>
+  <div class="demo-row">
+
+    <!-- 2명 -->
+    <div>
+      <div class="compare-label">2명 (1×2)</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-c" style="display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:3px; padding:4px;">
+            <div class="grid-unit">
+              <img class="grid-gif mine" src="/art/king_idle.gif" alt="국왕">
+              <div class="grid-hp my">8/10</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/dragonTamer_idle.gif" alt="드래곤조련사">
+              <div class="grid-hp">7/10</div>
+            </div>
+            <span class="coord-lbl">A1</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">A2</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4명 -->
+    <div>
+      <div class="compare-label">4명 (2×2)</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-c" style="display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:3px; padding:4px;">
+            <div class="grid-unit">
+              <img class="grid-gif mine" src="/art/king_idle.gif" alt="국왕">
+              <div class="grid-hp my">8/10</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/dragonTamer_idle.gif" alt="">
+              <div class="grid-hp">7/10</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/messenger_idle.gif" alt="">
+              <div class="grid-hp">5/8</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/dualBlade_idle.gif" alt="">
+              <div class="grid-hp">3/6</div>
+            </div>
+            <span class="coord-lbl">A1</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">A2</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5명 이상 -->
+    <div>
+      <div class="compare-label">5명 이상 (+N)</div>
+      <div class="demo-board">
+        <div class="board-row">
+          <div class="cell active cell-c" style="display:flex; flex-wrap:wrap; align-content:center; justify-content:center; gap:3px; padding:4px;">
+            <div class="grid-unit">
+              <img class="grid-gif mine" src="/art/king_idle.gif" alt="">
+              <div class="grid-hp my">8/10</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/dragonTamer_idle.gif" alt="">
+              <div class="grid-hp">7/10</div>
+            </div>
+            <div class="grid-unit">
+              <img class="grid-gif enemy" src="/art/messenger_idle.gif" alt="">
+              <div class="grid-hp">5/8</div>
+            </div>
+            <div class="grid-unit" style="display:flex;align-items:center;justify-content:center;">
+              <div style="font-size:0.65rem;color:var(--dim);font-weight:800;">+2</div>
+            </div>
+            <span class="coord-lbl">A1</span>
+          </div>
+          <div class="cell empty"><span class="coord-lbl">A2</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="verdict" style="background:rgba(251,146,60,0.07); border-color:rgba(251,146,60,0.25);">
+    <strong style="color:#fb923c;">장점</strong>: 모든 유닛이 동등하게 표시되어 직관적. 클릭 불필요.<br>
+    <strong style="color:#fb923c;">단점</strong>: 4명이면 GIF가 26px로 꽤 작음. 평소(1명)와 다중 상황의 시각적 차이가 크게 느껴질 수 있음. 셀 레이아웃 변경 필요.
+  </div>
+</div>
+
+<hr class="sep">
+
+<!-- ── 총평 ── -->
+<div class="section" style="max-width:900px;">
+  <div class="section-head">
+    <div class="section-label">총평</div>
+  </div>
+  <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px; font-size:0.78rem; color:var(--dim); line-height:1.7;">
+    <div style="background:rgba(82,183,136,0.08);border:1px solid rgba(82,183,136,0.25);border-radius:8px;padding:12px;">
+      <div style="color:var(--green);font-weight:800;margin-bottom:6px;">🅐 미니 스트립</div>
+      셀 레이아웃 변경 최소<br>
+      인터랙션 불필요<br>
+      메인 유닛 시인성 ◎<br>
+      미니 GIF 식별성 △
+    </div>
+    <div style="background:rgba(167,139,250,0.07);border:1px solid rgba(167,139,250,0.25);border-radius:8px;padding:12px;">
+      <div style="color:#a78bfa;font-weight:800;margin-bottom:6px;">🅑 클릭 팝오버</div>
+      평소 화면 깔끔<br>
+      GIF 크기 충분<br>
+      클릭 필요 △<br>
+      팝오버 오버랩 △
+    </div>
+    <div style="background:rgba(251,146,60,0.07);border:1px solid rgba(251,146,60,0.25);border-radius:8px;padding:12px;">
+      <div style="color:#fb923c;font-weight:800;margin-bottom:6px;">🅒 2×2 그리드</div>
+      모든 유닛 동등 표시<br>
+      클릭 불필요<br>
+      GIF 크기 가장 작음 △<br>
+      셀 레이아웃 변경 필요
+    </div>
+  </div>
+</div>
+
+<script>
+  function togglePopover() {
+    const p = document.getElementById('popover-b');
+    p.classList.toggle('open');
+  }
+  // 바깥 클릭 시 팝오버 닫기
+  document.addEventListener('click', (e) => {
+    const cellB = document.getElementById('cell-b');
+    if (!cellB.contains(e.target)) {
+      document.getElementById('popover-b').classList.remove('open');
+    }
+  });
+</script>
+</body>
+</html>
