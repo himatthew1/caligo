@@ -633,12 +633,12 @@
 .cr-sil.sil-enemy {
   filter: brightness(0.07) saturate(0) contrast(2)
           drop-shadow(0 0 4px rgba(200,60,60,0.55));
-  opacity: 0.75;
+  opacity: 0;
 }
 .cr-sil.sil-ally {
   filter: brightness(0.07) saturate(0) contrast(2)
           drop-shadow(0 0 4px rgba(60,200,130,0.55));
-  opacity: 0.75;
+  opacity: 0;
 }
 /* 중앙 메인 슬롯 */
 .cr-main {
@@ -655,6 +655,18 @@
 .cr-main-hp {
   font-size: 0.52rem; font-weight: 700; white-space: nowrap;
 }
+/* 상태이상 뱃지 행 */
+.cr-status-row {
+  display: flex; gap: 2px; align-items: center; justify-content: center;
+  flex-wrap: wrap; margin-top: 2px; min-height: 11px;
+}
+.cr-status {
+  font-size: 0.38rem; font-weight: 800;
+  padding: 1px 4px; border-radius: 3px;
+  white-space: nowrap; line-height: 1.5; letter-spacing: 0.02em;
+}
+.cr-status.mark  { background: rgba(251,191,36,0.18); color: #fbbf24; border: 1px solid rgba(251,191,36,0.45); }
+.cr-status.curse { background: rgba(139,92,246,0.18); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.45); }
 /* 하단 카운터 (n / total) */
 .cr-counter {
   position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
@@ -684,8 +696,8 @@
 /* 슬라이드 아웃 클래스 */
 .cr-main.slide-left  { transform: translate(calc(-50% - 28px), -58%); opacity: 0; }
 .cr-main.slide-right { transform: translate(calc(-50% + 28px), -58%); opacity: 0; }
-/* 실루엣 확대 (이동 중) */
-.cr-sil.sil-grow { opacity: 1 !important; transform: translateY(-56%) scale(1.22); }
+/* 실루엣 확대 (이동 중) — 실루엣 제거 상태에서는 동작 안 함 */
+.cr-sil.sil-grow { opacity: 0 !important; transform: translateY(-56%) scale(1.22); }
 
 /* 셀 글로우 — 현재 유닛이 적이면 붉은 테두리 힌트 */
 .cell-d.opp-active { border-color: rgba(239,68,68,0.5); }
@@ -707,9 +719,9 @@
     <div class="section-title">삼각 화살표 클릭 → 다음 유닛으로 전환 · 양옆 실루엣</div>
   </div>
   <p class="section-desc">
-    한 번에 한 명씩 전면에 표시. 양옆에 인접 유닛의 실루엣(어두운 그림자)이 보임.
-    삼각 화살표 클릭 시 회전 애니메이션으로 다음/이전 유닛으로 전환.
-    하단에 <code>1/4</code> 카운터. <strong style="color:var(--accent)">화살표를 직접 클릭</strong>해보세요.
+    한 번에 한 명씩 전면에 표시. 삼각 화살표 클릭 시 슬라이드 전환.
+    <strong style="color:#fbbf24">🎯 표식</strong>·<strong style="color:#c4b5fd">🌀 저주</strong> 등 상태이상이 캐릭터별로 따로 표시됨.
+    <strong style="color:var(--accent)">화살표를 직접 클릭</strong>해서 순환해보세요.
   </p>
   <br>
 
@@ -728,6 +740,7 @@
             <div class="cr-main" id="cr1-main">
               <img class="cr-main-gif" id="cr1-gif" src="" alt="">
               <span class="cr-main-hp"  id="cr1-hp"></span>
+              <div class="cr-status-row" id="cr1-statuses"></div>
             </div>
             <span class="cr-name-tag"  id="cr1-name"></span>
             <span class="cr-counter"   id="cr1-count"></span>
@@ -758,6 +771,7 @@
             <div class="cr-main" id="cr2-main">
               <img class="cr-main-gif" id="cr2-gif" src="" alt="">
               <span class="cr-main-hp"  id="cr2-hp"></span>
+              <div class="cr-status-row" id="cr2-statuses"></div>
             </div>
             <span class="cr-name-tag"  id="cr2-name"></span>
             <span class="cr-counter"   id="cr2-count"></span>
@@ -854,21 +868,26 @@
       idx: 0,
       busy: false,
       pieces: [
-        { gif:'/art/king_idle.gif',        hp:'8/10', name:'국왕',         isEnemy:false },
-        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true  },
-        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true  },
-        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true  },
+        { gif:'/art/king_idle.gif',        hp:'8/10', name:'국왕',         isEnemy:false, statuses:[] },
+        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true,  statuses:['mark','curse'] },
+        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true,  statuses:['mark'] },
+        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true,  statuses:['mark'] },
       ]
     },
     2: {
       idx: 0,
       busy: false,
       pieces: [
-        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true },
-        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true },
-        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true },
+        { gif:'/art/dragonTamer_idle.gif', hp:'7/10', name:'드래곤조련사', isEnemy:true, statuses:['mark','curse'] },
+        { gif:'/art/messenger_idle.gif',   hp:'5/8',  name:'전령',         isEnemy:true, statuses:['mark'] },
+        { gif:'/art/dualBlade_idle.gif',   hp:'3/6',  name:'양손검객',     isEnemy:true, statuses:['mark'] },
       ]
     }
+  };
+
+  const STATUS_LABEL = {
+    mark:  { cls:'mark',  text:'🎯 표식' },
+    curse: { cls:'curse', text:'🌀 저주' },
   };
 
   function crRender(id) {
@@ -878,17 +897,25 @@
     const prev = st.pieces[(st.idx - 1 + n) % n];
     const next = st.pieces[(st.idx + 1) % n];
 
-    document.getElementById(`cr${id}-gif`).src  = cur.gif;
-    document.getElementById(`cr${id}-hp`).textContent  = cur.hp;
-    document.getElementById(`cr${id}-hp`).style.color  = cur.isEnemy ? '#f87171' : 'var(--green)';
+    document.getElementById(`cr${id}-gif`).src = cur.gif;
+    document.getElementById(`cr${id}-hp`).textContent = cur.hp;
+    document.getElementById(`cr${id}-hp`).style.color = cur.isEnemy ? '#f87171' : 'var(--green)';
     document.getElementById(`cr${id}-name`).textContent = cur.name;
     document.getElementById(`cr${id}-count`).textContent = `${st.idx+1} / ${n}`;
+
+    // 상태이상 뱃지
+    const statusEl = document.getElementById(`cr${id}-statuses`);
+    if (statusEl) {
+      statusEl.innerHTML = (cur.statuses || []).map(s => {
+        const def = STATUS_LABEL[s];
+        return def ? `<span class="cr-status ${def.cls}">${def.text}</span>` : '';
+      }).join('');
+    }
 
     const silL = document.getElementById(`cr${id}-sil-l`);
     const silR = document.getElementById(`cr${id}-sil-r`);
     silL.src = prev.gif;
     silR.src = next.gif;
-    // 실루엣 적/아군에 따라 글로우 색상
     silL.className = 'cr-sil sil-left '  + (prev.isEnemy ? 'sil-enemy' : 'sil-ally');
     silR.className = 'cr-sil sil-right ' + (next.isEnemy ? 'sil-enemy' : 'sil-ally');
 
