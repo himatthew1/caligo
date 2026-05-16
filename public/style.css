@@ -2443,6 +2443,43 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .cell.teammate-cell-red { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.40); }
 /* 팀원의 상태 마크는 좀 더 작게 */
 .cell-mark.teammate-mark { opacity: 0.75; font-size: 0.55rem; }
+
+/* ── 멀티유닛 캐러셀 (같은 셀에 2개 이상 유닛) ── */
+.cc-wrapper {
+  position: absolute; inset: 0; z-index: 2; overflow: hidden;
+}
+.cc-main {
+  position: absolute; z-index: 3;
+  top: 50%; left: 50%; transform: translate(-50%, -55%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px;
+  transition: transform 0.2s cubic-bezier(.4,0,.2,1), opacity 0.2s;
+}
+.cc-main.cc-slide-left  { transform: translate(calc(-50% - 28px), -55%); opacity: 0; }
+.cc-main.cc-slide-right { transform: translate(calc(-50% + 28px), -55%); opacity: 0; }
+.cc-main .p-icon        { font-size: 1.3rem; line-height: 1; }
+.cc-main .p-icon:has(> img.p-gif) { line-height: 0; font-size: 0; }
+.cc-main .p-hp          { font-size: 0.6rem; font-weight: 700; }
+.cc-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: none; border: none; padding: 3px 1px; cursor: pointer;
+  z-index: 6; opacity: 0.45; transition: opacity 0.15s; pointer-events: auto;
+}
+.cc-arrow:hover { opacity: 0.9; }
+.cc-arrow.cc-left  { left: 0; }
+.cc-arrow.cc-right { right: 0; }
+.cc-tri { width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
+.cc-tri.cc-tri-left  { border-right: 6px solid rgba(255,255,255,0.75); }
+.cc-tri.cc-tri-right { border-left:  6px solid rgba(255,255,255,0.75); }
+/* 모랄 버프 글로우 — 캐러셀 래퍼에도 적용 */
+.cc-wrapper.morale-buffed {
+  filter: drop-shadow(0 0 5px rgba(94,234,212,0.95)) drop-shadow(0 0 10px rgba(45,212,191,0.7));
+  animation: moraleBuffedPulse 2.4s ease-in-out infinite;
+}
+body.dim-morale-zone .cc-wrapper.morale-buffed {
+  filter: drop-shadow(0 0 2px rgba(94,234,212,0.4)) !important;
+  animation: none !important;
+}
+
 /* 보드 위 말 아이콘 피격 애니메이션 (쥐 모션과 동일 톤) */
 .piece-marker .p-icon.p-icon-hit {
   animation: pIconHitAnim 0.7s ease-out;

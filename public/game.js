@@ -5304,8 +5304,8 @@ function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
   const toCell   = board.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
   if (!fromCell || !toCell) return;
 
-  // mover 의 piece-marker 일시 숨김 — 비행 끝나고 보드 재렌더 시 자연 복귀
-  const moverMarker = fromCell.querySelector('.piece-marker');
+  // mover 의 piece-marker(단일) / cc-wrapper(캐러셀) 일시 숨김 — 비행 끝나고 보드 재렌더 시 자연 복귀
+  const moverMarker = fromCell.querySelector('.piece-marker') || fromCell.querySelector('.cc-wrapper');
   if (moverMarker) moverMarker.classList.add('twin-flying');
 
   const fromR = fromCell.getBoundingClientRect();
@@ -11604,9 +11604,34 @@ function renderGameBoard() {
       return;
     }
 
+    // ── 멀티유닛 캐러셀 체크 ──
+    // 내 말 + 팀원 + 표식 적이 2개 이상 같은 셀에 있으면 캐러셀로 표시.
+    const _crUnits = (() => {
+      const arr = [];
+      const _mp = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+      if (_mp && !(_mp.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)))
+        arr.push({ p: _mp, owner: 'mine' });
+      if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+        const _tp = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
+        if (_tp) {
+          const _tmDragonSkip = _tp.isDragon && S._dragonIncoming &&
+            (S.teamGamePlayers || []).some(pl =>
+              (pl.pieces || []).some(pp => pp.col === col && pp.row === row && pp.isDragon) &&
+              S._dragonIncoming.has(`${col},${row},${pl.idx}`)
+            );
+          if (!_tmDragonSkip) arr.push({ p: _tp, owner: 'teammate' });
+        }
+      }
+      for (const op of (S.oppPieces || []).filter(p => p.marked && p.alive && p.col === col && p.row === row))
+        arr.push({ p: op, owner: 'opp' });
+      return arr;
+    })();
+    const _isCarousel = _crUnits.length >= 2;
+    if (_isCarousel) _renderCellCarousel(cell, col, row, _crUnits);
+
     // 내 말
     const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
-    if (pc) {
+    if (!_isCarousel && pc) {
       // ★ 드래곤 강림 애니 진행 중이면 해당 셀의 드래곤 piece 는 표시 X — 애니 종료 시점에 _dragonIncoming 키 제거 후 재렌더.
       if (pc.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)) {
         return;
@@ -11699,7 +11724,7 @@ function renderGameBoard() {
     }
 
     // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
-    if (S.isTeamMode && Array.isArray(S.teammatePieces) && !pc) {
+    if (!_isCarousel && S.isTeamMode && Array.isArray(S.teammatePieces) && !pc) {
       const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
       // ★ 드래곤 강림 애니 진행 중인 팀원 드래곤은 표시 X — 애니 종료 시점에 재렌더가 처리.
       const _tmIsIncomingDragon = tmPc && tmPc.isDragon && S._dragonIncoming &&
@@ -11736,8 +11761,8 @@ function renderGameBoard() {
     // 표식 상태인 적 — 위치 공개. 팀모드에선 적 팀 컬러로 표시.
     //   ★ 사용자 요청 (분리): 적 위치 노출(marked)은 시전 시점부터 / 🎯 인디케이터는
     //   statusEffects 에 mark 가 들어간 인두 낙하 시점부터 — 두 시각 효과를 분리.
-    const markedOpp = S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
-    if (markedOpp && !pc) {
+    const markedOpp = _isCarousel ? null : S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
+    if (!_isCarousel && markedOpp && !pc) {
       let oppColorCls = '';
       if (S.isTeamMode) {
         const oppTeamId = S.teamId === 0 ? 1 : 0;
@@ -11864,8 +11889,8 @@ function renderGameBoard() {
         }
       }
       if (allyPieceHere) {
-        // 청록 글로우 — 셀 안의 piece-marker 에 morale-buffed (이미 추가된 piece-marker 가 있을 때만)
-        const marker = cell.querySelector('.piece-marker');
+        // 청록 글로우 — 셀 안의 piece-marker(단일) 또는 cc-wrapper(캐러셀) 에 morale-buffed
+        const marker = cell.querySelector('.piece-marker') || cell.querySelector('.cc-wrapper');
         if (marker) marker.classList.add('morale-buffed');
         // 랜덤 위치/타이밍 파티클 5개
         const sparkleChars = ['✦', '✧', '✦', '✨', '✧'];
@@ -12102,6 +12127,100 @@ function renderGameBoard() {
     }
   }
 }
+
+// ── 멀티유닛 캐러셀: 셀 HTML 렌더 ──────────────────────────────────────
+// 같은 셀에 2개 이상의 유닛이 있을 때 호출. cell DOM 에 캐러셀 위젯을 주입.
+if (!window._cellCarouselState) window._cellCarouselState = {};
+
+function _renderCellCarousel(cell, col, row, units) {
+  const cs = window._cellCarouselState;
+  const csKey = `${col},${row}`;
+
+  // 각 유닛의 렌더 데이터 빌드 (u.p = piece 객체)
+  const pieces = units.map(u => {
+    const pc = u.p;
+    const gifHtml = typeof getPieceGifHtml === 'function'
+      ? getPieceGifHtml(pc.type, pc.subUnit, false) : null;
+    const iconHtml = gifHtml || pc.icon || '?';
+    let hpColor;
+    if      (u.owner === 'opp')      hpColor = '#f87171';
+    else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
+    else                             hpColor = 'var(--success)';
+    const statusIcons = (typeof getStatusIcons === 'function') ? getStatusIcons(pc) : '';
+    return { iconHtml, hpText: `${pc.hp}/${pc.maxHp}`, hpColor, statusIcons, owner: u.owner };
+  });
+
+  // 유닛 구성이 바뀌면(사망·추가) idx 초기화, HP/상태만 바뀌면 idx 유지
+  const fp = units.map(u => `${u.owner}:${u.p.type}:${u.p.subUnit||''}`).join('|');
+  if (!cs[csKey] || cs[csKey].fp !== fp) {
+    cs[csKey] = { idx: 0, busy: false, fp, pieces };
+  } else {
+    cs[csKey].pieces = pieces;
+  }
+  const st = cs[csKey];
+  if (st.idx >= pieces.length) st.idx = 0;
+
+  const cur = pieces[st.idx];
+  const csId = `cc-${col}-${row}`;
+  const statusHtml = cur.statusIcons || '';
+
+  cell.innerHTML += `
+    <div class="cc-wrapper" id="${csId}-wrap">
+      <div class="cc-main" id="${csId}-main">
+        <span class="p-icon" id="${csId}-icon">${cur.iconHtml}</span>
+        <span class="p-hp"  id="${csId}-hp" style="color:${cur.hpColor}">${cur.hpText}</span>
+      </div>
+      <span class="cell-mark" id="${csId}-mark"${!statusHtml ? ' style="display:none"' : ''}>${statusHtml}</span>
+      <button class="cc-arrow cc-left"  onclick="_crNav('${col},${row}',-1);event.stopPropagation()" title="이전"><div class="cc-tri cc-tri-left"></div></button>
+      <button class="cc-arrow cc-right" onclick="_crNav('${col},${row}', 1);event.stopPropagation()" title="다음"><div class="cc-tri cc-tri-right"></div></button>
+    </div>`;
+
+  cell.classList.add('has-piece');
+}
+
+// ── 멀티유닛 캐러셀: 화살표 클릭 네비게이션 ──────────────────────────
+window._crNav = function(colRow, dir) {
+  const cs = window._cellCarouselState;
+  if (!cs) return;
+  const st = cs[colRow];
+  if (!st || st.busy || st.pieces.length <= 1) return;
+
+  st.busy = true;
+  const [col, row] = colRow.split(',');
+  const csId = `cc-${col}-${row}`;
+  const mainEl = document.getElementById(`${csId}-main`);
+  if (!mainEl) { st.busy = false; return; }
+
+  // dir > 0 = 다음 (왼쪽으로 나가고 오른쪽에서 들어옴)
+  // dir < 0 = 이전 (오른쪽으로 나가고 왼쪽에서 들어옴)
+  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
+  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+
+  mainEl.classList.add(outCls);
+
+  setTimeout(() => {
+    st.idx = (st.idx + dir + st.pieces.length) % st.pieces.length;
+    const cur = st.pieces[st.idx];
+
+    // 콘텐츠 갱신
+    const iconEl = document.getElementById(`${csId}-icon`);
+    if (iconEl) iconEl.innerHTML = cur.iconHtml;
+    const hpEl = document.getElementById(`${csId}-hp`);
+    if (hpEl) { hpEl.textContent = cur.hpText; hpEl.style.color = cur.hpColor; }
+    const markEl = document.getElementById(`${csId}-mark`);
+    if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
+
+    // 반대쪽에서 슬라이드 인 (트랜지션 없이 위치 잡고, 트랜지션 재활성화 후 해제)
+    mainEl.style.transition = 'none';
+    mainEl.classList.remove(outCls);
+    mainEl.classList.add(inCls);
+    void mainEl.offsetWidth;              // 강제 리플로우
+    mainEl.style.transition = '';
+    mainEl.classList.remove(inCls);
+
+    st.busy = false;
+  }, 200);
+};
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
 // 적 프로필 카드의 deduction-badge 만 추가/갱신/제거 — 카드 자체는 재생성하지 않음
@@ -15639,7 +15758,7 @@ function animateBoardIconHit(cells) {
   for (const c of cells) {
     const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
     if (!cell) continue;
-    const icon = cell.querySelector('.piece-marker .p-icon');
+    const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main .p-icon');
     if (icon) {
       icon.classList.remove('p-icon-hit');
       // 강제 리플로우 — 같은 셀 연속 피격에서도 애니메이션 재생
