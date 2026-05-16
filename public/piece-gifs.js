@@ -44,6 +44,65 @@
     dragon:         '/art/dragon_idle.gif',
   };
 
+  // ── 피격 GIF 맵 ──────────────────────────────────────
+  window.PIECE_HIT_GIFS = {
+    // ── Tier 1 ──────────────────────────────
+    archer:         '/art/archer_hit.gif',
+    spearman:       '/art/spearman_hit.gif',
+    cavalry:        '/art/cavalry_hit.gif',
+    watchman:       '/art/watchman_hit.gif',
+    scout:          '/art/scout_hit.gif',
+    manhunter:      '/art/manhunter_hit.gif',
+    messenger:      '/art/messenger_hit.gif',
+    gunpowder:      '/art/gunpowder_hit.gif',
+    herbalist:      '/art/herbalist_hit.gif',
+    twins_red:      '/art/twins_red_hit.gif',
+    twins_blue:     '/art/twins_blue_hit.gif',
+    twins_joined:   '/art/twins_joined_hit.gif',
+    // ── Tier 2 ──────────────────────────────
+    general:        '/art/general_hit.gif',
+    knight:         '/art/knight_hit.gif',
+    shadowAssassin: '/art/shadowAssassin_hit.gif',
+    wizard:         '/art/wizard_hit.gif',
+    armoredWarrior: '/art/armoredWarrior_hit.gif',
+    witch:          '/art/witch_hit.gif',
+    dualBlade:      '/art/dualBlade_hit.gif',
+    ratMerchant:    '/art/ratMerchant_hit.gif',
+    ratcatcher:     '/art/ratMerchant_hit.gif',
+    weaponSmith:    '/art/weaponSmith_hit.gif',
+    bodyguard:      '/art/bodyguard_hit.gif',
+    // ── Tier 3 ──────────────────────────────
+    prince:         '/art/prince_hit.gif',
+    princess:       '/art/princess_hit.gif',
+    king:           '/art/king_hit.gif',
+    dragonTamer:    '/art/dragonTamer_hit.gif',
+    monk:           '/art/monk_hit.gif',
+    slaughterHero:  '/art/slaughterHero_hit.gif',
+    commander:      '/art/commander_hit.gif',
+    sulfurCauldron: '/art/sulfurCauldron_hit.gif',
+    torturer:       '/art/torturer_hit.gif',
+    count:          '/art/count_hit.gif',
+    // ── 소환 유닛 ────────────────────────────
+    dragon:         '/art/dragon_hit.gif',
+  };
+
+  /**
+   * 피격 GIF URL 반환
+   * @param {string} type
+   * @param {string} [subUnit]  'elder' | 'younger'
+   * @param {boolean} [isJoined]
+   */
+  window.getPieceHitUrl = function (type, subUnit, isJoined) {
+    const map = window.PIECE_HIT_GIFS;
+    if (!map) return null;
+    let url;
+    if (isJoined)                  url = map.twins_joined;
+    else if (subUnit === 'elder')   url = map.twins_red;
+    else if (subUnit === 'younger') url = map.twins_blue;
+    else                            url = map[type];
+    return url || null;
+  };
+
   // ── 이동 플로팅용 PNG 맵 ─────────────────────────────
   window.PIECE_MOVE_PNGS = {
     // ── Tier 1 ──────────────────────────────
@@ -144,7 +203,8 @@
 
     // idle GIF + move PNG
     const allUrls = new Set([
-      ...Object.values(window.PIECE_GIFS  || {}),
+      ...Object.values(window.PIECE_GIFS     || {}),
+      ...Object.values(window.PIECE_HIT_GIFS || {}),
       ...Object.values(window.PIECE_MOVE_PNGS || {}),
       // 덫·스킬·패시브 이펙트 PNG
       '/fangs-top.png', '/fangs-bottom.png',

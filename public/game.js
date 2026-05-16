@@ -15763,7 +15763,10 @@ function animateAttack(atkCells, hitCells) {
   animateBoardIconHit(hitCells);
 }
 
-// 보드 위 말 아이콘 피격 모션 — 쥐와 동일한 톤의 애니메이션
+// 보드 위 말 아이콘 피격 모션
+//   ① idle GIF → 피격 GIF 교체 (PIECE_HIT_GIFS 에 있는 경우)
+//   ② CSS p-icon-hit (흔들림+빨간 글로우) 병행
+//   720ms 후 idle GIF 복원. 연속 피격 시 타이머 재설정으로 올바른 복원 보장.
 function animateBoardIconHit(cells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -15771,13 +15774,37 @@ function animateBoardIconHit(cells) {
     const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
     if (!cell) continue;
     const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main:not(.cc-hidden) .p-icon');
-    if (icon) {
-      icon.classList.remove('p-icon-hit');
-      // 강제 리플로우 — 같은 셀 연속 피격에서도 애니메이션 재생
-      void icon.offsetWidth;
-      icon.classList.add('p-icon-hit');
-      setTimeout(() => icon.classList.remove('p-icon-hit'), 720);
+    if (!icon) continue;
+
+    // ── ① 피격 GIF 교체 ────────────────────────────────────────────
+    const gif = icon.querySelector('img.p-gif');
+    if (gif && window.PIECE_HIT_GIFS) {
+      // idle URL 에서 타입 키 추출: ".../king_idle.gif" → "king"
+      const curSrc = gif.src;
+      const keyMatch = curSrc.match(/\/([^/]+)_idle\.gif/);
+      if (keyMatch) {
+        const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]];
+        if (hitUrl) {
+          // 첫 피격 시 idle URL 저장 (연속 피격 대비)
+          if (!gif.dataset.idleSrc) gif.dataset.idleSrc = curSrc;
+          const idleUrl = gif.dataset.idleSrc;
+          gif.src = hitUrl;
+          // 기존 복원 타이머 초기화
+          if (gif._hitRestoreTimer) clearTimeout(gif._hitRestoreTimer);
+          gif._hitRestoreTimer = setTimeout(() => {
+            gif.src = idleUrl;
+            delete gif.dataset.idleSrc;
+            gif._hitRestoreTimer = null;
+          }, 720);
+        }
+      }
     }
+
+    // ── ② CSS 흔들림 + 글로우 병행 ─────────────────────────────────
+    icon.classList.remove('p-icon-hit');
+    void icon.offsetWidth;   // 강제 리플로우
+    icon.classList.add('p-icon-hit');
+    setTimeout(() => icon.classList.remove('p-icon-hit'), 720);
   }
 }
 
