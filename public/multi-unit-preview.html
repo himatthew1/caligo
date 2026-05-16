@@ -655,18 +655,8 @@
 .cr-main-hp {
   font-size: 0.52rem; font-weight: 700; white-space: nowrap;
 }
-/* 상태이상 뱃지 행 */
-.cr-status-row {
-  display: flex; gap: 2px; align-items: center; justify-content: center;
-  flex-wrap: wrap; margin-top: 2px; min-height: 11px;
-}
-.cr-status {
-  font-size: 0.38rem; font-weight: 800;
-  padding: 1px 4px; border-radius: 3px;
-  white-space: nowrap; line-height: 1.5; letter-spacing: 0.02em;
-}
-.cr-status.mark  { background: rgba(251,191,36,0.18); color: #fbbf24; border: 1px solid rgba(251,191,36,0.45); }
-.cr-status.curse { background: rgba(139,92,246,0.18); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.45); }
+/* 인게임 cell-mark 와 동일한 상태이상 표시 */
+.cell-mark { font-size: 0.75rem; position: absolute; top: 2px; right: 3px; z-index: 6; }
 /* 하단 카운터 (n / total) */
 .cr-counter {
   position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
@@ -720,7 +710,7 @@
   </div>
   <p class="section-desc">
     한 번에 한 명씩 전면에 표시. 삼각 화살표 클릭 시 슬라이드 전환.
-    <strong style="color:#fbbf24">🎯 표식</strong>·<strong style="color:#c4b5fd">🌀 저주</strong> 등 상태이상이 캐릭터별로 따로 표시됨.
+    상태이상은 인게임과 동일하게 셀 우상단에 표시 — <strong>☠ 저주 · 🎯 표식</strong> 캐릭터별로 교체됨.
     <strong style="color:var(--accent)">화살표를 직접 클릭</strong>해서 순환해보세요.
   </p>
   <br>
@@ -740,8 +730,8 @@
             <div class="cr-main" id="cr1-main">
               <img class="cr-main-gif" id="cr1-gif" src="" alt="">
               <span class="cr-main-hp"  id="cr1-hp"></span>
-              <div class="cr-status-row" id="cr1-statuses"></div>
             </div>
+            <span class="cell-mark"    id="cr1-statuses"></span>
             <span class="cr-name-tag"  id="cr1-name"></span>
             <span class="cr-counter"   id="cr1-count"></span>
             <!-- 화살표 -->
@@ -771,8 +761,8 @@
             <div class="cr-main" id="cr2-main">
               <img class="cr-main-gif" id="cr2-gif" src="" alt="">
               <span class="cr-main-hp"  id="cr2-hp"></span>
-              <div class="cr-status-row" id="cr2-statuses"></div>
             </div>
+            <span class="cell-mark"    id="cr2-statuses"></span>
             <span class="cr-name-tag"  id="cr2-name"></span>
             <span class="cr-counter"   id="cr2-count"></span>
             <button class="cr-arrow left"  onclick="crPrev(2)"><div class="arrow-tri"></div></button>
@@ -885,10 +875,17 @@
     }
   };
 
-  const STATUS_LABEL = {
-    mark:  { cls:'mark',  text:'🎯 표식' },
-    curse: { cls:'curse', text:'🌀 저주' },
-  };
+  // 인게임 getStatusIcons 와 동일한 로직
+  function getStatusIcons(statuses) {
+    if (!statuses || statuses.length === 0) return '';
+    let icons = '';
+    for (const s of statuses) {
+      if (s === 'curse')  icons += '☠';
+      if (s === 'shadow') icons += '👻';
+      if (s === 'mark')   icons += '🎯';
+    }
+    return icons;
+  }
 
   function crRender(id) {
     const st = CR_DATA[id];
@@ -903,14 +900,9 @@
     document.getElementById(`cr${id}-name`).textContent = cur.name;
     document.getElementById(`cr${id}-count`).textContent = `${st.idx+1} / ${n}`;
 
-    // 상태이상 뱃지
+    // 인게임 cell-mark 와 동일 — ☠🎯👻 이모지 그대로
     const statusEl = document.getElementById(`cr${id}-statuses`);
-    if (statusEl) {
-      statusEl.innerHTML = (cur.statuses || []).map(s => {
-        const def = STATUS_LABEL[s];
-        return def ? `<span class="cr-status ${def.cls}">${def.text}</span>` : '';
-      }).join('');
-    }
+    if (statusEl) statusEl.textContent = getStatusIcons(cur.statuses);
 
     const silL = document.getElementById(`cr${id}-sil-l`);
     const silR = document.getElementById(`cr${id}-sil-r`);
