@@ -2456,6 +2456,8 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 }
 .cc-main.cc-slide-left  { transform: translate(calc(-50% - 28px), -55%); opacity: 0; }
 .cc-main.cc-slide-right { transform: translate(calc(-50% + 28px), -55%); opacity: 0; }
+/* 비활성 슬롯 — GIF 애니메이션은 계속 돌리되 (opacity:0), 클릭·렌더는 막음 */
+.cc-main.cc-hidden { opacity: 0; pointer-events: none; }
 .cc-main .p-icon        { font-size: 1.3rem; line-height: 1; }
 .cc-main .p-icon:has(> img.p-gif) { line-height: 0; font-size: 0; }
 .cc-main .p-hp          { font-size: 0.6rem; font-weight: 700; }

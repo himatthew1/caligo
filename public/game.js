@@ -12164,12 +12164,19 @@ function _renderCellCarousel(cell, col, row, units) {
   const csId = `cc-${col}-${row}`;
   const statusHtml = cur.statusIcons || '';
 
+  // 모든 유닛을 DOM에 미리 렌더(슬롯 방식) — 이미지 플래시 방지.
+  //   비활성 슬롯은 .cc-hidden(opacity:0) 으로 숨기되 GIF 애니메이션은 계속 돌아감.
+  //   화살표 클릭 시 innerHTML 교체 없이 클래스만 토글 → 디코딩 지연 없음.
+  const slotsHtml = pieces.map((pc, i) =>
+    `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}">` +
+      `<span class="p-icon">${pc.iconHtml}</span>` +
+      `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
+    `</div>`
+  ).join('');
+
   cell.innerHTML += `
     <div class="cc-wrapper" id="${csId}-wrap">
-      <div class="cc-main" id="${csId}-main">
-        <span class="p-icon" id="${csId}-icon">${cur.iconHtml}</span>
-        <span class="p-hp"  id="${csId}-hp" style="color:${cur.hpColor}">${cur.hpText}</span>
-      </div>
+      ${slotsHtml}
       <span class="cell-mark" id="${csId}-mark"${!statusHtml ? ' style="display:none"' : ''}>${statusHtml}</span>
       <button class="cc-arrow cc-left"  onclick="_crNav('${col},${row}',-1);event.stopPropagation()" title="이전"><div class="cc-tri cc-tri-left"></div></button>
       <button class="cc-arrow cc-right" onclick="_crNav('${col},${row}', 1);event.stopPropagation()" title="다음"><div class="cc-tri cc-tri-right"></div></button>
@@ -12188,35 +12195,40 @@ window._crNav = function(colRow, dir) {
   st.busy = true;
   const [col, row] = colRow.split(',');
   const csId = `cc-${col}-${row}`;
-  const mainEl = document.getElementById(`${csId}-main`);
-  if (!mainEl) { st.busy = false; return; }
+  const wrap = document.getElementById(`${csId}-wrap`);
+  if (!wrap) { st.busy = false; return; }
 
-  // dir > 0 = 다음 (왼쪽으로 나가고 오른쪽에서 들어옴)
-  // dir < 0 = 이전 (오른쪽으로 나가고 왼쪽에서 들어옴)
+  const nextIdx = (st.idx + dir + st.pieces.length) % st.pieces.length;
+  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
+  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${nextIdx}"]`);
+  if (!curSlot || !nextSlot) { st.busy = false; return; }
+
+  // dir > 0 = 다음 (현재는 왼쪽으로 퇴장, 다음은 오른쪽에서 등장)
+  // dir < 0 = 이전 (현재는 오른쪽으로 퇴장, 다음은 왼쪽에서 등장)
   const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
   const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
 
-  mainEl.classList.add(outCls);
+  curSlot.classList.add(outCls);
 
   setTimeout(() => {
-    st.idx = (st.idx + dir + st.pieces.length) % st.pieces.length;
+    st.idx = nextIdx;
     const cur = st.pieces[st.idx];
 
-    // 콘텐츠 갱신
-    const iconEl = document.getElementById(`${csId}-icon`);
-    if (iconEl) iconEl.innerHTML = cur.iconHtml;
-    const hpEl = document.getElementById(`${csId}-hp`);
-    if (hpEl) { hpEl.textContent = cur.hpText; hpEl.style.color = cur.hpColor; }
+    // 현재 슬롯 퇴장 완료 → 숨김
+    curSlot.classList.remove(outCls);
+    curSlot.classList.add('cc-hidden');
+
+    // 다음 슬롯: 반대쪽에서 등장 (이미 DOM에 존재, GIF 이미 디코딩됨 → 플래시 없음)
+    nextSlot.style.transition = 'none';
+    nextSlot.classList.add(inCls);
+    nextSlot.classList.remove('cc-hidden');
+    void nextSlot.offsetWidth;       // 강제 리플로우
+    nextSlot.style.transition = '';
+    nextSlot.classList.remove(inCls);
+
+    // 상태이상 아이콘 업데이트
     const markEl = document.getElementById(`${csId}-mark`);
     if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
-
-    // 반대쪽에서 슬라이드 인 (트랜지션 없이 위치 잡고, 트랜지션 재활성화 후 해제)
-    mainEl.style.transition = 'none';
-    mainEl.classList.remove(outCls);
-    mainEl.classList.add(inCls);
-    void mainEl.offsetWidth;              // 강제 리플로우
-    mainEl.style.transition = '';
-    mainEl.classList.remove(inCls);
 
     st.busy = false;
   }, 200);
@@ -15758,7 +15770,7 @@ function animateBoardIconHit(cells) {
   for (const c of cells) {
     const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
     if (!cell) continue;
-    const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main .p-icon');
+    const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main:not(.cc-hidden) .p-icon');
     if (icon) {
       icon.classList.remove('p-icon-hit');
       // 강제 리플로우 — 같은 셀 연속 피격에서도 애니메이션 재생
