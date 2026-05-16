@@ -15763,12 +15763,36 @@ function animateAttack(atkCells, hitCells) {
   animateBoardIconHit(hitCells);
 }
 
-// 보드 위 말 아이콘 피격 모션 — idle GIF → 피격 GIF 1회 재생 → idle 복원
-//
-//   ★ img.decode() 로 첫 프레임이 완전히 디코드된 뒤 교체
-//     (DOM 삽입 직후 빈 프레임이 렌더되면 팝인이 스케일 효과처럼 보이는 문제 방지)
-//   ★ requestAnimationFrame 래핑 — animateAttack 직후 renderGameBoard() 동기 실행 후에 적용
-//   ★ parentNode 확인 — renderGameBoard 가 먼저 DOM 재구성했으면 조용히 스킵
+// GIF 바이너리에서 Graphic Control Extension 블록을 스캔해 전체 재생 시간(ms) 반환.
+// 브라우저 HTTP 캐시에 이미 있으므로 force-cache fetch 는 거의 즉시 완료.
+// 결과는 window._gifDurCache 에 영구 캐싱 — 같은 URL 두 번째 호출은 동기로 반환.
+if (!window._gifDurCache) window._gifDurCache = {};
+async function _fetchGifDuration(url) {
+  if (window._gifDurCache[url] !== undefined) return window._gifDurCache[url];
+  try {
+    const bytes = new Uint8Array(
+      await (await fetch(url, { cache: 'force-cache' })).arrayBuffer()
+    );
+    let ms = 0;
+    for (let i = 0; i < bytes.length - 7; i++) {
+      // Graphic Control Extension 시그니처: 21 F9 04
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+        const cs = bytes[i+4] | (bytes[i+5] << 8); // 센티초 단위
+        ms += cs === 0 ? 100 : cs * 10;            // 0cs → 브라우저 기본값 100ms
+        i += 7;
+      }
+    }
+    return (window._gifDurCache[url] = ms || 600);
+  } catch (e) {
+    return (window._gifDurCache[url] = 800);
+  }
+}
+
+// 보드 위 말 아이콘 피격 모션 — idle GIF → 피격 GIF 정확히 1회 재생 → idle 복원
+//   ★ GIF 바이너리 파싱으로 정확한 1회 재생 시간을 구해 타이머에 사용
+//   ★ img.decode() 완료 후 교체 → 팝인(빈 프레임) 방지
+//   ★ requestAnimationFrame 래핑 → renderGameBoard() 완료 후 새 DOM 에 적용
+//   ★ parentNode 확인 → renderGameBoard 가 먼저 재구성했으면 스킵
 function animateBoardIconHit(cells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -15789,30 +15813,41 @@ function animateBoardIconHit(cells) {
       const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]];
       if (!hitUrl) continue;
 
-      // 피격 GIF 미리 디코드 → 완료 후 교체 (팝인 방지)
       const hitImg = document.createElement('img');
       hitImg.className = idleImg.className;
       hitImg.alt = '';
       hitImg.src = hitUrl;
 
-      const doSwap = () => {
-        if (!idleImg.parentNode) return;
-        idleImg.parentNode.replaceChild(hitImg, idleImg);
-        hitImg._restoreTimer = setTimeout(() => {
-          if (!hitImg.parentNode) return;
-          const restoreImg = document.createElement('img');
-          restoreImg.className = hitImg.className;
-          restoreImg.alt = '';
-          restoreImg.src = idleSrc;
-          restoreImg.decode().then(() => {
-            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
-          }).catch(() => {
-            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
-          });
-        }, 800);
-      };
+      // decode + 재생시간 파싱을 동시에 → 둘 다 완료되면 교체
+      Promise.all([hitImg.decode(), _fetchGifDuration(hitUrl)])
+        .then(([, dur]) => {
+          if (!idleImg.parentNode) return;
+          idleImg.parentNode.replaceChild(hitImg, idleImg);
 
-      hitImg.decode().then(doSwap).catch(doSwap);
+          hitImg._restoreTimer = setTimeout(() => {
+            if (!hitImg.parentNode) return;
+            const restoreImg = document.createElement('img');
+            restoreImg.className = hitImg.className;
+            restoreImg.alt = '';
+            restoreImg.src = idleSrc;
+            restoreImg.decode()
+              .then(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); })
+              .catch(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); });
+          }, dur);
+        })
+        .catch(() => {
+          // 폴백: decode/fetch 실패 시 800ms 고정
+          if (!idleImg.parentNode) return;
+          idleImg.parentNode.replaceChild(hitImg, idleImg);
+          hitImg._restoreTimer = setTimeout(() => {
+            if (!hitImg.parentNode) return;
+            const restoreImg = document.createElement('img');
+            restoreImg.className = hitImg.className;
+            restoreImg.alt = '';
+            restoreImg.src = idleSrc;
+            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
+          }, 800);
+        });
     }
   });
 }
