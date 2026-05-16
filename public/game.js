@@ -4116,6 +4116,11 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
   if (S.oppPieces && prevCol !== undefined && prevRow !== undefined && col !== undefined && row !== undefined) {
     const markedMover = S.oppPieces.find(p => p.marked && p.alive && p.col === prevCol && p.row === prevRow);
     if (markedMover) {
+      // ★ 플로팅 애니메이션 — 위치 업데이트·renderGameBoard 보다 먼저 호출해야
+      //   fromCell (구 위치) 에 .p-gif 가 아직 존재하는 상태에서 숨김 처리가 가능.
+      const _oppMoveKey = `opp:${markedMover.type}${markedMover.subUnit ? ':' + markedMover.subUnit : ''}`;
+      animateMove(markedMover.icon, prevCol, prevRow, col, row, markedMover.type, markedMover.subUnit, _oppMoveKey);
+
       markedMover.col = col;
       markedMover.row = row;
       // ★ 사용자 요청: 표식 적 이동 시 추리 토큰도 자동 위치 동기화.
