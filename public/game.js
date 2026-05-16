@@ -15764,12 +15764,14 @@ function animateAttack(atkCells, hitCells) {
 }
 
 // 보드 위 말 아이콘 피격 모션
-//   ① idle GIF → 피격 GIF 교체 (PIECE_HIT_GIFS 에 있는 경우)
+//   ① idle GIF → 피격 GIF 교체 후 1회 재생 → idle 복원
 //   ② CSS p-icon-hit (흔들림+빨간 글로우) 병행
-//   720ms 후 idle GIF 복원. 연속 피격 시 타이머 재설정으로 올바른 복원 보장.
 //
-//   ★ requestAnimationFrame 으로 래핑 — animateAttack 직후 renderGameBoard() 가 동기 실행되어
-//     innerHTML 을 재구성하므로, RAF 로 한 프레임 뒤에 실행해야 새 DOM 요소에 정상 적용.
+//   ★ img 요소를 src 교체 대신 새 요소로 교체 — 같은 URL이라도 새 <img> 생성 시
+//     브라우저가 GIF 를 1프레임부터 재생하므로, 반드시 새 요소로 교체해야 함.
+//   ★ requestAnimationFrame 래핑 — animateAttack 직후 renderGameBoard() 가 동기 실행되어
+//     innerHTML 재구성 → RAF 로 한 프레임 뒤에 실행해야 새 DOM 에 정상 적용.
+//   ★ 복원 시점에 parentNode 확인 — renderGameBoard 가 먼저 DOM 을 재구성했으면 스킵.
 function animateBoardIconHit(cells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -15780,35 +15782,40 @@ function animateBoardIconHit(cells) {
       const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main:not(.cc-hidden) .p-icon');
       if (!icon) continue;
 
-      // ── ① 피격 GIF 교체 ──────────────────────────────────────────
-      const gif = icon.querySelector('img.p-gif');
-      if (gif && window.PIECE_HIT_GIFS) {
-        // idle URL 에서 타입 키 추출: ".../king_idle.gif" → "king"
-        const curSrc = gif.src;
-        const keyMatch = curSrc.match(/\/([^/]+)_idle\.gif/);
+      // ── ① 피격 GIF: 새 <img> 로 교체 → 반드시 1프레임부터 재생 ──────
+      const idleImg = icon.querySelector('img.p-gif');
+      if (idleImg && window.PIECE_HIT_GIFS) {
+        const idleSrc = idleImg.src;                          // 절대 URL (복원용)
+        const keyMatch = idleSrc.match(/\/([^/]+)_idle\.gif/);
         if (keyMatch) {
-          const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]];
+          const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]]; // 피격 GIF 상대 URL
           if (hitUrl) {
-            // 첫 피격 시 idle URL 저장 (연속 피격 대비)
-            if (!gif.dataset.idleSrc) gif.dataset.idleSrc = curSrc;
-            const idleUrl = gif.dataset.idleSrc;
-            gif.src = hitUrl;
-            // 기존 복원 타이머 초기화
-            if (gif._hitRestoreTimer) clearTimeout(gif._hitRestoreTimer);
-            gif._hitRestoreTimer = setTimeout(() => {
-              gif.src = idleUrl;
-              delete gif.dataset.idleSrc;
-              gif._hitRestoreTimer = null;
-            }, 720);
+            // 피격 GIF 새 요소 생성 → 항상 1프레임부터 재생
+            const hitImg = document.createElement('img');
+            hitImg.className = idleImg.className;
+            hitImg.alt = '';
+            hitImg.src = hitUrl;
+            idleImg.parentNode.replaceChild(hitImg, idleImg);
+
+            // 피격 GIF 재생 후 idle 복원 (기존 타이머 있으면 취소)
+            if (hitImg._restoreTimer) clearTimeout(hitImg._restoreTimer);
+            hitImg._restoreTimer = setTimeout(() => {
+              if (!hitImg.parentNode) return; // renderGameBoard 가 먼저 교체했으면 스킵
+              const restoreImg = document.createElement('img');
+              restoreImg.className = hitImg.className;
+              restoreImg.alt = '';
+              restoreImg.src = idleSrc;
+              hitImg.parentNode.replaceChild(restoreImg, hitImg);
+            }, 800);
           }
         }
       }
 
       // ── ② CSS 흔들림 + 글로우 병행 ───────────────────────────────
       icon.classList.remove('p-icon-hit');
-      void icon.offsetWidth;   // 강제 리플로우
+      void icon.offsetWidth;
       icon.classList.add('p-icon-hit');
-      setTimeout(() => icon.classList.remove('p-icon-hit'), 720);
+      setTimeout(() => icon.classList.remove('p-icon-hit'), 800);
     }
   });
 }
