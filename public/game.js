@@ -15811,11 +15811,6 @@ function animateBoardIconHit(cells) {
         }
       }
 
-      // ── ② CSS 흔들림 + 글로우 병행 ───────────────────────────────
-      icon.classList.remove('p-icon-hit');
-      void icon.offsetWidth;
-      icon.classList.add('p-icon-hit');
-      setTimeout(() => icon.classList.remove('p-icon-hit'), 800);
     }
   });
 }
