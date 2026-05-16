@@ -15763,15 +15763,12 @@ function animateAttack(atkCells, hitCells) {
   animateBoardIconHit(hitCells);
 }
 
-// 보드 위 말 아이콘 피격 모션
-//   ① idle GIF → 피격 GIF 교체 후 1회 재생 → idle 복원
-//   ② CSS p-icon-hit (흔들림+빨간 글로우) 병행
+// 보드 위 말 아이콘 피격 모션 — idle GIF → 피격 GIF 1회 재생 → idle 복원
 //
-//   ★ img 요소를 src 교체 대신 새 요소로 교체 — 같은 URL이라도 새 <img> 생성 시
-//     브라우저가 GIF 를 1프레임부터 재생하므로, 반드시 새 요소로 교체해야 함.
-//   ★ requestAnimationFrame 래핑 — animateAttack 직후 renderGameBoard() 가 동기 실행되어
-//     innerHTML 재구성 → RAF 로 한 프레임 뒤에 실행해야 새 DOM 에 정상 적용.
-//   ★ 복원 시점에 parentNode 확인 — renderGameBoard 가 먼저 DOM 을 재구성했으면 스킵.
+//   ★ img.decode() 로 첫 프레임이 완전히 디코드된 뒤 교체
+//     (DOM 삽입 직후 빈 프레임이 렌더되면 팝인이 스케일 효과처럼 보이는 문제 방지)
+//   ★ requestAnimationFrame 래핑 — animateAttack 직후 renderGameBoard() 동기 실행 후에 적용
+//   ★ parentNode 확인 — renderGameBoard 가 먼저 DOM 재구성했으면 조용히 스킵
 function animateBoardIconHit(cells) {
   const board = document.getElementById('game-board');
   if (!board) return;
@@ -15782,35 +15779,40 @@ function animateBoardIconHit(cells) {
       const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main:not(.cc-hidden) .p-icon');
       if (!icon) continue;
 
-      // ── ① 피격 GIF: 새 <img> 로 교체 → 반드시 1프레임부터 재생 ──────
       const idleImg = icon.querySelector('img.p-gif');
-      if (idleImg && window.PIECE_HIT_GIFS) {
-        const idleSrc = idleImg.src;                          // 절대 URL (복원용)
-        const keyMatch = idleSrc.match(/\/([^/]+)_idle\.gif/);
-        if (keyMatch) {
-          const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]]; // 피격 GIF 상대 URL
-          if (hitUrl) {
-            // 피격 GIF 새 요소 생성 → 항상 1프레임부터 재생
-            const hitImg = document.createElement('img');
-            hitImg.className = idleImg.className;
-            hitImg.alt = '';
-            hitImg.src = hitUrl;
-            idleImg.parentNode.replaceChild(hitImg, idleImg);
+      if (!idleImg || !window.PIECE_HIT_GIFS) continue;
 
-            // 피격 GIF 재생 후 idle 복원 (기존 타이머 있으면 취소)
-            if (hitImg._restoreTimer) clearTimeout(hitImg._restoreTimer);
-            hitImg._restoreTimer = setTimeout(() => {
-              if (!hitImg.parentNode) return; // renderGameBoard 가 먼저 교체했으면 스킵
-              const restoreImg = document.createElement('img');
-              restoreImg.className = hitImg.className;
-              restoreImg.alt = '';
-              restoreImg.src = idleSrc;
-              hitImg.parentNode.replaceChild(restoreImg, hitImg);
-            }, 800);
-          }
-        }
-      }
+      const idleSrc = idleImg.src;
+      const keyMatch = idleSrc.match(/\/([^/]+)_idle\.gif/);
+      if (!keyMatch) continue;
 
+      const hitUrl = window.PIECE_HIT_GIFS[keyMatch[1]];
+      if (!hitUrl) continue;
+
+      // 피격 GIF 미리 디코드 → 완료 후 교체 (팝인 방지)
+      const hitImg = document.createElement('img');
+      hitImg.className = idleImg.className;
+      hitImg.alt = '';
+      hitImg.src = hitUrl;
+
+      const doSwap = () => {
+        if (!idleImg.parentNode) return;
+        idleImg.parentNode.replaceChild(hitImg, idleImg);
+        hitImg._restoreTimer = setTimeout(() => {
+          if (!hitImg.parentNode) return;
+          const restoreImg = document.createElement('img');
+          restoreImg.className = hitImg.className;
+          restoreImg.alt = '';
+          restoreImg.src = idleSrc;
+          restoreImg.decode().then(() => {
+            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
+          }).catch(() => {
+            if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg);
+          });
+        }, 800);
+      };
+
+      hitImg.decode().then(doSwap).catch(doSwap);
     }
   });
 }
