@@ -106,7 +106,7 @@
   // ── 공격 GIF 맵 (64×64) ──────────────────────────────
   window.PIECE_ATTACK_GIFS = {
     // ── Tier 1 ──────────────────────────────
-    // archer: 없음 (작업 중)
+    archer:         '/art/archer_attack.gif',
     spearman:       '/art/spearman_attack.gif',
     cavalry:        '/art/cavalry_attack.gif',
     watchman:       '/art/watchman_attack.gif',
