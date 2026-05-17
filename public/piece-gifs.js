@@ -103,6 +103,48 @@
     return url || null;
   };
 
+  // ── 공격 GIF 맵 (64×64) ──────────────────────────────
+  window.PIECE_ATTACK_GIFS = {
+    // ── Tier 1 ──────────────────────────────
+    // archer: 없음 (작업 중)
+    spearman:       '/art/spearman_attack.gif',
+    cavalry:        '/art/cavalry_attack.gif',
+    watchman:       '/art/watchman_attack.gif',
+    scout:          '/art/scout_attack.gif',
+    manhunter:      '/art/manhunter_attack.gif',
+    messenger:      '/art/messenger_attack.gif',
+    gunpowder:      '/art/gunpowder_attack.gif',
+    herbalist:      '/art/herbalist_attack.gif',
+    twins_red:      '/art/twins_red_attack.gif',
+    twins_blue:     '/art/twins_blue_attack.gif',
+    twins_joined:   '/art/twins_joined_attack.gif',
+    // ── Tier 2 ──────────────────────────────
+    general:        '/art/general_attack.gif',
+    knight:         '/art/knight_attack.gif',
+    shadowAssassin: '/art/shadowAssassin_attack.gif',
+    wizard:         '/art/wizard_attack.gif',
+    armoredWarrior: '/art/armoredWarrior_attack.gif',
+    witch:          '/art/witch_attack.gif',
+    dualBlade:      '/art/dualBlade_attack.gif',
+    ratMerchant:    '/art/ratMerchant_attack.gif',
+    ratcatcher:     '/art/ratMerchant_attack.gif',
+    weaponSmith:    '/art/weaponSmith_attack.gif',
+    bodyguard:      '/art/bodyguard_attack.gif',
+    // ── Tier 3 ──────────────────────────────
+    prince:         '/art/prince_attack.gif',
+    princess:       '/art/princess_attack.gif',
+    king:           '/art/king_attack.gif',
+    dragonTamer:    '/art/dragonTamer_attack.gif',
+    monk:           '/art/monk_attack.gif',
+    slaughterHero:  '/art/slaughterHero_attack.gif',
+    commander:      '/art/commander_attack.gif',
+    sulfurCauldron: '/art/sulfurCauldron_attack.gif',
+    torturer:       '/art/torturer_attack.gif',
+    count:          '/art/count_attack.gif',
+    // ── 소환 유닛 ────────────────────────────
+    dragon:         '/art/dragon_attack.gif',
+  };
+
   // ── 이동 플로팅용 PNG 맵 ─────────────────────────────
   window.PIECE_MOVE_PNGS = {
     // ── Tier 1 ──────────────────────────────
@@ -204,7 +246,8 @@
     // idle GIF + move PNG
     const allUrls = new Set([
       ...Object.values(window.PIECE_GIFS     || {}),
-      ...Object.values(window.PIECE_HIT_GIFS || {}),
+      ...Object.values(window.PIECE_HIT_GIFS    || {}),
+      ...Object.values(window.PIECE_ATTACK_GIFS || {}),
       ...Object.values(window.PIECE_MOVE_PNGS || {}),
       // 덫·스킬·패시브 이펙트 PNG
       '/fangs-top.png', '/fangs-bottom.png',

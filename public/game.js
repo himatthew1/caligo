@@ -4186,6 +4186,17 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   animateAttack(atkCells, hitCells);
   playSfx('attack');
 
+  // ★ 공격자 공격 GIF — 상태 업데이트 전 현재 위치/타입으로 오버레이 재생
+  (function () {
+    const _pc = S.myPieces[pieceIdx];
+    if (!_pc || !_pc.alive) return;
+    const _otherTwin = (_pc.subUnit === 'elder' || _pc.subUnit === 'younger')
+      ? S.myPieces.find(p => p !== _pc && (p.subUnit === 'elder' || p.subUnit === 'younger')
+          && p.alive && p.col === _pc.col && p.row === _pc.row)
+      : null;
+    animateAttackGif(_pc.col, _pc.row, _pc.type, _pc.subUnit, !!_otherTwin);
+  })();
+
   // 아군 피해 감지용: 업데이트 전 HP 스냅샷 (학살 영웅 등)
   const oldMyHps = S.myPieces.map(p => p.hp);
 
@@ -15865,6 +15876,49 @@ function animateBoardIconHit(cells) {
         });
     }
   });
+}
+
+// ── 공격자 공격 GIF 오버레이 ───────────────────────────────────────────
+//   공격 시 해당 셀 위에 64×64 공격 GIF 를 1회 재생 후 제거.
+//   .board(position:relative) 에 직접 append → z-index:50 으로 모든 말 위에 표시.
+//   ★ being_attacked(상대 공격) 엔 서버가 공격자 정보를 보내지 않으므로 미지원.
+//     공격자 본인(attack_result) 관점에서만 재생됨.
+function animateAttackGif(col, row, type, subUnit, isJoined) {
+  const map = window.PIECE_ATTACK_GIFS;
+  if (!map) return;
+  let url;
+  if (isJoined)                  url = map.twins_joined;
+  else if (subUnit === 'elder')   url = map.twins_red;
+  else if (subUnit === 'younger') url = map.twins_blue;
+  else                            url = map[type];
+  if (!url) return;
+
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+
+  // 셀 중앙 기준으로 64×64 오버레이 위치 계산 (board 좌표계)
+  const left = Math.round(cell.offsetLeft + (cell.offsetWidth  - 64) / 2);
+  const top  = Math.round(cell.offsetTop  + (cell.offsetHeight - 64) / 2);
+
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = '';
+  img.style.cssText =
+    `position:absolute;width:64px;height:64px;` +
+    `left:${left}px;top:${top}px;` +
+    `z-index:50;pointer-events:none;image-rendering:pixelated;`;
+
+  const cleanup = () => { if (img.parentNode) img.parentNode.removeChild(img); };
+
+  img.decode()
+    .then(() => {
+      board.appendChild(img);
+      return _fetchGifFrameCount(url);
+    })
+    .then(frameCount => _watchGifFrames(img, frameCount, cleanup))
+    .catch(() => { board.appendChild(img); setTimeout(cleanup, 800); });
 }
 
 // ── 유황범람 라바 애니 (사용자 요청) ──
