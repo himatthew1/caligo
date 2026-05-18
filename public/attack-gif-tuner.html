@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>공격 GIF 튜너</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #0d1117; color: #c9d1d9;
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 28px 16px 60px; gap: 22px;
+}
+h1 { font-size: 1.25rem; color: #58a6ff; }
+.sub { font-size: 0.78rem; color: #8b949e; margin-top: 2px; }
+
+/* 서버 상태 표시 */
+#status-bar {
+  font-size: 0.76rem; padding: 5px 14px;
+  border-radius: 20px; border: 1px solid #30363d;
+  background: #161b22; display: flex; align-items: center; gap: 6px;
+}
+#status-dot { font-size: 0.6rem; }
+#status-dot.ok    { color: #3fb950; }
+#status-dot.fail  { color: #f85149; }
+#status-dot.check { color: #d29922; }
+
+.main { display: flex; gap: 36px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+
+/* ── 미리보기 ── */
+.preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.preview-label { font-size: 0.72rem; color: #8b949e; }
+
+#board-sim {
+  display: grid;
+  grid-template-columns: repeat(3, 56px);
+  grid-template-rows: repeat(3, 56px);
+  background: #161b22;
+  border: 1px solid #30363d;
+  position: relative;
+  overflow: visible;
+}
+.csim {
+  width: 56px; height: 56px;
+  background: #1a2040; border: 1px solid #2d3a6a;
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+}
+.csim.center { background: #1f2d55; border-color: #58a6ff; }
+.csim-dot {
+  width: 6px; height: 6px;
+  background: #2a3560; border-radius: 50%; opacity: .6;
+}
+/* 십자 중심선 */
+.crosshair {
+  position: absolute; inset: 0; pointer-events: none;
+}
+.crosshair::before, .crosshair::after {
+  content: ''; position: absolute; background: rgba(88,166,255,0.3);
+}
+.crosshair::before { width: 1px; height: 100%; left: 50%; top: 0; }
+.crosshair::after  { height: 1px; width: 100%; top: 50%; left: 0; }
+#idle-img {
+  width: 38px; height: 38px;
+  image-rendering: pixelated; display: block;
+  position: relative; z-index: 1;
+}
+#atk-overlay {
+  position: absolute;
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 20;
+  display: block;
+}
+
+/* ── 컨트롤 ── */
+.controls { display: flex; flex-direction: column; gap: 14px; min-width: 280px; max-width: 360px; }
+.cg {
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.cg-title { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; letter-spacing: .06em; }
+select {
+  width: 100%; background: #0d1117; color: #c9d1d9;
+  border: 1px solid #30363d; border-radius: 4px;
+  padding: 6px 8px; font-size: 0.85rem; cursor: pointer;
+}
+select:focus { outline: 1px solid #58a6ff; }
+.presets { display: flex; gap: 5px; flex-wrap: wrap; }
+.pb {
+  background: #21262d; border: 1px solid #30363d; border-radius: 4px;
+  color: #c9d1d9; font-size: 0.75rem; padding: 4px 9px; cursor: pointer;
+  transition: .1s;
+}
+.pb:hover { background: #30363d; }
+.pb.on { background: #1f3a5f; border-color: #58a6ff; color: #58a6ff; }
+.row { display: flex; align-items: center; gap: 10px; }
+.row label { font-size: 0.8rem; white-space: nowrap; min-width: 80px; }
+.row .v {
+  font-size: 0.8rem; color: #58a6ff; min-width: 46px;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+input[type=range] { flex: 1; accent-color: #58a6ff; cursor: pointer; }
+.sm-btn {
+  align-self: flex-end; background: transparent;
+  border: 1px solid #30363d; border-radius: 4px;
+  color: #8b949e; font-size: 0.72rem; padding: 3px 10px; cursor: pointer;
+}
+.sm-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+.toggle { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; cursor: pointer; }
+.toggle input { accent-color: #58a6ff; width: 14px; height: 14px; cursor: pointer; }
+
+/* ── 출력 ── */
+.out-box {
+  background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+  padding: 16px 20px; width: 100%; max-width: 640px;
+}
+.out-box h2 { font-size: 0.7rem; color: #8b949e; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px; }
+.out-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.oi { display: flex; flex-direction: column; gap: 4px; }
+.ol { font-size: 0.7rem; color: #8b949e; }
+.ov {
+  font-family: Consolas, monospace; font-size: 0.9rem; color: #79c0ff;
+  background: #161b22; border: 1px solid #30363d; border-radius: 4px;
+  padding: 6px 10px; user-select: all; cursor: text;
+}
+.hint { font-size: 0.68rem; color: #484f58; margin-top: 8px; }
+.note {
+  background: #161b22; border-left: 3px solid #58a6ff;
+  border-radius: 0 6px 6px 0; padding: 10px 14px;
+  font-size: 0.77rem; color: #8b949e; line-height: 1.7;
+  max-width: 640px; width: 100%;
+}
+.note code { color: #79c0ff; background: #0d1117; padding: 1px 4px; border-radius: 3px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>⚔ 공격 GIF 크기 / 위치 튜너</h1>
+<p class="sub">캐릭터를 선택하고 크기·위치를 조정한 뒤 출력값을 game.js에 반영하세요.</p>
+
+<div id="status-bar">
+  <span id="status-dot" class="check">●</span>
+  <span id="status-text">서버 연결 확인 중...</span>
+</div>
+
+<div class="main">
+
+  <!-- ── 미리보기 (정적 HTML) ── -->
+  <div class="preview-wrap">
+    <div class="preview-label">미리보기 (실제 셀: 56×56px)</div>
+
+    <div id="board-sim">
+      <!-- 상단 3셀 -->
+      <div class="csim"><div class="csim-dot"></div></div>
+      <div class="csim"><div class="csim-dot"></div></div>
+      <div class="csim"><div class="csim-dot"></div></div>
+      <!-- 중간 3셀 -->
+      <div class="csim"><div class="csim-dot"></div></div>
+      <div class="csim center" id="center-cell">
+        <div class="crosshair"></div>
+        <img id="idle-img" alt="">
+      </div>
+      <div class="csim"><div class="csim-dot"></div></div>
+      <!-- 하단 3셀 -->
+      <div class="csim"><div class="csim-dot"></div></div>
+      <div class="csim"><div class="csim-dot"></div></div>
+      <div class="csim"><div class="csim-dot"></div></div>
+      <!-- 공격 오버레이 — board-sim 좌표계 absolute -->
+      <img id="atk-overlay" alt="">
+    </div>
+
+    <div class="preview-label">
+      <span style="color:#58a6ff">■</span> 중앙 셀 &nbsp;|&nbsp; 연한 선 = 셀 정중앙
+    </div>
+  </div>
+
+  <!-- ── 컨트롤 ── -->
+  <div class="controls">
+
+    <div class="cg">
+      <div class="cg-title">캐릭터</div>
+      <select id="char-sel"></select>
+      <label class="toggle">
+        <input type="checkbox" id="cb-idle" checked>
+        아이들 GIF 표시 (크기 비교용)
+      </label>
+    </div>
+
+    <div class="cg">
+      <div class="cg-title">크기 (idle 38px 기준 배수)</div>
+      <div class="presets">
+        <button class="pb" data-px="38">1×</button>
+        <button class="pb" data-px="57">1.5×</button>
+        <button class="pb" data-px="64">1.68× (64px)</button>
+        <button class="pb" data-px="76">2×</button>
+        <button class="pb" data-px="95">2.5×</button>
+        <button class="pb" data-px="114">3×</button>
+        <button class="pb" data-px="152">4×</button>
+      </div>
+      <div class="row">
+        <label>정밀 조정</label>
+        <input type="range" id="sz" min="16" max="240" value="76" step="1">
+        <span class="v" id="sz-v">76px</span>
+      </div>
+    </div>
+
+    <div class="cg">
+      <div class="cg-title">위치 오프셋 (0,0 = 셀 정중앙)</div>
+      <div class="row">
+        <label>X (좌우)</label>
+        <input type="range" id="ox" min="-56" max="56" value="0" step="1">
+        <span class="v" id="ox-v">+0px</span>
+      </div>
+      <div class="row">
+        <label>Y (상하)</label>
+        <input type="range" id="oy" min="-56" max="56" value="0" step="1">
+        <span class="v" id="oy-v">+0px</span>
+      </div>
+      <button class="sm-btn" id="reset-off">오프셋 초기화</button>
+    </div>
+
+    <div class="cg">
+      <div class="cg-title">방향</div>
+      <label class="toggle">
+        <input type="checkbox" id="cb-flip">
+        좌우 반전 (왼쪽 바라보기)
+      </label>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── 출력 ── -->
+<div class="out-box">
+  <h2>출력값 — game.js animateAttackGif 에 반영</h2>
+  <div class="out-grid">
+    <div class="oi">
+      <div class="ol">width / height</div>
+      <div class="ov" id="o-sz">76px</div>
+    </div>
+    <div class="oi">
+      <div class="ol">배율 (idle 38px 기준)</div>
+      <div class="ov" id="o-mult">2.00×</div>
+    </div>
+    <div class="oi">
+      <div class="ol">X 오프셋</div>
+      <div class="ov" id="o-ox">+0px</div>
+    </div>
+    <div class="oi">
+      <div class="ol">Y 오프셋</div>
+      <div class="ov" id="o-oy">+0px</div>
+    </div>
+  </div>
+  <p class="hint">값 클릭 후 Ctrl+C 로 복사하세요.</p>
+</div>
+
+<div class="note">
+  <code>animateAttackGif</code> 함수 내에서 수정할 부분:<br>
+  <code>width:64px;height:64px;</code> → <code>width:SIZE;height:SIZE;</code><br>
+  오프셋이 있으면:<br>
+  <code>const left = … + (cellW - SIZE) / 2 + OFFSET_X;</code><br>
+  <code>const top  = … + (cellH - SIZE) / 2 + OFFSET_Y;</code>
+</div>
+
+<script>
+// ── 캐릭터 목록 ──────────────────────────────────────────────────────────
+var CHARS = [
+  'archer','spearman','cavalry','watchman','scout',
+  'manhunter','messenger','gunpowder','herbalist',
+  'twins_red','twins_blue','twins_joined',
+  'general','knight','shadowAssassin','wizard','armoredWarrior',
+  'witch','dualBlade','ratMerchant','weaponSmith','bodyguard',
+  'prince','princess','king','dragonTamer','monk',
+  'slaughterHero','commander','sulfurCauldron','torturer','count',
+  'dragon'
+];
+
+// ── 상수 ──
+var CELL = 56;
+var IDLE = 38;
+
+// ── 상태 ──
+var sz  = 76;
+var ox  = 0;
+var oy  = 0;
+var cur = CHARS[0];
+
+// ── DOM (모두 정적 HTML에 존재) ──────────────────────────────────────────
+var boardSim   = document.getElementById('board-sim');
+var atkOverlay = document.getElementById('atk-overlay');
+var idleImg    = document.getElementById('idle-img');
+var charSel    = document.getElementById('char-sel');
+var cbIdle     = document.getElementById('cb-idle');
+var cbFlip     = document.getElementById('cb-flip');
+var szSlider   = document.getElementById('sz');
+var szV        = document.getElementById('sz-v');
+var oxSlider   = document.getElementById('ox');
+var oxV        = document.getElementById('ox-v');
+var oySlider   = document.getElementById('oy');
+var oyV        = document.getElementById('oy-v');
+var resetOff   = document.getElementById('reset-off');
+var oSz        = document.getElementById('o-sz');
+var oMult      = document.getElementById('o-mult');
+var oOx        = document.getElementById('o-ox');
+var oOy        = document.getElementById('o-oy');
+var statusDot  = document.getElementById('status-dot');
+var statusText = document.getElementById('status-text');
+
+// ── URL 빌더 ──
+function atkUrl(k)  { return '/art/' + k + '_attack.gif'; }
+function idleUrl(k) { return '/art/' + k + '_idle.gif';   }
+
+// ── 오버레이 위치 계산 (크기·오프셋 기반) ──
+// boardSim 내 중앙 셀(col=1,row=1) 중심 좌표 = 56 + 56/2 = 84px
+function calcPos() {
+  var cx = CELL + CELL / 2;  // 84
+  var cy = CELL + CELL / 2;  // 84
+  return {
+    left: cx - sz / 2 + ox,
+    top:  cy - sz / 2 + oy
+  };
+}
+
+// ── 출력값 갱신 ──
+function updateOutput() {
+  oSz.textContent   = sz + 'px';
+  oMult.textContent = (sz / IDLE).toFixed(2) + '×';
+  oOx.textContent   = (ox >= 0 ? '+' : '') + ox + 'px';
+  oOy.textContent   = (oy >= 0 ? '+' : '') + oy + 'px';
+}
+
+// ── 위치/크기만 업데이트 (GIF 재시작 없이) ──
+function refreshPos() {
+  var pos = calcPos();
+  atkOverlay.style.width  = sz + 'px';
+  atkOverlay.style.height = sz + 'px';
+  atkOverlay.style.left   = pos.left + 'px';
+  atkOverlay.style.top    = pos.top  + 'px';
+  updateOutput();
+}
+
+// ── 전체 갱신 (GIF 재시작 포함) ──
+function refresh() {
+  // idle
+  if (cbIdle.checked) {
+    idleImg.src = idleUrl(cur) + '?_r=' + Date.now();
+    idleImg.style.visibility = '';
+  } else {
+    idleImg.style.visibility = 'hidden';
+  }
+
+  // 공격 오버레이
+  var pos = calcPos();
+  var flip = cbFlip.checked ? 'scaleX(-1)' : '';
+  atkOverlay.style.cssText =
+    'position:absolute;image-rendering:pixelated;pointer-events:none;z-index:20;' +
+    'width:' + sz + 'px;height:' + sz + 'px;' +
+    'left:' + pos.left + 'px;top:' + pos.top + 'px;' +
+    (flip ? 'transform:scaleX(-1);transform-origin:center center;' : '');
+  atkOverlay.src = atkUrl(cur) + '?_r=' + Date.now();
+
+  updateOutput();
+}
+
+// ── 프리셋 버튼 활성화 ──
+function setPresetActive(px) {
+  var btns = document.querySelectorAll('.pb');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('on', parseInt(btns[i].dataset.px, 10) === px);
+  }
+}
+
+// ── 캐릭터 목록 채우기 ──
+for (var i = 0; i < CHARS.length; i++) {
+  var opt = document.createElement('option');
+  opt.value = CHARS[i];
+  opt.textContent = CHARS[i];
+  charSel.appendChild(opt);
+}
+charSel.value = cur;
+
+// ── 이벤트 등록 ──
+
+// 프리셋 버튼
+var pbtns = document.querySelectorAll('.pb');
+for (var pi = 0; pi < pbtns.length; pi++) {
+  (function(btn) {
+    btn.addEventListener('click', function() {
+      sz = parseInt(btn.dataset.px, 10);
+      szSlider.value = sz;
+      szV.textContent = sz + 'px';
+      setPresetActive(sz);
+      refresh();
+    });
+  })(pbtns[pi]);
+}
+
+// 크기 슬라이더 — drag 중에는 위치만 업데이트, 뗄 때 GIF 재시작
+szSlider.addEventListener('input', function() {
+  sz = parseInt(szSlider.value, 10);
+  szV.textContent = sz + 'px';
+  setPresetActive(sz);
+  refreshPos();
+});
+szSlider.addEventListener('change', function() {
+  sz = parseInt(szSlider.value, 10);
+  refresh();
+});
+
+// X 오프셋
+oxSlider.addEventListener('input', function() {
+  ox = parseInt(oxSlider.value, 10);
+  oxV.textContent = (ox >= 0 ? '+' : '') + ox + 'px';
+  refreshPos();
+});
+
+// Y 오프셋
+oySlider.addEventListener('input', function() {
+  oy = parseInt(oySlider.value, 10);
+  oyV.textContent = (oy >= 0 ? '+' : '') + oy + 'px';
+  refreshPos();
+});
+
+// 오프셋 초기화
+resetOff.addEventListener('click', function() {
+  ox = 0; oy = 0;
+  oxSlider.value = 0; oySlider.value = 0;
+  oxV.textContent = '+0px'; oyV.textContent = '+0px';
+  refreshPos();
+});
+
+// 캐릭터 변경
+charSel.addEventListener('change', function() {
+  cur = charSel.value;
+  refresh();
+});
+
+// idle / flip 토글
+cbIdle.addEventListener('change', refresh);
+cbFlip.addEventListener('change', refresh);
+
+// 오버레이 로드 에러
+atkOverlay.addEventListener('error', function() {
+  statusDot.className = 'fail';
+  statusText.textContent = '게임 서버에 연결할 수 없습니다 — 서버를 먼저 실행하세요.';
+});
+atkOverlay.addEventListener('load', function() {
+  statusDot.className = 'ok';
+  statusText.textContent = '서버 연결됨 — GIF 로드 완료';
+});
+
+// ── 서버 연결 확인 (idle GIF fetch) ──
+fetch(idleUrl(cur), { method: 'HEAD', cache: 'no-store' })
+  .then(function(r) {
+    if (r.ok) {
+      statusDot.className = 'ok';
+      statusText.textContent = '서버 연결됨';
+    } else {
+      statusDot.className = 'fail';
+      statusText.textContent = '서버 응답 오류 (' + r.status + ') — 게임 서버를 확인하세요.';
+    }
+  })
+  .catch(function() {
+    statusDot.className = 'fail';
+    statusText.textContent = '게임 서버에 연결할 수 없습니다 — 서버를 먼저 실행하세요.';
+  });
+
+// ── 초기 렌더 ──
+setPresetActive(sz);
+refresh();
+</script>
+</body>
+</html>

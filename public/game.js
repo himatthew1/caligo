@@ -4183,10 +4183,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   // 공격 모션 애니메이션 (그림자 셀은 위에서 hit=false 로 처리되어 흔들림 X)
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
-  animateAttack(atkCells, hitCells);
+  // 공격 범위 오렌지 번쩍임만 즉시 표시 — 피격 판정은 공격 GIF 종료 후 실행
+  animateAttack(atkCells, []);
   playSfx('attack');
 
-  // ★ 공격자 공격 GIF — 상태 업데이트 전 현재 위치/타입으로 오버레이 재생
+  // ★ 공격자 공격 GIF — 상태 업데이트 전 현재 위치/타입으로 오버레이 재생.
+  //   각 Promise 는 GIF 1루프 재생 완료 시 resolve.
+  //   Promise.race → 가장 먼저 끝나는 GIF 기준으로 피격 판정 시작.
+  const _gifPromises = [];
   (function () {
     const _pc = S.myPieces[pieceIdx];
     if (!_pc || !_pc.alive) return;
@@ -4194,8 +4198,22 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       ? S.myPieces.find(p => p !== _pc && (p.subUnit === 'elder' || p.subUnit === 'younger')
           && p.alive && p.col === _pc.col && p.row === _pc.row)
       : null;
-    animateAttackGif(_pc.col, _pc.row, _pc.type, _pc.subUnit, !!_otherTwin);
+    _gifPromises.push(animateAttackGif(_pc.col, _pc.row, _pc.type, _pc.subUnit, !!_otherTwin, pieceIdx));
+    // ★ 분리된 쌍둥이: 파트너도 동시에 공격 GIF 재생 (사용자 요청)
+    if ((_pc.subUnit === 'elder' || _pc.subUnit === 'younger') && !_otherTwin) {
+      const _partnerIdx = S.myPieces.findIndex((p, i) =>
+        i !== pieceIdx && (p.subUnit === 'elder' || p.subUnit === 'younger') && p.alive
+      );
+      const _partner = _partnerIdx >= 0 ? S.myPieces[_partnerIdx] : null;
+      if (_partner && (_partner.col !== _pc.col || _partner.row !== _pc.row)) {
+        _gifPromises.push(animateAttackGif(_partner.col, _partner.row, _partner.type, _partner.subUnit, false, _partnerIdx));
+      }
+    }
   })();
+  // 공격 GIF 재생 완료 후 피격 판정 + 아이콘 피격 애니 시작
+  // (공격 GIF 없는 경우 Promise.resolve() → 즉시 실행)
+  (_gifPromises.length > 0 ? Promise.race(_gifPromises) : Promise.resolve())
+    .then(() => { if (hitCells.length > 0) animateAttack([], hitCells); });
 
   // 아군 피해 감지용: 업데이트 전 HP 스냅샷 (학살 영웅 등)
   const oldMyHps = S.myPieces.map(p => p.hp);
@@ -4408,7 +4426,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   //   atkCells 의 ·/딤 셀 마크는 같은 팀 (team_ally_hit/team_ally_attacked) 에서만 공유.
   //   여기서는 hit 셀 빨간 플래시만 (피격자 본인의 말 위치 노출은 어차피 자신이 알고 있음).
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
-  animateAttack([], hitCells);
+  animateAttack([], hitCells, true); // isDefending=true — 내 말이 피격됨
   // attackLog 에는 명중 셀만 기록 (·/💥 셀 마크는 자신의 말이 맞은 곳만 — 빗나감 atkCells 누적 X)
   for (const hc of hitCells) {
     S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
@@ -7504,20 +7522,30 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
   S._recentCurseDamageKeys.add(key);
   setTimeout(() => { if (S._recentCurseDamageKeys) S._recentCurseDamageKeys.delete(key); }, 800);
 
-  // 1v1: 도장 데이터 누적 + piece HP 동기화 (HP 바 즉시 반영 + buildDamageOverlay 가 보라 도장을 표시)
-  const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
-  const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
-  if (myIdx >= 0) {
-    addCurseDamageStampValue(`my:${myIdx}`, damage);
-    if (typeof newHp === 'number' && S.myPieces[myIdx]) S.myPieces[myIdx].hp = newHp;
+  // 1v1: playerIdx 로 피해 대상 플레이어를 특정 — 양쪽에 이름이 같은 말이 있어도 혼동 없음
+  // ★ 이름(targetName)만으로 myPieces/oppPieces 를 동시 탐색하면 마녀 vs 마녀처럼
+  //   같은 캐릭터명이 양쪽에 있을 때 상대 말에도 HP 변경 + 도장이 잘못 적용되는 버그 발생.
+  if (!S.isTeamMode) {
+    if (playerIdx === S.playerIdx) {
+      // 내 말이 저주 피해를 받은 경우
+      const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
+      if (myIdx >= 0) {
+        addCurseDamageStampValue(`my:${myIdx}`, damage);
+        if (typeof newHp === 'number' && S.myPieces[myIdx]) S.myPieces[myIdx].hp = newHp;
+      }
+    } else {
+      // 상대 말이 저주 피해를 받은 경우
+      const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
+      if (oppIdx >= 0) {
+        addCurseDamageStampValue(`opp:${oppIdx}`, damage);
+        if (typeof newHp === 'number' && S.oppPieces[oppIdx]) S.oppPieces[oppIdx].hp = newHp;
+      }
+    }
   }
-  if (oppIdx >= 0) {
-    addCurseDamageStampValue(`opp:${oppIdx}`, damage);
-    if (typeof newHp === 'number' && S.oppPieces[oppIdx]) S.oppPieces[oppIdx].hp = newHp;
-  }
-  // 팀모드: 플레이어별 인덱스 키 사용
+  // 팀모드: playerIdx 가 일치하는 플레이어만 업데이트
   if (S.isTeamMode) {
     for (const pl of (S.teamGamePlayers || [])) {
+      if (pl.idx !== playerIdx) continue; // ★ playerIdx 불일치 → 이름이 같아도 스킵
       const idxInPl = (pl.pieces || []).findIndex(p => p.alive && p.name === targetName);
       if (idxInPl < 0) continue;
       addCurseDamageStampValue(`${pl.idx}:${idxInPl}`, damage);
@@ -7545,18 +7573,21 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
         if (card) card.classList.add('turn-bright');
       }
     } else {
-      // 1v1 — 본인/상대 카드 모두 후보
-      const myI = S.myPieces?.findIndex(p => p.name === targetName) ?? -1;
-      const oppI = S.oppPieces?.findIndex(p => p.name === targetName) ?? -1;
-      if (myI >= 0) {
-        _persistTurnBright(S.playerIdx, myI);
-        const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[myI];
-        if (card) card.classList.add('turn-bright');
-      }
-      if (oppI >= 0) {
-        _persistTurnBright(1 - S.playerIdx, oppI);
-        const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[oppI];
-        if (card) card.classList.add('turn-bright');
+      // 1v1 — playerIdx 로 내 말/상대 말 구분 (이름이 같아도 혼동 없음)
+      if (playerIdx === S.playerIdx) {
+        const myI = S.myPieces?.findIndex(p => p.name === targetName) ?? -1;
+        if (myI >= 0) {
+          _persistTurnBright(S.playerIdx, myI);
+          const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[myI];
+          if (card) card.classList.add('turn-bright');
+        }
+      } else {
+        const oppI = S.oppPieces?.findIndex(p => p.name === targetName) ?? -1;
+        if (oppI >= 0) {
+          _persistTurnBright(1 - S.playerIdx, oppI);
+          const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[oppI];
+          if (card) card.classList.add('turn-bright');
+        }
       }
     }
   });
@@ -12137,6 +12168,15 @@ function renderGameBoard() {
       if (fGif) fGif.style.transform = 'scaleX(-1)';
     }
   }
+
+  // ── 공격 GIF 재생 중인 셀 — 재렌더 후에도 idle img 숨김 유지 ──
+  if (typeof _attackPlayingCells !== 'undefined' && _attackPlayingCells.size > 0) {
+    for (const _apKey of _attackPlayingCells) {
+      const [_apc, _apr] = _apKey.split(',').map(Number);
+      const _apCell = board.querySelector(`.cell[data-col="${_apc}"][data-row="${_apr}"]`);
+      if (_apCell) _apCell.querySelectorAll('img.p-gif').forEach(g => { g.style.visibility = 'hidden'; });
+    }
+  }
 }
 
 // ── 멀티유닛 캐러셀: 셀 HTML 렌더 ──────────────────────────────────────
@@ -13696,6 +13736,8 @@ function _closeRadialActionMenu() {
   // 활성 셀 클래스 + body 모드 해제 — 다른 캐릭터 dim 도 함께 해제
   document.querySelectorAll('#game-board .cell.radial-active').forEach(c => c.classList.remove('radial-active'));
   document.body.classList.remove('radial-mode-active');
+  // 쌍둥이 파트너에 수동으로 추가한 twin-active 제거
+  document.querySelectorAll('#game-board .piece-marker.twin-active').forEach(m2 => m2.classList.remove('twin-active'));
   S._radialMenuPiece = null;
 }
 
@@ -14050,6 +14092,19 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   if (!cellEl) return;
   cellEl.classList.add('radial-active');
   document.body.classList.add('radial-mode-active');
+
+  // ★ 쌍둥이 선택 시 파트너도 즉시 dim 면제 — S.selectedPiece 는 아직 null 이므로
+  //   renderGameBoard 를 기다리지 않고 파트너 piece-marker 에 직접 twin-active 추가.
+  const _rpc = S.myPieces && S.myPieces[pieceIdx];
+  if (_rpc && (_rpc.subUnit === 'elder' || _rpc.subUnit === 'younger')) {
+    const _sibSub = _rpc.subUnit === 'elder' ? 'younger' : 'elder';
+    const _sib = (S.myPieces || []).find(p => p.subUnit === _sibSub && p.alive);
+    if (_sib) {
+      const _sibCell = document.querySelector(`#game-board .cell[data-col="${_sib.col}"][data-row="${_sib.row}"]`);
+      if (_sibCell) _sibCell.querySelectorAll('.piece-marker').forEach(mk => mk.classList.add('twin-active'));
+    }
+  }
+
   const r = cellEl.getBoundingClientRect();
   const cx = r.left + r.width / 2;
   const cy = r.top + r.height / 2;
@@ -15745,7 +15800,9 @@ function findPieceIndices(pieces, hitList, matchByCoord = true, ownerIdx) {
   return indices;
 }
 
-function animateAttack(atkCells, hitCells) {
+// isDefending: true = 내 말(or 팀원)이 피격되는 상황 → .piece-marker:not(.opp-marked) 대상
+//              false(기본) = 상대 말이 피격되는 상황 → .piece-marker.opp-marked 대상
+function animateAttack(atkCells, hitCells, isDefending) {
   const board = document.getElementById('game-board');
   if (!board) return;
   const cells = board.querySelectorAll('.cell');
@@ -15771,68 +15828,54 @@ function animateAttack(atkCells, hitCells) {
     }
   }
   // 보드 위 아이콘 피격 애니메이션 — 셀 안의 piece-marker .p-icon 흔들림+빨간 글로우
-  animateBoardIconHit(hitCells);
+  animateBoardIconHit(hitCells, isDefending);
 }
 
-// GIF 바이너리에서 프레임 수(Graphic Control Extension 블록 수) 반환.
-// URL 별 영구 캐시 — 같은 캐릭터 두 번째 피격부터는 동기 반환.
-if (!window._gifFrameCountCache) window._gifFrameCountCache = {};
-async function _fetchGifFrameCount(url) {
-  if (window._gifFrameCountCache[url] !== undefined) return window._gifFrameCountCache[url];
+// GIF 바이너리에서 1회 루프의 총 재생 시간(ms)을 반환.
+// Graphic Control Extension(0x21 0xF9 0x04) 블록의 딜레이 필드(centiseconds)를 합산.
+// URL 별 영구 캐시 — 같은 캐릭터 두 번째 피격부터는 즉시 반환.
+if (!window._gifDurationCache) window._gifDurationCache = {};
+async function _fetchGifDuration(url) {
+  if (window._gifDurationCache[url] !== undefined) return window._gifDurationCache[url];
   try {
     const bytes = new Uint8Array(
-      await (await fetch(url, { cache: 'force-cache' })).arrayBuffer()
+      await (await fetch(url, { cache: 'default' })).arrayBuffer()
     );
-    let n = 0;
-    for (let i = 0; i < bytes.length - 2; i++) {
-      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) { n++; i += 7; }
+    let totalMs = 0;
+    for (let i = 0; i < bytes.length - 7; i++) {
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+        const delayCs = bytes[i+4] | (bytes[i+5] << 8); // centiseconds
+        totalMs += delayCs * 10;
+        i += 7;
+      }
     }
-    return (window._gifFrameCountCache[url] = n || 1);
+    return (window._gifDurationCache[url] = totalMs || 650);
   } catch (e) {
-    return (window._gifFrameCountCache[url] = 5);
+    return (window._gifDurationCache[url] = 650);
   }
 }
 
-// canvas 로 GIF 프레임 전환을 감지 — frameCount 번 전환되면 (= 1회 루프 완료) cb 호출.
-// img 가 DOM 에서 사라지거나 3초 이상 변화 없으면 자동 종료.
-function _watchGifFrames(img, frameCount, cb) {
-  const W = img.naturalWidth  || 38;
-  const H = img.naturalHeight || 38;
-  const cv = document.createElement('canvas');
-  cv.width = W; cv.height = H;
-  const cx = cv.getContext('2d', { willReadFrequently: true });
-  let transitions = 0, stale = 0, prevData = null;
-  (function tick() {
-    if (!img.parentNode) return;
-    cx.drawImage(img, 0, 0, W, H);
-    const cur = cx.getImageData(0, 0, W, H).data;
-    if (prevData) {
-      let changed = false;
-      for (let i = 0; i < cur.length; i++) {
-        if (cur[i] !== prevData[i]) { changed = true; break; }
-      }
-      if (changed) {
-        stale = 0;
-        if (++transitions >= frameCount) { cb(); return; }
-      } else if (++stale > 180) { cb(); return; } // 3초 안전 탈출
-    }
-    prevData = cur;
-    requestAnimationFrame(tick);
-  })();
-}
-
 // 보드 위 말 아이콘 피격 모션 — idle GIF → 피격 GIF 정확히 1회 재생 → idle 복원
-//   ★ canvas 프레임 감지로 마지막 프레임이 끝나는 순간 즉시 복원 (타이머 추정 없음)
+//   ★ GIF 바이너리에서 실제 재생 시간 파싱 → setTimeout 으로 1루프 후 복원
 //   ★ img.decode() 완료 후 교체 → 팝인(빈 프레임) 방지
 //   ★ requestAnimationFrame 래핑 → renderGameBoard() 완료 후 새 DOM 에 적용
-function animateBoardIconHit(cells) {
+// isDefending: animateAttack 에서 전달 — true면 내 말(non-opp-marked) 대상
+function animateBoardIconHit(cells, isDefending) {
   const board = document.getElementById('game-board');
   if (!board) return;
   requestAnimationFrame(() => {
     for (const c of cells) {
       const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
       if (!cell) continue;
-      const icon = cell.querySelector('.piece-marker .p-icon') || cell.querySelector('.cc-main:not(.cc-hidden) .p-icon');
+
+      // isDefending=true  → 내 말 피격: opp-marked 가 아닌 piece-marker
+      // isDefending=false → 상대 말 피격: opp-marked 만 (내 말이 점령한 경우 오발사 방지)
+      const markerSel = isDefending
+        ? '.piece-marker:not(.opp-marked)'
+        : '.piece-marker.opp-marked';
+      const marker = cell.querySelector(markerSel);
+      if (!marker) continue;
+      const icon = marker.querySelector('.p-icon');
       if (!icon) continue;
 
       const idleImg = icon.querySelector('img.p-gif');
@@ -15861,64 +15904,115 @@ function animateBoardIconHit(cells) {
           .catch(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); });
       };
 
-      // decode 완료 + 프레임 수 파싱 → 교체 후 canvas 감시 시작
-      Promise.all([hitImg.decode(), _fetchGifFrameCount(hitUrl)])
-        .then(([, frameCount]) => {
+      // decode 완료 + 재생 시간 파싱 → 교체 후 타이머로 1루프 복원
+      Promise.all([hitImg.decode(), _fetchGifDuration(hitUrl)])
+        .then(([, dur]) => {
           if (!idleImg.parentNode) return;
           idleImg.parentNode.replaceChild(hitImg, idleImg);
-          _watchGifFrames(hitImg, frameCount, restore);
+          setTimeout(restore, dur);
         })
         .catch(() => {
-          // 폴백: fetch/decode 실패 시 800ms 고정
+          // 폴백: fetch/decode 실패 시 650ms 고정
           if (!idleImg.parentNode) return;
           idleImg.parentNode.replaceChild(hitImg, idleImg);
-          setTimeout(restore, 800);
+          setTimeout(restore, 650);
         });
     }
   });
 }
 
-// ── 공격자 공격 GIF 오버레이 ───────────────────────────────────────────
-//   공격 시 해당 셀 위에 64×64 공격 GIF 를 1회 재생 후 제거.
-//   .board(position:relative) 에 직접 append → z-index:50 으로 모든 말 위에 표시.
+// 공격 GIF 재생 중인 셀 추적 (col,row 문자열 키).
+// renderGameBoard 가 cell.className 을 초기화해도 이 Set 을 통해 idle 숨김을 재적용.
+const _attackPlayingCells = new Set();
+
+// ── 공격자 공격 GIF ─────────────────────────────────────────────────────
+//   공격 시 아이들 img 를 숨기고 공격 GIF 를 셀 위에 1회 재생 → 아이들 복원.
+//   ★ _attackPlayingCells 추적 → renderGameBoard 재렌더 후에도 idle 숨김 유지.
+//   ★ pieceIdx → _pieceFacingDir 조회 → 바라보는 방향 반영 (왼쪽: scaleX(-1)).
+//   ★ requestAnimationFrame 래핑 → renderGameBoard() 완료 후 새 DOM 에 적용.
+//   ★ getBoundingClientRect 위치 계산 → offsetLeft/Top 오차 없음.
 //   ★ being_attacked(상대 공격) 엔 서버가 공격자 정보를 보내지 않으므로 미지원.
-//     공격자 본인(attack_result) 관점에서만 재생됨.
-function animateAttackGif(col, row, type, subUnit, isJoined) {
+// ── 반환값: GIF 재생이 끝나면 resolve 되는 Promise ─────────────────────────
+//   호출 측에서 .then(() => animateBoardIconHit(...)) 형태로 피격 판정을 지연시킴.
+//   URL/셀 미발견 등 조기 반환 시에도 즉시 resolve → 호출 측 체인이 끊기지 않음.
+function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
   const map = window.PIECE_ATTACK_GIFS;
-  if (!map) return;
+  if (!map) return Promise.resolve();
   let url;
   if (isJoined)                  url = map.twins_joined;
   else if (subUnit === 'elder')   url = map.twins_red;
   else if (subUnit === 'younger') url = map.twins_blue;
   else                            url = map[type];
-  if (!url) return;
+  if (!url) return Promise.resolve();
+
+  // 바라보는 방향 판단 (_pieceFacingDir 조회)
+  const _facingLeft = (() => {
+    if (pieceIdx == null || typeof _pieceFacingDir === 'undefined') return false;
+    return _pieceFacingDir[`${S.playerIdx}:${pieceIdx}`] === 'left';
+  })();
 
   const board = document.getElementById('game-board');
-  if (!board) return;
-  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
-  if (!cell) return;
+  if (!board) return Promise.resolve();
 
-  // 셀 중앙 기준으로 64×64 오버레이 위치 계산 (board 좌표계)
-  const left = Math.round(cell.offsetLeft + (cell.offsetWidth  - 64) / 2);
-  const top  = Math.round(cell.offsetTop  + (cell.offsetHeight - 64) / 2);
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (!cell) { resolve(); return; }
 
-  const img = document.createElement('img');
-  img.src = url;
-  img.alt = '';
-  img.style.cssText =
-    `position:absolute;width:64px;height:64px;` +
-    `left:${left}px;top:${top}px;` +
-    `z-index:50;pointer-events:none;image-rendering:pixelated;`;
+      // 아이들 img 숨김 + 셀 추적 등록
+      // ★ visibility:hidden 은 레이아웃을 보존 → 숨긴 후에도 offsetLeft/Width 측정 정확
+      _attackPlayingCells.add(`${col},${row}`);
+      cell.querySelectorAll('img.p-gif').forEach(g => { g.style.visibility = 'hidden'; });
 
-  const cleanup = () => { if (img.parentNode) img.parentNode.removeChild(img); };
+      // ── idle GIF 실제 중심점 기준 위치·크기 계산 ─────────────────────────────
+      // idle img 를 직접 읽어 → 크기 2배 + 동일 중심점. 셀 크기와 무관하게 항상 정확.
+      // offsetLeft 체인 순회 → board 기준 좌표. 스크롤·transform 영향 없음.
+      let _gifSize, left, top;
+      const _idleImg = cell.querySelector('img.p-gif');
+      if (_idleImg && _idleImg.offsetWidth > 0) {
+        // idle img 의 top-left 를 board 패딩-박스 기준으로 누산
+        let _ox = 0, _oy = 0;
+        let _cur = _idleImg;
+        while (_cur && _cur !== board) { _ox += _cur.offsetLeft; _oy += _cur.offsetTop; _cur = _cur.offsetParent; }
+        const _iW = _idleImg.offsetWidth;
+        const _iH = _idleImg.offsetHeight;
+        _gifSize = _iW * 2;
+        // attack GIF 중심 = idle 중심 → 완벽 일치
+        left = Math.round(_ox + _iW / 2 - _gifSize / 2);
+        top  = Math.round(_oy + _iH / 2 - _gifSize / 2);
+      } else {
+        // 폴백: idle GIF 없으면 셀 중심 기준
+        _gifSize = cell.offsetWidth * 2;
+        left = Math.round(cell.offsetLeft + cell.offsetWidth  / 2 - _gifSize / 2);
+        top  = Math.round(cell.offsetTop  + cell.offsetHeight / 2 - _gifSize / 2);
+      }
 
-  img.decode()
-    .then(() => {
-      board.appendChild(img);
-      return _fetchGifFrameCount(url);
-    })
-    .then(frameCount => _watchGifFrames(img, frameCount, cleanup))
-    .catch(() => { board.appendChild(img); setTimeout(cleanup, 800); });
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = '';
+      img.style.cssText =
+        `position:absolute;width:${_gifSize}px;height:${_gifSize}px;` +
+        `left:${left}px;top:${top}px;z-index:50;pointer-events:none;image-rendering:pixelated;` +
+        (_facingLeft ? 'transform:scaleX(-1);transform-origin:center center;' : '');
+
+      const cleanup = () => {
+        if (img.parentNode) img.parentNode.removeChild(img);
+        _attackPlayingCells.delete(`${col},${row}`);
+        // 현재 DOM 에서 idle img 찾아 복원 (renderGameBoard 로 DOM 이 재건됐을 수 있음)
+        const _cur = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+        if (_cur) _cur.querySelectorAll('img.p-gif').forEach(g => { g.style.visibility = ''; });
+        resolve(); // ← GIF 1루프 재생 완료 → Promise resolve
+      };
+
+      img.decode()
+        .then(() => {
+          board.appendChild(img);
+          return _fetchGifDuration(url);
+        })
+        .then(dur => setTimeout(cleanup, dur))
+        .catch(() => { board.appendChild(img); setTimeout(cleanup, 650); });
+    });
+  });
 }
 
 // ── 유황범람 라바 애니 (사용자 요청) ──
@@ -16114,7 +16208,7 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
   // ★ 사용자 요청 (fog-of-war): 피격팀의 다른 멤버도 atkCells 의 ·/딤 마크는 보지 않음.
   //   hit 셀만 빨간 플래시. attackLog 에도 명중 셀만 기록.
-  animateAttack([], hitCells);
+  animateAttack([], hitCells, true); // isDefending=true — 팀원 말이 피격됨
   for (const hc of hitCells) {
     S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
   }
