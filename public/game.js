@@ -4210,10 +4210,40 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       }
     }
   })();
-  // 공격 GIF 재생 완료 후 피격 판정 + 아이콘 피격 애니 시작
+  // 공격 GIF 재생 완료 후 피격 판정 전체 시작
   // (공격 GIF 없는 경우 Promise.resolve() → 즉시 실행)
+  // ★ .then() 은 비동기 실행 — 이 시점엔 아직 oppHitIndices 등이 선언되지 않았지만,
+  //   콜백은 현재 동기 블록 종료 후 실행되므로 그때는 모든 변수가 확정돼 있음.
   (_gifPromises.length > 0 ? Promise.race(_gifPromises) : Promise.resolve())
-    .then(() => { if (hitCells.length > 0) animateAttack([], hitCells); });
+    .then(() => {
+      // ① 보드 위 셀 빨간 플래시 + 흔들림 + 아이콘 피격 GIF
+      if (hitCells.length > 0) animateAttack([], hitCells);
+      // ② 프로필 카드 피격 애니메이션 (카드 번쩍임)
+      if (!S.isTeamMode) {
+        applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
+        applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
+        applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', oppProtectedIndices);
+        for (const idx of oppProtectedIndices) addProtectedHit(`opp:${idx}`);
+      } else {
+        requestAnimationFrame(() => {
+          for (const c of cellResults) {
+            if (!c.hit || c.defPieceIdx == null || c.defOwnerIdx == null) continue;
+            const isProtected = (c.damage === 0 && !c.destroyed);
+            if (c.redirectedToBodyguard) continue;
+            const card = document.querySelector(`.team-profile-block[data-player-idx="${c.defOwnerIdx}"] [data-piece-idx="${c.defPieceIdx}"]`);
+            if (!card) continue;
+            if (isProtected) {
+              const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+              const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
+              const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
+              if (!isShadow) { applyProtectedAnim(card); addProtectedHit(`${c.defOwnerIdx}:${c.defPieceIdx}`); }
+            } else {
+              applyHitFlashWithBrighten(card);
+            }
+          }
+        });
+      }
+    });
 
   // 아군 피해 감지용: 업데이트 전 HP 스냅샷 (학살 영웅 등)
   const oldMyHps = S.myPieces.map(p => p.hp);
@@ -4351,40 +4381,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   renderMyPieces();
   renderOppPieces();
   showActionBar(true);
-
-  // 상대 유닛 피격 애니메이션
-  if (!S.isTeamMode) {
-    applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
-    applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
-    applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', oppProtectedIndices);
-    // ★ 사용자 요청: 데미지 0 도장 출력 (보호됨 시각화).
-    for (const idx of oppProtectedIndices) addProtectedHit(`opp:${idx}`);
-  } else {
-    // ★ 사용자 보고: 팀모드에서 적팀을 공격해도 피격 유닛이 밝아지는 애니가 안 나옴.
-    //   기존엔 team_game_update 에 위임했으나 broadcast 가 늦게 도착해 실제로는 누락.
-    //   cellResults 의 defOwnerIdx + defPieceIdx 로 즉시 team-profile-block 매핑.
-    requestAnimationFrame(() => {
-      for (const c of cellResults) {
-        if (!c.hit || c.defPieceIdx == null || c.defOwnerIdx == null) continue;
-        const isProtected = (c.damage === 0 && !c.destroyed);
-        if (c.redirectedToBodyguard) continue;
-        const card = document.querySelector(`.team-profile-block[data-player-idx="${c.defOwnerIdx}"] [data-piece-idx="${c.defPieceIdx}"]`);
-        if (!card) continue;
-        if (isProtected) {
-          // 보호됨 (가호/폭정/아이언스킨) — 그림자 상태 piece 는 제외 (피격 정보 숨김).
-          const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
-          const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
-          const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
-          if (!isShadow) {
-            applyProtectedAnim(card);
-            addProtectedHit(`${c.defOwnerIdx}:${c.defPieceIdx}`);
-          }
-        } else {
-          applyHitFlashWithBrighten(card);
-        }
-      }
-    });
-  }
+  // ★ 피격 애니메이션은 공격 GIF 재생 완료 후 실행 (위 .then() 블록으로 이동)
 
   // 쥐 격파 피드백
   if (destroyedRats.length > 0) {
