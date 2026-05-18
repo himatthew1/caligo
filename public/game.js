@@ -4180,16 +4180,28 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
     return c;
   });
 
-  // 공격 모션 애니메이션 (그림자 셀은 위에서 hit=false 로 처리되어 흔들림 X)
+  // 공격 모션 애니메이션 — 오렌지 범위 번쩍임만 즉시 (공격 의도 시각화)
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
-  // 공격 범위 오렌지 번쩍임만 즉시 표시 — 피격 판정은 공격 GIF 종료 후 실행
   animateAttack(atkCells, []);
   playSfx('attack');
 
+  // 아군 HP 스냅샷 — 상태 업데이트 전 캡처 (학살 영웅 friendly fire 감지용)
+  const oldMyHps = S.myPieces.map(p => p.hp);
+
+  // 행동 소비 즉시 처리 — GIF 재생 중 중복 입력 방지
+  const _preUpdatePc = S.myPieces[pieceIdx];
+  S.action = null;
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  S.actionDone = true;
+  S.lastActionType = 'attack';
+  S.lastActionPieceType = _preUpdatePc ? _preUpdatePc.type : null;
+  setActionButtonMode(null);
+  showActionBar(true);
+
   // ★ 공격자 공격 GIF — 상태 업데이트 전 현재 위치/타입으로 오버레이 재생.
   //   각 Promise 는 GIF 1루프 재생 완료 시 resolve.
-  //   Promise.race → 가장 먼저 끝나는 GIF 기준으로 피격 판정 시작.
   const _gifPromises = [];
   (function () {
     const _pc = S.myPieces[pieceIdx];
@@ -4199,7 +4211,6 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
           && p.alive && p.col === _pc.col && p.row === _pc.row)
       : null;
     _gifPromises.push(animateAttackGif(_pc.col, _pc.row, _pc.type, _pc.subUnit, !!_otherTwin, pieceIdx));
-    // ★ 분리된 쌍둥이: 파트너도 동시에 공격 GIF 재생 (사용자 요청)
     if ((_pc.subUnit === 'elder' || _pc.subUnit === 'younger') && !_otherTwin) {
       const _partnerIdx = S.myPieces.findIndex((p, i) =>
         i !== pieceIdx && (p.subUnit === 'elder' || p.subUnit === 'younger') && p.alive
@@ -4210,15 +4221,117 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       }
     }
   })();
-  // 공격 GIF 재생 완료 후 피격 판정 전체 시작
-  // (공격 GIF 없는 경우 Promise.resolve() → 즉시 실행)
-  // ★ .then() 은 비동기 실행 — 이 시점엔 아직 oppHitIndices 등이 선언되지 않았지만,
-  //   콜백은 현재 동기 블록 종료 후 실행되므로 그때는 모든 변수가 확정돼 있음.
+
+  // ══ 공격 GIF 재생 완료 후 피격 판정 전체 시작 ══════════════════════════════
+  // 데미지·HP·사망·로그·토스트·추리토큰·렌더·애니메이션 전부 공격 GIF 종료 시점에 실행.
+  // 공격 GIF 없는 캐릭터 → Promise.resolve() → 지연 없이 즉시 실행.
   (_gifPromises.length > 0 ? Promise.race(_gifPromises) : Promise.resolve())
     .then(() => {
-      // ① 보드 위 셀 빨간 플래시 + 흔들림 + 아이콘 피격 GIF
+      // ── 게임 상태 업데이트 ─────────────────────────────────────────────
+      if (oppPieces) { S.oppPieces = oppPieces; }
+      if (yourPieces) { S.myPieces = yourPieces; }
+      pruneDeductionTokens();
+
+      // ── 공격 로그 (💥/· 셀 마크) ───────────────────────────────────────
+      for (const c of cellResults) {
+        S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
+      }
+
+      // ── 데미지 도장 추적 ────────────────────────────────────────────────
+      for (const c of cellResults) {
+        if (!c.hit) continue;
+        const dmg = (typeof c.damage === 'number') ? c.damage : 0;
+        if (dmg <= 0 || c.defPieceIdx === undefined) continue;
+        const key = (S.isTeamMode && c.defOwnerIdx !== undefined)
+          ? `${c.defOwnerIdx}:${c.defPieceIdx}`
+          : `opp:${c.defPieceIdx}`;
+        if (c.bodyguardRedirect) {
+          addLoyaltyDamage(key, dmg);
+        } else if (!c.redirectedToBodyguard) {
+          addBodyDamage(key, dmg);
+        }
+      }
+
+      // ── SFX (hit / kill) ────────────────────────────────────────────────
+      const _sfxHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
+      if (_sfxHits.some(h => h.destroyed)) playSfx('kill');
+      else if (_sfxHits.length > 0) playSfx('hit');
+
+      // ── 로그·토스트 ─────────────────────────────────────────────────────
+      const _attackerHadAnyImpact = !!attackerImpactedAnything || destroyedRats.length > 0;
+      if (!anyHit) {
+        if (!_attackerHadAnyImpact) { addLog(`빗나감`, 'miss'); showSkillToast(`빗나감`); }
+      } else {
+        const meaningfulHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
+        const messageHits = meaningfulHits.filter(c => !c.bodyguardRedirect || c.destroyed);
+        const killed = messageHits.filter(h => h.destroyed);
+        const hitOnly = messageHits.filter(h => !h.destroyed);
+        if (hitOnly.length > 0) addLog(`${hitOnly.map(h => coord(h.col, h.row)).join(', ')} 명중`, 'hit');
+        if (killed.length > 0) {
+          const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
+          showSkillToast(`${labels} 격파!`);
+          addLog(`${killed.map(h => coord(h.col, h.row)).join(', ')} ${labels} 격파`, 'hit');
+        }
+      }
+
+      // ── 방어 패시브 flush ───────────────────────────────────────────────
+      const _attackKilled = (cellResults || []).some(c => c.hit && c.destroyed);
+      if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _attackKilled });
+
+      // ── 추리 토큰 자동 배치 ─────────────────────────────────────────────
+      const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
+      if (_meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
+        const c = _meaningfulHits[0];
+        let piece = null, pieceKey = null;
+        if (S.isTeamMode && c.defOwnerIdx !== undefined) {
+          const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+          if (ownerPlayer && ownerPlayer.pieces && ownerPlayer.pieces[c.defPieceIdx]) {
+            piece = ownerPlayer.pieces[c.defPieceIdx];
+            pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+          }
+        } else {
+          piece = S.oppPieces?.[c.defPieceIdx];
+          if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+        }
+        if (piece && pieceKey) {
+          try {
+            S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+            S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+          } catch (e) {}
+        }
+      }
+
+      // ── 피격 인덱스 수집 ────────────────────────────────────────────────
+      const oppHitIndices = [];
+      const oppProtectedIndices = [];
+      for (const c of cellResults) {
+        if (!c.hit) continue;
+        const isProtected = (c.damage === 0 && !c.destroyed);
+        if (isProtected) {
+          if (c.defPieceIdx !== undefined) {
+            const _p = S.oppPieces?.[c.defPieceIdx];
+            const _shadow = _p && (_p.statusEffects || []).some(e => e.type === 'shadow');
+            if (!_shadow && !oppProtectedIndices.includes(c.defPieceIdx)) oppProtectedIndices.push(c.defPieceIdx);
+          }
+          continue;
+        }
+        if (c.redirectedToBodyguard) continue;
+        if (c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) oppHitIndices.push(c.defPieceIdx);
+      }
+      const myFriendlyFireIndices = [];
+      for (let i = 0; i < S.myPieces.length; i++) {
+        if (S.myPieces[i].hp < oldMyHps[i]) myFriendlyFireIndices.push(i);
+      }
+
+      // ── 렌더 (HP바·데미지 도장·사망 반영) ──────────────────────────────
+      renderGameBoard();
+      renderMyPieces();
+      renderOppPieces();
+
+      // ── 보드 피격 애니메이션 (셀 빨간 플래시·흔들림·아이콘 피격 GIF) ────
       if (hitCells.length > 0) animateAttack([], hitCells);
-      // ② 프로필 카드 피격 애니메이션 (카드 번쩍임)
+
+      // ── 프로필 카드 피격 애니메이션 ──────────────────────────────────────
       if (!S.isTeamMode) {
         applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppHitIndices);
         applyProfileHitAnim('#my-pieces-info .my-piece-card', myFriendlyFireIndices);
@@ -4234,162 +4347,24 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
             if (!card) continue;
             if (isProtected) {
               const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
-              const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
-              const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
-              if (!isShadow) { applyProtectedAnim(card); addProtectedHit(`${c.defOwnerIdx}:${c.defPieceIdx}`); }
+              const _tp = ownerPlayer?.pieces?.[c.defPieceIdx];
+              const _ts = _tp && (_tp.statusEffects || []).some(e => e.type === 'shadow');
+              if (!_ts) { applyProtectedAnim(card); addProtectedHit(`${c.defOwnerIdx}:${c.defPieceIdx}`); }
             } else {
               applyHitFlashWithBrighten(card);
             }
           }
         });
       }
+
+      // ── 쥐 격파 피드백 ──────────────────────────────────────────────────
+      if (destroyedRats.length > 0) {
+        const msg = ratDestroyMsg(destroyedRats, false);
+        showSkillToast(`🐀 ${msg}`);
+        addLog(`🐀 ${msg}`, 'hit');
+        animateRatDestruction(destroyedRats, false);
+      }
     });
-
-  // 아군 피해 감지용: 업데이트 전 HP 스냅샷 (학살 영웅 등)
-  const oldMyHps = S.myPieces.map(p => p.hp);
-
-  if (oppPieces) { S.oppPieces = oppPieces; }
-  if (yourPieces) { S.myPieces = yourPieces; }
-  // 사망한 말의 추리 토큰 즉시 제거 (다음 렌더에서 사라지도록)
-  pruneDeductionTokens();
-  const pc = S.myPieces[pieceIdx];
-
-  for (const c of cellResults) {
-    S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
-  }
-  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류 (HP delta 가 아닌 별도 트래킹)
-  for (const c of cellResults) {
-    if (!c.hit) continue;
-    const dmg = (typeof c.damage === 'number') ? c.damage : 0;
-    if (dmg <= 0 || c.defPieceIdx === undefined) continue;
-    const key = (S.isTeamMode && c.defOwnerIdx !== undefined)
-      ? `${c.defOwnerIdx}:${c.defPieceIdx}`
-      : `opp:${c.defPieceIdx}`;
-    if (c.bodyguardRedirect) {
-      // 호위무사가 대신 받음 → 파란 충성 도장 (BG 카드)
-      addLoyaltyDamage(key, dmg);
-    } else if (!c.redirectedToBodyguard) {
-      // 본체에 직접 들어간 피해 → 빨간 도장 (피격 카드)
-      addBodyDamage(key, dmg);
-    }
-    // c.redirectedToBodyguard === true: 본체는 0 피해라 도장 없음 (BG 가 받음)
-  }
-
-  // ★ 사용자 요청:
-  //   1. "명중!" 토스트 제거 — 공격자 피드백 토스트는 빗나감 / 격파 / 쥐 격파 만.
-  //   2. 쥐를 잡았거나 학살영웅 임팩트 (friendly fire / 자기쥐 / 적쥐) 가 있으면 빗나감 토스트 X.
-  const _attackerHadAnyImpact = !!attackerImpactedAnything || destroyedRats.length > 0;
-  if (!anyHit) {
-    // 본인 공격 빗나감 — 임팩트 (쥐 격파 / 학살영웅 등) 발생 시 빗나감 출력 X.
-    if (!_attackerHadAnyImpact) {
-      addLog(`빗나감`, 'miss');
-      showSkillToast(`빗나감`);
-    }
-  } else {
-    // 호위무사 가로채기·0데미지 비격파 hit은 토스트/로그 생략
-    const meaningfulHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
-    const messageHits = meaningfulHits.filter(c => !c.bodyguardRedirect || c.destroyed);
-    const killed = messageHits.filter(h => h.destroyed);
-    const hitOnly = messageHits.filter(h => !h.destroyed);
-    if (killed.length > 0) playSfx('kill');
-    else if (hitOnly.length > 0) playSfx('hit');
-    // ① 명중 로그만 (좌표) — 토스트는 출력 X (사용자 요청).
-    if (hitOnly.length > 0) {
-      const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
-      addLog(`${coords} 명중`, 'hit');
-    }
-    // ② 격파 토스트/로그 — 즉시 발화 (이전엔 명중 토스트 후 0.8초 대기였으나, 명중 토스트가 사라져 대기 불필요).
-    if (killed.length > 0) {
-      const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
-      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
-      showSkillToast(`${labels} 격파!`);
-      addLog(`${coords} ${labels} 격파`, 'hit');
-    }
-  }
-  // 공격자 측에도 동일 — '명중!/격파!' 출력 후 방어형 패시브(충성 등) flush
-  // #19: 격파가 있었다면 데미지 감소형 패시브(폭정·가호·아이언스킨)는 토스트 생략(로그만)
-  const _attackKilled = (cellResults || []).some(c => c.hit && c.destroyed);
-  if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _attackKilled });
-
-  // #10/#13: 단일 피격이라면 추리 토큰 자동 배치 (위치 확인 — 토스트·로그 없음).
-  //   1v1: pieceKey = "type:subUnit"
-  //   팀모드: pieceKey = "type:subUnit@ownerIdx" (renderTeamProfiles 와 동일 형식)
-  // ★ 사용자 요청: 한 공격으로 2명 이상 피격 시 (사망 포함) 자동 토큰 절대 배치 X.
-  //   사망한 대상은 사라지지만, 그래도 "여러 명 동시 피격" 정보 자체가 추리 단서 — 자동 노출 금지.
-  //   이전 버그: _aliveHits (사망 제외) 만 카운트 → 2 hit 중 1 사망 → length=1 → 토큰 자동 배치.
-  const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
-  if (_meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
-    const c = _meaningfulHits[0];
-    let piece = null;
-    let pieceKey = null;
-    if (S.isTeamMode && c.defOwnerIdx !== undefined) {
-      const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
-      if (ownerPlayer && ownerPlayer.pieces && ownerPlayer.pieces[c.defPieceIdx]) {
-        piece = ownerPlayer.pieces[c.defPieceIdx];
-        pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
-      }
-    } else {
-      piece = S.oppPieces?.[c.defPieceIdx];
-      if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}`;
-    }
-    if (piece && pieceKey) {
-      try {
-        S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
-        S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
-      } catch (e) {}
-    }
-  }
-
-  S.action = null;
-  S.selectedPiece = null;
-  S.targetSelectMode = false;
-  S.actionDone = true;
-  S.lastActionType = 'attack';
-  S.lastActionPieceType = pc ? pc.type : null;
-  setActionButtonMode(null);
-
-  // 피격 인덱스 수집: 상대 유닛 — 호위무사 가로채기는 본체 애니메이션 스킵
-  const oppHitIndices = [];
-  // 보호됨 인덱스 — 0 피해 + !destroyed (호위무사 가로채기 / 아이언스킨 / 폭정 등)
-  // 단, 그림자 상태인 piece 는 피격 정보 자체가 숨겨져야 하므로 보호 애니 제외
-  const oppProtectedIndices = [];
-  for (const c of cellResults) {
-    if (!c.hit) continue;
-    const isProtected = (c.damage === 0 && !c.destroyed);
-    if (isProtected) {
-      if (c.defPieceIdx !== undefined) {
-        const piece = S.oppPieces?.[c.defPieceIdx];
-        const isShadow = piece && (piece.statusEffects || []).some(e => e.type === 'shadow');
-        if (!isShadow && !oppProtectedIndices.includes(c.defPieceIdx)) {
-          oppProtectedIndices.push(c.defPieceIdx);
-        }
-      }
-      continue;
-    }
-    if (c.redirectedToBodyguard) continue;
-    if (c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) {
-      oppHitIndices.push(c.defPieceIdx);
-    }
-  }
-  // 아군 피해 인덱스 (학살 영웅 등 friendly fire)
-  const myFriendlyFireIndices = [];
-  for (let i = 0; i < S.myPieces.length; i++) {
-    if (S.myPieces[i].hp < oldMyHps[i]) myFriendlyFireIndices.push(i);
-  }
-
-  renderGameBoard();
-  renderMyPieces();
-  renderOppPieces();
-  showActionBar(true);
-  // ★ 피격 애니메이션은 공격 GIF 재생 완료 후 실행 (위 .then() 블록으로 이동)
-
-  // 쥐 격파 피드백
-  if (destroyedRats.length > 0) {
-    const msg = ratDestroyMsg(destroyedRats, false);
-    showSkillToast(`🐀 ${msg}`);
-    addLog(`🐀 ${msg}`, 'hit');
-    animateRatDestruction(destroyedRats, false);
-  }
 });
 
 // ── 피격 ──
