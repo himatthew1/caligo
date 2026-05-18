@@ -4252,12 +4252,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         }
       }
 
-      // ── SFX (hit / kill) ────────────────────────────────────────────────
-      const _sfxHits = cellResults.filter(c => c.hit && !c.redirectedToBodyguard && !(c.damage === 0 && !c.destroyed));
-      if (_sfxHits.some(h => h.destroyed)) playSfx('kill');
-      else if (_sfxHits.length > 0) playSfx('hit');
-
-      // ── 로그·토스트 ─────────────────────────────────────────────────────
+      // ── 로그·토스트 + SFX (hit/kill 동시) ──────────────────────────────
       const _attackerHadAnyImpact = !!attackerImpactedAnything || destroyedRats.length > 0;
       if (!anyHit) {
         if (!_attackerHadAnyImpact) { addLog(`빗나감`, 'miss'); showSkillToast(`빗나감`); }
@@ -4266,9 +4261,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         const messageHits = meaningfulHits.filter(c => !c.bodyguardRedirect || c.destroyed);
         const killed = messageHits.filter(h => h.destroyed);
         const hitOnly = messageHits.filter(h => !h.destroyed);
-        if (hitOnly.length > 0) addLog(`${hitOnly.map(h => coord(h.col, h.row)).join(', ')} 명중`, 'hit');
+        if (hitOnly.length > 0) { playSfx('hit'); addLog(`${hitOnly.map(h => coord(h.col, h.row)).join(', ')} 명중`, 'hit'); }
         if (killed.length > 0) {
           const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
+          playSfx('kill');
           showSkillToast(`${labels} 격파!`);
           addLog(`${killed.map(h => coord(h.col, h.row)).join(', ')} ${labels} 격파`, 'hit');
         }
@@ -15962,27 +15958,27 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
       const img = document.createElement('img');
       img.src = url;
       img.alt = '';
+      // ★ img.p-gif 와 동일한 블랙 아웃라인 + pixelated (이동·아이들 모션과 통일)
       img.style.cssText =
         `position:absolute;width:${_gifSize}px;height:${_gifSize}px;` +
         `left:${left}px;top:${top}px;z-index:50;pointer-events:none;image-rendering:pixelated;` +
-        (_facingLeft ? 'transform:scaleX(-1);transform-origin:center center;' : '');
+        `filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))` +
+        (_facingLeft ? ';transform:scaleX(-1);transform-origin:center center;' : ';');
 
       const cleanup = () => {
         if (img.parentNode) img.parentNode.removeChild(img);
         _attackPlayingCells.delete(`${col},${row}`);
-        // 현재 DOM 에서 idle img 찾아 복원 (renderGameBoard 로 DOM 이 재건됐을 수 있음)
         const _cur = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
         if (_cur) _cur.querySelectorAll('img.p-gif').forEach(g => { g.style.visibility = ''; });
-        resolve(); // ← GIF 1루프 재생 완료 → Promise resolve
+        resolve();
       };
 
-      img.decode()
-        .then(() => {
-          board.appendChild(img);
-          return _fetchGifDuration(url);
-        })
+      // ★ img.decode() 대기 제거 — preloadGameImages 로 이미 캐싱됐으므로 즉시 DOM 에 추가.
+      //   decode() 의 비동기 대기가 초기 프레임 누락(1~2프레임 잘림)의 원인이었음.
+      board.appendChild(img);
+      _fetchGifDuration(url)
         .then(dur => setTimeout(cleanup, dur))
-        .catch(() => { board.appendChild(img); setTimeout(cleanup, 650); });
+        .catch(() => setTimeout(cleanup, 650));
     });
   });
 }
