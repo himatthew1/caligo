@@ -234,42 +234,71 @@
   // 게임 중 동적으로 생성되는 <img> 요소의 1~2프레임 디코딩 딜레이 방지.
   // 숨겨진 DOM 컨테이너에 모든 이미지를 미리 렌더 → 브라우저가 디코딩 완료 상태 유지.
   // 이후 같은 URL 의 <img src="..."> 는 캐시에서 즉시 페인트.
-  window.preloadGameImages = function () {
-    if (document.getElementById('_caligo-preload-cache')) return; // 중복 방지
-
+  // ── 이미지 프리로드 헬퍼 — url 배열을 받아 숨겨진 img 태그로 브라우저 캐시에 적재 ──
+  function _injectPreloadImgs(urls) {
+    if (document.getElementById('_caligo-preload-cache')) {
+      // 이미 컨테이너가 있으면 추가만
+      const c = document.getElementById('_caligo-preload-cache');
+      for (const url of urls) {
+        if (!url) continue;
+        const img = document.createElement('img');
+        img.src = url; img.decoding = 'async'; img.loading = 'eager';
+        c.appendChild(img);
+      }
+      return;
+    }
     const container = document.createElement('div');
     container.id = '_caligo-preload-cache';
     container.style.cssText =
       'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;' +
       'overflow:hidden;opacity:0;pointer-events:none;z-index:-1';
-
-    // idle GIF + move PNG
-    const allUrls = new Set([
-      ...Object.values(window.PIECE_GIFS     || {}),
-      ...Object.values(window.PIECE_HIT_GIFS    || {}),
-      ...Object.values(window.PIECE_ATTACK_GIFS || {}),
-      ...Object.values(window.PIECE_MOVE_PNGS || {}),
-      // 덫·스킬·패시브 이펙트 PNG
-      '/fangs-top.png', '/fangs-bottom.png',
-      '/가호.png', '/그림자 숨기.png', '/기폭.png', '/덫 설치.png',
-      '/드래곤 소환.png', '/배반자.png', '/분신.png', '/사기증진.png',
-      '/신성.png', '/쌍검무.png', '/아이언스킨.png', '/악몽.png',
-      '/약초학.png', '/역병의 자손들.png', '/유황범람.png',
-      '/인스턴트 매직.png', '/저주.png', '/절대복종 반지.png',
-      '/정비.png', '/정찰.png', '/질주.png', '/충성.png',
-      '/폭정.png', '/폭탈 설치.png', '/표식.png',
-    ]);
-
-    for (const url of allUrls) {
+    for (const url of urls) {
       if (!url) continue;
       const img = document.createElement('img');
-      img.src = url;
-      img.decoding = 'async';   // 메인 스레드 블로킹 방지
-      img.loading  = 'eager';
+      img.src = url; img.decoding = 'async'; img.loading = 'eager';
       container.appendChild(img);
     }
-
     document.body.appendChild(container);
+  }
+
+  window.preloadGameImages = function () {
+    // ① piece-gifs.js 가 직접 관리하는 캐릭터 에셋 (맵 기반 — 신규 캐릭터 추가 시 자동 포함)
+    const knownUrls = new Set([
+      ...Object.values(window.PIECE_GIFS        || {}),
+      ...Object.values(window.PIECE_HIT_GIFS    || {}),
+      ...Object.values(window.PIECE_ATTACK_GIFS || {}),
+      ...Object.values(window.PIECE_MOVE_PNGS   || {}),
+    ]);
+    _injectPreloadImgs([...knownUrls]);
+
+    // ② 서버 매니페스트로 public/ 의 모든 이미지 자동 적재
+    //    새 스킬 아이콘·패시브 PNG 를 추가해도 이 코드를 수정할 필요 없음
+    fetch('/api/asset-manifest')
+      .then(r => r.json())
+      .then(({ urls }) => {
+        const extra = (urls || []).filter(u => {
+          // art/ 는 이미 위에서 처리, HTML/CSS/JS 제외
+          if (u.startsWith('/art/')) return false;
+          return /\.(png|gif|jpg|jpeg|webp)$/i.test(u);
+        });
+        _injectPreloadImgs(extra);
+        // 서버 매니페스트에 포함된 GIF 도 duration 캐시 대상에 등록
+        if (!window._manifestGifUrls) window._manifestGifUrls = [];
+        window._manifestGifUrls.push(...extra.filter(u => u.endsWith('.gif')));
+      })
+      .catch(() => {
+        // 매니페스트 fetch 실패 시 하드코딩 폴백 (오프라인 환경 등)
+        _injectPreloadImgs([
+          '/fangs-top.png', '/fangs-bottom.png',
+          '/가호.png', '/그림자 숨기.png', '/기폭.png', '/덫 설치.png',
+          '/드래곤 소환.png', '/배반자.png', '/분신.png', '/사기증진.png',
+          '/신성.png', '/쌍검무.png', '/아이언스킨.png', '/악몽.png',
+          '/약초학.png', '/역병의 자손들.png', '/유황범람.png',
+          '/인스턴트 매직.png', '/저주.png', '/절대복종 반지.png',
+          '/정비.png', '/정찰.png', '/질주.png', '/충성.png',
+          '/폭정.png', '/폭탈 설치.png', '/표식.png',
+        ]);
+      });
   };
 
   // DOM 준비 즉시 프리로드 시작
@@ -289,10 +318,12 @@
     if (!window._gifDurationCache) window._gifDurationCache = {};
 
     // 공격 GIF 를 가장 먼저 — 가장 자주 쓰이는 동작
+    // _manifestGifUrls : preloadGameImages() 가 /api/asset-manifest 로 받은 추가 GIF 목록
     const urls = new Set([
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),
       ...Object.values(window.PIECE_HIT_GIFS    || {}),
       ...Object.values(window.PIECE_GIFS        || {}),
+      ...(window._manifestGifUrls             || []),  // 매니페스트 기반 추가 GIF 자동 포함
     ]);
     const toFetch = [...urls].filter(
       u => u && u.endsWith('.gif') && window._gifDurationCache[u] === undefined

@@ -39,6 +39,39 @@ const io = socketIo(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '8mb' }));
 
+// ── 에셋 매니페스트 — public/ 의 이미지 파일을 자동 스캔해서 반환 ──
+// 새 스킬 아이콘·패시브 이미지를 추가할 때 클라이언트 코드를 수정할 필요 없이
+// 로딩 오버레이가 자동으로 새 에셋을 프리로드한다.
+// art/ 하위 GIF/PNG 는 piece-gifs.js 맵으로 이미 관리되므로 여기서는 루트 PNG/GIF 만 포함.
+(function setupAssetManifest() {
+  const publicDir = path.join(__dirname, 'public');
+  const IMG_EXT = /\.(png|gif|jpg|jpeg|webp|svg)$/i;
+  const SKIP_DIRS = new Set(['art']);  // art/ 는 piece-gifs.js 가 관리
+
+  function scanDir(dir, baseUrl) {
+    const entries = [];
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        const full = path.join(dir, name);
+        const stat = fs.statSync(full);
+        if (stat.isDirectory()) {
+          if (!SKIP_DIRS.has(name)) entries.push(...scanDir(full, baseUrl + name + '/'));
+        } else if (IMG_EXT.test(name)) {
+          entries.push(baseUrl + name);
+        }
+      }
+    } catch (_) {}
+    return entries;
+  }
+
+  let _manifest = null;
+  app.get('/api/asset-manifest', (req, res) => {
+    // 첫 요청 시 한 번 스캔 후 메모리에 캐시
+    if (!_manifest) _manifest = scanDir(publicDir, '/');
+    res.json({ urls: _manifest });
+  });
+}());
+
 // ── 커스텀 모드 — 캐릭터 목록 조회 (히든 모드용) ──
 app.get('/characters', (req, res) => {
   res.json(CHARACTERS);
