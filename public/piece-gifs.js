@@ -234,61 +234,58 @@
   // 게임 중 동적으로 생성되는 <img> 요소의 1~2프레임 디코딩 딜레이 방지.
   // 숨겨진 DOM 컨테이너에 모든 이미지를 미리 렌더 → 브라우저가 디코딩 완료 상태 유지.
   // 이후 같은 URL 의 <img src="..."> 는 캐시에서 즉시 페인트.
-  // ── 이미지 프리로드 헬퍼 — url 배열을 받아 숨겨진 img 태그로 브라우저 캐시에 적재 ──
-  function _injectPreloadImgs(urls) {
-    if (document.getElementById('_caligo-preload-cache')) {
-      // 이미 컨테이너가 있으면 추가만
-      const c = document.getElementById('_caligo-preload-cache');
-      for (const url of urls) {
-        if (!url) continue;
-        const img = document.createElement('img');
-        img.src = url; img.decoding = 'async'; img.loading = 'eager';
-        c.appendChild(img);
-      }
-      return;
+  // ── 숨김 컨테이너 가져오기 또는 생성 ────────────────────────────────────
+  function _getPreloadContainer() {
+    let c = document.getElementById('_caligo-preload-cache');
+    if (!c) {
+      c = document.createElement('div');
+      c.id = '_caligo-preload-cache';
+      c.style.cssText =
+        'position:fixed;left:-9999px;top:-9999px;width:64px;height:64px;' +
+        'overflow:hidden;opacity:0.001;pointer-events:none;z-index:-1';
+      // opacity:0.001 — 완전한 0 또는 visibility:hidden 이면 일부 브라우저가
+      // 이미지를 아예 렌더링하지 않아 디코드 캐시에 올라가지 않을 수 있음
+      document.body.appendChild(c);
     }
-    const container = document.createElement('div');
-    container.id = '_caligo-preload-cache';
-    container.style.cssText =
-      'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;' +
-      'overflow:hidden;opacity:0;pointer-events:none;z-index:-1';
-    for (const url of urls) {
-      if (!url) continue;
-      const img = document.createElement('img');
-      img.src = url; img.decoding = 'async'; img.loading = 'eager';
-      container.appendChild(img);
-    }
-    document.body.appendChild(container);
+    return c;
   }
 
+  // ── 빠른 브라우저 캐시 주입 (DOMContentLoaded 직후용 — 동기) ───────────
+  // HTTP fetch 를 병렬로 시작하는 것만으로도 다운로드를 앞당길 수 있음.
+  // 실제 디코드 완료(decode cache 채움)는 preloadAllAsync 가 담당한다.
   window.preloadGameImages = function () {
-    // ① piece-gifs.js 가 직접 관리하는 캐릭터 에셋 (맵 기반 — 신규 캐릭터 추가 시 자동 포함)
     const knownUrls = new Set([
       ...Object.values(window.PIECE_GIFS        || {}),
       ...Object.values(window.PIECE_HIT_GIFS    || {}),
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),
     ]);
-    _injectPreloadImgs([...knownUrls]);
+    const container = _getPreloadContainer();
+    for (const url of knownUrls) {
+      if (!url) continue;
+      const img = document.createElement('img');
+      img.src = url;
+      img.loading = 'eager';
+      container.appendChild(img);
+    }
 
-    // ② 서버 매니페스트로 public/ 의 모든 이미지 자동 적재
-    //    새 스킬 아이콘·패시브 PNG 를 추가해도 이 코드를 수정할 필요 없음
+    // 매니페스트 기반 추가 URL (async — 결과를 window._manifestUrls 에 저장)
     fetch('/api/asset-manifest')
       .then(r => r.json())
       .then(({ urls }) => {
-        const extra = (urls || []).filter(u => {
-          // art/ 는 이미 위에서 처리, HTML/CSS/JS 제외
-          if (u.startsWith('/art/')) return false;
-          return /\.(png|gif|jpg|jpeg|webp)$/i.test(u);
-        });
-        _injectPreloadImgs(extra);
-        // 서버 매니페스트에 포함된 GIF 도 duration 캐시 대상에 등록
-        if (!window._manifestGifUrls) window._manifestGifUrls = [];
-        window._manifestGifUrls.push(...extra.filter(u => u.endsWith('.gif')));
+        const extra = (urls || []).filter(u =>
+          u && !u.startsWith('/art/') && /\.(png|gif|jpg|jpeg|webp)$/i.test(u)
+        );
+        window._manifestUrls = extra;
+        for (const url of extra) {
+          const img = document.createElement('img');
+          img.src = url; img.loading = 'eager';
+          container.appendChild(img);
+        }
       })
       .catch(() => {
-        // 매니페스트 fetch 실패 시 하드코딩 폴백 (오프라인 환경 등)
-        _injectPreloadImgs([
+        // 폴백: 오프라인·서버 미동작 시 기존 목록 사용
+        window._manifestUrls = [
           '/fangs-top.png', '/fangs-bottom.png',
           '/가호.png', '/그림자 숨기.png', '/기폭.png', '/덫 설치.png',
           '/드래곤 소환.png', '/배반자.png', '/분신.png', '/사기증진.png',
@@ -297,60 +294,95 @@
           '/인스턴트 매직.png', '/저주.png', '/절대복종 반지.png',
           '/정비.png', '/정찰.png', '/질주.png', '/충성.png',
           '/폭정.png', '/폭탈 설치.png', '/표식.png',
-        ]);
+        ];
       });
   };
 
-  // DOM 준비 즉시 프리로드 시작
+  // DOM 준비 즉시 HTTP 다운로드 선점 시작
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', window.preloadGameImages);
   } else {
     window.preloadGameImages();
   }
 
-  // ── GIF 재생 시간 사전 캐싱 ──────────────────────────────────────────────
-  // 게임 중 _fetchGifDuration() 가 첫 호출 시 fetch + 바이트 파싱을 실행하면
-  // 첫 공격/피격 애니메이션에서 수백 ms 지연이 발생한다.
-  // 이 함수를 페이지 로드 직후에 호출해 _gifDurationCache 를 모두 채워두면
-  // 이후 게임 중 모든 GIF 재생이 즉시(캐시 히트)로 동작한다.
-  // onProgress(0~1) : 로딩 진행률 콜백 (선택).
-  window.preloadGifDurationsAsync = async function (onProgress) {
+  // ── 완전 프리로드 (로딩 오버레이용) ─────────────────────────────────────
+  //
+  // 기존 preloadGifDurationsAsync 의 문제:
+  //   fetch() → ArrayBuffer 만 채움 → HTTP 캐시 O, 디코드 캐시 X
+  //   → 새 <img> 생성 시 HTTP캐시에서 다시 디코드(10~30ms) → 첫 1~2프레임 잘림
+  //
+  // 이 함수가 하는 일:
+  //   ① GIF: fetch + 바이트 파싱 → _gifDurationCache 채움
+  //   ② 모든 이미지: img.decode() await → 브라우저 디코드 캐시 채움
+  //      → 이후 새 <img src=url> 는 디코드 캐시에서 즉시 첫 프레임 표시
+  //   ③ 디코드된 img 를 숨김 컨테이너에 유지 → 캐시 eviction 방지
+  //
+  // onProgress(0~1) : 진행률 콜백 (선택).
+  window.preloadAllAsync = async function (onProgress) {
     if (!window._gifDurationCache) window._gifDurationCache = {};
 
-    // 공격 GIF 를 가장 먼저 — 가장 자주 쓰이는 동작
-    // _manifestGifUrls : preloadGameImages() 가 /api/asset-manifest 로 받은 추가 GIF 목록
-    const urls = new Set([
-      ...Object.values(window.PIECE_ATTACK_GIFS || {}),
-      ...Object.values(window.PIECE_HIT_GIFS    || {}),
-      ...Object.values(window.PIECE_GIFS        || {}),
-      ...(window._manifestGifUrls             || []),  // 매니페스트 기반 추가 GIF 자동 포함
+    // ── 매니페스트 fetch 완료 대기 (최대 2초) ────────────────────────
+    if (window._manifestUrls === undefined) {
+      await new Promise(resolve => {
+        const deadline = Date.now() + 2000;
+        const iv = setInterval(() => {
+          if (window._manifestUrls !== undefined || Date.now() > deadline) {
+            clearInterval(iv); resolve();
+          }
+        }, 40);
+      });
+    }
+
+    // ── 전체 URL 목록 ────────────────────────────────────────────────
+    // 공격/피격 GIF 우선 (가장 먼저 디코드 캐시에 올려야 할 것들)
+    const allUrls = new Set([
+      ...Object.values(window.PIECE_ATTACK_GIFS || {}),  // 공격 GIF
+      ...Object.values(window.PIECE_HIT_GIFS    || {}),  // 피격 GIF
+      ...Object.values(window.PIECE_GIFS        || {}),  // 아이들 GIF
+      ...Object.values(window.PIECE_MOVE_PNGS   || {}),  // 이동 PNG
+      ...(window._manifestUrls                 || []),   // 스킬·패시브 PNG
     ]);
-    const toFetch = [...urls].filter(
-      u => u && u.endsWith('.gif') && window._gifDurationCache[u] === undefined
-    );
-    const total = toFetch.length;
+    const urls = [...allUrls].filter(Boolean);
+    const total = urls.length;
     if (total === 0) { if (onProgress) onProgress(1); return; }
 
     let done = 0;
-    // 병렬 fetch — 이미지는 preloadGameImages() 로 캐시됐으므로 실제 네트워크 요청 없음
-    await Promise.all(toFetch.map(async url => {
-      try {
-        const bytes = new Uint8Array(
-          await (await fetch(url, { cache: 'default' })).arrayBuffer()
-        );
-        let ms = 0;
-        for (let i = 0; i < bytes.length - 7; i++) {
-          if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
-            ms += (bytes[i+4] | (bytes[i+5] << 8)) * 10;
-            i += 7;
+    const inc = () => { done++; if (onProgress) onProgress(done / total); };
+
+    const container = _getPreloadContainer();
+
+    await Promise.all(urls.map(async url => {
+      // ① GIF 재생 시간 파싱 (바이트 스캔) — HTTP 캐시에서 즉시 서빙됨
+      if (url.endsWith('.gif') && window._gifDurationCache[url] === undefined) {
+        try {
+          const bytes = new Uint8Array(
+            await (await fetch(url, { cache: 'default' })).arrayBuffer()
+          );
+          let ms = 0;
+          for (let i = 0; i < bytes.length - 7; i++) {
+            if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+              ms += (bytes[i+4] | (bytes[i+5] << 8)) * 10;
+              i += 7;
+            }
           }
-        }
-        window._gifDurationCache[url] = ms || 650;
-      } catch (_) {
-        window._gifDurationCache[url] = 650;  // 실패 시 기본값
+          window._gifDurationCache[url] = ms || 650;
+        } catch (_) { window._gifDurationCache[url] = 650; }
       }
-      done++;
-      if (onProgress) onProgress(done / total);
+
+      // ② img.decode() — 브라우저 디코드 캐시에 첫 프레임 적재
+      //    이 await 가 완료된 후 생성되는 모든 <img src=url> 는
+      //    decode 없이 즉시 첫 프레임을 표시한다 (프레임 잘림 제거).
+      try {
+        const img = new Image();
+        img.src = url;
+        container.appendChild(img);   // DOM 유지 → 브라우저가 캐시 evict 안 함
+        await img.decode();           // 첫 프레임 디코드 완료까지 대기
+      } catch (_) { /* 실패 무시 — 로딩 화면이 막히지 않도록 */ }
+
+      inc();
     }));
   };
+
+  // 하위 호환 별칭 (기존 코드가 preloadGifDurationsAsync 를 직접 호출하는 경우 대비)
+  window.preloadGifDurationsAsync = window.preloadAllAsync;
 }());
