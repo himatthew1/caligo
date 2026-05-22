@@ -4225,7 +4225,11 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   // ══ 공격 GIF 재생 완료 후 피격 판정 전체 시작 ══════════════════════════════
   // 데미지·HP·사망·로그·토스트·추리토큰·렌더·애니메이션 전부 공격 GIF 종료 시점에 실행.
   // 공격 GIF 없는 캐릭터 → Promise.resolve() → 지연 없이 즉시 실행.
-  (_gifPromises.length > 0 ? Promise.race(_gifPromises) : Promise.resolve())
+  // ★ 안전 장치: GIF Promise 가 어떤 이유로든 3초 안에 resolve 안 되면 강제 진행 (게임 고착 방지)
+  const _gifRace = _gifPromises.length > 0
+    ? Promise.race([...  _gifPromises, new Promise(res => setTimeout(res, 3000))])
+    : Promise.resolve();
+  _gifRace
     .then(() => {
       // ── 게임 상태 업데이트 ─────────────────────────────────────────────
       if (oppPieces) { S.oppPieces = oppPieces; }
@@ -4585,9 +4589,15 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   }
   if (!oldSp || !newSp) return;
   // 가드 ON — 애니 진행 중 외부 updateSPBar 가 큰 숫자/pip 트레이를 NEW 값으로 덮어쓰지 못하게.
+  // ★ 연속 스킬 시 타이머가 무한 연장되는 문제 방지: 최초 가드 시작 시간 기준으로 최대 5초 유지.
+  if (!S._spAnimGuard) {
+    S._spAnimGuardStart = Date.now();
+  }
   S._spAnimGuard = true;
   if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
-  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; }, 2500);
+  const _maxGuardRemain = Math.max(0, 5000 - (Date.now() - (S._spAnimGuardStart || 0)));
+  const _guardMs = Math.min(2500, _maxGuardRemain);
+  S._spAnimGuardTimer = setTimeout(() => { S._spAnimGuard = false; S._spAnimGuardStart = null; }, _guardMs || 100);
 
   const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
   // ★ 사용자 요청: 절대 좌·우 슬롯 매핑 — 팀전: 블루=LEFT(0), 레드=RIGHT(1). 1v1: viewer 상대.
@@ -6979,6 +6989,17 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
 
   // 셀 + 보드 아이콘 피격 애니메이션 (일반 공격과 동일)
   animateAttack([], [{ col, row }]);
+
+  // ★ 쌍둥이 이동 페이즈 중 첫 번째 쌍둥이가 덫으로 사망 → twin phase 강제 탈출
+  //   (서버는 actionDone=true이므로 턴 종료 가능, 클라가 twin phase에 갇히는 프리즈 방지)
+  if (destroyed && S.twinPhaseActive) {
+    const isMyPiece = (typeof victimOwnerIdx === 'number')
+      ? (victimOwnerIdx === S.playerIdx)
+      : (myIdx >= 0);
+    if (isMyPiece && typeof exitTwinMovePhase === 'function') {
+      exitTwinMovePhase(false);
+    }
+  }
 
   renderGameBoard();
   if (S.isTeamMode) {

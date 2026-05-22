@@ -532,7 +532,9 @@ function getNextPlayerIdx(room) {
       return candidate;
     }
   }
-  return room.currentPlayerIdx;
+  // ★ 유효한 다음 플레이어를 못 찾은 경우 — 모든 팀이 전멸 또는 동시 탈락 직전.
+  //   -1 을 반환해 endTurn 호출 측에서 즉시 게임 종료 처리를 트리거.
+  return -1;
 }
 // 팀전 대기실 상태 방송
 function broadcastTeamRoomState(room) {
@@ -756,6 +758,11 @@ function placementTimeout(room) {
 // 턴 타임아웃: 현재 턴 강제 종료
 function turnTimeout(room) {
   if (room.phase !== 'game') return;
+  // ★ 폭발 체인/표식 페이즈 처리 중 타이머 만료 → 짧은 지연 후 재시도 (chain이 끝나야 endTurn 가능)
+  if (room._phaseDeferredGameEndCheck) {
+    setTimeout(() => turnTimeout(room), 500);
+    return;
+  }
   const idx = room.currentPlayerIdx;
   if (room.players[idx].socketId === 'AI') return;
   emitToBothAndSpectators(room, 'turn_timeout', { playerIdx: idx });
@@ -3472,7 +3479,7 @@ function flushPhase(room, onComplete) {
   let waveQueue = phase.pendingDeathDetonations.slice();
   let safetyCounter = 0;
 
-  while (waveQueue.length > 0 && safetyCounter < 8) {
+  while (waveQueue.length > 0 && safetyCounter < 30) {  // 안전 상한 8→30 (폭화약상 최대 = 2팀×5유닛, 체인이 30회를 넘을 수 없음)
     safetyCounter++;
     const wave = waveQueue;
     const newPending = [];
@@ -4235,6 +4242,8 @@ function processTurnStart(room) {
 
   // 저주 틱·축소 처리는 애니메이션 페이즈 이후로 미룸
   const continueTurnStart = () => {
+    // 지연 실행 중 다른 플레이어 턴으로 넘어갔으면 저주 틱 스킵 (타이머 만료+즉시 턴 종료 경쟁 방지)
+    if (!rooms[room.id] || room.phase !== 'game' || room.currentPlayerIdx !== idx) return;
     // Process curse damage at the start of this player's turn
     for (const p of player.pieces) {
       if (p.alive) {
@@ -4475,6 +4484,22 @@ function endTurn(room, opts) {
   room.currentPlayerIdx = getNextPlayerIdx(room);
   room.turnNumber++;
 
+  // ★ -1 반환 = 유효한 다음 플레이어 없음 (모든 팀 동시 전멸 등) → 즉시 게임 종료
+  if (room.currentPlayerIdx === -1) {
+    console.warn('[endTurn] getNextPlayerIdx returned -1, triggering game end');
+    setKillInfo(room, 'simultaneous', null, []);
+    if (room.mode === 'team') {
+      const aElim = isTeamEliminated(room, 0);
+      const bElim = isTeamEliminated(room, 1);
+      if (aElim && bElim) { endTeamGame(room, 0, 'simultaneous_draw'); }
+      else if (aElim)     { endTeamGame(room, 1); }
+      else                { endTeamGame(room, 0); }
+    } else {
+      endGame(room, -1, 'draw');
+    }
+    return;
+  }
+
   const curIdx = room.currentPlayerIdx;
   const prevIdx = getPrevPlayerIdx(room, curIdx);
   const cur = room.players[curIdx];
@@ -4701,6 +4726,7 @@ function getTeamSpectatorGameState(room) {
 
 // 팀전 게임 종료
 function endTeamGame(room, winnerTeamId, reason) {
+  if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (동시 이중 호출로 game_over 2회 emit 차단)
   clearTimer(room);
   clearAiThinkState(room);
   room.phase = 'ended';
@@ -4737,6 +4763,7 @@ function endTeamGame(room, winnerTeamId, reason) {
 }
 
 function endGame(room, winnerIdx, reason) {
+  if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (이중 game_over emit 차단)
   clearTimer(room);
   clearAiThinkState(room);
   room.phase = 'ended';
@@ -6798,6 +6825,14 @@ io.on('connection', (socket) => {
           reconnected: true,
         });
       }
+      // ★ 재접속 시 남은 턴 타이머 재전송 (클라이언트가 타이머 표시 없이 갑자기 턴이 넘어가는 버그 방지)
+      if (room.timerDeadline) {
+        const remainMs = Math.max(0, room.timerDeadline - Date.now());
+        const remainSec = Math.ceil(remainMs / 1000);
+        if (remainSec > 0) {
+          socket.emit('timer_start', { seconds: remainSec, phase: 'game', reconnected: true });
+        }
+      }
     } else if (phase === 'waiting') {
       if (room.mode === 'team') {
         socket.emit('team_room_state', { players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })), teams: room.teams });
@@ -6851,6 +6886,10 @@ io.on('connection', (socket) => {
         teammates: getTeammates(room, idx).map(i => ({ idx: i, name: room.players[i].name, pieces: pieceSummary(room.players[i].pieces) })),
         opponents,
       });
+      // ★ 이미 배치 확정한 경우 — 대기 중임을 알려 재클릭 혼란 방지
+      if (room.placementDone[idx]) {
+        socket.emit('wait_msg', { msg: '배치 완료. 다른 플레이어를 기다리는 중...' });
+      }
     } else if (phase === 'initial_reveal') {
       const oppDraft = room.players[1 - idx].draft;
       const oppChars = [
@@ -6870,6 +6909,11 @@ io.on('connection', (socket) => {
       socket.emit('exchange_draft_phase', {
         myDraft: player.draft, available, oppDraft: room.players[1 - idx].draft,
       });
+      // ★ 재접속 시 이미 확정한 경우 — 대기 중임을 알려 클라가 다시 확인 버튼을 클릭하는 혼란 방지
+      if (room.exchangeDone[idx]) {
+        const remainingMs = Math.max(0, (room.timerDeadline || 0) - Date.now());
+        socket.emit('wait_msg', { msg: '교환 결정 완료. 상대를 기다리는 중...', remainingMs });
+      }
     } else if (phase === 'final_reveal') {
       const oppDraft = room.players[1 - idx].draft;
       const oppChars = [
@@ -8305,38 +8349,73 @@ io.on('connection', (socket) => {
         const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
         const _atkFf = (room._attackerFriendlyFireCount || 0);
         const attackerImpactedAnything2 = hitResults.length > 0 || _atkOwnRats > 0 || _atkFf > 0;
-        socket.emit('attack_result', {
-          pieceIdx, cellResults, anyHit: hitResults.length > 0,
-          attackerImpactedAnything: attackerImpactedAnything2,
-          oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
-          yourPieces: pieceSummary(player.pieces),
-        });
-        const defender = room.players[1 - idx];
-        if (defender.socketId !== 'AI') {
-          io.to(defender.socketId).emit('being_attacked', {
-            atkCells,
+        if (room.mode === 'team') {
+          // ── 팀전: 1v1용 1-idx 절대 사용 금지 (idx=2,3 이면 room.players[-1]/[-2] 크래시)
+          socket.emit('attack_result', {
+            pieceIdx, cellResults, anyHit: hitResults.length > 0,
             attackerImpactedAnything: attackerImpactedAnything2,
-            hitPieces: hitResults.map(h => {
-              // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
-              const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
-              return {
-                col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-                name: dp?.name, icon: dp?.icon,
-                // 호위무사 가로채기 플래그 — 클라이언트 토스트 분기용 (누락 시 '공격받았습니다' 오출력)
-                redirectedToBodyguard: h.redirectedToBodyguard || false,
-                bodyguardRedirect: h.bodyguardRedirect || false,
-                defPieceIdx: h.defPieceIdx,
-              };
-            }),
-            yourPieces: pieceSummary(defender.pieces),
+            yourPieces: pieceSummary(player.pieces),
           });
+          // being_attacked: 실제 피격된 각 적 플레이어에게 각각 전송
+          const defHitsByOwner = new Map();
+          for (const h of hitResults) {
+            if (h.defOwnerIdx === undefined) continue;
+            if (!defHitsByOwner.has(h.defOwnerIdx)) defHitsByOwner.set(h.defOwnerIdx, []);
+            defHitsByOwner.get(h.defOwnerIdx).push(h);
+          }
+          for (const [ownerIdx, hits] of defHitsByOwner.entries()) {
+            const defPlayer = room.players[ownerIdx];
+            if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
+            io.to(defPlayer.socketId).emit('being_attacked', {
+              atkCells,
+              attackerImpactedAnything: attackerImpactedAnything2,
+              hitPieces: hits.map(h => {
+                const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
+                return {
+                  col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+                  name: dp?.name, icon: dp?.icon,
+                  redirectedToBodyguard: h.redirectedToBodyguard || false,
+                  bodyguardRedirect: h.bodyguardRedirect || false,
+                  defPieceIdx: h.defPieceIdx,
+                };
+              }),
+              yourPieces: pieceSummary(defPlayer.pieces),
+            });
+          }
+          broadcastTeamGameState(room);
+        } else {
+          // ── 1v1
+          socket.emit('attack_result', {
+            pieceIdx, cellResults, anyHit: hitResults.length > 0,
+            attackerImpactedAnything: attackerImpactedAnything2,
+            oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
+            yourPieces: pieceSummary(player.pieces),
+          });
+          const defender = room.players[1 - idx];
+          if (defender && defender.socketId !== 'AI') {
+            io.to(defender.socketId).emit('being_attacked', {
+              atkCells,
+              attackerImpactedAnything: attackerImpactedAnything2,
+              hitPieces: hitResults.map(h => {
+                const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
+                return {
+                  col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+                  name: dp?.name, icon: dp?.icon,
+                  redirectedToBodyguard: h.redirectedToBodyguard || false,
+                  bodyguardRedirect: h.bodyguardRedirect || false,
+                  defPieceIdx: h.defPieceIdx,
+                };
+              }),
+              yourPieces: pieceSummary(defender.pieces),
+            });
+          }
         }
-        // ★ 관전자 — 1v1 인간 시점 쌍검무 추가 공격
+        // ★ 관전자 — 쌍검무 추가 공격 (1v1·팀전 공통)
         emitToSpectators(room, 'spectator_attack_anim', {
           atkCells,
           hits: hitResults.map(h => ({
             col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-            defPieceIdx: h.defPieceIdx, defOwnerIdx: 1 - idx,
+            defPieceIdx: h.defPieceIdx, defOwnerIdx: h.defOwnerIdx ?? (1 - idx),
             redirectedToBodyguard: h.redirectedToBodyguard || false,
             bodyguardRedirect: h.bodyguardRedirect || false,
           })),
@@ -8344,8 +8423,10 @@ io.on('connection', (socket) => {
         // 관전자 로그: 쌍검무 추가 공격
         if (hitResults.length > 0) {
           for (const h of hitResults) {
-            const dp = defender.pieces.find(p => p.col === h.col && p.row === h.row);
-            const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col,h.row);
+            const ownerIdx = h.defOwnerIdx ?? (1 - idx);
+            const ownerPlayer = room.players[ownerIdx];
+            const dp = ownerPlayer ? ownerPlayer.pieces.find(p => p.col === h.col && p.row === h.row) : null;
+            const targetName = dp ? `${dp.icon}${dp.name}` : coord(h.col, h.row);
             emitToSpectators(room, 'spectator_log', { msg: h.destroyed
               ? `${player.name}의 ${targetName} 사망`
               : `${player.name}의 공격 명중!`, type: 'hit', playerIdx: idx });
@@ -8354,7 +8435,11 @@ io.on('connection', (socket) => {
           emitToSpectators(room, 'spectator_log', { msg: `${player.name} 공격 빗나감`, type: 'miss', playerIdx: idx });
         }
         emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-        if (checkWin(room, 1 - idx)) { endGame(room, idx); }
+        // 승리 체크 — 모드별 분기
+        flushPhase(room, () => {
+          if (!rooms[room.id] || room.phase !== 'game') return;
+          checkGameEndAfterPhase(room);
+        });
         return;
       }
       socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
@@ -8797,9 +8882,8 @@ io.on('connection', (socket) => {
       endGame(room, 1 - idx, 'surrender');  // surrender 처리 → 해골 화면 + 그리드 미노출
       return;
     }
-    // 게임 중 기권
+    // 게임 중 기권 — 본인 턴이 아니어도 언제든지 항복 가능
     if (room.phase !== 'game') return;
-    if (room.currentPlayerIdx !== idx) return;
     emitToSpectators(room, 'spectator_log', { msg: `🏳 ${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 기권했습니다!`, type: 'system', playerIdx: idx });
     endGame(room, 1 - idx, 'surrender');
   });
@@ -8809,6 +8893,11 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'game') return;
     const idx = socket.data.idx;
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
+    // ★ 폭발 체인/표식 페이즈 처리 중 end_turn 차단 — 타이머로 예약된 bomb_detonated emit 들이
+    //   다음 턴에 잘못 발동되는 현상(상태 desync) 방지.
+    if (room._phaseDeferredGameEndCheck) {
+      socket.emit('err', { msg: '효과 처리 중입니다. 잠시 후 다시 시도하세요.' }); return;
+    }
 
     // Allow ending turn even without action (player may choose to only use free skills)
     // (쌍둥이 첫 이동만 하고 턴 종료한 경우 보류된 opp_moved 는 endTurn 안에서 flush)
@@ -9043,6 +9132,7 @@ io.on('connection', (socket) => {
             msg: `🧙 인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: dt.victimOwnerIdx,
           });
         }
+        startPhase(room);   // 덫 사망 시 화약상 폭발 체인 큐 수용
         if (willDie) handleDeath(room, victim, dt.victimOwnerIdx);
         // 덫 발동 emit — 기존 trap_triggered 핸들러 (cast intro 700ms + fang snap 등)
         emitToBoth(room, 'trap_triggered', {
@@ -9055,7 +9145,14 @@ io.on('connection', (socket) => {
           trapOwnerIdx: dt.trapOwnerIdx,
         });
         // 팀모드: 변경된 보드 상태 broadcast (사망 시 alive=false 반영)
-        if (room.mode === 'team' && willDie) broadcastTeamGameState(room);
+        if (room.mode === 'team') broadcastTeamGameState(room);
+        emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+        // ★ 승리 체크 — flushPhase 는 use_skill 핸들러 종료 시점에 이미 호출됐으므로
+        //   여기서 직접 재검사 (deferred trap이 마지막 적 유닛을 죽인 경우)
+        flushPhase(room, () => {
+          if (!rooms[room.id] || room.phase !== 'game') return;
+          checkGameEndAfterPhase(room);
+        });
       }, 3500);  // ★ 사용자 요청: 애니메이션 종료가 이동확정 — SP_END(1240) + intro(1000) + main(~1700) ≈ 3940. 3500ms 후 트랩 발동.
     }
 
@@ -9101,14 +9198,14 @@ io.on('connection', (socket) => {
     }
 
     const bomb = bombs[bombIdx];
+    startPhase(room);   // 폭발 체인 사망 큐 수용
     detonateBomb(room, idx, bomb);
     room.boardObjects[idx] = room.boardObjects[idx].filter(o => !(o.type === 'bomb' && o.col === bomb.col && o.row === bomb.row));
 
-    socket.emit('skill_result', {
+    const skillResultPayload = {
       msg: `폭탄 기폭: ${coord(bomb.col, bomb.row)}`,
       success: true,
       yourPieces: pieceSummary(room.players[idx].pieces),
-      oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
       sp: room.sp,
       instantSp: room.instantSp,
       skillPoints: room.sp,
@@ -9116,11 +9213,20 @@ io.on('connection', (socket) => {
       actionDone: room.players[idx].actionDone,
       actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
       skillsUsed: room.players[idx].skillsUsedBeforeAction,
-    });
+    };
+    // 1v1에서만 oppPieces 첨부 (팀전 idx 2/3이면 1-idx 가 음수 → 크래시)
+    if (room.mode !== 'team') {
+      skillResultPayload.oppPieces = oppPieceSummary(room.players[1 - idx].pieces);
+    }
+    socket.emit('skill_result', skillResultPayload);
 
+    if (room.mode === 'team') broadcastTeamGameState(room);
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-    if (checkWin(room, 1 - idx)) { endGame(room, idx); return; }
-    if (checkWin(room, idx)) { endGame(room, 1 - idx); return; }
+    // 승리 체크는 flushPhase 콜백으로 — 폭발 체인 완전 종료 후 판정
+    flushPhase(room, () => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      checkGameEndAfterPhase(room);
+    });
   });
 
   // ── 관전 가능한 방 목록 ──
