@@ -6850,13 +6850,25 @@ io.on('connection', (socket) => {
         socket.emit('team_draft_pick_update', { idx, draft: player.draft });
       }
     } else if (phase === 'team_hp') {
-      const teammates = getTeammates(room, idx);
-      const teammateDraft = teammates[0] != null ? room.players[teammates[0]].draft : null;
-      socket.emit('team_hp_phase', {
-        draft: player.draft,
-        hasTwins: player.draft?.pick1 === 'twins' || player.draft?.pick2 === 'twins',
-        teammateDraft,
-      });
+      if (room.hpDone[idx]) {
+        // ★ FIX #7: 이미 HP 분배 완료한 플레이어 재접속 — HP UI 재전송 금지 (silent reject 무한 대기 방지)
+        socket.emit('wait_msg', { msg: '다른 플레이어의 HP 분배를 기다리는 중...' });
+      } else {
+        const teammates = getTeammates(room, idx);
+        const teammateDraft = teammates[0] != null ? room.players[teammates[0]].draft : null;
+        const hasTwins = player.draft?.pick1 === 'twins' || player.draft?.pick2 === 'twins';
+        // ★ FIX #7: 쌍둥이 분리 단계 중 재접속 — twin_split_needed 재전송으로 해당 단계 복원
+        if (hasTwins && player.hpDist && !player.twinSplitDone) {
+          const twinSlot = player.draft.pick1 === 'twins' ? 'pick1' : 'pick2';
+          socket.emit('twin_split_needed', { twinTierHp: player.hpDist[twinSlot] });
+        } else {
+          socket.emit('team_hp_phase', {
+            draft: player.draft,
+            hasTwins,
+            teammateDraft,
+          });
+        }
+      }
     } else if (phase === 'team_reveal') {
       const allPlayerPieces = room.players.map(p => ({
         idx: p.index, name: p.name, teamId: p.teamId,
@@ -8937,6 +8949,9 @@ io.on('connection', (socket) => {
     const result = executeSkill(room, idx, pieceIdx, skillId, params || {});
     if (!result.ok) {
       socket.emit('err', { msg: result.msg });
+      // ★ FIX #26: 스킬 실패 시 startPhase가 열어 둔 _currentPhase를 flushPhase로 정리
+      //   정리 안 하면 다음 startPhase 호출까지 stale phase가 남아 queueDeathDetonation 오동작 가능
+      flushPhase(room, () => {});
       return;
     }
 
