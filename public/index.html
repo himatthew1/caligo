@@ -5,8 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CALIGO - 칼리고</title>
   <link rel="stylesheet" href="style.css?v=20260516a">
+  <style>
+    /* ── 로딩 오버레이 ── */
+    #loading-overlay {
+      position: fixed; inset: 0; z-index: 10000;
+      background: #0f0f1a;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.5s ease;
+    }
+    #loading-overlay.out { opacity: 0; pointer-events: none; }
+    #loading-inner {
+      display: flex; flex-direction: column; align-items: center; gap: 20px;
+      user-select: none;
+    }
+    #loading-logo {
+      font-size: 3rem; font-weight: 900; letter-spacing: 0.3em;
+      color: #e2a84b; font-family: 'Georgia', serif;
+      text-shadow: 0 0 40px rgba(226,168,75,0.4);
+    }
+    #loading-sub {
+      font-size: 0.8rem; letter-spacing: 0.2em; color: #5a5a7a;
+      margin-top: -12px;
+    }
+    #loading-bar-wrap {
+      width: 200px; height: 4px;
+      background: #1a1a2e; border-radius: 2px; overflow: hidden;
+    }
+    #loading-bar {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #7c3aed, #e2a84b);
+      border-radius: 2px;
+      transition: width 0.15s ease;
+    }
+    #loading-status {
+      font-size: 0.72rem; color: #3a3a5a; letter-spacing: 0.05em;
+    }
+  </style>
 </head>
 <body>
+
+<!-- ── 로딩 오버레이 — 페이지 진입 즉시 표시, GIF 캐시 준비 완료 후 페이드 아웃 ── -->
+<div id="loading-overlay">
+  <div id="loading-inner">
+    <div id="loading-logo">CALIGO</div>
+    <div id="loading-sub">칼리고</div>
+    <div id="loading-bar-wrap">
+      <div id="loading-bar"></div>
+    </div>
+    <div id="loading-status">전장 준비 중…</div>
+  </div>
+</div>
 
 <!-- ── 왕실/악인 도장 SVG 심볼 (재사용) ── -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -1011,5 +1059,54 @@
 <script src="piece-gifs.js?v=20260516a"></script>
 <script src="game.js?v=20260516a"></script>
 <script src="tutorial-interactive.js?v=20260514m"></script>
+
+<!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->
+<script>
+(async () => {
+  const overlay = document.getElementById('loading-overlay');
+  const bar     = document.getElementById('loading-bar');
+  const status  = document.getElementById('loading-status');
+
+  const setBar = p => { if (bar) bar.style.width = (Math.min(1, p) * 100).toFixed(1) + '%'; };
+  const setMsg = t => { if (status) status.textContent = t; };
+
+  let dismissed = false;
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    setBar(1);
+    setMsg('준비 완료');
+    if (overlay) {
+      overlay.classList.add('out');
+      setTimeout(() => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 600);
+    }
+  }
+
+  // 최대 6초 안전망 — 네트워크/파싱 이슈 발생 시 게임 진입 보장
+  const safetyTimer = setTimeout(dismiss, 6000);
+
+  try {
+    setMsg('이미지 로드 중…');
+    setBar(0.05);
+
+    if (window.preloadGifDurationsAsync) {
+      await window.preloadGifDurationsAsync(p => setBar(0.05 + p * 0.9));
+    } else {
+      setBar(0.95);
+    }
+
+    // 완료 표시를 잠깐 보여준 뒤 페이드 아웃
+    setBar(1);
+    setMsg('준비 완료');
+    await new Promise(r => setTimeout(r, 250));
+
+  } catch (e) {
+    // 에러가 나더라도 로딩 화면이 막히지 않도록
+  } finally {
+    clearTimeout(safetyTimer);
+    dismiss();
+  }
+})();
+</script>
 </body>
 </html>

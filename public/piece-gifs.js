@@ -278,4 +278,48 @@
   } else {
     window.preloadGameImages();
   }
+
+  // ── GIF 재생 시간 사전 캐싱 ──────────────────────────────────────────────
+  // 게임 중 _fetchGifDuration() 가 첫 호출 시 fetch + 바이트 파싱을 실행하면
+  // 첫 공격/피격 애니메이션에서 수백 ms 지연이 발생한다.
+  // 이 함수를 페이지 로드 직후에 호출해 _gifDurationCache 를 모두 채워두면
+  // 이후 게임 중 모든 GIF 재생이 즉시(캐시 히트)로 동작한다.
+  // onProgress(0~1) : 로딩 진행률 콜백 (선택).
+  window.preloadGifDurationsAsync = async function (onProgress) {
+    if (!window._gifDurationCache) window._gifDurationCache = {};
+
+    // 공격 GIF 를 가장 먼저 — 가장 자주 쓰이는 동작
+    const urls = new Set([
+      ...Object.values(window.PIECE_ATTACK_GIFS || {}),
+      ...Object.values(window.PIECE_HIT_GIFS    || {}),
+      ...Object.values(window.PIECE_GIFS        || {}),
+    ]);
+    const toFetch = [...urls].filter(
+      u => u && u.endsWith('.gif') && window._gifDurationCache[u] === undefined
+    );
+    const total = toFetch.length;
+    if (total === 0) { if (onProgress) onProgress(1); return; }
+
+    let done = 0;
+    // 병렬 fetch — 이미지는 preloadGameImages() 로 캐시됐으므로 실제 네트워크 요청 없음
+    await Promise.all(toFetch.map(async url => {
+      try {
+        const bytes = new Uint8Array(
+          await (await fetch(url, { cache: 'default' })).arrayBuffer()
+        );
+        let ms = 0;
+        for (let i = 0; i < bytes.length - 7; i++) {
+          if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+            ms += (bytes[i+4] | (bytes[i+5] << 8)) * 10;
+            i += 7;
+          }
+        }
+        window._gifDurationCache[url] = ms || 650;
+      } catch (_) {
+        window._gifDurationCache[url] = 650;  // 실패 시 기본값
+      }
+      done++;
+      if (onProgress) onProgress(done / total);
+    }));
+  };
 }());
