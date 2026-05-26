@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>피격 흔들림 프리뷰</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0e1525; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; padding: 30px; }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 1.4rem; color: #93c5fd; }
+  .subtitle { text-align: center; margin-bottom: 30px; font-size: 0.85rem; color: #8899aa; }
+
+  .demo-row { display: flex; justify-content: center; gap: 60px; margin-bottom: 40px; }
+  .demo-box { text-align: center; }
+  .demo-label { font-size: 0.85rem; color: #aab; margin-bottom: 12px; }
+  .demo-label em { color: #fbbf24; font-style: normal; }
+
+  .cell {
+    width: 64px; height: 64px;
+    background: #1a2540;
+    border: 1px solid #3a4a80;
+    border-radius: 5px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto;
+  }
+  .cell.hit { background: rgba(239,68,68,0.5); border-color: #ef4444; }
+
+  .piece { width: 48px; height: 48px; }
+  .piece img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+  .piece.flip img { transform: scaleX(-1); }
+
+  @keyframes hitShakeRight {
+    0%, 100% { transform: translate(0, 0); }
+    15% { transform: translate(4px, -1px); }
+    30% { transform: translate(-2px, 0.5px); }
+    50% { transform: translate(2px, -0.5px); }
+    70% { transform: translate(-1px, 0); }
+  }
+  @keyframes hitShakeLeft {
+    0%, 100% { transform: translate(0, 0); }
+    15% { transform: translate(-4px, -1px); }
+    30% { transform: translate(2px, 0.5px); }
+    50% { transform: translate(-2px, -0.5px); }
+    70% { transform: translate(1px, 0); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-2px); }
+    40% { transform: translateX(2px); }
+    60% { transform: translateX(-1px); }
+    80% { transform: translateX(1px); }
+  }
+
+  .btn {
+    margin-top: 14px;
+    padding: 6px 18px;
+    background: #2563eb; color: #fff; border: none; border-radius: 4px;
+    cursor: pointer; font-size: 0.8rem;
+  }
+  .btn:hover { background: #3b82f6; }
+
+  .section-title {
+    text-align: center; font-size: 1rem; color: #fbbf24;
+    margin: 10px 0 16px; border-bottom: 1px solid #333; padding-bottom: 8px;
+  }
+
+  .compare-row { display: flex; justify-content: center; gap: 40px; flex-wrap: wrap; }
+  .compare-box { text-align: center; min-width: 120px; }
+  .compare-label { font-size: 0.75rem; color: #889; margin-bottom: 8px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.7rem; margin-top: 4px; }
+  .tag.old { background: #44403c; color: #fbbf24; }
+  .tag.new { background: #1e3a5f; color: #60a5fa; }
+</style>
+</head>
+<body>
+
+<h1>피격 흔들림 (Hit Shake) 프리뷰</h1>
+<p class="subtitle">바라보는 방향 기준으로 흔들림 방향이 결정됩니다. 버튼을 눌러 재생하세요.</p>
+
+<div class="section-title">방향별 피격</div>
+<div class="demo-row">
+  <div class="demo-box">
+    <div class="demo-label"><em>→ 오른쪽</em> 바라봄</div>
+    <div class="cell" id="cell-right">
+      <div class="piece" id="piece-right"><img src="/art/cavalry_idle.gif" data-idle="/art/cavalry_idle.gif" data-hit="/art/cavalry_hit.gif"></div>
+    </div>
+    <button class="btn" onclick="playHit('right')">▶ 피격</button>
+  </div>
+  <div class="demo-box">
+    <div class="demo-label"><em>← 왼쪽</em> 바라봄</div>
+    <div class="cell" id="cell-left">
+      <div class="piece flip" id="piece-left"><img src="/art/cavalry_idle.gif" data-idle="/art/cavalry_idle.gif" data-hit="/art/cavalry_hit.gif"></div>
+    </div>
+    <button class="btn" onclick="playHit('left')">▶ 피격</button>
+  </div>
+</div>
+
+<div class="section-title">기존 vs 신규 비교</div>
+<div class="compare-row">
+  <div class="compare-box">
+    <div class="compare-label">기존 (무방향)<br><span class="tag old">shake</span></div>
+    <div class="cell" id="cell-old">
+      <div class="piece" id="piece-old"><img src="/art/knight_idle.gif" data-idle="/art/knight_idle.gif" data-hit="/art/knight_hit.gif"></div>
+    </div>
+    <button class="btn" onclick="playOld()">▶ 재생</button>
+  </div>
+  <div class="compare-box">
+    <div class="compare-label">신규 (오른쪽 바라봄)<br><span class="tag new">hitShakeRight</span></div>
+    <div class="cell" id="cell-new-r">
+      <div class="piece" id="piece-new-r"><img src="/art/knight_idle.gif" data-idle="/art/knight_idle.gif" data-hit="/art/knight_hit.gif"></div>
+    </div>
+    <button class="btn" onclick="playNew('right')">▶ 재생</button>
+  </div>
+  <div class="compare-box">
+    <div class="compare-label">신규 (왼쪽 바라봄)<br><span class="tag new">hitShakeLeft</span></div>
+    <div class="cell" id="cell-new-l">
+      <div class="piece flip" id="piece-new-l"><img src="/art/knight_idle.gif" data-idle="/art/knight_idle.gif" data-hit="/art/knight_hit.gif"></div>
+    </div>
+    <button class="btn" onclick="playNew('left')">▶ 재생</button>
+  </div>
+</div>
+
+<br>
+<div style="text-align:center; margin-top: 10px;">
+  <button class="btn" style="background:#dc2626;padding:8px 28px;font-size:0.9rem;" onclick="playAll()">⚡ 전부 동시 재생</button>
+</div>
+
+<script>
+// 피격 GIF 1회 재생 후 idle 복원
+function swapToHit(img, duration) {
+  const idle = img.dataset.idle;
+  const hit = img.dataset.hit;
+  if (!hit) return;
+  // Blob URL 로 매번 새로 로드 → 첫 프레임부터 재생
+  fetch(hit).then(r => r.blob()).then(blob => {
+    const url = URL.createObjectURL(blob);
+    img.src = url;
+    setTimeout(() => {
+      img.src = idle;
+      URL.revokeObjectURL(url);
+    }, duration);
+  });
+}
+
+function playHit(dir) {
+  const animName = dir === 'left' ? 'hitShakeLeft' : 'hitShakeRight';
+  const cell = document.getElementById('cell-' + dir);
+  const piece = document.getElementById('piece-' + dir);
+  const img = piece.querySelector('img');
+  cell.classList.add('hit');
+  cell.style.animation = animName + ' 0.3s ease';
+  piece.style.animation = animName + ' 0.35s ease';
+  swapToHit(img, 650);
+  setTimeout(() => {
+    cell.classList.remove('hit');
+    cell.style.animation = '';
+    piece.style.animation = '';
+  }, 700);
+}
+
+function playOld() {
+  const cell = document.getElementById('cell-old');
+  const piece = document.getElementById('piece-old');
+  const img = piece.querySelector('img');
+  cell.classList.add('hit');
+  cell.style.animation = 'shake 0.3s ease';
+  piece.style.animation = 'shake 0.35s ease';
+  swapToHit(img, 650);
+  setTimeout(() => {
+    cell.classList.remove('hit');
+    cell.style.animation = '';
+    piece.style.animation = '';
+  }, 700);
+}
+
+function playNew(dir) {
+  const animName = dir === 'left' ? 'hitShakeLeft' : 'hitShakeRight';
+  const suffix = dir === 'left' ? 'l' : 'r';
+  const cell = document.getElementById('cell-new-' + suffix);
+  const piece = document.getElementById('piece-new-' + suffix);
+  const img = piece.querySelector('img');
+  cell.classList.add('hit');
+  cell.style.animation = animName + ' 0.3s ease';
+  piece.style.animation = animName + ' 0.35s ease';
+  swapToHit(img, 650);
+  setTimeout(() => {
+    cell.classList.remove('hit');
+    cell.style.animation = '';
+    piece.style.animation = '';
+  }, 700);
+}
+
+function playAll() {
+  playHit('right');
+  playHit('left');
+  playOld();
+  playNew('right');
+  playNew('left');
+}
+</script>
+</body>
+</html>

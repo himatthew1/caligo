@@ -11,6 +11,23 @@ function animateRingTeleport(rt, roleHint, opts) {
   const boardId = (opts && opts.boardId) || 'game-board';
   const board = document.getElementById(boardId);
   if (!board) return;
+
+  // ★ 보드 위 피해자 시각화 — 이동 PNG 우선, 없으면 아이들 GIF, 최종 폴백 아이콘 이미지
+  const _victimVisualHtml = (() => {
+    const type = rt.victimType;
+    if (!type) return rt.victimIcon ? `<span style="font-size:1.3rem">${rt.victimIcon}</span>` : '';
+    // 이동 PNG (PIECE_MOVE_PNGS)
+    const moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl(type) : null;
+    if (moveUrl) {
+      return `<img src="${moveUrl}" alt="" class="p-gif" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+    }
+    // 아이들 GIF 폴백
+    const idleUrl = window.PIECE_GIFS && window.PIECE_GIFS[type];
+    if (idleUrl) {
+      return `<img src="${idleUrl}" alt="" class="p-gif" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+    }
+    return '';
+  })();
   const fromCell = board.querySelector(`.cell[data-col="${rt.fromCol}"][data-row="${rt.fromRow}"]`);
   const toCell = board.querySelector(`.cell[data-col="${rt.toCol}"][data-row="${rt.toRow}"]`);
 
@@ -27,28 +44,26 @@ function animateRingTeleport(rt, roleHint, opts) {
   //    victimIcon 으로 ghost 를 주입해 1s 동안 ring-prevanish 발현, 메인 단계에서 ring-vanish 후 제거.
   let fromGhost = null;
   if (fromCell && rt.victimIcon) {
-    let fromMarker = fromCell.querySelector('.piece-marker');
-    if (!fromMarker) {
-      fromGhost = document.createElement('div');
-      fromGhost.className = 'piece-marker ring-ghost';
-      fromGhost.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
-      fromGhost.style.position = 'absolute';
-      fromGhost.style.inset = '0';
-      fromGhost.style.display = 'flex';
-      fromGhost.style.flexDirection = 'column';
-      fromGhost.style.alignItems = 'center';
-      fromGhost.style.justifyContent = 'center';
-      fromGhost.style.pointerEvents = 'none';
-      fromGhost.style.zIndex = '20';
-      try {
-        if (getComputedStyle(fromCell).position === 'static') fromCell.style.position = 'relative';
-      } catch (e) {}
-      fromCell.appendChild(fromGhost);
-      fromMarker = fromGhost;
-    }
-    fromMarker.classList.remove('ring-prevanish');
-    void fromMarker.offsetWidth;
-    fromMarker.classList.add('ring-prevanish');
+    // 항상 ghost 를 생성 — 서버가 이미 victim 을 이동시킨 후이므로
+    // fromCell 에 남아있는 .piece-marker 는 아군 유닛이다. 절대 건드리지 않는다.
+    fromGhost = document.createElement('div');
+    fromGhost.className = 'piece-marker ring-ghost';
+    fromGhost.innerHTML = `<span class="p-icon">${_victimVisualHtml}</span>`;
+    fromGhost.style.position = 'absolute';
+    fromGhost.style.inset = '0';
+    fromGhost.style.display = 'flex';
+    fromGhost.style.flexDirection = 'column';
+    fromGhost.style.alignItems = 'center';
+    fromGhost.style.justifyContent = 'center';
+    fromGhost.style.pointerEvents = 'none';
+    fromGhost.style.zIndex = '20';
+    try {
+      if (getComputedStyle(fromCell).position === 'static') fromCell.style.position = 'relative';
+    } catch (e) {}
+    fromCell.appendChild(fromGhost);
+    fromGhost.classList.remove('ring-prevanish');
+    void fromGhost.offsetWidth;
+    fromGhost.classList.add('ring-prevanish');
   }
 
   // ── toCell:
@@ -69,7 +84,7 @@ function animateRingTeleport(rt, roleHint, opts) {
       // 기존 marker (있다면) 는 hidden 처리 X — 그대로 정지 유지.
       arrivalGhost = document.createElement('div');
       arrivalGhost.className = 'piece-marker ring-arrival-ghost';
-      arrivalGhost.innerHTML = `<span class="p-icon">${rt.victimIcon}</span>`;
+      arrivalGhost.innerHTML = `<span class="p-icon">${_victimVisualHtml}</span>`;
       arrivalGhost.style.visibility = 'hidden';
       arrivalGhost.style.position = 'absolute';
       arrivalGhost.style.inset = '0';

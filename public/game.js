@@ -95,6 +95,28 @@ function tagBadgeHtml(tag) {
   return `<span class="tag-badge ${tag}" title="${tag === 'royal' ? '왕실' : '악인'}"><svg><use href="#${id}"/></svg></span>`;
 }
 
+// ── 캐릭터 아이콘 <img> 생성 헬퍼 ──────────────────────────────────────
+// 모든 UI 에서 이모지 대신 PNG 아이콘을 렌더링할 때 사용.
+// src 가 이미지 경로이면 <img> 태그, 아니면(폴백) 텍스트 그대로 반환.
+// cls: 추가 CSS 클래스, size: 인라인 크기(em 단위, 기본 1.2em)
+function pieceIconHtml(src, opts) {
+  if (!src) return '';
+  const o = opts || {};
+  const cls = o.cls || '';
+  const size = o.size || '1.2em';
+  // 이미지 경로가 아니면 (이모지 등 레거시) 텍스트 그대로 반환
+  if (!src.startsWith('/') && !src.startsWith('http')) return src;
+  return `<img src="${src}" alt="" class="piece-icon-img ${cls}" style="width:${size};height:${size};vertical-align:middle;object-fit:contain;" draggable="false">`;
+}
+
+// 텍스트 전용 컨텍스트에서 아이콘 이름만 반환 (드래그 데이터 등)
+// 이미지 경로면 빈 문자열 반환 (텍스트로 표시 불가)
+function pieceIconText(src) {
+  if (!src) return '';
+  if (src.startsWith('/') || src.startsWith('http')) return '';
+  return src;
+}
+
 // 특수 공격 범위 캐릭터만 desc 표시 — 나머지는 미니 그리드로 충분
 const SPECIAL_DESC_TYPES = new Set([
   'archer',         // 좌측 대각선 전체 (토글)
@@ -397,7 +419,13 @@ function closeOverlayScreen(targetId) {
   }, OVERLAY_ANIM_MS);
 }
 
+// C-8: 모달 잔류 방지 — 화면 전환 시 열려 있는 모달 일괄 닫기
+function closeAllModals() {
+  document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+}
+
 function showScreen(id) {
+  closeAllModals(); // C-8: 화면 전환 시 모달 잔류 방지
   // 다른 화면으로 이동 시 떠 있는 오버레이는 자동 정리 (예: 재접속/게임오버 등)
   document.querySelectorAll('.screen.is-overlay').forEach(s => {
     s.classList.remove('is-overlay', 'overlay-slide-in-right', 'overlay-slide-out-right', 'overlay-closing');
@@ -457,7 +485,7 @@ function updateLobbyDeckButton() {
     }
     const c = findLocalChar(deck[k], tier);
     if (!c) return `<span class="deck-preview-icon empty"></span>`;
-    return `<span class="deck-preview-icon ${factionCls(c.tag)}" title="${c.name}">${c.icon}</span>`;
+    return `<span class="deck-preview-icon ${factionCls(c.tag)}" title="${c.name}">${pieceIconHtml(c.icon, {size:'1.2em'})}</span>`;
   }).join('');
   preview.innerHTML = iconsHtml;
 }
@@ -560,7 +588,7 @@ function renderDeckList() {
                                 : tag === 'villain' ? 'faction-villain'
                                 : 'faction-none';
       const iconsHtml = chars.map(c => c
-        ? `<span class="deck-list-icon ${factionCls(c.tag)}" title="${c.name}">${c.icon}</span>`
+        ? `<span class="deck-list-icon ${factionCls(c.tag)}" title="${c.name}">${pieceIconHtml(c.icon, {size:'1.2em'})}</span>`
         : '').join('');
       const isSelected = S.deckSavedState && S.deckSavedState.t1 === deck.t1 && S.deckSavedState.t2 === deck.t2 && S.deckSavedState.t3 === deck.t3;
       if (isSelected) slot.classList.add('selected');
@@ -956,7 +984,7 @@ document.getElementById('input-room').addEventListener('keydown', e => {
     if (pick) {
       slotEl.classList.add('filled');
       slotEl.innerHTML = `
-        <span class="slot-icon">${pick.icon || '◯'}</span>
+        <span class="slot-icon">${pieceIconHtml(pick.icon, {size:'1.3em'}) || '◯'}</span>
         <span class="slot-name">${pick.name || pick.type}</span>
         <span class="slot-tier-label">T${pick.tier}</span>`;
     } else {
@@ -1001,7 +1029,7 @@ document.getElementById('input-room').addEventListener('keydown', e => {
       card.className = 'custom-pick-card';
       if (forbidden.has(c.type)) card.classList.add('disabled');
       card.innerHTML = `
-        <span class="pc-icon">${c.icon || '◯'}</span>
+        <span class="pc-icon">${pieceIconHtml(c.icon, {size:'1.3em'}) || '◯'}</span>
         <span class="pc-name">${c.name || c.type}</span>
         <span class="pc-tier">T${c.tier}</span>`;
       card.addEventListener('click', () => {
@@ -1552,7 +1580,7 @@ function renderTeamDraftSlots() {
       const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
       el.innerHTML = `
         <span class="slot-tier">${label}</span>
-        <span class="slot-icon">${c.icon}</span>
+        <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
           <span class="slot-name">${c.name} ${tagHtml}</span>
           <span class="slot-stats">ATK ${c.atk}</span>
@@ -1597,7 +1625,7 @@ function renderTeamDraftSlots() {
         const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
         return `<div class="draft-slot filled teammate-slot" data-tm-jump="${c.type}">
           <span class="slot-tier">${label}</span>
-          <span class="slot-icon">${c.icon}</span>
+          <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
           <div class="slot-info">
             <span class="slot-name">${c.name} ${tagHtml}</span>
             <span class="slot-stats">ATK ${c.atk}</span>
@@ -1681,7 +1709,7 @@ function renderTeamDraft() {
     const badge = selected1 ? '<div class="team-draft-card-slot-badge">1</div>'
                 : selected2 ? '<div class="team-draft-card-slot-badge">2</div>' : '';
     return `<div class="${classes.join(' ')}" data-type="${c.type}">
-      <div class="team-draft-card-icon">${c.icon || '❔'}</div>
+      <div class="team-draft-card-icon">${pieceIconHtml(c.icon, {size:'1.4em'}) || '❔'}</div>
       <div class="team-draft-card-name">${escapeHtmlGlobal(c.name || c.type)}</div>
       <div class="team-draft-card-atk">ATK ${c.atk}</div>
       ${badge}
@@ -1699,8 +1727,8 @@ function renderTeamDraft() {
       const tp1 = S.teamTeammatePicks?.pick1;
       const tp2 = S.teamTeammatePicks?.pick2;
       const findChar = (t) => all.find(x => x.type === t);
-      const tp1Str = tp1 ? `${findChar(tp1)?.icon || ''}${findChar(tp1)?.name || tp1}` : '—';
-      const tp2Str = tp2 ? `${findChar(tp2)?.icon || ''}${findChar(tp2)?.name || tp2}` : '—';
+      const tp1Str = tp1 ? `${pieceIconHtml(findChar(tp1)?.icon, {size:'1em'})}${findChar(tp1)?.name || tp1}` : '—';
+      const tp2Str = tp2 ? `${pieceIconHtml(findChar(tp2)?.icon, {size:'1em'})}${findChar(tp2)?.name || tp2}` : '—';
       tmInfo.innerHTML = `<strong>${tmName}</strong><br>1번: ${tp1Str}<br>2번: ${tp2Str}`;
     } else {
       tmInfo.textContent = '팀원 없음';
@@ -1764,7 +1792,7 @@ function updateTeamDraftSlot(slotId, label, type) {
   el.classList.remove('empty');
   el.classList.add('filled');
   el.innerHTML = `<span class="slot-tier">${label}</span>
-    <span class="slot-icon-big">${c.icon || ''}</span>
+    <span class="slot-icon-big">${pieceIconHtml(c.icon, {size:'1.6em'})}</span>
     <span class="slot-name-sm">${escapeHtmlGlobal(c.name || c.type)}</span>`;
 }
 
@@ -1819,7 +1847,7 @@ function buildTeamHpUIOnSharedScreen() {
     row.className = 'hp-piece-row';
     const tagHtml = charData.tag ? tagBadgeHtml(charData.tag) : '';
     row.innerHTML = `
-      <span class="char-icon">${charData.icon}</span>
+      <span class="char-icon">${pieceIconHtml(charData.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
         <strong>${charData.name}${tagHtml}</strong>
       </div>
@@ -1899,7 +1927,7 @@ function updateTeammateHpPanel() {
     if (!c) return '';
     const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
     return `<div class="hp-piece-row hp-piece-row-readonly">
-      <span class="char-icon">${c.icon}</span>
+      <span class="char-icon">${pieceIconHtml(c.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
         <strong>${escapeHtmlGlobal(c.name)}${tagHtml}</strong>
       </div>
@@ -1929,13 +1957,13 @@ function renderTeamHpUI(hasTwins) {
 
   area.innerHTML = `
     <div class="hp-row" data-slot="pick1">
-      <span class="hp-row-icon">${c1.icon}</span>
+      <span class="hp-row-icon">${pieceIconHtml(c1.icon, {size:'1.3em'})}</span>
       <span class="hp-row-name">${escapeHtmlGlobal(c1.name)}</span>
       <input type="range" min="${min1}" max="${10-min2}" value="5" class="hp-slider" data-slot="pick1">
       <span class="hp-row-val" id="hp-val-pick1">5</span>
     </div>
     <div class="hp-row" data-slot="pick2">
-      <span class="hp-row-icon">${c2.icon}</span>
+      <span class="hp-row-icon">${pieceIconHtml(c2.icon, {size:'1.3em'})}</span>
       <span class="hp-row-name">${escapeHtmlGlobal(c2.name)}</span>
       <input type="range" min="${min2}" max="${10-min1}" value="5" class="hp-slider" data-slot="pick2">
       <span class="hp-row-val" id="hp-val-pick2">5</span>
@@ -1986,7 +2014,7 @@ function renderTeamHp(hasTwins) {
   const slotHtml = (slotId, c, defaultVal, minVal) => `
     <div class="team-hp-slot" data-slot="${slotId}">
       <div class="team-hp-slot-row">
-        <span class="icon">${c.icon || ''}</span>
+        <span class="icon">${pieceIconHtml(c.icon, {size:'1.2em'})}</span>
         <span>${escapeHtmlGlobal(c.name || c.type)}</span>
         <input type="number" min="${minVal}" max="${10 - minVal}" value="${defaultVal}" class="team-hp-input" data-slot="${slotId}">
         <span>HP</span>
@@ -2002,7 +2030,7 @@ function renderTeamHp(hasTwins) {
   if (isTwinsP1 || isTwinsP2) {
     html += `<div class="team-hp-slot">
       <div class="team-hp-slot-row">
-        <span>👫 남매 내부 분배:</span>
+        <span>${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.twins) || '/assets/icons/twins.png', {size:'1em'})} 남매 내부 분배:</span>
       </div>
       <div class="team-hp-slot-row">
         <span>누나:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
@@ -2087,7 +2115,7 @@ function renderTeamReveal(allPlayerPieces) {
           ...pc,
           type: 'twins',
           name: '쌍둥이 강도',
-          icon: '👫',
+          icon: (window.PIECE_ICONS && window.PIECE_ICONS.twins) || pc.icon,
           atk: pc.atk,
           tier: pc.tier,
           tag: pc.tag,
@@ -2252,7 +2280,7 @@ function renderTeamPlacement() {
       const occ = occupied[`${c},${r}`];
       let inner = `<span class="coord-label">${coord(c, r)}</span>`;
       if (occ) {
-        inner += `<span class="piece-icon">${occ.piece.icon || ''}</span>`;
+        inner += `<span class="piece-icon">${pieceIconHtml(occ.piece.icon, {size:'1.2em'})}</span>`;
         if (occ.owner === 'teammate') classes.push('occupied-other');
       }
       html += `<div class="${classes.join(' ')}" data-col="${c}" data-row="${r}">${inner}</div>`;
@@ -2281,7 +2309,7 @@ function renderTeamPlacement() {
       const placed = pc.col >= 0;
       const selected = S.teamPlacement.selectedPieceIdx === i;
       return `<div class="team-placement-piece ${placed ? 'placed' : ''} ${selected ? 'selected' : ''}" data-idx="${i}">
-        <span class="piece-icon">${pc.icon || ''}</span>
+        <span class="piece-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <span class="piece-name">${escapeHtmlGlobal(pc.name || pc.type)}</span>
         <span class="piece-hp">HP ${pc.hp}</span>
       </div>`;
@@ -2361,6 +2389,10 @@ function applyTeamGameState(state) {
 
 socket.on('team_game_start', (state) => {
   S.isTeamMode = true;          // buildBoard가 7x7로 그리도록 보장
+  S._gameEnded = false;         // C-9: 이전 판의 _gameEnded 플래그 리셋
+  S._fullscreenBusy = false;    // C-4: 재접속 시 fullscreen 상태 리셋
+  S._fullscreenQueue = [];
+  closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 팀전 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
   applyTeamGameState(state);
@@ -2386,7 +2418,9 @@ socket.on('team_game_start', (state) => {
   }
 });
 
+let _teamUpdateSeq = 0; // C-10: team_game_update render sequence counter
 socket.on('team_game_update', (state) => {
+  ++_teamUpdateSeq;
   const wasMyTurn = S.isMyTurn;
   const prevTurnIdx = S.currentPlayerIdx;
   const prevSnap = (typeof snapshotTeamHps === 'function') ? snapshotTeamHps() : null;
@@ -2442,6 +2476,7 @@ socket.on('team_game_update', (state) => {
     // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (팀모드 turn change 시점)
     // preCurseHps (서버 제공) 로 startHp 캡처해 저주 보라 도장 표시 가능
     if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(state.preCurseHps);
+    S.attackLog = S.attackLog.filter(a => a.turn >= S.turnNumber - 1); // C-5: prune old entries
   }
   renderTeamGameSnapshot();
   showActionBar(S.isMyTurn);
@@ -2515,8 +2550,8 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   // ★ 분신 비행 애니메이션 — 같은 팀(myTeam)에만 공유, 적팀에는 비공유.
   //   서버는 모두에게 twinJoin 좌표를 보내지만, 클라에서 viewer 팀 기준으로 필터링.
   if (twinJoin && myTeam && typeof playTwinJoinFlight === 'function') {
-    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
-    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+    const moverSub = twinJoin.moverSub || 'elder';
+    playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
   }
 
   // 마법구 비행 + dim 시퀀스 (skill_result/status_update 와 동일)
@@ -2552,7 +2587,7 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
 
   // T+SP_END: SFX + dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
   //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
-  const _isDetonateMsgTeam = msg && msg.indexOf('💥기폭') === 0;
+  const _isDetonateMsgTeam = msg && msg.indexOf('기폭') === 0;
   setTimeout(() => {
     if (!_isDetonateMsgTeam) {
       const sfxRoute = (typeof pickSkillSfxByMsg === 'function') ? pickSkillSfxByMsg(msg || label) : null;
@@ -2570,7 +2605,28 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     //   ★ 기폭은 스킵 — bomb_detonated 가 폭발 순간 처리.
     if (!_isDetonateMsgTeam && Array.isArray(hits) && hits.length > 0) {
       const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-      if (hitCells.length > 0) animateAttack([], hitCells);
+      // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
+      if (hitCells.length > 0) {
+        const _hasLava = Array.isArray(borderCells) && borderCells.length > 0;
+        if (_hasLava) {
+          setTimeout(() => { animateAttack([], hitCells); }, 1100);
+        } else {
+          animateAttack([], hitCells);
+        }
+      }
+      // ★ attackLog 기록 — 보드 위 💥/· 셀 마크 (팀모드 팀원/적 시점)
+      //   borderCells 가 있으면 전체 범위 (빗나감 · + 명중 💥), 없으면 hit 만 💥.
+      const _hitSetT = new Set(hitCells.map(c => `${c.col},${c.row}`));
+      if (Array.isArray(borderCells) && borderCells.length > 0) {
+        for (const bc of borderCells) {
+          S.attackLog.push({ col: bc.col, row: bc.row, hit: _hitSetT.has(`${bc.col},${bc.row}`), turn: S.turnNumber });
+        }
+      } else {
+        for (const c of hitCells) {
+          S.attackLog.push({ col: c.col, row: c.row, hit: true, turn: S.turnNumber });
+        }
+      }
+      renderGameBoard(); // attackLog 마커 즉시 반영
       for (const h of hits) {
         const dmg = (typeof h.damage === 'number') ? h.damage : 0;
         if (dmg <= 0 || h.defPieceIdx == null || h.defOwnerIdx == null) continue;
@@ -3056,7 +3112,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     return `<div class="${baseCardClass} ${selectedClass}" ${myPieceAttr} data-team-piece="1" data-piece-idx="${i}"${dragAttrs}>
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
-        <span class="p-icon">${pc.icon || ''}</span>
+        <span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <strong class="${nameLenCls.trim()}">${escapeHtmlGlobal(pc.name || pc.type)}</strong>
         ${pc.tier ? `<span class="tier-badge">${pc.tier}T</span>` : ''}
         ${tagHtml}
@@ -3306,8 +3362,8 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
-    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
-    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+    const moverSub = twinJoin.moverSub || 'elder';
+    playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
     if (typeof playSfxTwinsJoin === 'function') playSfxTwinsJoin();
   }
 
@@ -3348,7 +3404,28 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     //   1v1 관전자: p0 → #my-pieces-info, p1 → #opp-pieces-info 매핑.
     if (Array.isArray(hits) && hits.length > 0) {
       const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-      if (hitCells.length > 0) animateAttack([], hitCells);
+      // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
+      if (hitCells.length > 0) {
+        const _hasLava = Array.isArray(borderCells) && borderCells.length > 0;
+        if (_hasLava) {
+          setTimeout(() => { animateAttack([], hitCells); }, 1100);
+        } else {
+          animateAttack([], hitCells);
+        }
+      }
+      // ★ attackLog 기록 — 보드 위 💥/· 셀 마크 (1v1 관전자 시점)
+      //   관전자는 전체 정보 접근 가능 — borderCells 있으면 전체 범위, 없으면 hit 만.
+      const _hitSetS = new Set(hitCells.map(c => `${c.col},${c.row}`));
+      if (Array.isArray(borderCells) && borderCells.length > 0) {
+        for (const bc of borderCells) {
+          S.attackLog.push({ col: bc.col, row: bc.row, hit: _hitSetS.has(`${bc.col},${bc.row}`), turn: S.turnNumber });
+        }
+      } else {
+        for (const c of hitCells) {
+          S.attackLog.push({ col: c.col, row: c.row, hit: true, turn: S.turnNumber });
+        }
+      }
+      if (S.specGameState) renderSpectatorGame(S.specGameState); // attackLog 마커 즉시 반영
       for (const h of hits) {
         if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
         const dmg = (typeof h.damage === 'number') ? h.damage : 0;
@@ -3417,54 +3494,65 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
 
 // ── 관전자 일반 공격 애니메이션 ──
 //   서버가 each being_attacked emit 옆에 같이 emit 함. defOwnerIdx 0/1 → my/opp 패널 매핑.
+let _spectatorAttackSeq = 0;
 socket.on('spectator_attack_anim', ({ atkCells, hits }) => {
   if (!S.isSpectator) return;
-  // 셀 hit 번쩍임 (공격 범위 + 피격 셀)
+  // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
+  try { playSfx('attack'); } catch (e) {}
   const hitCellList = (hits || []).filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-  if (Array.isArray(atkCells) || hitCellList.length > 0) {
-    animateAttack(atkCells || [], hitCellList);
-  }
-  // 효과음 — kill / hit
-  if ((hits || []).some(h => h.destroyed)) {
-    try { playSfx('kill'); } catch (e) {}
-  } else if (hitCellList.length > 0) {
-    try { playSfx('hit'); } catch (e) {}
-  }
-  // 1v1 관전자 — defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
-  if (!S.isTeamMode) {
+  const _capturedTurn = S.turnNumber;
+  const _mySeq = ++_spectatorAttackSeq;
+
+  setTimeout(() => {
+    if (S.turnNumber !== _capturedTurn) return; // C-1: turn changed, skip stale update
+    if (_spectatorAttackSeq !== _mySeq) return; // C-3: newer event arrived, skip
+    // ★ 공격 범위 셀 이펙트
+    if (Array.isArray(atkCells) && atkCells.length > 0) {
+      animateAttackCellEffect(atkCells);
+    }
+    // 피격 셀 빨간 플래시
+    if (hitCellList.length > 0) {
+      animateAttack([], hitCellList);
+    }
+    // 효과음 — kill / hit (임팩트 시점에)
+    if ((hits || []).some(h => h.destroyed)) {
+      try { playSfx('kill'); } catch (e) {}
+    } else if (hitCellList.length > 0) {
+      try { playSfx('hit'); } catch (e) {}
+    }
+    // 1v1 관전자 — defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
+    if (!S.isTeamMode) {
+      for (const h of (hits || [])) {
+        if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+        const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+        if (dmg > 0) {
+          const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
+          if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
+          else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
+        }
+        if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
+        const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
+        const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
+        const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
+        if (card) applyHitFlashWithBrighten(card);
+      }
+      if (S.specGameState) renderSpectatorGame(S.specGameState);
+      return;
+    }
+    // 팀모드 관전자
     for (const h of (hits || [])) {
       if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
       const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-      // 본체 빨간 도장 / 충성 파란 도장 누적
       if (dmg > 0) {
-        const key = (h.defOwnerIdx === 0) ? `my:${h.defPieceIdx}` : `opp:${h.defPieceIdx}`;
+        const key = `${h.defOwnerIdx}:${h.defPieceIdx}`;
         if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
         else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
       }
-      // 카드 hit flash + turn-bright (호위무사가 본체 가로챈 경우는 BG 카드만 빛남)
       if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
-      const containerSel = (h.defOwnerIdx === 0) ? '#my-pieces-info' : '#opp-pieces-info';
-      const cardSel = (h.defOwnerIdx === 0) ? '.my-piece-card' : '.opp-piece-card';
-      const card = document.querySelectorAll(`${containerSel} ${cardSel}`)[h.defPieceIdx];
+      const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
       if (card) applyHitFlashWithBrighten(card);
     }
-    // spectator 패널 재렌더 — 도장 반영
-    if (S.specGameState) renderSpectatorGame(S.specGameState);
-    return;
-  }
-  // 팀모드 관전자 — team-profile-block[data-player-idx][data-piece-idx] 마크업 매핑.
-  for (const h of (hits || [])) {
-    if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
-    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-    if (dmg > 0) {
-      const key = `${h.defOwnerIdx}:${h.defPieceIdx}`;
-      if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
-      else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
-    }
-    if (h.redirectedToBodyguard && !h.bodyguardRedirect) continue;
-    const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
-    if (card) applyHitFlashWithBrighten(card);
-  }
+  }, ATTACK_IMPACT_DELAY);
 });
 
 // ── 관전자 전투 로그 ──
@@ -3477,26 +3565,26 @@ socket.on('spectator_log', ({ msg, type, playerIdx, markCells }) => {
     showSkillToast(msg, false, playerIdx);
   }
   // ★ 표식 리워크 (관전자): 인두 낙하 애니메이션
-  if (type === 'passive' && msg.startsWith('⛓ 표식:') && Array.isArray(markCells) && markCells.length > 0 &&
+  if (type === 'passive' && msg.startsWith('표식:') && Array.isArray(markCells) && markCells.length > 0 &&
       typeof animateMarkBrand === 'function') {
     try { animateMarkBrand(markCells); } catch (e) {}
   }
   // 관전자 전용 효과음: 메시지 내용으로 판단
-  if (type === 'passive' && msg.startsWith('☠ 저주:') && msg.includes('0.5 피해')) {
+  if (type === 'passive' && msg.startsWith('저주:') && msg.includes('0.5 피해')) {
     playSfxCurseDamage();
-  } else if (type === 'passive' && msg.startsWith('⛓ 표식:')) {
+  } else if (type === 'passive' && msg.startsWith('표식:')) {
     // 표식 — 인두 시즐 (animateMarkBrand 의 사운드와 통일)
     playSfxTorturerMark();
   } else if (type === 'passive') {
     // 그 외 패시브는 전용 차임
     playSfxPassive();
-  } else if (type === 'skill' && msg.startsWith('⛓ 악몽')) {
+  } else if (type === 'skill' && msg.startsWith('악몽')) {
     playSfxNightmare();
-  } else if (type === 'hit' && msg.includes('🪤')) {
+  } else if (type === 'hit' && msg.includes('덫')) {
     playSfxTrapSnap();
-  } else if (type === 'hit' && msg.includes('💥')) {
+  } else if (type === 'hit' && msg.includes('폭탄')) {
     playSfxBombExplode();
-  } else if (msg.includes('🐀') && (msg.includes('격파') || msg.includes('사라'))) {
+  } else if (msg.includes('쥐') && (msg.includes('격파') || msg.includes('사라'))) {
     playSfxRatDeath();
   }
 });
@@ -3823,6 +3911,9 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
   S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
+  S._fullscreenBusy = false;
+  S._fullscreenQueue = [];
+  closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 게임 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
   S.myPieces = data.yourPieces || [];
@@ -3952,6 +4043,7 @@ socket.on('your_turn', (data) => {
   S.isMyTurn = true;
   if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.turnNumber = data.turnNumber;
+  S.attackLog = S.attackLog.filter(a => a.turn >= S.turnNumber - 1); // C-5: prune old entries
   S.myPieces = data.yourPieces || S.myPieces;
   S.oppPieces = data.oppPieces || S.oppPieces;
   S.sp = data.sp || S.sp;
@@ -3996,6 +4088,7 @@ socket.on('opp_turn', (data) => {
   S.isMyTurn = false;
   if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.turnNumber = data.turnNumber;
+  S.attackLog = S.attackLog.filter(a => a.turn >= S.turnNumber - 1); // C-5: prune old entries
   S.oppPieces = data.oppPieces || S.oppPieces;
   S.sp = data.sp || S.sp;
   S.instantSp = data.instantSp || S.instantSp;
@@ -4180,10 +4273,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
     return c;
   });
 
-  // 공격 모션 애니메이션 — 오렌지 범위 번쩍임만 즉시 (공격 의도 시각화)
+  // 공격 범위 셀 + 피격 셀 추출
   const atkCells = cellResults.map(c => ({ col: c.col, row: c.row }));
   const hitCells = cellResults.filter(c => c.hit).map(c => ({ col: c.col, row: c.row }));
-  animateAttack(atkCells, []);
+  // ★ 즉시 오렌지 번쩍임 제거 — animateAttackCellEffect 가 ~4번째 프레임 시점에 대체
   playSfx('attack');
 
   // 아군 HP 스냅샷 — 상태 업데이트 전 캡처 (학살 영웅 friendly fire 감지용)
@@ -4222,22 +4315,40 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
     }
   })();
 
-  // ══ 공격 GIF 재생 완료 후 피격 판정 전체 시작 ══════════════════════════════
-  // 데미지·HP·사망·로그·토스트·추리토큰·렌더·애니메이션 전부 공격 GIF 종료 시점에 실행.
-  // 공격 GIF 없는 캐릭터 → Promise.resolve() → 지연 없이 즉시 실행.
-  // ★ 안전 장치: GIF Promise 가 어떤 이유로든 3초 안에 resolve 안 되면 강제 진행 (게임 고착 방지)
-  const _gifRace = _gifPromises.length > 0
-    ? Promise.race([...  _gifPromises, new Promise(res => setTimeout(res, 3000))])
-    : Promise.resolve();
-  _gifRace
-    .then(() => {
+  // ══ 공격 GIF ~4번째 프레임 시점에 공격 범위 이펙트 + 피격 판정 시작 ══════════
+  // GIF 프레임 타이밍 파싱 → 4번째 프레임 누적 시간에 attackCellEffect + 데미지 전체 실행.
+  // GIF 없는 캐릭터 → 200ms 폴백. ★ 안전 장치: 최대 3초.
+  // (공격 GIF 자체는 _gifPromises 를 통해 자체 cleanup — 여기선 타이밍만 참조)
+  const _atkPc2 = S.myPieces[pieceIdx];
+  const _atkTwin2 = (_atkPc2 && (_atkPc2.subUnit === 'elder' || _atkPc2.subUnit === 'younger'))
+    ? S.myPieces.find(p => p !== _atkPc2 && (p.subUnit === 'elder' || p.subUnit === 'younger')
+        && p.alive && p.col === _atkPc2.col && p.row === _atkPc2.row)
+    : null;
+  const _atkGifUrl = _atkPc2 ? _getAttackGifUrl(_atkPc2.type, _atkPc2.subUnit, !!_atkTwin2) : null;
+  const _frameP = _atkGifUrl
+    ? _fetchGifFrameTimings(_atkGifUrl)
+    : Promise.resolve({ totalMs: 0, frameDelays: [] });
+  _frameP.then(timings => {
+    const _IMPACT_FRAME = 3; // 0-indexed → 4번째 프레임
+    let _impactDelay;
+    if (timings.frameDelays.length > _IMPACT_FRAME) {
+      _impactDelay = timings.frameDelays[_IMPACT_FRAME];
+    } else if (timings.frameDelays.length > 0) {
+      _impactDelay = timings.frameDelays[timings.frameDelays.length - 1];
+    } else {
+      _impactDelay = ATTACK_IMPACT_DELAY; // GIF 없거나 파싱 실패 시 폴백 — 다른 시점과 동기화
+    }
+    _impactDelay = Math.min(_impactDelay, 3000);
+    setTimeout(() => {
       // ── 게임 상태 업데이트 ─────────────────────────────────────────────
       if (oppPieces) { S.oppPieces = oppPieces; }
       if (yourPieces) { S.myPieces = yourPieces; }
       pruneDeductionTokens();
 
       // ── 공격 로그 (💥/· 셀 마크) ───────────────────────────────────────
+      // ★ bodyguardRedirect 히트는 제외 — 충성으로 대신 맞은 호위무사 좌표를 공격자에게 노출하면 안 됨.
       for (const c of cellResults) {
+        if (c.bodyguardRedirect) continue;
         S.attackLog.push({ col: c.col, row: c.row, hit: c.hit, turn: S.turnNumber });
       }
 
@@ -4267,7 +4378,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         const hitOnly = messageHits.filter(h => !h.destroyed);
         if (hitOnly.length > 0) { playSfx('hit'); addLog(`${hitOnly.map(h => coord(h.col, h.row)).join(', ')} 명중`, 'hit'); }
         if (killed.length > 0) {
-          const labels = killed.map(h => `${h.revealedIcon||''}${h.revealedName||'유닛'}`).join(', ');
+          const labels = killed.map(h => `${pieceIconHtml(h.revealedIcon, {size:'1em'})}${h.revealedName||'유닛'}`).join(', ');
           playSfx('kill');
           showSkillToast(`${labels} 격파!`);
           addLog(`${killed.map(h => coord(h.col, h.row)).join(', ')} ${labels} 격파`, 'hit');
@@ -4279,7 +4390,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _attackKilled });
 
       // ── 추리 토큰 자동 배치 ─────────────────────────────────────────────
-      const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && c.defPieceIdx !== undefined);
+      // ★ bodyguardRedirect 도 제외 — 충성으로 대신 맞은 호위무사에 추리 토큰 자동 배치 금지.
+      const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && !c.bodyguardRedirect && c.defPieceIdx !== undefined);
       if (_meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
         const c = _meaningfulHits[0];
         let piece = null, pieceKey = null;
@@ -4328,7 +4440,12 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       renderMyPieces();
       renderOppPieces();
 
-      // ── 보드 피격 애니메이션 (셀 빨간 플래시·흔들림·아이콘 피격 GIF) ────
+      // ★ 공격 범위 셀 이펙트 발동 — renderGameBoard() 이후에 호출해야 함.
+      //   renderGameBoard() 가 cell.className = 'cell' 로 초기화하므로
+      //   렌더 전에 호출하면 .attack-cell-effect 클래스가 즉시 소실됨.
+      animateAttackCellEffect(atkCells);
+
+      // ── 보드 피격 애니메이션 (셀 빨간 플래시·바라보는 방향 흔들림·아이콘 피격 GIF) ────
       if (hitCells.length > 0) animateAttack([], hitCells);
 
       // ── 프로필 카드 피격 애니메이션 ──────────────────────────────────────
@@ -4360,14 +4477,16 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       // ── 쥐 격파 피드백 ──────────────────────────────────────────────────
       if (destroyedRats.length > 0) {
         const msg = ratDestroyMsg(destroyedRats, false);
-        showSkillToast(`🐀 ${msg}`);
-        addLog(`🐀 ${msg}`, 'hit');
+        showSkillToast(msg);
+        addLog(msg, 'hit');
         animateRatDestruction(destroyedRats, false);
       }
-    });
+    }, _impactDelay);
+  });
 });
 
 // ── 피격 ──
+let _beingAttackedSeq = 0;
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything }) => {
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
@@ -4394,126 +4513,107 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     }
   }
 
-  // ★ 사용자 요청 (fog-of-war 복원): 피격자(상대)는 공격 범위 셀을 볼 수 없어야 함.
-  //   atkCells 의 ·/딤 셀 마크는 같은 팀 (team_ally_hit/team_ally_attacked) 에서만 공유.
-  //   여기서는 hit 셀 빨간 플래시만 (피격자 본인의 말 위치 노출은 어차피 자신이 알고 있음).
+  // ★ 피격 판정 타이밍 동기화 — 공격자의 GIF 4번째 프레임(~520ms)과 일치시키기 위해
+  //   피격자도 ATTACK_IMPACT_DELAY 후에 피격 표시·상태 업데이트·로그/토스트를 실행.
+  //   'attack' SFX (공격 휘두름) 는 위에서 즉시 재생 → 임팩트는 딜레이 후.
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
-  animateAttack([], hitCells, true); // isDefending=true — 내 말이 피격됨
-  // attackLog 에는 명중 셀만 기록 (·/💥 셀 마크는 자신의 말이 맞은 곳만 — 빗나감 atkCells 누적 X)
-  for (const hc of hitCells) {
-    S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
-  }
+  const _capturedTurn = S.turnNumber;
+  const _mySeq = ++_beingAttackedSeq;
+  setTimeout(() => {
+    if (S.turnNumber !== _capturedTurn) return; // turn changed, skip stale update
+    if (_beingAttackedSeq !== _mySeq) return; // newer being_attacked arrived, skip
+    animateAttack([], hitCells, true); // isDefending=true — 내 말이 피격됨
+    // attackLog 에는 명중 셀만 기록
+    for (const hc of hitCells) {
+      S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
+    }
 
-  S.myPieces = yourPieces;
-  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
-  // 키 형식: 1v1 = 'my:idx' / 팀모드 = '${myPlayerIdx}:idx' (renderTeamProfiles 와 일치).
-  const _selfStampKey = (idx) => S.isTeamMode ? `${S.playerIdx}:${idx}` : `my:${idx}`;
-  for (const h of hitPieces) {
-    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-    if (dmg <= 0) continue;
-    if (h.bodyguardRedirect) {
-      // 호위무사가 대신 받은 1 피해 → 파란 충성 도장 (BG 카드)
-      let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
-      if (bgIdx < 0) {
-        bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
+    S.myPieces = yourPieces;
+    const _selfStampKey = (idx) => S.isTeamMode ? `${S.playerIdx}:${idx}` : `my:${idx}`;
+    for (const h of hitPieces) {
+      const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+      if (dmg <= 0) continue;
+      if (h.bodyguardRedirect) {
+        let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
+        if (bgIdx < 0) {
+          bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
+        }
+        if (bgIdx < 0) continue;
+        addLoyaltyDamage(_selfStampKey(bgIdx), dmg);
+      } else if (!h.redirectedToBodyguard) {
+        let pieceIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
+        if (pieceIdx < 0) {
+          pieceIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row);
+        }
+        if (pieceIdx < 0) continue;
+        addBodyDamage(_selfStampKey(pieceIdx), dmg);
       }
-      if (bgIdx < 0) continue;
-      addLoyaltyDamage(_selfStampKey(bgIdx), dmg);
-    } else if (!h.redirectedToBodyguard) {
-      // 본체 직접 피해 → 빨간 도장 (피격 카드)
-      let pieceIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
-      if (pieceIdx < 0) {
-        pieceIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row);
+    }
+    const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+    const directHits = meaningfulHits.filter(h => !h.bodyguardRedirect);
+    const _myDestroyedRatsFlag = (myDestroyedRats && myDestroyedRats.length > 0);
+    const _attackerHadAnyImpact = !!attackerImpactedAnything || _myDestroyedRatsFlag;
+    if (hitPieces.length === 0) {
+      if (!_attackerHadAnyImpact) {
+        addLog(`${oppN()} 공격 빗나감`, 'miss');
+        showSkillToast(`${oppN()} 공격 빗나감`, true);
       }
-      if (pieceIdx < 0) continue;
-      addBodyDamage(_selfStampKey(pieceIdx), dmg);
-    }
-  }
-  // 호위무사 가로채기 / 0데미지 비격파 hit은 토스트·로그 생략
-  const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
-  // ★ directHits = 본체로 직접 피해를 받은 hit (호위무사 가로채기 제외).
-  //    "공격받았습니다!" 토스트는 본체 직접 피격이 있을 때만 출력.
-  //    호위무사가 모두 가로챈 경우는 passive_alert("🛡 충성: ...") 가 알림 담당.
-  const directHits = meaningfulHits.filter(h => !h.bodyguardRedirect);
-  // ★ 사용자 요청: 공격자가 무언가 임팩트 (학살영웅 friendly fire / 자기쥐 / 적쥐) 를 입힌 경우 빗나감 출력 X.
-  //    내 쥐가 격파됐어도 무언가 일어난 것이므로 빗나감 X.
-  const _myDestroyedRatsFlag = (myDestroyedRats && myDestroyedRats.length > 0);
-  const _attackerHadAnyImpact = !!attackerImpactedAnything || _myDestroyedRatsFlag;
-  if (hitPieces.length === 0) {
-    if (!_attackerHadAnyImpact) {
-      addLog(`${oppN()} 공격 빗나감`, 'miss');
-      showSkillToast(`${oppN()} 공격 빗나감`, true);
-    }
-  } else if (directHits.length > 0) {
-    // 본체에 직접 피격 발생.
-    // ★ 사용자 요청: 사망 시 사망 토스트가 곧 피격 시그널 → 공격받았습니다 토스트 중복 제거.
-    //   대칭성 — 공격자는 [격파!] 토스트, 피격자는 [격파됨] 토스트.
-    //   사망 없을 때만 [공격받았습니다!] 토스트.
-    const killedSelf = directHits.filter(h => h.destroyed);
-    const hitOnlySelf = directHits.filter(h => !h.destroyed);
-    if (killedSelf.length > 0) playSfx('kill');
-    else if (hitOnlySelf.length > 0) playSfx('hit');
-    if (killedSelf.length === 0) {
-      showSkillToast(`공격받았습니다!`, true);
-    }
-    if (hitOnlySelf.length > 0) {
-      const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      addLog(`${hitLabels} 피격`, 'hit');
-    }
-    // 사망 — 토스트 + 로그 즉시 (공격자 측 [격파!] 와 동일 문구 통일, 사용자 요청).
-    if (killedSelf.length > 0) {
-      const killedLabels = killedSelf.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
-      showSkillToast(`${killedLabels} 격파!`, true);
-      addLog(`${killedLabels} 격파`, 'hit');
-    }
-  }
-  // ★ "공격받았습니다!" (있으면) 출력 후 → 방어형 패시브 알림(충성·폭정·아이언스킨·가호) flush.
-  //   directHits 가 0 일 때는 (BG-only intercept) 위에서 토스트 안 나갔지만 패시브는 여전히 flush.
-  const _selfKilled = directHits.some(h => h.destroyed);
-  if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _selfKilled });
-  // 피격 유닛 인덱스 — 본체 애니메이션은 의미 있는 피격에 한정 (가로채기·0데미지 제외)
-  const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
-  // 보호됨 유닛 — 0 피해 + !destroyed. 그림자 상태는 피격 정보 자체를 숨기므로 제외
-  const isShadowMine = (h) => {
-    const p = (S.myPieces || []).find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
-    return p && (p.statusEffects || []).some(e => e.type === 'shadow');
-  };
-  const protectedHits = hitPieces.filter(h => h.damage === 0 && !h.destroyed && !isShadowMine(h));
-  const protectedIndices = findPieceIndices(S.myPieces, protectedHits);
-
-  renderGameBoard();
-  renderMyPieces();
-
-  // 피격 유닛 프로필 흔들림 + 금색 플래시
-  if (!S.isTeamMode) {
-    applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
-    applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
-    // ★ 사용자 요청: 데미지 0 도장 출력 (보호됨 시각화).
-    for (const i of protectedIndices) addProtectedHit(`my:${i}`);
-  } else {
-    // 팀모드 — being_attacked 의 victim 은 항상 본인. 본인 player-idx + piece-idx 로 정확 매핑.
-    for (const i of protectedIndices) {
-      applyProtectedAnimTeam(S.playerIdx, i);
-      addProtectedHit(`${S.playerIdx}:${i}`);
-    }
-    // ★ 사용자 보고 (팀모드 피격 애니 누락): 1v1 에서는 applyProfileHitAnim 으로 처리되나
-    //   팀모드 분기에 applyHitFlashWithBrighten 이 없어 공격받아도 카드가 안 흔들림.
-    //   team_game_update 에 위임하면 애니 타이밍이 늦어 즉각 피드백이 안 보임 → 직접 처리.
-    requestAnimationFrame(() => {
-      for (const i of hitIndices) {
-        const card = document.querySelector(`.team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${i}"]`);
-        if (card) applyHitFlashWithBrighten(card);
+    } else if (directHits.length > 0) {
+      const killedSelf = directHits.filter(h => h.destroyed);
+      const hitOnlySelf = directHits.filter(h => !h.destroyed);
+      if (killedSelf.length > 0) playSfx('kill');
+      else if (hitOnlySelf.length > 0) playSfx('hit');
+      if (killedSelf.length === 0) {
+        showSkillToast(`공격받았습니다!`, true);
       }
-    });
-  }
+      if (hitOnlySelf.length > 0) {
+        const hitLabels = hitOnlySelf.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
+        addLog(`${hitLabels} 피격`, 'hit');
+      }
+      if (killedSelf.length > 0) {
+        const killedLabels = killedSelf.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
+        showSkillToast(`${killedLabels} 격파!`, true);
+        addLog(`${killedLabels} 격파`, 'hit');
+      }
+    }
+    const _selfKilled = directHits.some(h => h.destroyed);
+    if (typeof flushDefensiveAlerts === 'function') flushDefensiveAlerts({ skipReduction: _selfKilled });
+    const hitIndices = findPieceIndices(S.myPieces, meaningfulHits);
+    const isShadowMine = (h) => {
+      const p = (S.myPieces || []).find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
+      return p && (p.statusEffects || []).some(e => e.type === 'shadow');
+    };
+    const protectedHits = hitPieces.filter(h => h.damage === 0 && !h.destroyed && !isShadowMine(h));
+    const protectedIndices = findPieceIndices(S.myPieces, protectedHits);
 
-  // 쥐 격파 피드백
-  if (myDestroyedRats.length > 0) {
-    const msg = ratDestroyMsg(myDestroyedRats, true);
-    showSkillToast(`🐀 ${msg}`, true);
-    addLog(`🐀 ${msg}`, 'hit');
-    animateRatDestruction(myDestroyedRats, true);
-  }
+    renderGameBoard();
+    renderMyPieces();
+
+    if (!S.isTeamMode) {
+      applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
+      applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
+      for (const i of protectedIndices) addProtectedHit(`my:${i}`);
+    } else {
+      for (const i of protectedIndices) {
+        applyProtectedAnimTeam(S.playerIdx, i);
+        addProtectedHit(`${S.playerIdx}:${i}`);
+      }
+      requestAnimationFrame(() => {
+        for (const i of hitIndices) {
+          const card = document.querySelector(`.team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${i}"]`);
+          if (card) applyHitFlashWithBrighten(card);
+        }
+      });
+    }
+
+    // 쥐 격파 피드백
+    if (myDestroyedRats.length > 0) {
+      const msg = ratDestroyMsg(myDestroyedRats, true);
+      showSkillToast(msg, true);
+      addLog(msg, 'hit');
+      animateRatDestruction(myDestroyedRats, true);
+    }
+  }, ATTACK_IMPACT_DELAY);
 });
 
 // ── SP 업데이트 ──
@@ -4589,10 +4689,8 @@ function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {
   }
   if (!oldSp || !newSp) return;
   // 가드 ON — 애니 진행 중 외부 updateSPBar 가 큰 숫자/pip 트레이를 NEW 값으로 덮어쓰지 못하게.
-  // ★ 연속 스킬 시 타이머가 무한 연장되는 문제 방지: 최초 가드 시작 시간 기준으로 최대 5초 유지.
-  if (!S._spAnimGuard) {
-    S._spAnimGuardStart = Date.now();
-  }
+  // C-11: 매 스킬 시전마다 가드 시작 시간 갱신 — 5초 cap 이 최초 시점 기준으로 고정되지 않도록.
+  S._spAnimGuardStart = Date.now();
   S._spAnimGuard = true;
   if (S._spAnimGuardTimer) clearTimeout(S._spAnimGuardTimer);
   const _maxGuardRemain = Math.max(0, 5000 - (Date.now() - (S._spAnimGuardStart || 0)));
@@ -5253,7 +5351,7 @@ function spawnSpOrbVanish(from, kind) {
 //
 // ★ 디버그 미리보기 — 실제 게임 흐름과 무관하게 비행 + SFX 만 미리 재생.
 //   콘솔에서 `previewTwinJoin()` 호출. 게임 보드가 있으면 그 위에서, 없으면 화면 가운데에서 임의 좌표로 비행.
-window.previewTwinJoin = function(moverIcon = '👦') {
+window.previewTwinJoin = function(moverSub = 'younger') {
   const board = document.getElementById('game-board');
   if (board && board.querySelectorAll('.cell').length >= 2) {
     // 보드 위에서 비행 — 임의의 두 셀 선택
@@ -5263,17 +5361,20 @@ window.previewTwinJoin = function(moverIcon = '👦') {
     const fromCol = parseInt(fromCell.dataset.col), fromRow = parseInt(fromCell.dataset.row);
     const toCol = parseInt(toCell.dataset.col), toRow = parseInt(toCell.dataset.row);
     try { if (typeof playSfxTwinsJoin === 'function') playSfxTwinsJoin(); } catch(e) {}
-    playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow);
-    return `Flying ${moverIcon} from (${fromCol},${fromRow}) → (${toCol},${toRow})`;
+    playTwinJoinFlight(moverSub, fromCol, fromRow, toCol, toRow);
+    return `Flying twins(${moverSub}) from (${fromCol},${fromRow}) → (${toCol},${toRow})`;
   }
   // 보드 없을 때 — 화면 좌→우로 비행 (셀 없이 fixed 좌표 사용 위해 임시 가짜 호출)
   const W = window.innerWidth, H = window.innerHeight;
   const fromX = W * 0.25, fromY = H * 0.5;
   const toX = W * 0.75, toY = H * 0.5;
   // playTwinJoinFlight 는 셀 기반이라 fallback 으로 직접 비행 객체 생성
+  const _moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('twins', moverSub) : null;
+  const _imgStyle = 'width:100%;height:100%;object-fit:contain;image-rendering:pixelated;' +
+    'filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));';
   const flyer = document.createElement('div');
   flyer.className = 'twin-join-flyer';
-  flyer.textContent = moverIcon;
+  flyer.innerHTML = _moveUrl ? `<img src="${_moveUrl}" alt="" style="${_imgStyle}" draggable="false">` : '';
   flyer.style.left = fromX + 'px';
   flyer.style.top = fromY + 'px';
   document.body.appendChild(flyer);
@@ -5284,7 +5385,7 @@ window.previewTwinJoin = function(moverIcon = '👦') {
     const r = flyer.getBoundingClientRect();
     const ghost = document.createElement('div');
     ghost.className = 'twin-join-trail';
-    ghost.textContent = moverIcon;
+    ghost.innerHTML = flyer.innerHTML;
     ghost.style.left = (r.left + r.width / 2) + 'px';
     ghost.style.top = (r.top + r.height / 2) + 'px';
     document.body.appendChild(ghost);
@@ -5301,10 +5402,10 @@ window.previewTwinJoin = function(moverIcon = '👦') {
     else { clearInterval(trailIv); flyer.classList.add('twin-join-arrive'); setTimeout(() => flyer.remove(), 320); }
   }
   requestAnimationFrame(step);
-  return `Preview flight ${moverIcon} (no board)`;
+  return `Preview flight twins(${moverSub}) (no board)`;
 };
 
-function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
+function playTwinJoinFlight(moverSub, fromCol, fromRow, toCol, toRow) {
   const board = document.getElementById('game-board');
   if (!board) return;
   const fromCell = board.querySelector(`.cell[data-col="${fromCol}"][data-row="${fromRow}"]`);
@@ -5322,10 +5423,18 @@ function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
   const toX   = toR.left   + toR.width    / 2;
   const toY   = toR.top    + toR.height   / 2;
 
-  // 비행 객체 (이모지 자체)
+  // ★ 이동 PNG 로 비행 객체 생성 (이모지 대체)
+  const _moverMoveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('twins', moverSub) : null;
+  const _joinedIdleUrl = window.PIECE_GIFS && window.PIECE_GIFS.twins_joined;
+  const _imgStyle = 'width:100%;height:100%;object-fit:contain;image-rendering:pixelated;' +
+    'filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));';
+  const _flyerImgHtml = _moverMoveUrl
+    ? `<img src="${_moverMoveUrl}" alt="" style="${_imgStyle}" draggable="false">`
+    : (moverSub || '');
+
   const flyer = document.createElement('div');
   flyer.className = 'twin-join-flyer';
-  flyer.textContent = moverIcon;
+  flyer.innerHTML = _flyerImgHtml;
   flyer.style.left = fromX + 'px';
   flyer.style.top  = fromY + 'px';
   document.body.appendChild(flyer);
@@ -5352,7 +5461,7 @@ function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
     const r = flyer.getBoundingClientRect();
     const ghost = document.createElement('div');
     ghost.className = 'twin-join-trail';
-    ghost.textContent = moverIcon;
+    ghost.innerHTML = _flyerImgHtml;
     ghost.style.left = (r.left + r.width / 2) + 'px';
     ghost.style.top  = (r.top  + r.height / 2) + 'px';
     document.body.appendChild(ghost);
@@ -5385,8 +5494,10 @@ function playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow) {
       requestAnimationFrame(step);
     } else {
       clearInterval(trailIv);
-      // ★ 사용자 요청: 도착 펄스는 mover 가 아닌 합류 이모지(👫) 로 표시.
-      flyer.textContent = '👫';
+      // ★ 도착 펄스 — 합류 상태 이미지 (twins_joined idle GIF) 로 표시.
+      if (_joinedIdleUrl) {
+        flyer.innerHTML = `<img src="${_joinedIdleUrl}" alt="" style="${_imgStyle}" draggable="false">`;
+      }
       flyer.classList.add('twin-join-arrive');
       setTimeout(() => flyer.remove(), 320);
     }
@@ -5980,7 +6091,7 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
     // 1v1: e.owner === S.playerIdx 면 내 편, 아니면 적 편
     // 팀전: e.owner의 팀이 내 팀이면 내 편, 아니면 적 편
     // 관전자: 팀/플레이어 인덱스 0,1 별로 분리
-    const formatGroup = (group) => group.map(e => `${e.icon}${e.name}`).join(', ');
+    const formatGroup = (group) => group.map(e => `${pieceIconHtml(e.icon, {size:'1em'})}${e.name}`).join(', ');
     if (S.isSpectator) {
       // 관전자는 두 팀(또는 두 플레이어)로 분리. 사용자 #24: 토스트 X, 로그만.
       const groups = new Map();
@@ -6158,6 +6269,7 @@ function playBoardQuake() {
 //   ③ 화면 dim 해제 (밝아짐)
 //   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx }) => {
+  const _skillTeamSeq = _teamUpdateSeq; // C-10: capture sequence at event time
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -6208,18 +6320,18 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   // ★ 분신 비행 애니메이션 — msg 가 "👫 분신" 으로 시작하면 mover 가 잔상 남기며 target 으로 빠르게 비행.
   //   비교: OLD S.myPieces 위치 vs NEW yourPieces 위치 → 좌표가 변한 쪽이 mover.
   //   비행 동안 mover 의 piece-marker 는 visibility:hidden, 도착 시 보드 재렌더로 합류 emoji 출현.
-  if (msg && msg.indexOf('👫 분신') === 0 && yourPieces && typeof playTwinJoinFlight === 'function') {
+  if (msg && msg.indexOf('분신') >= 0 && yourPieces && typeof playTwinJoinFlight === 'function') {
     const oldElder   = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
     const oldYounger = (S.myPieces || []).find(p => p.subUnit === 'younger' && p.alive);
     const newElder   = (yourPieces || []).find(p => p.subUnit === 'elder' && p.alive);
     const newYounger = (yourPieces || []).find(p => p.subUnit === 'younger' && p.alive);
-    let moverIcon = null, fromCol, fromRow, toCol, toRow;
+    let moverSub = null, fromCol, fromRow, toCol, toRow;
     if (oldElder && newElder && (oldElder.col !== newElder.col || oldElder.row !== newElder.row)) {
-      moverIcon = '👧'; fromCol = oldElder.col; fromRow = oldElder.row; toCol = newElder.col; toRow = newElder.row;
+      moverSub = 'elder'; fromCol = oldElder.col; fromRow = oldElder.row; toCol = newElder.col; toRow = newElder.row;
     } else if (oldYounger && newYounger && (oldYounger.col !== newYounger.col || oldYounger.row !== newYounger.row)) {
-      moverIcon = '👦'; fromCol = oldYounger.col; fromRow = oldYounger.row; toCol = newYounger.col; toRow = newYounger.row;
+      moverSub = 'younger'; fromCol = oldYounger.col; fromRow = oldYounger.row; toCol = newYounger.col; toRow = newYounger.row;
     }
-    if (moverIcon) playTwinJoinFlight(moverIcon, fromCol, fromRow, toCol, toRow);
+    if (moverSub) playTwinJoinFlight(moverSub, fromCol, fromRow, toCol, toRow);
   }
 
   // ★ 통일된 시퀀스 — SP 오브 비행 종료 시점에 SFX/보드 효과/토스트/로그 동시 발사.
@@ -6279,9 +6391,13 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         }
       }
 
-      renderGameBoard();
-      renderMyPieces();
-      renderOppPieces();
+      // C-10: team mode — skip redundant render if team_game_update already applied newer state
+      const _skipTeamRender = S.isTeamMode && _teamUpdateSeq !== _skillTeamSeq;
+      if (!_skipTeamRender) {
+        renderGameBoard();
+        renderMyPieces();
+        renderOppPieces();
+      }
       if (S.isMyTurn) showActionBar(true);
 
       if (!S.isTeamMode) {
@@ -6354,7 +6470,31 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       const hitsData = data && Array.isArray(data.hits) ? data.hits : null;
       if (hitsData && hitsData.length > 0) {
         const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-        if (cells.length > 0) animateAttack([], cells);
+        // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
+        if (cells.length > 0) {
+          const _hasLava = data && Array.isArray(data.borderCells) && data.borderCells.length > 0;
+          if (_hasLava) {
+            setTimeout(() => { animateAttack([], cells); }, 1100);
+          } else {
+            animateAttack([], cells);
+          }
+        }
+
+        // ★ attackLog 기록 — 보드 위 💥/· 셀 마크 (시전자 시점)
+        //   borderCells 가 있으면 (유황범람 등) 전체 공격 범위 기록 (빗나감 · + 명중 💥).
+        //   borderCells 가 없으면 (악몽 등) hit 셀만 기록.
+        const _hitSet = new Set(cells.map(c => `${c.col},${c.row}`));
+        if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0) {
+          for (const bc of data.borderCells) {
+            S.attackLog.push({ col: bc.col, row: bc.row, hit: _hitSet.has(`${bc.col},${bc.row}`), turn: S.turnNumber });
+          }
+        } else {
+          for (const c of cells) {
+            S.attackLog.push({ col: c.col, row: c.row, hit: true, turn: S.turnNumber });
+          }
+        }
+        renderGameBoard(); // attackLog 마커 즉시 반영
+
         // ★ 사용자 보고 (유황범람 누락): 데미지 스킬 hits 도 일반 공격처럼 hit/kill SFX 발생.
         const _meaningfulSkillHits = hitsData.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
         const _hasKillSkill = _meaningfulSkillHits.some(h => h.destroyed);
@@ -6394,7 +6534,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         // ★ 사용자 요청: 2명 이상 피격 시 (사망 포함) 자동 추리 토큰 배치 절대 X.
         //   "여러 명 동시 피격" 정보 자체가 추리 단서 — 자동 노출 금지.
         //   이전 버그: aliveHits (사망 제외) 만 카운트 → 2 hit 중 1 사망 → length=1 → 토큰 자동 배치.
-        const meaningfulHits = hitsData.filter(h => !h.redirectedToBodyguard && h.defPieceIdx !== undefined);
+        // ★ bodyguardRedirect 도 제외 — 충성으로 대신 맞은 호위무사에 추리 토큰 자동 배치 금지.
+        const meaningfulHits = hitsData.filter(h => !h.redirectedToBodyguard && !h.bodyguardRedirect && h.defPieceIdx !== undefined);
         if (meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
           const c = meaningfulHits[0];
           let piece = null;
@@ -6450,8 +6591,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
-    const moverIcon = twinJoin.moverSub === 'elder' ? '👧' : '👦';
-    playTwinJoinFlight(moverIcon, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
+    const moverSub = twinJoin.moverSub || 'elder';
+    playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
   }
 
   // 마법구 비행 + dim 오버레이 — skill_result(시전자) 와 동일한 시퀀스로 재현.
@@ -6486,7 +6627,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
   //   ★ 기폭 msg 는 HP/보드/도장/profile-hit 도 모두 스킵 — bomb_detonated 가 폭발 순간에 처리.
   //     (사용자 요청: 폭탄 피해는 폭발 순간 즉시 처리, 사전 토스트 시점에 미리 노출 X.)
-  const _isDetonateMsg = msg && msg.indexOf('💥기폭') === 0;
+  const _isDetonateMsg = msg && msg.indexOf('기폭') === 0;
   setTimeout(() => {
     if (msg && !_isDetonateMsg) {
       const sfxRoute = pickSkillSfxByMsg(msg);
@@ -6569,7 +6710,21 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       //   server status_update 가 hits 를 보내며, defPieceIdx 는 받는 쪽의 yourPieces (= S.myPieces) 인덱스.
       if (Array.isArray(hits) && hits.length > 0) {
         const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
-        if (hitCells.length > 0) animateAttack([], hitCells);
+        // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
+        if (hitCells.length > 0) {
+          const _hasLava = Array.isArray(borderCells) && borderCells.length > 0;
+          if (_hasLava) {
+            setTimeout(() => { animateAttack([], hitCells); }, 1100);
+          } else {
+            animateAttack([], hitCells);
+          }
+        }
+        // ★ attackLog 기록 — 보드 위 💥/· 셀 마크 (1v1 상대 시점 — 피격자)
+        //   being_attacked 와 동일: hit 셀만 💥 기록. 빗나감 atkCells 는 피격자에게 비공개.
+        for (const c of hitCells) {
+          S.attackLog.push({ col: c.col, row: c.row, hit: true, turn: S.turnNumber });
+        }
+        renderGameBoard(); // attackLog 마커 즉시 반영
         let _stampsAdded = false;
         for (const h of hits) {
           const dmg = (typeof h.damage === 'number') ? h.damage : 0;
@@ -6626,9 +6781,9 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 socket.on('scout_result', ({ axis, value, targetName }) => {
   const label = axis === 'row' ? `${ROW_LABELS[value] || value}열` : `${value+1}행`;
   if (typeof playSfxScout === 'function') playSfxScout(); else playSfx('skill');
-  // 인벤토리 E1 본인 셀: "🔭 정찰: 상대 [target]의 위치는 [label]"
-  addLog(`🔭 정찰: 상대 ${targetName}의 위치는 ${label}`, 'skill');
-  showSkillToast(`🔭 정찰: 상대 ${targetName}의 위치는 ${label}`);
+  // 인벤토리 E1 본인 셀: "정찰: 상대 [target]의 위치는 [label]"
+  addLog(`정찰: 상대 ${targetName}의 위치는 ${label}`, 'skill');
+  showSkillToast(`정찰: 상대 ${targetName}의 위치는 ${label}`);
 });
 
 // ── 쥐 소환 ──
@@ -6648,14 +6803,14 @@ socket.on('rats_spawned', ({ rats, owner, spCost, casterCol, casterRow }) => {
   setTimeout(() => {
     if (typeof playSfxRatSummon === 'function') playSfxRatSummon(); else playSfx('skill');
     if (isMine) {
-      addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
-      showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
+      addLog(`역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
+      showSkillToast(`역병의 자손들: 쥐 ${rats.length}마리 소환`);
     } else if (isAlly) {
-      addLog(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
-      showSkillToast(`🐀 역병의 자손들: 쥐 ${rats.length}마리 소환`);
+      addLog(`역병의 자손들: 쥐 ${rats.length}마리 소환`, 'skill');
+      showSkillToast(`역병의 자손들: 쥐 ${rats.length}마리 소환`);
     } else {
-      addLog(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
-      showSkillToast(`🐀 역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
+      addLog(`역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, 'skill');
+      showSkillToast(`역병의 자손들: 상대가 쥐 소환. 쥐는 공격으로 제거 가능`, true);
     }
     // ★ 쥐 비행 애니메이션 + 셀 보라 마크 — rat-anim.js 의 generic animateRatSpawn 호출.
     //   game 전용 state (viewerIdx, marksArr, turnNumber, onLanded) 를 opts 로 주입.
@@ -6693,11 +6848,11 @@ socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
 
   setTimeout(() => {
     if (isMine || isAlly) {
-      addLog(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
-      showSkillToast(`🐉 드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
+      addLog(`드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
+      showSkillToast(`드래곤 소환: ${coord(dragon.col,dragon.row)}에 드래곤 소환`);
     } else {
-      addLog(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
-      showSkillToast(`🐉 드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, true);
+      addLog(`드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, 'skill');
+      showSkillToast(`드래곤 소환: 상대가 ${coord(dragon.col,dragon.row)}에 드래곤 소환`, true);
     }
     // ★ 강림 애니메이션 — 거대 광주 + 천둥 + 드래곤 즉시 등장. SFX 는 animateDragonSummon 내부에서 재생.
     if (typeof animateDragonSummon === 'function') {
@@ -6716,7 +6871,7 @@ socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
         // 팀모드는 oppPieces 의 piece 가 ownerIdx 를 갖고, 1v1 은 안 가짐.
         const pieceKey = S.isTeamMode ? `dragon:@${owner}` : `dragon:`;
         S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === dragon.col && t.row === dragon.row));
-        S.deductionTokens.push({ pieceKey, icon: '🐲', name: '드래곤', col: dragon.col, row: dragon.row });
+        S.deductionTokens.push({ pieceKey, icon: '/assets/icons/dragon.png', name: '드래곤', col: dragon.col, row: dragon.row });
       } catch (e) {}
     }
   }, SP_END_MS);
@@ -6782,7 +6937,10 @@ function animateDragonSummon(col, row, owner) {
   // 6. 드래곤 즉시 등장 — 빛이 사라지면서 거대 → 정상 크기로 수축. 처음부터 자리에 있음.
   const dragon = document.createElement('div');
   dragon.className = 'dragon-revealed';
-  dragon.textContent = '🐲';
+  const _dragonMoveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('dragon') : null;
+  if (_dragonMoveUrl) {
+    dragon.innerHTML = `<img src="${_dragonMoveUrl}" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+  }
   stage.appendChild(dragon);
 
   // 7. SFX — 거대 천둥 한 방 (드래곤 강림 SFX 가 천둥 + 으르렁을 모두 포함)
@@ -6877,8 +7035,8 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
   // ★ 1v1 관전자 — 별도 처리: spectator 의 S.myPieces/oppPieces 가 비어있어 일반 경로가 무동작.
   //   victimOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
   if (S.isSpectator && !S.isTeamMode) {
-    addLog(`🪤 덫 발동!`, 'hit');
-    showSkillToast(`🪤 덫 발동!`);
+    addLog(`덫 발동!`, 'hit');
+    showSkillToast(`덫 발동!`);
     S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
     animateAttack([], [{ col, row }]);
     if (victimOwnerIdx != null) {
@@ -6900,8 +7058,8 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
     return;
   }
 
-  // 인벤토리 E7 트랩 발동 — `🪤 덫 발동!` 모두 동일 (원본 유지)
-  const msg = `🪤 덫 발동!`;
+  // 인벤토리 E7 트랩 발동
+  const msg = `덫 발동!`;
   addLog(msg, 'hit');
   showSkillToast(msg);
   S.attackLog.push({ col, row, hit: true, turn: S.turnNumber });
@@ -7316,7 +7474,7 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
         addBodyDamage(key, dmg);
       }
       if (h.name) {
-        const label = h.icon ? `${h.icon}${h.name}` : h.name;
+        const label = h.icon ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : h.name;
         if (h.destroyed) _killedLabelsSpec.push(label);
         else if (dmg > 0) _hurtLabelsSpec.push(label);
       }
@@ -7348,7 +7506,7 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   for (const h of hits) {
     S.attackLog.push({ col: h.col, row: h.row, hit: true, turn: S.turnNumber });
     if (h.name) {
-      const label = h.icon ? `${h.icon}${h.name}` : h.name;
+      const label = h.icon ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : h.name;
       if (h.destroyed) _killedLabels.push(label);
       else if (typeof h.damage === 'number' && h.damage > 0) _hurtLabels.push(label);
     }
@@ -7922,7 +8080,7 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
         const pc = pcs[0];
         cell.classList.add('has-piece');
         // 인게임 piece-marker 와 동일 마크업
-        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pc.icon}</span><span class="p-hp">${pc.hp}</span></div>`;
+        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span><span class="p-hp">${pc.hp}</span></div>`;
       }
       const objHere = (objects || []).find(o => o.col === realCol && o.row === realRow);
       if (objHere) {
@@ -8412,14 +8570,12 @@ function buildDraftStepUI() {
   // 아이콘 인덱스 생성
   const iconIndex = document.getElementById('draft-icon-index');
   if (iconIndex) {
-    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
     iconIndex.innerHTML = '';
     chars.forEach((c, i) => {
       const btn = document.createElement('button');
       btn.className = 'icon-index-btn';
       btn.title = c.name;
-      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
-      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.innerHTML = `<span class="icon-index-emoji">${pieceIconHtml(c.icon, {size:'1.1em'})}</span>`;
       btn.addEventListener('click', () => goToSlide(i));
       iconIndex.appendChild(btn);
     });
@@ -8451,7 +8607,7 @@ function buildDraftStepUI() {
 function populateSlideContent(c, prefix) {
   // 아이콘 / 이름 + 태그 / ATK / 미니 헤더
   const iconEl = document.getElementById(`${prefix}-icon`);
-  if (iconEl) iconEl.textContent = c.icon;
+  if (iconEl) iconEl.innerHTML = pieceIconHtml(c.icon, {size:'1.4em'});
   const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
   const nameEl = document.getElementById(`${prefix}-name`);
   if (nameEl) nameEl.innerHTML = `<span>${c.name}</span>${tagHtml}`;
@@ -8684,7 +8840,7 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     S.teamDraft[slot] = c.type;
     socket.emit('team_draft_pick', { slot, type: c.type });
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name} 선택 완료`, false, undefined, 'event');
+    showSkillToast(`${c.name} 선택 완료`, false, undefined, 'event');
     draftUpdateSelectionState();
     return;
   }
@@ -8698,7 +8854,7 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   socket.emit('draft_browse', { step, type: c.type, selected: { ...S.draftSelected } });
   if (!isDuplicate) {
     playSfxCharSelect();
-    showSkillToast(`${c.icon} ${c.name} 선택 완료`, false, undefined, 'event');
+    showSkillToast(`${c.name} 선택 완료`, false, undefined, 'event');
   }
 });
 
@@ -8895,7 +9051,7 @@ function updateDraftPreview(charData, opts = {}) {
         cell.className = 'cell';
         cell.innerHTML = '';
         if (col === centerCol && row === centerRow) {
-          cell.innerHTML = `<span style="font-size:1.1rem">👫</span>`;
+          cell.innerHTML = pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.twins) || '/assets/icons/twins.png', {size:'1.1rem'});
           cell.classList.add('has-piece');
         }
         const inE = elderSet.has(`${col},${row}`);
@@ -8920,8 +9076,8 @@ function updateDraftPreview(charData, opts = {}) {
       cell.innerHTML = '';
       if (col === centerCol && row === centerRow) {
         let centerIcon = charData.icon;
-        if (skill.showDragonOnly) centerIcon = '🐲';
-        cell.innerHTML = `<span style="font-size:1.1rem">${centerIcon}</span>`;
+        if (skill.showDragonOnly) centerIcon = (window.PIECE_ICONS && window.PIECE_ICONS.dragon) || '/assets/icons/dragon.png';
+        cell.innerHTML = `<span style="font-size:1.1rem">${pieceIconHtml(centerIcon, {size:'1.1rem'})}</span>`;
         cell.classList.add('has-piece');
       } else if (ratSet && ratSet.has(`${col},${row}`)) {
         // 실제 게임처럼 작게 + 우상단 코너에 배치
@@ -8988,7 +9144,7 @@ function updateDraftPreview(charData, opts = {}) {
 
     const inRange = range.some(c => c.col === col && c.row === row);
     if (col === centerCol && row === centerRow) {
-      cell.innerHTML = `<span style="font-size:1.1rem">${charData.icon}</span>`;
+      cell.innerHTML = `<span style="font-size:1.1rem">${pieceIconHtml(charData.icon, {size:'1.1rem'})}</span>`;
       cell.classList.add('has-piece');
       // 제자리 공격범위 추가 강조 제거 — 쌍둥이처럼 attack-range 단일 표현으로 통일.
     }
@@ -9063,7 +9219,7 @@ function renderDraftSlots() {
       const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
       slot.innerHTML = `
         <span class="slot-tier">${tier}티어</span>
-        <span class="slot-icon">${c.icon}</span>
+        <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
           <span class="slot-name">${c.name} ${tagHtml}</span>
           <span class="slot-stats">ATK ${c.atk}</span>
@@ -9193,9 +9349,9 @@ document.getElementById('btn-draft-random').addEventListener('click', () => {
   document.getElementById('random-confirm-body').innerHTML = `
     <p style="margin-bottom:14px;color:var(--muted)">캐릭터를 랜덤 선택합니다.</p>
     <div class="random-pick-list">
-      <div class="random-pick-item"><span class="random-tier">1티어</span> ${t1.icon} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}</div>
-      <div class="random-pick-item"><span class="random-tier">2티어</span> ${t2.icon} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}</div>
-      <div class="random-pick-item"><span class="random-tier">3티어</span> ${t3.icon} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}</div>
+      <div class="random-pick-item"><span class="random-tier">1티어</span> ${pieceIconHtml(t1.icon, {size:'1.2em'})} <strong>${t1.name}</strong> ${buildMiniHeaders(t1)}</div>
+      <div class="random-pick-item"><span class="random-tier">2티어</span> ${pieceIconHtml(t2.icon, {size:'1.2em'})} <strong>${t2.name}</strong> ${buildMiniHeaders(t2)}</div>
+      <div class="random-pick-item"><span class="random-tier">3티어</span> ${pieceIconHtml(t3.icon, {size:'1.2em'})} <strong>${t3.name}</strong> ${buildMiniHeaders(t3)}</div>
     </div>
   `;
   modal.classList.remove('hidden');
@@ -9296,7 +9452,7 @@ document.getElementById('btn-draft-recommend').addEventListener('click', () => {
             const c = findChar(p.type);
             return c ? `<div class="recommend-pick">
               <span class="recommend-pick-tier">${p.tier}티어</span>
-              <span class="recommend-pick-icon">${c.icon}</span>
+              <span class="recommend-pick-icon">${pieceIconHtml(c.icon, {size:'1.2em'})}</span>
               <strong>${c.name}</strong>
               <span class="recommend-pick-reason">${p.reason}</span>
             </div>` : '';
@@ -9351,7 +9507,7 @@ function buildHpUI() {
       ? tagBadgeHtml(charData.tag)
       : '';
     row.innerHTML = `
-      <span class="char-icon">${charData.icon}</span>
+      <span class="char-icon">${pieceIconHtml(charData.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
         <strong>${charData.name}${tagHtml}</strong>
         <span>${tierLabels[i]}</span>
@@ -9539,7 +9695,7 @@ function createRevealCard(pc, tooltipSide) {
   const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
   const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
   card.innerHTML = `
-    <span class="char-icon" style="font-size:1.6rem">${pc.icon}</span>
+    <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
       <strong>${pc.name}${tagHtml}</strong>
       <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}/${pc.maxHp}</span>
@@ -10022,7 +10178,7 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
   const tagHtml = ch.tag ? tagBadgeHtml(ch.tag) : '';
   const labelHtml = extraLabel ? `<span class="reveal-extra-label">${extraLabel}</span>` : '';
   card.innerHTML = `
-    <span class="char-icon" style="font-size:1.6rem">${ch.icon}</span>
+    <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(ch.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
       <div class="piece-name-row"><strong>${ch.name}</strong>${tagHtml}</div>
       <div class="piece-stats">${tier}티어 · ATK ${ch.atk || '?'}</div>
@@ -10061,11 +10217,7 @@ socket.on('exchange_waiting_phase', ({ myDraft, oppDraft, oppExchanging, waiting
   startWaitCountdown('상대 교체 대기 중', waitingMs || 60000);
 });
 
-// final_reveal 도착 시 waiting 오버레이 정리
-socket.on('final_reveal_phase', () => {
-  const overlay = document.getElementById('exchange-waiting-overlay');
-  if (overlay) overlay.remove();
-});
+// C-7: 중복 final_reveal_phase 핸들러 제거 — 첫 번째 핸들러(line ~3804)에서 이미 exchange-waiting-overlay 정리.
 
 // ═══════════════════════════════════════════════════════════════
 // ── 교환 드래프트 UI ──────────────────────────────────────────
@@ -10100,7 +10252,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
       card.style.cssText = 'border-color:rgba(239,68,68,0.4);cursor:pointer;position:relative';
       card.innerHTML = `
         <span class="slot-tier">${tier}티어</span>
-        <span class="slot-icon">${ch.icon}</span>
+        <span class="slot-icon">${pieceIconHtml(ch.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
           <div>${buildMiniHeaders(ch)}</div>
@@ -10117,13 +10269,11 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
           // 아이콘 인덱스에도 이 상대 캐릭터 버튼 추가 (빨간 강조)
           const iconIndex = document.getElementById('ex-icon-index');
           if (iconIndex) {
-            const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
             const btn = document.createElement('button');
             btn.className = 'icon-index-btn';
             btn.title = ch.name + ' (상대)';
-            const darkCls = DARK_ICONS.has(ch.icon) ? ' dark-icon' : '';
             btn.style.boxShadow = '0 0 6px rgba(239,68,68,0.6)';
-            btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${ch.icon}</span>`;
+            btn.innerHTML = `<span class="icon-index-emoji">${pieceIconHtml(ch.icon, {size:'1.1em'})}</span>`;
             btn.addEventListener('click', () => { exSlideIndex = idx; exRenderSlide(); });
             iconIndex.appendChild(btn);
           }
@@ -10175,16 +10325,14 @@ function exBuildStepUI() {
   // 아이콘 인덱스
   const iconIndex = document.getElementById('ex-icon-index');
   if (iconIndex) {
-    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
     iconIndex.innerHTML = '';
     allChars.forEach((c, i) => {
       const btn = document.createElement('button');
       btn.className = 'icon-index-btn';
       btn.title = c.name;
-      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
       // 현재 내 캐릭터 표시
       if (c.type === myCurrent) btn.style.boxShadow = '0 0 6px rgba(59,130,246,0.6)';
-      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.innerHTML = `<span class="icon-index-emoji">${pieceIconHtml(c.icon, {size:'1.1em'})}</span>`;
       btn.addEventListener('click', () => { exSlideIndex = i; exRenderSlide(); });
       iconIndex.appendChild(btn);
     });
@@ -10212,7 +10360,7 @@ function exRenderSlide() {
   // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
   if (typeof exSlidePreviewMode !== 'undefined') exSlidePreviewMode = 'attack';
 
-  document.getElementById('ex-slide-icon').textContent = c.icon;
+  document.getElementById('ex-slide-icon').innerHTML = pieceIconHtml(c.icon, {size:'1.4em'});
   const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
   document.getElementById('ex-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
   // 이름 아래 공격력
@@ -10376,7 +10524,7 @@ function exUpdatePreview(charData) {
         const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
         cell.className = 'cell'; cell.innerHTML = '';
         if (col === centerCol && row === centerRow) {
-          cell.innerHTML = `<span style="font-size:1rem">👫</span>`;
+          cell.innerHTML = pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.twins) || '/assets/icons/twins.png', {size:'1rem'});
           cell.classList.add('has-piece');
         }
         const inE = elderSet.has(`${col},${row}`);
@@ -10398,8 +10546,8 @@ function exUpdatePreview(charData) {
       cell.className = 'cell'; cell.innerHTML = '';
       if (col === centerCol && row === centerRow) {
         let centerIcon = charData.icon;
-        if (skill.showDragonOnly) centerIcon = '🐲';
-        cell.innerHTML = `<span style="font-size:1rem">${centerIcon}</span>`;
+        if (skill.showDragonOnly) centerIcon = (window.PIECE_ICONS && window.PIECE_ICONS.dragon) || '/assets/icons/dragon.png';
+        cell.innerHTML = `<span style="font-size:1rem">${pieceIconHtml(centerIcon, {size:'1rem'})}</span>`;
         cell.classList.add('has-piece');
       } else if (ratSet && ratSet.has(`${col},${row}`)) {
         // 실제 게임처럼 작게 + 우상단 코너에 배치
@@ -10437,7 +10585,7 @@ function exUpdatePreview(charData) {
     cell.className = 'cell'; cell.innerHTML = '';
     const inRange = range.some(c => c.col === col && c.row === row);
     if (col === centerCol && row === centerRow) {
-      cell.innerHTML = `<span style="font-size:1rem">${charData.icon}</span>`;
+      cell.innerHTML = `<span style="font-size:1rem">${pieceIconHtml(charData.icon, {size:'1rem'})}</span>`;
       cell.classList.add('has-piece');
       // 제자리 공격범위 추가 강조 제거 — 쌍둥이처럼 attack-range 단일 표현으로 통일.
     }
@@ -10458,7 +10606,7 @@ function exUpdateSlots() {
       slot.className = `draft-slot filled${isSwapped ? ' swapped' : ''}`;
       slot.innerHTML = `
         <span class="slot-tier">${tier}티어</span>
-        <span class="slot-icon">${ch.icon}</span>
+        <span class="slot-icon">${pieceIconHtml(ch.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
           <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
           <div>${buildMiniHeaders(ch)}</div>
@@ -10769,7 +10917,7 @@ function buildPlacementOppPanel() {
         card.style.position = 'relative';
         const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${pc.hp}` : `HP ${pc.maxHp ?? pc.hp}`;
         card.innerHTML = `
-          <span class="char-icon">${pc.icon}</span>
+          <span class="char-icon">${pieceIconHtml(pc.icon, {size:'1.4em'})}</span>
           <div class="opp-info">
             <strong>${pc.name}${tagHtml}</strong>
             <span>T${pc.tier} · ATK ${pc.atk} · ${placedHp}</span>
@@ -10796,7 +10944,7 @@ function buildPlacementOppPanel() {
         card.className = `placement-opp-card placement-team-card placement-team-card-${oppTeamColor}`;
         card.style.position = 'relative';
         card.innerHTML = `
-          <span class="char-icon">${pc.icon}</span>
+          <span class="char-icon">${pieceIconHtml(pc.icon, {size:'1.4em'})}</span>
           <div class="opp-info">
             <strong>${pc.name}${tagHtml}</strong>
             <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
@@ -10827,7 +10975,7 @@ function buildPlacementOppPanel() {
       : '';
     card.style.position = 'relative';
     card.innerHTML = `
-      <span class="char-icon">${pc.icon}</span>
+      <span class="char-icon">${pieceIconHtml(pc.icon, {size:'1.4em'})}</span>
       <div class="opp-info">
         <strong>${pc.name}${tagHtml}</strong>
         <span>${pc.tier}티어 · ATK ${pc.atk}</span>
@@ -10921,7 +11069,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
 
     card.innerHTML = `
       <div class="placement-card-header">
-        <span class="piece-icon">${pc.icon}</span>
+        <span class="piece-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <div class="piece-info">
           <strong>${pc.name} ${tagHtml}</strong>
           <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
@@ -11004,14 +11152,14 @@ function updatePlacementBoard() {
     // 팀원 말 표시 (파랑/다른 스타일)
     const tmOcc = teammateAt[`${col},${row}`];
     if (tmOcc) {
-      cell.innerHTML += `<div class="piece-marker teammate-piece"><span class="p-icon">${tmOcc.piece.icon}</span></div>`;
+      cell.innerHTML += `<div class="piece-marker teammate-piece"><span class="p-icon">${pieceIconHtml(tmOcc.piece.icon, {size:'1.3em'})}</span></div>`;
       cell.classList.add('has-teammate-piece');
       return;
     }
 
     const pc = S.myPieces.find(p => p.col === col && p.row === row);
     if (pc) {
-      cell.innerHTML += `<div class="piece-marker"><span class="p-icon">${pc.icon}</span></div>`;
+      cell.innerHTML += `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span></div>`;
       cell.classList.add('has-piece');
       const idx = S.myPieces.indexOf(pc);
       if (idx === placementSelected) cell.classList.add('selected-piece');
@@ -11679,10 +11827,10 @@ function renderGameBoard() {
       const otherTwin = isTwin ? S.myPieces.find(p => p.alive && p !== pc &&
         (p.subUnit === 'elder' || p.subUnit === 'younger') &&
         p.col === col && p.row === row) : null;
-      const displayIcon = otherTwin ? '👫' : pc.icon;
+      const displayIcon = otherTwin ? (window.PIECE_ICONS && window.PIECE_ICONS.twins || pc.icon) : pc.icon;
       const _gifHtml = typeof getPieceGifHtml === 'function'
         ? getPieceGifHtml(pc.type, pc.subUnit, !!otherTwin) : null;
-      const _iconContent = _gifHtml || displayIcon;
+      const _iconContent = _gifHtml || pieceIconHtml(displayIcon, {size:'1.2em'});
       const hpText = otherTwin
         ? `${pc.hp + otherTwin.hp}/${pc.maxHp + otherTwin.maxHp}`
         : `${pc.hp}/${pc.maxHp}`;
@@ -11768,10 +11916,10 @@ function renderGameBoard() {
         const otherTwin = isTwin ? S.teammatePieces.find(p => p.alive && p !== tmPc &&
           (p.subUnit === 'elder' || p.subUnit === 'younger') &&
           p.col === col && p.row === row) : null;
-        const tmDisplayIcon = otherTwin ? '👫' : tmPc.icon;
+        const tmDisplayIcon = otherTwin ? (window.PIECE_ICONS && window.PIECE_ICONS.twins || tmPc.icon) : tmPc.icon;
         const _tmGifHtml = typeof getPieceGifHtml === 'function'
           ? getPieceGifHtml(tmPc.type, tmPc.subUnit, !!otherTwin) : null;
-        const _tmIconContent = _tmGifHtml || tmDisplayIcon;
+        const _tmIconContent = _tmGifHtml || pieceIconHtml(tmDisplayIcon, {size:'1.2em'});
         const tmHpText = otherTwin
           ? `${tmPc.hp + otherTwin.hp}/${tmPc.maxHp + otherTwin.maxHp}`
           : `${tmPc.hp}/${tmPc.maxHp}`;
@@ -11803,7 +11951,7 @@ function renderGameBoard() {
         ? getPieceGifHtml(markedOpp.type, markedOpp.subUnit, false) : null;
       cell.innerHTML += `
         <div class="piece-marker opp-marked ${oppColorCls}">
-          <span class="p-icon">${_oppGifHtml || markedOpp.icon}</span>
+          <span class="p-icon">${_oppGifHtml || pieceIconHtml(markedOpp.icon, {size:'1.3em'})}</span>
           <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
         </div>`;
       // 🎯 cell-mark — statusEffects 에 mark 가 들어있을 때만 (인두 낙하 후)
@@ -12051,7 +12199,7 @@ function renderGameBoard() {
     if (token) {
       const tokenEl = document.createElement('span');
       tokenEl.className = 'deduction-token';
-      tokenEl.textContent = token.icon;
+      tokenEl.innerHTML = pieceIconHtml(token.icon, {size:'100%'}) || pieceIconText(token.icon);
       tokenEl.title = `추리: ${token.name}`;
       tokenEl.draggable = true;
       tokenEl.addEventListener('dragstart', (e) => {
@@ -12181,7 +12329,7 @@ function _renderCellCarousel(cell, col, row, units) {
     const pc = u.p;
     const gifHtml = typeof getPieceGifHtml === 'function'
       ? getPieceGifHtml(pc.type, pc.subUnit, false) : null;
-    const iconHtml = gifHtml || pc.icon || '?';
+    const iconHtml = gifHtml || pieceIconHtml(pc.icon, {size:'1.3em'}) || '?';
     let hpColor;
     if      (u.owner === 'opp')      hpColor = '#f87171';
     else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
@@ -12318,7 +12466,7 @@ function refreshDeductionTokens() {
     if (!cell) continue;
     const tokenEl = document.createElement('span');
     tokenEl.className = 'deduction-token';
-    tokenEl.textContent = token.icon;
+    tokenEl.innerHTML = pieceIconHtml(token.icon, {size:'100%'}) || pieceIconText(token.icon);
     tokenEl.title = `추리: ${token.name}`;
     tokenEl.draggable = true;
     tokenEl.addEventListener('dragstart', (e) => {
@@ -12612,7 +12760,7 @@ function renderMyPieces() {
     card.innerHTML = `
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       <div class="my-piece-header">
-        <span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
+        <span class="p-icon">${pc.alive ? pieceIconHtml(pc.icon, {size:'1.3em'}) : '💀'}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
@@ -12725,7 +12873,7 @@ function renderOppPieces() {
         // 커스텀 드래그 이미지: 작은 아이콘만 표시
         const ghost = document.createElement('div');
         ghost.className = 'drag-ghost';
-        ghost.textContent = pc.icon;
+        ghost.innerHTML = pieceIconHtml(pc.icon, {size:'1.4em'});
         document.body.appendChild(ghost);
         e.dataTransfer.setDragImage(ghost, 14, 14);
         requestAnimationFrame(() => ghost.remove());
@@ -12767,7 +12915,7 @@ function renderOppPieces() {
       ${dmgOv.stamp /* 격파된 적·아군에도 데미지 도장 유지 — 사망 마지막 일격까지 보임 */}
       ${_isOppShrunkElim ? '<div class="elim-stamp">탈락</div>' : ''}
       <div class="my-piece-header">
-        <span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
+        <span class="p-icon">${pc.alive ? pieceIconHtml(pc.icon, {size:'1.3em'}) : '💀'}</span>
         <strong class="${nameLenCls.trim()}">${pc.name}</strong>
         <span class="tier-badge">${pc.tier}T</span>
         ${tagHtml}
@@ -12830,7 +12978,7 @@ function buildMiniRangeGrid(type, extra, icon) {
       const isCenter = (c === 2 && r === 2);
       const isAtk = atkSet.has(`${c},${r}`);
       if (isCenter) {
-        html += `<div class="mini-cell center-icon${isAtk ? ' atk' : ''}">${icon || ''}</div>`;
+        html += `<div class="mini-cell center-icon${isAtk ? ' atk' : ''}">${pieceIconHtml(icon, {size:'0.9em'}) || ''}</div>`;
       } else {
         html += `<div class="${isAtk ? 'mini-cell atk' : 'mini-cell'}"></div>`;
       }
@@ -12954,7 +13102,7 @@ function buildPieceTooltip(pc, side) {
   const tooltip = document.createElement('div');
   tooltip.className = `piece-tooltip tooltip-${side}`;
   tooltip.innerHTML = `
-    <div class="tooltip-title">${pc.icon} ${pc.name}</div>
+    <div class="tooltip-title">${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name}</div>
     <div class="tooltip-section">${grid}</div>
     ${skillHtml}
     ${passiveHtml}
@@ -13303,7 +13451,7 @@ function openSkillModal(targetPieceIdx) {
   if (titleEl) {
     if (targetPieceIdx != null && S.myPieces[targetPieceIdx]) {
       const pc = S.myPieces[targetPieceIdx];
-      titleEl.textContent = `${pc.icon} ${pc.name} — 스킬`;
+      titleEl.innerHTML = `${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name} — 스킬`;
     } else {
       titleEl.textContent = '스킬 선택';
     }
@@ -13380,7 +13528,7 @@ function openSkillModal(targetPieceIdx) {
         }
         const skTag = getSkillTypeTag(sk);
         opt.innerHTML = `
-          <div class="skill-name">${pc.icon} ${pc.name} — ${sk.name} ${skTag}</div>
+          <div class="skill-name">${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name} — ${sk.name} ${skTag}</div>
           <div class="skill-cost">SP 비용: ${sk.cost}${extraNote}</div>
           <div class="skill-desc">${sk.desc}</div>`;
 
@@ -13492,9 +13640,9 @@ function openSkillModal(targetPieceIdx) {
       const skillTabName = (pc.type === 'twins_elder' || pc.type === 'twins_younger')
         ? '쌍둥이 강도' : pc.name;
       const skillTabIcon = (pc.type === 'twins_elder' || pc.type === 'twins_younger')
-        ? '👫' : pc.icon;
+        ? (window.PIECE_ICONS && window.PIECE_ICONS.twins || pc.icon) : pc.icon;
       opt.innerHTML = `
-        <div class="skill-name">${skillTabIcon} ${skillTabName} — ${pc.skillName} ${singleTag}</div>
+        <div class="skill-name">${pieceIconHtml(skillTabIcon, {size:'1.2em'})} ${skillTabName} — ${pc.skillName} ${singleTag}</div>
         <div class="skill-cost">SP 비용: ${pc.skillCost}${singleNote}</div>
         <div class="skill-desc">${getSkillDesc(pc)}</div>`;
 
@@ -13540,7 +13688,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     S.action = 'skill_target';
     S.skillTargetData = { pieceIdx, skillId: 'bomb', type: 'bomb_place' };
     document.getElementById('btn-cancel').classList.remove('hidden');
-    document.getElementById('action-hint').textContent = `💣 폭탄 설치 위치를 선택하세요.`;
+    document.getElementById('action-hint').textContent = `폭탄 설치 위치를 선택하세요.`;
     renderGameBoard();
     return;
   }
@@ -13561,7 +13709,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     S.action = 'skill_target';
     S.skillTargetData = { pieceIdx, skillId, type: 'dragon_place' };
     document.getElementById('btn-cancel').classList.remove('hidden');
-    document.getElementById('action-hint').textContent = `🐉 드래곤 소환 위치를 선택하세요`;
+    document.getElementById('action-hint').textContent = `드래곤 소환 위치를 선택하세요`;
     renderGameBoard();
     return;
   }
@@ -13598,7 +13746,7 @@ function showKingSkillUI(pieceIdx) {
     if (!opc.alive) continue;
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${opc.icon} ${opc.name}</div>
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div>
       <div class="skill-desc">이 적을 선택 후 강제 이동할 위치를 지정합니다</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
@@ -13606,7 +13754,7 @@ function showKingSkillUI(pieceIdx) {
       // 팀모드: ownerIdx 포함해 어느 적의 어떤 캐릭터인지 명확히
       S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type, targetOwnerIdx: opc.ownerIdx };
       document.getElementById('btn-cancel').classList.remove('hidden');
-      document.getElementById('action-hint').textContent = `♛ 대상을 강제 이동시킬 위치를 클릭하세요.`;
+      document.getElementById('action-hint').textContent = `대상을 강제 이동시킬 위치를 클릭하세요.`;
       renderGameBoard();
     });
     body.appendChild(opt);
@@ -13631,7 +13779,7 @@ function showWitchCurseUI(pieceIdx) {
     const opt = document.createElement('div');
     opt.className = 'skill-option';
     opt.style.opacity = disabled ? '0.4' : '1';
-    opt.innerHTML = `<div class="skill-name">${opc.icon} ${opc.name}</div>
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div>
       <div class="skill-desc">${disabled ? reason : '턴당 0.5 피해 + 스킬 봉인'}</div>`;
     if (!disabled) {
       opt.addEventListener('click', () => {
@@ -13666,7 +13814,7 @@ function showMonkSkillUI(pieceIdx) {
     if (!apc.alive || i === pieceIdx) continue;
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${apc.icon} ${apc.name}</div>
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, {size:'1.2em'})} ${apc.name}</div>
       <div class="skill-desc">HP ${apc.hp}/${apc.maxHp} — 치유 +2, 상태이상 제거</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
@@ -13694,7 +13842,7 @@ function showTwinsSkillUI(pieceIdx, pc) {
   for (const o of options) {
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">👫 ${o.label}</div>`;
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.twins) || '/assets/icons/twins.png', {size:'1.2em'})} ${o.label}</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
       // 서버는 params.target === 'elder' 면 elder가 mover.
@@ -14171,7 +14319,7 @@ function _showRadialActionMenu(col, row, pieceIdx) {
           if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin')) {
             S.targetSelectMode = true;
             const hintEl = document.getElementById('action-hint');
-            if (hintEl) hintEl.textContent = `${pc2.icon} ${pc2.name} 선택. 공격할 칸을 선택하세요.`;
+            if (hintEl) hintEl.textContent = `${pc2.name} 선택. 공격할 칸을 선택하세요.`;
           } else {
             S.targetSelectMode = false;
             const hintEl = document.getElementById('action-hint');
@@ -14379,7 +14527,7 @@ function handleGameCellClick(col, row) {
         S.selectedPiece = S.myPieces.indexOf(pc);
         if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${pc.icon} ${pc.name} 선택. 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${pc.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
@@ -14425,7 +14573,7 @@ function handleGameCellClick(col, row) {
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
         if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
           S.targetSelectMode = true;
-          document.getElementById('action-hint').textContent = `${clickedOther.icon} ${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
+          document.getElementById('action-hint').textContent = `${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();
         } else {
           S.targetSelectMode = false;
@@ -14885,7 +15033,7 @@ function renderSpectatorDraft() {
         slot.className = `draft-slot filled ${isDone ? 'confirmed' : 'browsing'}`;
         const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
         slot.innerHTML = `<span class="slot-tier">${tier}티어</span>
-          <span class="slot-icon">${c.icon}</span>
+          <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
           <div class="slot-info"><span class="slot-name">${c.name} ${tagHtml}</span>
           <span class="slot-stats">ATK ${c.atk}</span>
           <div>${buildMiniHeaders(c)}</div></div>`;
@@ -14936,7 +15084,7 @@ function renderSpectatorHp() {
       for (const pc of pieces) {
         const div = document.createElement('div');
         div.className = 'spec-hp-piece confirmed';
-        div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+        div.innerHTML = `<span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
           <strong>${pc.name}</strong> <span class="muted">T${pc.tier}</span>
           <span style="color:var(--success);font-weight:600">HP ${pc.hp}/${pc.maxHp}</span>
           <span class="slot-confirmed-badge">확정</span>`;
@@ -14955,7 +15103,7 @@ function renderSpectatorHp() {
         if (!charData) continue;
         const div = document.createElement('div');
         div.className = 'spec-hp-piece';
-        div.innerHTML = `<span class="p-icon">${charData.icon}</span>
+        div.innerHTML = `<span class="p-icon">${pieceIconHtml(charData.icon, {size:'1.3em'})}</span>
           <strong>${charData.name}</strong> <span class="muted">${tierLabels[i]}</span>
           <span style="color:var(--accent);font-weight:600;font-size:1rem">HP ${browseHps[i]}</span>`;
         div.style.position = 'relative';
@@ -14976,7 +15124,7 @@ function renderSpectatorHp() {
         if (!charData) continue;
         const div = document.createElement('div');
         div.className = 'spec-hp-piece';
-        div.innerHTML = `<span class="p-icon">${charData.icon}</span>
+        div.innerHTML = `<span class="p-icon">${pieceIconHtml(charData.icon, {size:'1.3em'})}</span>
           <strong>${charData.name}</strong> <span class="muted">HP ?</span>`;
         el.appendChild(div);
       }
@@ -15133,9 +15281,9 @@ function renderSpectatorPlacement() {
 
     // 말 표시
     const p0pc = (pl.p0Pieces || []).find(p => p.col === c && p.row === r && p.alive);
-    if (p0pc) cell.innerHTML += `<div class="spec-piece p0"><span class="p-icon">${p0pc.icon}</span></div>`;
+    if (p0pc) cell.innerHTML += `<div class="spec-piece p0"><span class="p-icon">${pieceIconHtml(p0pc.icon, {size:'1.3em'})}</span></div>`;
     const p1pc = (pl.p1Pieces || []).find(p => p.col === c && p.row === r && p.alive);
-    if (p1pc) cell.innerHTML += `<div class="spec-piece p1"><span class="p-icon">${p1pc.icon}</span></div>`;
+    if (p1pc) cell.innerHTML += `<div class="spec-piece p1"><span class="p-icon">${pieceIconHtml(p1pc.icon, {size:'1.3em'})}</span></div>`;
   });
 
   // 양쪽 말 목록
@@ -15148,7 +15296,7 @@ function renderSpectatorPlacement() {
       const div = document.createElement('div');
       div.className = `my-piece-card ${placed ? '' : 'unplaced'}`;
       div.style.position = 'relative';
-      div.innerHTML = `<span class="p-icon">${pc.icon}</span>
+      div.innerHTML = `<span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <div><strong>${pc.name}</strong> <span class="muted">T${pc.tier}</span>
         <br><span style="font-size:0.72rem">${placed ? coord(pc.col, pc.row) : '미배치'}</span></div>`;
       div.appendChild(buildPieceTooltip(pc, key === 'p0' ? 'right' : 'left'));
@@ -15276,7 +15424,7 @@ function renderSpectatorGame(gs) {
       const hpPct0 = Math.round((p0.hp / p0.maxHp) * 100);
       const isSelected = S.specSelectedPiece && S.specSelectedPiece.type === p0.type && S.specSelectedPiece.col === col && S.specSelectedPiece.row === row;
       cell.innerHTML += `<div class="spec-piece p0 ${isSelected ? 'spec-selected' : ''}" data-spec-click="p0" data-type="${p0.type}" data-col="${col}" data-row="${row}">
-        <span class="p-icon">${p0.icon}</span>
+        <span class="p-icon">${pieceIconHtml(p0.icon, {size:'1.2em'})}</span>
         <div class="spec-hp-bar"><div class="spec-hp-fill p0-fill" style="width:${hpPct0}%"></div></div>
       </div>`;
       cell.classList.add('has-piece');
@@ -15287,7 +15435,7 @@ function renderSpectatorGame(gs) {
       const hpPct1 = Math.round((p1.hp / p1.maxHp) * 100);
       const isSelected = S.specSelectedPiece && S.specSelectedPiece.type === p1.type && S.specSelectedPiece.col === col && S.specSelectedPiece.row === row;
       cell.innerHTML += `<div class="spec-piece p1 ${isSelected ? 'spec-selected' : ''}" data-spec-click="p1" data-type="${p1.type}" data-col="${col}" data-row="${row}">
-        <span class="p-icon">${p1.icon}</span>
+        <span class="p-icon">${pieceIconHtml(p1.icon, {size:'1.2em'})}</span>
         <div class="spec-hp-bar"><div class="spec-hp-fill p1-fill" style="width:${hpPct1}%"></div></div>
       </div>`;
       cell.classList.add('has-piece');
@@ -15301,6 +15449,12 @@ function renderSpectatorGame(gs) {
           if (obj.type === 'rat') cell.innerHTML += '<span style="position:absolute;top:1px;right:2px;font-size:0.5rem;color:#52b788">🐀</span>';
         }
       }
+    }
+    // ★ attackLog 마커 — 관전자 보드에도 💥/· 셀 마크 표시 (유황범람 등 스킬 피격 포함)
+    const _atkSpec = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+    if (_atkSpec) {
+      cell.classList.add(_atkSpec.hit ? 'hit-mark' : 'miss-mark');
+      if (!p0 && !p1) cell.innerHTML += `<span class="cell-mark">${_atkSpec.hit ? '💥' : '·'}</span>`;
     }
   });
 
@@ -15348,7 +15502,7 @@ function renderSpectatorGame(gs) {
       div.style.position = 'relative';
       div.dataset.pieceIdx = i;
       const hpPct = overlay.displayHpPct;
-      div.innerHTML = `<span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
+      div.innerHTML = `<span class="p-icon">${pc.alive ? pieceIconHtml(pc.icon, {size:'1.3em'}) : '💀'}</span>
         <div><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div>${overlay.barOverlay}</div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>${overlay.stamp}`;
@@ -15373,7 +15527,7 @@ function renderSpectatorGame(gs) {
       div.style.position = 'relative';
       div.dataset.pieceIdx = i;
       const hpPct = overlay.displayHpPct;
-      div.innerHTML = `<span class="p-icon">${pc.alive ? pc.icon : '💀'}</span>
+      div.innerHTML = `<span class="p-icon">${pc.alive ? pieceIconHtml(pc.icon, {size:'1.3em'}) : '💀'}</span>
         <div class="opp-info"><strong>${pc.name} <span style="font-size:0.65rem;color:var(--muted)">T${pc.tier}</span></strong>
         <div class="hp-bar-bg"><div class="hp-bar ${hpPct <= 25 ? 'low' : ''}" style="width:${hpPct}%"></div>${overlay.barOverlay}</div>
         <span style="font-size:0.72rem">HP ${pc.alive ? pc.hp : 0}/${pc.maxHp} · ATK ${pc.atk}</span></div>${overlay.stamp}`;
@@ -15462,6 +15616,8 @@ function _showToastNow(msg, isEnemy, specPlayerIdx, toastType) {
   const formatted = (typeof formatMsgMiniHeader === 'function') ? formatMsgMiniHeader(msg) : null;
   if (formatted && formatted !== msg) {
     toast.innerHTML = formatted;
+  } else if (msg && msg.indexOf('<img ') >= 0) {
+    toast.innerHTML = msg;
   } else {
     toast.textContent = msg;
   }
@@ -15617,7 +15773,7 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
       return img;
     }
     const d = document.createElement('div');
-    d.textContent = icon;
+    d.innerHTML = pieceIconHtml(icon, {size:'1.6rem'}) || icon;
     d.style.fontSize = '1.6rem';
     d.style.lineHeight = '1';
     return d;
@@ -15806,18 +15962,54 @@ function animateAttack(atkCells, hitCells, isDefending) {
     }
   }
 
-  // 피격 셀 빨간 플래시 + 흔들림
+  // 피격 셀 빨간 플래시 + 바라보는 방향 기준 흔들림
   for (const hc of hitCells) {
     const cell = [...cells].find(c => parseInt(c.dataset.col) === hc.col && parseInt(c.dataset.row) === hc.row);
     if (cell) {
       cell.style.transition = 'background 0.1s';
       cell.style.background = 'rgba(239,68,68,0.5)';
-      cell.style.animation = 'shake 0.3s ease';
+      const shakeAnim = _getFacingHitShake(cell, isDefending);
+      cell.style.animation = shakeAnim + ' 0.3s ease';
       setTimeout(() => { cell.style.background = ''; cell.style.animation = ''; }, 400);
     }
   }
   // 보드 위 아이콘 피격 애니메이션 — 셀 안의 piece-marker .p-icon 흔들림+빨간 글로우
   animateBoardIconHit(hitCells, isDefending);
+}
+
+// ── 셀 안 말의 바라보는 방향 → 피격 흔들림 키프레임 ──
+// 오른쪽 바라봄 → 오른쪽으로 흔들림 (hitShakeRight)
+// 왼쪽 바라봄 → 왼쪽으로 흔들림 (hitShakeLeft)
+function _getFacingHitShake(cell, isDefending) {
+  if (!cell) return 'shake';
+  const markerSel = isDefending
+    ? '.piece-marker:not(.opp-marked)'
+    : '.piece-marker.opp-marked';
+  const marker = cell.querySelector(markerSel) || cell.querySelector('.piece-marker');
+  if (!marker) return 'shake';
+  const gif = marker.querySelector('.p-icon img.p-gif');
+  if (gif) {
+    // scaleX(-1) 이면 왼쪽 바라봄
+    const tx = gif.style.transform || '';
+    if (tx.includes('scaleX(-1)')) return 'hitShakeLeft';
+    return 'hitShakeRight';
+  }
+  // GIF 없으면 _pieceFacingDir 직접 조회
+  const col = parseInt(cell.dataset.col), row = parseInt(cell.dataset.row);
+  if (typeof _pieceFacingDir !== 'undefined') {
+    for (const [key, dir] of Object.entries(_pieceFacingDir)) {
+      // key = "playerIdx:pieceIdx" — 좌표 매칭은 어렵지만, 현재 셀의 말과 맞는 키를 찾아봄
+      if (dir === 'left') {
+        // 해당 키의 말이 이 셀에 있는지 확인
+        const [pIdx, pcIdx] = key.split(':').map(Number);
+        const pieces = (pIdx === S.playerIdx) ? S.myPieces : S.oppPieces;
+        if (pieces && pieces[pcIdx] && pieces[pcIdx].col === col && pieces[pcIdx].row === row) {
+          return 'hitShakeLeft';
+        }
+      }
+    }
+  }
+  return 'hitShakeRight'; // 기본: 오른쪽 바라봄
 }
 
 // GIF 바이너리에서 1회 루프의 총 재생 시간(ms)을 반환.
@@ -15827,9 +16019,12 @@ if (!window._gifDurationCache) window._gifDurationCache = {};
 async function _fetchGifDuration(url) {
   if (window._gifDurationCache[url] !== undefined) return window._gifDurationCache[url];
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
     const bytes = new Uint8Array(
-      await (await fetch(url, { cache: 'default' })).arrayBuffer()
+      await (await fetch(url, { cache: 'default', signal: controller.signal })).arrayBuffer()
     );
+    clearTimeout(timeoutId);
     let totalMs = 0;
     for (let i = 0; i < bytes.length - 7; i++) {
       if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
@@ -15841,6 +16036,69 @@ async function _fetchGifDuration(url) {
     return (window._gifDurationCache[url] = totalMs || 650);
   } catch (e) {
     return (window._gifDurationCache[url] = 650);
+  }
+}
+
+// GIF 바이너리에서 각 프레임의 **누적** 재생 시간 배열을 반환.
+// 예: frameDelays = [100, 200, 300, 400] → 1번째 프레임 끝=100ms, 4번째=400ms.
+// 공격 셀 이펙트 타이밍(~4번째 프레임 시점)에 활용.
+if (!window._gifFrameTimingsCache) window._gifFrameTimingsCache = {};
+async function _fetchGifFrameTimings(url) {
+  if (window._gifFrameTimingsCache[url]) return window._gifFrameTimingsCache[url];
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const bytes = new Uint8Array(
+      await (await fetch(url, { cache: 'default', signal: controller.signal })).arrayBuffer()
+    );
+    clearTimeout(timeoutId);
+    const frameDelays = [];
+    let cumMs = 0;
+    for (let i = 0; i < bytes.length - 7; i++) {
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+        const delayCs = bytes[i+4] | (bytes[i+5] << 8);
+        cumMs += delayCs * 10;
+        frameDelays.push(cumMs);
+        i += 7;
+      }
+    }
+    const result = { totalMs: cumMs || 650, frameDelays };
+    return (window._gifFrameTimingsCache[url] = result);
+  } catch (e) {
+    return (window._gifFrameTimingsCache[url] = { totalMs: 650, frameDelays: [] });
+  }
+}
+
+// 공격 GIF URL 조회 — animateAttackGif 내부 로직과 동일.
+// 프레임 타이밍 산출 시 GIF URL 이 필요하므로 별도 헬퍼로 분리.
+function _getAttackGifUrl(type, subUnit, isJoined) {
+  const map = window.PIECE_ATTACK_GIFS;
+  if (!map) return null;
+  if (isJoined)                  return map.twins_joined || null;
+  if (subUnit === 'elder')       return map.twins_red || null;
+  if (subUnit === 'younger')     return map.twins_blue || null;
+  return map[type] || null;
+}
+
+// ── 공격 임팩트 딜레이 (비-시전자 동기화용) ──────────────────────────────
+// 공격자: GIF 바이너리에서 4번째 프레임 누적 시간 사용 (~520ms).
+// 피격자/팀원/관전자: GIF 없이 고정 딜레이로 동기화.
+// 모든 공격 GIF 가 ~130ms/frame 이므로 500ms ≈ 4번째 프레임과 거의 일치.
+const ATTACK_IMPACT_DELAY = 500;
+
+// ── 공격 범위 셀 이펙트 ─────────────────────────────────────────────────
+// 공격 GIF 의 ~4번째 프레임 시점에 공격 범위 전체 셀에 발동하는 시각 이펙트.
+// 현재는 CSS 기반 플래시(placeholder). 추후 사용자 제공 아트로 교체 예정.
+function animateAttackCellEffect(cells) {
+  const board = document.getElementById('game-board');
+  if (!board || !Array.isArray(cells) || cells.length === 0) return;
+  for (const c of cells) {
+    const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+    if (!cell) continue;
+    cell.classList.remove('attack-cell-effect');
+    void cell.offsetWidth; // reflow → 재트리거
+    cell.classList.add('attack-cell-effect');
+    setTimeout(() => cell.classList.remove('attack-cell-effect'), 500);
   }
 }
 
@@ -15864,6 +16122,14 @@ function animateBoardIconHit(cells, isDefending) {
         : '.piece-marker.opp-marked';
       const marker = cell.querySelector(markerSel);
       if (!marker) continue;
+
+      // ── 바라보는 방향 기준 피격 흔들림을 marker 에 적용 ──
+      const shakeAnim = _getFacingHitShake(cell, isDefending);
+      marker.style.animation = 'none';
+      void marker.offsetWidth;
+      marker.style.animation = shakeAnim + ' 0.35s ease';
+      setTimeout(() => { marker.style.animation = ''; }, 400);
+
       const icon = marker.querySelector('.p-icon');
       if (!icon) continue;
 
@@ -15977,7 +16243,18 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
       }
 
       const img = document.createElement('img');
-      img.src = url;
+      // ★ Blob URL 사용 — Chrome 글로벌 GIF 애니메이션 시계 우회.
+      //   동일 src 의 <img> 가 이미 DOM 에 있으면(preload container 등) Chrome 이
+      //   전역 시계에 동기화하여 프레임 0이 아닌 임의 프레임부터 시작하는 문제 해결.
+      //   Blob URL 은 매번 고유하므로 항상 프레임 0부터 재생됨.
+      const _gifBlob = window._gifBlobCache && window._gifBlobCache[url];
+      let _blobUrl = null;
+      if (_gifBlob) {
+        _blobUrl = URL.createObjectURL(_gifBlob);
+        img.src = _blobUrl;
+      } else {
+        img.src = url;
+      }
       img.alt = '';
       // ★ img.p-gif 와 동일한 블랙 아웃라인 + pixelated (이동·아이들 모션과 통일)
       img.style.cssText =
@@ -15988,6 +16265,7 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
 
       const cleanup = () => {
         if (img.parentNode) img.parentNode.removeChild(img);
+        if (_blobUrl) URL.revokeObjectURL(_blobUrl);
         _attackPlayingCells.delete(`${col},${row}`);
         const _cur = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
         if (_cur) _cur.querySelectorAll('img.p-gif').forEach(g => { g.style.visibility = ''; });
@@ -15996,9 +16274,17 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
 
       // ★ img.decode() 대기 제거 — preloadGameImages 로 이미 캐싱됐으므로 즉시 DOM 에 추가.
       //   decode() 의 비동기 대기가 초기 프레임 누락(1~2프레임 잘림)의 원인이었음.
+      // ★ GIF 시작 시각 기록 — _fetchGifDuration 이 비동기(특히 첫 호출 시 HTTP fetch)이므로
+      //   .then() 콜백까지의 경과 시간을 차감해야 정확히 1루프 후 cleanup 됨.
+      //   미차감 시 GIF 가 2번째 루프 중간에 잘리는 현상 발생.
+      const _gifStartTime = performance.now();
       board.appendChild(img);
       _fetchGifDuration(url)
-        .then(dur => setTimeout(cleanup, dur))
+        .then(dur => {
+          const elapsed = performance.now() - _gifStartTime;
+          const remaining = Math.max(50, dur - elapsed);
+          setTimeout(cleanup, remaining);
+        })
         .catch(() => setTimeout(cleanup, 650));
     });
   });
@@ -16213,12 +16499,12 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
       showSkillToast(`공격받았습니다!`, true);
     }
     if (hitAlly.length > 0) {
-      const hitLabels = hitAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
+      const hitLabels = hitAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
       addLog(`${hitLabels} 피격`, 'hit');
     }
   }
   if (killedAlly.length > 0) {
-    const labels = killedAlly.map(h => h.icon && h.name ? `${h.icon}${h.name}` : '유닛').join(', ');
+    const labels = killedAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
     showSkillToast(`${labels} 격파!`, true);
     addLog(`${labels} 격파`, 'hit');
   }
@@ -16267,75 +16553,83 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
 //   ★ 사용자 요청: 시전자 본인이 보는 것과 동일한 피드백 — atkCells / hitCells / attackLog
 //     셀 마크 (💥/·) / 빗나감·격파 토스트·로그 / 적 프로필 피격 애니 / 자동 추리토큰.
 //   ★ "공격했습니다!" 같은 별도 토스트 (= being_attacked 의 알림) 만 X.
+let _teamAllyAttackedSeq = 0;
 socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything }) => {
+  // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
   const meaningful = (hits || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
-  // 셀 highlight + 보드 아이콘 흔들림.
-  animateAttack(atkCells || [], hitCells);
-  // attackLog 동기화 — renderGameBoard 가 hit-mark / miss-mark 셀 마크 (💥 / ·) 표시.
-  for (const ac of (atkCells || [])) {
-    const wasHit = (hits || []).some(h => h.col === ac.col && h.row === ac.row);
-    S.attackLog.push({ col: ac.col, row: ac.row, hit: wasHit, turn: S.turnNumber });
-  }
-  // 적 프로필 피격 애니메이션 — team-profile-block[data-player-idx][data-piece-idx]
-  requestAnimationFrame(() => {
-    for (const h of (hits || [])) {
-      if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
-      if (h.redirectedToBodyguard) continue;
-      const isProtected = (h.damage === 0 && !h.destroyed);
-      const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
-      if (!card) continue;
-      if (isProtected) applyProtectedAnim(card);
-      else applyHitFlashWithBrighten(card);
+  const _capturedTurn = S.turnNumber;
+  const _mySeq = ++_teamAllyAttackedSeq;
+
+  setTimeout(() => {
+    if (S.turnNumber !== _capturedTurn) return; // C-1: turn changed, skip stale update
+    if (_teamAllyAttackedSeq !== _mySeq) return; // C-3: newer event arrived, skip
+    // ★ 공격 범위 셀 이펙트 + 피격 셀 빨간 플래시 + 아이콘 흔들림
+    if (Array.isArray(atkCells) && atkCells.length > 0) {
+      animateAttackCellEffect(atkCells);
     }
-  });
-  // 격파/피격 SFX + 로그/토스트 (시전자 본인의 attack_result 와 동일 양식).
-  const killed = meaningful.filter(h => h.destroyed);
-  const hitOnly = meaningful.filter(h => !h.destroyed);
-  if (killed.length > 0) playSfx('kill');
-  else if (hitOnly.length > 0) playSfx('hit');
-  if ((hits || []).length === 0) {
-    // 빗나감 — 임팩트 (학살영웅 / 쥐 등) 발생 시 빗나감 출력 X.
-    if (!attackerImpactedAnything) {
-      addLog(`빗나감`, 'miss');
-      showSkillToast(`빗나감`);
+    animateAttack([], hitCells);
+    // attackLog 동기화
+    for (const ac of (atkCells || [])) {
+      const wasHit = (hits || []).some(h => h.col === ac.col && h.row === ac.row);
+      S.attackLog.push({ col: ac.col, row: ac.row, hit: wasHit, turn: S.turnNumber });
     }
-  } else {
-    if (hitOnly.length > 0) {
-      const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
-      addLog(`${coords} 명중`, 'hit');
-    }
-    if (killed.length > 0) {
-      const labels = killed.map(h => `${h.hitIcon||''}${h.hitName||'유닛'}`).join(', ');
-      const coords = killed.map(h => coord(h.col, h.row)).join(', ');
-      showSkillToast(`${labels} 격파!`);
-      addLog(`${coords} ${labels} 격파`, 'hit');
-    }
-  }
-  // ★ 자동 추리토큰 — 시전자 본인의 attack_result 와 동일 조건.
-  //   meaningful hit 이 정확히 1 + 사망 아닌 경우에만 토큰 자동 배치 (정보 공유).
-  const _eligibleHits = meaningful.filter(h => !h.destroyed && h.defPieceIdx != null);
-  if (meaningful.length === 1 && _eligibleHits.length === 1) {
-    const c = _eligibleHits[0];
-    if (c.defOwnerIdx != null) {
-      const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
-      const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
-      if (piece) {
-        const pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
-        try {
-          S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
-          S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
-        } catch (e) {}
+    // 적 프로필 피격 애니메이션
+    requestAnimationFrame(() => {
+      for (const h of (hits || [])) {
+        if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+        if (h.redirectedToBodyguard) continue;
+        const isProtected = (h.damage === 0 && !h.destroyed);
+        const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+        if (!card) continue;
+        if (isProtected) applyProtectedAnim(card);
+        else applyHitFlashWithBrighten(card);
+      }
+    });
+    // 격파/피격 SFX + 로그/토스트 (임팩트 시점에)
+    const killed = meaningful.filter(h => h.destroyed);
+    const hitOnly = meaningful.filter(h => !h.destroyed);
+    if (killed.length > 0) playSfx('kill');
+    else if (hitOnly.length > 0) playSfx('hit');
+    if ((hits || []).length === 0) {
+      if (!attackerImpactedAnything) {
+        addLog(`빗나감`, 'miss');
+        showSkillToast(`빗나감`);
+      }
+    } else {
+      if (hitOnly.length > 0) {
+        const coords = hitOnly.map(h => coord(h.col, h.row)).join(', ');
+        addLog(`${coords} 명중`, 'hit');
+      }
+      if (killed.length > 0) {
+        const labels = killed.map(h => `${h.hitIcon||''}${h.hitName||'유닛'}`).join(', ');
+        const coords = killed.map(h => coord(h.col, h.row)).join(', ');
+        showSkillToast(`${labels} 격파!`);
+        addLog(`${coords} ${labels} 격파`, 'hit');
       }
     }
-  }
-  // 셀 마크가 즉시 보이도록 보드 재렌더
-  if (typeof renderGameBoard === 'function') renderGameBoard();
-  // ★ 버퍼된 wizard 등 패시브 alert flush — 팀원이 공격 시전한 시점에 동기 fire.
-  if (typeof flushDefensiveAlerts === 'function') {
-    flushDefensiveAlerts({ skipReduction: killed.length > 0 });
-  }
+    // 자동 추리토큰
+    const _eligibleHits = meaningful.filter(h => !h.destroyed && h.defPieceIdx != null);
+    if (meaningful.length === 1 && _eligibleHits.length === 1) {
+      const c = _eligibleHits[0];
+      if (c.defOwnerIdx != null) {
+        const ownerPlayer = (S.teamGamePlayers || []).find(p => p.idx === c.defOwnerIdx);
+        const piece = ownerPlayer?.pieces?.[c.defPieceIdx];
+        if (piece) {
+          const pieceKey = `${piece.type}:${piece.subUnit || ''}@${c.defOwnerIdx}`;
+          try {
+            S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === c.col && t.row === c.row));
+            S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: c.col, row: c.row });
+          } catch (e) {}
+        }
+      }
+    }
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (typeof flushDefensiveAlerts === 'function') {
+      flushDefensiveAlerts({ skipReduction: killed.length > 0 });
+    }
+  }, ATTACK_IMPACT_DELAY);
 });
 
 // ── 캐릭터 등장 사운드 (둥-) ──
@@ -17260,24 +17554,23 @@ function pickPassiveSfxByType(type) {
 // 서버 result.msg / oppMsg 와 정확히 매칭
 function pickSkillSfxByMsg(msg) {
   if (!msg || typeof msg !== 'string') return null;
-  if (msg.startsWith('⛓ 악몽:')) return playSfxNightmare;
-  if (msg.startsWith('🌿 약초학:')) return (typeof playSfxHerbMagic === 'function' ? playSfxHerbMagic : null);
-  if (msg.startsWith('🙏 신성:')) return (typeof playSfxHeal === 'function' ? playSfxHeal : null);
-  if (msg.startsWith('🔥 유황범람:')) return (typeof playSfxSulfur === 'function' ? playSfxSulfur : null);
-  if (msg.startsWith('🏹 정비')) return playSfxArcherTune;       // 궁수 정비 (반전)
-  if (msg.startsWith('🔭 정찰')) return playSfxScout;            // 척후병 정찰
-  if (msg.startsWith('👫 분신')) return playSfxTwinsJoin;        // 쌍둥이 합체
-  if (msg.startsWith('🪤 덫 설치')) return playSfxBombPlace;     // 사냥꾼 덫 설치 (폭탄 설치와 톤 비슷)
-  if (msg.startsWith('📯 질주')) return playSfxMessengerSprint;  // 전령 질주
-  if (msg.startsWith('💣 폭탄 설치')) return playSfxBombPlace;   // 폭파병 폭탄 설치
-  if (msg.startsWith('💥기폭') || msg.startsWith('💥 기폭')) return playSfxBombExplode;  // 폭파병 기폭
-  if (msg.startsWith('👻 그림자 숨기') || msg.startsWith('🗡 그림자 숨기')) return playSfxShadowHide; // 그림자 암살자
-  if (msg.startsWith('☠ 저주')) return playSfxWitchCurse;  // 마녀 저주 (시전·데미지·해제 모두 ☠)
-  if (msg.startsWith('⚔ 쌍검무')) return playSfxDualBlade;       // 양손검객
-  if (msg.startsWith('🐀 역병')) return playSfxRatSummon;        // 쥐 장수
-  if (msg.startsWith('🐉 드래곤')) return playSfxDragonSummon;   // 드래곤 조련사
-  if (msg.startsWith('⚒ 정비')) return playSfxArmorerTune;       // 무기상
-  if (msg.startsWith('♛ 절대복종') || msg.startsWith('♛ 반지')) return playSfxKingRing;  // 국왕
+  if (msg.startsWith('악몽') || msg.indexOf('악몽') >= 0) return playSfxNightmare;
+  if (msg.startsWith('약초학:')) return (typeof playSfxHerbMagic === 'function' ? playSfxHerbMagic : null);
+  if (msg.startsWith('신성:')) return (typeof playSfxHeal === 'function' ? playSfxHeal : null);
+  if (msg.startsWith('유황범람:') || msg.startsWith('유황범람 :')) return (typeof playSfxSulfur === 'function' ? playSfxSulfur : null);
+  if (msg.startsWith('정비')) return playSfxArcherTune;           // 궁수/무기상 정비 (반전)
+  if (msg.startsWith('정찰')) return playSfxScout;                // 척후병 정찰
+  if (msg.startsWith('분신') || msg.indexOf('분신') >= 0) return playSfxTwinsJoin;        // 쌍둥이 합체
+  if (msg.startsWith('덫 설치')) return playSfxBombPlace;          // 사냥꾼 덫 설치
+  if (msg.startsWith('질주')) return playSfxMessengerSprint;       // 전령 질주
+  if (msg.startsWith('폭탄 설치')) return playSfxBombPlace;        // 폭파병 폭탄 설치
+  if (msg.startsWith('기폭')) return playSfxBombExplode;           // 폭파병 기폭
+  if (msg.startsWith('그림자 숨기') || msg.indexOf('그림자 숨기') >= 0) return playSfxShadowHide; // 그림자 암살자
+  if (msg.startsWith('저주')) return playSfxWitchCurse;            // 마녀 저주
+  if (msg.startsWith('쌍검무')) return playSfxDualBlade;           // 양손검객
+  if (msg.startsWith('역병')) return playSfxRatSummon;             // 쥐 장수
+  if (msg.startsWith('드래곤')) return playSfxDragonSummon;        // 드래곤 조련사
+  if (msg.startsWith('절대복종') || msg.startsWith('반지')) return playSfxKingRing;  // 국왕
   return null;
 }
 
@@ -18509,7 +18802,7 @@ const TUTORIAL_STEPS = [
           const isRight = r === 2 && c === 3;
           const isMove = isUp || isDown || isLeft || isRight;
           const arrow = isUp ? '↑' : isDown ? '↓' : isLeft ? '←' : isRight ? '→' : '';
-          return `<div class="tut-cell ${isCenter ? 'tut-piece' : isMove ? 'tut-move' : ''}">${isCenter ? '🏹' : arrow}</div>`;
+          return `<div class="tut-cell ${isCenter ? 'tut-piece' : isMove ? 'tut-move' : ''}">${isCenter ? pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.archer) || '/assets/icons/archer.png', {size:'1.1rem'}) : arrow}</div>`;
         }).join('')}
       </div>
       <div class="tut-text" style="text-align:center;margin-top:6px">
@@ -18535,28 +18828,28 @@ const TUTORIAL_STEPS = [
       <div class="tut-section-title">공격 범위 예시</div>
       <div class="tut-grid-row">
         <div class="tut-char-card">
-          <span class="tut-char-icon">🔱</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.spearman) || '/assets/icons/spearman.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">창병</div>
           <div class="tut-char-sub">세로줄 전체</div>
-          ${buildMiniRangeGrid('spearman', {}, '🔱')}
+          ${buildMiniRangeGrid('spearman', {}, (window.PIECE_ICONS && window.PIECE_ICONS.spearman) || '/assets/icons/spearman.png')}
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🐎</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.cavalry) || '/assets/icons/cavalry.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">기마병</div>
           <div class="tut-char-sub">가로줄 전체</div>
-          ${buildMiniRangeGrid('cavalry', {}, '🐎')}
+          ${buildMiniRangeGrid('cavalry', {}, (window.PIECE_ICONS && window.PIECE_ICONS.cavalry) || '/assets/icons/cavalry.png')}
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🎖</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.general) || '/assets/icons/general.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">장군</div>
           <div class="tut-char-sub">자신 포함 십자 5칸</div>
-          ${buildMiniRangeGrid('general', {}, '🎖')}
+          ${buildMiniRangeGrid('general', {}, (window.PIECE_ICONS && window.PIECE_ICONS.general) || '/assets/icons/general.png')}
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🗡</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.shadowAssassin) || '/assets/icons/shadowAssassin.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">그림자 암살자</div>
           <div class="tut-char-sub">주변 9칸 중 1칸 선택</div>
-          ${buildMiniRangeGrid('shadowAssassin', {}, '🗡')}
+          ${buildMiniRangeGrid('shadowAssassin', {}, (window.PIECE_ICONS && window.PIECE_ICONS.shadowAssassin) || '/assets/icons/shadowAssassin.png')}
         </div>
       </div>
     </div>
@@ -18599,17 +18892,17 @@ const TUTORIAL_STEPS = [
       <div class="tut-text">넓은 범위나 유틸리티 스킬이 특징. 공격력은 낮지만 정보 수집과 견제에 특화.</div>
       <div class="tut-grid-row">
         <div class="tut-char-card">
-          <span class="tut-char-icon">🏹</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.archer) || '/assets/icons/archer.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">궁수</div>
           <div class="tut-char-sub">대각선 전체 공격. 더불어 공격 방향 전환 가능.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🔭</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.scout) || '/assets/icons/scout.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">척후병</div>
           <div class="tut-char-sub">적 위치를 알아내는 정찰.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">💣</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.gunpowder) || '/assets/icons/gunpowder.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">화약상</div>
           <div class="tut-char-sub">폭탄 설치로 맵을 견제.</div>
         </div>
@@ -18620,17 +18913,17 @@ const TUTORIAL_STEPS = [
       <div class="tut-text">강력한 스킬과 적절한 전투력. 팀의 핵심 전력.</div>
       <div class="tut-grid-row">
         <div class="tut-char-card">
-          <span class="tut-char-icon">🗡</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.shadowAssassin) || '/assets/icons/shadowAssassin.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">그림자 암살자</div>
           <div class="tut-char-sub">은신 스킬을 활용한 교란.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">⚔</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.dualBlade) || '/assets/icons/dualBlade.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">양손 검객</div>
           <div class="tut-char-sub">쌍검무로 2회 공격.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🧹</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.witch) || '/assets/icons/witch.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">마녀</div>
           <div class="tut-char-sub">저주로 상대 핵심 유닛의 스킬을 막고 턴당 0.5 피해 부여.</div>
         </div>
@@ -18641,17 +18934,17 @@ const TUTORIAL_STEPS = [
       <div class="tut-text">극강의 능력치와 독보적인 스킬. 하지만 제약도 큽니다.</div>
       <div class="tut-grid-row">
         <div class="tut-char-card">
-          <span class="tut-char-icon">🐉</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.dragonTamer) || '/assets/icons/dragonTamer.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">드래곤 조련사</div>
           <div class="tut-char-sub">드래곤 유닛 소환. 대량의 SP 필요.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🙏</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.monk) || '/assets/icons/monk.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">수도승</div>
           <div class="tut-char-sub">힐링과 상태이상 제거에 능통. 약한 공격 능력.</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🪓</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.slaughterHero) || '/assets/icons/slaughterHero.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">학살 영웅</div>
           <div class="tut-char-sub">최대규모의 범위 공격. 아군도 피해를 보는 양날의 검.</div>
         </div>
@@ -18729,25 +19022,25 @@ const TUTORIAL_STEPS = [
       <div class="tut-section-title" style="color:#f59e0b">⭐ 패시브 예시</div>
       <div class="tut-grid-row">
         <div class="tut-char-card">
-          <span class="tut-char-icon">🛡</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.armoredWarrior) || '/assets/icons/armoredWarrior.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">갑주무사</div>
           <div class="tut-char-sub" style="color:#f59e0b">아이언 스킨</div>
           <div class="tut-char-sub">공격 피해 0.5 감소</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">📋</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.commander) || '/assets/icons/commander.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">지휘관</div>
           <div class="tut-char-sub" style="color:#f59e0b">사기증진</div>
           <div class="tut-char-sub">인접 아군의 공격력 1 증가</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">🧙</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.wizard) || '/assets/icons/wizard.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">마법사</div>
           <div class="tut-char-sub" style="color:#f59e0b">인스턴트 매직</div>
           <div class="tut-char-sub">피격 시 1회용 SP 제공</div>
         </div>
         <div class="tut-char-card">
-          <span class="tut-char-icon">⛓</span>
+          <span class="tut-char-icon">${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.torturer) || '/assets/icons/torturer.png', {size:'1.2em'})}</span>
           <div class="tut-char-name">고문 기술자</div>
           <div class="tut-char-sub" style="color:#f59e0b">표식</div>
           <div class="tut-char-sub">표식 상태의 적의 위치 공개</div>
@@ -19025,14 +19318,12 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     const chars = getChars(dictTier);
     const wrap = document.getElementById('dict-icon-index');
     if (!wrap) return;
-    const DARK_ICONS = new Set(['👁','🎖','🗡','🛡','⚔','⚒','♛','⛓']);
     wrap.innerHTML = '';
     chars.forEach((c, i) => {
       const btn = document.createElement('button');
       btn.className = 'icon-index-btn';
       btn.title = c.name;
-      const darkCls = DARK_ICONS.has(c.icon) ? ' dark-icon' : '';
-      btn.innerHTML = `<span class="icon-index-emoji${darkCls}">${c.icon}</span>`;
+      btn.innerHTML = `<span class="icon-index-emoji">${pieceIconHtml(c.icon, {size:'1.1em'})}</span>`;
       btn.addEventListener('click', () => { dictIdx = i; renderDictSlide(); });
       wrap.appendChild(btn);
     });
@@ -19329,7 +19620,7 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
       // 캐릭터 행
       const charRow = document.createElement('div');
       charRow.className = 'gskill-char-row';
-      charRow.innerHTML = `<span class="ic">${pc.icon || '◯'}</span><span class="nm">${pc.name || pc.type}</span>`;
+      charRow.innerHTML = `<span class="ic">${pieceIconHtml(pc.icon, {size:'1.2em'}) || '◯'}</span><span class="nm">${pc.name || pc.type}</span>`;
       card.appendChild(charRow);
       let anyOk = false;
       for (const sk of skills) {

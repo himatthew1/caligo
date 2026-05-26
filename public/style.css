@@ -2665,6 +2665,32 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
 .cell.skill-range  { background: rgba(124,58,237,0.2); border-color: rgba(124,58,237,0.5); }
 .cell.explosion-trace { background: rgba(255,100,0,0.12); border-color: rgba(255,100,0,0.25); }
 
+/* ── 공격 범위 셀 이펙트 — 공격 GIF ~4번째 프레임 시점 발동 (placeholder) ── */
+.cell.attack-cell-effect {
+  animation: attackCellFlash 0.5s ease-out forwards;
+  position: relative;
+  z-index: 2;
+}
+.cell.attack-cell-effect::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(255,160,50,0.6) 0%, rgba(255,80,0,0.3) 60%, transparent 100%);
+  animation: attackCellRipple 0.5s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes attackCellFlash {
+  0%   { background-color: rgba(255,140,40,0.55); box-shadow: inset 0 0 12px rgba(255,100,0,0.7), 0 0 8px rgba(255,120,0,0.5); }
+  40%  { background-color: rgba(255,80,20,0.35); box-shadow: inset 0 0 8px rgba(255,60,0,0.4), 0 0 4px rgba(255,80,0,0.3); }
+  100% { background-color: transparent; box-shadow: none; }
+}
+@keyframes attackCellRipple {
+  0%   { transform: scale(0.7); opacity: 1; }
+  60%  { transform: scale(1.1); opacity: 0.5; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+
 /* 셀 피격 흔들림 (쥐 격파 등) */
 .cell.cell-hit-shake {
   animation: cellHitShake 0.5s ease-in-out;
@@ -2678,6 +2704,23 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   45% { transform: translateX(-2px); }
   60% { transform: translateX(2px); }
   75% { transform: translateX(-1px); }
+}
+/* ── 바라보는 방향 기준 피격 흔들림 ── */
+/* 오른쪽 바라봄 → 오른쪽으로 흔들림 */
+@keyframes hitShakeRight {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(4px, -1px); }
+  30% { transform: translate(-2px, 0.5px); }
+  50% { transform: translate(2px, -0.5px); }
+  70% { transform: translate(-1px, 0); }
+}
+/* 왼쪽 바라봄 → 왼쪽으로 흔들림 */
+@keyframes hitShakeLeft {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-4px, -1px); }
+  30% { transform: translate(2px, 0.5px); }
+  50% { transform: translate(-2px, -0.5px); }
+  70% { transform: translate(1px, 0); }
 }
 
 /* 쥐 격파 아이콘 애니메이션 */
@@ -2904,6 +2947,75 @@ img.p-gif {
 /* 피격 애니메이션 — span 전체에 적용되므로 img 도 함께 흔들림 */
 .piece-marker .p-icon.p-icon-hit img.p-gif,
 .piece-marker .p-icon.tut-p-icon-hit img.p-gif { display: block; }
+
+/* ── 캐릭터 아이콘 이미지 (이모지 대체) ────────────────── */
+.piece-icon-img {
+  display: inline-block;
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: middle;
+  object-fit: contain;
+  pointer-events: none;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  filter: drop-shadow(1px 0 0 rgba(180,200,220,0.3))
+          drop-shadow(-1px 0 0 rgba(180,200,220,0.3))
+          drop-shadow(0 1px 0 rgba(180,200,220,0.3))
+          drop-shadow(0 -1px 0 rgba(180,200,220,0.3))
+          drop-shadow(0 0 3px rgba(150,190,230,0.35));
+}
+
+/* 보드 위 말 아이콘 — p-icon 내부의 이미지 */
+.p-icon .piece-icon-img,
+.piece-marker .piece-icon-img {
+  width: 100%;
+  height: 100%;
+}
+
+/* 덱/프로필 카드 내 아이콘 */
+.deck-preview-icon .piece-icon-img,
+.deck-list-icon .piece-icon-img,
+.slot-icon .piece-icon-img,
+.slot-icon-big .piece-icon-img,
+.char-icon .piece-icon-img,
+.pc-icon .piece-icon-img,
+.recommend-pick-icon .piece-icon-img,
+.team-draft-card-icon .piece-icon-img {
+  width: 1em;
+  height: 1em;
+}
+
+/* 아이콘 인덱스 네비게이션 바 */
+.icon-index-emoji .piece-icon-img {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+/* 미니 범위 그리드 중앙 아이콘 */
+.mini-cell.center-icon .piece-icon-img {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* 추론 토큰 아이콘 */
+.deduction-token .piece-icon-img {
+  width: 100%;
+  height: 100%;
+}
+
+/* 로그·토스트 인라인 아이콘 */
+.log-entry .piece-icon-img,
+.skill-toast .piece-icon-img {
+  width: 1em;
+  height: 1em;
+  margin-right: 2px;
+}
+
+/* 게임 오버 화면 큰 아이콘 */
+.gameover-icon .piece-icon-img {
+  width: 3rem;
+  height: 3rem;
+}
 
 .cell-mark { font-size: 0.75rem; position: absolute; top:2px; right:3px; }
 .coord-label { font-size: 0.55rem; color: #3a3a5a; position: absolute; bottom: 1px; left: 2px; }

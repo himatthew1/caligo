@@ -23,13 +23,13 @@
 
   // ── 캐릭터 카탈로그 (새 설계) ───────────────────────────────────────────
   const CHARS = {
-    spearman:  { type: 'spearman',  icon: '🔱', name: '창병',       tier: 1, atk: 1, baseHp: 5 },
-    general:   { type: 'general',   icon: '🎖',  name: '장군',       tier: 2, atk: 2, baseHp: 4 },
-    herbalist: { type: 'herbalist', icon: '🌿',  name: '약초전문가', tier: 1, atk: 1, baseHp: 2 },
-    commander: { type: 'commander', icon: '📋',  name: '지휘관',     tier: 3, atk: 2, baseHp: 4 },
-    princess:  { type: 'princess',  icon: '👸🏼', name: '공주',       tier: 3, atk: 3, baseHp: 3 },
-    ratcatcher:{ type: 'ratcatcher',icon: '🐀',  name: '쥐장수',     tier: 2, atk: 1, baseHp: 3 },
-    archer:    { type: 'archer',    icon: '🏹',  name: '궁수',       tier: 1, atk: 1, baseHp: 2 },
+    spearman:  { type: 'spearman',  icon: '/assets/icons/spearman.png',  name: '창병',       tier: 1, atk: 1, baseHp: 5 },
+    general:   { type: 'general',   icon: '/assets/icons/general.png',   name: '장군',       tier: 2, atk: 2, baseHp: 4 },
+    herbalist: { type: 'herbalist', icon: '/assets/icons/herbalist.png', name: '약초전문가', tier: 1, atk: 1, baseHp: 2 },
+    commander: { type: 'commander', icon: '/assets/icons/commander.png', name: '지휘관',     tier: 3, atk: 2, baseHp: 4 },
+    princess:  { type: 'princess',  icon: '/assets/icons/princess.png',  name: '공주',       tier: 3, atk: 3, baseHp: 3 },
+    ratcatcher:{ type: 'ratcatcher',icon: '/assets/icons/ratMerchant.png', name: '쥐장수',   tier: 2, atk: 1, baseHp: 3 },
+    archer:    { type: 'archer',    icon: '/assets/icons/archer.png',    name: '궁수',       tier: 1, atk: 1, baseHp: 2 },
   };
 
   // ── 캐릭터 사전 정보 ────────────────────────────────────────────────────
@@ -46,62 +46,62 @@
   // ── 캐릭터 전체 데이터 (서버 CHARACTERS 와 동일 구조, 인게임 사전·스킬팝업·툴팁 재사용용) ──
   const TUT_CHARS_DATA = {
     1: [
-      { type:'archer',     name:'궁수',       tier:1, atk:1, icon:'🏹', tag:null,
+      { type:'archer',     name:'궁수',       tier:1, atk:1, icon:'/assets/icons/archer.png', tag:null,
         skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
-      { type:'spearman',   name:'창병',       tier:1, atk:1, icon:'🔱', tag:'royal',   skills:[] },
-      { type:'cavalry',    name:'기마병',     tier:1, atk:1, icon:'🐎', tag:'royal',   skills:[] },
-      { type:'watchman',   name:'파수꾼',     tier:1, atk:0.5, icon:'👁', tag:null,    skills:[] },
-      { type:'twins',      name:'쌍둥이 강도', tier:1, atk:1, icon:'👫', tag:'villain',
+      { type:'spearman',   name:'창병',       tier:1, atk:1, icon:'/assets/icons/spearman.png', tag:'royal',   skills:[] },
+      { type:'cavalry',    name:'기마병',     tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal',   skills:[] },
+      { type:'watchman',   name:'파수꾼',     tier:1, atk:0.5, icon:'/assets/icons/watchman.png', tag:null,    skills:[] },
+      { type:'twins',      name:'쌍둥이 강도', tier:1, atk:1, icon:'/assets/icons/twins.png', tag:'villain',
         skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
-      { type:'scout',      name:'척후병',     tier:1, atk:1, icon:'🔭', tag:'royal',
+      { type:'scout',      name:'척후병',     tier:1, atk:1, icon:'/assets/icons/scout.png', tag:'royal',
         skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
-      { type:'manhunter',  name:'인간 사냥꾼', tier:1, atk:1, icon:'🪤', tag:'villain',
+      { type:'manhunter',  name:'인간 사냥꾼', tier:1, atk:1, icon:'/assets/icons/manhunter.png', tag:'villain',
         skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
-      { type:'messenger',  name:'전령',       tier:1, atk:0.5, icon:'📯', tag:null,
+      { type:'messenger',  name:'전령',       tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:null,
         skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
-      { type:'gunpowder',  name:'화약상',     tier:1, atk:1, icon:'💣', tag:null,
+      { type:'gunpowder',  name:'화약상',     tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null,
         skills:[
           {id:'bomb',     name:'폭탄 설치', cost:2, replacesAction:false,              desc:'주변 8칸 중 한 곳에 폭탄 설치'},
           {id:'detonate', name:'기폭',       cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발 · 1 피해'}
         ] },
-      { type:'herbalist',  name:'약초전문가', tier:1, atk:1, icon:'🌿', tag:null,
+      { type:'herbalist',  name:'약초전문가', tier:1, atk:1, icon:'/assets/icons/herbalist.png', tag:null,
         skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
     ],
     2: [
-      { type:'general',         name:'장군',       tier:2, atk:2, icon:'🎖',  tag:'royal',   skills:[] },
-      { type:'knight',          name:'기사',       tier:2, atk:2, icon:'🐴',  tag:'royal',   skills:[] },
-      { type:'shadowAssassin',  name:'그림자 암살자', tier:2, atk:2, icon:'🗡', tag:'villain',
+      { type:'general',         name:'장군',       tier:2, atk:2, icon:'/assets/icons/general.png',  tag:'royal',   skills:[] },
+      { type:'knight',          name:'기사',       tier:2, atk:2, icon:'/assets/icons/knight.png',  tag:'royal',   skills:[] },
+      { type:'shadowAssassin',  name:'그림자 암살자', tier:2, atk:2, icon:'/assets/icons/shadowAssassin.png', tag:'villain',
         skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
-      { type:'wizard',          name:'마법사',     tier:2, atk:2, icon:'🧙',  tag:null,      skills:[], passives:['instantMagic'] },
-      { type:'armoredWarrior',  name:'갑주무사',   tier:2, atk:2, icon:'🛡',  tag:null,      skills:[], passives:['ironSkin'] },
-      { type:'witch',           name:'마녀',       tier:2, atk:1, icon:'🧹',  tag:'villain',
+      { type:'wizard',          name:'마법사',     tier:2, atk:2, icon:'/assets/icons/wizard.png',  tag:null,      skills:[], passives:['instantMagic'] },
+      { type:'armoredWarrior',  name:'갑주무사',   tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png',  tag:null,      skills:[], passives:['ironSkin'] },
+      { type:'witch',           name:'마녀',       tier:2, atk:1, icon:'/assets/icons/witch.png',  tag:'villain',
         skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에게 저주 부여'}] },
-      { type:'dualBlade',       name:'양손 검객',  tier:2, atk:2, icon:'⚔',  tag:null,
+      { type:'dualBlade',       name:'양손 검객',  tier:2, atk:2, icon:'/assets/icons/dualBlade.png',  tag:null,
         skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
-      { type:'ratMerchant',     name:'쥐 장수',    tier:2, atk:1, icon:'🐀',  tag:'villain',
+      { type:'ratMerchant',     name:'쥐 장수',    tier:2, atk:1, icon:'/assets/icons/ratMerchant.png',  tag:'villain',
         skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 랜덤 타일 세 곳에 쥐 소환'}] },
-      { type:'weaponSmith',     name:'무기상',     tier:2, atk:2, icon:'⚒',  tag:null,
+      { type:'weaponSmith',     name:'무기상',     tier:2, atk:2, icon:'/assets/icons/weaponSmith.png',  tag:null,
         skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
-      { type:'bodyguard',       name:'호위 무사',  tier:2, atk:1, icon:'🛡️', tag:'royal',   skills:[], passives:['loyalty'] },
+      { type:'bodyguard',       name:'호위 무사',  tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal',   skills:[], passives:['loyalty'] },
     ],
     3: [
-      { type:'prince',        name:'왕자',         tier:3, atk:3, icon:'🤴🏼', tag:'royal',   skills:[] },
-      { type:'princess',      name:'공주',         tier:3, atk:3, icon:'👸🏼', tag:'royal',   skills:[] },
-      { type:'king',          name:'국왕',         tier:3, atk:2, icon:'🫅🏼', tag:'royal',
+      { type:'prince',        name:'왕자',         tier:3, atk:3, icon:'/assets/icons/prince.png', tag:'royal',   skills:[] },
+      { type:'princess',      name:'공주',         tier:3, atk:3, icon:'/assets/icons/princess.png', tag:'royal',   skills:[] },
+      { type:'king',          name:'국왕',         tier:3, atk:2, icon:'/assets/icons/king.png', tag:'royal',
         skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
-      { type:'dragonTamer',   name:'드래곤 조련사', tier:3, atk:2, icon:'🐉', tag:null,
+      { type:'dragonTamer',   name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:null,
         skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
-      { type:'monk',          name:'수도승',       tier:3, atk:1, icon:'🙏',  tag:null,
+      { type:'monk',          name:'수도승',       tier:3, atk:1, icon:'/assets/icons/monk.png',  tag:null,
         skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
         passives:['grace'] },
-      { type:'slaughterHero', name:'학살 영웅',    tier:3, atk:1, icon:'🪓',  tag:'villain', skills:[], passives:['betrayer'] },
-      { type:'commander',     name:'지휘관',       tier:3, atk:2, icon:'📋',  tag:'royal',   skills:[], passives:['wrath'] },
-      { type:'sulfurCauldron',name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'🔥', tag:'royal',
+      { type:'slaughterHero', name:'학살 영웅',    tier:3, atk:1, icon:'/assets/icons/slaughterHero.png',  tag:'villain', skills:[], passives:['betrayer'] },
+      { type:'commander',     name:'지휘관',       tier:3, atk:2, icon:'/assets/icons/commander.png',  tag:'royal',   skills:[], passives:['wrath'] },
+      { type:'sulfurCauldron',name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'/assets/icons/sulfurCauldron.png', tag:'royal',
         skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격 · 2 피해'}] },
-      { type:'torturer',      name:'고문 기술자',  tier:3, atk:1, icon:'⛓',  tag:'villain',
+      { type:'torturer',      name:'고문 기술자',  tier:3, atk:1, icon:'/assets/icons/torturer.png',  tag:'villain',
         skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
         passives:['markPassive'] },
-      { type:'count',         name:'백작',         tier:3, atk:2, icon:'🦇',  tag:'villain', skills:[], passives:['tyranny'] },
+      { type:'count',         name:'백작',         tier:3, atk:2, icon:'/assets/icons/count.png',  tag:'villain', skills:[], passives:['tyranny'] },
     ],
   };
 
@@ -468,7 +468,7 @@
       }
       addToast('공격받았습니다!', true);
       if (typeof playSfx === 'function') playSfx('hit');
-      addLog(`${CHARS.general.icon}장군 피격`, 'hit');   // 인게임 opp_attack_result 형식
+      addLog(`${pieceIconHtml(CHARS.general.icon, {size:'1em'})}장군 피격`, 'hit');   // 인게임 opp_attack_result 형식
       await sleep(1500);
     }
   });
@@ -970,7 +970,7 @@
         herb.col = -1; herb.row = -1;
         updateUI();
       }
-      addLog(`${CHARS.herbalist.icon}약초전문가 격파`, 'hit');   // 인게임 kill 로그 형식
+      addLog(`${pieceIconHtml(CHARS.herbalist.icon, {size:'1em'})}약초전문가 격파`, 'hit');   // 인게임 kill 로그 형식
       await sleep(1500);
     }
   });
@@ -1520,7 +1520,7 @@
           }
           const _tutGifHtml = typeof getPieceGifHtml === 'function'
             ? getPieceGifHtml(pc.type || (pc.char && pc.char.type), pc.subUnit, false) : null;
-          marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pc.icon}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>`;
+          marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pieceIconHtml(pc.icon, {size:'1.3em'})}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>`;
           // 호버 툴팁 — 인게임 buildPieceTooltip() 재사용
           if (typeof buildPieceTooltip === 'function') {
             try {
@@ -1560,7 +1560,7 @@
         if (token) {
           const tk = document.createElement('span');
           tk.className = 'deduction-token';
-          tk.textContent = token.icon;
+          tk.innerHTML = pieceIconHtml(token.icon, {size:'100%'}) || pieceIconText(token.icon);
           tk.title = `추리: ${token.name}`;
           cell.appendChild(tk);
         }
@@ -1592,7 +1592,7 @@
     return `
       <div class="my-piece-card${deadCls}" data-my-id="${pc.id}">
         <div class="my-piece-header">
-          <span class="p-icon">${pc.icon}</span>
+          <span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.3em'})}</span>
           <strong>${pc.name}</strong>
           <span class="tier-badge">${pc.tier}T</span>
         </div>
@@ -1617,7 +1617,7 @@
     return `
       <div class="opp-piece-card${deadCls}" data-opp-id="${pc.id}">
         <div class="my-piece-header">
-          <span class="p-icon">${pc.icon}</span>
+          <span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.3em'})}</span>
           <strong>${pc.name}</strong>
           <span class="tier-badge">${pc.tier}T</span>${badgeHTML}
         </div>
@@ -1648,13 +1648,19 @@
     const fr = fromCell.getBoundingClientRect();
     const tr = toCell.getBoundingClientRect();
     const sprite = document.createElement('div');
-    sprite.textContent = piece.icon;
+    // ★ 이동 PNG 사용 (보드 위 이동 애니메이션)
+    const _moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl(piece.type || (piece.char && piece.char.type)) : null;
+    if (_moveUrl) {
+      sprite.innerHTML = `<img src="${_moveUrl}" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;" draggable="false">`;
+    } else {
+      sprite.innerHTML = pieceIconHtml(piece.icon, {size:'1.7rem'}) || '';
+    }
     sprite.style.cssText = `
-      position:fixed; z-index:5000; font-size:1.7rem; pointer-events:none;
+      position:fixed; z-index:5000; width:2.5rem; height:2.5rem; pointer-events:none;
       left:${fr.left + fr.width / 2}px; top:${fr.top + fr.height / 2}px;
       transform:translate(-50%,-50%);
       transition: left ${dur}ms cubic-bezier(0.4,0,0.2,1), top ${dur}ms cubic-bezier(0.4,0,0.2,1);
-      filter: drop-shadow(0 0 8px rgba(82,183,136,0.85));`;
+      filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 8px rgba(82,183,136,0.85));`;
     document.body.appendChild(sprite);
     const origMarker = fromCell.querySelector('.piece-marker');
     if (origMarker) origMarker.style.visibility = 'hidden';

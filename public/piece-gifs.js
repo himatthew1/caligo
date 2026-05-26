@@ -186,6 +186,65 @@
     dragon:         '/art/dragon_move.png',
   };
 
+  // ── 캐릭터 아이콘 PNG 맵 ────────────────────────────────
+  // 모든 UI (보드·프로필·로그·토스트·덱·추론토큰) 에서 이모지 대신 사용.
+  // 렌더링은 game.js 의 pieceIconHtml() 헬퍼를 통해 <img> 태그로 출력.
+  window.PIECE_ICONS = {
+    // ── Tier 1 ──────────────────────────────
+    archer:         '/assets/icons/archer.png',
+    spearman:       '/assets/icons/spearman.png',
+    cavalry:        '/assets/icons/cavalry.png',
+    watchman:       '/assets/icons/watchman.png',
+    twins:          '/assets/icons/twins.png',
+    twins_red:      '/assets/icons/twins.png',
+    twins_blue:     '/assets/icons/twins.png',
+    scout:          '/assets/icons/scout.png',
+    manhunter:      '/assets/icons/manhunter.png',
+    messenger:      '/assets/icons/messenger.png',
+    gunpowder:      '/assets/icons/gunpowder.png',
+    herbalist:      '/assets/icons/herbalist.png',
+    // ── Tier 2 ──────────────────────────────
+    general:        '/assets/icons/general.png',
+    knight:         '/assets/icons/knight.png',
+    shadowAssassin: '/assets/icons/shadowAssassin.png',
+    wizard:         '/assets/icons/wizard.png',
+    armoredWarrior: '/assets/icons/armoredWarrior.png',
+    witch:          '/assets/icons/witch.png',
+    dualBlade:      '/assets/icons/dualBlade.png',
+    ratMerchant:    '/assets/icons/ratMerchant.png',
+    weaponSmith:    '/assets/icons/weaponSmith.png',
+    bodyguard:      '/assets/icons/bodyguard.png',
+    // ── Tier 3 ──────────────────────────────
+    prince:         '/assets/icons/prince.png',
+    princess:       '/assets/icons/princess.png',
+    king:           '/assets/icons/king.png',
+    dragonTamer:    '/assets/icons/dragonTamer.png',
+    monk:           '/assets/icons/monk.png',
+    slaughterHero:  '/assets/icons/slaughterHero.png',
+    commander:      '/assets/icons/commander.png',
+    sulfurCauldron: '/assets/icons/sulfurCauldron.png',
+    torturer:       '/assets/icons/torturer.png',
+    count:          '/assets/icons/count.png',
+    // ── 소환 유닛 ────────────────────────────
+    dragon:         '/assets/icons/dragon.png',
+  };
+
+  /**
+   * 캐릭터 아이콘 URL 반환
+   * @param {string} type       piece.type
+   * @param {string} [subUnit]  'elder' | 'younger' (쌍둥이)
+   * @param {boolean} [isJoined] 쌍둥이 합류 상태
+   * @returns {string|null}
+   */
+  window.getPieceIconUrl = function (type, subUnit, isJoined) {
+    const map = window.PIECE_ICONS;
+    if (!map) return null;
+    if (isJoined)                  return map.twins || null;
+    if (subUnit === 'elder')       return map.twins_red || map.twins || null;
+    if (subUnit === 'younger')     return map.twins_blue || map.twins || null;
+    return map[type] || null;
+  };
+
   /**
    * 이동 플로팅용 PNG URL 반환
    * PNG 없으면 idle GIF URL 반환 (폴백)
@@ -259,6 +318,7 @@
       ...Object.values(window.PIECE_HIT_GIFS    || {}),
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),
+      ...Object.values(window.PIECE_ICONS       || {}),
     ]);
     const container = _getPreloadContainer();
     for (const url of knownUrls) {
@@ -320,6 +380,7 @@
   // onProgress(0~1) : 진행률 콜백 (선택).
   window.preloadAllAsync = async function (onProgress) {
     if (!window._gifDurationCache) window._gifDurationCache = {};
+    if (!window._gifBlobCache) window._gifBlobCache = {};
 
     // ── 매니페스트 fetch 완료 대기 (최대 2초) ────────────────────────
     if (window._manifestUrls === undefined) {
@@ -340,6 +401,7 @@
       ...Object.values(window.PIECE_HIT_GIFS    || {}),  // 피격 GIF
       ...Object.values(window.PIECE_GIFS        || {}),  // 아이들 GIF
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),  // 이동 PNG
+      ...Object.values(window.PIECE_ICONS       || {}),  // 캐릭터 아이콘 PNG
       ...(window._manifestUrls                 || []),   // 스킬·패시브 PNG
     ]);
     const urls = [...allUrls].filter(Boolean);
@@ -355,9 +417,8 @@
       // ① GIF 재생 시간 파싱 (바이트 스캔) — HTTP 캐시에서 즉시 서빙됨
       if (url.endsWith('.gif') && window._gifDurationCache[url] === undefined) {
         try {
-          const bytes = new Uint8Array(
-            await (await fetch(url, { cache: 'default' })).arrayBuffer()
-          );
+          const ab = await (await fetch(url, { cache: 'default' })).arrayBuffer();
+          const bytes = new Uint8Array(ab);
           let ms = 0;
           for (let i = 0; i < bytes.length - 7; i++) {
             if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
@@ -366,6 +427,9 @@
             }
           }
           window._gifDurationCache[url] = ms || 650;
+          // ★ GIF Blob 캐시 — animateAttackGif 에서 ObjectURL 로 사용.
+          //   Chrome 의 글로벌 GIF 애니메이션 시계를 우회하여 매번 프레임 0부터 재생.
+          window._gifBlobCache[url] = new Blob([ab], { type: 'image/gif' });
         } catch (_) { window._gifDurationCache[url] = 650; }
       }
 
