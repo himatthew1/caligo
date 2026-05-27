@@ -223,6 +223,10 @@
     dragon:         '/art/dragon_move.png',
   };
 
+  // ── 드래곤 착지(강림) 에셋 ────────────────────────────
+  window.DRAGON_LANDING_GIF = '/art/dragon_landing.gif';
+  window.DRAGON_LANDING_PNG = '/art/dragon_landing.png';
+
   // ── 캐릭터 아이콘 PNG 맵 ────────────────────────────────
   // 모든 UI (보드·프로필·로그·토스트·덱·추론토큰) 에서 이모지 대신 사용.
   // 렌더링은 game.js 의 pieceIconHtml() 헬퍼를 통해 <img> 태그로 출력.

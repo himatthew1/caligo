@@ -5769,6 +5769,16 @@ function playTwinJoinFlight(moverSub, fromCol, fromRow, toCol, toRow) {
   const toCell   = board.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
   if (!fromCell || !toCell) return;
 
+  // ★ 합류 비행 방향 → _pieceFacingDir 갱신 (공격 GIF 방향 반영)
+  if (typeof _pieceFacingDir !== 'undefined' && Array.isArray(S.myPieces)) {
+    const _joinDir = (fromCol !== toCol) ? (toCol < fromCol ? 'left' : 'right') : null;
+    if (_joinDir) {
+      S.myPieces.forEach((p, i) => {
+        if (p && p.alive && p.subUnit) _pieceFacingDir[`${S.playerIdx}:${i}`] = _joinDir;
+      });
+    }
+  }
+
   // mover 의 piece-marker(단일) / cc-wrapper(캐러셀) 일시 숨김 — 비행 끝나고 보드 재렌더 시 자연 복귀
   const moverMarker = fromCell.querySelector('.piece-marker') || fromCell.querySelector('.cc-wrapper');
   if (moverMarker) moverMarker.classList.add('twin-flying');
@@ -7293,19 +7303,72 @@ function animateDragonSummon(col, row, owner) {
     setTimeout(() => board.classList.remove('dragon-board-quake'), 550);
   }
 
-  // 6. 드래곤 즉시 등장 — 빛이 사라지면서 거대 → 정상 크기로 수축. 처음부터 자리에 있음.
-  const dragon = document.createElement('div');
-  dragon.className = 'dragon-revealed';
+  // 6. 드래곤 착지 GIF 강림 — 착지 GIF 1회 재생 후 idle 전환
+  //    착지 GIF (96×96) 셀 대비 240%, NETSCAPE 블록 제거로 정확히 1회 재생.
+  //    착지 GIF 없으면 이동 PNG 수축 폴백.
+  const _landingUrl = window.DRAGON_LANDING_GIF;
   const _dragonMoveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('dragon') : null;
-  if (_dragonMoveUrl) {
-    dragon.innerHTML = `<img src="${_dragonMoveUrl}" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+  const _LANDING_DURATION = 950; // 착지 GIF 910ms + 40ms 여유
+
+  if (_landingUrl) {
+    // ★ 착지 GIF Blob fetch → NETSCAPE 블록 제거 → 1회 재생 Blob URL
+    const cached = window._gifBlobCache && window._gifBlobCache[_landingUrl];
+    const blobP = cached ? Promise.resolve(cached) : fetch(_landingUrl).then(r => r.blob());
+    blobP.then(blob => blob.arrayBuffer()).then(ab => {
+      const src = new Uint8Array(ab);
+      let nsStart = -1;
+      for (let i = 0; i < src.length - 18; i++) {
+        if (src[i] === 0x21 && src[i+1] === 0xFF && src[i+2] === 0x0B) {
+          const sig = String.fromCharCode(src[i+3],src[i+4],src[i+5],src[i+6],src[i+7],
+            src[i+8],src[i+9],src[i+10],src[i+11],src[i+12],src[i+13]);
+          if (sig === 'NETSCAPE2.0') { nsStart = i; break; }
+        }
+      }
+      let patched = src;
+      if (nsStart >= 0) {
+        patched = new Uint8Array(src.length - 19);
+        patched.set(src.subarray(0, nsStart), 0);
+        patched.set(src.subarray(nsStart + 19), nsStart);
+      }
+      const blobUrl = URL.createObjectURL(new Blob([patched], { type: 'image/gif' }));
+      const landImg = document.createElement('img');
+      landImg.src = blobUrl;
+      landImg.draggable = false;
+      landImg.className = 'dragon-landing-gif';
+      landImg.style.width = '240%';
+      landImg.style.height = '240%';
+      stage.appendChild(landImg);
+
+      setTimeout(() => {
+        landImg.remove();
+        URL.revokeObjectURL(blobUrl);
+        if (S._dragonIncoming) S._dragonIncoming.delete(`${col},${row},${owner}`);
+        if (typeof renderGameBoard === 'function') renderGameBoard();
+        if (stage.parentNode) stage.remove();
+      }, _LANDING_DURATION);
+    }).catch(() => {
+      // fetch 실패 시 이동 PNG 폴백
+      _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
+    });
+  } else {
+    // 착지 GIF 미등록 — 이동 PNG 폴백
+    _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
   }
-  stage.appendChild(dragon);
 
   // 7. SFX — 거대 천둥 한 방 (드래곤 강림 SFX 가 천둥 + 으르렁을 모두 포함)
   try { if (typeof playSfxDragonSummon === 'function') playSfxDragonSummon(); } catch (e) {}
+}
 
-  // 8. 종료 — _dragonIncoming 키 제거 + 실제 드래곤 piece 렌더 + stage 제거
+// 드래곤 소환 폴백 — 이동 PNG 수축 등장 (착지 GIF 미사용 시)
+function _dragonSummonFallback(stage, moveUrl, col, row, owner) {
+  const dragon = document.createElement('div');
+  dragon.className = 'dragon-revealed';
+  dragon.style.width = '150%';
+  dragon.style.height = '150%';
+  if (moveUrl) {
+    dragon.innerHTML = `<img src="${moveUrl}" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+  }
+  stage.appendChild(dragon);
   setTimeout(() => {
     if (S._dragonIncoming) S._dragonIncoming.delete(`${col},${row},${owner}`);
     if (typeof renderGameBoard === 'function') renderGameBoard();
@@ -16813,10 +16876,23 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
   else                            url = map[type];
   if (!url) return Promise.resolve();
 
-  // 바라보는 방향 판단 (_pieceFacingDir 조회)
+  // 바라보는 방향 판단 (_pieceFacingDir 조회 + DOM 폴백)
   const _facingLeft = (() => {
-    if (pieceIdx == null || typeof _pieceFacingDir === 'undefined') return false;
-    return _pieceFacingDir[`${S.playerIdx}:${pieceIdx}`] === 'left';
+    // 1차: _pieceFacingDir 맵 조회
+    if (pieceIdx != null && typeof _pieceFacingDir !== 'undefined') {
+      const dir = _pieceFacingDir[`${S.playerIdx}:${pieceIdx}`];
+      if (dir) return dir === 'left';
+    }
+    // 2차 폴백: DOM 의 idle GIF transform 에서 읽기 (합류 등 _pieceFacingDir 미갱신 케이스)
+    const _fb = document.getElementById('game-board');
+    if (_fb) {
+      const _fc = _fb.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (_fc) {
+        const _fg = _fc.querySelector('img.p-gif');
+        if (_fg && _fg.style.transform && _fg.style.transform.includes('scaleX(-1)')) return true;
+      }
+    }
+    return false;
   })();
 
   const board = document.getElementById('game-board');

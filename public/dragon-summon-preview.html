@@ -2,379 +2,484 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🐉 드래곤 강림 애니메이션 · CALIGO</title>
-<link rel="stylesheet" href="style.css">
+<title>드래곤 소환/이동 프리뷰</title>
 <style>
-  body {
-    margin: 0; min-height: 100vh;
-    background:
-      radial-gradient(ellipse at 50% 0%, rgba(30, 41, 59, 0.7), transparent 65%),
-      linear-gradient(135deg, #020617 0%, #0f172a 60%, #020617 100%);
-    color: #fef3c7;
-    font-family: 'Malgun Gothic', 'Noto Sans KR', sans-serif;
-    padding: 32px 16px 64px;
-    /* 메인 style.css 의 flex layout 오버라이드 */
-    display: block !important;
-    align-items: initial !important;
-    justify-content: initial !important;
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #111; color: #eee; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 8px; font-size: 1.3rem; }
+  .subtitle { text-align: center; color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+  .preview-row { display: flex; gap: 40px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+  .preview-box {
+    background: #1a1a2e; border: 1px solid #333; border-radius: 12px; padding: 20px;
+    display: flex; flex-direction: column; align-items: center; min-width: 280px;
   }
-  h1 {
-    margin: 0 0 6px;
-    font-size: 1.8rem; font-weight: 800;
-    background: linear-gradient(135deg, #fde68a 0%, #fbbf24 100%);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-    text-align: center;
+  .preview-box h2 { font-size: 0.95rem; margin-bottom: 12px; color: #93c5fd; }
+  .board {
+    display: grid; grid-template-columns: repeat(5, 56px); grid-template-rows: repeat(5, 56px);
+    gap: 2px; background: #0a0a1a; border: 2px solid #333; border-radius: 6px; padding: 4px;
+    position: relative; margin-bottom: 10px;
   }
-  .sub {
-    color: #94a3b8; font-size: 0.86rem;
-    margin: 0 auto 22px; text-align: center;
-    max-width: 780px; line-height: 1.6;
+  .cell {
+    width: 56px; height: 56px; background: #1e293b; border: 1px solid #334155;
+    border-radius: 4px; position: relative; display: flex; align-items: center; justify-content: center;
+    overflow: visible;
   }
-  .controls {
-    display: flex; gap: 14px; justify-content: center; align-items: center;
-    flex-wrap: wrap;
-    margin: 0 auto 24px;
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    border-radius: 10px;
-    padding: 14px 22px; max-width: 760px;
+  .asset-gallery { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; margin: 16px 0; }
+  .asset-item {
+    display: flex; flex-direction: column; align-items: center; background: #1a1a2e;
+    border: 1px solid #333; border-radius: 8px; padding: 10px;
   }
-  .controls button {
-    background: linear-gradient(135deg, rgba(99,102,241,0.4), rgba(168,85,247,0.45));
-    border: 1px solid rgba(196, 181, 253, 0.5);
-    color: #f5f3ff;
-    padding: 10px 22px; border-radius: 8px; cursor: pointer;
-    font-size: 0.95rem; font-weight: 700;
-    transition: transform 0.15s, box-shadow 0.15s;
+  .asset-item img { image-rendering: pixelated; background: #0a0a1a; border: 1px solid #444; }
+  .asset-item .info { font-size: 0.7rem; color: #888; margin-top: 4px; text-align: center; }
+  .asset-item .name { font-size: 0.8rem; color: #60a5fa; margin-bottom: 4px; }
+  .btn-row { display: flex; gap: 10px; justify-content: center; margin: 14px 0; flex-wrap: wrap; }
+  button {
+    padding: 7px 16px; border: 1px solid #60a5fa; background: transparent; color: #60a5fa;
+    border-radius: 6px; cursor: pointer; font-size: 0.82rem; transition: all 0.2s;
   }
-  .controls button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(168, 85, 247, 0.5);
+  button:hover { background: #60a5fa22; }
+  .slider-row { display: flex; gap: 14px; align-items: center; justify-content: center; margin: 8px 0; flex-wrap: wrap; }
+  .slider-row label { font-size: 0.78rem; color: #aaa; }
+  .slider-row input[type=range] { width: 130px; }
+  .slider-row .val { font-size: 0.78rem; color: #60a5fa; min-width: 42px; }
+  .section { margin: 28px 0; }
+  .section h3 { text-align: center; font-size: 1rem; color: #60a5fa; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 6px; }
+  hr { border: 0; border-top: 1px solid #333; margin: 28px 0; }
+
+  /* ═══ 드래곤 소환 CSS ═══ */
+  .dragon-summon-stage { position: absolute; inset: 0; pointer-events: none; z-index: 100; overflow: visible; }
+  .dragon-light-pillar {
+    position: absolute; left: 50%; top: -200%; width: 120%; height: 400%; transform: translateX(-50%);
+    background: linear-gradient(180deg, transparent 0%, rgba(147,197,253,0.1) 20%, rgba(219,234,254,0.35) 40%,
+      rgba(255,255,255,0.7) 50%, rgba(219,234,254,0.35) 60%, rgba(147,197,253,0.1) 80%, transparent 100%);
+    opacity: 0; animation: dragonLightPillar 0.85s ease-out forwards;
   }
-  .controls button:active { transform: translateY(0); }
-  .controls .info {
-    font-size: 0.78rem; color: #cbd5e1;
+  .dragon-light-pillar-core {
+    position: absolute; left: 50%; top: -200%; width: 40%; height: 400%; transform: translateX(-50%);
+    background: linear-gradient(180deg, transparent 0%, rgba(255,255,255,0.3) 30%, rgba(255,255,255,0.85) 50%,
+      rgba(255,255,255,0.3) 70%, transparent 100%);
+    opacity: 0; animation: dragonLightPillar 0.8s 0.03s ease-out forwards;
+  }
+  @keyframes dragonLightPillar { 0%{opacity:0} 8%{opacity:1} 35%{opacity:1} 100%{opacity:0} }
+  .dragon-fullscreen-flash {
+    position: fixed; inset: 0; background: radial-gradient(ellipse at center,
+      rgba(255,255,255,0.95) 0%, rgba(219,234,254,0.65) 35%, rgba(96,165,250,0.25) 70%, transparent 100%);
+    opacity: 0; pointer-events: none; z-index: 9050;
+    animation: dragonFullFlash 0.55s cubic-bezier(0.2,0.95,0.3,1) forwards;
+  }
+  @keyframes dragonFullFlash { 0%{opacity:0} 6%{opacity:1} 30%{opacity:0.6} 100%{opacity:0} }
+  .cell.dragon-strike-cell { animation: dragonStrikeCell 0.9s cubic-bezier(0.2,1,0.3,1); }
+  @keyframes dragonStrikeCell {
+    0%{box-shadow:0 0 0 0 rgba(147,197,253,0)}
+    6%{box-shadow:0 0 60px 22px rgba(255,255,255,1),inset 0 0 30px rgba(255,255,255,0.95)}
+    20%{box-shadow:0 0 40px 14px rgba(191,219,254,0.9),inset 0 0 20px rgba(191,219,254,0.7)}
+    60%{box-shadow:0 0 18px 5px rgba(96,165,250,0.55),inset 0 0 10px rgba(59,130,246,0.4)}
+    100%{box-shadow:0 0 0 0 rgba(147,197,253,0)}
+  }
+  .dragon-shockwave-ring { position: absolute; left:50%; top:50%; width:30%; height:30%; border-radius:50%;
+    transform:translate(-50%,-50%) scale(0.2); opacity:0; pointer-events:none; }
+  .dragon-shockwave-ring.r1 { border:4px solid rgba(255,255,255,0.95); box-shadow:0 0 24px rgba(255,255,255,0.8);
+    animation: dragonShockRing 0.8s cubic-bezier(0.16,1,0.3,1) forwards; }
+  .dragon-shockwave-ring.r2 { border:3px solid rgba(147,197,253,0.85); box-shadow:0 0 18px rgba(96,165,250,0.7);
+    animation: dragonShockRing 0.95s 0.08s cubic-bezier(0.16,1,0.3,1) forwards; }
+  .dragon-shockwave-ring.r3 { border:2px solid rgba(59,130,246,0.7);
+    animation: dragonShockRing 1.1s 0.16s cubic-bezier(0.16,1,0.3,1) forwards; }
+  @keyframes dragonShockRing {
+    0%{opacity:0;transform:translate(-50%,-50%) scale(0.2)} 10%{opacity:1}
+    100%{opacity:0;transform:translate(-50%,-50%) scale(6.5);border-width:0.5px}
+  }
+  .dragon-board-quake { animation: dragonBoardQuake 0.5s ease-out; }
+  @keyframes dragonBoardQuake {
+    0%{transform:translate(0,0)} 10%{transform:translate(-4px,-2px)} 20%{transform:translate(5px,3px)}
+    30%{transform:translate(-3px,4px)} 40%{transform:translate(4px,-3px)} 55%{transform:translate(-2px,2px)}
+    70%{transform:translate(3px,-1px)} 85%{transform:translate(-1px,1px)} 100%{transform:translate(0,0)}
+  }
+  .dragon-revealed {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scale(3.5); opacity:0;
+    image-rendering:pixelated; pointer-events:none;
+    filter:drop-shadow(0 0 18px rgba(255,255,255,1)) drop-shadow(0 0 32px rgba(147,197,253,0.9)) brightness(2.5);
+    animation: dragonReveal 0.85s cubic-bezier(0.2,0.9,0.3,1) forwards;
+  }
+  @keyframes dragonReveal {
+    0%{opacity:0;transform:translate(-50%,-50%) scale(3.5);filter:drop-shadow(0 0 28px #fff) drop-shadow(0 0 50px #93c5fd) brightness(3.5)}
+    8%{opacity:1;transform:translate(-50%,-50%) scale(2.4);filter:drop-shadow(0 0 24px #fff) drop-shadow(0 0 42px #bfdbfe) brightness(3.0)}
+    35%{opacity:1;transform:translate(-50%,-50%) scale(1.4);filter:drop-shadow(0 0 14px #fff) drop-shadow(0 0 24px #93c5fd) brightness(1.8)}
+    70%{opacity:1;transform:translate(-50%,-50%) scale(1.05);filter:drop-shadow(0 0 6px rgba(255,255,255,0.6)) drop-shadow(0 0 14px rgba(96,165,250,0.5)) brightness(1.2)}
+    100%{opacity:1;transform:translate(-50%,-50%) scale(1.0);filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) brightness(1.0)}
+  }
+  .dragon-landing-gif {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scale(3.0); opacity:0;
+    image-rendering:pixelated; pointer-events:none;
+    filter:drop-shadow(0 0 18px rgba(255,255,255,1)) drop-shadow(0 0 32px rgba(147,197,253,0.9)) brightness(2.5);
+    animation: dragonLandingIn 0.5s cubic-bezier(0.2,0.9,0.3,1) forwards;
+  }
+  @keyframes dragonLandingIn {
+    0%{opacity:0;transform:translate(-50%,-50%) scale(3.0);filter:drop-shadow(0 0 28px #fff) drop-shadow(0 0 50px #93c5fd) brightness(3.5)}
+    15%{opacity:1;transform:translate(-50%,-50%) scale(1.6);filter:drop-shadow(0 0 18px #fff) drop-shadow(0 0 30px #bfdbfe) brightness(2.2)}
+    50%{opacity:1;transform:translate(-50%,-50%) scale(1.05);filter:drop-shadow(0 0 6px rgba(255,255,255,0.5)) brightness(1.3)}
+    100%{opacity:1;transform:translate(-50%,-50%) scale(1.0);filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) brightness(1.0)}
   }
 
-  .preview-board {
-    margin: 0 auto;
-    width: 460px; max-width: 90vw;
-    aspect-ratio: 1;
-    display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    grid-template-rows: repeat(5, 1fr);
-    gap: 6px;
-    padding: 12px;
-    background: rgba(15, 23, 42, 0.6);
-    border: 2px solid rgba(99, 102, 241, 0.3);
-    border-radius: 12px;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
-  }
-  .preview-board .cell {
-    background: rgba(30, 41, 59, 0.55);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    border-radius: 6px;
-    position: relative;
-    display: grid; place-items: center;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    font-size: 0.7rem; color: #94a3b8;
-    user-select: none;
-  }
-  .preview-board .cell:hover {
-    background: rgba(96, 165, 250, 0.18);
-    border-color: rgba(96, 165, 250, 0.6);
-  }
-  .preview-board .cell.target {
-    background: rgba(168, 85, 247, 0.22);
-    border-color: rgba(196, 181, 253, 0.7);
-    box-shadow: 0 0 10px rgba(168, 85, 247, 0.45);
-  }
-  .preview-board .cell .coord-label { font-size: 0.65rem; opacity: 0.5; }
-  .preview-board .cell .dragon-piece {
-    position: absolute;
-    inset: 0;
-    display: grid; place-items: center;
-    font-size: 1.6rem;
-  }
-  .deduction-token {
-    position: absolute; bottom: 2px; right: 2px;
-    font-size: 0.85rem;
-    background: rgba(248, 113, 113, 0.3);
-    border: 1px solid rgba(248, 113, 113, 0.6);
-    border-radius: 50%;
-    width: 22px; height: 22px;
-    display: grid; place-items: center;
-    box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
-  }
-
-  .scenario-panel {
-    max-width: 760px;
-    margin: 30px auto 0;
-    background: rgba(15, 23, 42, 0.65);
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    border-radius: 10px;
-    padding: 16px 20px;
-    font-size: 0.85rem; color: #cbd5e1; line-height: 1.65;
-  }
-  .scenario-panel strong { color: #fde68a; }
-  .scenario-panel ul { margin: 8px 0 0 18px; padding: 0; }
-  .scenario-panel li { margin: 4px 0; }
-  .scenario-panel .timing {
-    display: inline-block; min-width: 88px; color: #93c5fd;
-    font-family: 'Consolas', monospace; font-size: 0.78rem;
-  }
-
-  /* mute 토글 */
-  .mute-btn {
-    background: rgba(248, 113, 113, 0.25) !important;
-    border-color: rgba(248, 113, 113, 0.55) !important;
-  }
-  .mute-btn.active {
-    background: rgba(34, 197, 94, 0.25) !important;
-    border-color: rgba(74, 222, 128, 0.6) !important;
+  /* ═══ 이동 애니메이션 ═══ */
+  .move-floater {
+    position: absolute; pointer-events: none; z-index: 200;
+    image-rendering: pixelated;
+    filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
+            drop-shadow(0 0 8px rgba(82,183,136,0.85));
+    transition: left 0.35s cubic-bezier(0.25,0.46,0.45,0.94), top 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
   }
 </style>
 </head>
 <body>
 
-<h1>🐉 드래곤 강림 애니메이션 미리보기</h1>
-<p class="sub">셀 하나를 골라 [강림 시연] 버튼을 누르세요. 사운드도 함께 재생됩니다.<br>
-<span style="color:#fbbf24;">상대편 시점</span> 토글을 켜면 추리 토큰이 함께 부여되는 모습을 시연합니다.</p>
+<h1>드래곤 소환/이동 프리뷰</h1>
+<p class="subtitle">이동 PNG 64×64 + 착지 GIF 96×96 (1회 재생) + 이동 모션</p>
 
-<div class="controls">
-  <button id="btn-cast">⚡ 강림 시연</button>
-  <button id="btn-toggle-opp" class="mute-btn">👁 시점: 본인</button>
-  <button id="btn-mute" class="mute-btn active">🔊 사운드 ON</button>
-  <span class="info">선택 셀: <span id="sel-info" style="color:#fde68a;font-weight:700;">C2</span></span>
+<!-- ═══ 섹션 1: 에셋 갤러리 ═══ -->
+<div class="section">
+  <h3>에셋 갤러리 (4배 확대)</h3>
+  <div class="asset-gallery">
+    <div class="asset-item">
+      <div class="name">이동 PNG 64×64</div>
+      <img src="/art/dragon_move.png" style="width:128px;height:128px;">
+      <div class="info">dragon_move.png</div>
+    </div>
+    <div class="asset-item">
+      <div class="name">착지 GIF 96×96</div>
+      <img src="/art/dragon_landing.gif" style="width:192px;height:192px;">
+      <div class="info">dragon_landing.gif<br>7프레임 910ms</div>
+    </div>
+    <div class="asset-item">
+      <div class="name">착지 PNG 96×96</div>
+      <img src="/art/dragon_landing.png" style="width:192px;height:192px;">
+      <div class="info">dragon_landing.png</div>
+    </div>
+    <div class="asset-item">
+      <div class="name">아이들 GIF 32×32</div>
+      <img src="/art/dragon_idle.gif" style="width:128px;height:128px;">
+      <div class="info">dragon_idle.gif</div>
+    </div>
+  </div>
 </div>
+<hr>
 
-<div class="preview-board" id="preview-board"></div>
+<!-- ═══ 섹션 2: 셀 위 사이즈 비교 ═══ -->
+<div class="section">
+  <h3>56×56 셀 위 사이즈 비교</h3>
+  <div class="slider-row">
+    <label>이동PNG:</label>
+    <input type="range" id="move-size" min="30" max="300" value="150">
+    <span class="val" id="move-size-val">150%</span>
+    <label>착지GIF:</label>
+    <input type="range" id="land-size" min="40" max="400" value="260">
+    <span class="val" id="land-size-val">260%</span>
+    <label>아이들:</label>
+    <input type="range" id="idle-size" min="30" max="200" value="80">
+    <span class="val" id="idle-size-val">80%</span>
+  </div>
+  <div class="preview-row" id="size-compare-row"></div>
+</div>
+<hr>
 
-<div class="scenario-panel">
-  <strong>타이밍 (다른 스킬과 통일)</strong> — 시전 후 SP 마법구 비행 종료 시점 (5 SP → 1300ms) 에서 시작.<br>
-  <span style="color:#fbbf24;">단일 임팩트</span> — 천둥 한 방, 광주 한 방, 드래곤 즉시 등장.
-  <ul>
-    <li><span class="timing">T+0</span> <strong>천둥 KABOOM!</strong> + 거대 광주 (셀 폭의 70%) + 풀스크린 플래시 + 보드 흔들림 + 셀 화이트 폭발 + 충격파 3겹 + 드래곤 즉시 등장 (3.5× → 정상 크기로 수축)</li>
-    <li><span class="timing">T+~700ms</span> 빛이 사라지면서 드래곤이 정상 크기 + 위압감 후광으로 정착</li>
-    <li><span class="timing">T+900ms</span> 애니 종료 → 보드에 드래곤 piece 정상 표시</li>
-  </ul>
-  <strong>시점별 차이</strong>:
-  <ul>
-    <li><strong>본인 / 팀원 / 관전자</strong>: 애니메이션 그대로 공유. 끝나면 드래곤 piece 정상 표시.</li>
-    <li><strong>상대 / 적팀</strong>: 같은 애니메이션 + 강림한 칸에 자동 추리 토큰 (🐲) 부여.</li>
-  </ul>
+<!-- ═══ 섹션 3: 소환 연출 비교 ═══ -->
+<div class="section">
+  <h3>소환 연출 비교</h3>
+  <div class="slider-row">
+    <label>이동PNG:</label>
+    <input type="range" id="anim-move-size" min="30" max="300" value="150">
+    <span class="val" id="anim-move-size-val">150%</span>
+    <label>착지GIF:</label>
+    <input type="range" id="anim-land-size" min="40" max="400" value="260">
+    <span class="val" id="anim-land-size-val">260%</span>
+  </div>
+  <div class="btn-row">
+    <button onclick="playCurrentAnim()">A: 기존 (이동PNG 수축)</button>
+    <button onclick="playNewAnim()">B: 새 (착지GIF 1회→idle)</button>
+    <button onclick="playBothAnim()">A+B 동시</button>
+  </div>
+  <div class="preview-row">
+    <div class="preview-box">
+      <h2>A: 기존</h2>
+      <div class="board" id="board-a">
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell" id="cell-a"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      </div>
+    </div>
+    <div class="preview-box">
+      <h2>B: 새 (착지GIF)</h2>
+      <div class="board" id="board-b">
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell" id="cell-b"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+        <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<hr>
+
+<!-- ═══ 섹션 4: 이동 프리뷰 ═══ -->
+<div class="section">
+  <h3>이동 모션 프리뷰</h3>
+  <p class="subtitle">셀 클릭으로 드래곤 이동 (이동 PNG 사용, 초록 글로우)</p>
+  <div class="slider-row">
+    <label>이동PNG 셀내 크기:</label>
+    <input type="range" id="move-anim-size" min="30" max="300" value="150">
+    <span class="val" id="move-anim-size-val">150%</span>
+  </div>
+  <div class="btn-row">
+    <button onclick="resetMoveBoard()">초기화</button>
+  </div>
+  <div class="preview-row">
+    <div class="preview-box">
+      <h2>이동 모션 (클릭하여 이동)</h2>
+      <div class="board" id="board-move"></div>
+    </div>
+  </div>
 </div>
 
 <script>
-// ──────────────────────────────────────────────────────────────
-// 사운드 — game.js 의 playSfxDragonSummon / playSfxDragonImpact 와 동일 로직
-// ──────────────────────────────────────────────────────────────
-let sfxMuted = false;
-let _audioCtx = null;
-function getAudioCtx() {
-  if (sfxMuted) return null;
-  if (!_audioCtx) { try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
-  if (_audioCtx.state === 'suspended') _audioCtx.resume();
-  return _audioCtx;
-}
-function _sfxTone(ctx, when, freq, dur, type, gain, freqEnd) {
-  const o = ctx.createOscillator();
-  const g = ctx.createGain();
-  o.type = type || 'sine';
-  o.frequency.setValueAtTime(freq, when);
-  if (freqEnd != null) o.frequency.exponentialRampToValueAtTime(Math.max(0.01, freqEnd), when + dur);
-  g.gain.setValueAtTime(0, when);
-  g.gain.linearRampToValueAtTime(gain, when + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-  o.connect(g).connect(ctx.destination);
-  o.start(when); o.stop(when + dur + 0.05);
-}
-function _sfxNoise(ctx, when, dur, gain, lo, hi) {
-  const buf = ctx.createBuffer(1, ctx.sampleRate * dur, ctx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  const src = ctx.createBufferSource(); src.buffer = buf;
-  const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
-  filter.frequency.value = (lo + hi) / 2;
-  filter.Q.value = 1.5;
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(0, when);
-  g.gain.linearRampToValueAtTime(gain, when + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-  src.connect(filter).connect(g).connect(ctx.destination);
-  src.start(when); src.stop(when + dur + 0.05);
-}
-function playSfxDragonSummon() {
-  if (sfxMuted) return;
-  try {
-    const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
-    // 거대 천둥 한 방 (KABOOM!)
-    _sfxNoise(ctx, now,         0.04, 0.55, 3000, 12000);
-    _sfxNoise(ctx, now,         0.05, 0.50, 1500, 5000);
-    _sfxTone(ctx, now,          3000, 0.04, 'square',  0.30, 800);
-    _sfxNoise(ctx, now,         1.2,  0.35, 40,  180);
-    _sfxNoise(ctx, now + 0.05,  0.9,  0.28, 80,  400);
-    _sfxTone(ctx, now,          55,   1.1, 'sawtooth', 0.32, 28);
-    _sfxTone(ctx, now + 0.02,   90,   0.7, 'sawtooth', 0.22, 35);
-    _sfxTone(ctx, now + 0.35,   75,   0.55, 'sawtooth', 0.20, 45);
-    _sfxNoise(ctx, now + 0.5,   0.4,  0.10, 100, 600);
-  } catch (e) {}
+// ═══ NETSCAPE 블록 제거 (1회 재생 보장) ═══
+function removeNetscapeLoop(arrayBuf) {
+  const u8 = new Uint8Array(arrayBuf);
+  // NETSCAPE2.0 블록 찾기 (0x21 0xFF 0x0B 'NETSCAPE2.0' ...)
+  for (let i = 0; i < u8.length - 18; i++) {
+    if (u8[i] === 0x21 && u8[i+1] === 0xFF && u8[i+2] === 0x0B) {
+      const id = String.fromCharCode(...u8.slice(i+3, i+14));
+      if (id === 'NETSCAPE2.0') {
+        // 19바이트 블록 전체 제거
+        const before = u8.slice(0, i);
+        const after = u8.slice(i + 19);
+        const merged = new Uint8Array(before.length + after.length);
+        merged.set(before); merged.set(after, before.length);
+        return merged.buffer;
+      }
+    }
+  }
+  return arrayBuf;
 }
 
-// ──────────────────────────────────────────────────────────────
-// 보드 렌더링
-// ──────────────────────────────────────────────────────────────
-const COL_LETTERS = ['A','B','C','D','E'];
-const ROW_LABELS  = ['1','2','3','4','5'];
-const board = document.getElementById('preview-board');
-const state = {
-  selCol: 2, selRow: 1,    // 기본 C2 (사용자가 선택 가능)
-  isOppView: false,         // false=본인, true=상대(추리 토큰 부여)
-  deductionTokens: [],
-  dragonPlaced: null,       // {col, row} 강림 후 보드에 남는 드래곤
-  incoming: false,          // 강림 애니 진행 중
-};
+// 캐시된 1회재생 Blob URL
+let _landingOnceUrl = null;
+async function getLandingOnceUrl() {
+  if (_landingOnceUrl) return _landingOnceUrl;
+  const resp = await fetch('/art/dragon_landing.gif');
+  const buf = await resp.arrayBuffer();
+  const patched = removeNetscapeLoop(buf);
+  const blob = new Blob([patched], { type: 'image/gif' });
+  _landingOnceUrl = URL.createObjectURL(blob);
+  return _landingOnceUrl;
+}
 
-function buildBoard() {
+// ═══ 사이즈 비교 ═══
+function buildSizeCompare() {
+  const moveS = document.getElementById('move-size').value;
+  const landS = document.getElementById('land-size').value;
+  const idleS = document.getElementById('idle-size').value;
+  document.getElementById('move-size-val').textContent = moveS + '%';
+  document.getElementById('land-size-val').textContent = landS + '%';
+  document.getElementById('idle-size-val').textContent = idleS + '%';
+  const row = document.getElementById('size-compare-row');
+  const items = [
+    { label: '이동 PNG', src: '/art/dragon_move.png', pct: moveS },
+    { label: '착지 GIF', src: '/art/dragon_landing.gif', pct: landS },
+    { label: '착지 PNG', src: '/art/dragon_landing.png', pct: landS },
+    { label: '아이들 GIF', src: '/art/dragon_idle.gif', pct: idleS },
+  ];
+  row.innerHTML = items.map(it => `
+    <div style="display:flex;flex-direction:column;align-items:center">
+      <div class="cell" style="position:relative;overflow:visible">
+        <img src="${it.src}" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+          width:${it.pct}%;height:${it.pct}%;object-fit:contain;image-rendering:pixelated;
+          filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));">
+      </div>
+      <div style="font-size:0.75rem;color:#aaa;margin-top:6px">${it.label}</div>
+      <div style="font-size:0.7rem;color:#60a5fa">${it.pct}%</div>
+    </div>
+  `).join('');
+}
+document.getElementById('move-size').addEventListener('input', buildSizeCompare);
+document.getElementById('land-size').addEventListener('input', buildSizeCompare);
+document.getElementById('idle-size').addEventListener('input', buildSizeCompare);
+buildSizeCompare();
+
+// 슬라이더 값 표시
+['anim-land-size','anim-move-size','move-anim-size'].forEach(id => {
+  document.getElementById(id).addEventListener('input', e => {
+    document.getElementById(id + '-val').textContent = e.target.value + '%';
+  });
+});
+
+// ═══ 공통 헬퍼 ═══
+function clearCell(cell, board) {
+  cell.querySelectorAll('.dragon-summon-stage,.move-floater').forEach(e => e.remove());
+  cell.classList.remove('dragon-strike-cell');
+  board.classList.remove('dragon-board-quake');
+  cell.innerHTML = ''; void cell.offsetWidth;
+}
+function addEffects(cell, board, stage) {
+  const pillar = document.createElement('div'); pillar.className = 'dragon-light-pillar'; stage.appendChild(pillar);
+  const core = document.createElement('div'); core.className = 'dragon-light-pillar-core'; stage.appendChild(core);
+  const flash = document.createElement('div'); flash.className = 'dragon-fullscreen-flash';
+  document.body.appendChild(flash); setTimeout(() => flash.remove(), 600);
+  cell.classList.add('dragon-strike-cell');
+  for (const cls of ['r1','r2','r3']) {
+    const ring = document.createElement('div'); ring.className = 'dragon-shockwave-ring ' + cls; stage.appendChild(ring);
+  }
+  board.classList.add('dragon-board-quake');
+  setTimeout(() => board.classList.remove('dragon-board-quake'), 550);
+}
+function showIdle(cell) {
+  cell.innerHTML = '<img src="/art/dragon_idle.gif" style="width:80%;height:80%;object-fit:contain;image-rendering:pixelated;' +
+    'filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));">';
+}
+
+// ═══ A: 기존 연출 ═══
+function playCurrentAnim() {
+  const cell = document.getElementById('cell-a');
+  const board = document.getElementById('board-a');
+  clearCell(cell, board);
+  const movePct = document.getElementById('anim-move-size').value;
+  const stage = document.createElement('div'); stage.className = 'dragon-summon-stage';
+  cell.appendChild(stage);
+  addEffects(cell, board, stage);
+  const dragon = document.createElement('div');
+  dragon.className = 'dragon-revealed';
+  dragon.style.width = movePct + '%'; dragon.style.height = movePct + '%';
+  dragon.innerHTML = '<img src="/art/dragon_move.png" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;' +
+    'filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">';
+  stage.appendChild(dragon);
+  setTimeout(() => { stage.remove(); cell.classList.remove('dragon-strike-cell'); showIdle(cell); }, 900);
+}
+
+// ═══ B: 새 연출 (1회 재생) ═══
+async function playNewAnim() {
+  const cell = document.getElementById('cell-b');
+  const board = document.getElementById('board-b');
+  clearCell(cell, board);
+  const landPct = document.getElementById('anim-land-size').value;
+  const stage = document.createElement('div'); stage.className = 'dragon-summon-stage';
+  cell.appendChild(stage);
+  addEffects(cell, board, stage);
+
+  // NETSCAPE 제거된 1회재생 Blob URL 사용
+  const onceUrl = await getLandingOnceUrl();
+  // 매 재생마다 fresh Blob URL (Chrome 전역 GIF 시계 우회)
+  const resp = await fetch(onceUrl);
+  const blob = await resp.blob();
+  const freshUrl = URL.createObjectURL(blob);
+
+  const landImg = document.createElement('img');
+  landImg.src = freshUrl;
+  landImg.className = 'dragon-landing-gif';
+  landImg.style.width = landPct + '%'; landImg.style.height = landPct + '%';
+  landImg.draggable = false;
+  stage.appendChild(landImg);
+
+  setTimeout(() => {
+    landImg.remove(); URL.revokeObjectURL(freshUrl);
+    stage.remove(); cell.classList.remove('dragon-strike-cell');
+    showIdle(cell);
+  }, 950);
+}
+
+function playBothAnim() { playCurrentAnim(); playNewAnim(); }
+
+// ═══ 섹션 4: 이동 프리뷰 ═══
+let _moveDragonPos = { col: 2, row: 2 };
+let _moveAnimating = false;
+
+function buildMoveBoard() {
+  const board = document.getElementById('board-move');
   board.innerHTML = '';
   for (let r = 0; r < 5; r++) {
     for (let c = 0; c < 5; c++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
-      cell.dataset.col = c;
-      cell.dataset.row = r;
-      const label = document.createElement('span');
-      label.className = 'coord-label';
-      label.textContent = COL_LETTERS[c] + ROW_LABELS[r];
-      cell.appendChild(label);
-      cell.addEventListener('click', () => {
-        if (state.incoming) return;
-        state.selCol = c; state.selRow = r;
-        renderBoard();
-      });
+      cell.dataset.col = c; cell.dataset.row = r;
+      cell.addEventListener('click', () => moveDragonTo(c, r));
+
+      if (c === _moveDragonPos.col && r === _moveDragonPos.row) {
+        cell.innerHTML = '<img class="p-gif" src="/art/dragon_idle.gif" style="width:80%;height:80%;object-fit:contain;image-rendering:pixelated;' +
+          'filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));">';
+      }
+      // 인접 셀 이동 가능 표시 (상하좌우)
+      const dc = Math.abs(c - _moveDragonPos.col);
+      const dr = Math.abs(r - _moveDragonPos.row);
+      if ((dc + dr === 1) && !(c === _moveDragonPos.col && r === _moveDragonPos.row)) {
+        cell.style.boxShadow = 'inset 0 0 12px rgba(82,183,136,0.35)';
+        cell.style.cursor = 'pointer';
+      }
       board.appendChild(cell);
     }
   }
-  renderBoard();
 }
-function renderBoard() {
-  const cells = board.querySelectorAll('.cell');
-  cells.forEach(cell => {
-    const c = +cell.dataset.col, r = +cell.dataset.row;
-    cell.classList.toggle('target', c === state.selCol && r === state.selRow && !state.dragonPlaced && !state.incoming);
-    // 기존 자식 정리 (label 제외)
-    [...cell.querySelectorAll('.dragon-piece, .deduction-token')].forEach(n => n.remove());
-    // 강림 완료 후 — 드래곤 piece + 추리 토큰 (시점에 따라)
-    if (state.dragonPlaced && state.dragonPlaced.col === c && state.dragonPlaced.row === r) {
-      const dp = document.createElement('div');
-      dp.className = 'dragon-piece';
-      dp.textContent = '🐲';
-      cell.appendChild(dp);
-      if (state.isOppView) {
-        // 추리 토큰
-        const tok = document.createElement('div');
-        tok.className = 'deduction-token';
-        tok.textContent = '🐲';
-        tok.title = '드래곤 (추리 토큰)';
-        cell.appendChild(tok);
-      }
-    }
+
+function moveDragonTo(toCol, toRow) {
+  if (_moveAnimating) return;
+  const dc = Math.abs(toCol - _moveDragonPos.col);
+  const dr = Math.abs(toRow - _moveDragonPos.row);
+  if (dc + dr !== 1) return; // 인접만
+
+  _moveAnimating = true;
+  const board = document.getElementById('board-move');
+  const fromCell = board.querySelector(`.cell[data-col="${_moveDragonPos.col}"][data-row="${_moveDragonPos.row}"]`);
+  const toCell = board.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
+  if (!fromCell || !toCell) { _moveAnimating = false; return; }
+
+  const movePct = parseInt(document.getElementById('move-anim-size').value);
+  const fromR = fromCell.getBoundingClientRect();
+  const toR = toCell.getBoundingClientRect();
+  const boardR = board.getBoundingClientRect();
+  const imgSize = Math.round(56 * movePct / 100);
+
+  // 방향
+  const scaleX = (toCol < _moveDragonPos.col) ? -1 : 1;
+
+  // 플로터 생성
+  const floater = document.createElement('img');
+  floater.src = '/art/dragon_move.png';
+  floater.className = 'move-floater';
+  floater.style.width = imgSize + 'px'; floater.style.height = imgSize + 'px';
+  floater.style.transform = 'scaleX(' + scaleX + ')';
+  // 시작 위치 (board 기준)
+  const startX = fromR.left - boardR.left + fromR.width/2 - imgSize/2;
+  const startY = fromR.top - boardR.top + fromR.height/2 - imgSize/2;
+  floater.style.left = startX + 'px'; floater.style.top = startY + 'px';
+  board.appendChild(floater);
+
+  // idle 숨김
+  const idleImg = fromCell.querySelector('img');
+  if (idleImg) idleImg.style.visibility = 'hidden';
+
+  // 이동 시작 (다음 프레임)
+  requestAnimationFrame(() => {
+    const endX = toR.left - boardR.left + toR.width/2 - imgSize/2;
+    const endY = toR.top - boardR.top + toR.height/2 - imgSize/2;
+    floater.style.left = endX + 'px'; floater.style.top = endY + 'px';
   });
-  document.getElementById('sel-info').textContent = COL_LETTERS[state.selCol] + ROW_LABELS[state.selRow];
-}
 
-// ──────────────────────────────────────────────────────────────
-// 강림 애니메이션 — game.js 의 animateDragonSummon 와 동일 로직
-// ──────────────────────────────────────────────────────────────
-function animateDragonSummon(col, row) {
-  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
-  if (!cell) return;
-  const rect = cell.getBoundingClientRect();
-  const stage = document.createElement('div');
-  stage.className = 'dragon-summon-stage';
-  stage.style.left = rect.left + 'px';
-  stage.style.top = rect.top + 'px';
-  stage.style.width = rect.width + 'px';
-  stage.style.height = rect.height + 'px';
-  document.body.appendChild(stage);
-
-  // 거대 광주 + 코어
-  const pillar = document.createElement('div');
-  pillar.className = 'dragon-light-pillar';
-  stage.appendChild(pillar);
-  const core = document.createElement('div');
-  core.className = 'dragon-light-pillar-core';
-  stage.appendChild(core);
-
-  // 풀스크린 플래시
-  const fullFlash = document.createElement('div');
-  fullFlash.className = 'dragon-fullscreen-flash';
-  document.body.appendChild(fullFlash);
-  setTimeout(() => fullFlash.remove(), 600);
-
-  // 셀 강렬 화이트 폭발
-  cell.classList.remove('dragon-strike-cell');
-  void cell.offsetWidth;
-  cell.classList.add('dragon-strike-cell');
-
-  // 충격파 3겹
-  for (const cls of ['r1', 'r2', 'r3']) {
-    const ring = document.createElement('div');
-    ring.className = `dragon-shockwave-ring ${cls}`;
-    stage.appendChild(ring);
-  }
-
-  // 보드 흔들림
-  board.classList.remove('dragon-board-quake');
-  void board.offsetWidth;
-  board.classList.add('dragon-board-quake');
-  setTimeout(() => board.classList.remove('dragon-board-quake'), 550);
-
-  // 드래곤 즉시 등장 (3.5x → 1x)
-  const dragon = document.createElement('div');
-  dragon.className = 'dragon-revealed';
-  dragon.textContent = '🐲';
-  stage.appendChild(dragon);
-
-  // SFX
-  try { playSfxDragonSummon(); } catch (e) {}
-
+  // 완료
   setTimeout(() => {
-    state.incoming = false;
-    state.dragonPlaced = { col, row };
-    renderBoard();
-    if (stage.parentNode) stage.remove();
-  }, 900);
+    floater.remove();
+    _moveDragonPos = { col: toCol, row: toRow };
+    buildMoveBoard();
+    _moveAnimating = false;
+  }, 380);
 }
 
-// ──────────────────────────────────────────────────────────────
-// 컨트롤
-// ──────────────────────────────────────────────────────────────
-document.getElementById('btn-cast').addEventListener('click', () => {
-  if (state.incoming) return;
-  state.dragonPlaced = null;     // 이전 강림 결과 제거
-  renderBoard();
-  state.incoming = true;
-  playSfxDragonSummon();
-  animateDragonSummon(state.selCol, state.selRow);
-});
-const btnOpp = document.getElementById('btn-toggle-opp');
-btnOpp.addEventListener('click', () => {
-  state.isOppView = !state.isOppView;
-  btnOpp.textContent = state.isOppView ? '👁 시점: 상대(적팀)' : '👁 시점: 본인';
-  btnOpp.classList.toggle('active', state.isOppView);
-  renderBoard();
-});
-const btnMute = document.getElementById('btn-mute');
-btnMute.addEventListener('click', () => {
-  sfxMuted = !sfxMuted;
-  btnMute.textContent = sfxMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
-  btnMute.classList.toggle('active', !sfxMuted);
-});
+function resetMoveBoard() {
+  _moveDragonPos = { col: 2, row: 2 };
+  _moveAnimating = false;
+  buildMoveBoard();
+}
 
-buildBoard();
+buildMoveBoard();
 </script>
+
 </body>
 </html>
