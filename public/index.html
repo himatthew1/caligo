@@ -18,14 +18,27 @@
       display: flex; flex-direction: column; align-items: center; gap: 20px;
       user-select: none;
     }
-    #loading-logo {
-      font-size: 3rem; font-weight: 900; letter-spacing: 0.3em;
-      color: #e2a84b; font-family: 'Georgia', serif;
-      text-shadow: 0 0 40px rgba(226,168,75,0.4);
+    #loading-title-wrap {
+      position: relative;
+      display: inline-block;
     }
-    #loading-sub {
-      font-size: 0.8rem; letter-spacing: 0.2em; color: #5a5a7a;
-      margin-top: -12px;
+    #loading-logo {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      width: 320px;
+      height: auto;
+      filter: drop-shadow(0 0 30px rgba(180,170,210,0.23));
+    }
+    #loading-deco {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      object-fit: contain;
+      filter: drop-shadow(0 0 3px rgba(200,190,230,0.5)) drop-shadow(0 0 6px rgba(180,170,210,0.25));
+      pointer-events: none;
     }
     #loading-bar-wrap {
       width: 200px; height: 4px;
@@ -33,7 +46,7 @@
     }
     #loading-bar {
       height: 100%; width: 0%;
-      background: linear-gradient(90deg, #7c3aed, #e2a84b);
+      background: linear-gradient(90deg, #7c3aed, #b0a5d0);
       border-radius: 2px;
       transition: width 0.15s ease;
     }
@@ -47,8 +60,10 @@
 <!-- ── 로딩 오버레이 — 페이지 진입 즉시 표시, GIF 캐시 준비 완료 후 페이드 아웃 ── -->
 <div id="loading-overlay">
   <div id="loading-inner">
-    <div id="loading-logo">CALIGO</div>
-    <div id="loading-sub">칼리고</div>
+    <div id="loading-title-wrap">
+      <img id="loading-logo" src="/art/title_text.gif" alt="CALIGO" draggable="false">
+      <img id="loading-deco" src="/art/title_deco.gif" alt="" draggable="false">
+    </div>
     <div id="loading-bar-wrap">
       <div id="loading-bar"></div>
     </div>
@@ -199,7 +214,10 @@
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
-    <h1 class="game-title">CALIGO</h1>
+    <h1 class="game-title">
+      <img class="title-text-gif" src="/art/title_text.gif" alt="CALIGO" draggable="false">
+      <img class="title-deco-gif" src="/art/title_deco.gif" alt="" draggable="false">
+    </h1>
     <div class="deck-button-wrapper">
       <div id="btn-deck-preview" class="btn-deck-preview"></div>
       <button id="btn-deck" class="btn btn-deck-pill">내 덱</button>

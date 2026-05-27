@@ -47,7 +47,7 @@ function animateRatSpawn(rats, owner, opts) {
       if (useGif) {
         // ★ GIF 생성 애니메이션 — 셀 내부에 spawn GIF 오버레이
         const rx = isMyRat ? rc.x : -rc.x;
-        const ry = isMyRat ? rc.y : -rc.y;
+        const ry = rc.y; // Y 는 반전 없음 — 같은 수평선에서 마주봄
         const flip = isMyRat ? '' : ' scaleX(-1)';
 
         // ★ _gifBlobCache 우선 사용 (preloadAllAsync 에서 이미 캐싱)
@@ -82,9 +82,12 @@ function animateRatSpawn(rats, owner, opts) {
           //   decode() 대기 중 브라우저 내부 GIF 타이머가 프레임을 소비하는 문제 원천 차단.
           targetCell.appendChild(img);
           setTimeout(() => {
-            URL.revokeObjectURL(blobUrl);
-            img.remove();
+            // ★ onLanded 를 먼저 호출 — renderGameBoard 가 idle GIF 를 그린 뒤
+            //   spawn img 는 innerHTML 교체로 자동 제거됨. 순서가 반대면 1프레임 빈 갭 발생.
             if (onLanded) { try { onLanded(rat); } catch (e) {} }
+            // renderGameBoard innerHTML 교체 후에도 혹시 남아있으면 정리
+            if (img.parentNode) img.remove();
+            URL.revokeObjectURL(blobUrl);
           }, dur + 100);
         }).catch(() => {
           // fetch/blob 실패 시 즉시 콜백

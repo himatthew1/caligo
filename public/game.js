@@ -157,7 +157,7 @@ function animateRatDestruction(cells, isMyRat) {
     if (rc && deathUrl) {
       // ★ 사망 GIF — RAT_ANIM_CONFIG.death 위치에 1회 재생 후 제거
       const rx = isMyRat ? rc.x : -rc.x;
-      const ry = isMyRat ? rc.y : -rc.y;
+      const ry = rc.y; // Y 반전 없음 — 같은 수평선에서 마주봄
       const flip = isMyRat ? '' : ' scaleX(-1)';
 
       // 기존 idle GIF 제거
@@ -233,7 +233,7 @@ function animateRatAttackGifs(ownerIdx, viewerIdx) {
   if (!atkUrl) return Promise.resolve();
 
   const rx = isMyRat ? rc.x : -rc.x;
-  const ry = isMyRat ? rc.y : -rc.y;
+  const ry = rc.y; // Y 반전 없음 — 같은 수평선에서 마주봄
   const flip = isMyRat ? '' : ' scaleX(-1)';
 
   // ★ NETSCAPE 블록 제거된 Blob 준비 — 모든 쥐 셀에서 공유
@@ -12257,7 +12257,7 @@ function renderGameBoard() {
             const _key = `${obj.col},${obj.row},${obj.owner}`;
             if (S._ratIncoming && S._ratIncoming.has(_key)) continue;
             const isMyRat = obj.owner === S.playerIdx;
-            // ★ 쥐 GIF — RAT_ANIM_CONFIG 기반 배치. 적군 = 대척점(x/y 반전) + scaleX(-1).
+            // ★ 쥐 GIF — RAT_ANIM_CONFIG 기반 배치. 적군 = X만 반전 + scaleX(-1) (같은 수평선에서 마주봄).
             const _rc = window.RAT_ANIM_CONFIG?.idle;
             const _rGifs = window.RAT_GIFS;
             if (_rc && _rGifs) {
@@ -12265,10 +12265,9 @@ function renderGameBoard() {
               const _rUrl = _rGifs[_rColor]?.idle;
               if (_rUrl) {
                 const _rx = isMyRat ? _rc.x : -_rc.x;
-                const _ry = isMyRat ? _rc.y : -_rc.y;
                 const _flip = isMyRat ? '' : ' scaleX(-1)';
                 const _rz = isMyRat ? 4 : 3;
-                cell.innerHTML += `<img class="rat-board-gif" src="${_rUrl}" style="width:${_rc.w}%;height:${_rc.h}%;left:${50+_rx}%;top:${50+_ry}%;transform:translate(-50%,-50%)${_flip};z-index:${_rz}" alt="">`;
+                cell.innerHTML += `<img class="rat-board-gif" src="${_rUrl}" style="width:${_rc.w}%;height:${_rc.h}%;left:${50+_rx}%;top:${50+_rc.y}%;transform:translate(-50%,-50%)${_flip};z-index:${_rz}" alt="">`;
               }
             }
           }
