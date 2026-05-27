@@ -8489,8 +8489,11 @@ io.on('connection', (socket) => {
             bodyguardRedirect: hit?.bodyguardRedirect || false,
           };
         });
-        // ★ 쌍검무 추가 공격에서도 호위무사 가로채기 hit — 좌표를 공격자에게 노출하지 않음.
-        //   충성 도장은 방어측(being_attacked)에서만 처리.
+        // ★ 호위무사 가로채기 — 프로필 충성 도장 + 피격 애니용 (좌표 미포함)
+        const bodyguardHits = hitResults.filter(h => h.bodyguardRedirect).map(h => ({
+          defPieceIdx: h.defPieceIdx, defOwnerIdx: h.defOwnerIdx,
+          damage: h.damage, destroyed: h.destroyed,
+        }));
         // 쌍검무 추가공격도 임팩트 플래그 전달
         const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
         const _atkFf = (room._attackerFriendlyFireCount || 0);
@@ -8502,6 +8505,7 @@ io.on('connection', (socket) => {
             attackerImpactedAnything: attackerImpactedAnything2,
             yourPieces: pieceSummary(player.pieces),
             friendlyFireHits: room._friendlyFireHits || [],
+            bodyguardHits,
           });
           // being_attacked: 실제 피격된 각 적 플레이어에게 각각 전송
           const defHitsByOwner = new Map();
@@ -8538,6 +8542,7 @@ io.on('connection', (socket) => {
             oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
             yourPieces: pieceSummary(player.pieces),
             friendlyFireHits: room._friendlyFireHits || [],
+            bodyguardHits,
           });
           const defender = room.players[1 - idx];
           if (defender && defender.socketId !== 'AI') {
@@ -8687,10 +8692,15 @@ io.on('connection', (socket) => {
         }
       }
     }
-    // ★ 호위무사 가로채기 hit — 좌표를 공격자에게 노출하면 안 됨.
-    //   충성 발동 사실은 passive_alert 으로 이미 양측에 전달되며,
-    //   충성 도장(파란색)은 방어측(being_attacked)에서만 처리한다.
-    //   공격자의 cellResults 에는 bodyguardRedirect 히트를 추가하지 않는다.
+    // ★ 호위무사 가로채기 hit — 보드 좌표는 공격자에게 노출하면 안 되므로
+    //   cellResults 에는 bodyguardRedirect 히트를 추가하지 않는다.
+    //   대신 bodyguardHits 필드로 defPieceIdx/damage 만 전달 → 프로필 충성 도장 + 피격 애니용.
+    const bodyguardHits = hitResults.filter(h => h.bodyguardRedirect).map(h => ({
+      defPieceIdx: h.defPieceIdx,
+      defOwnerIdx: h.defOwnerIdx,
+      damage: h.damage,
+      destroyed: h.destroyed,
+    }));
     // ★ 사용자 요청: 학살영웅 / 쥐 격파 등 어떤 종류의 피격 임팩트가 있었으면 빗나감 토스트 X.
     //   - 학살영웅 friendly fire (room._attackerFriendlyFireCount > 0)
     //   - 학살영웅 자기쥐 격파 (room._attackerOwnRatsDestroyedCount > 0)
@@ -8708,6 +8718,7 @@ io.on('connection', (socket) => {
         attackerImpactedAnything,
         yourPieces: pieceSummary(player.pieces),
         friendlyFireHits: room._friendlyFireHits || [],
+        bodyguardHits,
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
       const defenderHitsByOwner = new Map();
@@ -8816,6 +8827,7 @@ io.on('connection', (socket) => {
         oppPieces: oppPieceSummary(defender.pieces),
         yourPieces: pieceSummary(player.pieces),
         friendlyFireHits: room._friendlyFireHits || [],
+        bodyguardHits,
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {

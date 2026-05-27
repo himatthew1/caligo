@@ -4449,7 +4449,10 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits }) => {
+  // ★ 공격 애니 시작 — sp_update 큐잉 활성화
+  _attackAnimDeferred = true;
+  _pendingSpUpdate = null;
   // 쥐 격파 감지: 공격 범위에 있던 상대 쥐 찾기 (서버가 자동 제거)
   const destroyedRats = [];
   if (S.boardObjects) {
@@ -4607,6 +4610,17 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
           addBodyDamage(key, dmg);
         }
       }
+      // ★ 호위무사 충성 도장 — cellResults 에 없는 bodyguardRedirect 히트를 별도 처리
+      if (bodyguardHits && bodyguardHits.length > 0) {
+        for (const bg of bodyguardHits) {
+          const bgDmg = (typeof bg.damage === 'number') ? bg.damage : 0;
+          if (bgDmg <= 0 || bg.defPieceIdx === undefined) continue;
+          const bgKey = (S.isTeamMode && bg.defOwnerIdx !== undefined)
+            ? `${bg.defOwnerIdx}:${bg.defPieceIdx}`
+            : `opp:${bg.defPieceIdx}`;
+          addLoyaltyDamage(bgKey, bgDmg);
+        }
+      }
 
       // ── 로그·토스트 + SFX (hit/kill 동시) ──────────────────────────────
       const _attackerHadAnyImpact = !!attackerImpactedAnything || destroyedRats.length > 0;
@@ -4670,6 +4684,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         }
         if (c.redirectedToBodyguard) continue;
         if (c.defPieceIdx !== undefined && !oppHitIndices.includes(c.defPieceIdx)) oppHitIndices.push(c.defPieceIdx);
+      }
+      // ★ 호위무사 프로필 피격 애니 — bodyguardHits 의 defPieceIdx 를 oppHitIndices 에 추가
+      if (bodyguardHits && bodyguardHits.length > 0) {
+        for (const bg of bodyguardHits) {
+          if (bg.defPieceIdx !== undefined && !oppHitIndices.includes(bg.defPieceIdx)) {
+            oppHitIndices.push(bg.defPieceIdx);
+          }
+        }
       }
       const myFriendlyFireIndices = [];
       for (let i = 0; i < S.myPieces.length; i++) {
@@ -4739,6 +4761,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
             renderGameBoard();
             renderMyPieces();
             renderOppPieces();
+            _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
           });
         }, 400);
       } else if (_allDeathInfosRaw.length > 0) {
@@ -4748,12 +4771,14 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         renderMyPieces();
         renderOppPieces();
         _doPostRender();
+        _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
       } else {
         // 사망 없음 — 기존 로직대로 즉시 렌더
         renderGameBoard();
         renderMyPieces();
         renderOppPieces();
         _doPostRender();
+        _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
       }
 
       // ── 쥐 격파 피드백 ──────────────────────────────────────────────────
@@ -4770,6 +4795,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 // ── 피격 ──
 let _beingAttackedSeq = 0;
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything }) => {
+  // ★ 피격 애니 시작 — sp_update 큐잉 활성화
+  _attackAnimDeferred = true;
+  _pendingSpUpdate = null;
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
   // ★ 쥐장수 공격 감지 → 적 쥐 셀에 공격 GIF 동시 재생
@@ -4907,12 +4935,14 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
           _addClientSideRemains(_deathInfos);
           renderGameBoard();
           renderMyPieces();
+          _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
         });
       }, 400);
     } else {
       renderGameBoard();
       renderMyPieces();
       _doPostRenderDef();
+      _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
     }
 
     // 쥐 격파 피드백
@@ -4926,7 +4956,25 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
 });
 
 // ── SP 업데이트 ──
+// ★ 공격 애니메이션 진행 중에는 sp_update 큐잉 — 인스턴트 SP 스택킹 선노출 방지
+let _attackAnimDeferred = false;
+let _pendingSpUpdate = null;
+function _flushPendingSpUpdate() {
+  _attackAnimDeferred = false;
+  if (_pendingSpUpdate) {
+    const _psu = _pendingSpUpdate;
+    _pendingSpUpdate = null;
+    S.sp = _psu.sp;
+    if (_psu.instantSp) S.instantSp = _psu.instantSp;
+    playSfx('sp');
+    updateSPBar();
+  }
+}
 socket.on('sp_update', ({ sp, instantSp }) => {
+  if (_attackAnimDeferred) {
+    _pendingSpUpdate = { sp, instantSp };
+    return;
+  }
   S.sp = sp;
   if (instantSp) S.instantSp = instantSp;
   playSfx('sp');
@@ -12959,6 +13007,16 @@ function addProtectedHit(key) {
   S.protectedHitsThisTurn[key] = true;
 }
 function addLoyaltyDamage(key, dmg) {
+  // ★ 충성 도장은 호위무사 전용 — 다른 유닛에 대한 호출은 무시
+  const _lp = key.split(':');
+  let _lpc = null;
+  if (_lp[0] === 'my') _lpc = S.myPieces?.[parseInt(_lp[1])];
+  else if (_lp[0] === 'opp') _lpc = S.oppPieces?.[parseInt(_lp[1])];
+  else {
+    const _lo = (S.teamGamePlayers || []).find(p => p.idx === parseInt(_lp[0]));
+    _lpc = _lo?.pieces?.[parseInt(_lp[1])];
+  }
+  if (_lpc && _lpc.type !== 'bodyguard') return;
   if (!S.loyaltyDamageThisTurn) S.loyaltyDamageThisTurn = {};
   // ★ body 와 공존 가능 — 호위무사가 본체 피해 + 충성 피해를 동시에 받을 때 둘 다 표시
   _clearOtherStampTypes(key, 'loyalty', ['body']);
@@ -13563,8 +13621,6 @@ function resetAction() {
   S.skillTargetData = null;
   document.body.classList.remove('action-locked');
   document.getElementById('btn-cancel').classList.add('hidden');
-  const skipBtn = document.getElementById('btn-twin-skip-elder');
-  if (skipBtn) skipBtn.classList.add('hidden');
   const hint = document.getElementById('action-hint');
   if (hint) hint.textContent = '행동할 캐릭터의 아이콘을 클릭하세요.';
   setActionButtonMode(null);
@@ -13582,50 +13638,9 @@ document.getElementById('btn-move').addEventListener('click', () => {
   S.targetSelectMode = false;
   document.body.classList.add('action-locked');  // 행동 중 다른 유닛 상호작용 완전 차단
   document.getElementById('btn-cancel').classList.remove('hidden');
-  // 쌍둥이가 같은 칸에 겹쳐 있고 둘 다 살아있다면 — 누나 먼저 이동 안내 + 스킵 버튼
-  const elderPc = (S.myPieces || []).find(p => p.subUnit === 'elder' && p.alive);
-  const youngerPc = (S.myPieces || []).find(p => p.subUnit === 'younger' && p.alive);
-  const stackedTwins = elderPc && youngerPc &&
-    elderPc.col === youngerPc.col && elderPc.row === youngerPc.row;
-  const elderAlreadyMoved = S.twinMovedSub === 'elder' || S.twinElderSkipped;
-  if (stackedTwins && !elderAlreadyMoved) {
-    document.getElementById('action-hint').textContent = '👫 누나가 먼저 이동합니다. 이동할 칸을 선택하세요.';
-    const skipBtn = document.getElementById('btn-twin-skip-elder');
-    if (skipBtn) skipBtn.classList.remove('hidden');
-  } else {
-    document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
-    const skipBtn = document.getElementById('btn-twin-skip-elder');
-    if (skipBtn) skipBtn.classList.add('hidden');
-  }
+  document.getElementById('action-hint').textContent = '이동할 유닛을 클릭하세요.';
   setActionButtonMode('move');
   renderGameBoard();
-});
-
-// 쌍둥이 누나 이동 넘기기 버튼
-{
-  const _btnTwinSkip = document.getElementById('btn-twin-skip-elder');
-  if (_btnTwinSkip) {
-    _btnTwinSkip.addEventListener('click', () => {
-      if (!S.isMyTurn) return;
-      if (S.twinElderSkipped || S.twinMovedSub === 'elder') return;
-      socket.emit('skip_twin_move', { subUnit: 'elder' });
-      _btnTwinSkip.classList.add('hidden');
-    });
-  }
-}
-
-// 서버 confirm — 누나 이동 스킵 처리됨
-socket.on('twin_skip_ok', ({ subUnit }) => {
-  if (subUnit === 'elder') {
-    S.twinElderSkipped = true;
-    S.twinMovePending = true;       // 동생 이동 가능 상태
-    S.twinMovedSub = 'elder';       // 동생만 이동 가능하도록 표시
-    document.getElementById('action-hint').textContent = '👫 누나 이동 스킵됨. 동생을 이동시키거나 턴을 종료할 수 있습니다.';
-  } else if (subUnit === 'younger') {
-    S.twinYoungerSkipped = true;
-    S.twinMovePending = true;
-    S.twinMovedSub = 'younger';
-  }
 });
 
 // 공격 버튼
