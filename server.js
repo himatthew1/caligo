@@ -2020,7 +2020,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const atkExtra = extra || { toggleState: piece.toggleState };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
-  const hitResults = processAttack(room, idx, piece, atkCells);
+  const hitResults = processAttack(room, idx, piece, atkCells, undefined, { suppressSpUpdate: true });
   p.actionDone = true;
   // 사용자 요청: 학살영웅 / 쥐 격파 등 임팩트 발생 시 빗나감 토스트 X.
   const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
@@ -2069,6 +2069,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   }
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
+  room._friendlyFireHits = [];
   // 같은 팀에게 team_ally_hit — payload 는 victim 당 1회 빌드 후 ally 들에게 재사용
   for (const [defOwnerIdx, hits] of defenderHitsByOwner.entries()) {
     const allyIdxs = getAllyIndices(room, defOwnerIdx).filter(i => i !== defOwnerIdx);
@@ -2115,6 +2116,8 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   });
   // 전체 상태 동기화
   broadcastTeamGameState(room);
+  // ★ 공격 처리 완료 — suppressed SP 업데이트 emit
+  emitSPUpdate(room);
   // 쌍검무 — 두 번째 공격 (1v1과 동일하게 4초 딜레이)
   if (piece.dualBladeAttacksLeft > 0 && piece.alive) {
     const DUAL_BLADE_DELAY = 4000;
@@ -3924,6 +3927,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   //   "무언가 피격이 있었다면" 빗나감 토스트 X. 그 판단을 위해 friendlyFire / 자기쥐격파 카운트 사이드채널 저장.
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
+  room._friendlyFireHits = [];                 // ★ 아군 피격 상세 데이터 수집
   if (atkPiece.type === 'slaughterHero') {
     const attackerName = room.players[attackerIdx].name;
     const allyIndices = (room.mode === 'team') ? getAllyIndices(room, attackerIdx) : [attackerIdx];
@@ -3936,6 +3940,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             room._attackerFriendlyFireCount++;
             const whose = aIdx === attackerIdx ? '' : `${allyPlayer.name}의 `;
             // 배반자 토스트·로그 출력 제거 — 데미지 도장으로 충분히 표현됨 (사용자 요청)
+            // ★ 피격 상세 기록 — 클라이언트 사망/피격 GIF 재생용
+            room._friendlyFireHits.push({
+              col: cell.col, row: cell.row, damage: 1, newHp: allyPiece.hp,
+              destroyed: allyPiece.hp <= 0, type: allyPiece.type,
+              ownerIdx: aIdx,
+            });
             // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
             if (allyPiece.type === 'wizard') {
               const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, aIdx) : aIdx;
@@ -6779,7 +6789,7 @@ function aiExecuteAttack(room, action) {
   startPhase(room);
 
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, action.extra);
-  const hitResults = processAttack(room, 1, piece, atkCells);
+  const hitResults = processAttack(room, 1, piece, atkCells, undefined, { suppressSpUpdate: true });
 
   aiProcessAttackResult(brain, atkCells, hitResults);
 
@@ -6801,6 +6811,7 @@ function aiExecuteAttack(room, action) {
   });
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
+  room._friendlyFireHits = [];
   // ★ 관전자 일반 공격 애니 (1v1 AI 공격) — defOwnerIdx 0 (인간 = p0)
   emitToSpectators(room, 'spectator_attack_anim', {
     atkCells,
@@ -6826,6 +6837,9 @@ function aiExecuteAttack(room, action) {
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   aiTrackToast(room, 'attack');
+
+  // ★ 공격 처리 완료 — suppressed SP 업데이트 emit
+  emitSPUpdate(room);
 
   // ★ 게임종료 검사 — 사망 기폭 페이즈가 deferred 면 callback 으로 지연.
   //   simultaneous_draw 케이스도 checkGameEndAfterPhase 가 처리.
@@ -8487,6 +8501,7 @@ io.on('connection', (socket) => {
             pieceIdx, cellResults, anyHit: hitResults.length > 0,
             attackerImpactedAnything: attackerImpactedAnything2,
             yourPieces: pieceSummary(player.pieces),
+            friendlyFireHits: room._friendlyFireHits || [],
           });
           // being_attacked: 실제 피격된 각 적 플레이어에게 각각 전송
           const defHitsByOwner = new Map();
@@ -8522,6 +8537,7 @@ io.on('connection', (socket) => {
             attackerImpactedAnything: attackerImpactedAnything2,
             oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
             yourPieces: pieceSummary(player.pieces),
+            friendlyFireHits: room._friendlyFireHits || [],
           });
           const defender = room.players[1 - idx];
           if (defender && defender.socketId !== 'AI') {
@@ -8631,18 +8647,19 @@ io.on('connection', (socket) => {
     //   handler 끝의 flushPhase 가 cast/intro/bomb_detonated emit 들 시간차로 스케줄링.
     startPhase(room);
 
-    // 본체 공격 처리
-    const hitResults = processAttack(room, idx, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra));
+    // 본체 공격 처리 — ★ suppressSpUpdate: 공격 애니 재생 전에 SP 바가 바뀌는 것 방지
+    const _atkOpts = { suppressSpUpdate: true };
+    const hitResults = processAttack(room, idx, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra), undefined, _atkOpts);
     // 쌍둥이 다른 쪽 공격 처리 (겹치는 셀은 이미 본체에서 처리됨 — 중복 피해 방지)
     if (twinAtkPiece) {
       const twinCells = getAttackCells(twinAtkPiece.type, twinAtkPiece.col, twinAtkPiece.row, bounds, extra);
       const twinOnlyCells = twinCells.filter(tc => !getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra).some(c => c.col === tc.col && c.row === tc.row));
-      const twinHits = processAttack(room, idx, twinAtkPiece, twinOnlyCells);
+      const twinHits = processAttack(room, idx, twinAtkPiece, twinOnlyCells, undefined, _atkOpts);
       hitResults.push(...twinHits);
       // 겹치는 셀은 두 번 공격 (형과 동생 각각 피해)
       const overlapCells = twinCells.filter(tc => getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra).some(c => c.col === tc.col && c.row === tc.row));
       if (overlapCells.length > 0) {
-        const overlapHits = processAttack(room, idx, twinAtkPiece, overlapCells);
+        const overlapHits = processAttack(room, idx, twinAtkPiece, overlapCells, undefined, _atkOpts);
         hitResults.push(...overlapHits);
       }
     }
@@ -8690,6 +8707,7 @@ io.on('connection', (socket) => {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
         attackerImpactedAnything,
         yourPieces: pieceSummary(player.pieces),
+        friendlyFireHits: room._friendlyFireHits || [],
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
       const defenderHitsByOwner = new Map();
@@ -8797,6 +8815,7 @@ io.on('connection', (socket) => {
         attackerImpactedAnything,
         oppPieces: oppPieceSummary(defender.pieces),
         yourPieces: pieceSummary(player.pieces),
+        friendlyFireHits: room._friendlyFireHits || [],
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {
@@ -8821,6 +8840,7 @@ io.on('connection', (socket) => {
     room._attackerFriendlyFireCount = 0;
     room._attackerOwnRatsDestroyedCount = 0;
     room._destroyedEnemyRatsCount = 0;
+    room._friendlyFireHits = [];
 
     // ★ 관전자 일반 공격 애니메이션 — 셀 hit 번쩍임 + 카드 hit flash + 본체 도장.
     //   defOwnerIdx 가 hits 에 들어있어 클라가 패널 매핑 가능.
@@ -8833,6 +8853,7 @@ io.on('connection', (socket) => {
         redirectedToBodyguard: h.redirectedToBodyguard || false,
         bodyguardRedirect: h.bodyguardRedirect || false,
       })),
+      friendlyFireHits: room._friendlyFireHits || [],
     });
 
     // 관전자 로그: 일반 공격 (쌍둥이는 각 공격자별로 메시지 분리)
@@ -8961,6 +8982,9 @@ io.on('connection', (socket) => {
       broadcastTeamGameState(room);
     }
     emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+
+    // ★ 공격 처리 완료 — suppressed SP 업데이트 emit (공격 애니보다 먼저 SP 바 갱신 방지)
+    emitSPUpdate(room);
 
     // ★ 승리 체크 — 사망 기폭 페이즈가 큐에 있으면 flushPhase callback 으로 지연.
     //   simultaneous_draw 케이스 (양측 동시 전멸) 도 checkGameEndAfterPhase 가 처리.
