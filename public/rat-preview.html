@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO - Rat Asset Preview</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0f0f1a; color:#e0e0e0; font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; align-items:center; padding:24px; }
+  h1 { color:#d4a647; margin-bottom:4px; font-size:1.4rem; }
+  .subtitle { color:#888; margin-bottom:24px; font-size:0.85rem; }
+
+  /* ── 섹션 ── */
+  .section { margin-bottom:32px; width:100%; max-width:900px; }
+  .section-title { color:#d4a647; font-size:1rem; margin-bottom:12px; border-bottom:1px solid rgba(100,100,140,0.3); padding-bottom:6px; }
+
+  /* ── 데모 그리드 ── */
+  .demo-row { display:flex; gap:32px; flex-wrap:wrap; justify-content:center; margin-bottom:16px; }
+  .demo-box { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .demo-label { font-size:0.75rem; color:#aaa; }
+
+  /* ── 보드 셀 (게임과 동일) ── */
+  .cell {
+    width:64px; height:64px;
+    background:rgba(40,40,60,0.6);
+    border:1px solid rgba(100,100,140,0.3);
+    position:relative;
+    overflow:hidden;
+    border-radius:4px;
+  }
+  .cell:has(.death-anim-overlay) { overflow:visible; }
+  .cell:has(.rat-anim-overlay) { overflow:visible; }
+  .cell.has-rat-marker { overflow:visible; }
+
+  /* ── 쥐 GIF (보드 위) ── */
+  .rat-gif {
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:90%; height:90%;
+    object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    z-index:3;
+  }
+
+  /* ── 쥐 오버레이 공통 (생성/공격/사망 — 셀 밖 overflow) ── */
+  .rat-anim-overlay {
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    display:flex; align-items:center; justify-content:center;
+    z-index:20; pointer-events:none;
+    overflow:visible;
+  }
+  .rat-anim-overlay img {
+    object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  /* 생성/공격: 64×64 원본 → 아이들(32px) 대비 2배 = 셀의 180% */
+  .rat-anim-overlay.size-2x img { width:180%; height:180%; }
+  /* 사망: 32×32 원본 → 아이들과 동일 = 셀의 90% */
+  .rat-anim-overlay.size-1x img { width:90%; height:90%; }
+
+  /* ── 하위호환: death-anim-overlay ── */
+  .death-anim-overlay {
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    z-index:20; pointer-events:none;
+    overflow:visible;
+  }
+  .death-anim-overlay .death-gif {
+    width:140%; height:140%;
+    object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+
+  /* ── 큰 프리뷰 (원본 크기) ── */
+  .big-preview {
+    display:flex; gap:24px; flex-wrap:wrap; justify-content:center; align-items:flex-end;
+    margin-bottom:16px;
+  }
+  .big-box { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .big-box img {
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  .big-label { font-size:0.7rem; color:#888; }
+
+  /* ── 컨트롤 ── */
+  .controls { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; justify-content:center; }
+  .btn {
+    padding:10px 20px; border:none; border-radius:6px; cursor:pointer;
+    font-size:0.9rem; font-weight:600; transition:all 0.15s;
+  }
+  .btn-play { background:#d4a647; color:#1a1a2e; }
+  .btn-play:hover { background:#e0b85a; }
+  .btn-reset { background:#444; color:#ddd; }
+  .btn-reset:hover { background:#555; }
+  .btn-green { background:#52b788; color:#1a1a2e; }
+  .btn-green:hover { background:#6ec; }
+  .btn-red { background:#e05252; color:#fff; }
+  .btn-red:hover { background:#f66; }
+
+  /* ── 시퀀스 (생성→아이들→공격→사망) ── */
+  .phase-indicator {
+    font-size:0.85rem; color:#6ec; padding:6px 14px;
+    background:rgba(40,80,60,0.4); border-radius:4px;
+    min-width:260px; text-align:center; margin-bottom:12px;
+    transition:all 0.3s;
+  }
+  .phase-indicator.spawn { background:rgba(80,60,120,0.5); color:#c8b4ff; }
+  .phase-indicator.idle { background:rgba(40,80,60,0.4); color:#6ec; }
+  .phase-indicator.attack { background:rgba(120,80,40,0.5); color:#f0c060; }
+  .phase-indicator.death { background:rgba(120,40,40,0.5); color:#f88; }
+
+  /* ── 정보 패널 ── */
+  .info-panel {
+    background:rgba(30,30,50,0.8); border:1px solid rgba(100,100,140,0.3);
+    border-radius:8px; padding:16px; max-width:600px; width:100%; margin-top:16px;
+  }
+  .info-panel h3 { color:#d4a647; margin-bottom:8px; font-size:0.95rem; }
+  .info-row { display:flex; justify-content:space-between; padding:4px 0; font-size:0.82rem; border-bottom:1px solid rgba(80,80,100,0.2); }
+  .info-key { color:#888; }
+  .info-val { color:#e0e0e0; font-family:monospace; }
+
+  /* ── 비교: 이전 vs 새 ── */
+  .compare-row { display:flex; gap:48px; justify-content:center; align-items:center; margin:16px 0; }
+  .compare-box { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .compare-label { font-size:0.85rem; font-weight:600; }
+  .compare-label.old { color:#e05252; }
+  .compare-label.new { color:#52b788; }
+  .old-rat-emoji {
+    width:64px; height:64px;
+    display:flex; align-items:flex-start; justify-content:flex-start;
+    background:rgba(40,40,60,0.6); border:1px solid rgba(100,100,140,0.3); border-radius:4px;
+    position:relative;
+  }
+  .old-rat-emoji span {
+    position:absolute; top:1px; left:7px; font-size:0.5rem; color:#52b788;
+  }
+</style>
+</head>
+<body>
+
+<h1>🐀 Rat Asset Preview</h1>
+<p class="subtitle">블랙 = 아군 쥐 · 화이트 = 적군 쥐 — 생성 / 아이들 / 공격 / 사망 모션</p>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 섹션 1: 원본 GIF 크게 보기 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">1. 원본 GIF (4× 확대)</div>
+  <div class="big-preview">
+    <div class="big-box">
+      <img src="/art/rat_black_spawn.gif" width="128" height="128"><div class="big-label">블랙 생성</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_black_idle.gif" width="128" height="128"><div class="big-label">블랙 아이들</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_black_attack.gif" width="128" height="128"><div class="big-label">블랙 공격</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_black_death.gif" width="128" height="128"><div class="big-label">블랙 사망</div>
+    </div>
+  </div>
+  <div class="big-preview">
+    <div class="big-box">
+      <img src="/art/rat_white_spawn.gif" width="128" height="128"><div class="big-label">화이트 생성</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_white_idle.gif" width="128" height="128"><div class="big-label">화이트 아이들</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_white_attack.gif" width="128" height="128"><div class="big-label">화이트 공격</div>
+    </div>
+    <div class="big-box">
+      <img src="/art/rat_white_death.gif" width="128" height="128"><div class="big-label">화이트 사망</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 섹션 2: 이전 vs 새 비교 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">2. 이전 (이모지) vs 새 (GIF) 비교</div>
+  <div class="compare-row">
+    <div class="compare-box">
+      <div class="compare-label old">이전 (이모지)</div>
+      <div class="old-rat-emoji"><span>🐀</span></div>
+    </div>
+    <div style="font-size:2rem;color:#d4a647">→</div>
+    <div class="compare-box">
+      <div class="compare-label new">새 (아군 GIF)</div>
+      <div class="cell">
+        <img class="rat-gif" src="/art/rat_black_idle.gif" alt="">
+      </div>
+    </div>
+  </div>
+  <div class="compare-row">
+    <div class="compare-box">
+      <div class="compare-label old">이전 (이모지)</div>
+      <div class="old-rat-emoji"><span style="color:#e05252">🐁</span></div>
+    </div>
+    <div style="font-size:2rem;color:#d4a647">→</div>
+    <div class="compare-box">
+      <div class="compare-label new">새 (적군 GIF)</div>
+      <div class="cell">
+        <img class="rat-gif" src="/art/rat_white_idle.gif" alt="">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 섹션 3: 보드 셀에서 전체 시퀀스 재생 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">3. 전체 시퀀스 시뮬레이션 (생성 → 아이들 → 공격 → 사망)</div>
+
+  <div style="display:flex;justify-content:center;gap:32px;margin-bottom:12px">
+    <div class="phase-indicator" id="phaseBlack">대기 중 (블랙)</div>
+    <div class="phase-indicator" id="phaseWhite">대기 중 (화이트)</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-green" onclick="playSequence('black')">▶ 블랙 시퀀스</button>
+    <button class="btn btn-red" onclick="playSequence('white')">▶ 화이트 시퀀스</button>
+    <button class="btn btn-play" onclick="playSequence('black');playSequence('white')">▶ 동시 재생</button>
+    <button class="btn btn-reset" onclick="resetAll()">초기화</button>
+  </div>
+
+  <div class="demo-row">
+    <div class="demo-box">
+      <div class="demo-label">블랙 (아군 쥐)</div>
+      <div class="cell" id="cellBlack"></div>
+    </div>
+    <div class="demo-box">
+      <div class="demo-label">화이트 (적군 쥐)</div>
+      <div class="cell" id="cellWhite"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 섹션 4: 개별 모션 재생 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">4. 개별 모션 테스트</div>
+  <div class="controls">
+    <button class="btn btn-green" onclick="playSingle('black','spawn')">블랙 생성</button>
+    <button class="btn btn-green" onclick="playSingle('black','idle')">블랙 아이들</button>
+    <button class="btn btn-green" onclick="playSingle('black','attack')">블랙 공격</button>
+    <button class="btn btn-green" onclick="playSingle('black','death')">블랙 사망</button>
+  </div>
+  <div class="controls" style="margin-top:8px">
+    <button class="btn btn-red" onclick="playSingle('white','spawn')">화이트 생성</button>
+    <button class="btn btn-red" onclick="playSingle('white','idle')">화이트 아이들</button>
+    <button class="btn btn-red" onclick="playSingle('white','attack')">화이트 공격</button>
+    <button class="btn btn-red" onclick="playSingle('white','death')">화이트 사망</button>
+  </div>
+
+  <div class="demo-row" style="margin-top:12px">
+    <div class="demo-box">
+      <div class="demo-label">개별 테스트 셀</div>
+      <div class="cell" id="cellSingle" style="width:80px;height:80px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- 섹션 5: GIF 프레임 정보 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="info-panel" style="max-width:600px">
+  <h3>GIF 프레임 정보</h3>
+  <div class="info-row"><span class="info-key">블랙 생성</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">블랙 아이들</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">블랙 공격</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">블랙 사망</span><span class="info-val">5f × 130ms = 650ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">화이트 생성</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">화이트 아이들</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">화이트 공격</span><span class="info-val">9f × 130ms = 1170ms, loop=0</span></div>
+  <div class="info-row"><span class="info-key">화이트 사망</span><span class="info-val">5f × 130ms = 650ms, loop=0</span></div>
+</div>
+
+<script>
+const ASSETS = {
+  black: {
+    spawn:  '/art/rat_black_spawn.gif',
+    idle:   '/art/rat_black_idle.gif',
+    attack: '/art/rat_black_attack.gif',
+    death:  '/art/rat_black_death.gif',
+  },
+  white: {
+    spawn:  '/art/rat_white_spawn.gif',
+    idle:   '/art/rat_white_idle.gif',
+    attack: '/art/rat_white_attack.gif',
+    death:  '/art/rat_white_death.gif',
+  }
+};
+
+const DURATIONS = {
+  spawn: 1170, idle: 1170, attack: 1170, death: 650
+};
+
+let _timers = [];
+
+// ── NETSCAPE2.0 블록 제거 (1회 재생용) ──
+function removeNetscape(bytes) {
+  const src = new Uint8Array(bytes);
+  for (let i = 0; i < src.length - 18; i++) {
+    if (src[i] === 0x21 && src[i+1] === 0xFF && src[i+2] === 0x0B) {
+      const sig = String.fromCharCode(...src.slice(i+3, i+14));
+      if (sig === 'NETSCAPE2.0') {
+        const patched = new Uint8Array(src.length - 19);
+        patched.set(src.subarray(0, i), 0);
+        patched.set(src.subarray(i + 19), i);
+        return patched;
+      }
+    }
+  }
+  return src;
+}
+
+// 모션별 사이즈 클래스: 생성/공격 = 64px 원본 (2x), 사망/아이들 = 32px 원본 (1x)
+const SIZE_CLASS = { spawn: 'size-2x', attack: 'size-2x', death: 'size-1x', idle: 'size-1x' };
+
+function _getMotionFromUrl(url) {
+  for (const key of ['spawn','attack','death','idle']) {
+    if (url.includes('_' + key)) return key;
+  }
+  return 'idle';
+}
+
+// ── 셀에 GIF 1회 재생 ──
+async function playGifOnce(cell, url, callback) {
+  const ab = await (await fetch(url)).arrayBuffer();
+  const patched = removeNetscape(ab);
+  const blob = new Blob([patched], { type: 'image/gif' });
+  const blobUrl = URL.createObjectURL(blob);
+
+  const motion = _getMotionFromUrl(url);
+  const sizeClass = SIZE_CLASS[motion] || 'size-1x';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'rat-anim-overlay ' + sizeClass;
+  const img = document.createElement('img');
+  img.src = blobUrl;
+  overlay.appendChild(img);
+  cell.appendChild(overlay);
+
+  // url 에서 duration 추출
+  let dur = 800;
+  for (const [key, ms] of Object.entries(DURATIONS)) {
+    if (url.includes('_' + key)) { dur = ms; break; }
+  }
+
+  const t = setTimeout(() => {
+    URL.revokeObjectURL(blobUrl);
+    overlay.remove();
+    if (callback) callback();
+  }, dur + 100);
+  _timers.push(t);
+}
+
+// ── 셀에 아이들 GIF 설정 (루프 — 원본 그대로) ──
+function setIdle(cell, url) {
+  cell.innerHTML = '';
+  const img = document.createElement('img');
+  img.className = 'rat-gif';
+  img.src = url;
+  cell.appendChild(img);
+}
+
+// ── 전체 시퀀스 ──
+function playSequence(color) {
+  const cell = document.getElementById(color === 'black' ? 'cellBlack' : 'cellWhite');
+  const phase = document.getElementById(color === 'black' ? 'phaseBlack' : 'phaseWhite');
+  const assets = ASSETS[color];
+  const label = color === 'black' ? '블랙' : '화이트';
+
+  cell.innerHTML = '';
+  cell.classList.remove('has-rat-marker');
+
+  // Phase 1: 생성
+  phase.textContent = `${label}: 생성 중...`;
+  phase.className = 'phase-indicator spawn';
+  cell.classList.add('has-rat-marker');
+
+  playGifOnce(cell, assets.spawn, () => {
+    // Phase 2: 아이들
+    phase.textContent = `${label}: 아이들`;
+    phase.className = 'phase-indicator idle';
+    setIdle(cell, assets.idle);
+
+    const t1 = setTimeout(() => {
+      // Phase 3: 공격
+      phase.textContent = `${label}: 공격 중...`;
+      phase.className = 'phase-indicator attack';
+      const idleImg = cell.querySelector('.rat-gif');
+      if (idleImg) idleImg.style.opacity = '0';
+
+      playGifOnce(cell, assets.attack, () => {
+        // 공격 후 아이들 복원
+        if (idleImg) idleImg.style.opacity = '';
+        phase.textContent = `${label}: 아이들`;
+        phase.className = 'phase-indicator idle';
+
+        const t2 = setTimeout(() => {
+          // Phase 4: 사망
+          phase.textContent = `${label}: 사망...`;
+          phase.className = 'phase-indicator death';
+          if (idleImg) idleImg.style.opacity = '0';
+
+          playGifOnce(cell, assets.death, () => {
+            cell.innerHTML = '';
+            cell.classList.remove('has-rat-marker');
+            phase.textContent = `${label}: 완료`;
+            phase.className = 'phase-indicator';
+          });
+        }, 1500);
+        _timers.push(t2);
+      });
+    }, 2000);
+    _timers.push(t1);
+  });
+}
+
+// ── 개별 모션 ──
+function playSingle(color, motion) {
+  const cell = document.getElementById('cellSingle');
+  cell.innerHTML = '';
+  cell.classList.remove('has-rat-marker');
+
+  const url = ASSETS[color][motion];
+  if (motion === 'idle') {
+    setIdle(cell, url);
+    return;
+  }
+
+  if (motion === 'spawn') cell.classList.add('has-rat-marker');
+
+  playGifOnce(cell, url, () => {
+    if (motion === 'spawn') {
+      setIdle(cell, ASSETS[color].idle);
+    } else {
+      cell.innerHTML = '';
+      cell.classList.remove('has-rat-marker');
+    }
+  });
+}
+
+// ── 초기화 ──
+function resetAll() {
+  for (const t of _timers) clearTimeout(t);
+  _timers = [];
+  for (const id of ['cellBlack','cellWhite','cellSingle']) {
+    const c = document.getElementById(id);
+    c.innerHTML = '';
+    c.classList.remove('has-rat-marker');
+  }
+  document.getElementById('phaseBlack').textContent = '대기 중 (블랙)';
+  document.getElementById('phaseBlack').className = 'phase-indicator';
+  document.getElementById('phaseWhite').textContent = '대기 중 (화이트)';
+  document.getElementById('phaseWhite').className = 'phase-indicator';
+}
+</script>
+</body>
+</html>

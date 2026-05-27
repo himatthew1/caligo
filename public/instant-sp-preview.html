@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>인스턴트 SP 애니메이션 — 기존 vs 신규</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0d1018;
+    color: #e5e7eb;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 8px; color: #fbbf24; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .panels { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: #161b27;
+    border: 1px solid #2a3142;
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .panel.old { border-color: #4b5563; }
+  .panel.new { border-color: #f59e0b; box-shadow: 0 0 0 1px rgba(245,158,11,.2); }
+  .panel h2 { font-size: 15px; margin: 0 0 4px; }
+  .panel.old h2 { color: #94a3b8; }
+  .panel.new h2 { color: #fbbf24; }
+  .panel .desc { color: #94a3b8; font-size: 12px; margin-bottom: 16px; line-height: 1.5; }
+
+  /* SP 바 (실제 게임 마크업과 동일) */
+  .sp-bar-container {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #0a0d14;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+  }
+  .sp-side {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sp-side-mine { align-items: flex-end; }
+  .sp-side-opp  { align-items: flex-start; }
+  .sp-side-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .sp-num-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sp-num {
+    font-size: 26px;
+    font-weight: 800;
+    min-width: 28px;
+    text-align: center;
+    line-height: 1;
+    transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+  }
+  .sp-num.blue { color: #60a5fa; }
+  .sp-num.red { color: #ef4444; }
+  .sp-num.bump {
+    animation: numBump 0.6s ease-out;
+  }
+  @keyframes numBump {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.4); text-shadow: 0 0 24px currentColor; }
+    100% { transform: scale(1); }
+  }
+
+  /* 트레이 */
+  .sp-instant-tray {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-height: 14px;
+  }
+  .sp-instant-tray-mine { flex-direction: row-reverse; }
+  .sp-bar {
+    flex: 1;
+    height: 8px;
+    background: #1f2937;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    min-width: 80px;
+  }
+  .sp-fill { height: 100%; }
+  .sp-fill-blue { background: linear-gradient(90deg, #1e40af, #60a5fa); }
+  .sp-fill-red  { background: linear-gradient(90deg, #ef4444, #b91c1c); }
+
+  /* pip */
+  .sp-instant-pip {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, #fff 0%, #fef9c3 22%, #fbbf24 55%, rgba(251,191,36,0) 100%);
+    box-shadow: 0 0 6px rgba(250,204,21,.95), 0 0 12px rgba(245,158,11,.45);
+    position: relative;
+    animation: pipGlow 1.6s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .sp-instant-pip::after {
+    content: '';
+    position: absolute; top: 1px; left: 2px;
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: #fff;
+    filter: blur(0.5px);
+  }
+  @keyframes pipGlow {
+    0%,100% { box-shadow: 0 0 6px rgba(250,204,21,.95), 0 0 12px rgba(245,158,11,.45); }
+    50% { box-shadow: 0 0 10px rgba(250,204,21,1), 0 0 18px rgba(245,158,11,.7); }
+  }
+  .sp-instant-pip.spawn {
+    animation: pipSpawn 0.45s ease-out, pipGlow 1.6s ease-in-out 0.45s infinite;
+  }
+  @keyframes pipSpawn {
+    0% { transform: scale(0); opacity: 0; }
+    60% { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* 기존: fly-to-number */
+  .sp-instant-pip.consume-fly {
+    animation: pipConsumeFly 0.4s ease-in forwards;
+  }
+  @keyframes pipConsumeFly {
+    0% { transform: scale(1) translateX(0); opacity: 1; }
+    100% { transform: scale(0.4); opacity: 0; }
+  }
+
+  /* 신규: pop-in-place */
+  .sp-instant-pip.consume-pop {
+    animation: pipConsumePop 0.42s cubic-bezier(.34,.5,.56,1) forwards;
+    z-index: 5;
+  }
+  @keyframes pipConsumePop {
+    0%   { transform: scale(1); opacity: 1;
+           box-shadow: 0 0 6px rgba(250,204,21,.95), 0 0 12px rgba(245,158,11,.45); }
+    20%  { transform: scale(1.85); opacity: 1;
+           background: radial-gradient(circle at 50% 50%, #fff 0%, #fef3c7 30%, #fde68a 55%, rgba(251,191,36,0) 100%);
+           box-shadow: 0 0 24px rgba(254,243,199,1), 0 0 48px rgba(251,191,36,1), 0 0 70px rgba(245,158,11,.7); }
+    55%  { transform: scale(1.55); opacity: 1; }
+    100% { transform: scale(0.1); opacity: 0;
+           box-shadow: 0 0 4px rgba(245,158,11,0); }
+  }
+
+  /* 중앙 플래시 — 짧고 강한 흰빛 (시각의 중심점 강조) */
+  .sp-pop-flash {
+    position: fixed;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(254,243,199,.9) 35%, rgba(251,191,36,0) 70%);
+    pointer-events: none;
+    z-index: 10000;
+    transform: translate(-50%, -50%) scale(0);
+    animation: popFlash 0.32s cubic-bezier(.2,.6,.3,1) forwards;
+  }
+  @keyframes popFlash {
+    0%   { transform: translate(-50%, -50%) scale(0);    opacity: 0; }
+    35%  { transform: translate(-50%, -50%) scale(1.4);  opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(2.2);  opacity: 0; }
+  }
+
+  /* 충격파 링 — scale 변화로 중심 고정 */
+  .sp-pop-ring {
+    position: fixed;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid #fde68a;
+    box-shadow: 0 0 16px rgba(254,243,199,.9), inset 0 0 8px rgba(254,243,199,.5);
+    pointer-events: none;
+    z-index: 9999;
+    transform: translate(-50%, -50%) scale(0.4);
+    animation: popRing 0.6s cubic-bezier(.2,.8,.3,1) forwards;
+  }
+  @keyframes popRing {
+    0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 1; border-width: 3px; }
+    50%  { opacity: 0.7; border-width: 2px; }
+    100% { transform: translate(-50%, -50%) scale(4.5); opacity: 0; border-width: 1px; }
+  }
+  .sp-pop-ring.ring2 {
+    border-color: #fbbf24;
+    box-shadow: 0 0 18px rgba(251,191,36,.9), inset 0 0 8px rgba(251,191,36,.5);
+    animation: popRing2 0.78s cubic-bezier(.2,.8,.3,1) forwards;
+  }
+  @keyframes popRing2 {
+    0%   { transform: translate(-50%, -50%) scale(0.4); opacity: 0; border-width: 2px; }
+    18%  { opacity: 0.85; }
+    100% { transform: translate(-50%, -50%) scale(6.5); opacity: 0; border-width: 1px; }
+  }
+
+  /* 스파크 입자 — 12갈래 빛줄기, 중심점 기준 방사 */
+  /* 핵심: transform-origin 을 spark 의 BOTTOM-CENTER 로 두고
+     translate(-50%,-100%) 로 bottom-center 가 (cx,cy) 에 오도록 정렬 */
+  .sp-pop-spark {
+    position: fixed;
+    width: 3px; height: 18px;
+    background: linear-gradient(to top, rgba(251,191,36,0) 0%, rgba(254,243,199,.9) 40%, rgba(255,255,255,1) 100%);
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 10001;
+    transform-origin: 50% 100%;
+    box-shadow: 0 0 8px rgba(254,243,199,1), 0 0 14px rgba(251,191,36,.5);
+    transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(2px) scaleY(0.3);
+    animation: popSpark 0.55s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes popSpark {
+    0%   { opacity: 0; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(2px) scaleY(0.3); }
+    20%  { opacity: 1; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-2px) scaleY(1.2); }
+    60%  { opacity: 1; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-12px) scaleY(1); }
+    100% { opacity: 0; transform: translate(-50%, -100%) rotate(var(--ang,0deg)) translateY(-22px) scaleY(0.5); }
+  }
+
+  /* 별빛 입자 — 임의 방향 dust */
+  .sp-pop-dust {
+    position: fixed;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, #fef3c7 45%, rgba(251,191,36,0) 100%);
+    box-shadow: 0 0 8px rgba(254,243,199,1), 0 0 14px rgba(251,191,36,.5);
+    pointer-events: none;
+    z-index: 10001;
+    transform: translate(-50%, -50%);
+    animation: popDust 0.8s cubic-bezier(.25,.6,.35,1) forwards;
+  }
+  @keyframes popDust {
+    0%   { opacity: 1; transform: translate(-50%, -50%) translate(0, 0) scale(1.2); }
+    30%  { opacity: 1; transform: translate(-50%, -50%) translate(calc(var(--dx,0px) * 0.45), calc(var(--dy,0px) * 0.45)) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) translate(var(--dx,0px), var(--dy,0px)) scale(0.3); }
+  }
+
+  /* 신규: 잔여 pip 가 숫자 쪽으로 부드럽게 슬라이드 (FLIP 패턴) */
+  .sp-instant-pip.flip-slide {
+    transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+  }
+  .sp-num.flip-slide {
+    transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  /* 비행 마법구 (기존 fly 모드용) */
+  .sp-orb {
+    position: fixed;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, #fff 0%, #fef9c3 22%, #fbbf24 55%, rgba(251,191,36,0) 100%);
+    box-shadow: 0 0 12px rgba(250,204,21,1), 0 0 24px rgba(245,158,11,.7);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* 컨트롤 */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  button {
+    background: #1f2937;
+    color: #e5e7eb;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: #2d3748; }
+  button.primary { background: #b45309; border-color: #d97706; color: #fef3c7; }
+  button.primary:hover { background: #d97706; }
+  button.team-blue { border-color: #2563eb; color: #93c5fd; }
+  button.team-red { border-color: #dc2626; color: #fca5a5; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: #94a3b8;
+  }
+  .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .toggle input { accent-color: #f59e0b; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .pill.blue { background: #1e3a8a; color: #93c5fd; }
+  .pill.red  { background: #7f1d1d; color: #fca5a5; }
+
+  .footer {
+    margin-top: 28px;
+    padding: 14px 16px;
+    background: #161b27;
+    border: 1px solid #2a3142;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: #94a3b8;
+  }
+  .footer strong { color: #fbbf24; }
+  .footer ul { margin: 6px 0 0 16px; padding: 0; }
+</style>
+</head>
+<body>
+
+<h1>인스턴트 SP 애니메이션 — 기존 vs 신규</h1>
+<div class="sub">
+  팀 시점을 토글해 좌우 양 팀에 인스턴트 SP가 쌓이고 사용되는지 확인할 수 있습니다.
+  버튼을 눌러 두 패널의 동작을 비교해보세요.
+</div>
+
+<!-- 컨트롤 패널 -->
+<div class="controls" style="margin-top:0;margin-bottom:18px;background:#161b27;border:1px solid #2a3142;border-radius:10px;padding:14px;">
+  <span style="font-size:12px;color:#94a3b8;margin-right:8px;align-self:center;">시점 :</span>
+  <button id="view-blue" class="team-blue">블루팀 시점</button>
+  <button id="view-red" class="team-red">레드팀 시점</button>
+  <span style="flex:1"></span>
+  <span style="font-size:12px;color:#94a3b8;margin-right:8px;align-self:center;">현재 시점 :</span>
+  <span id="view-pill" class="pill blue">블루팀</span>
+</div>
+
+<!-- 양 패널 -->
+<div class="panels">
+
+  <!-- ── 기존 (LEFT) ── -->
+  <div class="panel old" id="panel-old">
+    <h2>기존 동작</h2>
+    <div class="desc">
+      • pip 이 SP 숫자로 비행하며 흡수됨<br>
+      • 소비 순서: <strong>숫자에서 먼 쪽부터</strong><br>
+      • 팀전 위치 버그: 항상 왼쪽(블루)에서만 재생
+    </div>
+
+    <div class="sp-bar-container">
+      <div class="sp-side sp-side-mine">
+        <div id="old-title-mine" class="sp-side-title">블루팀 SP</div>
+        <div class="sp-num-row">
+          <div id="old-tray-left" class="sp-instant-tray sp-instant-tray-mine"></div>
+          <div id="old-num-left" class="sp-num blue">3</div>
+        </div>
+      </div>
+      <div class="sp-bar">
+        <div class="sp-fill sp-fill-blue" style="width:50%"></div>
+        <div class="sp-fill sp-fill-red"  style="width:50%"></div>
+      </div>
+      <div class="sp-side sp-side-opp">
+        <div id="old-title-opp" class="sp-side-title">레드팀 SP</div>
+        <div class="sp-num-row">
+          <div id="old-num-right" class="sp-num red">3</div>
+          <div id="old-tray-right" class="sp-instant-tray sp-instant-tray-opp"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button onclick="oldGain('blue', 1)" class="team-blue">블루팀 +1 획득</button>
+      <button onclick="oldGain('red', 1)" class="team-red">레드팀 +1 획득</button>
+    </div>
+    <div class="controls">
+      <button onclick="oldConsume('mine', 1)">내 팀 인스턴트 1 소비</button>
+      <button onclick="oldConsume('mine', 2)">내 팀 인스턴트 2 소비</button>
+      <button onclick="oldConsume('mine', 3)">내 팀 인스턴트 3 소비</button>
+    </div>
+  </div>
+
+  <!-- ── 신규 (RIGHT) ── -->
+  <div class="panel new" id="panel-new">
+    <h2>신규 동작</h2>
+    <div class="desc">
+      • pip 이 <strong>제자리에서 팝</strong> (1.85배 부풀어 → 충격파 + 스파크 + dust)<br>
+      • 이펙트: 중앙 플래시 + 링 2개 + 스파크 12갈래 + dust 10개<br>
+      • 사운드: <strong>인게임 _spInstantConsume(variant 3)</strong> 그대로 (1800/2400/3000Hz 3음 캐스케이드)<br>
+      • 소비 순서: 숫자에 가까운 쪽부터, 한 번에 하나씩<br>
+      • 잔여 pip + 숫자가 부드럽게 슬라이드 (FLIP)<br>
+      • 팀전 위치 수정: 내 팀 쪽에서 재생
+    </div>
+
+    <div class="sp-bar-container">
+      <div class="sp-side sp-side-mine">
+        <div id="new-title-mine" class="sp-side-title">블루팀 SP</div>
+        <div class="sp-num-row">
+          <div id="new-tray-left" class="sp-instant-tray sp-instant-tray-mine"></div>
+          <div id="new-num-left" class="sp-num blue">3</div>
+        </div>
+      </div>
+      <div class="sp-bar">
+        <div class="sp-fill sp-fill-blue" style="width:50%"></div>
+        <div class="sp-fill sp-fill-red"  style="width:50%"></div>
+      </div>
+      <div class="sp-side sp-side-opp">
+        <div id="new-title-opp" class="sp-side-title">레드팀 SP</div>
+        <div class="sp-num-row">
+          <div id="new-num-right" class="sp-num red">3</div>
+          <div id="new-tray-right" class="sp-instant-tray sp-instant-tray-opp"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button onclick="newGain('blue', 1)" class="team-blue">블루팀 +1 획득</button>
+      <button onclick="newGain('red', 1)" class="team-red">레드팀 +1 획득</button>
+    </div>
+    <div class="controls">
+      <button onclick="newConsume('mine', 1)" class="primary">내 팀 인스턴트 1 소비</button>
+      <button onclick="newConsume('mine', 2)" class="primary">내 팀 인스턴트 2 소비</button>
+      <button onclick="newConsume('mine', 3)" class="primary">내 팀 인스턴트 3 소비</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <strong>차이점 요약</strong>
+  <ul>
+    <li><strong>위치 버그</strong> — 기존: 시점 무관 항상 LEFT 트레이에서 재생 / 신규: 내 팀 슬롯의 트레이에서 재생 (블루=왼쪽, 레드=오른쪽)</li>
+    <li><strong>애니메이션</strong> — 기존: 숫자로 비행 (멀리 있는 pip 부터) / 신규: 제자리 팝 + 잔여 슬라이드 (가까운 pip 부터)</li>
+    <li><strong>리듬</strong> — 기존 130ms, 신규 200ms 간격 (한 번에 하나씩, 명확한 호흡)</li>
+    <li><strong>잔여 SP 정리</strong> — 신규: pip 한 개 사라질 때마다 남은 pip 들 + 숫자 가 280ms 동안 자연스럽게 모임</li>
+  </ul>
+</div>
+
+<script>
+  // ── 상태 ─────────────────────────────
+  // 양 패널 모두 동일한 SP 값 보유. 시점 토글로 어느 쪽이 "내 팀"인지만 변경.
+  let viewTeam = 'blue';  // 'blue' | 'red'
+  const oldState = { sp: { blue: 3, red: 3 }, instant: { blue: 0, red: 0 }, busy: false };
+  const newState = { sp: { blue: 3, red: 3 }, instant: { blue: 0, red: 0 }, busy: false };
+
+  // ── 시점 토글 ─────────────────────────
+  document.getElementById('view-blue').addEventListener('click', () => setView('blue'));
+  document.getElementById('view-red').addEventListener('click', () => setView('red'));
+  function setView(team) {
+    viewTeam = team;
+    const pill = document.getElementById('view-pill');
+    pill.textContent = team === 'blue' ? '블루팀' : '레드팀';
+    pill.className = 'pill ' + team;
+  }
+  setView('blue');
+
+  // ── 트레이 위치 매핑 ─────────────────
+  // 절대 좌·우 고정: 블루=왼쪽 슬롯, 레드=오른쪽 슬롯
+  // "내 팀" 은 시점에 따라 좌·우 어느 쪽이든 가능
+  function trayIdFor(panel, team) {
+    return panel + (team === 'blue' ? '-tray-left' : '-tray-right');
+  }
+  function numIdFor(panel, team) {
+    return panel + (team === 'blue' ? '-num-left' : '-num-right');
+  }
+  function myTeam() { return viewTeam; }
+  function oppTeam() { return viewTeam === 'blue' ? 'red' : 'blue'; }
+
+  // ── pip 생성 (등장 애니) ──────────────
+  function spawnPip(trayEl) {
+    const pip = document.createElement('div');
+    pip.className = 'sp-instant-pip spawn';
+    trayEl.appendChild(pip);
+    return pip;
+  }
+
+  // ── 숫자 bump ─────────────────────────
+  function bumpNum(numEl) {
+    numEl.classList.remove('bump');
+    void numEl.offsetWidth;
+    numEl.classList.add('bump');
+  }
+
+  // ── 기존: fly to number ──────────────────────────────
+  function oldGain(team, n) {
+    const tray = document.getElementById(trayIdFor('old', team));
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => spawnPip(tray), i * 120);
+    }
+    oldState.instant[team] += n;
+  }
+  // 기존 버그 재현: 항상 left tray (블루팀 트레이) 에서 소비.
+  // "mine" 은 시점에 무관하게 left/blue 트레이 — 이게 사용자가 보고한 버그.
+  function oldConsume(side, count) {
+    if (oldState.busy) return;
+    const team = myTeam();
+    const have = oldState.instant[team] || 0;
+    if (have <= 0) return;
+    const consumed = Math.min(have, count);
+    oldState.instant[team] = have - consumed;
+    oldState.busy = true;
+    // ★ 버그: 시점이 레드팀이어도 항상 left/blue 트레이에서 pip 을 빼간다
+    const trayEl = document.getElementById('old-tray-left');  // 의도적으로 left 고정 (버그 재현)
+    const numEl = document.getElementById('old-num-left');
+    let delay = 0;
+    for (let i = 0; i < consumed; i++) {
+      setTimeout(() => {
+        const pips = trayEl.querySelectorAll('.sp-instant-pip:not(.consume-fly)');
+        // 멀리 있는 pip 부터 — DOM-last (row-reverse 트레이의 시각적 가장 왼쪽)
+        const target = pips[pips.length - 1];
+        if (!target) return;
+        const fromRect = target.getBoundingClientRect();
+        const numRect = numEl.getBoundingClientRect();
+        target.classList.add('consume-fly');
+        // 비행 오브 (숫자로)
+        spawnFlyOrb(
+          fromRect.left + fromRect.width / 2,
+          fromRect.top + fromRect.height / 2,
+          numRect.left + numRect.width / 2,
+          numRect.top + numRect.height / 2,
+          () => bumpNum(numEl)
+        );
+        setTimeout(() => target.remove(), 420);
+      }, delay);
+      delay += 130;
+    }
+    setTimeout(() => { oldState.busy = false; }, delay + 600);
+  }
+
+  // ── 신규: pop in place + slide remaining ─────────────
+  function newGain(team, n) {
+    const tray = document.getElementById(trayIdFor('new', team));
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => spawnPip(tray), i * 120);
+    }
+    newState.instant[team] += n;
+  }
+  // 수정: 시점에 따라 내 팀의 트레이에서 소비
+  function newConsume(side, count) {
+    if (newState.busy) return;
+    const team = myTeam();   // 'blue' 또는 'red'
+    const have = newState.instant[team] || 0;
+    if (have <= 0) return;
+    const consumed = Math.min(have, count);
+    newState.instant[team] = have - consumed;
+    newState.busy = true;
+    // ★ 수정: 내 팀의 슬롯 → 블루는 left, 레드는 right
+    const trayEl = document.getElementById(trayIdFor('new', team));
+    const numEl  = document.getElementById(numIdFor('new', team));
+    popOneByOne(trayEl, numEl, consumed, () => { newState.busy = false; });
+  }
+
+  // 한 번에 하나씩 — 가까운 (DOM-first) pip 부터 팝, 잔여 + 숫자 FLIP 슬라이드
+  function popOneByOne(tray, num, count, done) {
+    let i = 0;
+    const popNext = () => {
+      if (i >= count) { if (done) done(); return; }
+      i++;
+      const pips = tray.querySelectorAll('.sp-instant-pip:not(.consume-pop)');
+      // 가까운 쪽부터 — 양 트레이 모두 DOM-first 가 시각적으로 숫자에 가장 가까움
+      const target = pips[0];
+      if (!target) { if (done) done(); return; }
+
+      // FLIP (1) 다른 pip + 숫자의 BEFORE rect 캡처
+      const others = Array.from(pips).slice(1);
+      const beforeRects = new Map();
+      for (const p of others) beforeRects.set(p, p.getBoundingClientRect());
+      const numBefore = num.getBoundingClientRect();
+
+      // pop 애니 시작 — 약 30% 시점에 사라진 것처럼 layout 이 바뀌도록 200ms 후 DOM 제거
+      // ★ 사용자 요청: 팝 순간 시각·청각 이펙트 동시 트리거
+      const targetRect = target.getBoundingClientRect();
+      const cx = targetRect.left + targetRect.width / 2;
+      const cy = targetRect.top + targetRect.height / 2;
+      spawnPopBurst(cx, cy);
+      playPopSfx();
+      target.classList.add('consume-pop');
+      bumpNum(num);
+
+      // 200ms 후 — DOM 에서 제거 → flex layout 재계산 → FLIP 적용
+      setTimeout(() => {
+        if (target.parentNode) target.remove();
+        // FLIP (2) AFTER rect → translate 로 BEFORE 로 되돌린 후 transition 으로 0 으로
+        for (const p of others) {
+          const before = beforeRects.get(p);
+          const after = p.getBoundingClientRect();
+          const dx = before.left - after.left;
+          if (Math.abs(dx) > 0.5) {
+            p.classList.remove('flip-slide');
+            p.style.transform = `translateX(${dx}px)`;
+            // force reflow then transition back
+            void p.offsetWidth;
+            p.classList.add('flip-slide');
+            p.style.transform = 'translateX(0)';
+          }
+        }
+        const numAfter = num.getBoundingClientRect();
+        const numDx = numBefore.left - numAfter.left;
+        if (Math.abs(numDx) > 0.5) {
+          num.classList.remove('flip-slide');
+          num.style.transform = `translateX(${numDx}px)`;
+          void num.offsetWidth;
+          num.classList.add('flip-slide');
+          num.style.transform = 'translateX(0)';
+          setTimeout(() => {
+            num.classList.remove('flip-slide');
+            num.style.transform = '';
+          }, 300);
+        }
+        // 다음 pip 으로 — 슬라이드 끝나는 시점에 다음 pop
+        setTimeout(popNext, 220);
+      }, 200);
+    };
+    popNext();
+  }
+
+  // ── 팝 버스트 이펙트 (신규) ──────────
+  // 중앙 플래시 + 링 2개 + 12갈래 스파크 + 10개 dust
+  function spawnPopBurst(x, y) {
+    // 중앙 플래시 — 시각적 중심점 강조
+    const flash = document.createElement('div');
+    flash.className = 'sp-pop-flash';
+    flash.style.left = x + 'px';
+    flash.style.top  = y + 'px';
+    document.body.appendChild(flash);
+    setTimeout(() => flash.remove(), 380);
+
+    // ring 1 — 빠른 작은 링
+    const r1 = document.createElement('div');
+    r1.className = 'sp-pop-ring';
+    r1.style.left = x + 'px';
+    r1.style.top  = y + 'px';
+    document.body.appendChild(r1);
+    setTimeout(() => r1.remove(), 650);
+
+    // ring 2 — 조금 더 늦게 더 크게
+    const r2 = document.createElement('div');
+    r2.className = 'sp-pop-ring ring2';
+    r2.style.left = x + 'px';
+    r2.style.top  = y + 'px';
+    document.body.appendChild(r2);
+    setTimeout(() => r2.remove(), 830);
+
+    // 12갈래 스파크 (30도 간격, 약간의 무작위 흔들림)
+    for (let i = 0; i < 12; i++) {
+      const sp = document.createElement('div');
+      sp.className = 'sp-pop-spark';
+      sp.style.left = x + 'px';
+      sp.style.top  = y + 'px';
+      sp.style.setProperty('--ang', (i * 30 + (Math.random() * 10 - 5)) + 'deg');
+      // 짧은 짧은 길이 변형 — 일부 스파크는 더 짧게 (자연스러움)
+      if (i % 2 === 1) sp.style.height = '13px';
+      document.body.appendChild(sp);
+      setTimeout(() => sp.remove(), 600);
+    }
+
+    // dust 10개 — 임의 방향, 거리도 랜덤
+    for (let i = 0; i < 10; i++) {
+      const d = document.createElement('div');
+      d.className = 'sp-pop-dust';
+      d.style.left = x + 'px';
+      d.style.top  = y + 'px';
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 22 + Math.random() * 20;
+      d.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+      d.style.setProperty('--dy', Math.sin(angle) * dist - 8 + 'px');  // 약간 위로 떠오름
+      // 일부 dust 는 더 작게
+      if (i % 3 === 0) { d.style.width = '3px'; d.style.height = '3px'; }
+      document.body.appendChild(d);
+      setTimeout(() => d.remove(), 850);
+    }
+  }
+
+  // ── 사운드 — 인게임 _spInstantConsume(variant=3) 와 동일 ──
+  // 흩날림: 1800/2400/3000Hz 3음 빠른 캐스케이드 (40ms 간격, sine, gain 0.12, decay 0.2s)
+  let _audioCtx = null;
+  function _getAudio() {
+    if (!_audioCtx) {
+      try {
+        _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) { return null; }
+    }
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  }
+  function playPopSfx() {
+    const ctx = _getAudio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    // 인게임 코드와 동일: [1800, 2400, 3000].forEach((f, i) => sine 0.12 gain, 40ms stagger, 0.2s exp decay)
+    [1800, 2400, 3000].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      const t = now + i * 0.04;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0.12, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(t); o.stop(t + 0.22);
+    });
+  }
+
+  // ── 비행 오브 (기존 fly 애니용) ──────
+  function spawnFlyOrb(x1, y1, x2, y2, onArrive) {
+    const orb = document.createElement('div');
+    orb.className = 'sp-orb';
+    orb.style.left = (x1 - 6) + 'px';
+    orb.style.top = (y1 - 6) + 'px';
+    orb.style.transition = 'left 0.55s cubic-bezier(.4,.0,.2,1), top 0.55s cubic-bezier(.4,.0,.2,1), transform 0.55s ease-out, opacity 0.55s';
+    document.body.appendChild(orb);
+    requestAnimationFrame(() => {
+      orb.style.left = (x2 - 6) + 'px';
+      orb.style.top = (y2 - 6) + 'px';
+      orb.style.transform = 'scale(1.4)';
+    });
+    setTimeout(() => {
+      if (onArrive) onArrive();
+      orb.style.transform = 'scale(0.2)';
+      orb.style.opacity = '0';
+      setTimeout(() => orb.remove(), 280);
+    }, 560);
+  }
+
+  // ── 초기 시드: 양 팀 각각 3 인스턴트 SP 미리 채워둠 ───
+  (function seed() {
+    const oldL = document.getElementById('old-tray-left');
+    const oldR = document.getElementById('old-tray-right');
+    const newL = document.getElementById('new-tray-left');
+    const newR = document.getElementById('new-tray-right');
+    for (let i = 0; i < 3; i++) {
+      const p1 = document.createElement('div'); p1.className = 'sp-instant-pip'; oldL.appendChild(p1);
+      const p2 = document.createElement('div'); p2.className = 'sp-instant-pip'; oldR.appendChild(p2);
+      const p3 = document.createElement('div'); p3.className = 'sp-instant-pip'; newL.appendChild(p3);
+      const p4 = document.createElement('div'); p4.className = 'sp-instant-pip'; newR.appendChild(p4);
+    }
+    oldState.instant.blue = 3; oldState.instant.red = 3;
+    newState.instant.blue = 3; newState.instant.red = 3;
+  })();
+</script>
+
+</body>
+</html>

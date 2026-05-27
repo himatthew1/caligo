@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO - Rat Position/Size Adjuster</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0f0f1a; color:#e0e0e0; font-family:'Segoe UI',sans-serif; padding:20px; }
+  h1 { color:#d4a647; font-size:1.3rem; text-align:center; margin-bottom:4px; }
+  .subtitle { color:#888; font-size:0.8rem; text-align:center; margin-bottom:20px; }
+
+  .layout { display:flex; gap:24px; justify-content:center; flex-wrap:wrap; }
+
+  /* ── 왼쪽: 메인 프리뷰 ── */
+  .main-panel { display:flex; flex-direction:column; align-items:center; gap:12px; }
+
+  /* 모션 탭 */
+  .tab-row { display:flex; gap:6px; }
+  .tab-btn {
+    padding:8px 16px; border:1px solid #555; background:#2a2a40; color:#ccc;
+    border-radius:6px 6px 0 0; cursor:pointer; font-size:0.85rem; font-weight:600;
+  }
+  .tab-btn.active { background:#d4a647; color:#1a1a2e; border-color:#d4a647; }
+  .tab-btn:hover:not(.active) { background:#3a3a55; }
+
+  /* 프리뷰 셀 */
+  .preview-area {
+    position:relative;
+    background:rgba(40,40,60,0.6);
+    border:2px solid rgba(100,100,140,0.5);
+    border-radius:4px;
+    overflow:visible;
+  }
+  .center-cross { position:absolute; z-index:1; pointer-events:none; opacity:0.2; }
+  .center-cross.h { top:50%; left:0; right:0; height:1px; background:#888; }
+  .center-cross.v { left:50%; top:0; bottom:0; width:1px; background:#888; }
+
+  /* 참조 레이어: 쥐장수, 이모지, 고스트 */
+  .ref-layer {
+    position:absolute; pointer-events:none; z-index:5;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  .ref-emoji {
+    position:absolute; pointer-events:none; z-index:4;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .ghost-layer {
+    position:absolute; pointer-events:none; z-index:6;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,0.5));
+  }
+
+  /* 드래그 GIF */
+  .draggable-gif {
+    position:absolute; cursor:grab;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    z-index:10; user-select:none;
+  }
+  .draggable-gif:active { cursor:grabbing; }
+  .draggable-gif.outline { outline:2px dashed rgba(212,166,71,0.6); outline-offset:2px; }
+
+  /* ── 오른쪽: 컨트롤 ── */
+  .controls-panel {
+    background:rgba(30,30,50,0.8); border:1px solid rgba(100,100,140,0.3);
+    border-radius:8px; padding:16px; min-width:340px; max-width:380px;
+  }
+  .ctrl-section { margin-bottom:14px; }
+  .ctrl-section h3 { color:#d4a647; font-size:0.9rem; margin-bottom:8px; }
+
+  /* 슬라이더 + 숫자 입력 */
+  .slider-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .slider-row label { width:60px; font-size:0.8rem; color:#aaa; text-align:right; flex-shrink:0; }
+  .slider-row input[type=range] { flex:1; accent-color:#d4a647; min-width:80px; }
+  .slider-row input[type=number] {
+    width:58px; background:#2a2a40; color:#ddd; border:1px solid #555;
+    border-radius:4px; padding:3px 4px; font-size:0.8rem; text-align:center;
+    font-family:monospace; flex-shrink:0;
+  }
+  .slider-row .unit { font-size:0.75rem; color:#888; width:14px; flex-shrink:0; }
+
+  /* 색상 토글 */
+  .color-toggle { display:flex; gap:8px; }
+  .color-btn {
+    padding:6px 14px; border:none; border-radius:4px; cursor:pointer;
+    font-size:0.8rem; font-weight:600;
+  }
+  .color-btn.black { background:#555; color:#ddd; }
+  .color-btn.black.active { background:#52b788; color:#1a1a2e; }
+  .color-btn.white { background:#555; color:#ddd; }
+  .color-btn.white.active { background:#e05252; color:#fff; }
+
+  /* 참조 토글 체크박스 */
+  .ref-toggles { display:flex; flex-direction:column; gap:6px; }
+  .ref-toggle-row { display:flex; align-items:center; gap:8px; font-size:0.8rem; }
+  .ref-toggle-row input[type=checkbox] { accent-color:#d4a647; }
+  .ref-toggle-row label { color:#ccc; cursor:pointer; }
+  .ref-toggle-row .ref-desc { color:#888; font-size:0.7rem; }
+
+  /* 고스트 모션 체크박스 */
+  .ghost-toggles { display:flex; gap:12px; flex-wrap:wrap; }
+  .ghost-toggle { display:flex; align-items:center; gap:4px; font-size:0.8rem; }
+  .ghost-toggle input { accent-color:#d4a647; }
+
+  /* 실제 게임 셀 */
+  .game-cells-row { display:flex; gap:16px; align-items:center; justify-content:center; margin-top:8px; }
+  .game-cell-box { display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .game-cell-label { font-size:0.7rem; color:#888; }
+  .game-cell {
+    width:64px; height:64px;
+    background:rgba(40,40,60,0.6);
+    border:1px solid rgba(100,100,140,0.3);
+    border-radius:4px; position:relative; overflow:visible;
+  }
+  .game-cell img, .game-cell span {
+    position:absolute;
+    image-rendering:pixelated;
+    object-fit:contain; pointer-events:none;
+  }
+
+  /* 출력 */
+  .output-box {
+    background:#1a1a2e; border:1px solid #444; border-radius:6px;
+    padding:10px; font-family:monospace; font-size:0.73rem; color:#6ec;
+    white-space:pre; overflow-x:auto; max-height:200px; overflow-y:auto; line-height:1.5;
+  }
+  .btn-row { display:flex; gap:8px; margin-top:8px; }
+  .btn-copy {
+    padding:6px 14px; background:#d4a647; color:#1a1a2e; border:none;
+    border-radius:4px; cursor:pointer; font-size:0.8rem; font-weight:600;
+  }
+  .btn-reset {
+    padding:6px 14px; background:#444; color:#ddd; border:none;
+    border-radius:4px; cursor:pointer; font-size:0.8rem;
+  }
+
+  .cell-size-row { display:flex; gap:12px; align-items:center; }
+  .cell-size-row label { font-size:0.8rem; color:#aaa; }
+  .cell-size-row select { background:#2a2a40; color:#ddd; border:1px solid #555; padding:4px 8px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<h1>🐀 Rat Position / Size Adjuster</h1>
+<p class="subtitle">드래그: 위치 이동 · 스크롤 휠: 크기 · 숫자 직접 입력 가능</p>
+
+<div class="layout">
+
+  <!-- ═══ 왼쪽 ═══ -->
+  <div class="main-panel">
+    <div class="tab-row">
+      <button class="tab-btn active" data-motion="idle" onclick="switchMotion('idle')">아이들</button>
+      <button class="tab-btn" data-motion="spawn" onclick="switchMotion('spawn')">생성</button>
+      <button class="tab-btn" data-motion="attack" onclick="switchMotion('attack')">공격</button>
+      <button class="tab-btn" data-motion="death" onclick="switchMotion('death')">사망</button>
+    </div>
+
+    <div class="preview-area" id="previewArea">
+      <div class="center-cross h"></div>
+      <div class="center-cross v"></div>
+      <!-- 참조: 쥐장수 아이들 -->
+      <img class="ref-layer" id="refMerchant" src="/art/ratMerchant_idle.gif" alt="" style="display:none">
+      <!-- 참조: 기존 이모지 -->
+      <div class="ref-emoji" id="refEmoji" style="display:none"></div>
+      <!-- 고스트 모션들 -->
+      <img class="ghost-layer" id="ghostIdle" src="" alt="" style="display:none">
+      <img class="ghost-layer" id="ghostSpawn" src="" alt="" style="display:none">
+      <img class="ghost-layer" id="ghostAttack" src="" alt="" style="display:none">
+      <img class="ghost-layer" id="ghostDeath" src="" alt="" style="display:none">
+      <!-- 메인 드래그 GIF -->
+      <img class="draggable-gif outline" id="previewGif" src="" alt="" draggable="false">
+    </div>
+
+    <div class="color-toggle">
+      <button class="color-btn black active" onclick="switchColor('black')">블랙 (아군)</button>
+      <button class="color-btn white" onclick="switchColor('white')">화이트 (적군)</button>
+    </div>
+
+    <div style="font-size:0.8rem;color:#aaa;margin-top:4px">실제 게임 셀 (64×64)</div>
+    <div class="game-cells-row">
+      <div class="game-cell-box">
+        <div class="game-cell" id="realCellBlack"></div>
+        <div class="game-cell-label">블랙</div>
+      </div>
+      <div class="game-cell-box">
+        <div class="game-cell" id="realCellWhite"></div>
+        <div class="game-cell-label">화이트</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 오른쪽 ═══ -->
+  <div class="controls-panel">
+
+    <!-- 값 조절 -->
+    <div class="ctrl-section">
+      <h3 id="motionTitle">아이들 설정</h3>
+      <div class="slider-row">
+        <label>X 오프셋</label>
+        <input type="range" id="sliderX" min="-100" max="100" value="0" oninput="onSlider()">
+        <input type="number" id="numX" value="0" min="-100" max="100" oninput="onNum()">
+        <span class="unit">%</span>
+      </div>
+      <div class="slider-row">
+        <label>Y 오프셋</label>
+        <input type="range" id="sliderY" min="-100" max="100" value="0" oninput="onSlider()">
+        <input type="number" id="numY" value="0" min="-100" max="100" oninput="onNum()">
+        <span class="unit">%</span>
+      </div>
+      <div class="slider-row">
+        <label>너비</label>
+        <input type="range" id="sliderW" min="10" max="300" value="90" oninput="onSlider()">
+        <input type="number" id="numW" value="90" min="10" max="300" oninput="onNum()">
+        <span class="unit">%</span>
+      </div>
+      <div class="slider-row">
+        <label>높이</label>
+        <input type="range" id="sliderH" min="10" max="300" value="90" oninput="onSlider()">
+        <input type="number" id="numH" value="90" min="10" max="300" oninput="onNum()">
+        <span class="unit">%</span>
+      </div>
+    </div>
+
+    <!-- 참조 레이어 -->
+    <div class="ctrl-section">
+      <h3>참조 오버레이</h3>
+      <div class="ref-toggles">
+        <div class="ref-toggle-row">
+          <input type="checkbox" id="chkMerchant" onchange="updateAll()">
+          <label for="chkMerchant">쥐장수 아이들 GIF</label>
+          <span class="ref-desc">(크기 비교용)</span>
+        </div>
+        <div class="ref-toggle-row">
+          <input type="checkbox" id="chkEmoji" onchange="updateAll()">
+          <label for="chkEmoji">기존 이모지 쥐 (🐀)</label>
+          <span class="ref-desc">(인게임 기준)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 고스트 모션 -->
+    <div class="ctrl-section">
+      <h3>다른 모션 고스트 (20% 오퍼시티)</h3>
+      <div class="ghost-toggles">
+        <label class="ghost-toggle"><input type="checkbox" data-ghost="idle" onchange="updateAll()"> 아이들</label>
+        <label class="ghost-toggle"><input type="checkbox" data-ghost="spawn" onchange="updateAll()"> 생성</label>
+        <label class="ghost-toggle"><input type="checkbox" data-ghost="attack" onchange="updateAll()"> 공격</label>
+        <label class="ghost-toggle"><input type="checkbox" data-ghost="death" onchange="updateAll()"> 사망</label>
+      </div>
+    </div>
+
+    <!-- 셀 크기 -->
+    <div class="ctrl-section">
+      <h3>프리뷰 배율</h3>
+      <div class="cell-size-row">
+        <label>확대:</label>
+        <select id="zoomSelect" onchange="onZoomChange()">
+          <option value="2">2× (128px)</option>
+          <option value="3" selected>3× (192px)</option>
+          <option value="4">4× (256px)</option>
+          <option value="5">5× (320px)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 출력 -->
+    <div class="ctrl-section">
+      <h3>설정값 출력</h3>
+      <div class="output-box" id="outputBox"></div>
+      <div class="btn-row">
+        <button class="btn-copy" onclick="copyConfig()">복사</button>
+        <button class="btn-reset" onclick="resetCurrent()">현재 모션 초기화</button>
+        <button class="btn-reset" onclick="resetAll()">전체 초기화</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const ASSETS = {
+  black: { idle:'/art/rat_black_idle.gif', spawn:'/art/rat_black_spawn.gif', attack:'/art/rat_black_attack.gif', death:'/art/rat_black_death.gif' },
+  white: { idle:'/art/rat_white_idle.gif', spawn:'/art/rat_white_spawn.gif', attack:'/art/rat_white_attack.gif', death:'/art/rat_white_death.gif' }
+};
+const MOTIONS = ['idle','spawn','attack','death'];
+const MOTION_NAMES = { idle:'아이들', spawn:'생성', attack:'공격', death:'사망' };
+
+const DEFAULTS = {
+  idle:   { x:0, y:0, w:90,  h:90  },
+  spawn:  { x:0, y:0, w:180, h:180 },
+  attack: { x:0, y:0, w:180, h:180 },
+  death:  { x:0, y:0, w:90,  h:90  },
+};
+
+const CONFIG = {};
+for (const m of MOTIONS) CONFIG[m] = { ...DEFAULTS[m] };
+
+let currentMotion = 'idle';
+let currentColor = 'black';
+let zoom = 3;
+const CELL = 64;
+
+// 쥐장수 idle: 게임에서 .p-gif { width:90%; height:90%; top:50%; left:50%; transform:translate(-50%,-50%) }
+const MERCHANT_STYLE = { w: 90, h: 90, x: 0, y: 0 };
+// 기존 이모지 쥐: position:absolute; top:1px; left:7px; font-size:0.5rem
+const EMOJI_STYLE = { fontSize: 0.5, top: 1, left: 7 };
+
+const previewArea = document.getElementById('previewArea');
+const previewGif  = document.getElementById('previewGif');
+const sX = document.getElementById('sliderX'), nX = document.getElementById('numX');
+const sY = document.getElementById('sliderY'), nY = document.getElementById('numY');
+const sW = document.getElementById('sliderW'), nW = document.getElementById('numW');
+const sH = document.getElementById('sliderH'), nH = document.getElementById('numH');
+
+function switchMotion(m) {
+  currentMotion = m;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.motion === m));
+  document.getElementById('motionTitle').textContent = MOTION_NAMES[m] + ' 설정';
+  loadControls(); updateAll();
+}
+function switchColor(c) {
+  currentColor = c;
+  document.querySelectorAll('.color-btn.black').forEach(b => b.classList.toggle('active', c==='black'));
+  document.querySelectorAll('.color-btn.white').forEach(b => b.classList.toggle('active', c==='white'));
+  updateAll();
+}
+function onZoomChange() {
+  zoom = parseInt(document.getElementById('zoomSelect').value);
+  const s = CELL * zoom;
+  previewArea.style.width = s + 'px';
+  previewArea.style.height = s + 'px';
+  updateAll();
+}
+
+function loadControls() {
+  const c = CONFIG[currentMotion];
+  sX.value = nX.value = c.x;
+  sY.value = nY.value = c.y;
+  sW.value = nW.value = c.w;
+  sH.value = nH.value = c.h;
+}
+function onSlider() {
+  const c = CONFIG[currentMotion];
+  c.x = +sX.value; c.y = +sY.value; c.w = +sW.value; c.h = +sH.value;
+  nX.value = c.x; nY.value = c.y; nW.value = c.w; nH.value = c.h;
+  updateAll();
+}
+function onNum() {
+  const c = CONFIG[currentMotion];
+  c.x = clamp(+nX.value,-100,100); c.y = clamp(+nY.value,-100,100);
+  c.w = clamp(+nW.value,10,300);   c.h = clamp(+nH.value,10,300);
+  sX.value = c.x; sY.value = c.y; sW.value = c.w; sH.value = c.h;
+  nX.value = c.x; nY.value = c.y; nW.value = c.w; nH.value = c.h;
+  updateAll();
+}
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v || 0)); }
+
+function resetCurrent() { CONFIG[currentMotion] = { ...DEFAULTS[currentMotion] }; loadControls(); updateAll(); }
+function resetAll() { for (const m of MOTIONS) CONFIG[m] = { ...DEFAULTS[m] }; loadControls(); updateAll(); }
+
+// ── 위치/크기 px 계산 ──
+function posStyle(cfg, cellPx) {
+  const gw = cellPx * cfg.w / 100;
+  const gh = cellPx * cfg.h / 100;
+  const cx = cellPx / 2 + cellPx * cfg.x / 100;
+  const cy = cellPx / 2 + cellPx * cfg.y / 100;
+  return { left: cx - gw/2, top: cy - gh/2, width: gw, height: gh };
+}
+
+function applyPos(el, cfg, cellPx) {
+  const p = posStyle(cfg, cellPx);
+  el.style.left = p.left + 'px'; el.style.top = p.top + 'px';
+  el.style.width = p.width + 'px'; el.style.height = p.height + 'px';
+}
+
+// ── 전체 업데이트 ──
+function updateAll() {
+  const cellPx = CELL * zoom;
+
+  // 메인 GIF
+  previewGif.src = ASSETS[currentColor][currentMotion];
+  applyPos(previewGif, CONFIG[currentMotion], cellPx);
+
+  // 쥐장수 참조
+  const refM = document.getElementById('refMerchant');
+  if (document.getElementById('chkMerchant').checked) {
+    refM.style.display = '';
+    refM.style.opacity = '0.35';
+    applyPos(refM, MERCHANT_STYLE, cellPx);
+  } else { refM.style.display = 'none'; }
+
+  // 이모지 참조
+  const refE = document.getElementById('refEmoji');
+  if (document.getElementById('chkEmoji').checked) {
+    refE.style.display = '';
+    const em = currentColor === 'black' ? '🐀' : '🐁';
+    const eColor = currentColor === 'black' ? '#52b788' : '#e05252';
+    const fsPx = EMOJI_STYLE.fontSize * 16 * zoom; // rem → px × zoom
+    refE.innerHTML = `<span style="font-size:${fsPx}px;color:${eColor};line-height:1">${em}</span>`;
+    refE.style.left = (EMOJI_STYLE.left * zoom) + 'px';
+    refE.style.top = (EMOJI_STYLE.top * zoom) + 'px';
+    refE.style.opacity = '0.7';
+  } else { refE.style.display = 'none'; }
+
+  // 고스트 모션
+  for (const m of MOTIONS) {
+    const el = document.getElementById('ghost' + m[0].toUpperCase() + m.slice(1));
+    const chk = document.querySelector(`.ghost-toggle input[data-ghost="${m}"]`);
+    if (chk && chk.checked && m !== currentMotion) {
+      el.style.display = '';
+      el.src = ASSETS[currentColor][m];
+      el.style.opacity = '0.2';
+      applyPos(el, CONFIG[m], cellPx);
+    } else { el.style.display = 'none'; }
+  }
+
+  // 실제 셀
+  updateRealCells();
+  updateOutput();
+}
+
+function updateRealCells() {
+  for (const color of ['black','white']) {
+    const cell = document.getElementById(color === 'black' ? 'realCellBlack' : 'realCellWhite');
+    cell.innerHTML = '';
+
+    // 쥐장수 참조
+    if (document.getElementById('chkMerchant').checked) {
+      const mImg = document.createElement('img');
+      mImg.src = '/art/ratMerchant_idle.gif';
+      mImg.style.cssText = `width:${MERCHANT_STYLE.w}%;height:${MERCHANT_STYLE.h}%;left:${50+MERCHANT_STYLE.x}%;top:${50+MERCHANT_STYLE.y}%;transform:translate(-50%,-50%);opacity:0.35;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))`;
+      cell.appendChild(mImg);
+    }
+
+    // 이모지 참조
+    if (document.getElementById('chkEmoji').checked) {
+      const em = color === 'black' ? '🐀' : '🐁';
+      const ec = color === 'black' ? '#52b788' : '#e05252';
+      const sp = document.createElement('span');
+      sp.style.cssText = `position:absolute;top:${EMOJI_STYLE.top}px;left:${EMOJI_STYLE.left}px;font-size:${EMOJI_STYLE.fontSize}rem;color:${ec};opacity:0.7;z-index:5`;
+      sp.textContent = em;
+      cell.appendChild(sp);
+    }
+
+    // 고스트
+    for (const m of MOTIONS) {
+      const chk = document.querySelector(`.ghost-toggle input[data-ghost="${m}"]`);
+      if (chk && chk.checked && m !== currentMotion) {
+        const gi = document.createElement('img');
+        gi.src = ASSETS[color][m];
+        const gc = CONFIG[m];
+        gi.style.cssText = `width:${gc.w}%;height:${gc.h}%;left:${50+gc.x}%;top:${50+gc.y}%;transform:translate(-50%,-50%);opacity:0.2;filter:drop-shadow(0 0 1px rgba(0,0,0,0.5))`;
+        cell.appendChild(gi);
+      }
+    }
+
+    // 메인
+    const img = document.createElement('img');
+    img.src = ASSETS[color][currentMotion];
+    const c = CONFIG[currentMotion];
+    img.style.cssText = `width:${c.w}%;height:${c.h}%;left:${50+c.x}%;top:${50+c.y}%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));z-index:8`;
+    cell.appendChild(img);
+  }
+}
+
+function updateOutput() {
+  const lines = ['RAT_ANIM_CONFIG = {'];
+  for (const m of MOTIONS) {
+    const c = CONFIG[m];
+    lines.push(`  ${m}: { x:${c.x}, y:${c.y}, w:${c.w}, h:${c.h} },`);
+  }
+  lines.push('};');
+  document.getElementById('outputBox').textContent = lines.join('\n');
+}
+
+function copyConfig() {
+  navigator.clipboard.writeText(document.getElementById('outputBox').textContent).then(() => {
+    const btn = document.querySelector('.btn-copy');
+    btn.textContent = '복사됨!'; setTimeout(() => btn.textContent = '복사', 1000);
+  });
+}
+
+// ── 드래그 ──
+let dragging = false, dsx, dsy, dcx, dcy;
+previewGif.addEventListener('mousedown', e => {
+  dragging = true; dsx = e.clientX; dsy = e.clientY;
+  dcx = CONFIG[currentMotion].x; dcy = CONFIG[currentMotion].y;
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const cellPx = CELL * zoom;
+  CONFIG[currentMotion].x = clamp(Math.round(dcx + (e.clientX - dsx) / cellPx * 100), -100, 100);
+  CONFIG[currentMotion].y = clamp(Math.round(dcy + (e.clientY - dsy) / cellPx * 100), -100, 100);
+  loadControls(); updateAll();
+});
+window.addEventListener('mouseup', () => { dragging = false; });
+
+// ── 스크롤 휠 ──
+previewArea.addEventListener('wheel', e => {
+  e.preventDefault();
+  const d = e.deltaY > 0 ? -5 : 5;
+  const c = CONFIG[currentMotion];
+  c.w = clamp(c.w + d, 10, 300);
+  c.h = clamp(c.h + d, 10, 300);
+  loadControls(); updateAll();
+}, { passive: false });
+
+// ── init ──
+loadControls(); onZoomChange();
+</script>
+</body>
+</html>

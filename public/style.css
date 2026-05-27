@@ -2659,6 +2659,12 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
 }
 .cell.attack-range { background: var(--range); border-color: rgba(226,168,75,0.5); }
 .cell.move-range   { background: var(--move-h); border-color: rgba(82,183,136,0.5); }
+.cell.move-range-blocked {
+  background: rgba(82,183,136,0.12) !important;
+  border-color: rgba(82,183,136,0.2) !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
 .cell.hit-mark     { background: var(--hit); border: 2px solid #ef4444 !important; box-shadow: inset 0 0 8px rgba(239,68,68,0.4); }
 .cell.miss-mark    { background: var(--miss); }
 .cell.assassin-target { background: rgba(220,80,80,0.3); border-color: var(--danger); }
@@ -2752,10 +2758,70 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   color: #2a2a3a;
 }
 
+/* ── 유해 (remains) ── */
+.cell.has-remains {
+  background: rgba(80,60,60,0.35) !important;
+  border-color: rgba(120,80,80,0.4) !important;
+  overflow: visible;
+}
+.remains-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 140%;
+  height: 140%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  z-index: 2;
+  opacity: 1;
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  pointer-events: none;
+}
+
+/* 사망 GIF 재생 중인 셀 — 140% 오버레이가 잘리지 않도록 */
+.cell:has(.death-anim-overlay) { overflow: visible; }
+/* ── 사망 애니메이션 오버레이 ── */
+.death-anim-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  overflow: visible;
+}
+.death-anim-overlay .death-gif {
+  width: 140%;
+  height: 140%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  /* 블랙 아웃라인 — 아이들 GIF 와 동일 */
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+}
+/* 드래곤·유황솥 사망 GIF — JS 에서 idle GIF 좌표를 읽어 absolute 배치하므로
+   여기서는 fallback 스타일만 유지 (JS inline style 이 우선 적용됨) */
+.death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
+.death-anim-overlay .death-gif[data-death-type="dragon"] {
+  object-fit: contain;
+  image-rendering: pixelated;
+}
 /* 보드 오브젝트 */
 .cell.has-trap::before    { content: ''; position: absolute; inset: 0; background: rgba(226,168,75,0.15); }
 .cell.has-bomb::before    { content: '💣'; position: absolute; top: 1px; right: 2px; font-size: 0.55rem; }
-.cell.has-rat::before     { content: '🐀'; position: absolute; top: 1px; right: 2px; font-size: 0.55rem; }
+/* 쥐 셀 — overflow:visible + z-index 로 인접 셀 위로 올라옴 */
+.cell.has-rat { overflow: visible !important; z-index: 5; }
+.cell:has(.rat-attack-gif) { overflow: visible !important; z-index: 21; }  /* 공격 GIF 재생 중 */
+.cell:has(.rat-spawn-gif) { overflow: visible !important; z-index: 21; }   /* 소환 GIF 재생 중 */
+/* 쥐 보드 GIF 공통 스타일 — 보랏빛 글로우 */
+.rat-board-gif {
+  position: absolute;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 3px rgba(150,100,220,0.35));
+  object-fit: contain;
+  pointer-events: none;
+}
 
 /* 패배 화면 상대 마지막 배치 그리드 — 인게임 보드와 동일한 셀 스타일 사용 */
 .gameover-replay {
@@ -4168,6 +4234,16 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   animation: none !important;
   filter: none !important;
   z-index: 4;
+}
+#game-board .cell.move-range-blocked,
+#game-board .cell.morale-zone.move-range-blocked,
+#game-board .cell.morale-zone-center.move-range-blocked {
+  background: rgba(82,183,136,0.12) !important;
+  box-shadow: none !important;
+  border-color: rgba(82,183,136,0.25) !important;
+  animation: none !important;
+  filter: none !important;
+  cursor: not-allowed;
 }
 #game-board .cell.attack-range,
 #game-board .cell.morale-zone.attack-range,

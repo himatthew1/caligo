@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>CALIGO - Death Animation Preview</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0f0f1a; color:#e0e0e0; font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; align-items:center; padding:24px; }
+  h1 { color:#d4a647; margin-bottom:8px; font-size:1.4rem; }
+  .subtitle { color:#888; margin-bottom:24px; font-size:0.85rem; }
+
+  .demo-row { display:flex; gap:32px; flex-wrap:wrap; justify-content:center; margin-bottom:24px; }
+  .demo-box { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .demo-label { font-size:0.8rem; color:#aaa; }
+
+  .cell {
+    width:80px; height:80px;
+    background:rgba(40,40,60,0.6);
+    border:1px solid rgba(100,100,140,0.3);
+    position:relative;
+    overflow:hidden;            /* 실제 게임 보드와 동일 */
+    border-radius:4px;
+  }
+  /* :has() 셀렉터로 사망/유해 시 overflow:visible 전환 — 게임 style.css 와 동일 로직 */
+  .cell:has(.death-anim-overlay) { overflow:visible; }
+  .cell.has-remains {
+    background:rgba(80,60,60,0.35) !important;
+    border-color:rgba(120,80,80,0.4) !important;
+    overflow:visible;
+  }
+
+  /* 유해 마커 */
+  .remains-marker {
+    position:absolute;
+    top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:140%; height:140%;
+    object-fit:contain;
+    image-rendering:pixelated;
+    z-index:2;
+    opacity:0.55;
+    filter:grayscale(0.6) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    pointer-events:none;
+  }
+
+  /* 사망 GIF 오버레이 */
+  .death-anim-overlay {
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    z-index:20; pointer-events:none;
+    overflow:visible;
+  }
+  .death-anim-overlay .death-gif {
+    width:140%; height:140%;
+    object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  /* 드래곤·유황솥 — JS idle-rect 정렬 (fallback) */
+  .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
+  .death-anim-overlay .death-gif[data-death-type="dragon"] {
+    object-fit:contain; image-rendering:pixelated;
+  }
+
+  /* idle GIF (보드 위 캐릭터) */
+  .idle-gif {
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:90%; height:90%;
+    object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    z-index:3;
+  }
+
+  .controls { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; justify-content:center; }
+  .btn {
+    padding:10px 20px; border:none; border-radius:6px; cursor:pointer;
+    font-size:0.9rem; font-weight:600; transition:all 0.15s;
+  }
+  .btn-play { background:#d4a647; color:#1a1a2e; }
+  .btn-play:hover { background:#e0b85a; }
+  .btn-reset { background:#444; color:#ddd; }
+  .btn-reset:hover { background:#555; }
+
+  .info-panel {
+    background:rgba(30,30,50,0.8); border:1px solid rgba(100,100,140,0.3);
+    border-radius:8px; padding:16px; max-width:500px; width:100%; margin-top:16px;
+  }
+  .info-panel h3 { color:#d4a647; margin-bottom:8px; font-size:0.95rem; }
+  .info-row { display:flex; justify-content:space-between; padding:4px 0; font-size:0.82rem; border-bottom:1px solid rgba(80,80,100,0.2); }
+  .info-key { color:#888; }
+  .info-val { color:#e0e0e0; font-family:monospace; }
+
+  .phase-indicator {
+    font-size:0.85rem; color:#6ec; padding:6px 14px;
+    background:rgba(40,80,60,0.4); border-radius:4px;
+    min-width:200px; text-align:center; margin-bottom:12px;
+    transition:all 0.3s;
+  }
+  .phase-indicator.death { background:rgba(120,40,40,0.5); color:#f88; }
+  .phase-indicator.remains { background:rgba(80,60,40,0.5); color:#da6; }
+
+  .direction-row { display:flex; gap:12px; margin-bottom:16px; align-items:center; }
+  .direction-row label { font-size:0.85rem; color:#aaa; }
+  select { background:#2a2a40; color:#ddd; border:1px solid #555; padding:4px 8px; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<h1>Death Animation Preview</h1>
+<p class="subtitle">사망 GIF 1회 재생 (NETSCAPE loop=1 패치) -> 유해 전환</p>
+
+<div class="phase-indicator" id="phase">대기 중</div>
+
+<div class="direction-row">
+  <label>방향:</label>
+  <select id="dirSelect">
+    <option value="right">오른쪽 (기본)</option>
+    <option value="left">왼쪽 (scaleX -1)</option>
+  </select>
+  <label>타입:</label>
+  <select id="typeSelect">
+    <option value="common">공통 사망</option>
+    <option value="dragon">드래곤</option>
+    <option value="sulfurCauldron">유황솥</option>
+  </select>
+</div>
+
+<div class="controls">
+  <button class="btn btn-play" id="playBtn" onclick="playDemo()">사망 애니메이션 재생</button>
+  <button class="btn btn-reset" onclick="resetDemo()">초기화</button>
+</div>
+
+<div class="demo-row">
+  <div class="demo-box">
+    <div class="demo-label">사망 GIF 재생 셀 (80px)</div>
+    <div class="cell" id="demoCell">
+      <img class="idle-gif" id="idleGif" src="/art/archer_idle.gif" alt="">
+    </div>
+  </div>
+</div>
+
+<!-- 인게임 크기 비교 — idle GIF 좌표 기반 정렬 -->
+<div style="margin:20px 0 12px;color:#d4a647;font-weight:700;font-size:0.95rem;">인게임 크기 비교 (셀 56px, idle 38px, piece-marker 레이아웃)</div>
+<div class="demo-row" id="compareRow">
+  <!-- 1) piece-marker 레이아웃 (인게임과 동일) -->
+  <div class="demo-box">
+    <div class="demo-label">인게임 아이들</div>
+    <div class="cell" id="compareIdleCell" style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;">
+      <div class="piece-marker-sim" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:2px;">
+        <span style="line-height:0;font-size:0;"><img id="compareIdleGif" src="/art/dragon_idle.gif" alt="" style="display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));"></span>
+        <span style="font-size:0.6rem;color:#4ade80;font-weight:700;">5</span>
+      </div>
+    </div>
+    <div class="demo-label" style="font-family:monospace;color:#6ec;">38×38px</div>
+  </div>
+  <!-- 2) idle-rect 정렬 사망 GIF (NEW — 정확히 idle 위에 겹침) -->
+  <div class="demo-box">
+    <div class="demo-label" style="color:#4fc;">★ idle-rect 정렬</div>
+    <div class="cell" id="compareAlignedCell" style="width:56px;height:56px;overflow:visible;display:flex;align-items:center;justify-content:center;">
+      <div class="piece-marker-sim" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:2px;visibility:hidden;">
+        <span style="line-height:0;font-size:0;"><img class="cmp-idle-hidden" src="/art/dragon_idle.gif" alt="" style="display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;"></span>
+        <span style="font-size:0.6rem;font-weight:700;">5</span>
+      </div>
+      <div class="death-anim-overlay">
+        <img id="compareAlignedDeath" class="death-gif" src="/art/death_dragon.gif" alt="">
+      </div>
+    </div>
+    <div class="demo-label" id="compareAlignedInfo" style="font-family:monospace;color:#4fc;">측정중...</div>
+  </div>
+  <!-- 3) 오버레이 비교 (idle 반투명 + death 겹침) -->
+  <div class="demo-box">
+    <div class="demo-label" style="color:#fa5;">겹침 확인</div>
+    <div class="cell" id="compareOverlayCell" style="width:56px;height:56px;overflow:visible;display:flex;align-items:center;justify-content:center;">
+      <div class="piece-marker-sim" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:2px;">
+        <span style="line-height:0;font-size:0;"><img class="cmp-idle-overlay" src="/art/dragon_idle.gif" alt="" style="display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));opacity:0.5;"></span>
+        <span style="font-size:0.6rem;color:#4ade80;font-weight:700;opacity:0.5;">5</span>
+      </div>
+      <div class="death-anim-overlay">
+        <img id="compareOverlayDeath" class="death-gif" src="/art/death_dragon.gif" alt="" style="opacity:0.7;">
+      </div>
+    </div>
+    <div class="demo-label" style="color:#fa5;">idle 50% + death 70%</div>
+  </div>
+  <!-- 4) 공통 사망 (140% — 변경 없음) -->
+  <div class="demo-box">
+    <div class="demo-label">공통 사망 (140%)</div>
+    <div class="cell" id="compareCommonCell" style="width:56px;height:56px;overflow:visible;display:flex;align-items:center;justify-content:center;">
+      <div class="piece-marker-sim" style="display:flex;flex-direction:column;align-items:center;gap:1px;padding:2px;visibility:hidden;">
+        <span style="line-height:0;font-size:0;"><img src="/art/archer_idle.gif" alt="" style="display:block;width:38px;height:38px;"></span>
+        <span style="font-size:0.6rem;font-weight:700;">5</span>
+      </div>
+      <div class="death-anim-overlay">
+        <img id="compareCommonDeath" class="death-gif" src="/art/death_common.gif" alt="">
+      </div>
+    </div>
+    <div class="demo-label" style="font-family:monospace;color:#f88;">140% (78px)</div>
+  </div>
+</div>
+<!-- 3배 확대 오버레이 비교 -->
+<div style="margin:12px 0 8px;color:#d4a647;font-weight:600;font-size:0.85rem;">3× 확대 겹침 확인</div>
+<div class="demo-row">
+  <div class="demo-box">
+    <div class="demo-label" style="color:#fa5;">3× 확대 (idle 반투명 + death)</div>
+    <div class="cell" id="compare3xCell" style="width:168px;height:168px;overflow:visible;display:flex;align-items:center;justify-content:center;">
+      <div class="piece-marker-sim" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;">
+        <span style="line-height:0;font-size:0;"><img class="cmp-idle-3x" src="/art/dragon_idle.gif" alt="" style="display:block;width:114px;height:114px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 2px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(0,0,0,1));opacity:0.5;"></span>
+        <span style="font-size:1.8rem;color:#4ade80;font-weight:700;opacity:0.5;">5</span>
+      </div>
+      <div class="death-anim-overlay">
+        <img id="compare3xDeath" class="death-gif" src="/art/death_dragon.gif" alt="" style="opacity:0.7;">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="info-panel">
+  <h3>GIF 프레임 정보</h3>
+  <div class="info-row"><span class="info-key">타입</span><span class="info-val" id="infoType">-</span></div>
+  <div class="info-row"><span class="info-key">프레임 수</span><span class="info-val" id="infoFrames">-</span></div>
+  <div class="info-row"><span class="info-key">프레임 딜레이</span><span class="info-val" id="infoDelay">-</span></div>
+  <div class="info-row"><span class="info-key">총 재생시간</span><span class="info-val" id="infoDuration">-</span></div>
+  <div class="info-row"><span class="info-key">원본 루프</span><span class="info-val" id="infoLoop">-</span></div>
+  <div class="info-row"><span class="info-key">패치 후 루프</span><span class="info-val" id="infoPatched">1 (1회 재생)</span></div>
+  <div class="info-row"><span class="info-key">유해 생성</span><span class="info-val" id="infoRemains">-</span></div>
+  <div class="info-row"><span class="info-key">경과 시간</span><span class="info-val" id="infoElapsed">-</span></div>
+</div>
+
+<script>
+const GIF_URLS = {
+  common: '/art/death_common.gif',
+  dragon: '/art/death_dragon.gif',
+  sulfurCauldron: '/art/death_sulfurCauldron.gif',
+};
+const REMAINS_URL = '/art/remains.png';
+const NO_REMAINS = ['dragon', 'sulfurCauldron'];
+
+let animTimer = null;
+let elapsedTimer = null;
+
+// GIF 바이너리 파싱
+async function parseGif(url) {
+  const ab = await (await fetch(url)).arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let totalMs = 0, frameCount = 0, loopCount = -1;
+  const frameDelays = [];
+  for (let i = 0; i < bytes.length - 7; i++) {
+    if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04) {
+      const d = (bytes[i+4] | (bytes[i+5] << 8)) * 10;
+      frameDelays.push(d);
+      totalMs += d;
+      frameCount++;
+      i += 7;
+    }
+  }
+  for (let i = 0; i < bytes.length - 18; i++) {
+    if (bytes[i] === 0x21 && bytes[i+1] === 0xFF && bytes[i+2] === 0x0B) {
+      const sig = String.fromCharCode(...bytes.slice(i+3, i+14));
+      if (sig === 'NETSCAPE2.0') { loopCount = bytes[i+16] | (bytes[i+17] << 8); break; }
+    }
+  }
+  return { bytes, frameCount, totalMs, loopCount, frameDelays };
+}
+
+// NETSCAPE 블록 완전 제거 — loop=1 은 2회 재생이므로 블록 자체를 삭제해야 1회만 재생
+function patchLoopCount(bytes) {
+  const src = new Uint8Array(bytes);
+  const nsLen = 19; // 21 FF 0B "NETSCAPE2.0" 03 01 [lo] [hi] 00
+  for (let i = 0; i < src.length - 18; i++) {
+    if (src[i] === 0x21 && src[i+1] === 0xFF && src[i+2] === 0x0B) {
+      const sig = String.fromCharCode(...src.slice(i+3, i+14));
+      if (sig === 'NETSCAPE2.0') {
+        const patched = new Uint8Array(src.length - nsLen);
+        patched.set(src.subarray(0, i), 0);
+        patched.set(src.subarray(i + nsLen), i);
+        return patched;
+      }
+    }
+  }
+  return src;
+}
+
+async function playDemo() {
+  resetDemo();
+  const type = document.getElementById('typeSelect').value;
+  const dir = document.getElementById('dirSelect').value;
+  const url = GIF_URLS[type];
+  const noRemains = NO_REMAINS.includes(type);
+
+  const phase = document.getElementById('phase');
+  const cell = document.getElementById('demoCell');
+  const idleGif = document.getElementById('idleGif');
+  const playBtn = document.getElementById('playBtn');
+  playBtn.disabled = true;
+
+  // 프레임 정보 파싱
+  const info = await parseGif(url);
+  document.getElementById('infoType').textContent = type;
+  document.getElementById('infoFrames').textContent = info.frameCount;
+  document.getElementById('infoDelay').textContent = info.frameDelays[0] + 'ms x ' + info.frameCount;
+  document.getElementById('infoDuration').textContent = info.totalMs + 'ms';
+  document.getElementById('infoLoop').textContent = info.loopCount === 0 ? '0 (무한 반복)' : info.loopCount;
+  document.getElementById('infoRemains').textContent = noRemains ? '없음 (' + type + ')' : '생성됨';
+
+  // 경과 시간 표시
+  const startTime = performance.now();
+  elapsedTimer = setInterval(() => {
+    document.getElementById('infoElapsed').textContent = Math.round(performance.now() - startTime) + 'ms';
+  }, 16);
+
+  // 1) 사망 페이즈
+  phase.textContent = '사망 GIF 재생 중...';
+  phase.className = 'phase-indicator death';
+
+  // idle 숨기기
+  idleGif.style.opacity = '0';
+
+  // 패치된 GIF Blob 생성
+  const patched = patchLoopCount(info.bytes);
+  const blob = new Blob([patched], { type: 'image/gif' });
+  const blobUrl = URL.createObjectURL(blob);
+
+  // 오버레이 생성
+  const overlay = document.createElement('div');
+  overlay.className = 'death-anim-overlay';
+  const img = document.createElement('img');
+  img.className = 'death-gif';
+  img.dataset.deathType = type;
+  if (dir === 'left') img.style.transform = 'scaleX(-1)';
+  overlay.appendChild(img);
+  cell.appendChild(overlay);
+  img.src = blobUrl;
+
+  // 2) GIF 1회 재생 완료 후 -> 유해 전환
+  const totalMs = info.totalMs + 100;
+  animTimer = setTimeout(() => {
+    URL.revokeObjectURL(blobUrl);
+    overlay.remove();
+
+    if (!noRemains) {
+      // 유해 표시
+      phase.textContent = '유해 생성됨';
+      phase.className = 'phase-indicator remains';
+      cell.classList.add('has-remains');
+      const remains = document.createElement('img');
+      remains.className = 'remains-marker';
+      remains.src = REMAINS_URL;
+      if (dir === 'left') remains.style.transform = 'translate(-50%,-50%) scaleX(-1)';
+      cell.appendChild(remains);
+    } else {
+      phase.textContent = '완료 (유해 없음 - ' + type + ')';
+      phase.className = 'phase-indicator';
+    }
+
+    clearInterval(elapsedTimer);
+    document.getElementById('infoElapsed').textContent = Math.round(performance.now() - startTime) + 'ms (완료)';
+    playBtn.disabled = false;
+  }, totalMs);
+}
+
+function resetDemo() {
+  if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+
+  const cell = document.getElementById('demoCell');
+  const idleGif = document.getElementById('idleGif');
+  const phase = document.getElementById('phase');
+  const playBtn = document.getElementById('playBtn');
+
+  // 오버레이/유해 제거
+  cell.querySelectorAll('.death-anim-overlay, .remains-marker').forEach(e => e.remove());
+  cell.classList.remove('has-remains');
+  idleGif.style.opacity = '1';
+  phase.textContent = '대기 중';
+  phase.className = 'phase-indicator';
+  playBtn.disabled = false;
+
+  document.getElementById('infoElapsed').textContent = '-';
+}
+
+// 아이들 GIF URL 맵 — 비교 셀용
+const IDLE_URLS = {
+  common: '/art/archer_idle.gif',
+  dragon: '/art/dragon_idle.gif',
+  sulfurCauldron: '/art/sulfurCauldron_idle.gif',
+};
+
+// ★ idle GIF 좌표 기반 death GIF 정렬 — 인게임 playDeathAnimations 과 동일 로직
+function alignDeathToIdle(cellEl, idleImgSelector, deathImgEl) {
+  const idleImg = cellEl.querySelector(idleImgSelector);
+  if (!idleImg || !deathImgEl) return;
+  const cellRect = cellEl.getBoundingClientRect();
+  const idleRect = idleImg.getBoundingClientRect();
+  deathImgEl.style.position = 'absolute';
+  deathImgEl.style.width = idleRect.width + 'px';
+  deathImgEl.style.height = idleRect.height + 'px';
+  deathImgEl.style.left = (idleRect.left - cellRect.left) + 'px';
+  deathImgEl.style.top = (idleRect.top - cellRect.top) + 'px';
+  deathImgEl.style.objectFit = 'contain';
+  deathImgEl.style.imageRendering = 'pixelated';
+  return { w: Math.round(idleRect.width), h: Math.round(idleRect.height),
+           l: Math.round(idleRect.left - cellRect.left), t: Math.round(idleRect.top - cellRect.top) };
+}
+
+function updateCompare() {
+  const type = document.getElementById('typeSelect').value;
+  const isDragonLike = (type === 'dragon' || type === 'sulfurCauldron');
+  const idleUrl = IDLE_URLS[type] || IDLE_URLS.common;
+  const deathUrl = GIF_URLS[type];
+
+  // idle GIF URL 변경
+  document.getElementById('compareIdleGif').src = idleUrl;
+  document.querySelectorAll('.cmp-idle-hidden, .cmp-idle-overlay, .cmp-idle-3x').forEach(img => img.src = idleUrl);
+
+  // death GIF URL 변경
+  const alignedDeath = document.getElementById('compareAlignedDeath');
+  const overlayDeath = document.getElementById('compareOverlayDeath');
+  const death3x = document.getElementById('compare3xDeath');
+  alignedDeath.src = deathUrl;
+  overlayDeath.src = deathUrl;
+  death3x.src = deathUrl;
+
+  // 공통 사망 GIF 는 항상 death_common
+  document.getElementById('compareCommonDeath').src = '/art/death_common.gif';
+
+  // 메인 데모 셀의 idle도 변경
+  document.getElementById('idleGif').src = idleUrl;
+
+  // dragon/sulfurCauldron: idle-rect 정렬 적용
+  requestAnimationFrame(() => {
+    if (isDragonLike) {
+      // 56px 셀 — idle-rect 정렬
+      const info = alignDeathToIdle(
+        document.getElementById('compareAlignedCell'),
+        '.cmp-idle-hidden', alignedDeath
+      );
+      alignDeathToIdle(
+        document.getElementById('compareOverlayCell'),
+        '.cmp-idle-overlay', overlayDeath
+      );
+      // 3x 셀 — idle-rect 정렬
+      alignDeathToIdle(
+        document.getElementById('compare3xCell'),
+        '.cmp-idle-3x', death3x
+      );
+      if (info) {
+        document.getElementById('compareAlignedInfo').textContent =
+          info.w + '×' + info.h + 'px @ (' + info.l + ',' + info.t + ')';
+      }
+    } else {
+      // 공통 사망 — 기본 flexbox 센터링 (140%)
+      [alignedDeath, overlayDeath, death3x].forEach(img => {
+        img.style.position = '';
+        img.style.width = '';
+        img.style.height = '';
+        img.style.left = '';
+        img.style.top = '';
+      });
+      document.getElementById('compareAlignedInfo').textContent = '140% (flexbox 센터)';
+    }
+  });
+}
+document.getElementById('typeSelect').addEventListener('change', updateCompare);
+// 초기 로드 시 이미지 렌더 대기 후 정렬
+window.addEventListener('load', () => setTimeout(updateCompare, 100));
+</script>
+</body>
+</html>

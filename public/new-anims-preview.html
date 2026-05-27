@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>유황범람 + 쥐 + 덫 애니메이션 미리보기</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0d1018;
+    color: #e5e7eb;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 20px;
+  }
+  h1 { font-size: 18px; margin: 0 0 6px; color: #fbbf24; }
+  .sub { color: #94a3b8; font-size: 12px; margin-bottom: 16px; }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+  .panel {
+    background: #161b27;
+    border: 1px solid #2a3142;
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .panel.full { grid-column: 1 / -1; }
+  .panel h2 { font-size: 14px; margin: 0 0 4px; color: #fbbf24; }
+  .panel .desc { color: #94a3b8; font-size: 11px; margin-bottom: 12px; line-height: 1.5; }
+
+  /* ── 게임의 실제 보드 셀 마크업 (style.css 와 동일) ── */
+  .board {
+    display: grid;
+    grid-template-columns: repeat(7, 40px);
+    grid-auto-rows: 40px;
+    gap: 2px;
+    padding: 8px;
+    background: #0a0d14;
+    border-radius: 8px;
+    border: 1px solid #1f2937;
+    width: max-content;
+    margin: 0 auto 12px;
+  }
+  .cell {
+    background: #1f2937;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    color: #cbd5e1;
+    position: relative;
+  }
+  .cell.caster { background: #4338ca; color: #fff; }
+  .cell.victim { background: #7c2d12; color: #fed7aa; }
+
+  /* ── 게임 실제 hit-mark / miss-mark — style.css 그대로 복사 ── */
+  .cell.hit-mark { background: rgba(239,68,68,0.5); border: 2px solid #ef4444 !important; box-shadow: inset 0 0 8px rgba(239,68,68,0.4); }
+  .cell.miss-mark { background: rgba(75,85,99,0.4); }
+  .cell-mark {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    font-size: 1.2rem;
+    z-index: 5;
+  }
+  /* 셀 흔들림 — animateAttack 이 적용하는 방식 */
+  .cell.atk-flash {
+    transition: background 0.1s;
+    background: rgba(226,168,75,0.4);
+  }
+  .cell.hit-flash {
+    transition: background 0.1s;
+    background: rgba(239,68,68,0.5);
+    animation: gameShake 0.3s ease;
+  }
+  @keyframes gameShake {
+    0%,100% { transform: translate(0,0); }
+    25%     { transform: translate(-2px, 2px); }
+    50%     { transform: translate(2px, -1px); }
+    75%     { transform: translate(-1px, 1px); }
+  }
+
+  /* ── 프로필 카드 (게임 실제 markup 모방) ── */
+  .profile-card {
+    background: #1a1f2e;
+    border: 1.5px solid #2a3142;
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin: 6px;
+    display: inline-block;
+    width: 140px;
+    color: #e5e7eb;
+    font-size: 12px;
+    position: relative;
+    transition: opacity 0.25s, filter 0.25s;
+  }
+  .profile-card .name { font-weight: 800; font-size: 13px; }
+  .profile-card .hp-bar-bg {
+    height: 6px; background: #1f2937; border-radius: 3px; margin: 6px 0; position: relative; overflow: hidden;
+  }
+  .profile-card .hp-bar { height: 6px; background: #22c55e; border-radius: 3px; transition: width 0.3s; }
+  .profile-card .hp-num { font-size: 10px; color: #94a3b8; }
+
+  /* ── 게임 실제 profile-hit (style.css 동일) ── */
+  .profile-card.profile-hit {
+    animation: profileHitShake 0.5s ease-in-out 2, profileHitFlash 1.8s ease-out forwards;
+    border-color: #fbbf24 !important;
+  }
+  @keyframes profileHitShake {
+    0%,100% { transform:translateX(0) scale(1); }
+    10% { transform:translateX(-6px) scale(1.02); }
+    20% { transform:translateX(6px) scale(0.98); }
+    30% { transform:translateX(-5px) scale(1.01); }
+    40% { transform:translateX(5px) scale(0.99); }
+    50% { transform:translateX(-4px); }
+    60% { transform:translateX(4px); }
+    70% { transform:translateX(-2px); }
+    80% { transform:translateX(2px); }
+    90% { transform:translateX(-1px); }
+  }
+  @keyframes profileHitFlash {
+    0% { background-color: rgba(255,255,255,0.7); box-shadow: 0 0 24px rgba(255,200,60,0.8), inset 0 0 20px rgba(255,255,255,0.4); border-color: #fbbf24 !important; }
+    15% { background-color: rgba(251,191,36,0.45); box-shadow: 0 0 18px rgba(251,191,36,0.6), inset 0 0 10px rgba(255,220,100,0.2); }
+    40% { background-color: rgba(251,191,36,0.15); box-shadow: 0 0 8px rgba(251,191,36,0.3); }
+    100% { background-color: transparent; box-shadow: none; }
+  }
+  /* 빨간 데미지 도장 — 게임 buildDamageOverlay 와 비슷한 양식 */
+  .body-damage-stamp {
+    position: absolute;
+    top: -2px; right: -2px;
+    background: rgba(220,38,38,0.95);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 900;
+    padding: 1px 6px;
+    border-radius: 6px;
+    box-shadow: 0 0 6px rgba(220,38,38,.8);
+    pointer-events: none;
+    animation: stampPop 0.4s ease forwards;
+  }
+  @keyframes stampPop {
+    0%   { transform: scale(0); opacity: 0; }
+    60%  { transform: scale(1.3); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  /* ── 유황범람 라바 (게임 동일) ── */
+  .cell.lava-bubbling {
+    animation: lavaBubble 1.6s ease-in-out forwards;
+    position: relative;
+    z-index: 1;
+  }
+  .cell.lava-bubbling::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 70%, rgba(255,180,0,.95) 0%, rgba(255,69,0,.65) 30%, transparent 60%),
+      radial-gradient(circle at 70% 30%, rgba(255,140,0,.85) 0%, rgba(220,38,38,.55) 35%, transparent 65%),
+      radial-gradient(circle at 50% 50%, rgba(255,200,40,.7) 0%, rgba(180,40,0,.5) 50%, transparent 80%);
+    pointer-events: none;
+    border-radius: inherit;
+    animation: lavaSurface 1.6s ease-in-out forwards;
+    mix-blend-mode: screen;
+  }
+  .cell.lava-bubbling::after {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 20% 80%, rgba(255,255,180,1) 0%, transparent 8%),
+      radial-gradient(circle at 60% 20%, rgba(255,255,180,1) 0%, transparent 6%),
+      radial-gradient(circle at 80% 60%, rgba(255,255,180,1) 0%, transparent 7%),
+      radial-gradient(circle at 35% 35%, rgba(255,255,180,1) 0%, transparent 5%);
+    pointer-events: none;
+    border-radius: inherit;
+    animation: lavaBubbles 1.6s ease-out forwards;
+    filter: blur(0.5px);
+  }
+  @keyframes lavaBubble {
+    0%   { box-shadow: 0 0 0 rgba(255,140,0,0); }
+    20%  { box-shadow: 0 0 14px rgba(255,140,0,.7), inset 0 0 8px rgba(255,180,0,.4); }
+    50%  { box-shadow: 0 0 28px rgba(255,180,0,1), inset 0 0 18px rgba(255,200,40,.7); }
+    80%  { box-shadow: 0 0 22px rgba(255,140,0,.8), inset 0 0 14px rgba(255,160,0,.5); }
+    100% { box-shadow: 0 0 0 rgba(255,140,0,0); }
+  }
+  @keyframes lavaSurface {
+    0%   { opacity: 0; }
+    20%  { opacity: 0.65; }
+    50%  { opacity: 0.95; }
+    80%  { opacity: 0.55; }
+    100% { opacity: 0; }
+  }
+  @keyframes lavaBubbles {
+    0%   { opacity: 0; transform: translateY(2px) scale(0.8); }
+    30%  { opacity: 1; transform: translateY(-2px) scale(1.05); }
+    60%  { opacity: 0.85; transform: translateY(-6px) scale(1); }
+    100% { opacity: 0; transform: translateY(-12px) scale(0.85); }
+  }
+
+  /* ── 쥐 — 마커와 동일 사이즈로 떨어지고 통통 바운스 ── */
+  /* font-size 0.5rem (=8px) — 보드 마커와 정확히 같은 크기. 회전·glow 없음. */
+  .rat-fly-orb {
+    position: fixed;
+    font-size: 0.5rem;
+    color: #52b788;
+    pointer-events: none;
+    z-index: 9500;
+    opacity: 0;
+    animation: ratRainBounce 1.05s linear forwards;
+  }
+  /* 0~50%: 낙하 (중력 가속). 55~70%: 바운스 1 (위 7px → 아래). 70~88%: 바운스 2 (위 3.5px → 아래). 88~100%: 정착 */
+  /* ★ 페이드 버그 수정 — opacity 를 50% 이후 모든 키프레임에 명시. 안 그러면 .rat-fly-orb 의 opacity:0 base 가
+     implicit 100% 로 적용되어 50% 부터 페이드아웃이 진행됨 (Chrome 측정값: 1040ms 시점 opacity 0.317). */
+  @keyframes ratRainBounce {
+    0%   { opacity: 0; transform: translateY(0); }
+    20%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) * 0.15)); }
+    50%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+    62%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) - 7px)); }
+    72%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+    82%  { opacity: 1; transform: translateY(calc(var(--fall, 220px) - 3.5px)); }
+    92%  { opacity: 1; transform: translateY(var(--fall, 220px)); }
+    100% { opacity: 1; transform: translateY(var(--fall, 220px)); }
+  }
+  /* 셀 보라 highlight — 더 밝게 + 펄스 추가 */
+  .cell.rat-spawn-mark {
+    background-color: rgba(139, 92, 246, 0.32) !important;
+    box-shadow: inset 0 0 12px rgba(168,85,247,.5), 0 0 8px rgba(168,85,247,.3);
+    transition: background-color 0.4s, box-shadow 0.4s;
+    position: relative;
+  }
+  .cell.rat-spawn-mark::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle, rgba(168,85,247,.22) 0%, rgba(139,92,246,0) 70%);
+    border-radius: inherit;
+    pointer-events: none;
+    animation: ratPulseBright 2.0s ease-in-out infinite;
+    z-index: 0;
+  }
+  @keyframes ratPulseBright {
+    0%,100% { opacity: 0.6; }
+    50%     { opacity: 1; }
+  }
+  .cell .rat-marker {
+    position: absolute;
+    top: 1px; left: 7px;
+    font-size: 0.5rem;
+    color: #52b788;
+    z-index: 4;
+    pointer-events: none;
+  }
+
+  /* ── 덫 — 첨부 이미지 (fangs-top.png / fangs-bottom.png) 사용 ── */
+  /* 셀 크기에 정확히 맞춤 — JS 가 cell.getBoundingClientRect() 로 동적 사이징.
+     CSS 변수 --cw/--ch 로 폭·높이 넘김. --start-off 로 시작 거리 (0=셀 가장자리), --end-off 로 도착 거리 (음수=안쪽 박힘). */
+  .trap-fang-set {
+    position: fixed;
+    width: var(--cw, 50px);
+    height: var(--ch, 50px);
+    pointer-events: none;
+    z-index: 9700;
+    transform: translate(-50%, -50%);
+  }
+  .trap-fang-img {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: var(--fh, 50%);
+    object-fit: contain;
+    filter: drop-shadow(0 0 4px rgba(0,0,0,0.85));
+  }
+  /* ★ 사용자 요청: top 이빨이 bottom 이빨보다 위 (z-index) — 윗턱이 아래턱 위로 덮음 */
+  .trap-fang-img.top    { top: var(--start-top, -8px); z-index: 2; }
+  .trap-fang-img.bottom { bottom: var(--start-top, -8px); z-index: 1; }
+  .trap-fang-set.snap .trap-fang-img.top    { animation: fangSnapTop 0.26s cubic-bezier(.6,0,.4,1) forwards; }
+  .trap-fang-set.snap .trap-fang-img.bottom { animation: fangSnapBottom 0.26s cubic-bezier(.6,0,.4,1) forwards; }
+  @keyframes fangSnapTop {
+    0%   { top: var(--start-top, -8px); opacity: 0; }
+    20%  { opacity: 0.95; }
+    100% { top: var(--end-top, 0px); opacity: 1; }
+  }
+  @keyframes fangSnapBottom {
+    0%   { bottom: var(--start-top, -8px); opacity: 0; }
+    20%  { opacity: 0.95; }
+    100% { bottom: var(--end-top, 0px); opacity: 1; }
+  }
+  .trap-fang-set.bite-shake {
+    animation: trapBiteShake 0.55s ease-in-out;
+  }
+  @keyframes trapBiteShake {
+    0%,100% { transform: translate(-50%, -50%); }
+    10%     { transform: translate(calc(-50% - 3px), calc(-50% + 1.5px)); }
+    25%     { transform: translate(calc(-50% + 3px), calc(-50% - 1.5px)); }
+    40%     { transform: translate(calc(-50% - 2px), calc(-50% + 2px)); }
+    55%     { transform: translate(calc(-50% + 2.5px), calc(-50% - 1px)); }
+    70%     { transform: translate(calc(-50% - 1.5px), calc(-50% + 1.5px)); }
+    85%     { transform: translate(calc(-50% + 1px), calc(-50% - 1px)); }
+  }
+  /* 옵션 라디오 */
+  .opt-toggle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 8px;
+    padding: 8px;
+    background: #0a0d14;
+    border-radius: 6px;
+  }
+  .opt-toggle label {
+    cursor: pointer;
+    padding: 4px 10px;
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #e5e7eb;
+    transition: all 0.15s;
+  }
+  .opt-toggle label:hover { background: #2d3748; }
+  .opt-toggle input { display: none; }
+  .opt-toggle input:checked + label {
+    background: #b45309;
+    border-color: #d97706;
+    color: #fef3c7;
+  }
+  /* 임팩트 광원 — 강철 이빨 부딪힘 */
+  .trap-impact-flash {
+    position: fixed;
+    width: 50px; height: 50px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,200,100,.85) 0%, rgba(220,38,38,.55) 40%, transparent 75%);
+    pointer-events: none;
+    z-index: 9699;
+    transform: translate(-50%, -50%) scale(0);
+    animation: trapImpact 0.45s ease-out forwards;
+  }
+  @keyframes trapImpact {
+    0%   { transform: translate(-50%,-50%) scale(0);   opacity: 0; }
+    35%  { transform: translate(-50%,-50%) scale(1.4); opacity: 1; }
+    100% { transform: translate(-50%,-50%) scale(2.4); opacity: 0; }
+  }
+
+  /* 컨트롤 */
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 10px;
+  }
+  button {
+    background: #1f2937;
+    color: #e5e7eb;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.primary { background: #b45309; border-color: #d97706; color: #fef3c7; }
+  button.purple { background: #6d28d9; border-color: #7c3aed; color: #ede9fe; }
+  button.red { background: #991b1b; border-color: #dc2626; color: #fecaca; }
+  button:hover { filter: brightness(1.15); }
+
+  .views {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .view-section {
+    border: 1px solid #2a3142;
+    border-radius: 8px;
+    padding: 8px;
+    background: #0d1220;
+  }
+  .view-title {
+    font-size: 11px;
+    color: #94a3b8;
+    margin-bottom: 6px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .view-title.atk { color: #60a5fa; }
+  .view-title.vic { color: #ef4444; }
+</style>
+</head>
+<body>
+
+<h1>새 애니메이션 미리보기 (v2)</h1>
+<div class="sub">
+  • 피격 애니는 게임 실제 함수 (animateAttack / applyHitFlashWithBrighten / cell-mark) 그대로 사용<br>
+  • 공격자 시점 / 피격자 시점 분리해 표시<br>
+  • 쥐: glow·rotation·impact 제거 — 차분한 fade-fall + 보라 셀만<br>
+  • 덫: SVG 이빨 (첨부 이미지 스타일)
+</div>
+
+<div class="panels">
+
+  <!-- ── 유황범람 ── -->
+  <div class="panel">
+    <h2>🔥 유황범람</h2>
+    <div class="desc">
+      외곽 셀 라바 효과 + 게임 실제 hit-mark 셀 + profile-hit 카드 애니.
+    </div>
+    <div class="views">
+      <div class="view-section">
+        <div class="view-title atk">⚔ 공격자 시점</div>
+        <div id="board-sulfur-atk" class="board" style="grid-template-columns: repeat(7, 32px); grid-auto-rows: 32px;"></div>
+        <div id="profiles-sulfur-atk" style="text-align:center"></div>
+      </div>
+      <div class="view-section">
+        <div class="view-title vic">🛡 피격자 시점</div>
+        <div id="board-sulfur-vic" class="board" style="grid-template-columns: repeat(7, 32px); grid-auto-rows: 32px;"></div>
+        <div id="profiles-sulfur-vic" style="text-align:center"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="primary" onclick="triggerSulfur()">🔥 유황범람 발동</button>
+    </div>
+  </div>
+
+  <!-- ── 쥐 ── -->
+  <div class="panel">
+    <h2>🐀 역병의 자손들 (차분 버전)</h2>
+    <div class="desc">
+      glow / rotation / 임팩트 플래시 제거. 부드럽게 떨어짐 + 보라 셀만 남음.
+    </div>
+    <div id="board-rats" class="board" style="grid-template-columns: repeat(7, 32px); grid-auto-rows: 32px;"></div>
+    <div class="controls">
+      <button class="purple" onclick="triggerRats()">🐀 쥐 3마리 소환</button>
+      <button onclick="clearRats()">턴 종료 (보라 제거)</button>
+    </div>
+  </div>
+
+  <!-- ── 덫 ── -->
+  <div class="panel full">
+    <h2>🪤 덫 발동 — 4가지 옵션 비교</h2>
+    <div class="desc">
+      셀 크기에 맞춰 동적 사이징. 라디오로 옵션 선택 후 발동.
+    </div>
+    <div class="opt-toggle" id="trap-opt-toggle">
+      <input type="radio" name="trapopt" id="opt-A" value="A" checked>
+      <label for="opt-A">A. 프레임 감쌈 (외곽만)</label>
+      <input type="radio" name="trapopt" id="opt-B" value="B">
+      <label for="opt-B">B. 살짝 박힘 (외곽 + 약간 안쪽)</label>
+      <input type="radio" name="trapopt" id="opt-C" value="C">
+      <label for="opt-C">C. 깊게 박힘 (셀 절반까지)</label>
+      <input type="radio" name="trapopt" id="opt-D" value="D">
+      <label for="opt-D">D. 압살 (이빨이 셀 가운데서 겹침)</label>
+    </div>
+    <div class="views">
+      <div class="view-section">
+        <div class="view-title atk">⚔ 공격자(덫 설치자) 시점</div>
+        <div id="board-trap-atk" class="board" style="grid-template-columns: repeat(5, 44px); grid-auto-rows: 44px;"></div>
+        <div id="profiles-trap-atk" style="text-align:center"></div>
+      </div>
+      <div class="view-section">
+        <div class="view-title vic">🛡 피격자(밟은) 시점</div>
+        <div id="board-trap-vic" class="board" style="grid-template-columns: repeat(5, 44px); grid-auto-rows: 44px;"></div>
+        <div id="profiles-trap-vic" style="text-align:center"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="red" onclick="triggerTrap()">🪤 덫 발동</button>
+    </div>
+    <div class="legend" style="margin-top:10px;padding:10px;background:#0a0d14;border-radius:6px;font-size:11px;color:#94a3b8;line-height:1.6;">
+      <strong>옵션별 차이:</strong><br>
+      • <strong>A</strong>: 이빨 끝이 셀 가장자리에 정확히 닿음 (셀 안쪽 0px, 안 박힘) — 셀을 외곽 프레임처럼 감쌈<br>
+      • <strong>B</strong>: 셀 안쪽 25% (about 11px) 까지 박힘 — 살짝 무는 느낌<br>
+      • <strong>C</strong>: 셀 안쪽 50% (about 22px) 까지 박힘 — 위·아래 이빨 끝이 셀 중앙 부근에서 만남<br>
+      • <strong>D</strong>: 셀 안쪽 65% (about 28px) 까지 박힘 — 위·아래 이빨이 가운데서 겹침 (가장 공격적)
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Web Audio: 게임 실제 SFX ──
+  let _audioCtx = null;
+  function getAudioCtx() {
+    if (!_audioCtx) { try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  }
+  function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, time);
+    if (glide) o.frequency.exponentialRampToValueAtTime(glide, time + dur);
+    g.gain.setValueAtTime(0.001, time);
+    g.gain.linearRampToValueAtTime(gain || 0.1, time + Math.min(0.02, dur * 0.2));
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(time); o.stop(time + dur + 0.02);
+  }
+  function _sfxNoise(ctx, time, dur, gain, hpFreq, lpFreq) {
+    const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain || 0.1, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    let node = src;
+    if (hpFreq) { const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hpFreq; node.connect(f); node = f; }
+    if (lpFreq) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq; node.connect(f); node = f; }
+    node.connect(g); g.connect(ctx.destination);
+    src.start(time); src.stop(time + dur);
+  }
+  function playSfxSulfur() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime, out = ctx.destination;
+    const rumble = ctx.createOscillator(); const rg = ctx.createGain();
+    rumble.type = 'sawtooth';
+    rumble.frequency.setValueAtTime(40, now);
+    rumble.frequency.linearRampToValueAtTime(60, now + 1.2);
+    rg.gain.setValueAtTime(0.001, now);
+    rg.gain.linearRampToValueAtTime(0.32, now + 0.4);
+    rg.gain.linearRampToValueAtTime(0.32, now + 1.0);
+    rg.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    rumble.connect(rg); rg.connect(out);
+    rumble.start(now); rumble.stop(now + 1.3);
+    [0.2, 0.45, 0.72].forEach(bt => {
+      const t = now + bt;
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+      g.gain.setValueAtTime(0.3, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.4);
+      _sfxNoise(ctx, t, 0.25, 0.18, null, 1500);
+    });
+  }
+  function playSfxRatSummon() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    for (let i = 0; i < 5; i++) {
+      _sfxTone(ctx, now + i * 0.07, 1800 + Math.random() * 800, 0.06, 'square', 0.06);
+    }
+    _sfxNoise(ctx, now, 0.4, 0.04, 1500, 4000);
+  }
+  function playSfxTrapSnap() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    _sfxTone(ctx, now, 200, 0.08, 'sawtooth', 0.28, 60);
+    _sfxTone(ctx, now, 1800, 0.06, 'square', 0.12, 600);
+    _sfxNoise(ctx, now, 0.12, 0.18, 800, 4000);
+    _sfxTone(ctx, now + 0.08, 80, 0.25, 'sawtooth', 0.14, 50);
+  }
+  function playSfxHit() {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    const now = ctx.currentTime;
+    _sfxNoise(ctx, now, 0.15, 0.12, 200, 1500);
+    _sfxTone(ctx, now, 220, 0.08, 'square', 0.1, 100);
+  }
+
+  // ── 보드 빌드 ──
+  function buildBoard(id, opts) {
+    const board = document.getElementById(id);
+    board.innerHTML = '';
+    const size = opts.size || 7;
+    const victims = new Map(((opts.victims) || []).map(v => [`${v.col},${v.row}`, v]));
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.col = c;
+        cell.dataset.row = r;
+        if (opts.caster && c === opts.caster.col && r === opts.caster.row) {
+          cell.classList.add('caster');
+          cell.textContent = opts.caster.icon || '◆';
+        }
+        const v = victims.get(`${c},${r}`);
+        if (v) {
+          cell.classList.add('victim');
+          cell.textContent = v.icon;
+        }
+        board.appendChild(cell);
+      }
+    }
+  }
+  // 프로필 카드 빌드
+  function buildProfile(containerId, name, hp, maxHp, isMine) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'profile-card ' + (isMine ? 'my-piece-card' : 'opp-piece-card');
+    card.innerHTML = `
+      <div class="name">${name}</div>
+      <div class="hp-bar-bg"><div class="hp-bar" style="width:${(hp/maxHp)*100}%"></div></div>
+      <div class="hp-num">HP ${hp}/${maxHp}</div>`;
+    container.appendChild(card);
+    return card;
+  }
+
+  // ── 게임 실제 animateAttack 모방 ──
+  // atkCells: 공격 범위 셀 (주황 플래시), hitCells: 명중 셀 (빨강 + shake)
+  function animateAttack(boardId, atkCells, hitCells) {
+    const board = document.getElementById(boardId);
+    if (!board) return;
+    const cells = board.querySelectorAll('.cell');
+    for (const ac of atkCells) {
+      const cell = [...cells].find(c => +c.dataset.col === ac.col && +c.dataset.row === ac.row);
+      if (cell) {
+        cell.style.transition = 'background 0.1s';
+        cell.style.background = 'rgba(226,168,75,0.4)';
+        setTimeout(() => { cell.style.background = ''; }, 300);
+      }
+    }
+    for (const hc of hitCells) {
+      const cell = [...cells].find(c => +c.dataset.col === hc.col && +c.dataset.row === hc.row);
+      if (cell) {
+        cell.style.transition = 'background 0.1s';
+        cell.style.background = 'rgba(239,68,68,0.5)';
+        cell.style.animation = 'gameShake 0.3s ease';
+        setTimeout(() => { cell.style.background = ''; cell.style.animation = ''; }, 400);
+      }
+    }
+  }
+  // 게임 실제 applyHitFlashWithBrighten + 도장 모방
+  function applyHitFlash(card, damage) {
+    if (!card) return;
+    card.classList.remove('profile-hit');
+    void card.offsetWidth;
+    card.classList.add('profile-hit');
+    setTimeout(() => card.classList.remove('profile-hit'), 1800);
+    if (damage) {
+      const stamp = document.createElement('div');
+      stamp.className = 'body-damage-stamp';
+      stamp.textContent = '-' + damage;
+      card.appendChild(stamp);
+      setTimeout(() => stamp.remove(), 2000);
+    }
+  }
+  // 게임 실제 hit-mark 셀 (renderGameBoard 가 attackLog 기반으로 마크) — 짧게 표시
+  function applyCellMark(boardId, col, row, hit) {
+    const board = document.getElementById(boardId);
+    const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (!cell) return;
+    cell.classList.add(hit ? 'hit-mark' : 'miss-mark');
+    const mark = document.createElement('span');
+    mark.className = 'cell-mark';
+    mark.textContent = hit ? '💥' : '·';
+    cell.appendChild(mark);
+    setTimeout(() => {
+      cell.classList.remove('hit-mark', 'miss-mark');
+      mark.remove();
+    }, 2500);
+  }
+
+  // ── 보드/프로필 초기화 ──
+  function setupSulfur() {
+    const victims = [
+      { col: 0, row: 0, icon: '🏹' },
+      { col: 6, row: 2, icon: '🛡' },
+      { col: 3, row: 6, icon: '⚔' },
+    ];
+    buildBoard('board-sulfur-atk', { caster: { col: 3, row: 3, icon: '🔥' }, victims });
+    buildBoard('board-sulfur-vic', { caster: { col: 3, row: 3, icon: '🔥' }, victims });
+    buildProfile('profiles-sulfur-atk', '🏹 적 궁수', 4, 4, false);
+    buildProfile('profiles-sulfur-vic', '🏹 내 궁수', 4, 4, true);
+  }
+  function setupRats() {
+    buildBoard('board-rats', { victims: [{ col: 1, row: 1, icon: '🛡' }, { col: 4, row: 4, icon: '⚔' }] });
+  }
+  function setupTrap() {
+    const victim = [{ col: 2, row: 2, icon: '🏹' }];
+    buildBoard('board-trap-atk', { size: 5, victims: victim });
+    buildBoard('board-trap-vic', { size: 5, victims: victim });
+    buildProfile('profiles-trap-atk', '🏹 적 궁수', 4, 4, false);
+    buildProfile('profiles-trap-vic', '🏹 내 궁수', 4, 4, true);
+  }
+  setupSulfur();
+  setupRats();
+  setupTrap();
+
+  // ── 유황범람 ──
+  function triggerSulfur() {
+    playSfxSulfur();
+    const borderCells = [];
+    for (let c = 0; c < 7; c++) for (let r = 0; r < 7; r++) {
+      if (c === 0 || c === 6 || r === 0 || r === 6) borderCells.push({ col: c, row: r });
+    }
+    // 양 보드 모두 라바 + 셀 흔들림 + 명중 마크
+    ['board-sulfur-atk', 'board-sulfur-vic'].forEach(bid => {
+      const board = document.getElementById(bid);
+      for (const bc of borderCells) {
+        const cell = board.querySelector(`.cell[data-col="${bc.col}"][data-row="${bc.row}"]`);
+        if (!cell) continue;
+        cell.classList.remove('lava-bubbling');
+        void cell.offsetWidth;
+        cell.classList.add('lava-bubbling');
+        setTimeout(() => cell.classList.remove('lava-bubbling'), 1700);
+      }
+    });
+    // 0.4s 후 — 적 유닛 셀에 명중 마크 + animateAttack 셀 흔들림 + 프로필 hit + 도장
+    setTimeout(() => {
+      try { playSfxHit(); } catch (e) {}
+      // 적 유닛 위치
+      const victims = [{ col: 0, row: 0 }, { col: 6, row: 2 }, { col: 3, row: 6 }];
+      const hitCells = victims;
+      animateAttack('board-sulfur-atk', [], hitCells);
+      animateAttack('board-sulfur-vic', [], hitCells);
+      hitCells.forEach(h => {
+        applyCellMark('board-sulfur-atk', h.col, h.row, true);
+        applyCellMark('board-sulfur-vic', h.col, h.row, true);
+      });
+      // 프로필 hit + 도장 (양 시점)
+      const atkCard = document.querySelector('#profiles-sulfur-atk .profile-card');
+      const vicCard = document.querySelector('#profiles-sulfur-vic .profile-card');
+      applyHitFlash(atkCard, 2);
+      applyHitFlash(vicCard, 2);
+    }, 400);
+  }
+
+  // ── 쥐 (차분 버전) ──
+  let _ratState = { rats: [] };
+  function triggerRats() {
+    playSfxRatSummon();
+    const board = document.getElementById('board-rats');
+    const cells = [...board.querySelectorAll('.cell')];
+    const empty = cells.filter(c => !c.classList.contains('caster') && !c.classList.contains('victim') && !c.querySelector('.rat-marker'));
+    if (empty.length === 0) return;
+    const picked = [];
+    for (let i = 0; i < 3 && empty.length > 0; i++) {
+      const idx = Math.floor(Math.random() * empty.length);
+      picked.push(empty.splice(idx, 1)[0]);
+    }
+    picked.forEach((target, i) => {
+      setTimeout(() => {
+        const tRect = target.getBoundingClientRect();
+        const finalLeft = tRect.left + 7;
+        const finalTop = tRect.top + 1;
+        const fallDist = 220;
+        const orb = document.createElement('div');
+        orb.className = 'rat-fly-orb';
+        orb.textContent = '🐀';
+        orb.style.left = finalLeft + 'px';
+        orb.style.top = (finalTop - fallDist) + 'px';
+        orb.style.setProperty('--fall', fallDist + 'px');
+        document.body.appendChild(orb);
+        setTimeout(() => target.classList.add('rat-spawn-mark'), 525);
+        // ★ 페이드 완전 제거 — animationend 시점에 모든 변경을 한 번에 적용 (원자적).
+        //   이전 문제: class swap 중 .rat-fly-orb 의 opacity:0 default 가 잠깐 적용되어 페이드 보임.
+        //   해결: cssText 한 번에 + className 단일 할당 (classList remove/add 분리 금지).
+        const swapToMarker = () => {
+          // 모든 인라인 스타일 + animation 한 번에 — 중간 상태 없음
+          orb.style.cssText = [
+            'position: absolute',
+            'left: 7px',
+            'top: 1px',
+            'z-index: 4',
+            'font-size: 0.5rem',
+            'color: #52b788',
+            'pointer-events: none',
+            'opacity: 1',                  // 페이드 방지 — 명시적으로 1 고정
+            'transform: none',
+            'animation: none',
+          ].join('; ') + ';';
+          target.appendChild(orb);
+          orb.className = 'rat-marker';   // 단일 할당 — remove/add 사이 transient 없음
+          _ratState.rats.push(target);
+        };
+        // animationend 가 가장 정확한 타이밍 (setTimeout 1050ms 보다 먼저 fire 될 수도)
+        let swapped = false;
+        orb.addEventListener('animationend', () => {
+          if (swapped) return;
+          swapped = true;
+          swapToMarker();
+        }, { once: true });
+        // 안전망 — animationend 가 안 fire 되는 경우 (브라우저 버그 등)
+        setTimeout(() => {
+          if (swapped) return;
+          swapped = true;
+          swapToMarker();
+        }, 1100);
+      }, i * 130);
+    });
+  }
+  function clearRats() {
+    for (const cell of _ratState.rats) cell.classList.remove('rat-spawn-mark');
+    _ratState.rats = [];
+  }
+
+  // ── 덫 — 4가지 옵션 (셀 크기에 동적 매핑) ──
+  // 옵션별 박힘 깊이 (셀 높이 대비 %):
+  //   A: 0%   (셀 가장자리에 정확히 도달, 안 박힘 — 외곽 프레임)
+  //   B: 25%  (살짝 박힘) — 사용자 확정. 이빨 크기 2배.
+  //   C: 50%  (셀 절반까지 — 위·아래가 중앙에서 만남)
+  //   D: 65%  (가운데서 겹침 — 가장 공격적)
+  // 이빨 폭 = 셀 폭 × widthMul, 이빨 높이 = 셀 높이 × fhRatio
+  const TRAP_OPTS = {
+    A: { biteRatio: 0.00, fhRatio: 0.5,  widthMul: 1.0, label: '프레임 감쌈' },
+    /* B: top·bottom 겹침 줄임 — biteRatio 0.25→0.15, fhRatio 1.0→0.85 */
+    B: { biteRatio: 0.15, fhRatio: 0.85, widthMul: 1.8, label: '살짝 박힘 (큰 이빨)' },
+    C: { biteRatio: 0.50, fhRatio: 0.55, widthMul: 1.0, label: '깊게 박힘' },
+    D: { biteRatio: 0.65, fhRatio: 0.55, widthMul: 1.0, label: '압살' },
+  };
+  function getCurrentTrapOpt() {
+    const sel = document.querySelector('#trap-opt-toggle input:checked');
+    const k = sel ? sel.value : 'B';
+    return TRAP_OPTS[k] || TRAP_OPTS.B;
+  }
+  function triggerTrap() {
+    const opt = getCurrentTrapOpt();
+    ['board-trap-atk', 'board-trap-vic'].forEach((bid) => {
+      const board = document.getElementById(bid);
+      const victim = board.querySelector('.cell.victim');
+      if (!victim) return;
+      const r = victim.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const cw = r.width;
+      const ch = r.height;
+      // 이빨 폭/높이 — 옵션별 widthMul 로 폭 확대 가능 (B 는 1.8x = 셀 폭 거의 2배)
+      const fw = cw * (opt.widthMul || 1);
+      const fh = ch * opt.fhRatio;
+      const startOff = -Math.max(6, ch * 0.1);
+      const endOff = ch * opt.biteRatio - 0;
+      const fangSet = document.createElement('div');
+      fangSet.className = 'trap-fang-set';
+      fangSet.style.left = cx + 'px';
+      fangSet.style.top = cy + 'px';
+      fangSet.style.setProperty('--cw', fw + 'px');
+      fangSet.style.setProperty('--ch', ch + 'px');
+      fangSet.style.setProperty('--fh', fh + 'px');
+      fangSet.style.setProperty('--start-top', startOff + 'px');
+      fangSet.style.setProperty('--end-top', endOff + 'px');
+      fangSet.innerHTML = `
+        <img class="trap-fang-img top" src="/fangs-top.png" alt="">
+        <img class="trap-fang-img bottom" src="/fangs-bottom.png" alt="">`;
+      document.body.appendChild(fangSet);
+      requestAnimationFrame(() => fangSet.classList.add('snap'));
+      setTimeout(() => fangSet.classList.add('bite-shake'), 260);
+      setTimeout(() => {
+        fangSet.style.transition = 'opacity 0.3s';
+        fangSet.style.opacity = '0';
+        setTimeout(() => fangSet.remove(), 320);
+      }, 950);
+    });
+    // 220ms 후 — 임팩트 + 셀 흔들림 + 프로필 hit + 도장 (양 시점)
+    setTimeout(() => {
+      playSfxTrapSnap();
+      try { playSfxHit(); } catch (e) {}
+      ['board-trap-atk', 'board-trap-vic'].forEach(bid => {
+        const board = document.getElementById(bid);
+        const victim = board.querySelector('.cell.victim');
+        if (!victim) return;
+        const r = victim.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const flash = document.createElement('div');
+        flash.className = 'trap-impact-flash';
+        flash.style.left = cx + 'px';
+        flash.style.top = cy + 'px';
+        document.body.appendChild(flash);
+        setTimeout(() => flash.remove(), 460);
+        animateAttack(bid, [], [{ col: 2, row: 2 }]);
+        applyCellMark(bid, 2, 2, true);
+      });
+      const atkCard = document.querySelector('#profiles-trap-atk .profile-card');
+      const vicCard = document.querySelector('#profiles-trap-vic .profile-card');
+      applyHitFlash(atkCard, 2);
+      applyHitFlash(vicCard, 2);
+    }, 220);
+  }
+</script>
+
+</body>
+</html>

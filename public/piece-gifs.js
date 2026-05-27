@@ -103,6 +103,43 @@
     return url || null;
   };
 
+  // ── 사망 GIF 맵 ──────────────────────────────────────
+  // 대부분 캐릭터는 공통 사망 GIF, 드래곤/유황솥만 고유 사망 GIF.
+  window.PIECE_DEATH_GIFS = {
+    _common:        '/art/death_common.gif',
+    dragon:         '/art/death_dragon.gif',
+    sulfurCauldron: '/art/death_sulfurCauldron.gif',
+  };
+
+  // ── 유해 PNG ──────────────────────────────────────
+  window.REMAINS_IMG = '/art/remains.png';
+
+  // ── 쥐 보드 오브젝트 GIF ────────────────────────────
+  // black = 아군 쥐, white = 적군 쥐.
+  // 적군 쥐는 대척점 배치: x/y 부호 반전 + scaleX(-1) 좌우반전.
+  window.RAT_GIFS = {
+    black: { idle:'/art/rat_black_idle.gif', spawn:'/art/rat_black_spawn.gif', attack:'/art/rat_black_attack.gif', death:'/art/rat_black_death.gif' },
+    white: { idle:'/art/rat_white_idle.gif', spawn:'/art/rat_white_spawn.gif', attack:'/art/rat_white_attack.gif', death:'/art/rat_white_death.gif' },
+  };
+  // 모션별 위치/크기 (셀 중앙 기준 % 오프셋). 아군 기준 값 — 적군은 x/y 반전.
+  window.RAT_ANIM_CONFIG = {
+    idle:   { x:37, y:30, w:50, h:50 },
+    spawn:  { x:38, y:-2, w:100, h:100 },
+    attack: { x:37, y:29, w:100, h:100 },
+    death:  { x:37, y:30, w:50, h:50 },
+  };
+
+  /**
+   * 사망 GIF URL 반환
+   * @param {string} type  piece.type
+   * @returns {string}
+   */
+  window.getPieceDeathGifUrl = function (type) {
+    const map = window.PIECE_DEATH_GIFS;
+    if (!map) return '/art/death_common.gif';
+    return map[type] || map._common || '/art/death_common.gif';
+  };
+
   // ── 공격 GIF 맵 (64×64) ──────────────────────────────
   window.PIECE_ATTACK_GIFS = {
     // ── Tier 1 ──────────────────────────────
@@ -317,8 +354,12 @@
       ...Object.values(window.PIECE_GIFS        || {}),
       ...Object.values(window.PIECE_HIT_GIFS    || {}),
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),
+      ...Object.values(window.PIECE_DEATH_GIFS  || {}),
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),
       ...Object.values(window.PIECE_ICONS       || {}),
+      window.REMAINS_IMG,
+      ...Object.values(window.RAT_GIFS?.black  || {}),
+      ...Object.values(window.RAT_GIFS?.white  || {}),
     ]);
     const container = _getPreloadContainer();
     for (const url of knownUrls) {
@@ -399,9 +440,13 @@
     const allUrls = new Set([
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),  // 공격 GIF
       ...Object.values(window.PIECE_HIT_GIFS    || {}),  // 피격 GIF
+      ...Object.values(window.PIECE_DEATH_GIFS  || {}),  // 사망 GIF
       ...Object.values(window.PIECE_GIFS        || {}),  // 아이들 GIF
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),  // 이동 PNG
       ...Object.values(window.PIECE_ICONS       || {}),  // 캐릭터 아이콘 PNG
+      window.REMAINS_IMG,                                 // 유해 PNG
+      ...Object.values(window.RAT_GIFS?.black  || {}),   // 쥐 GIF (아군)
+      ...Object.values(window.RAT_GIFS?.white  || {}),   // 쥐 GIF (적군)
       ...(window._manifestUrls                 || []),   // 스킬·패시브 PNG
     ]);
     const urls = [...allUrls].filter(Boolean);

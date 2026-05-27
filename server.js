@@ -415,6 +415,8 @@ function createRoom(id, opts = {}) {
     boardObjects: Array(playerCount).fill(null).map(() => []),
     // Rats per player
     rats: Array(playerCount).fill(null).map(() => []),
+    // 유해 (remains) — 사망 시 남는 시체, 양 진영 공유
+    remains: [],
     // Teams (팀전 전용, 1v1에서도 편의상 채워둠: teamA=[0], teamB=[1])
     teams: mode === 'team' ? [[], []] : [[0], [1]],
     eliminatedPlayers: new Set(),
@@ -1668,6 +1670,8 @@ function aiTeamFindEvacuation(room, idx) {
     for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
       const nc = piece.col + dc, nr = piece.row + dr;
       if (!inBounds(nc, nr, bounds)) continue;
+      // 유해 차단
+      if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) continue;
       // 다른 piece 점유 체크
       const occ = room.players.some(pl => (pl.pieces || []).some(pc =>
         pc.alive && pc !== piece && pc.col === nc && pc.row === nr));
@@ -3033,6 +3037,7 @@ function startGameFromRoom(room) {
         skillPoints: room.sp,
         boardBounds: room.boardBounds,
         boardObjects: boardObjectsSummary(room, i),
+        remains: room.remains || [],
       });
     }
   });
@@ -3714,6 +3719,23 @@ function handleDeath(room, deadPiece, ownerIdx) {
       }
     }
   }
+
+  // ── 유해 (remains) 생성 ──
+  // rat, dragon, sulfurCauldron 은 유해를 남기지 않음
+  // 보드 축소로 인한 사망은 handleDeath 호출 전에 room._boardShrinkDeaths = true 로 표시
+  const NO_REMAINS_TYPES = ['rat', 'dragon', 'sulfurCauldron'];
+  if (!NO_REMAINS_TYPES.includes(deadPiece.type) && !room._boardShrinkDeaths) {
+    if (!room.remains) room.remains = [];
+    room.remains.push({
+      col: deadPiece.col,
+      row: deadPiece.row,
+      type: deadPiece.type,
+      name: deadPiece.name,
+      icon: deadPiece.icon,
+      owner: ownerIdx,
+      turnCreated: room.turnNumber,
+    });
+  }
 }
 
 function detonateBomb(room, ownerIdx, bomb, options) {
@@ -4127,6 +4149,7 @@ function getSpectatorGameState(room) {
       ...boardObjectsSummary(room, 0),
       ...boardObjectsSummary(room, 1),
     ],
+    remains: room.remains || [],
   };
 }
 
@@ -4226,13 +4249,17 @@ function processTurnStart(room) {
       // boardObjects 정리는 handleDeath 후 (화약상 사망 기폭 큐가 폭탄 위치 참조해야 하므로 그 전)
       // 하지만 축소 영역 밖의 폭탄은 사라져야 함 — handleDeath 가 필요한 폭탄을 큐로 옮겨놓음.
       // detonateBomb 가 deferEmit 으로 호출되며 큐의 폭탄 좌표 그대로 사용 가능 — 단, 축소 영역 안에 들어있는 폭탄만.
+      room._boardShrinkDeaths = true;
       for (const dp of deadPieces) {
         handleDeath(room, dp.piece, dp.ownerIdx);
       }
+      room._boardShrinkDeaths = false;
       for (let i = 0; i < room.players.length; i++) {
         if (room.boardObjects[i]) room.boardObjects[i] = room.boardObjects[i].filter(o => inBounds(o.col, o.row, room.boardBounds));
         if (room.rats[i]) room.rats[i] = room.rats[i].filter(r => inBounds(r.col, r.row, room.boardBounds));
       }
+      // 유해도 축소 범위 밖 제거
+      if (room.remains) room.remains = room.remains.filter(r => inBounds(r.col, r.row, room.boardBounds));
       emitToBoth(room, 'board_shrink', {
         newBounds: room.boardBounds, bounds: room.boardBounds,
         eliminated, stage: ev.stage,
@@ -4620,6 +4647,7 @@ function endTurn(room, opts) {
       ...turnData,
       oppPieces: oppPieceSummary(cur.pieces),
       boardObjects: boardObjectsSummary(room, prevIdx),
+      remains: room.remains || [],
     });
     // AI 턴에도 타이머 리셋 (플레이어에게 시각적 표시)
     startTimer(room, 'game', () => turnTimeout(room));
@@ -4638,12 +4666,14 @@ function endTurn(room, opts) {
     yourPieces: pieceSummary(cur.pieces),
     oppPieces: oppPieceSummary(prev.pieces),
     boardObjects: boardObjectsSummary(room, curIdx),
+    remains: room.remains || [],
     isYourTurn: true,
   });
   emitToPlayer(room, prevIdx, 'opp_turn', {
     ...turnData,
     oppPieces: oppPieceSummary(cur.pieces),
     boardObjects: boardObjectsSummary(room, prevIdx),
+    remains: room.remains || [],
   });
 
   // 관전자에게 전체 상태 전송
@@ -4705,6 +4735,7 @@ function _buildTeamBaseStates(room) {
       boardShrinkStage: room.boardShrinkStage,
       players,
       boardObjects,
+      remains: room.remains || [],
       myTeamId: tid,
     };
   }
@@ -4963,6 +4994,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       // ★ 사용자 보고: 이미 같은 칸에 합류된 상태라면 분신 사용 불가 (이동이 무의미).
       if (mover.col === target.col && mover.row === target.row) {
         return { ok: false, msg: '이미 합류 상태 — 분신 불필요' };
+      }
+      // 유해 차단 — 대상 쌍둥이 위치에 유해가 있으면 합류 불가
+      if (room.remains && room.remains.some(r => r.col === target.col && r.row === target.row)) {
+        return { ok: false, msg: '유해가 있는 위치로는 합류할 수 없습니다.' };
       }
       // ★ 비행 애니메이션용 — 이동 전 좌표를 캡쳐 (시전자/상대방/관전자 모두 동일 from→to 사용)
       const _twinFromCol = mover.col, _twinFromRow = mover.row;
@@ -5284,6 +5319,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '대상과 목적지를 지정하세요.' };
       }
       if (!inBounds(destCol, destRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      // 유해 차단 — 유해가 있는 칸으로 강제 이동 불가
+      if (room.remains && room.remains.some(r => r.col === destCol && r.row === destRow)) {
+        return { ok: false, msg: '유해가 있는 위치로는 이동할 수 없습니다.' };
+      }
       // 팀모드: 양 적팀 멤버 모두 검색, 1v1: 단일 상대
       const kingTargetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
       const kingTargetOwner = room.players[kingTargetOwnerIdx];
@@ -5349,6 +5388,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const dr = params?.row;
       if (dc === undefined || dr === undefined) return { ok: false, msg: '소환 위치를 지정하세요.' };
       if (!inBounds(dc, dr, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      // 유해 차단 — 유해가 있는 칸에 소환 불가
+      if (room.remains && room.remains.some(r => r.col === dc && r.row === dr)) {
+        return { ok: false, msg: '유해가 있는 위치에는 소환할 수 없습니다.' };
+      }
       const dragon = createPiece('dragonTamer', 3, 3, { isDragon: true, ownerIdx: playerIdx });
       dragon.type = 'dragon';
       dragon.name = '드래곤';
@@ -5781,6 +5824,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       sp: room.sp,
       instantSp: room.instantSp,
       boardObjects: boardObjectsSummary(room, 0),
+      remains: room.remains || [],
       msg: result.oppMsg || null,
       skillUsed: {
         icon: piece.icon,
@@ -6184,7 +6228,8 @@ function aiUsePreSkills(room) {
           for (let r = bounds.min; r <= bounds.max; r++)
             for (let c = bounds.min; c <= bounds.max; c++) {
               const occ = room.players.some(pl => pl.pieces.some(p => p.alive && p.col === c && p.row === r));
-              if (!occ) emptyCells.push({ col: c, row: r });
+              const hasRemains = room.remains && room.remains.some(rm => rm.col === c && rm.row === r);
+              if (!occ && !hasRemains) emptyCells.push({ col: c, row: r });
             }
           if (emptyCells.length > 0) {
             // 적 평균 위치에서 거리 계산해 가까운 곳 우선
@@ -6280,6 +6325,8 @@ function aiFindEvacuation(room) {
     const nc = target.col + dc, nr = target.row + dr;
     if (!inBounds(nc, nr, bounds)) continue;
     if (!inBounds(nc, nr, newB)) continue;  // 안쪽으로만 이동
+    // 유해 차단
+    if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) continue;
     // 점유 검사 (자기/팀원 등 — 1v1: 자기 외 다른 말)
     const occupied = room.players.some(pl =>
       pl.pieces.some(p => p.alive && p !== target && p.col === nc && p.row === nr)
@@ -6351,6 +6398,8 @@ function aiEndTurn(room) {
 //   2. 절대복종반지로 강제이동된 경우 (별도 흐름 — 이 함수와 무관).
 //   AI 가 자기 아군 위로 이동을 선택하지 않도록 점유 검사 시 사용.
 function _canMoveTo(room, piece, nc, nr) {
+  // 유해 차단
+  if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) return false;
   for (const pl of (room.players || [])) {
     for (const pc of (pl.pieces || [])) {
       if (pc.alive && pc !== piece && pc.col === nc && pc.row === nr) {
@@ -6896,6 +6945,7 @@ io.on('connection', (socket) => {
           skillPoints: room.sp,
           boardBounds: room.boardBounds,
           boardObjects: boardObjectsSummary(room, idx),
+          remains: room.remains || [],
           reconnected: true,
         });
       }
@@ -8178,6 +8228,10 @@ io.on('connection', (socket) => {
         }
       }
     }
+    // 유해 차단 — 유해가 있는 칸으로 이동 불가
+    if (room.remains && room.remains.some(r => r.col === col && r.row === row)) {
+      socket.emit('err', { msg: '유해가 있는 칸으로는 이동할 수 없습니다.' }); return;
+    }
 
     const prev = { col: piece.col, row: piece.row };
     piece.col = col;
@@ -8235,6 +8289,7 @@ io.on('connection', (socket) => {
       pieceIdx, prev, col, row,
       yourPieces: pieceSummary(player.pieces),
       boardObjects: boardObjectsSummary(room, idx),
+      remains: room.remains || [],
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
     });
@@ -9027,6 +9082,7 @@ io.on('connection', (socket) => {
         instantSp: room.instantSp,
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
+        remains: room.remains || [],
         actionDone: room.players[idx].actionDone,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
@@ -9098,6 +9154,7 @@ io.on('connection', (socket) => {
         instantSp: room.instantSp,
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
+        remains: room.remains || [],
         actionDone: room.players[idx].actionDone,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
@@ -9114,6 +9171,7 @@ io.on('connection', (socket) => {
           instantSp: room.instantSp,
           skillPoints: room.sp,
           boardObjects: boardObjectsSummary(room, 1 - idx),
+          remains: room.remains || [],
           msg: result.oppMsg || null,
           skillUsed: {
             icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
@@ -9283,6 +9341,7 @@ io.on('connection', (socket) => {
       instantSp: room.instantSp,
       skillPoints: room.sp,
       boardObjects: boardObjectsSummary(room, idx),
+      remains: room.remains || [],
       actionDone: room.players[idx].actionDone,
       actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
       skillsUsed: room.players[idx].skillsUsedBeforeAction,
