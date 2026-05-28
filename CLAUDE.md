@@ -78,9 +78,74 @@
     - .death-anim-overlay { overflow:visible } (style.css line 2793)
   - death-preview.html: 독립 프리뷰 페이지 생성 (GIF 프레임 정보 파싱, 방향/타입 선택, overflow 테스트)
 
+- 사망 GIF 빈 프레임 수정
+  - S._pendingDeathCells (Set): 사망 GIF 대기 중인 셀 좌표 — renderGameBoard에서 alive=false 피스의 idle GIF 유지
+  - _aliveOrPending 헬퍼를 IIFE 밖으로 이동 (스코핑 버그 수정)
+  - attack_result / being_attacked 핸들러: renderGameBoard 전 세팅, playDeathAnimations 콜백에서 null 해제
+  - 내 말 / 팀원 말 / 표식 적 말 세 경로 모두 적용
+- 관전자 핸들러 TDZ 크래시 수정
+  - spectator_attack_anim: _ffHitCellsSpec/_ffDeadSpec const 선언을 사용 위치 앞으로 이동
+- 유해 위치 버그 조사 완료
+  - 좌표 시스템 자체 오류 없음 (서버→클라이언트 전과정 절대 col/row)
+  - bomb_detonated/trap_triggered 핸들러에서 _addClientSideRemains 미호출 발견 (유해 표시 지연)
+  - 정확한 재현 조건 불명 — 유저 추가 제보 시 재조사
+- 학살영웅(배반자) 팀킬 데미지 도장 수정
+  - server.js: _friendlyFireHits.push에 defPieceIdx 추가 (for→인덱스 루프 전환)
+  - game.js: attack_result 핸들러에 friendlyFireHits용 addBodyDamage 호출 추가
+  - defPieceIdx 없는 구버전 서버 호환: col/row 기반 fallback lookup
+- 쥐 피격 시 전체 모션 버그 수정
+  - animateRatAttackGifs: filterCells 파라미터 추가 — 지정된 셀의 쥐만 애니
+  - animateRatAttackFromCells: ratsByOwner의 쥐 좌표를 filterCells로 전달
+  - attack_result의 직접 호출(공격자)은 영향 없음 (filterCells 미전달 → 전체 쥐 공격)
+- 드래곤 소환 GIF 로드 누락 수정
+  - piece-gifs.js: DRAGON_LANDING_GIF를 preloadGameImages + preloadAllAsync에 추가
+  - game.js: animateDragonSummon에 300ms 타임아웃 가드 — 캐시 미스 시 PNG 폴백
+  - _landingHandled 플래그로 중복 처리 방지
+- 쥐 소환 → idle 공백 프레임 수정
+  - rat-anim.js: spawn GIF를 body에 fixed 좌표로 임시 복사 → onLanded(renderGameBoard) 후 idle GIF decode() 완료까지 보존 → 무공백 전환
+- 드래곤 소환 착지 위치 보정 (인게임 레이아웃 반영)
+  - 원인: idle GIF 중심 = 셀의 ~39% (piece-marker: p-gif 38px + HP 텍스트 아래), 착지 GIF는 top:50% → 약 6px 아래에 착지
+  - style.css: .dragon-landing-gif + .dragon-revealed → top: 50% → 40%
+  - game.js: landImg.style.top = '40%' 추가, 사이즈 240% 유지
+  - dragon-summon-preview.html: 인게임 piece-marker 레이아웃 재현 (p-gif 38px + HP 텍스트 0.6rem)
+    - showIdle() → pieceMarkerHtml() (flex column + HP 텍스트)
+    - 착지 top 슬라이더 추가 (20~55%, 기본 40%)
+    - 사이즈 비교: idle+착지 오버레이 비교 추가
+    - 이동 프리뷰도 piece-marker 레이아웃 적용
+
+- 쥐 소환 GIF 프레임 누락 수정 (2번째+ 쥐)
+  - 원인: Chrome이 동일 바이너리 GIF의 애니메이션 타이머를 공유 → 뒤에 추가된 GIF가 이미 진행된 프레임부터 시작
+  - 수정: 각 GIF 바이너리에 고유 GIF Comment Extension (8바이트) 삽입 → Chrome이 별개 GIF로 인식
+  - GCT 뒤에 삽입: 0x21 0xFE [4] [uid 4바이트] 0x00 — 렌더링에 무영향
+  - window._ratGifUid 글로벌 카운터로 유일성 보장
+  - rat-anim.js (소환) + game.js animateRatAttackGifs (공격) 양쪽 적용
+- 사망 애니 오버레이 개선 (아군 유닛 공존)
+  - 기존: marker.display='none' → 같은 셀 아군 유닛이 사라짐
+  - 변경: marker.opacity='0.3' (딤) + death overlay z-index:20 으로 상단 표시
+  - GIF 로드 완료 시 딤, 재생 종료 시 opacity/transition 복원
+  - game.js playDeathAnimations 3곳 (정상/catch/timeout) 모두 적용
+- 반지 텔레포트 이동PNG → idle GIF 변경
+  - ring-anim.js: _victimVisualHtml 우선순위 idle GIF(PIECE_GIFS) → 이동PNG(폴백)
+  - idle GIF 38×38px (인게임 p-gif 크기와 동일)
+- 유해 위 유닛 multiply 그라디언트 분리
+  - style.css: .cell.has-remains .piece-marker::after — linear-gradient(transparent 15%, rgba(0,0,0,0.55) 100%) + mix-blend-mode:multiply
+  - 유해와 유닛의 시각적 분리 강화 (모든 모션에 자동 적용)
+- 드래곤/유황솥 사망 애니 공격자에게 미공유 수정
+  - 원인: attack_result에서 _noRemainTypes 필터가 dragon/sulfurCauldron을 _deathInfos에서 제외 → playDeathAnimations 미호출
+  - 수정: 필터 제거 → _deathInfos = _deathInfosRaw (전체 사망 포함)
+  - _addClientSideRemains 내부에서 이미 dragon/sulfurCauldron/rat 유해 생성 skip 처리 중이므로 안전
+  - 추가 효과: _pendingDeathCells에 드래곤 포함 → idle GIF DOM 유지 → 사망 GIF 사이즈 정확히 idle에 맞춤
+- death-ring-preview.html 생성 (사망 오버레이 + 유해 multiply + 반지 idle GIF 통합 프리뷰)
+- 쥐 공격 GIF 중간 잘림 수정
+  - 원인: 쥐 공격 GIF가 cell 내부에 appendChild → _impactDelay(~300ms) 후 renderGameBoard()가 셀 재구축 → GIF 파괴 (총 ~650ms 중 절반만 재생)
+  - 수정: animateRatAttackGifs에서 공격 GIF를 document.body에 position:fixed로 배치
+  - cell.getBoundingClientRect() 기반 좌표 계산 → renderGameBoard() 영향 밖에서 전체 재생 보장
+  - cleanup에서 body에서 제거 + Blob URL 해제
+
 ## Pending
 - All changes uncommitted in git
 - 유해 제거 스킬 (user will define later)
+- bomb_detonated/trap_triggered 사망 시 _addClientSideRemains 호출 추가 (유해 즉시 표시)
 
 ## Tested (2025-05-25, 1v1 AI mode, 17 turns, 0 errors)
 - Turn transitions (player ↔ AI)

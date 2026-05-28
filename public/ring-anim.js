@@ -12,19 +12,19 @@ function animateRingTeleport(rt, roleHint, opts) {
   const board = document.getElementById(boardId);
   if (!board) return;
 
-  // ★ 보드 위 피해자 시각화 — 이동 PNG 우선, 없으면 아이들 GIF, 최종 폴백 아이콘 이미지
+  // ★ 보드 위 피해자 시각화 — 아이들 GIF 우선, 최종 폴백 이동 PNG → 아이콘 이미지
   const _victimVisualHtml = (() => {
     const type = rt.victimType;
     if (!type) return rt.victimIcon ? `<span style="font-size:1.3rem">${rt.victimIcon}</span>` : '';
-    // 이동 PNG (PIECE_MOVE_PNGS)
-    const moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl(type) : null;
-    if (moveUrl) {
-      return `<img src="${moveUrl}" alt="" class="p-gif" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
-    }
-    // 아이들 GIF 폴백
+    // 아이들 GIF (PIECE_GIFS)
     const idleUrl = window.PIECE_GIFS && window.PIECE_GIFS[type];
     if (idleUrl) {
-      return `<img src="${idleUrl}" alt="" class="p-gif" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+      return `<img src="${idleUrl}" alt="" class="p-gif" style="width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
+    }
+    // 이동 PNG 폴백 (PIECE_MOVE_PNGS)
+    const moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl(type) : null;
+    if (moveUrl) {
+      return `<img src="${moveUrl}" alt="" class="p-gif" style="width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
     }
     return '';
   })();

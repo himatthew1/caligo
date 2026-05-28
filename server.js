@@ -3934,17 +3934,18 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     for (const cell of atkCells) {
       for (const aIdx of allyIndices) {
         const allyPlayer = room.players[aIdx];
-        for (const allyPiece of allyPlayer.pieces) {
+        for (let _ffPi = 0; _ffPi < allyPlayer.pieces.length; _ffPi++) {
+          const allyPiece = allyPlayer.pieces[_ffPi];
           if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
             allyPiece.hp = Math.max(0, allyPiece.hp - 1);
             room._attackerFriendlyFireCount++;
             const whose = aIdx === attackerIdx ? '' : `${allyPlayer.name}의 `;
             // 배반자 토스트·로그 출력 제거 — 데미지 도장으로 충분히 표현됨 (사용자 요청)
-            // ★ 피격 상세 기록 — 클라이언트 사망/피격 GIF 재생용
+            // ★ 피격 상세 기록 — 클라이언트 사망/피격 GIF 재생용 + defPieceIdx 추가 (도장 키용)
             room._friendlyFireHits.push({
               col: cell.col, row: cell.row, damage: 1, newHp: allyPiece.hp,
               destroyed: allyPiece.hp <= 0, type: allyPiece.type,
-              ownerIdx: aIdx,
+              ownerIdx: aIdx, defPieceIdx: _ffPi,
             });
             // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
             if (allyPiece.type === 'wizard') {

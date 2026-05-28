@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>사망 오버레이 + 반지 idle GIF 프리뷰</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:#111; color:#eee; font-family:'Segoe UI',sans-serif; padding:20px; }
+  h1 { text-align:center; margin-bottom:6px; font-size:1.3rem; }
+  .subtitle { text-align:center; color:#888; font-size:0.82rem; margin-bottom:20px; }
+  .section { margin:28px 0; }
+  .section h3 { text-align:center; font-size:1rem; color:#60a5fa; margin-bottom:10px; border-bottom:1px solid #333; padding-bottom:6px; }
+  hr { border:0; border-top:1px solid #333; margin:28px 0; }
+  .preview-row { display:flex; gap:36px; justify-content:center; flex-wrap:wrap; margin-bottom:16px; }
+  .preview-box { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:90px; }
+  .preview-label { font-size:0.72rem; color:#aaa; text-align:center; }
+  .btn-row { display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap; }
+  button {
+    padding:7px 16px; border:1px solid #60a5fa; background:transparent; color:#60a5fa;
+    border-radius:6px; cursor:pointer; font-size:0.82rem; transition:all 0.2s;
+  }
+  button:hover { background:#60a5fa22; }
+
+  /* ── 셀 (인게임 재현) ── */
+  .cell {
+    width:56px; height:56px; background:#1e293b; border:1px solid #334155;
+    border-radius:4px; position:relative; display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  .cell:has(.death-anim-overlay) { overflow:visible; }
+  .cell.has-remains { overflow:visible; }
+
+  /* ── piece-marker (인게임 재현) ── */
+  .piece-marker {
+    display:flex; flex-direction:column; align-items:center; gap:1px; padding:2px;
+    transition:opacity 0.15s;
+  }
+  .p-icon { line-height:0; font-size:0; }
+  .p-gif {
+    display:block; width:38px; height:38px; object-fit:contain;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  .p-hp { font-size:0.6rem; color:#52b788; font-weight:700; line-height:1; }
+
+  /* ── 사망 오버레이 (인게임 재현) ── */
+  .death-anim-overlay {
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    z-index:20; pointer-events:none; overflow:visible;
+  }
+  .death-anim-overlay .death-gif {
+    width:140%; height:140%; object-fit:contain;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+
+  /* ── 반지 애니 CSS (인게임 재현) ── */
+  .cell.aurora-intro {
+    position:relative;
+    animation: auroraIntro 1s ease-in-out forwards;
+  }
+  @keyframes auroraIntro {
+    0%   { box-shadow: inset 0 0 8px rgba(165,243,252,0.1), 0 0 4px rgba(165,243,252,0.05); }
+    16%  { box-shadow: inset 0 0 20px rgba(217,70,239,0.5), 0 0 18px rgba(217,70,239,0.4); }
+    33%  { box-shadow: inset 0 0 8px rgba(165,243,252,0.1), 0 0 4px rgba(165,243,252,0.05); }
+    50%  { box-shadow: inset 0 0 20px rgba(250,204,21,0.45), 0 0 18px rgba(250,204,21,0.35); }
+    66%  { box-shadow: inset 0 0 8px rgba(165,243,252,0.1), 0 0 4px rgba(165,243,252,0.05); }
+    83%  { box-shadow: inset 0 0 20px rgba(165,243,252,0.5), 0 0 18px rgba(165,243,252,0.4); }
+    100% { box-shadow: inset 0 0 8px rgba(165,243,252,0.05), 0 0 4px rgba(165,243,252,0.02); }
+  }
+  .piece-marker.ring-prevanish {
+    animation: ringPrevanish 1s ease-in-out forwards;
+  }
+  @keyframes ringPrevanish {
+    0%   { filter:none; transform:scale(1); }
+    50%  { filter:brightness(2.0) drop-shadow(0 0 12px rgba(255,255,255,0.9)); transform:scale(1.06); }
+    100% { filter:brightness(1.5) drop-shadow(0 0 8px rgba(200,200,255,0.6)); transform:scale(1.04); }
+  }
+  .cell.aurora-target {
+    position:relative;
+    box-shadow: inset 0 0 22px rgba(165,243,252,0.4), 0 0 30px rgba(165,243,252,0.3), 0 0 60px rgba(217,70,239,0.15);
+    animation: auroraTargetPulse 0.6s ease-in-out infinite alternate;
+  }
+  @keyframes auroraTargetPulse {
+    0%   { box-shadow: inset 0 0 22px rgba(165,243,252,0.4), 0 0 30px rgba(165,243,252,0.3), 0 0 60px rgba(217,70,239,0.15); }
+    100% { box-shadow: inset 0 0 28px rgba(217,70,239,0.5), 0 0 40px rgba(250,204,21,0.3), 0 0 70px rgba(165,243,252,0.2); }
+  }
+  .piece-marker.ring-vanish {
+    animation: ringVanish 0.3s ease-out forwards;
+  }
+  @keyframes ringVanish {
+    0%   { opacity:1; filter:brightness(2.5) drop-shadow(0 0 20px #fff); transform:scale(1.1); }
+    60%  { opacity:0.5; filter:brightness(3.0) drop-shadow(0 0 30px rgba(165,243,252,1)); transform:scale(1.15); }
+    100% { opacity:0; filter:brightness(4.0) drop-shadow(0 0 40px rgba(217,70,239,1)); transform:scale(0.3); }
+  }
+  .piece-marker.ring-arrived {
+    animation: ringArrived 0.9s cubic-bezier(0.34,1.56,0.64,1) forwards;
+  }
+  @keyframes ringArrived {
+    0%   { opacity:0; transform:scale(0.2); filter:brightness(4.0) drop-shadow(0 0 30px rgba(165,243,252,1)); }
+    30%  { opacity:1; transform:scale(1.2); filter:brightness(2.0) drop-shadow(0 0 20px rgba(217,70,239,0.8)); }
+    60%  { transform:scale(0.95); filter:brightness(1.3) drop-shadow(0 0 10px rgba(250,204,21,0.5)); }
+    100% { transform:scale(1.0); filter:brightness(1.0) drop-shadow(0 0 2px rgba(165,243,252,0.3)); }
+  }
+  .aurora-emit-particle {
+    position:fixed; width:5px; height:5px; border-radius:50%; pointer-events:none; z-index:9999;
+    background:var(--aurora-color, rgba(165,243,252,0.95));
+    box-shadow: 0 0 6px var(--aurora-color, rgba(165,243,252,0.7));
+    animation: auroraEmit var(--dur, 1s) ease-out forwards;
+  }
+  @keyframes auroraEmit {
+    0%   { opacity:1; transform:translate(0,0) scale(1); }
+    100% { opacity:0; transform:translate(var(--dx,0),var(--dy,0)) scale(0.2); }
+  }
+
+  /* ── 유해 셀 (인게임 재현) ── */
+  .cell.has-remains {
+    background:rgba(80,60,60,0.35) !important;
+    border-color:rgba(120,80,80,0.4) !important;
+    overflow:visible;
+  }
+  .remains-marker {
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:140%; height:140%; object-fit:contain; image-rendering:pixelated;
+    z-index:2; opacity:1;
+    filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+    pointer-events:none;
+  }
+  /* ── 유해 위 유닛 하단 그라디언트 (GIF 실루엣 마스크) ── */
+  /* mask-image: var(--gif-mask) → GIF 불투명 픽셀에만 그라디언트, 투명은 완전 투과 */
+  .cell.has-remains .piece-marker .p-icon {
+    position:relative;
+  }
+  .cell.has-remains .piece-marker .p-icon::after {
+    content:'';
+    position:absolute; inset:0;
+    background:linear-gradient(to bottom, transparent 15%, rgba(0,0,0,0.55) 100%);
+    pointer-events:none; z-index:1;
+    -webkit-mask-image: var(--gif-mask);
+    mask-image: var(--gif-mask);
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  /* 보드 (5x1 한줄) */
+  .mini-board {
+    display:flex; gap:2px; background:#0a0a1a; border:2px solid #333; border-radius:6px; padding:4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>사망 오버레이 + 유해 분리 + 반지 idle GIF 프리뷰</h1>
+<p class="subtitle">① 사망 애니 오버레이+딤 ② 유해 위 유닛 하단 multiply 그라디언트 ③ 반지 idle GIF</p>
+
+<!-- ═══ 섹션 1: 사망 오버레이 비교 ═══ -->
+<div class="section">
+  <h3>사망 오버레이 (아군 유닛이 같은 셀에 존재하는 경우)</h3>
+  <p class="subtitle">적 유닛 사망 시 같은 셀의 아군 유닛이 잠깐 사라지던 문제 → 이제 오버레이 + 딤 처리</p>
+  <div class="btn-row">
+    <button onclick="playDeathOverlay()">사망 애니 재생</button>
+    <button onclick="resetDeathCells()">초기화</button>
+  </div>
+  <div class="preview-row">
+    <div class="preview-box">
+      <div class="cell" id="death-cell-1">
+        <div class="piece-marker" id="death-marker-1">
+          <span class="p-icon"><img class="p-gif" src="/art/knight_idle.gif"></span>
+          <span class="p-hp">6/6</span>
+        </div>
+      </div>
+      <div class="preview-label">기사 + 사망 오버레이<br>(딤 30%)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell" id="death-cell-2">
+        <div class="piece-marker" id="death-marker-2">
+          <span class="p-icon"><img class="p-gif" src="/art/archer_idle.gif"></span>
+          <span class="p-hp">3/3</span>
+        </div>
+      </div>
+      <div class="preview-label">궁수 + 사망 오버레이<br>(딤 30%)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell" id="death-cell-3">
+        <!-- 아군 없는 셀 (적만 죽음) -->
+      </div>
+      <div class="preview-label">빈 셀 사망<br>(비교용)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell" id="death-cell-4">
+        <div class="piece-marker" id="death-marker-4">
+          <span class="p-icon"><img class="p-gif" src="/art/general_idle.gif"></span>
+          <span class="p-hp">5/5</span>
+        </div>
+      </div>
+      <div class="preview-label">장군 + 일반 사망<br>(딤 30%)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell" id="death-cell-5">
+        <div class="piece-marker" id="death-marker-5">
+          <span class="p-icon"><img class="p-gif" src="/art/dragon_idle.gif" id="dragon-idle-ref"></span>
+          <span class="p-hp">8/8</span>
+        </div>
+      </div>
+      <div class="preview-label">드래곤 사망 (인게임)<br>(idle rect 기준 사이즈)</div>
+    </div>
+  </div>
+</div>
+<hr>
+
+<!-- ═══ 섹션 2: 유해 위 유닛 multiply 분리 ═══ -->
+<div class="section">
+  <h3>유해 위 유닛 — 하단 multiply 그라디언트로 분리</h3>
+  <p class="subtitle">유해(remains) 셀에 유닛이 있을 때, .p-icon에 isolation:isolate + ::after multiply → GIF 스프라이트 픽셀에만 그라디언트 적용 (박스 X)</p>
+  <div class="preview-row">
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker" style="position:relative;">
+          <span class="p-icon"><img class="p-gif" src="/art/knight_idle.gif"></span>
+          <span class="p-hp">6/6</span>
+        </div>
+      </div>
+      <div class="preview-label">기사 + 유해<br>(multiply 적용)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker" style="position:relative;">
+          <span class="p-icon"><img class="p-gif" src="/art/archer_idle.gif"></span>
+          <span class="p-hp">3/3</span>
+        </div>
+      </div>
+      <div class="preview-label">궁수 + 유해<br>(multiply 적용)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker" style="position:relative;">
+          <span class="p-icon"><img class="p-gif" src="/art/general_idle.gif"></span>
+          <span class="p-hp">5/5</span>
+        </div>
+      </div>
+      <div class="preview-label">장군 + 유해<br>(multiply 적용)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png" style="transform:translate(-50%,-50%) scaleX(-1);">
+        <div class="piece-marker" style="position:relative;">
+          <span class="p-icon"><img class="p-gif" src="/art/wizard_idle.gif"></span>
+          <span class="p-hp">4/4</span>
+        </div>
+      </div>
+      <div class="preview-label">마법사 + 유해(반전)<br>(multiply 적용)</div>
+    </div>
+  </div>
+  <p class="subtitle" style="margin-top:8px;">↓ 비교: multiply 없는 원본</p>
+  <div class="preview-row">
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker">
+          <span class="p-icon"><img class="p-gif" src="/art/knight_idle.gif"></span>
+          <span class="p-hp">6/6</span>
+        </div>
+      </div>
+      <div class="preview-label">기사 + 유해<br>(multiply 없음)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker">
+          <span class="p-icon"><img class="p-gif" src="/art/archer_idle.gif"></span>
+          <span class="p-hp">3/3</span>
+        </div>
+      </div>
+      <div class="preview-label">궁수 + 유해<br>(multiply 없음)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell has-remains" style="overflow:visible">
+        <img class="remains-marker" src="/art/remains.png">
+        <div class="piece-marker">
+          <span class="p-icon"><img class="p-gif" src="/art/general_idle.gif"></span>
+          <span class="p-hp">5/5</span>
+        </div>
+      </div>
+      <div class="preview-label">장군 + 유해<br>(multiply 없음)</div>
+    </div>
+    <div class="preview-box">
+      <div class="cell">
+        <div class="piece-marker">
+          <span class="p-icon"><img class="p-gif" src="/art/knight_idle.gif"></span>
+          <span class="p-hp">6/6</span>
+        </div>
+      </div>
+      <div class="preview-label">기사 (유해 없음)<br>(비교 기준)</div>
+    </div>
+  </div>
+</div>
+<hr>
+
+<!-- ═══ 섹션 3: 반지 텔레포트 ═══ -->
+<div class="section">
+  <h3>절대복종 반지 — idle GIF 사용 (기존: 이동 PNG)</h3>
+  <p class="subtitle">피해자 유닛이 이동 PNG 대신 idle GIF로 표시됨 — 인게임 보드와 동일한 비주얼</p>
+  <div class="btn-row">
+    <button onclick="playRingAnim()">반지 텔레포트 재생</button>
+    <button onclick="resetRingCells()">초기화</button>
+  </div>
+  <div class="preview-row">
+    <div class="preview-box">
+      <div style="display:flex;gap:2px;align-items:center;">
+        <div class="cell" id="ring-from">
+          <div class="piece-marker" id="ring-victim-marker">
+            <span class="p-icon"><img class="p-gif" src="/art/wizard_idle.gif"></span>
+            <span class="p-hp">4/4</span>
+          </div>
+        </div>
+        <span style="color:#60a5fa;font-size:1.2rem;margin:0 8px;">→</span>
+        <div class="cell" id="ring-to">
+          <!-- 도착 셀 -->
+        </div>
+      </div>
+      <div class="preview-label">마법사 텔레포트 (idle GIF)</div>
+    </div>
+    <div class="preview-box">
+      <div style="display:flex;gap:2px;align-items:center;">
+        <div class="cell" id="ring-from2">
+          <div class="piece-marker" id="ring-victim-marker2">
+            <span class="p-icon"><img class="p-gif" src="/art/shadowAssassin_idle.gif"></span>
+            <span class="p-hp">3/3</span>
+          </div>
+        </div>
+        <span style="color:#60a5fa;font-size:1.2rem;margin:0 8px;">→</span>
+        <div class="cell" id="ring-to2">
+          <!-- 도착 셀 -->
+        </div>
+      </div>
+      <div class="preview-label">암살자 텔레포트 (idle GIF)</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══ NETSCAPE 블록 제거 ═══
+function removeNetscapeLoop(ab) {
+  const u8 = new Uint8Array(ab);
+  for (let i = 0; i < u8.length - 18; i++) {
+    if (u8[i] === 0x21 && u8[i+1] === 0xFF && u8[i+2] === 0x0B) {
+      const id = String.fromCharCode(...u8.slice(i+3, i+14));
+      if (id === 'NETSCAPE2.0') {
+        const merged = new Uint8Array(u8.length - 19);
+        merged.set(u8.slice(0, i)); merged.set(u8.slice(i + 19), i);
+        return merged.buffer;
+      }
+    }
+  }
+  return ab;
+}
+// 고유 Comment 삽입 (Chrome GIF 타이머 공유 차단)
+let _uid = 0;
+function makeGifUnique(patched) {
+  const u = new Uint8Array(patched);
+  const uid = ++_uid;
+  const cb = new Uint8Array([0x21, 0xFE, 4, (uid>>>24)&0xFF, (uid>>>16)&0xFF, (uid>>>8)&0xFF, uid&0xFF, 0x00]);
+  const pk = u[10];
+  const hg = (pk >> 7) & 1;
+  const gb = hg ? 3 * (1 << ((pk & 7) + 1)) : 0;
+  const ia = 13 + gb;
+  const f = new Uint8Array(u.length + cb.length);
+  f.set(u.subarray(0, ia), 0);
+  f.set(cb, ia);
+  f.set(u.subarray(ia), ia + cb.length);
+  return f.buffer;
+}
+
+async function loadDeathGif(url) {
+  const resp = await fetch(url);
+  let ab = await resp.arrayBuffer();
+  ab = removeNetscapeLoop(ab);
+  ab = makeGifUnique(ab);
+  return URL.createObjectURL(new Blob([ab], { type: 'image/gif' }));
+}
+
+// ═══ 사망 오버레이 ═══
+async function playDeathOverlay() {
+  resetDeathCells();
+  const cells = [
+    { cellId: 'death-cell-1', markerId: 'death-marker-1', deathGif: '/art/death_common.gif', isDragon: false },
+    { cellId: 'death-cell-2', markerId: 'death-marker-2', deathGif: '/art/death_common.gif', isDragon: false },
+    { cellId: 'death-cell-3', markerId: null, deathGif: '/art/death_common.gif', isDragon: false },
+    { cellId: 'death-cell-4', markerId: 'death-marker-4', deathGif: '/art/death_common.gif', isDragon: false },
+    { cellId: 'death-cell-5', markerId: 'death-marker-5', deathGif: '/art/death_dragon.gif', isDragon: true },
+  ];
+  for (const c of cells) {
+    const cell = document.getElementById(c.cellId);
+    const marker = c.markerId ? document.getElementById(c.markerId) : null;
+    const blobUrl = await loadDeathGif(c.deathGif);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'death-anim-overlay';
+    const img = document.createElement('img');
+    img.className = 'death-gif';
+
+    // ★ 드래곤: 인게임과 동일하게 idle GIF rect 기준 사이즈·위치 배치
+    if (c.isDragon) {
+      const idleGif = cell.querySelector('img.p-gif');
+      if (idleGif) {
+        const cellRect = cell.getBoundingClientRect();
+        const idleRect = idleGif.getBoundingClientRect();
+        img.style.position = 'absolute';
+        img.style.width = idleRect.width + 'px';
+        img.style.height = idleRect.height + 'px';
+        img.style.left = (idleRect.left - cellRect.left) + 'px';
+        img.style.top = (idleRect.top - cellRect.top) + 'px';
+        img.style.objectFit = 'contain';
+        img.style.imageRendering = 'pixelated';
+      }
+    }
+
+    img.onload = () => {
+      // ★ 인게임 동일: 마커 딤 (숨기지 않음)
+      if (marker) { marker.style.opacity = '0.3'; marker.style.transition = 'opacity 0.15s'; }
+    };
+    img.src = blobUrl;
+    overlay.appendChild(img);
+    cell.appendChild(overlay);
+
+    // 자동 정리 (1.2초 후)
+    setTimeout(() => {
+      URL.revokeObjectURL(blobUrl);
+      if (overlay.parentNode) overlay.remove();
+      if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
+    }, 1200);
+  }
+}
+
+function resetDeathCells() {
+  ['death-cell-1','death-cell-2','death-cell-3','death-cell-4'].forEach(id => {
+    const cell = document.getElementById(id);
+    cell.querySelectorAll('.death-anim-overlay').forEach(e => e.remove());
+    const marker = cell.querySelector('.piece-marker');
+    if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
+  });
+}
+
+// ═══ 반지 텔레포트 ═══
+function playRingAnim() {
+  resetRingCells();
+  _doRingAnim('ring-from', 'ring-to', 'ring-victim-marker', '/art/wizard_idle.gif');
+  _doRingAnim('ring-from2', 'ring-to2', 'ring-victim-marker2', '/art/shadowAssassin_idle.gif');
+}
+
+function _doRingAnim(fromId, toId, markerId, idleGifUrl) {
+  const fromCell = document.getElementById(fromId);
+  const toCell = document.getElementById(toId);
+  const marker = document.getElementById(markerId);
+
+  // 인트로: 도착 셀 오로라 점멸 + 출발 프리배니시
+  toCell.classList.add('aurora-intro');
+  if (marker) { marker.classList.add('ring-prevanish'); }
+  setTimeout(() => toCell.classList.remove('aurora-intro'), 1000);
+
+  // 1초 후 메인 애니
+  setTimeout(() => {
+    // 도착 셀 오로라 타겟
+    toCell.classList.add('aurora-target');
+    setTimeout(() => toCell.classList.remove('aurora-target'), 1500);
+
+    // 출발 배니시
+    if (marker) {
+      marker.classList.remove('ring-prevanish');
+      marker.classList.add('ring-vanish');
+      setTimeout(() => { if (marker.parentNode) marker.remove(); }, 400);
+    }
+
+    // 도착 — idle GIF ghost 생성 (★ 이동 PNG 대신 idle GIF!)
+    setTimeout(() => {
+      const ghost = document.createElement('div');
+      ghost.className = 'piece-marker ring-arrived';
+      ghost.innerHTML = `<span class="p-icon"><img class="p-gif" src="${idleGifUrl}"></span><span class="p-hp">4/4</span>`;
+      ghost.style.position = 'absolute';
+      ghost.style.inset = '0';
+      ghost.style.display = 'flex';
+      ghost.style.flexDirection = 'column';
+      ghost.style.alignItems = 'center';
+      ghost.style.justifyContent = 'center';
+      ghost.style.zIndex = '20';
+      toCell.appendChild(ghost);
+
+      // 빛 입자
+      setTimeout(() => {
+        const rect = toCell.getBoundingClientRect();
+        const colors = ['rgba(165,243,252,0.95)','rgba(217,70,239,0.9)','rgba(250,204,21,0.9)'];
+        for (let i = 0; i < 16; i++) {
+          const p = document.createElement('div');
+          p.className = 'aurora-emit-particle';
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          p.style.left = cx + 'px'; p.style.top = cy + 'px';
+          const angle = (Math.PI * 2 * i / 16) + (Math.random() - 0.5) * 0.4;
+          const dist = 38 + Math.random() * 30;
+          p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+          p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+          p.style.setProperty('--aurora-color', colors[i % colors.length]);
+          p.style.setProperty('--dur', (0.9 + Math.random() * 0.5) + 's');
+          document.body.appendChild(p);
+          setTimeout(() => p.remove(), 1500);
+        }
+      }, 700);
+
+      // arrived 클래스 정리
+      setTimeout(() => ghost.classList.remove('ring-arrived'), 1000);
+    }, 320);
+  }, 1000);
+}
+
+function resetRingCells() {
+  // 출발 셀 복원
+  [
+    { fromId:'ring-from', markerId:'ring-victim-marker', gif:'/art/wizard_idle.gif' },
+    { fromId:'ring-from2', markerId:'ring-victim-marker2', gif:'/art/shadowAssassin_idle.gif' },
+  ].forEach(cfg => {
+    const from = document.getElementById(cfg.fromId);
+    from.querySelectorAll('.piece-marker').forEach(e => e.remove());
+    const m = document.createElement('div');
+    m.className = 'piece-marker';
+    m.id = cfg.markerId;
+    m.innerHTML = `<span class="p-icon"><img class="p-gif" src="${cfg.gif}"></span><span class="p-hp">4/4</span>`;
+    from.appendChild(m);
+  });
+  // 도착 셀 정리
+  ['ring-to','ring-to2'].forEach(id => {
+    const cell = document.getElementById(id);
+    cell.querySelectorAll('.piece-marker,.ring-arrival-ghost').forEach(e => e.remove());
+    cell.classList.remove('aurora-intro','aurora-target','aurora-fade');
+  });
+  // 파티클 정리
+  document.querySelectorAll('.aurora-emit-particle').forEach(e => e.remove());
+}
+
+// ── 유해 셀 GIF 실루엣 마스크 초기화 ──
+document.querySelectorAll('.cell.has-remains .piece-marker .p-icon').forEach(pIcon => {
+  const gif = pIcon.querySelector('img.p-gif');
+  if (gif && gif.src) pIcon.style.setProperty('--gif-mask', `url(${gif.src})`);
+});
+</script>
+</body>
+</html>

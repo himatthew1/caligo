@@ -208,7 +208,7 @@ function animateRatDestruction(cells, isMyRat) {
 //   쥐장수(ratMerchant) 공격 시 본인 소유 쥐가 있는 셀에 rat attack GIF 오버레이.
 //   각 쥐 셀에 RAT_ANIM_CONFIG.attack 위치·크기로 Blob URL GIF 1루프 재생.
 //   반환: Promise (모든 쥐 GIF 완료 시 resolve)
-function animateRatAttackGifs(ownerIdx, viewerIdx) {
+function animateRatAttackGifs(ownerIdx, viewerIdx, filterCells) {
   const rc = window.RAT_ANIM_CONFIG?.attack;
   const rGifs = window.RAT_GIFS;
   if (!rc || !rGifs) return Promise.resolve();
@@ -217,10 +217,13 @@ function animateRatAttackGifs(ownerIdx, viewerIdx) {
   if (!board) return Promise.resolve();
 
   // 현재 보드 위 해당 소유자의 쥐 좌표 수집
+  // ★ filterCells 가 주어지면 해당 좌표의 쥐만 애니 (피격 시 전체 모션 방지)
+  const _filterSet = filterCells ? new Set(filterCells.map(c => `${c.col},${c.row}`)) : null;
   const ratCells = [];
   if (S.boardObjects) {
     for (const obj of S.boardObjects) {
       if (obj.type === 'rat' && obj.owner === ownerIdx) {
+        if (_filterSet && !_filterSet.has(`${obj.col},${obj.row}`)) continue;
         ratCells.push({ col: obj.col, row: obj.row });
       }
     }
@@ -267,23 +270,46 @@ function animateRatAttackGifs(ownerIdx, viewerIdx) {
             }
           }
         }
-        const blobUrl = URL.createObjectURL(new Blob([patched], { type: 'image/gif' }));
+        // ★ 고유 GIF Comment Extension 삽입 — Chrome 동일 바이너리 GIF 타이머 공유 차단.
+        if (!window._ratGifUid) window._ratGifUid = 0;
+        const _uid2 = ++window._ratGifUid;
+        const _cb = new Uint8Array([0x21, 0xFE, 4,
+          (_uid2 >>> 24) & 0xFF, (_uid2 >>> 16) & 0xFF, (_uid2 >>> 8) & 0xFF, _uid2 & 0xFF, 0x00]);
+        const _pk = patched[10];
+        const _hg = (_pk >> 7) & 1;
+        const _gb = _hg ? 3 * (1 << ((_pk & 7) + 1)) : 0;
+        const _ia = 13 + _gb;
+        const _fn = new Uint8Array(patched.length + _cb.length);
+        _fn.set(patched.subarray(0, _ia), 0);
+        _fn.set(_cb, _ia);
+        _fn.set(patched.subarray(_ia), _ia + _cb.length);
+        const blobUrl = URL.createObjectURL(new Blob([_fn], { type: 'image/gif' }));
         const img = document.createElement('img');
         img.src = blobUrl;
-        img.className = 'rat-board-gif rat-attack-gif';
-        img.style.cssText = `width:${rc.w}%;height:${rc.h}%;left:${50+rx}%;top:${50+ry}%;transform:translate(-50%,-50%)${flip};z-index:20`;
         img.alt = '';
+
+        // ★ body 에 fixed 배치 — renderGameBoard() 가 셀 innerHTML 을 재구축해도 GIF 파괴 안 됨.
+        //   기존에는 cell.appendChild → _impactDelay 후 renderGameBoard() 가 GIF 를 중간에 제거했음.
+        const cellRect = cell.getBoundingClientRect();
+        const imgW = cellRect.width * rc.w / 100;
+        const imgH = cellRect.height * rc.h / 100;
+        const imgLeft = cellRect.left + cellRect.width * (50 + rx) / 100 - imgW / 2;
+        const imgTop = cellRect.top + cellRect.height * (50 + ry) / 100 - imgH / 2;
+        img.style.cssText = `position:fixed;left:${imgLeft}px;top:${imgTop}px;width:${imgW}px;height:${imgH}px;`
+          + `transform:${flip || 'none'};z-index:9999;pointer-events:none;image-rendering:pixelated;`
+          + `filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));`;
 
         const cleanup = () => {
           if (img.parentNode) img.remove();
           URL.revokeObjectURL(blobUrl);
-          if (idleImg) idleImg.style.visibility = '';
+          // idle 복원 — renderGameBoard 가 이미 새 idle 을 만들었으므로 이전 참조 복원은 무해 (이미 제거됨)
+          if (idleImg && idleImg.parentNode) idleImg.style.visibility = '';
           resolve();
         };
 
         // ★ Blob URL 즉시 DOM 추가 — decode() 지연 없이 프레임 0부터 렌더링
         const t0 = performance.now();
-        cell.appendChild(img);
+        document.body.appendChild(img);
         const cachedDur = window._gifDurationCache && window._gifDurationCache[atkUrl];
         const durP = cachedDur ? Promise.resolve(cachedDur)
           : (typeof _fetchGifDuration === 'function' ? _fetchGifDuration(atkUrl) : Promise.resolve(650));
@@ -305,22 +331,25 @@ function animateRatAttackGifs(ownerIdx, viewerIdx) {
 //   being_attacked / spectator_attack_anim 등 공격자 타입을 모르는 상황에서 사용.
 //   atkCells 에 쥐가 있으면 쥐장수 공격 → 해당 쥐에 공격 GIF 재생.
 //   viewerIdx: 시점 주체 (0/1). specMode: 관전자 — owner→color 직접 매핑.
-function animateRatAttackFromCells(atkCells, viewerIdx) {
+function animateRatAttackFromCells(atkCells, viewerIdx, excludeOwner) {
   if (!Array.isArray(atkCells) || atkCells.length === 0) return;
   const objs = S.boardObjects;
   if (!objs) return;
   const atkSet = new Set(atkCells.map(c => `${c.col},${c.row}`));
   // atkCells 에 위치하는 쥐 수집 (소유자별 그룹)
+  // ★ excludeOwner: 이 owner 의 쥐는 제외 (being_attacked 에서 내 쥐가 피격당하는 건 공격 모션 X)
   const ratsByOwner = {};
   for (const obj of objs) {
     if (obj.type !== 'rat') continue;
     if (!atkSet.has(`${obj.col},${obj.row}`)) continue;
+    if (excludeOwner != null && obj.owner === excludeOwner) continue;
     if (!ratsByOwner[obj.owner]) ratsByOwner[obj.owner] = [];
     ratsByOwner[obj.owner].push(obj);
   }
   // 관전자: viewerIdx=0 → owner 0=black(아군식), owner 1=white(적군식) — 관전 보드와 동일
+  // ★ filterCells 전달 — atkCells 에 해당하는 쥐만 공격 애니 재생 (전체 모션 방지)
   for (const ownerStr of Object.keys(ratsByOwner)) {
-    animateRatAttackGifs(parseInt(ownerStr), viewerIdx);
+    animateRatAttackGifs(parseInt(ownerStr), viewerIdx, ratsByOwner[ownerStr]);
   }
 }
 
@@ -3672,6 +3701,19 @@ socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits }) => {
     if (Array.isArray(atkCells) && atkCells.length > 0) {
       animateAttackCellEffect(atkCells);
     }
+    // ── ★ 관전자 사망 감지 — 피격 애니 전 DOM 에서 방향 캡처 ──────────
+    const _specDestroyedHits = (hits || []).filter(h => h.destroyed && h.col != null && h.row != null);
+    // 관전자는 양 측 다 보이므로 isDefending 구분 불필요 — 아무 marker 에서 방향 추출
+    const _specDeathInfos = _specDestroyedHits.length > 0 ? _detectDeaths(_specDestroyedHits, false) : [];
+
+    // ── ★ 관전자 아군 피격/사망 (학살영웅 배반자) ──
+    const _ffHitsSpec = (friendlyFireHits || []).filter(ff => ff.col != null && ff.row != null);
+    const _ffHitCellsSpec = _ffHitsSpec.map(ff => ({ col: ff.col, row: ff.row }));
+    const _ffDeadSpec = _ffHitsSpec.filter(ff => ff.destroyed);
+    const _ffDeathInfosSpec = _ffDeadSpec.length > 0 ? _detectDeaths(_ffDeadSpec, false) : [];
+    // 모든 사망 합산
+    const _allSpecDeathInfos = _specDeathInfos.concat(_ffDeathInfosSpec);
+
     // 피격 셀 빨간 플래시
     if (hitCellList.length > 0) {
       animateAttack([], hitCellList);
@@ -3686,18 +3728,6 @@ socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits }) => {
     } else if (hitCellList.length > 0 || _ffHitCellsSpec.length > 0) {
       try { playSfx('hit'); } catch (e) {}
     }
-    // ── ★ 관전자 사망 감지 — 피격 애니 전 DOM 에서 방향 캡처 ──────────
-    const _specDestroyedHits = (hits || []).filter(h => h.destroyed && h.col != null && h.row != null);
-    // 관전자는 양 측 다 보이므로 isDefending 구분 불필요 — 아무 marker 에서 방향 추출
-    const _specDeathInfos = _specDestroyedHits.length > 0 ? _detectDeaths(_specDestroyedHits, false) : [];
-
-    // ── ★ 관전자 아군 피격/사망 (학살영웅 배반자) ──
-    const _ffHitsSpec = (friendlyFireHits || []).filter(ff => ff.col != null && ff.row != null);
-    const _ffHitCellsSpec = _ffHitsSpec.map(ff => ({ col: ff.col, row: ff.row }));
-    const _ffDeadSpec = _ffHitsSpec.filter(ff => ff.destroyed);
-    const _ffDeathInfosSpec = _ffDeadSpec.length > 0 ? _detectDeaths(_ffDeadSpec, false) : [];
-    // 모든 사망 합산
-    const _allSpecDeathInfos = _specDeathInfos.concat(_ffDeathInfosSpec);
 
     // 1v1 관전자 — defOwnerIdx 0=p0(#my-pieces-info), 1=p1(#opp-pieces-info) 매핑.
     if (!S.isTeamMode) {
@@ -4552,9 +4582,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       // ── ★ 사망 감지 — 상태 업데이트 전에 현재 DOM 에서 방향 캡처 ──────────
       const _destroyedCells = cellResults.filter(c => c.hit && c.destroyed);
       const _deathInfosRaw = _detectDeaths(_destroyedCells, false); // 공격자 시점 → 상대 말(opp-marked)
-      // ★ 유해 없는 타입(드래곤/유황솥)은 상대(공격자)에게 사망 모션 비공개
-      const _noRemainTypes = new Set(['dragon', 'sulfurCauldron']);
-      const _deathInfos = _deathInfosRaw.filter(d => !_noRemainTypes.has(d.type));
+      // ★ 드래곤/유황솥 포함 — 모든 타입의 사망 애니를 공격자에게도 재생.
+      //   유해 생성 여부는 _addClientSideRemains 내부에서 별도 처리 (dragon/sulfurCauldron/rat → skip).
+      const _deathInfos = _deathInfosRaw;
 
       // ── ★ 아군 피격/사망 감지 (학살영웅 배반자) — 상태 업데이트 전 DOM 방향 캡처 ──
       const _ffHitCells = [];
@@ -4582,7 +4612,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         }
       }
       const _ffDeathInfosRaw = _detectDeaths(_ffDeadCells, true); // isDefending=true → 내 말
-      const _ffDeathInfos = _ffDeathInfosRaw.filter(d => !_noRemainTypes.has(d.type));
+      const _ffDeathInfos = _ffDeathInfosRaw;
 
       // ── 게임 상태 업데이트 ─────────────────────────────────────────────
       if (oppPieces) { S.oppPieces = oppPieces; }
@@ -4619,6 +4649,22 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
             ? `${bg.defOwnerIdx}:${bg.defPieceIdx}`
             : `opp:${bg.defPieceIdx}`;
           addLoyaltyDamage(bgKey, bgDmg);
+        }
+      }
+
+      // ★ 아군 피격 (학살영웅 배반자) 데미지 도장 — friendlyFireHits 에 대해 addBodyDamage 호출
+      if (friendlyFireHits && friendlyFireHits.length > 0) {
+        for (const ff of friendlyFireHits) {
+          const ffDmg = (typeof ff.damage === 'number') ? ff.damage : 0;
+          if (ffDmg <= 0) continue;
+          // defPieceIdx 우선 사용, 없으면 col/row 로 lookup
+          let ffPieceIdx = (typeof ff.defPieceIdx === 'number') ? ff.defPieceIdx : -1;
+          if (ffPieceIdx < 0) {
+            ffPieceIdx = (S.myPieces || []).findIndex(p => p.col === ff.col && p.row === ff.row);
+          }
+          if (ffPieceIdx < 0) continue;
+          const ffKey = S.isTeamMode ? `${S.playerIdx}:${ffPieceIdx}` : `my:${ffPieceIdx}`;
+          addBodyDamage(ffKey, ffDmg);
         }
       }
 
@@ -4748,6 +4794,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 
       if (_allDeathInfos.length > 0) {
         // ★ 사망 유닛 존재 — 먼저 렌더 (피격 GIF 대상 DOM 필요) 후 사망 GIF → 재렌더
+        // ★ _pendingDeathCells: 사망 GIF 재생 전까지 dead piece 의 idle GIF 를 DOM 에 유지 (빈 프레임 방지)
+        S._pendingDeathCells = new Set(_allDeathInfos.map(d => `${d.col},${d.row}`));
         renderGameBoard();
         renderMyPieces();
         renderOppPieces();
@@ -4756,6 +4804,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         // 피격 GIF 정착 후 사망 GIF 재생 (400ms — 피격 흔들림 0.35s + 여유)
         setTimeout(() => {
           playDeathAnimations(_allDeathInfos, () => {
+            // ★ 사망 GIF 완료 — pending 해제 후 재렌더
+            S._pendingDeathCells = null;
             // ★ 유해 즉시 반영 — 서버 remains 가 다음 상태 이벤트까지 안 오므로 클라이언트에서 선반영
             _addClientSideRemains(_allDeathInfosRaw);
             renderGameBoard();
@@ -4801,7 +4851,8 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
   // ★ 쥐장수 공격 감지 → 적 쥐 셀에 공격 GIF 동시 재생
-  animateRatAttackFromCells(atkCells, S.playerIdx);
+  //   excludeOwner=S.playerIdx — 내 쥐가 atkCells 에 있어도 피격이지 공격이 아님
+  animateRatAttackFromCells(atkCells, S.playerIdx, S.playerIdx);
   if (S._bodyguardIntercepted) {
     S._bodyguardIntercepted = false;
   }
@@ -4925,12 +4976,16 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
 
     if (_deathInfos.length > 0) {
       // ★ 사망 유닛 존재 — 먼저 렌더 후 피격 애니, 400ms 후 사망 GIF → 재렌더
+      // ★ _pendingDeathCells: 사망 GIF 재생 전까지 dead piece 의 idle GIF 를 DOM 에 유지 (빈 프레임 방지)
+      S._pendingDeathCells = new Set(_deathInfos.map(d => `${d.col},${d.row}`));
       renderGameBoard();
       renderMyPieces();
       _doPostRenderDef();
 
       setTimeout(() => {
         playDeathAnimations(_deathInfos, () => {
+          // ★ 사망 GIF 완료 — pending 해제 후 재렌더
+          S._pendingDeathCells = null;
           // ★ 유해 즉시 반영
           _addClientSideRemains(_deathInfos);
           renderGameBoard();
@@ -7304,7 +7359,7 @@ function animateDragonSummon(col, row, owner) {
   }
 
   // 6. 드래곤 착지 GIF 강림 — 착지 GIF 1회 재생 후 idle 전환
-  //    착지 GIF (96×96) 셀 대비 240%, NETSCAPE 블록 제거로 정확히 1회 재생.
+  //    착지 GIF (96×96) 셀 대비 220%, top 40% (idle GIF 중심 = 셀 39% 지점에 맞춤). NETSCAPE 블록 제거로 정확히 1회 재생.
   //    착지 GIF 없으면 이동 PNG 수축 폴백.
   const _landingUrl = window.DRAGON_LANDING_GIF;
   const _dragonMoveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('dragon') : null;
@@ -7312,9 +7367,20 @@ function animateDragonSummon(col, row, owner) {
 
   if (_landingUrl) {
     // ★ 착지 GIF Blob fetch → NETSCAPE 블록 제거 → 1회 재생 Blob URL
+    //   프리로드 캐시 히트 시 즉시 처리. 미스 시 300ms 타임아웃 후 PNG 폴백.
     const cached = window._gifBlobCache && window._gifBlobCache[_landingUrl];
     const blobP = cached ? Promise.resolve(cached) : fetch(_landingUrl).then(r => r.blob());
+    let _landingHandled = false;
+    // ★ 타임아웃 가드 — fetch 가 300ms 내 완료 안 되면 PNG 폴백
+    const _loadTimeout = setTimeout(() => {
+      if (_landingHandled) return;
+      _landingHandled = true;
+      _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
+    }, 300);
     blobP.then(blob => blob.arrayBuffer()).then(ab => {
+      if (_landingHandled) return; // 이미 폴백 발동됨
+      _landingHandled = true;
+      clearTimeout(_loadTimeout);
       const src = new Uint8Array(ab);
       let nsStart = -1;
       for (let i = 0; i < src.length - 18; i++) {
@@ -7335,8 +7401,9 @@ function animateDragonSummon(col, row, owner) {
       landImg.src = blobUrl;
       landImg.draggable = false;
       landImg.className = 'dragon-landing-gif';
-      landImg.style.width = '240%';
-      landImg.style.height = '240%';
+      landImg.style.width = '220%';
+      landImg.style.height = '220%';
+      landImg.style.top = '40%'; // idle GIF 중심이 셀의 ~39% 지점 (HP 텍스트 때문)
       stage.appendChild(landImg);
 
       setTimeout(() => {
@@ -7347,6 +7414,9 @@ function animateDragonSummon(col, row, owner) {
         if (stage.parentNode) stage.remove();
       }, _LANDING_DURATION);
     }).catch(() => {
+      if (_landingHandled) return;
+      _landingHandled = true;
+      clearTimeout(_loadTimeout);
       // fetch 실패 시 이동 PNG 폴백
       _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
     });
@@ -12218,15 +12288,20 @@ function renderGameBoard() {
       return;
     }
 
+    // ★ _pendingDeathCells: 사망 GIF 대기 중인 셀 — alive=false 여도 piece-marker 유지 (빈 프레임 방지)
+    const _pdc = S._pendingDeathCells;
+    const _pdcHas = _pdc && _pdc.has(`${col},${row}`);
+    const _aliveOrPending = (p) => p.alive || (_pdcHas && p.col === col && p.row === row);
+
     // ── 멀티유닛 캐러셀 체크 ──
     // 내 말 + 팀원 + 표식 적이 2개 이상 같은 셀에 있으면 캐러셀로 표시.
     const _crUnits = (() => {
       const arr = [];
-      const _mp = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+      const _mp = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
       if (_mp && !(_mp.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)))
         arr.push({ p: _mp, owner: 'mine' });
       if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
-        const _tp = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
+        const _tp = S.teammatePieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
         if (_tp) {
           const _tmDragonSkip = _tp.isDragon && S._dragonIncoming &&
             (S.teamGamePlayers || []).some(pl =>
@@ -12236,15 +12311,15 @@ function renderGameBoard() {
           if (!_tmDragonSkip) arr.push({ p: _tp, owner: 'teammate' });
         }
       }
-      for (const op of (S.oppPieces || []).filter(p => p.marked && p.alive && p.col === col && p.row === row))
+      for (const op of (S.oppPieces || []).filter(p => p.marked && _aliveOrPending(p) && p.col === col && p.row === row))
         arr.push({ p: op, owner: 'opp' });
       return arr;
     })();
     const _isCarousel = _crUnits.length >= 2;
     if (_isCarousel) _renderCellCarousel(cell, col, row, _crUnits);
 
-    // 내 말
-    const pc = S.myPieces.find(p => p.col === col && p.row === row && p.alive);
+    // 내 말 (★ 사망 GIF 대기 중이면 alive=false 도 포함)
+    const pc = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
     if (!_isCarousel && pc) {
       // ★ 드래곤 강림 애니 진행 중이면 해당 셀의 드래곤 piece 는 표시 X — 애니 종료 시점에 _dragonIncoming 키 제거 후 재렌더.
       if (pc.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)) {
@@ -12339,7 +12414,7 @@ function renderGameBoard() {
 
     // 팀원 말 (팀전 전용) — 내 말이 같은 칸에 없을 때만 표시. 팀 절대 컬러 사용.
     if (!_isCarousel && S.isTeamMode && Array.isArray(S.teammatePieces) && !pc) {
-      const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
+      const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
       // ★ 드래곤 강림 애니 진행 중인 팀원 드래곤은 표시 X — 애니 종료 시점에 재렌더가 처리.
       const _tmIsIncomingDragon = tmPc && tmPc.isDragon && S._dragonIncoming &&
         (S.teamGamePlayers || []).some(p =>
@@ -12375,7 +12450,7 @@ function renderGameBoard() {
     // 표식 상태인 적 — 위치 공개. 팀모드에선 적 팀 컬러로 표시.
     //   ★ 사용자 요청 (분리): 적 위치 노출(marked)은 시전 시점부터 / 🎯 인디케이터는
     //   statusEffects 에 mark 가 들어간 인두 낙하 시점부터 — 두 시각 효과를 분리.
-    const markedOpp = _isCarousel ? null : S.oppPieces?.find(p => p.marked && p.alive && p.col === col && p.row === row);
+    const markedOpp = _isCarousel ? null : S.oppPieces?.find(p => p.marked && _aliveOrPending(p) && p.col === col && p.row === row);
     if (!_isCarousel && markedOpp && !pc) {
       let oppColorCls = '';
       if (S.isTeamMode) {
@@ -12793,6 +12868,12 @@ function renderGameBoard() {
       if (_mdCell) _mdCell.querySelectorAll('img.p-gif').forEach(g => { g.style.opacity = '0'; });
     }
   }
+
+  // ── 유해 셀 GIF 실루엣 마스크 — ::after 그라디언트가 GIF 불투명 픽셀에만 표시 ──
+  board.querySelectorAll('.cell.has-remains .piece-marker .p-icon').forEach(pIcon => {
+    const gif = pIcon.querySelector('img.p-gif');
+    if (gif && gif.src) pIcon.style.setProperty('--gif-mask', `url(${gif.src})`);
+  });
 }
 
 // ── 멀티유닛 캐러셀: 셀 HTML 렌더 ──────────────────────────────────────
@@ -16721,7 +16802,9 @@ function playDeathAnimations(deaths, callback) {
       }
     }
 
-    // ★ piece marker 참조만 — GIF 로드 완료 시점에 숨김 (빈 프레임 방지)
+    // ★ piece marker 참조 — 사망 GIF 재생 중 딤 처리 (아군 유닛이 같은 셀에 있을 수 있음)
+    //   기존: marker.display='none' → 아군 유닛이 잠깐 사라지는 문제.
+    //   변경: marker 는 숨기지 않고 opacity 딤. 사망 GIF 는 z-index 로 상단 오버레이.
     const marker = cell.querySelector('.piece-marker');
 
     // 사망 GIF 오버레이 생성
@@ -16781,8 +16864,9 @@ function playDeathAnimations(deaths, callback) {
           }
           const patchedBlob = new Blob([patched], { type: 'image/gif' });
           const blobUrl = URL.createObjectURL(patchedBlob);
-          // ★ GIF 첫 프레임 로드 완료 후 마커 숨김 — 빈 프레임 없이 idle→death 매끄럽게 전환
-          img.onload = () => { if (marker) marker.style.display = 'none'; };
+          // ★ GIF 첫 프레임 로드 완료 후 마커 딤 — 아군 유닛이 같은 셀에 있어도 사라지지 않음.
+          //   사망 GIF 가 z-index 상단에 오버레이되고, 마커는 opacity 0.3 으로 딤.
+          img.onload = () => { if (marker) { marker.style.opacity = '0.3'; marker.style.transition = 'opacity 0.15s'; } };
           img.src = blobUrl;
 
           // GIF 재생 시간 파싱
@@ -16796,18 +16880,21 @@ function playDeathAnimations(deaths, callback) {
             setTimeout(() => {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
+              // ★ 딤 해제 — 아군 유닛이 있으면 다시 정상 opacity 복원
+              if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
               done();
             }, totalMs);
           }).catch(() => {
             setTimeout(() => {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
+              if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
               done();
             }, 900);
           });
         });
       }).catch(() => {
-        if (marker) marker.style.display = 'none'; // fetch 실패해도 마커는 숨김
+        if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
         if (overlay.parentNode) overlay.remove();
         done();
       });

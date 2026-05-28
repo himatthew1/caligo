@@ -2797,6 +2797,29 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   pointer-events: none;
 }
 
+/* ── 유해 위 유닛 — 하단부 그라디언트 어둡게 (GIF 실루엣 마스크) ── */
+/* mask-image: var(--gif-mask) → GIF 불투명 픽셀 영역에만 그라디언트 표시,
+   투명 영역은 완전 투과 (유해가 곱하기에 영향받지 않아 분리감 확보) */
+.cell.has-remains .piece-marker .p-icon {
+  position: relative;
+}
+.cell.has-remains .piece-marker .p-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 15%, rgba(0,0,0,0.55) 100%);
+  pointer-events: none;
+  z-index: 1;
+  -webkit-mask-image: var(--gif-mask);
+  mask-image: var(--gif-mask);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
 /* 사망 GIF 재생 중인 셀 — 140% 오버레이가 잘리지 않도록 */
 .cell:has(.death-anim-overlay) { overflow: visible; }
 /* ── 사망 애니메이션 오버레이 ── */
@@ -7501,10 +7524,11 @@ body[data-my-team="red"] #chat-scope-team.active {
   100% { opacity: 0;   transform: translate(-50%, -50%) scale(6.5); border-width: 0.5px; }
 }
 /* 드래곤 본체 — 빛이 사라지면서 이미 자리에 있음 (즉시 등장).
-   처음엔 거대 스케일 + 화이트 발광, 점차 정상 크기로 정착 — 위압감 연출. */
+   처음엔 거대 스케일 + 화이트 발광, 점차 정상 크기로 정착 — 위압감 연출.
+   top 40%: idle GIF 중심 위치에 맞춤 (piece-marker HP 텍스트 보정). */
 .dragon-revealed {
   position: absolute;
-  left: 50%; top: 50%;
+  left: 50%; top: 40%;
   font-size: 2.6rem;
   transform: translate(-50%, -50%) scale(3.5);
   opacity: 0;
@@ -7526,11 +7550,12 @@ body[data-my-team="red"] #chat-scope-team.active {
   100% { opacity: 1; transform: translate(-50%, -50%) scale(1.0);
          filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7)) brightness(1.0); }
 }
-/* 드래곤 착지 GIF 강림 — 96×96 캔버스, 셀 대비 240%.
+/* 드래곤 착지 GIF 강림 — 96×96 캔버스, 셀 대비 220%.
+   top 40%: 인게임 idle GIF 중심이 셀의 ~39% 지점 (piece-marker 내 HP 텍스트가 아래 차지).
    빛 속에서 scale 3→1 수축하며 등장, 1회 재생 후 idle 전환. */
 .dragon-landing-gif {
   position: absolute;
-  left: 50%; top: 50%;
+  left: 50%; top: 40%;
   transform: translate(-50%, -50%) scale(3.0);
   opacity: 0;
   image-rendering: pixelated;

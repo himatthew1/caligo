@@ -362,6 +362,7 @@
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),
       ...Object.values(window.PIECE_ICONS       || {}),
       window.REMAINS_IMG,
+      window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF 프리로드
       ...Object.values(window.RAT_GIFS?.black  || {}),
       ...Object.values(window.RAT_GIFS?.white  || {}),
     ]);
@@ -449,6 +450,7 @@
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),  // 이동 PNG
       ...Object.values(window.PIECE_ICONS       || {}),  // 캐릭터 아이콘 PNG
       window.REMAINS_IMG,                                 // 유해 PNG
+      window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF
       ...Object.values(window.RAT_GIFS?.black  || {}),   // 쥐 GIF (아군)
       ...Object.values(window.RAT_GIFS?.white  || {}),   // 쥐 GIF (적군)
       ...(window._manifestUrls                 || []),   // 스킬·패시브 PNG
