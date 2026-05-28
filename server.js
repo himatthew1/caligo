@@ -1245,7 +1245,9 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
   let score = 0;
   for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row);
-  score *= (1 + (piece.atk || 1) * 0.1);
+  // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK
+  const effAtk = _effectiveAtkForAi(piece, room, idx);
+  score *= (1 + effAtk * 0.1);
   return score;
 }
 function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
@@ -1288,6 +1290,11 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   if (curIsOutside && !newIsOutside) {
     const urgency = Math.max(1, 11 - mostUrgentTurns);
     score += 30 * urgency;  // 1턴 전: +300, 10턴 전: +30
+  }
+  // ★ commander 사기증진 인접 보너스 — 새 위치에서 버프 받으면 점수 가산
+  const _teamEffAtk = _effectiveAtkAtCellForAi(piece, room, idx, newCol, newRow);
+  if (_teamEffAtk > (piece.atk || 0)) {
+    score += 6;
   }
   // 일반 가장자리 회피 (보드 축소 임박 안 해도)
   if (room.turnNumber >= 25 && !room.boardShrunk) {
@@ -5635,12 +5642,16 @@ function boostHuntArea(brain, col, row) {
 //   AI 는 commander 옆으로 이동·공격을 선호하게 됨.
 function _effectiveAtkForAi(piece, room, ownerIdx) {
   if (!piece || piece.type === 'commander') return piece?.atk || 0;
-  const allies = (room.players[ownerIdx]?.pieces || []).filter(p =>
-    p.alive && p !== piece && p.type === 'commander');
-  for (const cmd of allies) {
-    if ((Math.abs(cmd.col - piece.col) === 1 && cmd.row === piece.row) ||
-        (Math.abs(cmd.row - piece.row) === 1 && cmd.col === piece.col)) {
-      return (piece.atk || 0) + 1;
+  // ★ 팀전: 같은 팀 모든 플레이어의 지휘관 체크 (getAllyIndices)
+  const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+  for (const ai of allyIdxs) {
+    const allies = (room.players[ai]?.pieces || []).filter(p =>
+      p.alive && p !== piece && p.type === 'commander');
+    for (const cmd of allies) {
+      if ((Math.abs(cmd.col - piece.col) === 1 && cmd.row === piece.row) ||
+          (Math.abs(cmd.row - piece.row) === 1 && cmd.col === piece.col)) {
+        return (piece.atk || 0) + 1;
+      }
     }
   }
   return piece.atk || 0;
@@ -5648,12 +5659,15 @@ function _effectiveAtkForAi(piece, room, ownerIdx) {
 function _effectiveAtkAtCellForAi(piece, room, ownerIdx, newCol, newRow) {
   // 가상의 위치(newCol, newRow) 에서 commander 인접 여부 — 이동 점수용.
   if (!piece || piece.type === 'commander') return piece?.atk || 0;
-  const allies = (room.players[ownerIdx]?.pieces || []).filter(p =>
-    p.alive && p !== piece && p.type === 'commander');
-  for (const cmd of allies) {
-    if ((Math.abs(cmd.col - newCol) === 1 && cmd.row === newRow) ||
-        (Math.abs(cmd.row - newRow) === 1 && cmd.col === newCol)) {
-      return (piece.atk || 0) + 1;
+  const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+  for (const ai of allyIdxs) {
+    const allies = (room.players[ai]?.pieces || []).filter(p =>
+      p.alive && p !== piece && p.type === 'commander');
+    for (const cmd of allies) {
+      if ((Math.abs(cmd.col - newCol) === 1 && cmd.row === newRow) ||
+          (Math.abs(cmd.row - newRow) === 1 && cmd.col === newCol)) {
+        return (piece.atk || 0) + 1;
+      }
     }
   }
   return piece.atk || 0;
@@ -5686,8 +5700,7 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
   // ★ commander 인접 보너스 — 새 위치에서 사기증진 받으면 점수 증폭.
   const effAtkAtNew = _effectiveAtkAtCellForAi(piece, room, 1, newCol, newRow);
   if (effAtkAtNew > (piece.atk || 0)) {
-    // 버프 받은 위치는 미래 공격력이 +1 → 추가 보너스
-    score += 2.5;
+    score += 6;
   }
   // 보드 축소 회피 — 다음 축소 영역(newBounds) 밖에 들어가면 강한 페널티 (팀모드와 동일 로직)
   // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)

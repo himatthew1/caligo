@@ -95,31 +95,41 @@ function animateRatSpawn(rats, owner, opts) {
 
           const dur = (window._gifDurationCache && window._gifDurationCache[spawnUrl]) || 1170;
           // ★ Blob URL 즉시 DOM 추가 — decode() 지연 없이 프레임 0부터 렌더링.
-          //   decode() 대기 중 브라우저 내부 GIF 타이머가 프레임을 소비하는 문제 원천 차단.
           targetCell.appendChild(img);
+
+          // ★ spawn → idle 무 공백 전환 (in-cell 직접 교체):
+          //   renderGameBoard 를 호출하면 셀 innerHTML 재구축 → 어떤 브릿지를 써도 깜빡임 발생.
+          //   해결: idle GIF 를 spawn 종료 전에 셀 안에 미리 배치 (spawn 뒤, 낮은 z-index).
+          //         spawn 재생 끝 → spawn 제거 → idle 이 이미 그 자리에 있으므로 빈 프레임 0.
+          //         onLanded 는 skipRender:true 로 호출 → renderGameBoard 미호출.
+          //         다음 이벤트(턴변경 등)에서 renderGameBoard 가 자연스럽게 셀 재구축.
+
+          const _idleConf = window.RAT_ANIM_CONFIG?.idle;
+          const _idleUrl = rGifs?.[rColor]?.idle;
+
+          if (_idleUrl && _idleConf) {
+            // spawn 종료 300ms 전에 idle GIF 를 셀에 미리 배치 (z-index 낮게 → spawn 뒤에 숨김)
+            const _preloadAt = Math.max(100, dur - 300);
+            setTimeout(() => {
+              const _cell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
+              if (!_cell) return;
+              const _idleRx = isMyRat ? _idleConf.x : -_idleConf.x;
+              const _idleFlip = isMyRat ? '' : ' scaleX(-1)';
+              const _idleZ = isMyRat ? 4 : 3;
+              const _idle = document.createElement('img');
+              _idle.className = 'rat-board-gif';
+              _idle.style.cssText = `width:${_idleConf.w}%;height:${_idleConf.h}%;left:${50+_idleRx}%;top:${50+_idleConf.y}%;transform:translate(-50%,-50%)${_idleFlip};z-index:${_idleZ}`;
+              _idle.src = _idleUrl;
+              _cell.appendChild(_idle);
+            }, _preloadAt);
+          }
+
+          // spawn 재생 완료 → spawn 제거 + onLanded (renderGameBoard 없이 상태만 갱신)
           setTimeout(() => {
-            // ★ spawn → idle 무 공백 전환:
-            //   renderGameBoard 의 innerHTML 교체가 spawn GIF 를 파괴하므로,
-            //   spawn GIF 를 body 에 절대좌표로 임시 이동 → onLanded(renderGameBoard) → idle GIF decode 후 제거
-            const _rect = img.getBoundingClientRect();
-            const _saveSpawn = img.cloneNode(false);
-            _saveSpawn.style.cssText = `position:fixed;left:${_rect.left}px;top:${_rect.top}px;width:${_rect.width}px;height:${_rect.height}px;z-index:9999;pointer-events:none;image-rendering:pixelated;`;
-            document.body.appendChild(_saveSpawn);
-
-            if (onLanded) { try { onLanded(rat); } catch (e) {} }
-
-            // idle GIF 가 decode 되면 보존 spawn 제거 → 빈 프레임 0
-            // ★ Blob URL 해제는 _saveSpawn 제거 후 — clone 이 같은 URL 참조하므로 선해제 시 깨짐
-            const _cleanupSpawn = () => { _saveSpawn.remove(); URL.revokeObjectURL(blobUrl); };
-            const _cell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
-            const _idleGif = _cell && _cell.querySelector('img.rat-board-gif');
-            if (_idleGif && _idleGif.decode) {
-              _idleGif.decode().then(_cleanupSpawn).catch(_cleanupSpawn);
-            } else {
-              // decode 미지원 / idle GIF 없음 → 즉시 제거
-              _cleanupSpawn();
-            }
             if (img.parentNode) img.remove();
+            URL.revokeObjectURL(blobUrl);
+            // ★ skipRender:true → renderGameBoard 미호출. idle GIF 는 이미 셀에 존재.
+            if (onLanded) { try { onLanded(rat, { skipRender: true }); } catch (e) {} }
           }, dur + 100);
         }).catch(() => {
           // fetch/blob 실패 시 즉시 콜백
