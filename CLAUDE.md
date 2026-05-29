@@ -142,6 +142,25 @@
   - cell.getBoundingClientRect() 기반 좌표 계산 → renderGameBoard() 영향 밖에서 전체 재생 보장
   - cleanup에서 body에서 제거 + Blob URL 해제
 
+- SP 증정 애니 타이밍 수정 (stalemate_shrink + sp_grant 동시 발생 시)
+  - 원인: sp_grant가 stalemate_shrink 뒤에 runFullscreenLocked 큐잉 → ~3.5초 gap 동안 your_turn이 S.sp를 NEW로 갱신 → _spAnimGuard 미설정 → updateSPBar가 숫자를 미리 표시
+  - 수정 (1): turn_event sp_grant 수신 즉시 _spAnimGuard = true 설정 (큐잉 전)
+  - 수정 (2): OLD SP 값을 수신 시점에 _capturedOldSp로 캡처 → playSpGrantAnimation에 전달
+  - 수정 (3): playSpGrantAnimation에 capturedOldSp/capturedOldInstantSp 파라미터 추가 → S.sp 대신 캡처 값 사용
+
+- 폭탄 이모지 → GIF 교체 (bomb_idle.gif + bomb_explode.gif)
+  - piece-gifs.js: BOMB_IDLE_GIF, BOMB_EXPLODE_GIF 글로벌 추가 + preloadGameImages/preloadAllAsync 등록
+  - game.js (플레이어 보드): 💣 emoji span → <img class="bomb-marker-gif"> (bomb_idle.gif)
+  - game.js (관전자 보드): 동일 교체
+  - game.js (playBombExplosion): 💥 burst emoji 제거 → 파편만 유지 (폭발 GIF가 대체)
+  - game.js (detonation_intro): 인트로 마커(💣 idle + reveal/arm 단계) 삭제 → 바로 explosion GIF 오버레이
+    - BOMB_IMPACT_DELAY = 1300ms (frame #10) 에 셀 쉐이크 + 컬러 플래시 + 파편 + SFX 발동
+    - NETSCAPE2.0 블록 제거 (1회 재생) + GIF Comment Extension (Chrome 캐시 분리)
+    - 폴백: GIF 로드 실패 시 셀 플래시 + SFX만
+  - style.css: .bomb-marker-gif (idle — 32×32, bottom:36px, right:-8px, 호박색 글로우)
+  - style.css: .bomb-explode-overlay (detonation — 240%, 셀 중앙, z-index:20)
+  - 에셋: public/assets/bomb_idle.gif (32×32, 9프레임), public/assets/bomb_explode.gif (64×64, 20프레임)
+
 ## Pending
 - All changes uncommitted in git
 - 유해 제거 스킬 (user will define later)

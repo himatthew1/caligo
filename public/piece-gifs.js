@@ -114,6 +114,10 @@
   // ── 유해 PNG ──────────────────────────────────────
   window.REMAINS_IMG = '/art/remains.png';
 
+  // ── 폭탄 보드 오브젝트 GIF ──────────────────────────────
+  window.BOMB_IDLE_GIF    = '/assets/bomb_idle.gif';
+  window.BOMB_EXPLODE_GIF = '/assets/bomb_explode.gif';
+
   // ── 쥐 보드 오브젝트 GIF ────────────────────────────
   // black = 아군 쥐, white = 적군 쥐.
   // 적군 쥐는 대척점 배치: x/y 부호 반전 + scaleX(-1) 좌우반전.
@@ -363,6 +367,8 @@
       ...Object.values(window.PIECE_ICONS       || {}),
       window.REMAINS_IMG,
       window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF 프리로드
+      window.BOMB_IDLE_GIF,                               // ★ 폭탄 아이들 GIF
+      window.BOMB_EXPLODE_GIF,                             // ★ 폭탄 폭발 GIF
       ...Object.values(window.RAT_GIFS?.black  || {}),
       ...Object.values(window.RAT_GIFS?.white  || {}),
     ]);
@@ -451,6 +457,8 @@
       ...Object.values(window.PIECE_ICONS       || {}),  // 캐릭터 아이콘 PNG
       window.REMAINS_IMG,                                 // 유해 PNG
       window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF
+      window.BOMB_IDLE_GIF,                               // ★ 폭탄 아이들 GIF
+      window.BOMB_EXPLODE_GIF,                             // ★ 폭탄 폭발 GIF
       ...Object.values(window.RAT_GIFS?.black  || {}),   // 쥐 GIF (아군)
       ...Object.values(window.RAT_GIFS?.white  || {}),   // 쥐 GIF (적군)
       ...(window._manifestUrls                 || []),   // 스킬·패시브 PNG

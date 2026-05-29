@@ -3026,6 +3026,31 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   20%, 40%, 60%, 80%      { transform: translate( 2.5px, -1.5px); }
 }
 
+/* ── 폭탄 보드 오브젝트 idle GIF ── */
+.bomb-marker-gif {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  image-rendering: pixelated;
+  width: 32px;
+  height: 32px;
+  bottom: 36px;
+  right: -8px;
+  filter: drop-shadow(0 0 0.5px rgba(0,0,0,1)) drop-shadow(0 0 2.5px rgba(220,150,50,0.4));
+}
+/* ── 폭발 GIF 오버레이 (detonation_intro) ── */
+.bomb-explode-overlay {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  image-rendering: pixelated;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 240%;
+  height: 240%;
+}
+
 .piece-marker {
   display: flex; flex-direction: column; align-items: center; gap: 1px;
   padding: 2px;

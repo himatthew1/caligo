@@ -2121,6 +2121,18 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       : `${p.name} 공격 빗나감`,
     type: 'hit', playerIdx: idx,
   });
+  // ★ 표식 공격 모션 공유 — AI 팀전 공격 경로
+  const _markEffectAiTeam = (piece.statusEffects || []).find(e => e.type === 'mark');
+  if (_markEffectAiTeam && typeof _markEffectAiTeam.source === 'number') {
+    const _moIdx = _markEffectAiTeam.source;
+    const _mo = room.players[_moIdx];
+    if (_mo && _mo.socketId && _mo.socketId !== 'AI' && _moIdx !== idx) {
+      io.to(_mo.socketId).emit('marked_enemy_attack', {
+        atkCells,
+        hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+      });
+    }
+  }
   // 전체 상태 동기화
   broadcastTeamGameState(room);
   // ★ 공격 처리 완료 — suppressed SP 업데이트 emit
@@ -3579,11 +3591,8 @@ function flushPhase(room, onComplete) {
     waveQueue = newPending;  // 다음 wave (체인)
   }
 
-  // ★ 사용자 보고: 마법사 인스턴트 SP 가 죽음 기폭 경로에서 누락되던 버그.
-  //   detonateBomb({ deferEmit: true }) 가 suppressSpUpdate=true 로 동작 → emitSPUpdate
-  //   가 호출 안 됨. 기폭 스킬 경로는 후속 skill_result 가 sp/instantSp 일괄 전달하지만,
-  //   죽음 기폭은 skill_result 없음 → 클라가 SP 갱신을 못 받음. wave 처리 후 즉시 emit.
-  if (waves.length > 0) emitSPUpdate(room);
+  // ★ emitSPUpdate 는 wave emit 스케줄링 루프 마지막에 지연 호출 (아래 참조).
+  //   즉시 호출하면 인스턴트 SP 스택킹이 기폭 애니보다 먼저 도착하는 순서 오류 발생.
 
   // === 2) emit 스케줄링 (각 wave 순차 노출) ===
   let cursor = 0;
@@ -3616,6 +3625,15 @@ function flushPhase(room, onComplete) {
     }, c3);
 
     cursor += POST_SETTLE;
+  }
+
+  // ★ emitSPUpdate — 마지막 bomb_detonated 후 지연 emit (인스턴트 SP 스택킹 순서 보장).
+  //   사망 기폭 → 애니 재생 → 피격 판정 → 인스턴트 매직 → SP 스택킹 순서.
+  if (waves.length > 0) {
+    const _spEmitDelay = cursor; // 마지막 wave 의 POST_SETTLE 포함 시점
+    setTimeout(() => {
+      if (rooms[room.id]) emitSPUpdate(room);
+    }, _spEmitDelay);
   }
 
   // === 3) 페이즈 종료 시각 마킹 + AI 차단 + 게임종료 검사 지연 플래그 ===
@@ -8881,6 +8899,21 @@ io.on('connection', (socket) => {
       })),
       friendlyFireHits: room._friendlyFireHits || [],
     });
+
+    // ★ 표식 공격 모션 공유 — 표식된 적이 공격하면 표식 부여자(mark source)에게 공격 셀 + hit 정보 전송.
+    //   mark source 가 이미 being_attacked 를 받는 경우(자기 말이 피격)에도 atkCells 는 공유하지 않으므로 별도 필요.
+    const _markEffect = (atkPiece.statusEffects || []).find(e => e.type === 'mark');
+    if (_markEffect && typeof _markEffect.source === 'number') {
+      const _markOwnerIdx = _markEffect.source;
+      const _markOwner = room.players[_markOwnerIdx];
+      // 이미 attack_result 를 받은 시전자 본인에게는 중복 전송 X
+      if (_markOwner && _markOwner.socketId && _markOwner.socketId !== 'AI' && _markOwnerIdx !== idx) {
+        io.to(_markOwner.socketId).emit('marked_enemy_attack', {
+          atkCells,
+          hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+        });
+      }
+    }
 
     // 관전자 로그: 일반 공격 (쌍둥이는 각 공격자별로 메시지 분리)
     if (hitResults.length > 0) {

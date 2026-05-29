@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO - 폭탄 어셋 프리뷰</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0e1a;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', sans-serif;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { text-align: center; margin-bottom: 6px; font-size: 1.4rem; color: #ffd700; }
+  h2 { font-size: 1rem; color: #93c5fd; margin: 18px 0 8px; border-bottom: 1px solid #2a3050; padding-bottom: 4px; }
+  h3 { font-size: 0.85rem; color: #aaa; margin: 12px 0 6px; }
+  .subtitle { text-align: center; color: #888; font-size: 0.8rem; margin-bottom: 18px; }
+
+  .main-layout { display: flex; gap: 30px; flex-wrap: wrap; justify-content: center; }
+  .preview-section { flex: 1; min-width: 320px; max-width: 520px; }
+  .controls-section { flex: 0 0 280px; }
+
+  /* ── 보드 셀 재현 ── */
+  :root {
+    --cell: #1a1e30;
+    --border: #2a3050;
+  }
+  .cell {
+    width: 56px; height: 56px;
+    background: var(--cell);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .cell.large { width: 80px; height: 80px; }
+
+  .board-grid {
+    display: inline-grid;
+    gap: 2px;
+    background: #111528;
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid #2a3050;
+  }
+
+  /* piece-marker 재현 */
+  .piece-marker {
+    display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px;
+  }
+  img.p-gif {
+    display: block; width: 38px; height: 38px;
+    object-fit: contain;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+  }
+  .p-hp { font-size: 0.6rem; color: #4ade80; font-weight: 700; }
+
+  /* ── 폭탄 아이들 GIF (보드 마커) ── */
+  .bomb-marker-gif {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+
+  /* ── 쥐 GIF (보드 오브젝트 재현 — 인게임 글로우 동일) ── */
+  .rat-board-gif {
+    position: absolute;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    pointer-events: none;
+    object-fit: contain;
+    filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 3px rgba(150,100,220,0.35));
+  }
+
+  /* ── 폭발 GIF ── */
+  .bomb-explode-gif {
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+  }
+
+  /* ── 기폭 CSS 애니메이션 재현 ── */
+  .cell.bomb-reveal {
+    animation: bomb-reveal-glow 0.6s ease-out forwards;
+  }
+  @keyframes bomb-reveal-glow {
+    0%   { box-shadow: 0 0 0 rgba(255,200,0,0); }
+    50%  { box-shadow: 0 0 18px rgba(255,200,0,0.7); }
+    100% { box-shadow: 0 0 8px rgba(255,200,0,0.25); }
+  }
+  .cell.bomb-arming {
+    background: rgba(var(--bomb-arming-a), 0.45) !important;
+    box-shadow: inset 0 0 10px rgba(var(--bomb-arming-a), 0.85), 0 0 10px rgba(var(--bomb-arming-b), 0.7);
+    animation: bomb-arming-pulse 0.35s ease-in-out infinite alternate;
+  }
+  @keyframes bomb-arming-pulse {
+    0%,100% { background: rgba(var(--bomb-arming-a), 0.45) !important; }
+    50%     { background: rgba(var(--bomb-arming-b), 0.75) !important; }
+  }
+  .cell.bomb-blast {
+    animation: bomb-blast-flash 0.45s ease-out forwards !important;
+  }
+  @keyframes bomb-blast-flash {
+    0%   { background: rgba(var(--bomb-blast-light), 0.95) !important; box-shadow: 0 0 36px rgba(var(--bomb-blast-light), 1); }
+    40%  { background: rgba(var(--bomb-blast-mid),   0.85) !important; box-shadow: 0 0 30px rgba(var(--bomb-blast-mid), 0.85); }
+    100% { background: rgba(var(--bomb-blast-dark),  0.25) !important; box-shadow: none; }
+  }
+  .cell.bomb-cell-shake {
+    animation: bomb-cell-shake 0.42s ease-out !important;
+  }
+  @keyframes bomb-cell-shake {
+    0%, 100% { transform: translate(0, 0); }
+    10%, 30%, 50%, 70%, 90% { transform: translate(-2.5px, 1.5px); }
+    20%, 40%, 60%, 80%      { transform: translate( 2.5px, -1.5px); }
+  }
+  @keyframes bomb-marker-fade-in {
+    0%   { opacity: 0; transform: scale(0.5); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+
+  /* 팀 컬러 변수 */
+  .cell.bomb-team-mine {
+    --bomb-arming-a: 59, 130, 246;
+    --bomb-arming-b: 147, 197, 253;
+    --bomb-blast-light: 191, 219, 254;
+    --bomb-blast-mid: 37, 99, 235;
+    --bomb-blast-dark: 23, 37, 84;
+    --bomb-burst-glow: 147, 197, 253;
+  }
+  .cell.bomb-team-enemy {
+    --bomb-arming-a: 220, 38, 38;
+    --bomb-arming-b: 248, 113, 113;
+    --bomb-blast-light: 255, 255, 200;
+    --bomb-blast-mid: 255, 100, 0;
+    --bomb-blast-dark: 120, 30, 0;
+    --bomb-burst-glow: 255, 200, 0;
+  }
+
+  /* ── 컨트롤 패널 ── */
+  .ctrl-group {
+    background: #111528; border: 1px solid #2a3050; border-radius: 8px;
+    padding: 10px 14px; margin-bottom: 10px;
+  }
+  .ctrl-row {
+    display: flex; align-items: center; gap: 8px; margin: 5px 0;
+  }
+  .ctrl-row label { flex: 0 0 90px; font-size: 0.75rem; color: #aaa; }
+  .ctrl-row input[type="range"] { flex: 1; accent-color: #ffd700; }
+  .ctrl-row .val {
+    flex: 0 0 50px; font-size: 0.75rem; color: #ffd700; text-align: right;
+    background: #1a1e30; border: 1px solid #2a3050; border-radius: 3px;
+    padding: 1px 4px; cursor: text; -moz-appearance: textfield;
+  }
+  .ctrl-row .val:focus { outline: 1px solid #ffd700; color: #fff; }
+  .ctrl-row .val::-webkit-inner-spin-button { opacity: 1; }
+  select {
+    background: #1a1e30; color: #e0e0e0; border: 1px solid #2a3050;
+    border-radius: 4px; padding: 3px 6px; font-size: 0.75rem;
+  }
+  button {
+    background: #2563eb; color: white; border: none; border-radius: 5px;
+    padding: 6px 14px; cursor: pointer; font-size: 0.8rem; margin: 3px 2px;
+    transition: background 0.15s;
+  }
+  button:hover { background: #3b82f6; }
+  button.red { background: #dc2626; }
+  button.red:hover { background: #ef4444; }
+  button.gold { background: #b45309; }
+  button.gold:hover { background: #d97706; }
+
+  /* ── 비교 테이블 ── */
+  .compare-table { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  .compare-card {
+    background: #111528; border: 1px solid #2a3050; border-radius: 8px;
+    padding: 12px; text-align: center; min-width: 100px;
+  }
+  .compare-card .label { font-size: 0.7rem; color: #888; margin-bottom: 6px; }
+  .compare-card .cell { margin: 0 auto; }
+
+  /* ── 시퀀스 보드 ── */
+  .seq-board { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+  .seq-info { font-size: 0.7rem; color: #888; text-align: center; margin-top: 4px; }
+
+  /* GIF 프레임 정보 */
+  .gif-info { font-size: 0.7rem; color: #666; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>CALIGO - 폭탄 어셋 프리뷰</h1>
+<p class="subtitle">💣 이모지 → GIF 대체 미리보기 | 크기·위치 조정 다이얼</p>
+
+<div class="main-layout">
+
+<!-- ────── 프리뷰 영역 ────── -->
+<div class="preview-section">
+
+  <!-- 1. 원본 GIF 확인 -->
+  <h2>1. 원본 GIF</h2>
+  <div class="compare-table">
+    <div class="compare-card">
+      <div class="label">아이들 (bomb_idle.gif)</div>
+      <img id="raw-idle" src="assets/bomb_idle.gif" style="image-rendering:pixelated; border:1px solid #333;">
+      <div class="gif-info" id="idle-info"></div>
+    </div>
+    <div class="compare-card">
+      <div class="label">폭발 (bomb_explode.gif)</div>
+      <img id="raw-explode" src="assets/bomb_explode.gif" style="image-rendering:pixelated; border:1px solid #333;">
+      <div class="gif-info" id="explode-info"></div>
+    </div>
+  </div>
+
+  <!-- 2. 보드 위 아이들 비교 -->
+  <h2>2. 보드 위 아이들 (이모지 vs GIF)</h2>
+  <div class="compare-table">
+    <div class="compare-card">
+      <div class="label">기존 (💣 이모지)</div>
+      <div class="cell" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+        <span style="position:absolute;bottom:1px;right:7px;font-size:0.5rem;z-index:4">💣</span>
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">신규 (GIF)</div>
+      <div class="cell" id="idle-cell" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+        <img id="idle-preview" class="bomb-marker-gif" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">폭탄만 (GIF)</div>
+      <div class="cell" id="idle-cell-only" style="overflow:visible;">
+        <img id="idle-preview-only" class="bomb-marker-gif" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">큰 셀 (GIF)</div>
+      <div class="cell large" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+        <img class="bomb-marker-gif idle-sync" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+  </div>
+
+  <!-- 2-1. 쥐 오브젝트 겹침 -->
+  <h2>2-1. 쥐 + 폭탄 겹침</h2>
+  <div class="compare-table">
+    <div class="compare-card">
+      <div class="label">쥐(아군) + 폭탄</div>
+      <div class="cell" style="overflow:visible;">
+        <img class="rat-board-gif" src="art/rat_black_idle.gif"
+          style="width:50%;height:50%;left:87%;top:80%;transform:translate(-50%,-50%);z-index:4" alt="">
+        <img class="bomb-marker-gif" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">쥐(적군) + 폭탄</div>
+      <div class="cell" style="overflow:visible;">
+        <img class="rat-board-gif" src="art/rat_white_idle.gif"
+          style="width:50%;height:50%;left:13%;top:80%;transform:translate(-50%,-50%) scaleX(-1);z-index:3" alt="">
+        <img class="bomb-marker-gif" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">유닛 + 쥐 + 폭탄</div>
+      <div class="cell" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+        <img class="rat-board-gif" src="art/rat_black_idle.gif"
+          style="width:50%;height:50%;left:87%;top:80%;transform:translate(-50%,-50%);z-index:4" alt="">
+        <img class="bomb-marker-gif" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">큰 셀 전부 겹침</div>
+      <div class="cell large" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+        <img class="rat-board-gif" src="art/rat_black_idle.gif"
+          style="width:50%;height:50%;left:87%;top:80%;transform:translate(-50%,-50%);z-index:4" alt="">
+        <img class="bomb-marker-gif idle-sync" src="assets/bomb_idle.gif">
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 기폭 인트로 시퀀스 -->
+  <h2>3. 기폭 인트로 시퀀스</h2>
+  <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+    <button onclick="playDetonationSequence('enemy');" class="red">적 기폭 재생</button>
+    <button onclick="playDetonationSequence('mine');">아군 기폭 재생</button>
+    <button onclick="resetSequence();" class="gold">리셋</button>
+  </div>
+  <div class="seq-board" id="seq-board"></div>
+  <div class="seq-info" id="seq-info">위 버튼을 눌러 기폭 인트로 시퀀스를 확인하세요.</div>
+
+  <!-- 4. 폭발 GIF 오버레이 -->
+  <h2>4. 폭발 GIF 오버레이</h2>
+  <div class="compare-table">
+    <div class="compare-card">
+      <div class="label">유닛 위 폭발</div>
+      <div class="cell" id="explode-cell" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">빈 셀 폭발</div>
+      <div class="cell" id="explode-cell-empty" style="overflow:visible;">
+      </div>
+    </div>
+    <div class="compare-card">
+      <div class="label">큰 셀</div>
+      <div class="cell large" id="explode-cell-large" style="overflow:visible;">
+        <div class="piece-marker">
+          <img class="p-gif" src="art/gunpowder_idle.gif">
+          <span class="p-hp">3/3</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:6px; text-align:center;">
+    <button onclick="playExplodePreview();" class="red">폭발 GIF 재생</button>
+    <button onclick="resetExplodeCells();" class="gold">리셋</button>
+  </div>
+
+</div><!-- /preview-section -->
+
+<!-- ────── 컨트롤 패널 ────── -->
+<div class="controls-section">
+  <h2>아이들 GIF 위치/크기</h2>
+  <div class="ctrl-group">
+    <div class="ctrl-row">
+      <label>너비 (px)</label>
+      <input type="range" id="idle-w" min="2" max="80" value="32">
+      <input type="number" class="val" id="idle-w-val" value="32" min="1" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>높이 (px)</label>
+      <input type="range" id="idle-h" min="2" max="80" value="32">
+      <input type="number" class="val" id="idle-h-val" value="32" min="1" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>bottom (px)</label>
+      <input type="range" id="idle-bottom" min="-40" max="60" value="0">
+      <input type="number" class="val" id="idle-bottom-val" value="0" min="-100" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>right (px)</label>
+      <input type="range" id="idle-right" min="-40" max="60" value="-4">
+      <input type="number" class="val" id="idle-right-val" value="-4" min="-100" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>drop-shadow</label>
+      <input type="range" id="idle-shadow" min="0" max="6" step="0.5" value="0.5">
+      <input type="number" class="val" id="idle-shadow-val" value="0.5" min="0" max="20" step="0.5">
+    </div>
+    <div class="ctrl-row">
+      <label>글로우 강도</label>
+      <input type="range" id="idle-glow" min="0" max="8" step="0.5" value="2.5">
+      <input type="number" class="val" id="idle-glow-val" value="2.5" min="0" max="20" step="0.5">
+    </div>
+    <div class="ctrl-row">
+      <label>글로우 불투명</label>
+      <input type="range" id="idle-glow-alpha" min="0" max="1" step="0.05" value="0.4">
+      <input type="number" class="val" id="idle-glow-alpha-val" value="0.4" min="0" max="1" step="0.05">
+    </div>
+    <div class="ctrl-row">
+      <label>글로우 색상</label>
+      <select id="idle-glow-color" onchange="syncIdleStyle();">
+        <option value="220,150,50" selected>호박색 (amber)</option>
+        <option value="255,100,0">주황 (orange)</option>
+        <option value="220,38,38">빨강 (red)</option>
+        <option value="150,100,220">보라 (purple)</option>
+        <option value="59,130,246">파랑 (blue)</option>
+        <option value="255,200,0">노랑 (yellow)</option>
+      </select>
+    </div>
+  </div>
+
+
+  <h2>폭발 GIF 크기/위치</h2>
+  <div class="ctrl-group">
+    <div class="ctrl-row">
+      <label>너비 (%)</label>
+      <input type="range" id="exp-w" min="10" max="500" value="140">
+      <input type="number" class="val" id="exp-w-val" value="140" min="1" max="1000">
+    </div>
+    <div class="ctrl-row">
+      <label>높이 (%)</label>
+      <input type="range" id="exp-h" min="10" max="500" value="140">
+      <input type="number" class="val" id="exp-h-val" value="140" min="1" max="1000">
+    </div>
+    <div class="ctrl-row">
+      <label>top (%)</label>
+      <input type="range" id="exp-top" min="-50" max="150" value="50">
+      <input type="number" class="val" id="exp-top-val" value="50" min="-100" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>left (%)</label>
+      <input type="range" id="exp-left" min="-50" max="150" value="50">
+      <input type="number" class="val" id="exp-left-val" value="50" min="-100" max="200">
+    </div>
+    <div class="ctrl-row">
+      <label>drop-shadow</label>
+      <input type="range" id="exp-shadow" min="0" max="10" step="0.5" value="2">
+      <input type="number" class="val" id="exp-shadow-val" value="2" min="0" max="30" step="0.5">
+    </div>
+  </div>
+
+  <h2>현재 CSS 값 복사</h2>
+  <div class="ctrl-group">
+    <button onclick="copyIdleCSS();">아이들 CSS 복사</button>
+    <button onclick="copyExplodeCSS();">폭발 CSS 복사</button>
+    <div id="copy-msg" style="font-size:0.7rem;color:#4ade80;margin-top:4px;"></div>
+  </div>
+</div><!-- /controls-section -->
+
+</div><!-- /main-layout -->
+
+<script>
+// ── GIF 정보 파싱 ──
+function loadGifInfo(url, infoEl) {
+  fetch(url).then(r => r.arrayBuffer()).then(buf => {
+    const bytes = new Uint8Array(buf);
+    // 캔버스 크기 (6-7: width, 8-9: height LE)
+    const w = bytes[6] | (bytes[7] << 8);
+    const h = bytes[8] | (bytes[9] << 8);
+    // 프레임 수 (간단 카운트 — 0x21 0xF9)
+    let frames = 0;
+    for (let i = 0; i < bytes.length - 1; i++) {
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9) frames++;
+    }
+    infoEl.textContent = `${w}x${h}px, ${frames}프레임, ${(buf.byteLength/1024).toFixed(1)}KB`;
+  });
+}
+loadGifInfo('assets/bomb_idle.gif', document.getElementById('idle-info'));
+loadGifInfo('assets/bomb_explode.gif', document.getElementById('explode-info'));
+
+// ── 양방향 동기화 헬퍼 (슬라이더 ↔ 숫자 입력) ──
+function linkSliderAndInput(sliderId, inputId, onChange) {
+  const slider = document.getElementById(sliderId);
+  const input = document.getElementById(inputId);
+  slider.addEventListener('input', () => { input.value = slider.value; onChange(); });
+  input.addEventListener('input', () => { slider.value = input.value; onChange(); });
+  input.addEventListener('change', () => { slider.value = input.value; onChange(); });
+}
+
+// ── 아이들 컨트롤 ──
+function syncIdleStyle() {
+  const w = +document.getElementById('idle-w').value;
+  const h = +document.getElementById('idle-h').value;
+  const b = +document.getElementById('idle-bottom').value;
+  const r = +document.getElementById('idle-right').value;
+  const s = +document.getElementById('idle-shadow').value;
+  const glow = +document.getElementById('idle-glow').value;
+  const glowAlpha = +document.getElementById('idle-glow-alpha').value;
+  const glowColor = document.getElementById('idle-glow-color').value;
+
+  // filter 조합: 블랙 아웃라인 + 컬러 글로우
+  let filter = '';
+  if (s > 0) filter += `drop-shadow(0 0 ${s}px rgba(0,0,0,1)) `;
+  if (glow > 0) filter += `drop-shadow(0 0 ${glow}px rgba(${glowColor},${glowAlpha}))`;
+
+  const style = `bottom:${b}px;right:${r}px;width:${w}px;height:${h}px;`
+    + (filter ? `filter:${filter.trim()};` : '');
+
+  document.querySelectorAll('.bomb-marker-gif').forEach(el => {
+    el.style.cssText = `position:absolute;z-index:2;pointer-events:none;image-rendering:pixelated;${style}`;
+  });
+}
+linkSliderAndInput('idle-w', 'idle-w-val', syncIdleStyle);
+linkSliderAndInput('idle-h', 'idle-h-val', syncIdleStyle);
+linkSliderAndInput('idle-bottom', 'idle-bottom-val', syncIdleStyle);
+linkSliderAndInput('idle-right', 'idle-right-val', syncIdleStyle);
+linkSliderAndInput('idle-shadow', 'idle-shadow-val', syncIdleStyle);
+linkSliderAndInput('idle-glow', 'idle-glow-val', syncIdleStyle);
+linkSliderAndInput('idle-glow-alpha', 'idle-glow-alpha-val', syncIdleStyle);
+syncIdleStyle();
+
+// ── 폭발 컨트롤 ──
+function getExpStyle() {
+  const w = +document.getElementById('exp-w').value;
+  const h = +document.getElementById('exp-h').value;
+  const t = +document.getElementById('exp-top').value;
+  const l = +document.getElementById('exp-left').value;
+  const s = +document.getElementById('exp-shadow').value;
+  return { w, h, t, l, s };
+}
+linkSliderAndInput('exp-w', 'exp-w-val', getExpStyle);
+linkSliderAndInput('exp-h', 'exp-h-val', getExpStyle);
+linkSliderAndInput('exp-top', 'exp-top-val', getExpStyle);
+linkSliderAndInput('exp-left', 'exp-left-val', getExpStyle);
+linkSliderAndInput('exp-shadow', 'exp-shadow-val', getExpStyle);
+getExpStyle();
+
+
+// ── 기폭 시퀀스 ──
+const SEQ_COUNT = 3;
+function buildSeqBoard() {
+  const board = document.getElementById('seq-board');
+  board.innerHTML = '';
+  for (let i = 0; i < SEQ_COUNT; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.id = 'seq-cell-' + i;
+    cell.style.overflow = 'visible';
+    // 일부 셀에 유닛 배치
+    if (i === 0 || i === 2) {
+      cell.innerHTML = `<div class="piece-marker">
+        <img class="p-gif" src="art/gunpowder_idle.gif">
+        <span class="p-hp">3/3</span>
+      </div>`;
+    }
+    board.appendChild(cell);
+  }
+}
+buildSeqBoard();
+
+function resetSequence() {
+  buildSeqBoard();
+  document.getElementById('seq-info').textContent = '리셋 완료.';
+}
+
+function playDetonationSequence(team) {
+  buildSeqBoard();
+  const teamClass = team === 'mine' ? 'bomb-team-mine' : 'bomb-team-enemy';
+  const info = document.getElementById('seq-info');
+
+  // 폭발 GIF 직행 — 아이들/인트로 마커 없음
+  // 순차 폭발: 셀 플래시(팀컬러) + 쉐이킹 + 폭발 GIF 동시 시작
+  const STAGGER = 350;
+  const order = [0, 1, 2];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  order.forEach((idx, slot) => {
+    setTimeout(() => {
+      info.textContent = `폭발 #${slot+1} GIF 시작...`;
+      const cell = document.getElementById('seq-cell-' + idx);
+      cell.classList.add(teamClass);
+      // 폭발 GIF 먼저 시작 → 임팩트 시점에 셀 플래시/쉐이킹
+      playExplodeOnCell(cell, () => {
+        info.textContent = `폭발 #${slot+1} 임팩트!`;
+        cell.classList.add('bomb-blast', 'bomb-cell-shake');
+        setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
+      });
+    }, slot * STAGGER);
+  });
+
+  // cleanup — 마지막 폭탄의 GIF 종료 후
+  const totalMs = (SEQ_COUNT - 1) * STAGGER + 2800 + 100;
+  setTimeout(() => {
+    for (let i = 0; i < SEQ_COUNT; i++) {
+      const cell = document.getElementById('seq-cell-' + i);
+      cell.classList.remove('bomb-blast', teamClass);
+    }
+    info.textContent = '시퀀스 완료.';
+  }, totalMs);
+}
+
+// ── 폭발 GIF 헬퍼 ──
+function createExplodeImg(cell) {
+  const { w, h, t, l, s } = getExpStyle();
+  // 이모지 NETSCAPE 루프 제거 (1회만 재생) — blob URL
+  return fetch('assets/bomb_explode.gif')
+    .then(r => r.arrayBuffer())
+    .then(buf => {
+      const bytes = new Uint8Array(buf);
+      // NETSCAPE2.0 블록 찾아서 제거 (19바이트)
+      let cleaned = bytes;
+      for (let i = 0; i < bytes.length - 18; i++) {
+        if (bytes[i]===0x21 && bytes[i+1]===0xFF && bytes[i+2]===0x0B) {
+          const sig = String.fromCharCode(...bytes.slice(i+3, i+14));
+          if (sig === 'NETSCAPE2.0' || sig === 'ANIMEXTS1.0') {
+            cleaned = new Uint8Array(buf.byteLength - 19);
+            cleaned.set(bytes.slice(0, i));
+            cleaned.set(bytes.slice(i + 19), i);
+            break;
+          }
+        }
+      }
+      const blob = new Blob([cleaned], { type: 'image/gif' });
+      const url = URL.createObjectURL(blob);
+      const img = document.createElement('img');
+      img.className = 'bomb-explode-gif';
+      img.src = url;
+      img.style.cssText = `width:${w}%;height:${h}%;top:${t}%;left:${l}%;`
+        + `transform:translate(-50%,-50%);`
+        + (s > 0 ? `filter:drop-shadow(0 0 ${s}px rgba(255,150,0,0.9));` : '');
+      img.onload = () => URL.revokeObjectURL(url);
+      return img;
+    });
+}
+
+// 폭발 임팩트 딜레이 — 프레임 #10 시점 (10 * 130ms = 1300ms)
+// 불꽃이 최대 크기로 퍼지는 순간 = 피격 판정 타이밍
+const BOMB_IMPACT_DELAY = 1300;
+
+function playExplodeOnCell(cell, onImpact) {
+  createExplodeImg(cell).then(img => {
+    cell.appendChild(img);
+    // 임팩트 시점에 콜백 발동 (셀 쉐이킹 + 컬러 점멸)
+    if (typeof onImpact === 'function') {
+      setTimeout(onImpact, BOMB_IMPACT_DELAY);
+    }
+    // GIF 총 길이 후 제거 (20 * 130 = 2600ms + 200ms 버퍼)
+    setTimeout(() => { if (img.parentNode) img.remove(); }, 2800);
+  });
+}
+
+function playExplodePreview() {
+  ['explode-cell','explode-cell-empty','explode-cell-large'].forEach(id => {
+    const cell = document.getElementById(id);
+    cell.classList.add('bomb-team-enemy');
+    // 폭발 GIF 먼저 → 임팩트 시점에 셀 플래시/쉐이킹
+    playExplodeOnCell(cell, () => {
+      cell.classList.add('bomb-blast', 'bomb-cell-shake');
+      setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
+      setTimeout(() => cell.classList.remove('bomb-blast', 'bomb-team-enemy'), 600);
+    });
+  });
+}
+
+function resetExplodeCells() {
+  ['explode-cell','explode-cell-empty','explode-cell-large'].forEach(id => {
+    const cell = document.getElementById(id);
+    cell.classList.remove('bomb-blast','bomb-cell-shake','bomb-team-enemy','bomb-team-mine');
+    cell.querySelectorAll('.bomb-explode-gif').forEach(e => e.remove());
+  });
+}
+
+// ── CSS 복사 ──
+function copyIdleCSS() {
+  const w = +document.getElementById('idle-w').value;
+  const h = +document.getElementById('idle-h').value;
+  const b = +document.getElementById('idle-bottom').value;
+  const r = +document.getElementById('idle-right').value;
+  const s = +document.getElementById('idle-shadow').value;
+  const glow = +document.getElementById('idle-glow').value;
+  const glowAlpha = +document.getElementById('idle-glow-alpha').value;
+  const glowColor = document.getElementById('idle-glow-color').value;
+  let filter = '';
+  if (s > 0) filter += `drop-shadow(0 0 ${s}px rgba(0,0,0,1))`;
+  if (glow > 0) filter += `${filter ? ' ' : ''}drop-shadow(0 0 ${glow}px rgba(${glowColor},${glowAlpha}))`;
+  const css = `.bomb-marker-gif {\n  position: absolute;\n  z-index: 2;\n  pointer-events: none;\n  image-rendering: pixelated;\n  width: ${w}px;\n  height: ${h}px;\n  bottom: ${b}px;\n  right: ${r}px;\n${filter ? `  filter: ${filter};\n` : ''}}`;
+  navigator.clipboard.writeText(css);
+  document.getElementById('copy-msg').textContent = '아이들 CSS 복사 완료!';
+  setTimeout(() => document.getElementById('copy-msg').textContent = '', 2000);
+}
+function copyExplodeCSS() {
+  const { w, h, t, l, s } = getExpStyle();
+  const css = `.bomb-explode-gif {\n  position: absolute;\n  z-index: 20;\n  pointer-events: none;\n  image-rendering: pixelated;\n  width: ${w}%;\n  height: ${h}%;\n  top: ${t}%;\n  left: ${l}%;\n  transform: translate(-50%, -50%);\n${s > 0 ? `  filter: drop-shadow(0 0 ${s}px rgba(255,150,0,0.9));\n` : ''}}`;
+  navigator.clipboard.writeText(css);
+  document.getElementById('copy-msg').textContent = '폭발 CSS 복사 완료!';
+  setTimeout(() => document.getElementById('copy-msg').textContent = '', 2000);
+}
+</script>
+</body>
+</html>
