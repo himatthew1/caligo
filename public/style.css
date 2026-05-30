@@ -2780,7 +2780,6 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
 .cell.has-remains {
   background: rgba(80,60,60,0.35) !important;
   border-color: rgba(120,80,80,0.4) !important;
-  overflow: visible;
 }
 .remains-marker {
   position: absolute;
@@ -3039,16 +3038,16 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   filter: drop-shadow(0 0 0.5px rgba(0,0,0,1)) drop-shadow(0 0 2.5px rgba(220,150,50,0.4));
 }
 /* ── 폭발 GIF 오버레이 (detonation_intro) ── */
+/* position:fixed + body 배치 — renderGameBoard 셀 재구축에도 GIF 전체 재생 보장 */
 .bomb-explode-overlay {
-  position: absolute;
-  z-index: 20;
   pointer-events: none;
   image-rendering: pixelated;
-  left: 50%;
-  top: 50%;
+  image-rendering: crisp-edges;
   transform: translate(-50%, -50%);
-  width: 240%;
-  height: 240%;
+  filter: drop-shadow(0 0 2px rgba(255,150,0,0.9));
+  will-change: transform, opacity;
+  contain: layout style paint;
+  isolation: isolate;
 }
 
 .piece-marker {
@@ -3056,7 +3055,7 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   padding: 2px;
 }
 .piece-marker .p-icon  { font-size: 1.3rem; line-height: 1; }
-.piece-marker .p-hp    { font-size: 0.6rem; color: var(--success); font-weight: 700; }
+.piece-marker .p-hp    { font-size: 0.6rem; color: var(--success); font-weight: 700; visibility: hidden; }
 .piece-marker .p-dead  { font-size: 0.6rem; color: var(--danger); }
 
 /* ── 캐릭터 idle GIF 아이콘 ── */

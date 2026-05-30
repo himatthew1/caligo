@@ -2563,6 +2563,7 @@ function applyTeamGameState(state) {
   S.teamTeams = state.teams || S.teamTeams;
   S.turnNumber = state.turnNumber;
   S.boardBounds = state.boardBounds;
+  S._cellFP = null; // ★ 팀전 상태 적용 — 핑거프린트 캐시 무효화
   S.sp = state.sp;
   S.instantSp = state.instantSp;
   S.currentPlayerIdx = state.currentPlayerIdx;
@@ -4186,6 +4187,7 @@ socket.on('game_start', (data) => {
   S.sp = data.sp || [1, 1];
   S.instantSp = data.instantSp || [0, 0];
   S.boardBounds = data.boardBounds || { min: 0, max: 4 };
+  S._cellFP = null; // ★ 새 게임 — 핑거프린트 캐시 무효화
   S.boardObjects = data.boardObjects || [];
   S.remains = data.remains || [];
   S._remainsFacing = {};  // 사망 GIF 방향 캐시 — 새 게임 초기화
@@ -6561,6 +6563,7 @@ function _executeBoardShrinkAnim(bounds, eliminated) {
   playSfx('shrink');
   try { playBoardQuake(); } catch (e) {}
   S.boardBounds = bounds;
+  S._cellFP = null; // ★ 보드 축소 — 핑거프린트 캐시 무효화
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
   // #24: 보드 파괴로 *완전 탈락*한 플레이어 추적 — 프로필 블록 위에 '탈락' 도장 표시용.
   //   사용자 요청: 도장은 캐릭터 카드가 아니라 *플레이어 프로필* 블록에 (두 캐릭터 위를 덮음).
@@ -6855,7 +6858,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 
     // 스킬 효과 적용 — 기폭은 별도 detonation_intro/bomb_detonated 흐름이라 HP 업데이트 스킵
     if (!isDetonate) {
-      // ★ 악몽 사망 감지 — 상태 업데이트 전에 DOM 에서 방향 캡처 (renderGameBoard 전이라 marker 존재)
+      // ★ 스킬 사망 감지 — 상태 업데이트 전에 DOM 에서 방향 캡처 (renderGameBoard 전이라 marker 존재)
+      //   악몽뿐 아니라 유황범람 등 data.hits 를 가진 모든 데미지 스킬의 사망을 처리.
       let _nightmareDeathInfos = [];
       if (data && Array.isArray(data.hits) && data.hits.some(h => h.destroyed)) {
         const _nmDead = data.hits.filter(h => h.destroyed);
@@ -6940,7 +6944,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           typeof animateNightmareCast === 'function') {
         animateNightmareCast(data.nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
       }
-      // ★ 악몽 사망 애니메이션 (시전자 시점) — 보라 펄스 후 사망 GIF + 유해 생성
+      // ★ 스킬 사망 애니메이션 (시전자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
+      //   악몽: 보라 펄스 피크(~500ms) 후 사망 GIF. 기타 스킬: 피격 효과 후 사망 GIF.
       if (_nightmareDeathInfos.length > 0) {
         setTimeout(() => {
           playDeathAnimations(_nightmareDeathInfos, () => {
@@ -6948,7 +6953,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
             _addClientSideRemains(_nightmareDeathInfos);
             renderGameBoard();
           });
-        }, 500); // 보라 펄스 피크(~500ms) 후 사망 GIF 시작
+        }, 500);
       }
       // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
       if (data && data.herbCenter && typeof animateHerbCast === 'function') {
@@ -7160,10 +7165,10 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
     // ★ 기폭은 HP/보드/도장/profile-hit 처리 스킵 — bomb_detonated 가 폭발 순간 처리.
     if (!_isDetonateMsg) {
-      // ★ 악몽 사망 감지 — 상태 업데이트 전 DOM 방향 캡처 (피해자 시점 → 내 말 사망)
+      // ★ 스킬 사망 감지 — 상태 업데이트 전 DOM 방향 캡처 (피해자 시점 → 내 말 사망)
+      //   악몽뿐 아니라 유황범람 등 모든 데미지 스킬의 사망을 처리.
       let _nightmareDeathInfosVictim = [];
-      if (Array.isArray(hits) && hits.some(h => h.destroyed) &&
-          Array.isArray(nightmareCells) && nightmareCells.length > 0) {
+      if (Array.isArray(hits) && hits.some(h => h.destroyed)) {
         const _nmDeadV = hits.filter(h => h.destroyed);
         _nightmareDeathInfosVictim = _detectDeaths(_nmDeadV, true); // 피해자 시점 → 내 말 (isEnemy=false)
         if (_nightmareDeathInfosVictim.length > 0) {
@@ -7238,7 +7243,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
           typeof animateNightmareCast === 'function') {
         animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
       }
-      // ★ 악몽 사망 애니메이션 (1v1 피해자 시점) — 보라 펄스 후 사망 GIF + 유해 생성
+      // ★ 스킬 사망 애니메이션 (1v1 피해자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
       if (_nightmareDeathInfosVictim.length > 0) {
         setTimeout(() => {
           playDeathAnimations(_nightmareDeathInfosVictim, () => {
@@ -7772,33 +7777,84 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
     }
   }
 
-  renderGameBoard();
-  if (S.isTeamMode) {
-    if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
-  } else {
-    renderMyPieces();
-    renderOppPieces();
+  // ★ 트랩 사망 애니메이션 정보 수집 — alive 업데이트 완료, DOM 아직 미갱신 상태에서 방향 캡처.
+  const _trapDeathInfos = [];
+  if (destroyed) {
+    const _isMyUnit = (typeof victimOwnerIdx === 'number')
+      ? (victimOwnerIdx === S.playerIdx || (S.isTeamMode && victimOwnerIdx === teammateOwnerIdx))
+      : (myIdx >= 0 || tmIdx >= 0);
+    let facingLeft = false;
+    const _tboard = document.getElementById('game-board');
+    if (_tboard) {
+      const _tcell = _tboard.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+      if (_tcell) {
+        const _msel = _isMyUnit ? '.piece-marker:not(.opp-marked)' : '.piece-marker.opp-marked';
+        const _mk = _tcell.querySelector(_msel) || _tcell.querySelector('.piece-marker');
+        if (_mk) {
+          const _gif = _mk.querySelector('.p-icon img.p-gif');
+          if (_gif && (_gif.style.transform || '').includes('scaleX(-1)')) facingLeft = true;
+        }
+      }
+    }
+    // type 결정 — 서버가 pieceInfo.type 으로 직접 전달
+    const _ttype = pieceInfo?.type || null;
+    _trapDeathInfos.push({
+      col, row,
+      type: _ttype,
+      facingLeft,
+      isEnemy: !_isMyUnit,
+    });
   }
 
-  // 프로필 카드 흔들림 + 금색 플래시 — 1v1 만 (팀모드는 별도 처리)
-  if (!S.isTeamMode) {
-    if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
-    if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
-  }
-  // 팀모드: 팀원이 트랩에 걸렸으면 팀원 카드 hit 애니
-  if (tmIdx >= 0 && S.isTeamMode) {
-    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
-    if (teammate) {
-      requestAnimationFrame(() => {
-        const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${tmIdx}"]`);
-        if (card) {
-          card.classList.remove('profile-hit');
-          void card.offsetWidth;
-          card.classList.add('profile-hit');
-          setTimeout(() => card.classList.remove('profile-hit'), 1800);
-        }
-      });
+  // ★ 렌더 후 피격/프로필 애니메이션 공통 로직
+  const _doPostTrapRender = () => {
+    // 셀 + 보드 아이콘 피격 애니메이션 — renderGameBoard 이후에 호출 (셀 DOM 필요)
+    animateAttack([], [{ col, row }]);
+    // 프로필 카드 흔들림 + 금색 플래시 — 1v1 만 (팀모드는 별도 처리)
+    if (!S.isTeamMode) {
+      if (myIdx >= 0) applyProfileHitAnim('#my-pieces-info .my-piece-card', [myIdx]);
+      if (oppIdx >= 0) applyProfileHitAnim('#opp-pieces-info .opp-piece-card', [oppIdx]);
     }
+    // 팀모드: 팀원이 트랩에 걸렸으면 팀원 카드 hit 애니
+    if (tmIdx >= 0 && S.isTeamMode) {
+      const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+      if (teammate) {
+        requestAnimationFrame(() => {
+          const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${tmIdx}"]`);
+          if (card) {
+            card.classList.remove('profile-hit');
+            void card.offsetWidth;
+            card.classList.add('profile-hit');
+            setTimeout(() => card.classList.remove('profile-hit'), 1800);
+          }
+        });
+      }
+    }
+  };
+
+  // ★ 트랩 사망 애니메이션 — bomb_detonated, attack_result 와 동일한 패턴.
+  if (_trapDeathInfos.length > 0) {
+    S._pendingDeathCells = new Set(_trapDeathInfos.map(d => `${d.col},${d.row}`));
+    renderGameBoard();
+    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+    else { renderMyPieces(); renderOppPieces(); }
+    _doPostTrapRender();
+
+    // 피격 GIF 정착 후 사망 GIF 재생 (400ms)
+    setTimeout(() => {
+      playDeathAnimations(_trapDeathInfos, () => {
+        S._pendingDeathCells = null;
+        _addClientSideRemains(_trapDeathInfos);
+        renderGameBoard();
+        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+        else { renderMyPieces(); renderOppPieces(); }
+      });
+    }, 400);
+  } else {
+    renderGameBoard();
+    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+    else { renderMyPieces(); renderOppPieces(); }
+    _doPostTrapRender();
   }
 }
 
@@ -7984,132 +8040,114 @@ socket.on('detonation_intro', ({ bombs }) => {
     [blastOrder[i], blastOrder[j]] = [blastOrder[j], blastOrder[i]];
   }
 
-  // ★ 폭발 GIF 바이너리 fetch → 각 폭탄마다 고유 Blob 생성 (1회 재생 + Chrome 캐시 분리)
+  // ★ 폭발 GIF — 프리뷰(bomb-preview.html)의 createExplodeImg 와 완전 동일한 방식.
+  //   매 폭탄마다 fresh fetch → NETSCAPE 제거 → Blob URL → body에 fixed 배치.
+  //   Comment Extension 미삽입 (프리뷰와 동일).
   const explodeUrl = window.BOMB_EXPLODE_GIF || '/assets/bomb_explode.gif';
-  const _cachedBlob = window._gifBlobCache && window._gifBlobCache[explodeUrl];
-  const bufPromise = _cachedBlob
-    ? _cachedBlob.arrayBuffer()
-    : fetch(explodeUrl).then(r => r.arrayBuffer());
 
-  bufPromise.then(ab => {
-    const srcBytes = new Uint8Array(ab);
+  // 프리뷰와 동일한 GIF 클린 함수 + Chrome 동일 바이너리 타이머 공유 차단
+  if (!window._bombGifUid) window._bombGifUid = 0;
+  function _createBombExplodeBlob() {
+    return fetch(explodeUrl)
+      .then(r => r.arrayBuffer())
+      .then(buf => {
+        const bytes = new Uint8Array(buf);
+        let cleaned = bytes;
+        for (let i = 0; i < bytes.length - 18; i++) {
+          if (bytes[i] === 0x21 && bytes[i+1] === 0xFF && bytes[i+2] === 0x0B) {
+            const sig = String.fromCharCode(...bytes.slice(i+3, i+14));
+            if (sig === 'NETSCAPE2.0' || sig === 'ANIMEXTS1.0') {
+              cleaned = new Uint8Array(buf.byteLength - 19);
+              cleaned.set(bytes.slice(0, i));
+              cleaned.set(bytes.slice(i + 19), i);
+              break;
+            }
+          }
+        }
+        // ★ 고유 GIF Comment Extension 삽입 — Chrome 동일 바이너리 GIF 타이머 공유 차단.
+        //   같은 bomb_explode.gif 를 동시에 여러 셀에서 재생 시,
+        //   Chrome 이 바이트 동일 GIF 의 애니메이션 타이머를 공유 → 한쪽 종료 시 다른 쪽도 멈춤.
+        //   고유 4-byte ID 를 Comment Extension 으로 삽입하여 바이너리를 차별화.
+        const _uid = ++window._bombGifUid;
+        const _comment = new Uint8Array([0x21, 0xFE, 4,
+          (_uid >>> 24) & 0xFF, (_uid >>> 16) & 0xFF, (_uid >>> 8) & 0xFF, _uid & 0xFF, 0x00]);
+        // Global Color Table 끝 직후에 삽입
+        const _packed = cleaned[10];
+        const _hasGCT = (_packed >> 7) & 1;
+        const _gctBytes = _hasGCT ? 3 * (1 << ((_packed & 7) + 1)) : 0;
+        const _insertAt = 13 + _gctBytes;
+        const _final = new Uint8Array(cleaned.length + _comment.length);
+        _final.set(cleaned.subarray(0, _insertAt), 0);
+        _final.set(_comment, _insertAt);
+        _final.set(cleaned.subarray(_insertAt), _insertAt + _comment.length);
 
-    // NETSCAPE2.0 블록 위치 탐색
-    let nsStart = -1;
-    for (let i = 0; i < srcBytes.length - 18; i++) {
-      if (srcBytes[i] === 0x21 && srcBytes[i+1] === 0xFF && srcBytes[i+2] === 0x0B) {
-        const sig = String.fromCharCode(srcBytes[i+3],srcBytes[i+4],srcBytes[i+5],srcBytes[i+6],
-          srcBytes[i+7],srcBytes[i+8],srcBytes[i+9],srcBytes[i+10],srcBytes[i+11],srcBytes[i+12],srcBytes[i+13]);
-        if (sig === 'NETSCAPE2.0') { nsStart = i; break; }
-      }
-    }
-    // NETSCAPE 제거된 바이트
-    let basePatched = srcBytes;
-    if (nsStart >= 0) {
-      basePatched = new Uint8Array(srcBytes.length - 19);
-      basePatched.set(srcBytes.subarray(0, nsStart), 0);
-      basePatched.set(srcBytes.subarray(nsStart + 19), nsStart);
-    }
+        const blob = new Blob([_final], { type: 'image/gif' });
+        return URL.createObjectURL(blob);
+      });
+  }
 
-    // GCT 끝 위치 (Comment Extension 삽입 지점)
-    let gctEnd = 13;
-    if (srcBytes.length > 13) {
-      const flags = srcBytes[10];
-      if (flags & 0x80) gctEnd = 13 + 3 * (1 << ((flags & 0x07) + 1));
-    }
-    // NETSCAPE 제거 후 gctEnd 는 변하지 않음 (GCT 는 NETSCAPE 앞에 위치)
+  blastOrder.forEach((bombIdx, slot) => {
+    const b = bombs[bombIdx];
+    const startT = SKILL_START_MS + slot * BOMB_STAGGER_MS;
 
-    blastOrder.forEach((bombIdx, slot) => {
-      const b = bombs[bombIdx];
-      const startT = SKILL_START_MS + slot * BOMB_STAGGER_MS;
+    setTimeout(() => {
+      const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+      if (!cell) return;
 
-      setTimeout(() => {
-        const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
-        if (!cell) return;
+      // 팀 컬러 클래스
+      cell.classList.add(isOwnerMine(b.owner) ? 'bomb-team-mine' : 'bomb-team-enemy');
 
-        // 팀 컬러 클래스
-        cell.classList.add(isOwnerMine(b.owner) ? 'bomb-team-mine' : 'bomb-team-enemy');
+      // 기존 bomb idle GIF 제거
+      const existingIdle = cell.querySelector('.bomb-marker-gif');
+      if (existingIdle) existingIdle.remove();
 
-        // 기존 bomb idle GIF 제거
-        const existingIdle = cell.querySelector('.bomb-marker-gif');
-        if (existingIdle) existingIdle.remove();
-
-        // ★ 고유 GIF Comment Extension 삽입 (Chrome 동일 바이너리 타이머 공유 방지)
-        if (!window._bombGifUid) window._bombGifUid = 0;
-        const uid = ++window._bombGifUid;
-        const comment = new Uint8Array(8); // 21 FE 04 [uid 4bytes] 00
-        comment[0] = 0x21; comment[1] = 0xFE; comment[2] = 0x04;
-        comment[3] = (uid >>> 24) & 0xFF;
-        comment[4] = (uid >>> 16) & 0xFF;
-        comment[5] = (uid >>> 8) & 0xFF;
-        comment[6] = uid & 0xFF;
-        comment[7] = 0x00;
-        const patched = new Uint8Array(basePatched.length + 8);
-        patched.set(basePatched.subarray(0, gctEnd), 0);
-        patched.set(comment, gctEnd);
-        patched.set(basePatched.subarray(gctEnd), gctEnd + 8);
-
-        const blob = new Blob([patched], { type: 'image/gif' });
-        const blobUrl = URL.createObjectURL(blob);
-
-        // 폭발 GIF 오버레이 — 셀 내부 absolute
+      // ★ 매 폭탄마다 fresh Blob 생성 (프리뷰와 동일)
+      _createBombExplodeBlob().then(blobUrl => {
+        // document.body에 position:fixed 배치 — renderGameBoard 영향 밖
+        const cellRect = cell.getBoundingClientRect();
         const gif = document.createElement('img');
         gif.className = 'bomb-explode-overlay';
         gif.src = blobUrl;
-        cell.appendChild(gif);
-        cell.style.overflow = 'visible';
+        gif.style.position = 'fixed';
+        gif.style.left = (cellRect.left + cellRect.width / 2) + 'px';
+        gif.style.top = (cellRect.top + cellRect.height / 2) + 'px';
+        gif.style.width = Math.round(cellRect.width * 1.4) + 'px';
+        gif.style.height = Math.round(cellRect.height * 1.4) + 'px';
+        gif.style.zIndex = '9600';
+        document.body.appendChild(gif);
 
-        // ★ BOMB_IMPACT_DELAY 후 — 셀 쉐이크 + 컬러 플래시 + 파편 + SFX
+        // ★ BOMB_IMPACT_DELAY 후 — 셀 쉐이크 + 컬러 플래시 + SFX
         setTimeout(() => {
-          cell.classList.add('bomb-blast');
-          cell.classList.add('bomb-cell-shake');
-          setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
-          try { playBombExplosion(cell); } catch (e) {}
+          const c2 = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+          if (c2) {
+            c2.classList.add(isOwnerMine(b.owner) ? 'bomb-team-mine' : 'bomb-team-enemy');
+            c2.classList.add('bomb-blast');
+            c2.classList.add('bomb-cell-shake');
+            setTimeout(() => c2.classList.remove('bomb-cell-shake'), 450);
+          }
           try { playSfxBombExplode(); } catch (e) {}
         }, BOMB_IMPACT_DELAY);
 
-        // ★ GIF 종료 후 정리
+        // ★ GIF 종료 후 정리 (2600ms + 200ms 버퍼 = 2800ms — 프리뷰와 동일)
         setTimeout(() => {
           if (gif.parentNode) gif.remove();
           URL.revokeObjectURL(blobUrl);
-          cell.classList.remove('bomb-blast', 'bomb-team-mine', 'bomb-team-enemy');
-          cell.style.overflow = '';
+          const c3 = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
+          if (c3) c3.classList.remove('bomb-blast', 'bomb-team-mine', 'bomb-team-enemy');
         }, BOMB_GIF_DURATION + 200);
-      }, startT);
-    });
-
-    // 보드 정리 — 마지막 폭탄 GIF 종료 후
-    const totalMs = SKILL_START_MS + (bombs.length - 1) * BOMB_STAGGER_MS + BOMB_GIF_DURATION + 250;
-    setTimeout(() => {
-      if (Array.isArray(S.boardObjects)) {
-        const coordSet = new Set(bombs.map(b => `${b.col},${b.row}`));
-        S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && coordSet.has(`${o.col},${o.row}`)));
-        try { renderGameBoard(); } catch (e) {}
-      }
-    }, totalMs);
-  }).catch(() => {
-    // ★ 폴백: GIF 로드 실패 시 — 셀 플래시 + SFX 만
-    blastOrder.forEach((bombIdx, slot) => {
-      const b = bombs[bombIdx];
-      setTimeout(() => {
-        const cell = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
-        if (!cell) return;
-        cell.classList.add(isOwnerMine(b.owner) ? 'bomb-team-mine' : 'bomb-team-enemy');
-        cell.classList.add('bomb-blast', 'bomb-cell-shake');
-        setTimeout(() => cell.classList.remove('bomb-cell-shake'), 450);
-        try { playBombExplosion(cell); } catch (e) {}
-        try { playSfxBombExplode(); } catch (e) {}
-      }, SKILL_START_MS + slot * BOMB_STAGGER_MS);
-    });
-    const fallbackTotal = SKILL_START_MS + (bombs.length - 1) * BOMB_STAGGER_MS + 950;
-    setTimeout(() => {
-      if (Array.isArray(S.boardObjects)) {
-        const coordSet = new Set(bombs.map(b => `${b.col},${b.row}`));
-        S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && coordSet.has(`${o.col},${o.row}`)));
-        try { renderGameBoard(); } catch (e) {}
-      }
-    }, fallbackTotal);
+      });
+    }, startT);
   });
+
+  // 보드 정리 — 마지막 폭탄 GIF 종료 후
+  const totalMs = SKILL_START_MS + (bombs.length - 1) * BOMB_STAGGER_MS + BOMB_GIF_DURATION + 250;
+  setTimeout(() => {
+    if (Array.isArray(S.boardObjects)) {
+      const coordSet = new Set(bombs.map(b => `${b.col},${b.row}`));
+      S.boardObjects = S.boardObjects.filter(o => !(o.type === 'bomb' && coordSet.has(`${o.col},${o.row}`)));
+      try { renderGameBoard(); } catch (e) {}
+    }
+  }, totalMs);
 });
 
 // ── 폭탄 폭발 ──
@@ -8235,6 +8273,48 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
       }
     }
   }
+  // ★ 폭탄 사망 애니메이션 정보 수집 — alive 업데이트 완료, DOM 아직 미갱신 상태에서 방향 캡처.
+  //   attack_result 의 _detectDeaths 와 동일한 패턴이지만 hits 배열에서 직접 구축.
+  const _bombDeathInfos = [];
+  if (bombAnyDestroyed) {
+    const _bboard = document.getElementById('game-board');
+    for (const h of hits) {
+      if (!h.destroyed) continue;
+      const _isMyUnit = (h.defOwnerIdx === _myOwnerIdx) ||
+        (S.isTeamMode && h.defOwnerIdx === _teammateOwnerIdx);
+      let facingLeft = false;
+      if (_bboard) {
+        const _bcell = _bboard.querySelector(`.cell[data-col="${h.col}"][data-row="${h.row}"]`);
+        if (_bcell) {
+          const _msel = _isMyUnit
+            ? '.piece-marker:not(.opp-marked)'
+            : '.piece-marker.opp-marked';
+          const _mk = _bcell.querySelector(_msel) || _bcell.querySelector('.piece-marker');
+          if (_mk) {
+            const _gif = _mk.querySelector('.p-icon img.p-gif');
+            if (_gif && (_gif.style.transform || '').includes('scaleX(-1)')) facingLeft = true;
+          }
+        }
+      }
+      // type 결정 — piece 배열에서 조회 (alive=false 이지만 type 필드는 유지)
+      let _dtype = h.type || null;
+      if (!_dtype) {
+        const _findT = (arr) => {
+          if (!Array.isArray(arr)) return null;
+          const p = arr.find(pp => pp.col === h.col && pp.row === h.row && pp.name === h.name);
+          return p ? (p.type || p.pieceType || null) : null;
+        };
+        _dtype = _findT(S.myPieces) || _findT(S.oppPieces)
+          || (S.isTeamMode ? _findT(S.teammatePieces) : null) || null;
+      }
+      _bombDeathInfos.push({
+        col: h.col, row: h.row,
+        type: _dtype,
+        facingLeft,
+        isEnemy: !_isMyUnit,
+      });
+    }
+  }
   // ★ 자동 추리토큰 — 폭탄도 적의 piece 위치를 노출. 팀원 폭탄 / 본인 폭탄 양쪽 모두 적용.
   //   조건: meaningful hit (사망 제외) 정확히 1명 + 적팀 piece (1v1: 상대) — 일반 공격과 동일 규칙.
   {
@@ -8271,8 +8351,6 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
   }
   // 사망 시 추리 토큰 즉시 제거 (트랩과 동일)
   if (bombAnyDestroyed && typeof pruneDeductionTokens === 'function') pruneDeductionTokens();
-  // 셀 + 보드 아이콘 피격 애니메이션 (트랩과 동일하게 — 일반 공격 hit 애니)
-  animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
 
   // 폭탄 피격 애니메이션: 내 유닛 & 상대 유닛 모두 (팀모드는 팀원도 포함)
   // ★ 사용자 보고 (잘못된 링크): 양 측이 같은 캐릭터 보유 시 name 매칭이 cross-side 매칭하던 문제 →
@@ -8288,42 +8366,64 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
     if (teammate) tmBombIdx = findPieceIndices(S.teammatePieces, hits, true, teammate.idx);
   }
 
-  renderGameBoard();
-  if (S.isTeamMode && typeof renderTeamProfiles === 'function') {
-    renderTeamProfiles();
-  } else {
-    renderMyPieces();
-    renderOppPieces();
-  }
-
-  if (!S.isTeamMode) {
-    applyProfileHitAnim('#my-pieces-info .my-piece-card', myBombIdx);
-    applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppBombIdx);
-  }
-  // ★ 사용자 보고 (갑주무사 패시브 누설): bomb_detonated 핸들러가 flushDefensiveAlerts 호출 누락 →
-  //   서버가 detonateBomb → resolveDamage 에서 발사한 passive_alert 가 클라 버퍼에 쌓이고
-  //   다음 공격까지 잔류해 "갑주무사가 안 맞았는데도 패시브가 나오는" 현상.
-  //   trap_triggered / attack_result / being_attacked 와 동일 패턴으로 즉시 flush.
-  if (typeof flushDefensiveAlerts === 'function') {
-    const _bombKilled = (hits || []).some(h => h.destroyed);
-    flushDefensiveAlerts({ skipReduction: _bombKilled });
-  }
-  // 팀모드: 팀원 카드 — data-piece-idx 기반 정확 매칭
-  if (tmBombIdx.length > 0 && S.isTeamMode) {
-    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
-    if (teammate) {
-      requestAnimationFrame(() => {
-        for (const i of tmBombIdx) {
-          const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${i}"]`);
-          if (card) {
-            card.classList.remove('profile-hit');
-            void card.offsetWidth;
-            card.classList.add('profile-hit');
-            setTimeout(() => card.classList.remove('profile-hit'), 1800);
-          }
-        }
-      });
+  // ★ 렌더 후 피격·프로필 애니메이션 공통 로직
+  const _doPostBombRender = () => {
+    // 셀 + 보드 아이콘 피격 애니메이션 — renderGameBoard 이후에 호출 (셀 DOM 필요)
+    animateAttack([], hits.map(h => ({ col: h.col, row: h.row })));
+    if (!S.isTeamMode) {
+      applyProfileHitAnim('#my-pieces-info .my-piece-card', myBombIdx);
+      applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppBombIdx);
     }
+    // ★ 사용자 보고 (갑주무사 패시브 누설): flushDefensiveAlerts 즉시 flush.
+    if (typeof flushDefensiveAlerts === 'function') {
+      const _bombKilled = (hits || []).some(h => h.destroyed);
+      flushDefensiveAlerts({ skipReduction: _bombKilled });
+    }
+    // 팀모드: 팀원 카드 — data-piece-idx 기반 정확 매칭
+    if (tmBombIdx.length > 0 && S.isTeamMode) {
+      const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+      if (teammate) {
+        requestAnimationFrame(() => {
+          for (const i of tmBombIdx) {
+            const card = document.querySelector(`#my-pieces-info .team-profile-block[data-player-idx="${teammate.idx}"] [data-piece-idx="${i}"]`);
+            if (card) {
+              card.classList.remove('profile-hit');
+              void card.offsetWidth;
+              card.classList.add('profile-hit');
+              setTimeout(() => card.classList.remove('profile-hit'), 1800);
+            }
+          }
+        });
+      }
+    }
+  };
+
+  // ★ 폭탄 사망 애니메이션 — attack_result 와 동일한 _pendingDeathCells → playDeathAnimations 패턴.
+  //   사망 유닛이 있으면: renderGameBoard 먼저 하되 사망 GIF 끝날 때까지 dead piece 를 DOM 에 유지.
+  if (_bombDeathInfos.length > 0) {
+    S._pendingDeathCells = new Set(_bombDeathInfos.map(d => `${d.col},${d.row}`));
+    renderGameBoard();
+    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+    else { renderMyPieces(); renderOppPieces(); }
+    _doPostBombRender();
+
+    // 피격 GIF 정착 후 사망 GIF 재생 (400ms — 피격 흔들림 0.35s + 여유)
+    setTimeout(() => {
+      playDeathAnimations(_bombDeathInfos, () => {
+        S._pendingDeathCells = null;
+        _addClientSideRemains(_bombDeathInfos);
+        renderGameBoard();
+        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+        else { renderMyPieces(); renderOppPieces(); }
+      });
+    }, 400);
+  } else {
+    // 사망 없음 또는 모든 사망이 유해 제외 타입 — 기존대로 즉시 렌더
+    if (bombAnyDestroyed) _addClientSideRemains(_bombDeathInfos);
+    renderGameBoard();
+    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+    else { renderMyPieces(); renderOppPieces(); }
+    _doPostBombRender();
   }
 });
 
@@ -12446,6 +12546,163 @@ function _reseedMarkedOppsFromMap() {
   for (const key of toDelete) S._revealedMarkedOpps.delete(key);
 }
 
+// ── 셀 핑거프린트 — iPad 최적화 ──────────────────────────────────
+// 셀의 렌더 결정 상태를 compact string 으로 요약.
+// 이전 렌더와 동일하면 해당 셀의 DOM 재빌드를 건너뛰어
+// GIF/PNG 재디코드 및 img 재생성을 방지한다.
+function _cellStateFP(col, row, pre) {
+  const b = S.boardBounds;
+  if (col < b.min || col > b.max || row < b.min || row > b.max) return 'X';
+  const k = col + ',' + row;
+  const pdc = S._pendingDeathCells ? (S._pendingDeathCells.has(k) ? 1 : 0) : 0;
+  const alv = (p) => p.alive || (pdc && p.col === col && p.row === row);
+  let f = '';
+
+  // ── 내 말 ──
+  const mp = S.myPieces.find(p => p.col === col && p.row === row && alv(p));
+  if (mp) {
+    const i = S.myPieces.indexOf(mp);
+    const tw = mp.subUnit === 'elder' || mp.subUnit === 'younger';
+    const ot = tw ? S.myPieces.find(p => p.alive && p !== mp &&
+      (p.subUnit === 'elder' || p.subUnit === 'younger') &&
+      p.col === col && p.row === row) : null;
+    const dSkip = mp.isDragon && S._dragonIncoming &&
+      S._dragonIncoming.has(k + ',' + S.playerIdx);
+    f += 'm' + mp.type + ',' + (mp.subUnit || '') + ',' + mp.hp + ',' + mp.maxHp +
+      ',' + mp.alive + ',' + (mp.icon || '') + ',' + (ot ? 'Y' : 'N') + (dSkip ? 'D' : '');
+    f += '|si' + (typeof getStatusIcons === 'function' ? (getStatusIcons(mp) || '') : '');
+    f += '|s' + (i === S.selectedPiece ? 1 : 0);
+    // dim
+    const twDim = S.twinMovePending && S.twinMovedSub && mp.subUnit === S.twinMovedSub;
+    const daI = S.myPieces.findIndex(p => p.alive && p.dualBladeAttacksLeft > 0);
+    const saI = S.myPieces.findIndex(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+    f += (twDim ? 'w' : '') + ((daI >= 0 && daI !== i) || (saI >= 0 && saI !== i) ? 'l' : '');
+    f += '|tp' + (S.twinPhaseActive || '') + (S.twinFirstSubMoved || '');
+    // skill caster
+    f += (S.action === 'skill_target' && S.skillTargetData &&
+      S.skillTargetData.pieceIdx === i ? 'C' : '');
+    // radial
+    f += '|r' + (S._radialMenuPiece === i ? 1 : 0);
+    // twin partner selected
+    if (tw && S.selectedPiece != null) {
+      const sp = S.myPieces[S.selectedPiece];
+      if (sp && sp !== mp && (sp.subUnit === 'elder' || sp.subUnit === 'younger')) f += 'P';
+    }
+  }
+
+  // ── 팀원 ──
+  if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+    const tp = S.teammatePieces.find(p => p.col === col && p.row === row && alv(p));
+    if (tp) {
+      const tw2 = tp.subUnit === 'elder' || tp.subUnit === 'younger';
+      const ot2 = tw2 ? S.teammatePieces.find(p => p.alive && p !== tp &&
+        (p.subUnit === 'elder' || p.subUnit === 'younger') &&
+        p.col === col && p.row === row) : null;
+      f += '|T' + tp.type + ',' + tp.hp + ',' + tp.maxHp + ',' + (tp.subUnit || '') +
+        ',' + (tp.icon || '') + (ot2 ? 'Y' : 'N');
+      f += (typeof getStatusIcons === 'function' ? (getStatusIcons(tp) || '') : '');
+      const dSkip2 = tp.isDragon && S._dragonIncoming &&
+        (S.teamGamePlayers || []).some(pl =>
+          (pl.pieces || []).some(pp => pp.col === col && pp.row === row && pp.isDragon) &&
+          S._dragonIncoming.has(k + ',' + pl.idx));
+      f += (dSkip2 ? 'D' : '');
+    }
+  }
+
+  // ── 표식 적 ──
+  const mo = S.oppPieces ? S.oppPieces.find(p => p.marked && alv(p) &&
+    p.col === col && p.row === row) : null;
+  if (mo) {
+    f += '|O' + (mo.type || '') + ',' + mo.hp + ',' + mo.maxHp + ',' + (mo.icon || '');
+    f += ((mo.statusEffects || []).some(e => e.type === 'mark') ? 'K' : '');
+  }
+
+  // ── 보드 오브젝트 ──
+  if (S.boardObjects) {
+    for (const obj of S.boardObjects) {
+      if (obj.col === col && obj.row === row) {
+        f += '|B' + obj.type + obj.owner;
+        if (obj.type === 'rat') {
+          f += (S._ratIncoming && S._ratIncoming.has(col + ',' + row + ',' + obj.owner) ? 'I' : '');
+          f += (S._ratAttackAnimCells && S._ratAttackAnimCells.has(k) ? 'A' : '');
+        }
+      }
+    }
+  }
+
+  // ── 유해 ──
+  if (S.remains && S.remains.some(r => r.col === col && r.row === row)) {
+    f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '');
+  }
+
+  // ── 공격 로그 ──
+  if (S.attackLog.length > 0) {
+    const atk = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+    if (atk) f += '|A' + (atk.hit ? 1 : 0);
+  }
+
+  // ── 범위 오버레이 (pre-computed) ──
+  f += '|' +
+    (pre.move && pre.move.has(k) ? 'M' : '') +
+    (pre.attack && pre.attack.has(k) ? 'R' : '') +
+    (pre.teammate && pre.teammate.has(k) ? 'E' : '') +
+    (pre.skill && pre.skill.has(k) ? 'S' : '') +
+    (pre.target && pre.target.has(k) ? 'G' : '');
+
+  // move range blocked 상태
+  if (pre.move && pre.move.has(k)) {
+    const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
+    const fOcc = S.myPieces.find(p => p.alive && p.col === col && p.row === row);
+    const selPc = S.selectedPiece !== null ? S.myPieces[S.selectedPiece] : null;
+    const bothTw = selPc && selPc.subUnit && fOcc && fOcc.subUnit;
+    const fBlk = fOcc && !bothTw;
+    let tBlk = false;
+    if (S.isTeamMode && S.teammatePieces) tBlk = S.teammatePieces.some(p => p.alive && p.col === col && p.row === row);
+    f += (hasRem || fBlk || tBlk) ? 'b' : '';
+  }
+
+  // ── 추리 토큰 ──
+  const tok = S.deductionTokens.find(t => t.col === col && t.row === row);
+  if (tok) f += '|DT' + tok.pieceKey;
+
+  // ── 캐러셀 인덱스 ──
+  const _cs = window._cellCarouselState && window._cellCarouselState[k];
+  if (_cs) f += '|CI' + _cs.idx;
+
+  // ── 쥐 소환 마크 ──
+  if (Array.isArray(S._ratSpawnMarks) && S._ratSpawnMarks.some(
+    m => m.col === col && m.row === row && m.spawnT && (Date.now() - m.spawnT) < 3000))
+    f += '|SM';
+
+  // ── 모라일 존 ──
+  if (pre.moraleCenter && pre.moraleCenter.has(k)) f += '|MC';
+  else if (pre.moraleZone && pre.moraleZone.has(k)) {
+    f += '|MZ';
+    const dirs = pre.moraleDirs ? pre.moraleDirs.get(k) : null;
+    if (dirs) f += dirs.join('');
+    // morale-buffed: 이 셀에 아군이 있을 때만
+    const aOnCell = (arr) => Array.isArray(arr) && arr.some(p => p.alive && p.col === col && p.row === row);
+    let allyHere = aOnCell(S.myPieces);
+    if (!allyHere && S.isTeamMode) allyHere = aOnCell(S.teammatePieces);
+    if (!allyHere && S.isSpectator && S.specGameState) {
+      allyHere = aOnCell(S.specGameState.p0Pieces) || aOnCell(S.specGameState.p1Pieces);
+      if (!allyHere) for (const pl of (S.specGameState.teamGamePlayers || [])) {
+        if (aOnCell(pl.pieces)) { allyHere = true; break; }
+      }
+    }
+    if (allyHere) f += 'B';
+  }
+
+  // ── 공격/이동 애니 ──
+  if (typeof _attackPlayingCells !== 'undefined' && _attackPlayingCells.has(k)) f += '|AP';
+  if (typeof _moveAnimDest !== 'undefined' && _moveAnimDest.has(k)) f += '|MD';
+
+  // ── 글로벌 ──
+  f += '|' + (S.isTeamMode ? 'T' + S.teamId : '') + (S.isSpectator ? 'SP' : '');
+
+  return f;
+}
+
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
 function renderGameBoard() {
   const board = document.getElementById('game-board');
@@ -12454,9 +12711,144 @@ function renderGameBoard() {
   try { _reseedMarkedOppsFromMap(); } catch (e) {}
   const bounds = S.boardBounds;
 
+  // ★ iPad 최적화: boardBounds 변경 감지 → 핑거프린트 캐시 자동 무효화
+  const _bbKey = (bounds ? bounds.min + ',' + bounds.max : '');
+  if (S._cellFPBounds !== _bbKey) { S._cellFPBounds = _bbKey; S._cellFP = null; }
+
+  // ★ iPad 최적화: 범위 + 모라일 존을 사전 계산 → 핑거프린트에 활용
+  const _preRanges = { move: null, attack: null, teammate: null, skill: null, target: null,
+    moraleZone: null, moraleCenter: null, moraleDirs: null };
+  // — move range —
+  if ((S.action === 'move' || S.action === 'twin_move') && S.selectedPiece !== null) {
+    const sp = S.myPieces[S.selectedPiece];
+    if (sp) {
+      _preRanges.move = new Set();
+      [{dc:0,dr:-1},{dc:0,dr:1},{dc:-1,dr:0},{dc:1,dr:0}].forEach(({dc,dr}) => {
+        const c = sp.col+dc, r = sp.row+dr;
+        if (c >= bounds.min && c <= bounds.max && r >= bounds.min && r <= bounds.max)
+          _preRanges.move.add(c+','+r);
+      });
+    }
+  }
+  // — attack range —
+  if (S.action === 'attack' && S.selectedPiece !== null && !S.targetSelectMode) {
+    const sp = S.myPieces[S.selectedPiece];
+    if (sp) {
+      const extra = { toggleState: sp.toggleState };
+      let range = getAttackCells(sp.type, sp.col, sp.row, extra);
+      if (sp.subUnit) {
+        const osub = sp.subUnit === 'elder' ? 'younger' : 'elder';
+        const ot = S.myPieces.find(p => p.subUnit === osub && p.alive);
+        if (ot) {
+          const tr = getAttackCells(ot.type, ot.col, ot.row, extra);
+          for (const tc of tr) if (!range.some(c => c.col === tc.col && c.row === tc.row)) range.push(tc);
+        }
+      }
+      _preRanges.attack = new Set(range.map(c => c.col+','+c.row));
+    }
+  }
+  // — teammate range —
+  if (S.isTeamMode && S.teammateRangePiece) {
+    const trp = S.teammateRangePiece;
+    const extra = { toggleState: trp.toggleState };
+    let tmRange = getAttackCells(trp.type, trp.col, trp.row, extra);
+    if (trp.subUnit) {
+      const osub = trp.subUnit === 'elder' ? 'younger' : 'elder';
+      const ot = S.teammatePieces ? S.teammatePieces.find(p => p.subUnit === osub && p.alive) : null;
+      if (ot) {
+        const otR = getAttackCells(ot.type, ot.col, ot.row, extra);
+        for (const tc of otR) if (!tmRange.some(c => c.col === tc.col && c.row === tc.row)) tmRange.push(tc);
+      }
+    }
+    _preRanges.teammate = new Set(tmRange.map(c => c.col+','+c.row));
+  }
+  // — target select —
+  if (S.targetSelectMode && S.selectedPiece !== null) {
+    const sp = S.myPieces[S.selectedPiece];
+    if (sp) {
+      _preRanges.target = new Set();
+      const _fillTarget = (c, r) => {
+        if (c < bounds.min || c > bounds.max || r < bounds.min || r > bounds.max) return;
+        let inR = true;
+        if (sp.type === 'shadowAssassin') inR = Math.abs(c - sp.col) <= 1 && Math.abs(r - sp.row) <= 1;
+        if (inR) _preRanges.target.add(c+','+r);
+      };
+      for (let c = bounds.min; c <= bounds.max; c++)
+        for (let r = bounds.min; r <= bounds.max; r++) _fillTarget(c, r);
+    }
+  }
+  // — skill range —
+  if (S.action === 'skill_target' && S.skillTargetData) {
+    const std = S.skillTargetData;
+    _preRanges.skill = new Set();
+    if (std.type === 'bomb_place') {
+      const src = S.myPieces[std.pieceIdx];
+      if (src) {
+        for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) {
+          if (dc === 0 && dr === 0) continue;
+          const c = src.col+dc, r = src.row+dr;
+          if (c >= bounds.min && c <= bounds.max && r >= bounds.min && r <= bounds.max)
+            _preRanges.skill.add(c+','+r);
+        }
+      }
+    } else {
+      for (let c = bounds.min; c <= bounds.max; c++)
+        for (let r = bounds.min; r <= bounds.max; r++) _preRanges.skill.add(c+','+r);
+    }
+  }
+  // — morale zone —
+  {
+    const _mzSet = new Set(), _mcSet = new Set(), _mdMap = new Map();
+    const _addMZ = (cc, cr) => {
+      _mcSet.add(cc+','+cr); _mzSet.add(cc+','+cr);
+      const dirs = [{dc:0,dr:-1,c:'morale-from-s'},{dc:0,dr:1,c:'morale-from-n'},
+        {dc:-1,dr:0,c:'morale-from-e'},{dc:1,dr:0,c:'morale-from-w'}];
+      for (const d of dirs) {
+        const nk = (cc+d.dc)+','+(cr+d.dr); _mzSet.add(nk);
+        if (!_mdMap.has(nk)) _mdMap.set(nk, []);
+        _mdMap.get(nk).push(d.c);
+      }
+    };
+    for (const p of S.myPieces) if (p.alive && p.type === 'commander') _addMZ(p.col, p.row);
+    if (S.isTeamMode && Array.isArray(S.teammatePieces))
+      for (const p of S.teammatePieces) if (p.alive && p.type === 'commander') _addMZ(p.col, p.row);
+    if (S.isSpectator && S.specGameState) {
+      for (const pl of (S.specGameState.teamGamePlayers || []))
+        for (const pc of (pl.pieces || [])) if (pc.alive && pc.type === 'commander') _addMZ(pc.col, pc.row);
+      for (const pc of [...(S.specGameState.p0Pieces||[]),...(S.specGameState.p1Pieces||[])])
+        if (pc.alive && pc.type === 'commander') _addMZ(pc.col, pc.row);
+    }
+    _preRanges.moraleZone = _mzSet; _preRanges.moraleCenter = _mcSet; _preRanges.moraleDirs = _mdMap;
+  }
+
   board.querySelectorAll('.cell').forEach(cell => {
     const col = parseInt(cell.dataset.col);
     const row = parseInt(cell.dataset.row);
+
+    // ★ iPad 최적화: 핑거프린트 비교 — 변경 없는 셀은 DOM 재빌드 건너뜀
+    //   첫 렌더는 항상 통과 (S._cellFP 미초기화).
+    //   이후 동일 핑거프린트이면 innerHTML / className 모두 보존 → img 재디코드 방지.
+    const _fpVal = _cellStateFP(col, row, _preRanges);
+    const _fpKey = col * 100 + row;
+    if (S._cellFP) {
+      if (S._cellFP.get(_fpKey) === _fpVal) return; // 변경 없음 → skip
+      S._cellFP.set(_fpKey, _fpVal);
+    } else {
+      S._cellFP = new Map();
+      S._cellFP.set(_fpKey, _fpVal);
+    }
+
+    // ★ iPad 깜빡임 완전 방지: img 요소 보존
+    // innerHTML 리빌드 전에 기존 img 를 DOM 에서 분리 보관.
+    // 분리된 img 는 JS 참조로 decoded pixel data 를 유지하며,
+    // 리빌드 후 동일 src 이면 재삽입하여 재디코드 없이 즉시 표시.
+    // 전 과정이 같은 동기 프레임 내에 완료되므로 빈 프레임이 없음.
+    const _savedImgs = [];
+    cell.querySelectorAll('img').forEach(img => {
+      img.remove();
+      _savedImgs.push(img);
+    });
+
     cell.className = 'cell';
     cell.innerHTML = `<span class="coord-label">${coord(col,row)}</span>`;
 
@@ -12823,6 +13215,22 @@ function renderGameBoard() {
       if (!pc) cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
     }
 
+    // ★ img 복원 — 동일 src 의 decoded img 재삽입 (깜빡임 완전 방지)
+    // 모든 innerHTML += 작업이 끝난 시점. 새로 생성된 unloaded img 를
+    // 이전 렌더에서 보관한 decoded img 로 교체한다.
+    if (_savedImgs.length > 0) {
+      cell.querySelectorAll('img').forEach(newImg => {
+        const idx = _savedImgs.findIndex(s => s.src === newImg.src);
+        if (idx >= 0) {
+          const saved = _savedImgs[idx];
+          saved.className = newImg.className;
+          saved.style.cssText = newImg.style.cssText;
+          newImg.replaceWith(saved);
+          _savedImgs.splice(idx, 1);
+        }
+      });
+    }
+
     // 이동 범위 — 일반 이동 / 쌍둥이 이동 페이즈 모두 동일한 십자 1칸
     if ((S.action === 'move' || S.action === 'twin_move') && S.selectedPiece !== null) {
       const selPc = S.myPieces[S.selectedPiece];
@@ -12951,11 +13359,14 @@ function renderGameBoard() {
       cell.appendChild(tokenEl);
     }
 
-    // ── 셀 드롭 수신 ──
+    // ── 셀 드롭 수신 (★ 한 번만 등록 — iPad 최적화 + 중복 리스너 방지) ──
+    if (!cell._dgL) {
+    cell._dgL = true;
     cell.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
     cell.addEventListener('drop', (e) => {
       e.preventDefault();
-      if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+      const _bnd = S.boardBounds;
+      if (col < _bnd.min || col > _bnd.max || row < _bnd.min || row > _bnd.max) return;
       try {
         const data = JSON.parse(e.dataTransfer.getData('text/plain'));
         // 같은 칸에 이미 다른 토큰이 있는 경우 처리:
@@ -12984,6 +13395,7 @@ function renderGameBoard() {
         updateDeductionBadgesInPlace();
       } catch (err) { /* ignore */ }
     });
+    } // end if (!cell._dgL)
   });
 
   // 부채꼴 메뉴 활성 셀 클래스 보존 — cell.className='cell' 로 리셋된 후 다시 부여.
@@ -17014,18 +17426,27 @@ function playDeathAnimations(deaths, callback) {
       }
     }
 
-    // ★ piece marker 딤 — 적 유닛이 내 아군과 같은 셀에서 사망할 때만 딤.
-    //   내 아군 본인이 사망하는 경우 (isEnemy=false) 는 딤 불필요.
-    //   marker가 1개뿐이면 공존 유닛 없음 → 딤 X.
-    //   2개 이상 + isEnemy=true 이면 아군 marker를 딤.
+    // ★ piece marker 처리 — 사망 유닛 마커는 완전 숨김, 공존 아군 마커만 딤.
+    //   (1) dyingMarker: 사망하는 유닛의 마커 → display:none (idle GIF 비침 방지)
+    //   (2) aliveMarker: 같은 셀에 살아있는 내 아군 마커 → opacity:0.3 딤
+    //        - 적이 사망 + 내 아군 공존 시에만 딤
+    //        - 내 유닛 사망 + 적 공존 시 적 마커는 딤하지 않음
     const _allMarkers = cell.querySelectorAll('.piece-marker');
-    let marker = null;
-    if (d.isEnemy && _allMarkers.length >= 2) {
-      // 적이 사망 → 내 아군 marker (non-opp-marked) 를 딤
+    let dyingMarker = null;
+    let aliveMarker = null;  // 딤 대상 (내 아군만)
+    if (d.isEnemy) {
       for (const m of _allMarkers) {
-        if (!m.classList.contains('opp-marked')) { marker = m; break; }
+        if (m.classList.contains('opp-marked')) dyingMarker = m;
+        else aliveMarker = m;
+      }
+    } else {
+      for (const m of _allMarkers) {
+        if (!m.classList.contains('opp-marked')) dyingMarker = m;
+        // 적 마커는 딤 대상 아님 — aliveMarker 미설정
       }
     }
+    // 사망 유닛 마커 완전 숨김
+    if (dyingMarker) { dyingMarker.style.display = 'none'; }
 
     // 사망 GIF 오버레이 생성
     const overlay = document.createElement('div');
@@ -17084,9 +17505,8 @@ function playDeathAnimations(deaths, callback) {
           }
           const patchedBlob = new Blob([patched], { type: 'image/gif' });
           const blobUrl = URL.createObjectURL(patchedBlob);
-          // ★ GIF 첫 프레임 로드 완료 후 마커 딤 — 아군 유닛이 같은 셀에 있어도 사라지지 않음.
-          //   사망 GIF 가 z-index 상단에 오버레이되고, 마커는 opacity 0.3 으로 딤.
-          img.onload = () => { if (marker) { marker.style.opacity = '0.3'; marker.style.transition = 'opacity 0.15s'; } };
+          // ★ GIF 첫 프레임 로드 완료 후 공존 아군 마커만 딤 (사망 마커는 이미 display:none)
+          img.onload = () => { if (aliveMarker) { aliveMarker.style.opacity = '0.3'; aliveMarker.style.transition = 'opacity 0.15s'; } };
           img.src = blobUrl;
 
           // GIF 재생 시간 파싱
@@ -17100,21 +17520,24 @@ function playDeathAnimations(deaths, callback) {
             setTimeout(() => {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
-              // ★ 딤 해제 — 아군 유닛이 있으면 다시 정상 opacity 복원
-              if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
+              // ★ 딤 해제 + 사망 마커 복원 (renderGameBoard 가 재구축하므로 안전)
+              if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
+              if (dyingMarker) { dyingMarker.style.display = ''; }
               done();
             }, totalMs);
           }).catch(() => {
             setTimeout(() => {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
-              if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
+              if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
+              if (dyingMarker) { dyingMarker.style.display = ''; }
               done();
             }, 900);
           });
         });
       }).catch(() => {
-        if (marker) { marker.style.opacity = ''; marker.style.transition = ''; }
+        if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
+        if (dyingMarker) { dyingMarker.style.display = ''; }
         if (overlay.parentNode) overlay.remove();
         done();
       });
@@ -17149,10 +17572,26 @@ function _detectDeaths(destroyedList, isDefending) {
         }
       }
     }
+    // ★ type fallback — being_attacked 등 서버가 type/revealedType 을 안 보내는 경로에서
+    //   클라이언트 piece 배열에서 type 을 조회. 유황솥(sulfurCauldron)/드래곤 등 전용 사망 GIF 매핑에 필수.
+    let _deathType = d.type || d.revealedType || null;
+    if (!_deathType) {
+      const _lookupType = (arr) => {
+        if (!Array.isArray(arr)) return null;
+        const p = arr.find(pp => pp.col === d.col && pp.row === d.row && pp.name === d.name);
+        if (!p) {
+          // name 없으면 좌표만으로 매칭
+          return (arr.find(pp => pp.col === d.col && pp.row === d.row) || {}).type || null;
+        }
+        return p.type || null;
+      };
+      _deathType = _lookupType(S.myPieces) || _lookupType(S.oppPieces)
+        || (S.isTeamMode ? _lookupType(S.teammatePieces) : null) || null;
+    }
     deaths.push({
       col: d.col,
       row: d.row,
-      type: d.type || d.revealedType || null,
+      type: _deathType,
       facingLeft,
       isEnemy: !isDefending,  // ★ 적 사망 여부 — 딤 처리 판단용
     });
