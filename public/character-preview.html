@@ -354,15 +354,29 @@ function applyRemainsSize(){
 function applyFacing(){ unitImg.classList.toggle('flip', !facingRight); }
 function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
 
+/* ── 깜빡임 방지: 새 이미지를 먼저 디코드한 뒤 src/크기를 동시에 교체 ── */
+function decodeFirst(src){
+  return new Promise(res => {
+    const t = new Image();
+    t.onload = () => res();
+    t.onerror = () => res();
+    t.src = src;
+    if (t.decode) t.decode().then(res, res);
+  });
+}
+
 /* ── GIF 모션 표시 (idle / attack) ── */
 async function showGif(url, myRun, ratio){
   const {ms, blob} = await loadGif(url);
   if (myRun !== runId) return ms;
+  const newUrl = blob ? URL.createObjectURL(blob) : url;
+  await decodeFirst(newUrl);                 // 디코드 완료까지 대기 → 빈/이전 프레임 깜빡임 차단
+  if (myRun !== runId){ if (blob) URL.revokeObjectURL(newUrl); return ms; }
   curRatio = ratio; curObjFilterMove = false;
   applyImgSize();
   unitImg.style.filter = outlineF();
   applyFacing();
-  if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(url);
+  if (blob) setUnitSrc(newUrl); else setUnitStatic(newUrl);
   return ms;
 }
 
@@ -375,17 +389,20 @@ async function doMove(myRun){
   const dir = (cellIdx === 0) ? +1 : -1;
   facingRight = (dir > 0);
 
+  let moveUrlFinal = moveUrl, moveBlob = null;
   if (e.noMovePng){
-    const {blob} = await loadGif(moveUrl);
+    const r = await loadGif(moveUrl);
     if (myRun !== runId) return;
-    if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(moveUrl);
-  } else {
-    setUnitStatic(moveUrl);
+    moveBlob = r.blob;
+    moveUrlFinal = moveBlob ? URL.createObjectURL(moveBlob) : moveUrl;
   }
+  await decodeFirst(moveUrlFinal);           // 디코드 먼저 → 이동 시작 시 깜빡임 차단
+  if (myRun !== runId){ if (moveBlob) URL.revokeObjectURL(moveUrlFinal); return; }
   curRatio = isDragon ? DRAGON_MOVE_R : MOVE_R; curObjFilterMove = true;
   applyImgSize();
   unitImg.style.filter = moveF();
   applyFacing();
+  if (moveBlob) setUnitSrc(moveUrlFinal); else setUnitStatic(moveUrlFinal);
 
   // requestAnimationFrame으로 직접 구동 → 매 프레임 정확한 위치에 잔상 생성
   unitEl.classList.remove('moving');           // CSS transition 비활성 (rAF가 직접 제어)
@@ -485,6 +502,9 @@ async function playDeath(){
   const deathUrl = cur.death ? `art/death_${cur.death}.gif` : 'art/death_common.gif';
   const {ms, blob} = await loadGifOnce(deathUrl);
   if (myRun !== runId) return;
+  const deathUrlFinal = blob ? URL.createObjectURL(blob) : deathUrl;
+  await decodeFirst(deathUrlFinal);          // 디코드 먼저 → 사망 전환 깜빡임 차단
+  if (myRun !== runId){ if (blob) URL.revokeObjectURL(deathUrlFinal); return; }
 
   // 드래곤·유황솥은 전용 사망 사이즈가 있음 — 인게임에서 사망 GIF 를 idle GIF rect 에 맞춰
   // 배치(death_dragon/sulfurCauldron 이 32×32 로 idle 과 동일 해상도이기 때문). 따라서 공통
@@ -493,7 +513,7 @@ async function playDeath(){
   applyImgSize();
   unitImg.style.filter = outlineF();
   applyFacing();   // facingRight 기준 → 사망 GIF 방향
-  if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(deathUrl);
+  if (blob) setUnitSrc(deathUrlFinal); else setUnitStatic(deathUrlFinal);
 
   await wait(ms);
   if (myRun !== runId) return;
