@@ -285,6 +285,7 @@ body {
   padding: 10px 22px; border: none; border-radius: 8px;
   font-size: 0.9rem; font-weight: 600; cursor: pointer;
   transition: all 0.15s; letter-spacing: 0.5px;
+  touch-action: manipulation; /* iPad 300ms 탭 딜레이 제거 */
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-large { padding: 14px 32px; font-size: 1rem; width: 100%; margin-top: 12px; }
@@ -2438,6 +2439,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   transition: background 0.12s, border-color 0.12s;
   font-size: 0.65rem;
   overflow: hidden;
+  touch-action: manipulation; /* iPad 300ms 탭 딜레이 제거 */
 }
 .cell:hover { background: var(--cell-h); border-color: #4a4a7a; }
 .cell.has-piece { background: #1a2040; border-color: #3a4a80; }
@@ -2780,6 +2782,7 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
 .cell.has-remains {
   background: rgba(80,60,60,0.35) !important;
   border-color: rgba(120,80,80,0.4) !important;
+  overflow: visible;
 }
 .remains-marker {
   position: absolute;

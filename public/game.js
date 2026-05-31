@@ -27,6 +27,11 @@ socket.on('reconnect_failed', ({ reason }) => {
 
 socket.on('reconnect_ok', ({ idx, phase }) => {
   // 상태는 다른 이벤트(joined/team_game_start)로 복구
+  // ★ 새로고침으로 잃어버린 playerIdx 복원 — 1v1 세팅 단계 이벤트(reveal/placement 등)는
+  //   idx 를 싣지 않으므로 여기서 보정해 둬야 이후 렌더·전송 로직이 올바르게 동작.
+  if (typeof idx === 'number') S.playerIdx = idx;
+  // ★ 재접속 시 애니메이션 guard/lock 잔류 제거 (끊김 도중 콜백 미수신으로 인한 프리징 방지).
+  resetAnimGuards();
   if (typeof showSkillToast === 'function') {
     showSkillToast('재접속', false, undefined, 'event');
   }
@@ -48,6 +53,12 @@ socket.on('team_room_redirect', ({ roomId, playerName }) => {
 
 socket.on('opp_disconnected_pending', ({ msg, graceMs }) => {
   try { showSkillToast(`🔌 ${msg}`, true, undefined, 'event'); } catch (e) {}
+});
+
+// 팀전: 끊긴 플레이어가 재접속 실패로 탈락 → 남은 팀원이 1v2 속행 (재접속 대기 알림 종료용).
+socket.on('team_dc_continue', ({ msg, playerIdx }) => {
+  try { showSkillToast(`🔌 ${msg}`, false, playerIdx, 'event'); } catch (e) {}
+  try { addLog(msg, 'system'); } catch (e) {}
 });
 
 // ── 좌표 변환 헬퍼 (세로=A~E, 가로=1~5) ──
@@ -1092,7 +1103,8 @@ document.getElementById('input-name').addEventListener('input', (e) => {
 // ── 로비 ──────────────────────────────────────────────────────
 document.getElementById('btn-join').addEventListener('click', () => {
   const name   = document.getElementById('input-name').value.trim();
-  const roomId = document.getElementById('input-room').value.trim();
+  // ★ 방 코드 정규화 (대문자) — 서버와 동일 규칙. 자동 대문자화로 코드가 갈리는 문제 방지.
+  const roomId = document.getElementById('input-room').value.trim().toUpperCase();
   if (!name || !roomId) { showSkillToast('닉네임과 방 코드를 입력하세요.', false, undefined, 'event'); return; }
   if (isDeckEmpty()) { showSkillToast('내 덱을 채워주세요.', false, undefined, 'event'); return; }
   const deck = loadDeck();
@@ -1113,7 +1125,8 @@ document.getElementById('btn-ai').addEventListener('click', () => {
 document.getElementById('btn-join-team').addEventListener('click', () => {
   const name = document.getElementById('input-name').value.trim();
   if (!name) { showSkillToast('닉네임을 먼저 입력하세요.', false, undefined, 'event'); return; }
-  let roomId = document.getElementById('input-room').value.trim();
+  // ★ 방 코드 정규화 (대문자) — 서버와 동일 규칙.
+  let roomId = document.getElementById('input-room').value.trim().toUpperCase();
   if (!roomId) {
     // 랜덤 방 코드 (6자리)
     roomId = 'T' + Math.random().toString(36).substr(2, 5).toUpperCase();
@@ -1496,10 +1509,18 @@ function attachSpectateRoomClicks() {
       S.myName = name;
       S.roomId = roomId;
       document.getElementById('spectate-modal').classList.add('hidden');
-      socket.emit('join_room', { roomId, playerName: name });
+      // ★ asSpectator:true — 서버가 이 소켓을 절대 플레이어로 앉히거나 팀 로비로
+      //   리다이렉트하지 않도록 명시 (관전 클릭이 진행 중 게임을 꼬이게 만들던 원인 차단).
+      socket.emit('join_room', { roomId, playerName: name, asSpectator: true });
     });
   });
 }
+
+// ★ 관전 불가(아직 시작 안 한 방 등) — 명확한 안내 후 목록 갱신.
+socket.on('spectate_unavailable', ({ msg }) => {
+  try { alert(msg || '관전할 수 없는 방입니다.'); } catch (e) {}
+  socket.emit('list_rooms');
+});
 
 socket.on('room_list', (list) => {
   const container = document.getElementById('spectate-room-list');
@@ -1547,11 +1568,9 @@ socket.on('joined', ({ idx, roomId, characters, sessionToken, reconnected }) => 
       }));
     } catch (e) {}
   }
-  if (reconnected) {
-    showSkillToast('재접속', false, undefined, 'event');
-    return;
-  }
+  // 대기 중 재접속(전체 새로고침 포함)이어도 대기 화면으로 복귀시켜 길 잃지 않게 한다.
   document.getElementById('waiting-room-code').textContent = `방 코드: ${roomId}`;
+  if (reconnected) showSkillToast('재접속', false, undefined, 'event');
   showScreen('screen-waiting');
 });
 
@@ -1640,6 +1659,7 @@ socket.on('team_countdown_cancel', () => {
 });
 
 socket.on('team_start_ready', ({ players, teams, characters }) => {
+  if (S.isSpectator) return; // 관전자 UI 가 플레이어 진행 이벤트에 의해 꼬이지 않도록 차단
   if (window._teamCountdownInterval) { clearInterval(window._teamCountdownInterval); window._teamCountdownInterval = null; }
   const el = document.getElementById('team-countdown');
   if (el) { el.classList.add('hidden'); el.textContent = ''; }
@@ -1865,6 +1885,7 @@ function renderTeamDraftSlots() {
 }
 
 socket.on('team_draft_status', ({ draftDone, doneNames }) => {
+  if (S.isSpectator) return; // 관전자 UI 차단
   // 1v1 드래프트 화면(screen-draft)을 재활용 — 사이드바에 구슬 컨테이너 동적 추가
   let statusEl = document.getElementById('team-draft-status');
   if (!statusEl) {
@@ -2186,6 +2207,7 @@ function renderTeamHpUI(hasTwins) {
 }
 
 socket.on('team_hp_status', ({ hpDone, doneNames }) => {
+  if (S.isSpectator) return; // 관전자 UI 차단
   const statusEl = document.getElementById('team-hp-status');
   if (statusEl) {
     statusEl.classList.add('confirm-beads-wrap');
@@ -2266,6 +2288,7 @@ socket.on('team_reveal_phase', ({ myIdx, teamId, teams, allPlayerPieces }) => {
 });
 
 socket.on('team_reveal_status', () => {
+  if (S.isSpectator) return; // 관전자 UI 차단
   // optional: show waiting state
 });
 
@@ -2414,6 +2437,7 @@ socket.on('team_confirm_placement_ok', () => {
 });
 
 socket.on('team_placement_status', ({ placementDone, doneNames }) => {
+  if (S.isSpectator) return; // 관전자 UI 차단
   // 하단에 구슬 UI로 확정 상태 표시 (블루 2 + 레드 2)
   let statusEl = document.getElementById('team-placement-status-bar');
   if (!statusEl) {
@@ -2588,8 +2612,7 @@ function applyTeamGameState(state) {
 socket.on('team_game_start', (state) => {
   S.isTeamMode = true;          // buildBoard가 7x7로 그리도록 보장
   S._gameEnded = false;         // C-9: 이전 판의 _gameEnded 플래그 리셋
-  S._fullscreenBusy = false;    // C-4: 재접속 시 fullscreen 상태 리셋
-  S._fullscreenQueue = [];
+  resetAnimGuards();            // C-4: 애니메이션 lock·guard 일괄 리셋 (재접속/새 판 대비)
   closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 팀전 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
@@ -2604,7 +2627,8 @@ socket.on('team_game_start', (state) => {
   showActionBar(S.isMyTurn);
   if (S.isMyTurn) try { playTurnBell(); } catch (e) {}
   // 재접속 vs 신규 게임 시작 구분 — 1v1과 동일하게 turnNumber > 1 또는 reconnect 플래그
-  const isReconnect = !!state.reconnect || (state.turnNumber && state.turnNumber > 1);
+  //   ★ 서버 페이로드 필드명은 reconnected (이전엔 state.reconnect 오타로 항상 false → 턴1 재접속 시 신규 인트로 재생).
+  const isReconnect = !!state.reconnected || (state.turnNumber && state.turnNumber > 1);
   if (isReconnect) {
     const cur = (S.teamGamePlayers || []).find(p => p.idx === S.currentPlayerIdx);
     const turnOwnerName = cur ? (cur.idx === S.playerIdx ? (myN() || cur.name) : cur.name) : '?';
@@ -2983,10 +3007,9 @@ function detectTeamHpChanges(prev, curr) {
 
 socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, winners, losers, reason, spectator }) => {
   stopClientTimer();
+  // 1v1과 동일: 마지막 연출(사망 GIF·유해 / 보드 파괴)이 끝난 뒤 1초 텀을 두고 결과 화면.
   const inGame = _isInGameScreen();
-  const isShrinkEnd = reason && reason.type === 'shrink';
-  const delay = inGame ? (isShrinkEnd ? 1800 : 1000) : 0;
-  setTimeout(() => {
+  scheduleGameOverReveal(inGame, () => {
     _showGameOverScreen(!inGame);
     if (!spectator) bgmPlay(win ? 'victory' : 'defeat');
     const r = reason || {};
@@ -3067,7 +3090,7 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
       // 팀 구분(🟦 블루팀: ... 🟥 레드팀: ...) 중복 표시 제거 — 위 sub 문구만 노출
       subEl.innerHTML = sub;
     }
-  }, delay);
+  });
 });
 
 // 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시 (턴 배너는 updateTurnBanner가 통일)
@@ -4175,11 +4198,14 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
   S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
-  S._fullscreenBusy = false;
-  S._fullscreenQueue = [];
+  resetAnimGuards();     // 애니메이션 lock·guard 일괄 리셋 (재접속/다음 판 대비)
   closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 게임 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
+  // ★ 재접속(새로고침) 복원 — 서버가 보낸 신원 정보로 잃어버린 S 필드 복구.
+  //   buildGameUI/refreshGameView 전에 설정해야 보드 방향·facing 키가 올바름.
+  if (typeof data.playerIdx === 'number') S.playerIdx = data.playerIdx;
+  if (data.opponentName) S.opponentName = data.opponentName;
   S.myPieces = data.yourPieces || [];
   S.oppPieces = data.oppPieces || [];
   S.turnNumber = data.turnNumber;
@@ -4208,8 +4234,9 @@ socket.on('game_start', (data) => {
   refreshGameView();
   showActionBar(S.isMyTurn);
   updateSPBar();
-  // 재접속 (data.reconnect 또는 turnNumber > 1) — 다른 안내 메시지
-  const isReconnect = !!data.reconnect || (data.turnNumber && data.turnNumber > 1);
+  // 재접속 (data.reconnected 또는 turnNumber > 1) — 다른 안내 메시지
+  //   서버는 reconnected 키를 보냄(과거 reconnect 오타로 1턴 재접속 시 인트로가 재생되던 버그 수정).
+  const isReconnect = !!data.reconnected || (data.turnNumber && data.turnNumber > 1);
   if (isReconnect) {
     const turnOwnerName = S.isMyTurn ? (myN() || '나') : (oppN() || '상대');
     addLog(`${turnOwnerName}의 턴`, 'system');
@@ -4841,18 +4868,13 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         _doPostRender();
 
         // 피격 GIF 정착 후 사망 GIF 재생 (400ms — 피격 흔들림 0.35s + 여유)
-        setTimeout(() => {
-          playDeathAnimations(_allDeathInfos, () => {
-            // ★ 사망 GIF 완료 — pending 해제 후 재렌더
-            S._pendingDeathCells = null;
-            // ★ 유해 즉시 반영 — 서버 remains 가 다음 상태 이벤트까지 안 오므로 클라이언트에서 선반영
-            _addClientSideRemains(_allDeathInfosRaw);
-            renderGameBoard();
-            renderMyPieces();
-            renderOppPieces();
-            _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
-          });
-        }, 400);
+        // ★ 유해는 _allDeathInfosRaw (noRemains 타입 포함) 기준으로 선반영.
+        scheduleDeathGif(_allDeathInfos, _allDeathInfosRaw, () => {
+          renderGameBoard();
+          renderMyPieces();
+          renderOppPieces();
+          _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
+        });
       } else if (_allDeathInfosRaw.length > 0) {
         // ★ 사망은 있지만 모두 noRemains 타입 (드래곤/유황솥) — 사망 GIF 생략, 유해만 선반영 후 렌더
         _addClientSideRemains(_allDeathInfosRaw);
@@ -5022,17 +5044,11 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
       renderMyPieces();
       _doPostRenderDef();
 
-      setTimeout(() => {
-        playDeathAnimations(_deathInfos, () => {
-          // ★ 사망 GIF 완료 — pending 해제 후 재렌더
-          S._pendingDeathCells = null;
-          // ★ 유해 즉시 반영
-          _addClientSideRemains(_deathInfos);
-          renderGameBoard();
-          renderMyPieces();
-          _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
-        });
-      }, 400);
+      scheduleDeathGif(_deathInfos, _deathInfos, () => {
+        renderGameBoard();
+        renderMyPieces();
+        _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
+      });
     } else {
       renderGameBoard();
       renderMyPieces();
@@ -5054,11 +5070,18 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
 //   표식된 적이 공격하면 표식 부여자(고문기술자 소유자)에게 공격 셀 + hit 셀 전송.
 //   being_attacked 는 피격 대상에게만 보내지만, 표식 부여자는 피격 대상이 아닐 수 있음(팀전).
 //   1v1 에서도 atkCells 시각 효과(주황 오버레이) 를 표시하여 적 공격 범위 파악 가능.
-socket.on('marked_enemy_attack', ({ atkCells, hitCells }) => {
+socket.on('marked_enemy_attack', ({ atkCells, hitCells, attacker }) => {
   if (!atkCells || !Array.isArray(atkCells)) return;
   try { playSfx('attack'); } catch (e) {}
   // 쥐장수 감지 → 쥐 공격 GIF
   animateRatAttackFromCells(atkCells, S.playerIdx, S.playerIdx);
+  // ★ 표식 적의 공격 캐릭터 모션 GIF — 공격 시작과 동시에 재생 (attack_result 와 동일 패턴).
+  //   500ms(ATTACK_IMPACT_DELAY) 후 셀 효과/피격 판정이 GIF 4번째 프레임과 정렬됨.
+  //   pieceIdx=null → animateAttackGif 가 내 piece 키 조회를 건너뛰고, 보드에 렌더된
+  //   표식 적 idle GIF 의 transform(scaleX) 에서 바라보는 방향을 읽어 반영.
+  if (attacker && typeof attacker.col === 'number' && typeof animateAttackGif === 'function') {
+    animateAttackGif(attacker.col, attacker.row, attacker.type, attacker.subUnit, !!attacker.isJoined, null);
+  }
   setTimeout(() => {
     // 주황 공격 범위 효과 + 빨간 피격 셀 효과
     if (typeof animateAttackCellEffect === 'function') animateAttackCellEffect(atkCells);
@@ -5082,6 +5105,26 @@ socket.on('marked_enemy_attack', ({ atkCells, hitCells }) => {
 // ★ 공격 애니메이션 진행 중에는 sp_update 큐잉 — 인스턴트 SP 스택킹 선노출 방지
 let _attackAnimDeferred = false;
 let _pendingSpUpdate = null;
+// ★ 재접속/게임시작 시 애니메이션 lock·guard 일괄 초기화.
+//   애니 도중 disconnect→reconnect 되면 완료 콜백이 영영 안 와서 SP바 정지,
+//   _dragonIncoming/_pendingDeathCells 잔류 좌표가 말 GIF 를 영구 표시/은닉 → 프리징.
+//   (함수 선언은 호이스팅되므로 위쪽 reconnect_ok/game_start 핸들러에서도 호출 가능.)
+function resetAnimGuards() {
+  if (typeof S === 'undefined' || !S) return;
+  S._fullscreenBusy = false;
+  S._fullscreenBusySince = null;
+  S._fullscreenQueue = [];
+  S._eventDuringFullscreen = [];
+  if (S._fullscreenSafety) { clearTimeout(S._fullscreenSafety); S._fullscreenSafety = null; }
+  S._spAnimGuard = false;
+  S._spAnimGuardStart = null;
+  if (S._spAnimGuardTimer) { clearTimeout(S._spAnimGuardTimer); S._spAnimGuardTimer = null; }
+  S._dragonIncoming = null;
+  S._pendingDeathCells = null;
+  S._bombImpactAt = null;
+  _attackAnimDeferred = false;
+  _pendingSpUpdate = null;
+}
 function _flushPendingSpUpdate() {
   _attackAnimDeferred = false;
   if (_pendingSpUpdate) {
@@ -6562,6 +6605,9 @@ socket.on('board_shrink', ({ bounds, eliminated, key }) => {
 function _executeBoardShrinkAnim(bounds, eliminated) {
   playSfx('shrink');
   try { playBoardQuake(); } catch (e) {}
+  // ★ 보드 파괴 종료 시 결과 화면이 파괴 애니/프로필 갱신 도중 튀어나오지 않도록,
+  //   이 연출이 끝나는 시점(보드 흔들림 1000ms 포함)을 기록해 둔다. scheduleGameOverReveal 가 참조.
+  S._shrinkAnimUntil = Date.now() + 1200;
   S.boardBounds = bounds;
   S._cellFP = null; // ★ 보드 축소 — 핑거프린트 캐시 무효화
   S._shrinkOccurredCount = (S._shrinkOccurredCount || 0) + 1;
@@ -7393,7 +7439,16 @@ socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
   // ★ 애니메이션 완료 전엔 드래곤이 보드에 표시되지 않게 — _dragonIncoming Set 에 등록.
   //   renderGameBoard 가 이 key 와 일치하는 드래곤 piece 를 skip 하고, 강림 완료 시점에 제거.
   if (!S._dragonIncoming) S._dragonIncoming = new Set();
-  S._dragonIncoming.add(`${dragon.col},${dragon.row},${owner}`);
+  const _dragonKey = `${dragon.col},${dragon.row},${owner}`;
+  S._dragonIncoming.add(_dragonKey);
+  // ★ 워치독 — 키 제거가 단일 setTimeout 체인(강림 애니)에만 의존하므로, 그 콜백이
+  //   도달 전 예외/재접속으로 끊기면 드래곤이 보드에 영영 안 그려짐. 독립 안전 해제로 보장.
+  setTimeout(() => {
+    if (S._dragonIncoming && S._dragonIncoming.has(_dragonKey)) {
+      S._dragonIncoming.delete(_dragonKey);
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+    }
+  }, SP_END_MS + 3000);
   if (typeof renderGameBoard === 'function') renderGameBoard();
 
   setTimeout(() => {
@@ -7841,15 +7896,11 @@ function _runTrapEffects(col, row, pieceInfo, damage, owner, destroyed, newHp, v
     _doPostTrapRender();
 
     // 피격 GIF 정착 후 사망 GIF 재생 (400ms)
-    setTimeout(() => {
-      playDeathAnimations(_trapDeathInfos, () => {
-        S._pendingDeathCells = null;
-        _addClientSideRemains(_trapDeathInfos);
-        renderGameBoard();
-        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
-        else { renderMyPieces(); renderOppPieces(); }
-      });
-    }, 400);
+    scheduleDeathGif(_trapDeathInfos, _trapDeathInfos, () => {
+      renderGameBoard();
+      if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      else { renderMyPieces(); renderOppPieces(); }
+    });
   } else {
     renderGameBoard();
     if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
@@ -8116,6 +8167,10 @@ socket.on('detonation_intro', ({ bombs }) => {
         gif.style.zIndex = '9600';
         document.body.appendChild(gif);
 
+        // ★ 임팩트 타임스탬프 기록 — bomb_detonated 핸들러가 이 시점까지 대기
+        if (!S._bombImpactAt) S._bombImpactAt = {};
+        S._bombImpactAt[`${b.col},${b.row}`] = Date.now() + BOMB_IMPACT_DELAY;
+
         // ★ BOMB_IMPACT_DELAY 후 — 셀 쉐이크 + 컬러 플래시 + SFX
         setTimeout(() => {
           const c2 = board.querySelector(`.cell[data-col="${b.col}"][data-row="${b.row}"]`);
@@ -8151,7 +8206,19 @@ socket.on('detonation_intro', ({ bombs }) => {
 });
 
 // ── 폭탄 폭발 ──
-socket.on('bomb_detonated', ({ col, row, hits }) => {
+socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits }) {
+  // ★ 폭탄 피격 타이밍 동기화 — detonation_intro 의 셀 흔들림 시점까지 HP 갱신/데미지 표시 대기.
+  //   서버가 bomb_detonated 를 먼저 보내도, 클라이언트에서 셀이 흔들리는 그 순간에 피격이 보이도록.
+  const _ik = col + ',' + row;
+  if (S._bombImpactAt && S._bombImpactAt[_ik]) {
+    const _delay = S._bombImpactAt[_ik] - Date.now();
+    delete S._bombImpactAt[_ik];
+    if (_delay > 50) {
+      setTimeout(() => _onBombDetonated({ col, row, hits }), _delay);
+      return;
+    }
+  }
+
   // ★ 기폭 스킬로 발동된 경우 — detonation_intro 가 이미 SFX 재생했으므로 중복 차단.
   //   화약상 사망 자동 폭발 등 다른 경로는 정상 SFX 재생.
   if (S._suppressNextBombSfx && S._suppressNextBombSfx > 0) {
@@ -8408,15 +8475,11 @@ socket.on('bomb_detonated', ({ col, row, hits }) => {
     _doPostBombRender();
 
     // 피격 GIF 정착 후 사망 GIF 재생 (400ms — 피격 흔들림 0.35s + 여유)
-    setTimeout(() => {
-      playDeathAnimations(_bombDeathInfos, () => {
-        S._pendingDeathCells = null;
-        _addClientSideRemains(_bombDeathInfos);
-        renderGameBoard();
-        if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
-        else { renderMyPieces(); renderOppPieces(); }
-      });
-    }, 400);
+    scheduleDeathGif(_bombDeathInfos, _bombDeathInfos, () => {
+      renderGameBoard();
+      if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      else { renderMyPieces(); renderOppPieces(); }
+    });
   } else {
     // 사망 없음 또는 모든 사망이 유해 제외 타입 — 기존대로 즉시 렌더
     if (bombAnyDestroyed) _addClientSideRemains(_bombDeathInfos);
@@ -8722,15 +8785,13 @@ socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, specta
   // 무승부 시에도 타이머 절대 재가동 안 되게 차단
   S._gameEnded = true;
   stopClientTimer();
-  // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 1초 대기 + 느린 페이드
-  // 보드 축소로 인한 종료: 축소 애니메이션(흔들림 + bounds 업데이트)이 완료된 후 표시
+  // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 마지막 연출(사망 GIF·유해 / 보드 파괴)이
+  // 완료된 뒤 1초 텀을 두고 결과 화면 표시. (scheduleGameOverReveal 가 연출 종료를 감지)
   const inGame = _isInGameScreen();
-  const isShrinkEnd = reason && reason.type === 'shrink';
-  const delay = inGame ? (isShrinkEnd ? 1800 : 1000) : 0;
-  setTimeout(() => {
+  scheduleGameOverReveal(inGame, () => {
     _showGameOverScreen(!inGame);
     runGameOverRender();
-  }, delay);
+  });
   function runGameOverRender() {
   if (!spectator) bgmPlay(win ? 'victory' : (draw ? 'victory' : 'defeat'));
   const r = reason || {};
@@ -8861,6 +8922,30 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
       board.appendChild(cell);
     }
   }
+}
+
+// ── 게임 종료 화면을 "연출 완료 후 텀을 두고" 띄우는 스케줄러 ──
+// 서버는 킬/보드파괴 연산이 끝나는 즉시 game_over 를 보내지만, 인간이 결과를 인지하려면
+// 마지막 연출이 끝난 뒤 약간의 텀이 필요하다. (사용자 요청)
+//   - 사망으로 인한 종료: 마지막 사망 GIF + 유해 생성 완료까지 대기 → 1초 후 결과 화면.
+//   - 보드 파괴(축소)로 인한 종료: 보드 파괴 애니 + 프로필 사망 갱신 완료까지 대기 → 1초 후.
+//   - 세팅 단계 종료(기권 등): 연출이 없으므로 즉시.
+// 진행 중인 연출은 S._pendingDeathCells(사망 GIF) / S._shrinkAnimUntil(보드 파괴) 로 감지.
+function scheduleGameOverReveal(inGame, revealFn, opts) {
+  opts = opts || {};
+  if (!inGame) { revealFn(); return; }               // 세팅 단계 — 즉시
+  const start = Date.now();
+  const MAX_WAIT = 6500;                              // 안전장치: 연출이 비정상적으로 길어도 진행
+  const BUFFER = (opts.buffer != null) ? opts.buffer : 1000;  // 연출 완료 후 인지 텀
+  (function waitAnims() {
+    const deathPending  = !!S._pendingDeathCells;             // 사망 GIF/유해 진행 중
+    const shrinkPending = (S._shrinkAnimUntil || 0) > Date.now();  // 보드 파괴 애니 진행 중
+    if ((deathPending || shrinkPending) && (Date.now() - start) < MAX_WAIT) {
+      setTimeout(waitAnims, 80);
+      return;
+    }
+    setTimeout(revealFn, BUFFER);
+  })();
 }
 
 // 게임오버 화면 전환 — instant=true면 즉시, 아니면 느린 페이드인 (1.5초)
@@ -12558,24 +12643,33 @@ function _cellStateFP(col, row, pre) {
   const alv = (p) => p.alive || (pdc && p.col === col && p.row === row);
   let f = '';
 
+  // #12/#13: 사전 구축된 posMap 으로 이 셀의 말 목록 조회 (.find 의 col/row 필터 불필요).
+  const _pmEntry = pre.posMap ? pre.posMap.get(k) : null;
+  const _pmMine = (_pmEntry && _pmEntry.mine) || null;
+  const _pmTeam = (_pmEntry && _pmEntry.teammate) || null;
+  const _pmOpp = (_pmEntry && _pmEntry.opp) || null;
+
   // ── 내 말 ──
-  const mp = S.myPieces.find(p => p.col === col && p.row === row && alv(p));
+  const mp = _pmMine ? _pmMine.find(p => alv(p)) : null;
   if (mp) {
     const i = S.myPieces.indexOf(mp);
     const tw = mp.subUnit === 'elder' || mp.subUnit === 'younger';
-    const ot = tw ? S.myPieces.find(p => p.alive && p !== mp &&
-      (p.subUnit === 'elder' || p.subUnit === 'younger') &&
-      p.col === col && p.row === row) : null;
+    const ot = tw ? _pmMine.find(p => p.alive && p !== mp &&
+      (p.subUnit === 'elder' || p.subUnit === 'younger')) : null;
     const dSkip = mp.isDragon && S._dragonIncoming &&
       S._dragonIncoming.has(k + ',' + S.playerIdx);
     f += 'm' + mp.type + ',' + (mp.subUnit || '') + ',' + mp.hp + ',' + mp.maxHp +
       ',' + mp.alive + ',' + (mp.icon || '') + ',' + (ot ? 'Y' : 'N') + (dSkip ? 'D' : '');
     f += '|si' + (typeof getStatusIcons === 'function' ? (getStatusIcons(mp) || '') : '');
-    f += '|s' + (i === S.selectedPiece ? 1 : 0);
+    // #7 결정성: 같은 칸의 쌍둥이 둘 중 어느 쪽이 선택돼도 글로우가 적용됨(render 13017 참고).
+    //   .find 가 고른 mp 의 인덱스만 보면, 같은 칸의 '다른' 쌍둥이를 선택했을 때 FP 가 안 바뀌어
+    //   DOM 재빌드가 생략되고 글로우가 누락됨 → ot 인덱스도 함께 반영.
+    const _otIdx = ot ? S.myPieces.indexOf(ot) : -1;
+    f += '|s' + ((i === S.selectedPiece || (_otIdx >= 0 && _otIdx === S.selectedPiece)) ? 1 : 0);
     // dim
     const twDim = S.twinMovePending && S.twinMovedSub && mp.subUnit === S.twinMovedSub;
-    const daI = S.myPieces.findIndex(p => p.alive && p.dualBladeAttacksLeft > 0);
-    const saI = S.myPieces.findIndex(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
+    const daI = pre.dualIdx;   // #12/#13: 전역 1회 산출값 재사용
+    const saI = pre.sprintIdx;
     f += (twDim ? 'w' : '') + ((daI >= 0 && daI !== i) || (saI >= 0 && saI !== i) ? 'l' : '');
     f += '|tp' + (S.twinPhaseActive || '') + (S.twinFirstSubMoved || '');
     // skill caster
@@ -12591,13 +12685,12 @@ function _cellStateFP(col, row, pre) {
   }
 
   // ── 팀원 ──
-  if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
-    const tp = S.teammatePieces.find(p => p.col === col && p.row === row && alv(p));
+  if (S.isTeamMode && _pmTeam) {
+    const tp = _pmTeam.find(p => alv(p));
     if (tp) {
       const tw2 = tp.subUnit === 'elder' || tp.subUnit === 'younger';
-      const ot2 = tw2 ? S.teammatePieces.find(p => p.alive && p !== tp &&
-        (p.subUnit === 'elder' || p.subUnit === 'younger') &&
-        p.col === col && p.row === row) : null;
+      const ot2 = tw2 ? _pmTeam.find(p => p.alive && p !== tp &&
+        (p.subUnit === 'elder' || p.subUnit === 'younger')) : null;
       f += '|T' + tp.type + ',' + tp.hp + ',' + tp.maxHp + ',' + (tp.subUnit || '') +
         ',' + (tp.icon || '') + (ot2 ? 'Y' : 'N');
       f += (typeof getStatusIcons === 'function' ? (getStatusIcons(tp) || '') : '');
@@ -12609,9 +12702,8 @@ function _cellStateFP(col, row, pre) {
     }
   }
 
-  // ── 표식 적 ──
-  const mo = S.oppPieces ? S.oppPieces.find(p => p.marked && alv(p) &&
-    p.col === col && p.row === row) : null;
+  // ── 표식 적 ── (#12/#13: posMap.opp 는 이미 marked 만 적재)
+  const mo = _pmOpp ? _pmOpp.find(p => alv(p)) : null;
   if (mo) {
     f += '|O' + (mo.type || '') + ',' + mo.hp + ',' + mo.maxHp + ',' + (mo.icon || '');
     f += ((mo.statusEffects || []).some(e => e.type === 'mark') ? 'K' : '');
@@ -12635,9 +12727,9 @@ function _cellStateFP(col, row, pre) {
     f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '');
   }
 
-  // ── 공격 로그 ──
-  if (S.attackLog.length > 0) {
-    const atk = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+  // ── 공격 로그 ── (#14: 사전 구축된 Map 사용)
+  if (pre.atkLog && pre.atkLog.size > 0) {
+    const atk = pre.atkLog.get(k);
     if (atk) f += '|A' + (atk.hit ? 1 : 0);
   }
 
@@ -12652,12 +12744,12 @@ function _cellStateFP(col, row, pre) {
   // move range blocked 상태
   if (pre.move && pre.move.has(k)) {
     const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
-    const fOcc = S.myPieces.find(p => p.alive && p.col === col && p.row === row);
+    const fOcc = _pmMine ? _pmMine.find(p => p.alive) : null;
     const selPc = S.selectedPiece !== null ? S.myPieces[S.selectedPiece] : null;
     const bothTw = selPc && selPc.subUnit && fOcc && fOcc.subUnit;
     const fBlk = fOcc && !bothTw;
     let tBlk = false;
-    if (S.isTeamMode && S.teammatePieces) tBlk = S.teammatePieces.some(p => p.alive && p.col === col && p.row === row);
+    if (S.isTeamMode && _pmTeam) tBlk = _pmTeam.some(p => p.alive);
     f += (hasRem || fBlk || tBlk) ? 'b' : '';
   }
 
@@ -12717,7 +12809,39 @@ function renderGameBoard() {
 
   // ★ iPad 최적화: 범위 + 모라일 존을 사전 계산 → 핑거프린트에 활용
   const _preRanges = { move: null, attack: null, teammate: null, skill: null, target: null,
-    moraleZone: null, moraleCenter: null, moraleDirs: null };
+    moraleZone: null, moraleCenter: null, moraleDirs: null, atkLog: null };
+  // #14: 공격 로그를 셀마다 [...attackLog].reverse().find() 하면 O(셀×로그). 이번 턴 항목만
+  //   col,row → 최신 항목 Map 으로 1회 구축(나중 항목이 덮어써서 reverse().find() 와 동일 결과).
+  {
+    const _alm = new Map();
+    const _log = S.attackLog || [];
+    for (let _i = 0; _i < _log.length; _i++) {
+      const _a = _log[_i];
+      if (_a && _a.turn === S.turnNumber) _alm.set(_a.col + ',' + _a.row, _a);
+    }
+    _preRanges.atkLog = _alm;
+  }
+  // #12/#13: 셀마다 myPieces/teammatePieces/oppPieces 를 .find() 하면 O(셀×말). 좌표→말 목록
+  //   Map 을 1회 구축. 각 목록은 배열 순서를 보존하므로 소비측 .find(조건) 가 기존 .find() 와 동일 결과.
+  //   (oppPieces 는 표식된 말만 보드에 표시되므로 marked 만 적재.)
+  {
+    const _pm = new Map();
+    const _pmGet = (c, r) => {
+      const key = c + ',' + r;
+      let e = _pm.get(key);
+      if (!e) { e = { mine: null, teammate: null, opp: null }; _pm.set(key, e); }
+      return e;
+    };
+    for (const p of (S.myPieces || [])) { const e = _pmGet(p.col, p.row); (e.mine || (e.mine = [])).push(p); }
+    if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+      for (const p of S.teammatePieces) { const e = _pmGet(p.col, p.row); (e.teammate || (e.teammate = [])).push(p); }
+    }
+    for (const p of (S.oppPieces || [])) { if (!p.marked) continue; const e = _pmGet(p.col, p.row); (e.opp || (e.opp = [])).push(p); }
+    _preRanges.posMap = _pm;
+  }
+  // #12/#13: 셀 무관 전역 인덱스(쌍검무/질주) — 셀마다 findIndex 재계산 방지, 1회 산출.
+  _preRanges.dualIdx = (S.myPieces || []).findIndex(p => p.alive && p.dualBladeAttacksLeft > 0);
+  _preRanges.sprintIdx = (S.myPieces || []).findIndex(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   // — move range —
   if ((S.action === 'move' || S.action === 'twin_move') && S.selectedPiece !== null) {
     const sp = S.myPieces[S.selectedPiece];
@@ -12890,11 +13014,11 @@ function renderGameBoard() {
 
     // 내 말 (★ 사망 GIF 대기 중이면 alive=false 도 포함)
     const pc = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
-    if (!_isCarousel && pc) {
-      // ★ 드래곤 강림 애니 진행 중이면 해당 셀의 드래곤 piece 는 표시 X — 애니 종료 시점에 _dragonIncoming 키 제거 후 재렌더.
-      if (pc.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)) {
-        return;
-      }
+    // ★ 드래곤 강림 애니 진행 중이면 piece 렌더링만 스킵 (유해/모라일/img 복원 등은 계속 실행)
+    //   이전의 early return 은 _savedImgs 를 복원하지 않아 유해 등 모든 이미지가 유실되었음.
+    const _dragonSkipPiece = pc && pc.isDragon && S._dragonIncoming &&
+      S._dragonIncoming.has(`${col},${row},${S.playerIdx}`);
+    if (!_isCarousel && pc && !_dragonSkipPiece) {
       const statusIcons = getStatusIcons(pc);
       // 딤 통일: 쌍둥이/쌍검무/질주 중 — 해당 piece 외 전부 흐리게
       const isTwinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
@@ -13090,7 +13214,10 @@ function renderGameBoard() {
         cell.classList.add('has-remains');
         // 유해 마커: remains PNG (center, z-index 2 — piece 아래에 깔림)
         const _remainsUrl = window.REMAINS_IMG || '/art/remains.png';
-        const _remFacing = (S._remainsFacing && S._remainsFacing[`${col},${row}`]) ? 'transform:scaleX(-1);' : '';
+        // ★ 인라인 transform 은 CSS transform 을 덮어쓰므로, translate 센터링을 반드시 포함해야 함.
+        //   이전: scaleX(-1) 만 설정 → CSS translate(-50%,-50%) 유실 → 유해가 셀 밖으로 이탈.
+        const _remFacing = (S._remainsFacing && S._remainsFacing[`${col},${row}`])
+          ? 'transform:translate(-50%,-50%) scaleX(-1);' : '';
         cell.innerHTML += `<img class="remains-marker" src="${_remainsUrl}" alt="" style="${_remFacing}">`;
       }
     }
@@ -13208,8 +13335,8 @@ function renderGameBoard() {
       }
     }
 
-    // 공격/피격 기록
-    const atk = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+    // 공격/피격 기록 (#14: 사전 구축된 Map 사용)
+    const atk = _preRanges.atkLog ? _preRanges.atkLog.get(col + ',' + row) : null;
     if (atk) {
       cell.classList.add(atk.hit ? 'hit-mark' : 'miss-mark');
       if (!pc) cell.innerHTML += `<span class="cell-mark">${atk.hit ? '💥' : '·'}</span>`;
@@ -15963,9 +16090,22 @@ function runFullscreenLocked(playFn, durationMs) {
     return;
   }
   S._fullscreenBusy = true;
+  S._fullscreenBusySince = Date.now();  // 고아 락 감지용 타임스탬프
+  // ★ iPad 프리징 방지: 안전 타임아웃 — 정상 해제 실패 시 최대 15초 후 강제 해제
+  clearTimeout(S._fullscreenSafety);
+  S._fullscreenSafety = setTimeout(() => {
+    if (S._fullscreenBusy) {
+      console.warn('[fullscreen] safety release after 15s');
+      S._fullscreenBusy = false;
+      S._fullscreenBusySince = null;
+      drainFullscreenBuffer();
+    }
+  }, 15000);
   try { playFn(); } catch (e) { console.error('[fullscreen]', e); }
   setTimeout(() => {
     S._fullscreenBusy = false;
+    S._fullscreenBusySince = null;
+    clearTimeout(S._fullscreenSafety);
     drainFullscreenBuffer();
     if (S._fullscreenQueue.length > 0) {
       const next = S._fullscreenQueue.shift();
@@ -15982,9 +16122,24 @@ function drainFullscreenBuffer() {
   }
 }
 // #17/#22 안전장치 — 풀스크린 lock 이 어떤 이유로 stuck 되어도 버퍼된 토스트/로그가 영구 누락되지 않게.
-//   1초마다 점검: lock 이 풀려있고 버퍼에 미발송 이벤트가 쌓여있으면 강제 드레인.
+//   1초마다 점검:
+//   (1) 고아 락 감지 — lock 이 20초 이상 잡혀있으면(콜백 누락/예외로 release 안 됨) 강제 해제 후 큐 진행.
+//   (2) lock 이 풀려있고 버퍼에 미발송 이벤트가 쌓여있으면 강제 드레인.
 setInterval(() => {
   try {
+    if (S._fullscreenBusy && S._fullscreenBusySince && (Date.now() - S._fullscreenBusySince) > 20000) {
+      console.warn('[fullscreen] 고아 lock 강제 해제 (20s 초과) — 입력/큐 정지 방지');
+      S._fullscreenBusy = false;
+      S._fullscreenBusySince = null;
+      if (S._fullscreenSafety) { clearTimeout(S._fullscreenSafety); S._fullscreenSafety = null; }
+      drainFullscreenBuffer();
+      // 대기 중인 풀스크린 연출이 있으면 다음 것을 진행.
+      if ((S._fullscreenQueue || []).length > 0 && typeof runFullscreenLocked === 'function') {
+        const next = S._fullscreenQueue.shift();
+        try { runFullscreenLocked(next.fn, next.durationMs); } catch (e) {}
+      }
+      return;
+    }
     if (!S._fullscreenBusy && (S._eventDuringFullscreen || []).length > 0) {
       drainFullscreenBuffer();
     }
@@ -16528,6 +16683,16 @@ function renderSpectatorGame(gs) {
     }
   }
 
+  // #14: 공격 로그 Map 1회 구축 (셀마다 reverse().find() 회피).
+  const _specAtkMap = new Map();
+  {
+    const _log = S.attackLog || [];
+    for (let _i = 0; _i < _log.length; _i++) {
+      const _a = _log[_i];
+      if (_a && _a.turn === S.turnNumber) _specAtkMap.set(_a.col + ',' + _a.row, _a);
+    }
+  }
+
   document.querySelectorAll('#game-board .cell').forEach(cell => {
     const col = parseInt(cell.dataset.col), row = parseInt(cell.dataset.row);
     cell.className = 'cell';
@@ -16591,7 +16756,7 @@ function renderSpectatorGame(gs) {
       }
     }
     // ★ attackLog 마커 — 관전자 보드에도 💥/· 셀 마크 표시 (유황범람 등 스킬 피격 포함)
-    const _atkSpec = [...S.attackLog].reverse().find(a => a.col === col && a.row === row && a.turn === S.turnNumber);
+    const _atkSpec = _specAtkMap.get(col + ',' + row);
     if (_atkSpec) {
       cell.classList.add(_atkSpec.hit ? 'hit-mark' : 'miss-mark');
       if (!p0 && !p1) cell.innerHTML += `<span class="cell-mark">${_atkSpec.hit ? '💥' : '·'}</span>`;
@@ -17385,12 +17550,35 @@ const DEATH_ANIM_EXTRA_MS = 100; // GIF 종료 후 잔여 여유
 function _addClientSideRemains(deathInfos) {
   if (!deathInfos) return;
   if (!S.remains) S.remains = [];
+  let added = false;
   for (const d of deathInfos) {
     if (d.type === 'dragon' || d.type === 'sulfurCauldron' || d.type === 'rat') continue;
     if (!S.remains.some(r => r.col === d.col && r.row === d.row)) {
       S.remains.push({ col: d.col, row: d.row, type: d.type || 'unknown' });
+      added = true;
     }
   }
+  // ★ 유해 추가 시 핑거프린트 캐시 무효화 — 캐시된 "유해 없음" 상태가 재사용되는 것을 방지
+  if (added) S._cellFP = null;
+}
+
+// #17: 사망 시퀀스의 공통 타이밍/정리 코어.
+//   여러 핸들러(attack_result / being_attacked / 트랩 / 폭탄 등)가 동일하게 반복하던
+//     setTimeout(400) → playDeathAnimations → _pendingDeathCells 해제 → 유해 선반영
+//   부분만 추출. (1차 렌더·else 분기·SP flush 등 사이트별 비대칭 동작은 호출부에 그대로 둔다.)
+//   호출부 패턴:
+//     S._pendingDeathCells = new Set(deaths.map(d => `${d.col},${d.row}`));
+//     <1차 렌더>;
+//     scheduleDeathGif(deaths, rawDeaths, () => { <2차 렌더> });
+//   rawDeaths: 유해 선반영 대상(미지정 시 deaths). onDone: 사망 GIF 완료 후 재렌더 콜백.
+function scheduleDeathGif(deaths, rawDeaths, onDone) {
+  setTimeout(() => {
+    playDeathAnimations(deaths, () => {
+      S._pendingDeathCells = null;
+      _addClientSideRemains(rawDeaths || deaths);
+      if (onDone) onDone();
+    });
+  }, 400);
 }
 
 function playDeathAnimations(deaths, callback) {
@@ -17399,7 +17587,11 @@ function playDeathAnimations(deaths, callback) {
   if (!board) { if (callback) callback(); return; }
 
   let pending = deaths.length;
-  const done = () => { if (--pending <= 0 && callback) callback(); };
+  let _cbFired = false;
+  const done = () => { if (--pending <= 0 && callback && !_cbFired) { _cbFired = true; callback(); } };
+  // ★ iPad 안전장치: 사망 GIF 콜백이 10초 내 완료되지 않으면 강제 실행.
+  //   네트워크 지연·GIF 로딩 실패·setTimeout 누락 시 _pendingDeathCells 가 영원히 남는 것을 방지.
+  setTimeout(() => { if (!_cbFired && callback) { _cbFired = true; console.warn('[death-anim] safety callback after 10s'); callback(); } }, 10000);
 
   for (const d of deaths) {
     const cell = board.querySelector(`.cell[data-col="${d.col}"][data-row="${d.row}"]`);
@@ -17414,17 +17606,9 @@ function playDeathAnimations(deaths, callback) {
       S._remainsFacing[`${d.col},${d.row}`] = !!d.facingLeft;
     }
 
-    // ★ dragon/sulfurCauldron — idle GIF 와 사망 GIF 첫프레임을 정확히 겹치기 위해
-    //   marker 숨기기 전에 idle GIF 의 실제 렌더 좌표를 측정
-    const _isDragonLike = (d.type === 'dragon' || d.type === 'sulfurCauldron');
-    let _idleRect = null, _cellRect = null;
-    if (_isDragonLike) {
-      const idleGif = cell.querySelector('img.p-gif');
-      if (idleGif) {
-        _cellRect = cell.getBoundingClientRect();
-        _idleRect = idleGif.getBoundingClientRect();
-      }
-    }
+    // ★ dragon/sulfurCauldron — 사이즈 축소 (idle GIF 크기 매칭 폐지)
+    //   이전: idle GIF 의 getBoundingClientRect() 크기를 그대로 적용해 사망 GIF 가 과도하게 컸음.
+    //   변경: 일반 유닛과 동일한 CSS 140% 사이즈 사용 (flexbox 센터링).
 
     // ★ piece marker 처리 — 사망 유닛 마커는 완전 숨김, 공존 아군 마커만 딤.
     //   (1) dyingMarker: 사망하는 유닛의 마커 → display:none (idle GIF 비침 방지)
@@ -17455,20 +17639,8 @@ function playDeathAnimations(deaths, callback) {
     img.className = 'death-gif';
     if (d.type) img.dataset.deathType = d.type;
 
-    if (_isDragonLike && _idleRect && _cellRect) {
-      // ★ idle GIF 와 정확히 동일한 크기·위치로 absolute 배치
-      img.style.position = 'absolute';
-      img.style.width = _idleRect.width + 'px';
-      img.style.height = _idleRect.height + 'px';
-      img.style.left = (_idleRect.left - _cellRect.left) + 'px';
-      img.style.top = (_idleRect.top - _cellRect.top) + 'px';
-      img.style.objectFit = 'contain';
-      img.style.imageRendering = 'pixelated';
-      if (d.facingLeft) img.style.transform = 'scaleX(-1)';
-    } else {
-      // 공통 사망 GIF — 기존 flexbox 센터링 (140% 크기)
-      if (d.facingLeft) img.style.transform = 'scaleX(-1)';
-    }
+    // 공통 사망 GIF — flexbox 센터링 (CSS 140% 크기, dragon/sulfurCauldron 포함)
+    if (d.facingLeft) img.style.transform = 'scaleX(-1)';
 
     overlay.appendChild(img);
     cell.appendChild(overlay);
@@ -17556,8 +17728,31 @@ function _detectDeaths(destroyedList, isDefending) {
   for (const d of destroyedList) {
     if (d.col == null || d.row == null) continue;
     let facingLeft = false;
-    // 현재 DOM 에서 GIF transform 으로 방향 판정
-    if (board) {
+    // #10: 방향은 상태(_pieceFacingDir)에서 우선 조회.
+    //   DOM transform 은 재렌더/마커 제거로 사라질 수 있어 폴백으로만 사용.
+    //   키 형식이 소유자별로 다름: 내 말 'playerIdx:idx', 팀원 'ally:type[:subUnit]', 적 'opp:type[:subUnit]'.
+    let _dirResolved = false;
+    if (typeof _pieceFacingDir !== 'undefined') {
+      let _fkey = null;
+      if (isDefending) {
+        const _mi = (S.myPieces || []).findIndex(pp => pp.col === d.col && pp.row === d.row);
+        if (_mi >= 0) {
+          _fkey = `${S.playerIdx}:${_mi}`;
+        } else if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
+          const _tp = S.teammatePieces.find(pp => pp.col === d.col && pp.row === d.row);
+          if (_tp) _fkey = 'ally:' + _tp.type + (_tp.subUnit ? ':' + _tp.subUnit : '');
+        }
+      } else {
+        const _op = (S.oppPieces || []).find(pp => pp.col === d.col && pp.row === d.row);
+        if (_op) _fkey = 'opp:' + _op.type + (_op.subUnit ? ':' + _op.subUnit : '');
+      }
+      if (_fkey && _pieceFacingDir[_fkey]) {
+        facingLeft = (_pieceFacingDir[_fkey] === 'left');
+        _dirResolved = true;
+      }
+    }
+    // 폴백: 현재 DOM 에서 GIF transform 으로 방향 판정
+    if (!_dirResolved && board) {
       const cell = board.querySelector(`.cell[data-col="${d.col}"][data-row="${d.row}"]`);
       if (cell) {
         const markerSel = isDefending
@@ -17574,19 +17769,25 @@ function _detectDeaths(destroyedList, isDefending) {
     }
     // ★ type fallback — being_attacked 등 서버가 type/revealedType 을 안 보내는 경로에서
     //   클라이언트 piece 배열에서 type 을 조회. 유황솥(sulfurCauldron)/드래곤 등 전용 사망 GIF 매핑에 필수.
+    //   ★ #8 결정성: 한 칸에 아군 말과 표식 적 말이 겹칠 수 있어, 좌표만으로 전 배열을 뒤지면
+    //     엉뚱한 소유자의 type(→잘못된 사망 GIF)을 집을 수 있음. isDefending 으로 검색 대상 배열을
+    //     소유권에 맞게 제한한다. (isDefending=true → 아군 / false → 적)
     let _deathType = d.type || d.revealedType || null;
     if (!_deathType) {
       const _lookupType = (arr) => {
         if (!Array.isArray(arr)) return null;
-        const p = arr.find(pp => pp.col === d.col && pp.row === d.row && pp.name === d.name);
-        if (!p) {
-          // name 없으면 좌표만으로 매칭
-          return (arr.find(pp => pp.col === d.col && pp.row === d.row) || {}).type || null;
-        }
-        return p.type || null;
+        // name 이 있으면 name+좌표로 정확히, 없으면 좌표로 매칭
+        const p = (d.name != null)
+          ? arr.find(pp => pp.col === d.col && pp.row === d.row && pp.name === d.name)
+          : null;
+        if (p) return p.type || null;
+        return (arr.find(pp => pp.col === d.col && pp.row === d.row) || {}).type || null;
       };
-      _deathType = _lookupType(S.myPieces) || _lookupType(S.oppPieces)
-        || (S.isTeamMode ? _lookupType(S.teammatePieces) : null) || null;
+      // 아군 사망이면 myPieces/teammatePieces 만, 적 사망이면 oppPieces 만 조회.
+      _deathType = isDefending
+        ? (_lookupType(S.myPieces) || (S.isTeamMode ? _lookupType(S.teammatePieces) : null))
+        : _lookupType(S.oppPieces);
+      _deathType = _deathType || null;
     }
     deaths.push({
       col: d.col,
@@ -17626,9 +17827,18 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
   // 바라보는 방향 판단 (_pieceFacingDir 조회 + DOM 폴백)
   const _facingLeft = (() => {
     // 1차: _pieceFacingDir 맵 조회
-    if (pieceIdx != null && typeof _pieceFacingDir !== 'undefined') {
-      const dir = _pieceFacingDir[`${S.playerIdx}:${pieceIdx}`];
-      if (dir) return dir === 'left';
+    if (typeof _pieceFacingDir !== 'undefined') {
+      if (pieceIdx != null) {
+        // 내 말 — '${playerIdx}:${pieceIdx}' 키
+        const dir = _pieceFacingDir[`${S.playerIdx}:${pieceIdx}`];
+        if (dir) return dir === 'left';
+      } else if (type) {
+        // 표식 적 (pieceIdx 없음) — opp_moved 가 기록한 'opp:type[:subUnit]' 키.
+        //   renderGameBoard 의 facing 재적용 루프는 opp 키를 건너뛰므로 여기서 직접 조회.
+        const _oppKey = 'opp:' + type + (subUnit ? ':' + subUnit : '');
+        const dir = _pieceFacingDir[_oppKey];
+        if (dir) return dir === 'left';
+      }
     }
     // 2차 폴백: DOM 의 idle GIF transform 에서 읽기 (합류 등 _pieceFacingDir 미갱신 케이스)
     const _fb = document.getElementById('game-board');

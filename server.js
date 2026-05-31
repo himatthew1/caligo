@@ -39,6 +39,38 @@ const io = socketIo(server);
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '8mb' }));
 
+// ── 진단용: 현재 서버 프로세스/방 상태를 외부에서 확인 ──
+// 같은 방 코드인데 다른 방으로 접속되는 문제를 진단하기 위함.
+// 여러 기기에서 http://<서버IP>:3000/debug/rooms 를 열어:
+//   - pid 가 기기마다 다르면 → 서버 프로세스가 여러 개 떠 있는 것(근본 원인)
+//   - booted 시각이 자꾸 바뀌면 → 서버가 재시작되고 있는 것
+const SERVER_BOOT_TS = new Date().toISOString();
+app.get('/debug/rooms', (req, res) => {
+  const list = Object.keys(rooms).map((id) => {
+    const r = rooms[id];
+    return {
+      id,
+      mode: r.mode,
+      phase: r.phase,
+      players: (r.players || []).map((p, i) => ({
+        idx: i,
+        name: p && p.name,
+        connected: !!(p && p.connected),
+        isAI: !!(p && p.isAI),
+        hasSession: !!(p && p.sessionToken),
+      })),
+      spectators: (r.spectators ? r.spectators.length : 0),
+    };
+  });
+  res.json({
+    pid: process.pid,
+    booted: SERVER_BOOT_TS,
+    uptimeSec: Math.round(process.uptime()),
+    roomCount: list.length,
+    rooms: list,
+  });
+});
+
 // ── 에셋 매니페스트 — public/ 의 이미지 파일을 자동 스캔해서 반환 ──
 // 새 스킬 아이콘·패시브 이미지를 추가할 때 클라이언트 코드를 수정할 필요 없이
 // 로딩 오버레이가 자동으로 새 에셋을 프리로드한다.
@@ -1993,7 +2025,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
       aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
       if (aiPiece2.type === 'wizard' && dmg > 0) {
-        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, idx) : idx;
+        const wizSpSlot = teamSlotIdx(room, idx);
         room.instantSp[wizSpSlot] += 1;
         emitSPUpdate(room);
         emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `인스턴트 매직 : SP 획득` });
@@ -2016,6 +2048,21 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   } else {
     _continueAfterTrap();
   }
+}
+
+// ── 표식 적 공격 모션 공유용 — 공격자 piece 의 셀/타입/방향 정보 패키징 ──
+//   표식 부여자(고문기술자 소유자) 클라이언트가 animateAttackGif 로 공격자 캐릭터의
+//   공격 모션을 재생할 수 있게 함. 표식 적은 보드에 렌더되므로 모션도 보여야 자연스러움.
+//   isJoined: 합류 쌍둥이 여부 (같은 칸에 살아있는 다른 쌍둥이 존재).
+function markedAttackerMotion(piece, ownerPieces) {
+  if (!piece) return null;
+  let isJoined = false;
+  if (piece.subUnit === 'elder' || piece.subUnit === 'younger') {
+    isJoined = (ownerPieces || []).some(q =>
+      q !== piece && q.alive && (q.subUnit === 'elder' || q.subUnit === 'younger') &&
+      q.col === piece.col && q.row === piece.row);
+  }
+  return { col: piece.col, row: piece.row, type: piece.type, subUnit: piece.subUnit || null, isJoined };
 }
 
 // AI 공격 헬퍼 — processAttack을 직접 호출 (extra: shadowAssassin/witch의 tCol/tRow + ratMerchant rats)
@@ -2130,6 +2177,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       io.to(_mo.socketId).emit('marked_enemy_attack', {
         atkCells,
         hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+        attacker: markedAttackerMotion(piece, p.pieces),
       });
     }
   }
@@ -3376,6 +3424,9 @@ function startPhase(room) {
   room._currentPhase = {
     pendingDeathDetonations: [],  // 1세대 사망 화약상 (액션의 직접 결과)
   };
+  // ★ 액션 간 누수 방지 — _tempChainQueue 는 flushPhase 의 wave 루프 안에서만 일시적으로 non-null.
+  //   이전 flushPhase 가 예외로 중단되면 stale 배열이 남아 queueDeathDetonation 이 엉뚱한 큐에 push 할 수 있음.
+  room._tempChainQueue = null;
 }
 
 function isPhaseActive(room) {
@@ -3654,9 +3705,16 @@ function flushPhase(room, onComplete) {
 
   // === 4) 모든 wave 종료 후 callback (표식 페이즈 자동 체이닝) ===
   setTimeout(() => {
-    if (rooms[room.id]) {
-      room._phaseDeferredGameEndCheck = false;
+    if (!rooms[room.id]) return;
+    // ★ 플래그는 콜백 실행 여부와 무관하게 항상 먼저 해제.
+    //   (이전: wrappedComplete()가 예외로 죽으면 _phaseDeferredGameEndCheck 가 영원히 true 로 남아
+    //    이후 들어오는 end_turn 이 9105 에서 영구 차단 → 턴이 멈추는 프리징.)
+    room._phaseDeferredGameEndCheck = false;
+    room._turnTimeoutRetries = 0;
+    try {
       wrappedComplete();
+    } catch (e) {
+      console.error('[flushPhase] onComplete 예외 — 턴 정지 방지를 위해 로그만 남김:', e);
     }
   }, cursor + 100);
 }
@@ -3801,7 +3859,7 @@ function detonateBomb(room, ownerIdx, bomb, options) {
             if (room.players[pi].pieces.includes(ep)) { wizOwnerIdx = pi; break; }
           }
           if (wizOwnerIdx < 0) wizOwnerIdx = defOwnerIdx;  // fallback
-          const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, wizOwnerIdx) : wizOwnerIdx;
+          const wizSpSlot = teamSlotIdx(room, wizOwnerIdx);
           room.instantSp[wizSpSlot] += 1;
           if (!suppressSpUpdate) emitSPUpdate(room);
           const wizOwnerName = room.players[wizOwnerIdx].name;
@@ -3933,7 +3991,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 
           // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
           if (defPiece.type === 'wizard') {
-            const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, defIdx) : defIdx;
+            const wizSpSlot = teamSlotIdx(room, defIdx);
             room.instantSp[wizSpSlot] += 1;
             // 스킬 컨텍스트에서는 sp_update suppress (skill_result 가 일괄 sp/instantSp 전달)
             if (!room._suppressSpUpdate) emitSPUpdate(room);
@@ -3974,7 +4032,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             });
             // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
             if (allyPiece.type === 'wizard') {
-              const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, aIdx) : aIdx;
+              const wizSpSlot = teamSlotIdx(room, aIdx);
               room.instantSp[wizSpSlot] += 1;
               if (!room._suppressSpUpdate) emitSPUpdate(room);
               emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: aIdx, msg: `인스턴트 매직 : SP 획득` });
@@ -4336,7 +4394,10 @@ function processTurnStart(room) {
       const newTotal = room.sp[0] + room.sp[1];
       if (newTotal > 10) {
         const excess = newTotal - 10;
-        room.sp[1] = Math.max(0, room.sp[1] - excess);
+        // ★ 초과분은 SP가 더 많은 쪽에서 차감 (이전: 항상 sp[1]만 차감 → 인덱스1/팀1 고정 불이익).
+        //   동점이면 sp[0] 기준으로 차감하여 결정적(deterministic)으로 동작.
+        if (room.sp[0] >= room.sp[1]) room.sp[0] = Math.max(0, room.sp[0] - excess);
+        else room.sp[1] = Math.max(0, room.sp[1] - excess);
       }
     }
     emitToBoth(room, 'turn_event', {
@@ -4668,8 +4729,10 @@ function endTurn(room, opts) {
     if (cur && cur.socketId === 'AI') {
       const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
       const aiDelay = Math.max(2500, phaseRemain);
+      // ★ epoch 토큰 — 동일 슬롯 재진입/중복 스케줄 시 stale 콜백이 aiTeamTakeTurn 을 중복 실행하지 못하게 차단.
+      const _epoch = (room._aiSchedEpoch = (room._aiSchedEpoch || 0) + 1);
       setTimeout(() => {
-        if (room.phase === 'game' && room.currentPlayerIdx === curIdx) {
+        if (room.phase === 'game' && room.currentPlayerIdx === curIdx && room._aiSchedEpoch === _epoch) {
           aiTeamTakeTurn(room, curIdx);
         }
       }, aiDelay);
@@ -4690,8 +4753,11 @@ function endTurn(room, opts) {
     // 애니메이션 페이즈 진행 중이면 그 종료 + 1.5s 까지 대기, 그 외 3s.
     const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
     const aiDelay = Math.max(3000, phaseRemain);
+    // ★ currentPlayerIdx === 1 확인 + epoch 토큰 — 턴이 이미 넘어갔거나 중복 스케줄된 경우
+    //   stale 콜백이 aiTakeTurn 을 중복 실행하지 못하게 차단 (이전: phase 만 확인).
+    const _epoch = (room._aiSchedEpoch = (room._aiSchedEpoch || 0) + 1);
     setTimeout(() => {
-      if (room.phase === 'game') aiTakeTurn(room);
+      if (room.phase === 'game' && room.currentPlayerIdx === 1 && room._aiSchedEpoch === _epoch) aiTakeTurn(room);
     }, aiDelay);
     return;
   }
@@ -4894,6 +4960,68 @@ function endTeamGame(room, winnerTeamId, reason) {
   setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
 }
 
+// ── 팀전: 재접속 실패한 플레이어 처리 ──
+// 살아있는 팀원이 있으면 끊긴 플레이어만 탈락 처리하고 1v2 로 게임 속행.
+// 팀에 남은 사람이 없으면(=팀 전멸) 팀 패배 처리.
+function forfeitTeamPlayerByDisconnect(room, idx, name) {
+  if (!room || room.mode !== 'team' || room.phase === 'ended') return;
+  const player = room.players[idx];
+  if (!player) return;
+  const teamId = player.teamId;
+  if (teamId !== 0 && teamId !== 1) return;
+
+  // 같은 팀에 아직 탈락하지 않은 멤버가 있는지 확인 (끊긴 본인 제외).
+  const teammates = (room.teams[teamId] || []).filter(j => j !== idx);
+  const livingTeammate = teammates.some(j => {
+    const tp = room.players[j];
+    return tp && !isPlayerEliminated(room, j);
+  });
+
+  // 끊긴 플레이어의 말을 모두 제거 — 유해/폭발 등 연쇄 없이 깔끔히 탈락.
+  if (player.pieces) {
+    for (const pc of player.pieces) pc.alive = false;
+  }
+  if (!room.eliminatedPlayers) room.eliminatedPlayers = new Set();
+  const alreadyElim = room.eliminatedPlayers.has(idx);
+  room.eliminatedPlayers.add(idx);
+
+  // 팀에 남은 사람이 없음 → 팀 패배.
+  if (!livingTeammate) {
+    emitToSpectators(room, 'spectator_log', { msg: `${name} 재접속 실패. ${teamId === 0 ? '블루' : '레드'}팀 패배.`, type: 'system', playerIdx: idx });
+    endTeamGame(room, 1 - teamId, 'disconnect');
+    return;
+  }
+
+  // 1v2 속행: 끊긴 플레이어만 탈락, 게임은 계속.
+  if (!alreadyElim) {
+    emitToBoth(room, 'team_player_eliminated', {
+      playerIdx: idx,
+      playerName: name,
+      teamId,
+      slotPos: player.slotPos ?? 0,
+    });
+  }
+  emitToBoth(room, 'team_dc_continue', {
+    playerIdx: idx,
+    msg: `${name}${조사(name, '이', '가')} 재접속하지 못해 탈락했습니다. 남은 팀원이 계속 플레이합니다.`,
+  });
+  emitToSpectators(room, 'spectator_log', { msg: `${name} 재접속 실패 — 탈락. 팀원이 1v2로 속행.`, type: 'system', playerIdx: idx });
+
+  // 안전 차원의 팀 전멸 재확인 (아군 탈락이라 보통 미충족).
+  if (isTeamEliminated(room, teamId)) {
+    endTeamGame(room, 1 - teamId, 'disconnect');
+    return;
+  }
+
+  // 현재 차례가 끊긴 플레이어였다면 턴을 넘겨 팀원/다음 슬롯이 진행하게 함.
+  if (room.phase === 'game' && room.currentPlayerIdx === idx) {
+    endTurn(room, { timeout: false });
+  } else {
+    // 차례가 아니면 보드 갱신만 방송 (탈락한 말 제거 반영).
+    broadcastTeamGameState(room);
+  }
+}
+
 function endGame(room, winnerIdx, reason) {
   if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (이중 game_over emit 차단)
   clearTimer(room);
@@ -4916,6 +5044,19 @@ function endGame(room, winnerIdx, reason) {
     emitToSpectators(room, 'game_over', { win: null, draw: true, spectator: true, reason: reasonObj,
       winnerName: room.players[0].name, loserName: room.players[1].name });
     // ★ S-7: 종료된 방 자동 정리 (60초 후 메모리 해제)
+    setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
+    return;
+  }
+
+  // ★ winnerIdx 범위 검증 — draw 가 아닌데 winnerIdx 가 0/1 이 아니면 room.players[-1]/players[2]
+  //   접근으로 서버 크래시. 안전하게 무승부로 폴백.
+  if (winnerIdx !== 0 && winnerIdx !== 1) {
+    console.error(`[endGame] 잘못된 winnerIdx=${winnerIdx} (reason=${reason}) — 무승부로 폴백`);
+    for (let i = 0; i < 2; i++) {
+      emitToPlayer(room, i, 'game_over', { win: null, draw: true, reason: { type: 'draw' } });
+    }
+    emitToSpectators(room, 'game_over', { win: null, draw: true, spectator: true, reason: { type: 'draw' },
+      winnerName: room.players[0]?.name, loserName: room.players[1]?.name });
     setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
     return;
   }
@@ -4970,7 +5111,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   }
 
   // Check SP (regular + instant) — 팀모드는 teamId 슬롯
-  const spSlot = (room.mode === 'team') ? getTeamOf(room, playerIdx) : playerIdx;
+  const spSlot = teamSlotIdx(room, playerIdx);
   if ((room.sp[spSlot] + room.instantSp[spSlot]) < cost) return { ok: false, msg: 'SP가 부족합니다.' };
 
   // 턴당 1회 제한 체크 (oncePerTurn)
@@ -5408,7 +5549,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           pieceName: enemyPiece.name,
           pieceIcon: enemyPiece.icon,
           wizardSpSlot: (enemyPiece.type === 'wizard' && dmg > 0)
-            ? ((room.mode === 'team') ? getTeamOf(room, kingTargetOwnerIdx) : kingTargetOwnerIdx)
+            ? teamSlotIdx(room, kingTargetOwnerIdx)
             : null,
         };
       }
@@ -5520,7 +5661,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           m.hp = Math.max(0, m.hp - dmg);
           // Wizard passive: 악몽으로 마법사가 피격되어도 인스턴트 SP 1 획득 (피격마다 트리거)
           if (m.type === 'wizard' && dmg > 0) {
-            const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, ee.idx) : ee.idx;
+            const wizSpSlot = teamSlotIdx(room, ee.idx);
             room.instantSp[wizSpSlot] += 1;
             // ❌ emitSPUpdate 제거 — skill_result 가 sp/instantSp 를 자동 전달함.
             emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ee.idx, msg: `인스턴트 매직 : SP 획득` });
@@ -6955,10 +7096,14 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.sessionToken === sessionToken);
     if (!player) { socket.emit('reconnect_failed', { reason: 'token_mismatch' }); return; }
     if (room.phase === 'ended') { socket.emit('reconnect_failed', { reason: 'game_ended' }); return; }
-    // 유예 타이머 취소
+    // 유예 타이머 취소 (게임 중 + 대기 중 둘 다)
     if (player._disconnectTimer) {
       clearTimeout(player._disconnectTimer);
       player._disconnectTimer = null;
+    }
+    if (player._waitDisconnectTimer) {
+      clearTimeout(player._waitDisconnectTimer);
+      player._waitDisconnectTimer = null;
     }
     // 소켓 재할당
     player.socketId = socket.id;
@@ -6981,6 +7126,10 @@ io.on('connection', (socket) => {
       } else {
         const opp = room.players[1 - idx];
         socket.emit('game_start', {
+          // ★ 재접속 시 클라이언트가 새로고침으로 잃어버린 신원 복원 (playerIdx/상대 이름).
+          //   playerIdx 가 없으면 facing 키·피격자 판정·보드 방향이 깨짐.
+          playerIdx: idx,
+          opponentName: opp.name,
           yourPieces: pieceSummary(player.pieces),
           oppPieces: oppPieceSummary(opp.pieces),
           currentPlayerIdx: room.currentPlayerIdx,
@@ -7005,6 +7154,8 @@ io.on('connection', (socket) => {
       }
     } else if (phase === 'waiting') {
       if (room.mode === 'team') {
+        // team_joined 먼저 — 클라가 (전체 새로고침이었더라도) 팀 대기 화면으로 복귀.
+        socket.emit('team_joined', { idx, roomId, playerName: player.name, sessionToken, reconnected: true });
         socket.emit('team_room_state', { players: room.players.map(p => ({ name: p.name, idx: p.index, teamId: p.teamId })), teams: room.teams });
       } else {
         socket.emit('joined', { idx, roomId, characters: CHARACTERS, sessionToken, reconnected: true });
@@ -7133,12 +7284,24 @@ io.on('connection', (socket) => {
   });
 
   // ── 방 입장 ──
-  socket.on('join_room', ({ roomId, playerName, deck }) => {
+  socket.on('join_room', ({ roomId, playerName, deck, asSpectator }) => {
+    // ★ 방 코드 정규화 — 대소문자/공백 차이로 같은 코드가 다른 방으로 갈리던 문제 방지.
+    //   (특히 iPad 등 모바일 키보드 자동 대문자화 때문에 'abc'→'Abc' 로 변형되어 별개 방 생성)
+    roomId = (typeof roomId === 'string') ? roomId.trim().toUpperCase() : '';
+    if (!roomId) { socket.emit('err', { msg: '방 코드가 올바르지 않습니다.' }); return; }
     if (rooms[roomId] && rooms[roomId].phase === 'ended') {
       delete rooms[roomId];
     }
+    // ★ 관전 의도(asSpectator)로 들어왔는데 아직 시작 안 한 방이면 — 플레이어로 앉히거나
+    //   팀 로비로 리다이렉트하지 않고 명확히 거부. (관전 클릭이 게임을 꼬이게 만들던 원인)
+    if (asSpectator && (!rooms[roomId] || rooms[roomId].phase === 'waiting')) {
+      socket.emit('spectate_unavailable', { msg: '아직 시작되지 않은 방입니다. 관전할 수 없습니다.' });
+      return;
+    }
+    const _existed = !!rooms[roomId];
     if (!rooms[roomId]) rooms[roomId] = createRoom(roomId);
     const room = rooms[roomId];
+    console.log(`[JOIN] pid=${process.pid} sock=${socket.id} code="${roomId}" name="${playerName}" existed=${_existed} mode=${room.mode} phase=${room.phase} players=${room.players.length} spectator=${!!asSpectator}`);
 
     // 이 방이 팀전 방이면 join_team_room 흐름으로 자동 전환 — 게임 진행 중/만석은 관전자
     if (room.mode === 'team') {
@@ -7174,14 +7337,19 @@ io.on('connection', (socket) => {
       socket.data.isSpectator = true;
       // 현재 페이즈별 스냅샷 전달
       let draftState = null, hpState = null, placementState = null;
-      if (room.phase === 'draft' || room.phase === 'hp' || room.phase === 'reveal' || room.phase === 'placement' || room.phase === 'game') {
+      // ★ 페이즈 문자열 정정: 실제 페이즈는 'hp_distribution' (이전엔 'hp' 오타로 매칭 실패 → 관전 입장 시 빈 화면).
+      //   초기/교환/최종 공개(initial_reveal/exchange_draft/final_reveal) 구간에도 드래프트 정보 제공.
+      const _revealPhases = ['initial_reveal', 'exchange_draft', 'final_reveal', 'reveal'];
+      const _postDraft = room.phase === 'hp_distribution' || _revealPhases.includes(room.phase)
+        || room.phase === 'placement' || room.phase === 'game';
+      if (room.phase === 'draft' || _postDraft) {
         draftState = {
           p0: room.players[0]?.draft || null,
           p1: room.players[1]?.draft || null,
           draftDone: [...(room.draftDone || [false, false])],
         };
       }
-      if (room.phase === 'hp' || room.phase === 'reveal' || room.phase === 'placement' || room.phase === 'game') {
+      if (_postDraft) {
         hpState = {
           p0Pieces: room.players[0]?.pieces ? pieceSummary(room.players[0].pieces) : [],
           p1Pieces: room.players[1]?.pieces ? pieceSummary(room.players[1].pieces) : [],
@@ -7244,13 +7412,18 @@ io.on('connection', (socket) => {
   // ── 팀전 (2v2) 대기실 ────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════
   socket.on('join_team_room', ({ roomId, playerName }) => {
+    // ★ 방 코드 정규화 (join_room 과 동일) — 대소문자/공백 차이로 다른 방이 되는 문제 방지.
+    roomId = (typeof roomId === 'string') ? roomId.trim().toUpperCase() : '';
+    if (!roomId) { socket.emit('err', { msg: '방 코드가 올바르지 않습니다.' }); return; }
     if (rooms[roomId] && rooms[roomId].phase === 'ended') {
       delete rooms[roomId];
     }
+    const _existedT = !!rooms[roomId];
     if (!rooms[roomId]) {
       rooms[roomId] = createRoom(roomId, { mode: 'team' });
     }
     const room = rooms[roomId];
+    console.log(`[JOIN_TEAM] pid=${process.pid} sock=${socket.id} code="${roomId}" name="${playerName}" existed=${_existedT} phase=${room.phase} players=${room.players.length}`);
     if (room.mode !== 'team') {
       socket.emit('err', { msg: '이미 1대1 전용 방입니다.' });
       return;
@@ -7730,16 +7903,19 @@ io.on('connection', (socket) => {
     const playerDraft = validateDeck(deck);
 
     const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
+    const sessionToken = genSessionToken();  // #9: AI전도 새로고침 재접속 지원
     room.players.push({
       socketId: socket.id, name: playerName, index: 0,
       pieces: [], draft: playerDraft, hpDist: null,
       deckName: humanDeckName,
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
+      sessionToken,
     });
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.idx = 0;
+    socket.data.sessionToken = sessionToken;
 
     room.players.push({
       socketId: 'AI', name: 'AI', index: 1,
@@ -7749,7 +7925,7 @@ io.on('connection', (socket) => {
       skillsUsedBeforeAction: [],
     });
 
-    socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS });
+    socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS, sessionToken });
     socket.emit('opponent_joined', { opponentName: 'AI' });
 
     const aiDraft = aiSelectPieces();
@@ -7775,16 +7951,19 @@ io.on('connection', (socket) => {
     const aiDraftCustom = validateDeck(aiDeck);
 
     const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
+    const sessionToken = genSessionToken();  // #9: 커스텀 AI전도 새로고침 재접속 지원
     room.players.push({
       socketId: socket.id, name: playerName, index: 0,
       pieces: [], draft: playerDraft, hpDist: null,
       deckName: humanDeckName,
       actionDone: false, actionUsedSkillReplace: false,
       skillsUsedBeforeAction: [],
+      sessionToken,
     });
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.idx = 0;
+    socket.data.sessionToken = sessionToken;
 
     room.players.push({
       socketId: 'AI', name: 'AI', index: 1,
@@ -7794,7 +7973,7 @@ io.on('connection', (socket) => {
       skillsUsedBeforeAction: [],
     });
 
-    socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS });
+    socket.emit('joined', { idx: 0, roomId, playerName, characters: CHARACTERS, sessionToken });
     socket.emit('opponent_joined', { opponentName: 'AI' });
 
     room.draftDone[0] = true;
@@ -8300,7 +8479,9 @@ io.on('connection', (socket) => {
     //   ~700ms 지연으로 트랩 효과 적용 + 알림. 클라이언트는 이동 애니 → 트랩 애니 순으로 보임.
     let trapPending = null;
     if (trapIdx >= 0 && !isShadowedHuman) {
-      trapPending = { trapIdx, trapOwnerIdx, col, row, idx };
+      // ★ 트랩을 밟은 정확한 piece 인덱스 저장 — 지연 발동(700ms) 사이 같은 칸에 다른 말이
+      //   겹쳐 들어와도 엉뚱한 말이 피격되지 않도록 신원 확인용.
+      trapPending = { trapIdx, trapOwnerIdx, col, row, idx, pieceIdx: player.pieces.indexOf(piece) };
     }
 
     // ★ 쌍둥이 이동: 한쪽만 이동해도 행동 완료. 같은 턴에 다른 쪽 이동은 옵션.
@@ -8438,15 +8619,19 @@ io.on('connection', (socket) => {
         ownerArr.splice(tIdx, 1);
         const player2 = room.players[tp.idx];
         if (!player2) return;
-        const piece2 = (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
-        if (!piece2) return;
+        // ★ 저장해 둔 pieceIdx 로 정확한 말 조회 — 좌표 기반 find 는 같은 칸에 겹친 다른 말을 잘못 집을 수 있음.
+        const piece2 = (typeof tp.pieceIdx === 'number' && tp.pieceIdx >= 0)
+          ? (player2.pieces || [])[tp.pieceIdx]
+          : (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
+        // 그 사이 죽었거나 트랩 칸을 떠났으면 발동 취소.
+        if (!piece2 || !piece2.alive || piece2.col !== tp.col || piece2.row !== tp.row) return;
         // ★ 패시브 dedupe Set 초기화.
         room._attackPassivesFired = new Set();
         room._pendingBodyguardPassive = null;
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
         if (piece2.type === 'wizard') {
-          const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, tp.idx) : tp.idx;
+          const wizSpSlot = teamSlotIdx(room, tp.idx);
           room.instantSp[wizSpSlot] += 1;
           emitSPUpdate(room);
           emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: tp.idx, msg: `인스턴트 매직 : SP 획득` });
@@ -8664,7 +8849,10 @@ io.on('connection', (socket) => {
     };
 
     // ★ 쌍둥이 동시 공격: 형+동생 공격 범위 합산
-    let atkCells = getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra);
+    // ★ 본체 공격 범위 1회만 계산 — 이전: 아래 processAttack/필터에서 동일 인자로 매번 재계산
+    //   (특히 filter 내부 .some() 은 twinCell 개수만큼 반복 호출됨).
+    const baseAtkCells = getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra);
+    let atkCells = baseAtkCells.slice();  // 쌍둥이 합산용 (아래에서 push 되므로 baseAtkCells 보존 위해 복사)
     let twinAtkPiece = null;
     if (atkPiece.subUnit) {
       const otherSub = atkPiece.subUnit === 'elder' ? 'younger' : 'elder';
@@ -8686,15 +8874,15 @@ io.on('connection', (socket) => {
 
     // 본체 공격 처리 — ★ suppressSpUpdate: 공격 애니 재생 전에 SP 바가 바뀌는 것 방지
     const _atkOpts = { suppressSpUpdate: true };
-    const hitResults = processAttack(room, idx, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra), undefined, _atkOpts);
+    const hitResults = processAttack(room, idx, atkPiece, baseAtkCells.slice(), undefined, _atkOpts);
     // 쌍둥이 다른 쪽 공격 처리 (겹치는 셀은 이미 본체에서 처리됨 — 중복 피해 방지)
     if (twinAtkPiece) {
       const twinCells = getAttackCells(twinAtkPiece.type, twinAtkPiece.col, twinAtkPiece.row, bounds, extra);
-      const twinOnlyCells = twinCells.filter(tc => !getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra).some(c => c.col === tc.col && c.row === tc.row));
+      const twinOnlyCells = twinCells.filter(tc => !baseAtkCells.some(c => c.col === tc.col && c.row === tc.row));
       const twinHits = processAttack(room, idx, twinAtkPiece, twinOnlyCells, undefined, _atkOpts);
       hitResults.push(...twinHits);
       // 겹치는 셀은 두 번 공격 (형과 동생 각각 피해)
-      const overlapCells = twinCells.filter(tc => getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra).some(c => c.col === tc.col && c.row === tc.row));
+      const overlapCells = twinCells.filter(tc => baseAtkCells.some(c => c.col === tc.col && c.row === tc.row));
       if (overlapCells.length > 0) {
         const overlapHits = processAttack(room, idx, twinAtkPiece, overlapCells, undefined, _atkOpts);
         hitResults.push(...overlapHits);
@@ -8911,6 +9099,7 @@ io.on('connection', (socket) => {
         io.to(_markOwner.socketId).emit('marked_enemy_attack', {
           atkCells,
           hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+          attacker: markedAttackerMotion(atkPiece, attacker.pieces),
         });
       }
     }
@@ -9555,28 +9744,39 @@ io.on('connection', (socket) => {
         clearTimer(room);
         const dcIdx = room.players.findIndex(p => p.socketId === socket.id);
         if (dcIdx >= 0) {
-          // 카운트다운이 진행 중이면 취소
+          const dcp = room.players[dcIdx];
+          // 카운트다운이 진행 중이면 취소 (인원 확정 전이므로)
           if (room._teamStartTimeout) {
             clearTimeout(room._teamStartTimeout);
             room._teamStartTimeout = null;
             io.to(room.id).emit('team_countdown_cancel');
           }
-          room.players.splice(dcIdx, 1);
-          for (let t = 0; t < 2; t++) {
-            room.teams[t] = (room.teams[t] || []).filter(i => i !== dcIdx).map(i => i > dcIdx ? i - 1 : i);
-          }
-          room.players.forEach((p, i) => {
-            p.index = i;
-            if (p.socketId) {
-              const s = io.sockets.sockets.get(p.socketId);
-              if (s) s.data.idx = i;
+          // ★ 즉시 splice 하지 말고 유예 — iPad Safari 백그라운드 전환 등 순간 끊김 시
+          //   같은 자리로 재접속할 수 있게 한다. (기존엔 즉시 제거돼 재접속이 token_mismatch
+          //   로 실패 → 같은 코드로 다시 들어가도 새 슬롯/꼬인 상태가 되던 문제.)
+          dcp.socketId = null;
+          if (dcp._waitDisconnectTimer) clearTimeout(dcp._waitDisconnectTimer);
+          dcp._waitDisconnectTimer = setTimeout(() => {
+            const r3 = rooms[roomId];
+            if (!r3 || r3.phase !== 'waiting') return;       // 이미 시작/삭제됨
+            const gi = r3.players.findIndex(p => p === dcp);
+            if (gi < 0 || r3.players[gi].socketId) return;   // 이미 정리/재접속됨
+            // 유예 후에도 끊겨 있으면 실제 제거 + 재인덱싱
+            r3.players.splice(gi, 1);
+            for (let t = 0; t < 2; t++) {
+              r3.teams[t] = (r3.teams[t] || []).filter(i => i !== gi).map(i => i > gi ? i - 1 : i);
             }
-          });
-          if (room.players.length === 0) {
-            delete rooms[roomId];
-          } else {
-            broadcastTeamRoomState(room);
-          }
+            r3.players.forEach((p, i) => {
+              p.index = i;
+              if (p.socketId) {
+                const s = io.sockets.sockets.get(p.socketId);
+                if (s) s.data.idx = i;
+              }
+            });
+            if (r3.players.length === 0) delete rooms[roomId];
+            else broadcastTeamRoomState(r3);
+          }, RECONNECT_GRACE_MS);
+          broadcastTeamRoomState(room);  // 자리는 유지한 채 끊김 상태만 반영
           return;
         }
       }
@@ -9606,7 +9806,8 @@ io.on('connection', (socket) => {
           // 재접속 안 함 → 기존 패배 처리
           emitToSpectators(r2, 'spectator_log', { msg: `🔌 ${dcName} 재접속 실패. 패배 처리.`, type: 'system', playerIdx: dcIdx });
           if (r2.mode === 'team' && (p2.teamId === 0 || p2.teamId === 1)) {
-            endTeamGame(r2, 1 - p2.teamId, 'disconnect');
+            // 팀원 1v2 속행: 살아있는 팀원이 있으면 끊긴 플레이어만 탈락 처리.
+            forfeitTeamPlayerByDisconnect(r2, dcIdx, dcName);
             return;
           }
           clearTimer(r2);
@@ -9621,7 +9822,29 @@ io.on('connection', (socket) => {
         return;
       }
       if (room.phase === 'waiting') {
-        delete rooms[roomId];
+        // ★ 1v1 대기 중 연결 끊김 — 즉시 방을 삭제하지 말고 유예(grace)를 둔다.
+        //   iPad Safari 가 탭을 백그라운드로 보내면 websocket 이 수 초 내 끊기는데,
+        //   기존엔 그 순간 방이 통째로 삭제돼 재접속이 room_not_found 로 실패했다.
+        //   그 사이 상대가 같은 코드로 다시 들어오면 새 방이 생성되어
+        //   "같은 코드인데 다른 방" 증상이 발생했다. → 유예 후에도 비어 있으면 삭제.
+        const dcIdx = room.players.findIndex(p => p.socketId === socket.id);
+        if (dcIdx >= 0) {
+          const dcp = room.players[dcIdx];
+          dcp.socketId = null;  // 소켓만 비우고 재접속 대기
+          if (dcp._waitDisconnectTimer) clearTimeout(dcp._waitDisconnectTimer);
+          dcp._waitDisconnectTimer = setTimeout(() => {
+            const r3 = rooms[roomId];
+            if (!r3 || r3.phase !== 'waiting') return;  // 이미 게임 시작/삭제됨
+            const me = r3.players[dcIdx];
+            const stillGone = me && !me.socketId;          // 아직 재접속 안 함
+            const anyConnected = r3.players.some(p => p.socketId && p.socketId !== 'AI');
+            if (stillGone && !anyConnected) delete rooms[roomId];
+          }, RECONNECT_GRACE_MS);
+        } else {
+          // 소켓이 플레이어 목록에 없고(이미 정리됨) 연결된 플레이어도 없으면 빈 방 삭제
+          const anyConnected = room.players.some(p => p.socketId && p.socketId !== 'AI');
+          if (!anyConnected) delete rooms[roomId];
+        }
       }
     }
   });
