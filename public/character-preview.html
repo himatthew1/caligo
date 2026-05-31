@@ -441,22 +441,29 @@ async function doMove(myRun){
   curObjFilterMove = false;
 }
 
-/* ── 자동 시퀀스: 아이들 ×2 → 공격 → 이동 (이동 후 다시 아이들 ×2) ── */
+/* ── 자동 시퀀스: 아이들 ×2 → 공격 → 아이들 ×2 → 이동 → 반복 ── */
 async function runSequence(){
   const myRun = runId;
   const e = cur;
   const idleUrl   = `art/${e.art}_idle.gif`;
   const attackUrl = `art/${e.art}_attack.gif`;
 
-  while (myRun === runId && !dead){
+  const idleX2 = async () => {
     phaseEl.textContent = '아이들 ×2';
     const idleMs = await showGif(idleUrl, myRun, IDLE_R);
     await wait(idleMs * 2);
+  };
+
+  while (myRun === runId && !dead){
+    await idleX2();
     if (myRun !== runId) return;
 
     phaseEl.textContent = '공격';
     const atkMs = await showGif(attackUrl, myRun, ATK_R);
     await wait(atkMs);
+    if (myRun !== runId) return;
+
+    await idleX2();
     if (myRun !== runId) return;
 
     phaseEl.textContent = '이동';
