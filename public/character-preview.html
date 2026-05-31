@@ -251,11 +251,12 @@ let cellPos = [{left:0,top:0},{left:0,top:0}];
 
 function relayout(){
   // attack(1.357)·death(1.4)·dragon move(1.5) 가 셀 밖으로 나가므로 여유분 확보 후 셀 산정
+  const SCALE = 0.8;                  // 여백 확보 (화면 꽉 차지 않게)
   const aw = stageWrap.clientWidth  - 16;
   const ah = stageWrap.clientHeight - 16;
   const byW = aw / (2 + GAP_R);
   const byH = ah / 1.55;              // 가장 큰 모션(1.5×)도 세로로 들어오도록
-  CELL = Math.max(110, Math.floor(Math.min(byW, byH)));
+  CELL = Math.max(100, Math.floor(Math.min(byW, byH) * SCALE));
   const gap = Math.round(CELL * GAP_R);
   const radius = Math.round(CELL * 0.089);  // 인게임 5/56
   board.style.gap = gap + 'px';
@@ -386,41 +387,61 @@ async function doMove(myRun){
   unitImg.style.filter = moveF();
   applyFacing();
 
-  unitEl.classList.add('moving');
-  cellIdx = (cellIdx === 0) ? 1 : 0;
-  unitEl.style.left = cellPos[cellIdx].left + 'px';
+  // requestAnimationFrame으로 직접 구동 → 매 프레임 정확한 위치에 잔상 생성
+  unitEl.classList.remove('moving');           // CSS transition 비활성 (rAF가 직접 제어)
+  const fromCell = cellIdx;
+  const toCell   = (cellIdx === 0) ? 1 : 0;
+  const fromLeft = cellPos[fromCell].left;
+  const toLeft   = cellPos[toCell].left;
+  const topPx    = cellPos[fromCell].top;
+  const imgSz    = Math.round(CELL * curRatio);
+  const offset   = (CELL - imgSz) / 2;          // 이미지가 셀 박스 중앙에 위치
+  const imgSrc   = unitImg.src;
+  const flipCls  = facingRight ? 'ghost' : 'ghost flip';
+  const mf       = moveF();
 
-  const stageRect = stage.getBoundingClientRect();
-  const flipCls = facingRight ? 'ghost' : 'ghost flip';
-  const mf = moveF();
-  let tc = 0;
-  const iv = setInterval(() => {
-    tc++;
-    const r = unitImg.getBoundingClientRect();
-    const g = document.createElement('img');
-    g.src = unitImg.src;
-    g.className = flipCls;
-    g.style.width  = r.width + 'px';
-    g.style.height = r.height + 'px';
-    g.style.left   = (r.left - stageRect.left) + 'px';
-    g.style.top    = (r.top  - stageRect.top)  + 'px';
-    g.style.opacity = Math.max(0, 0.5 - tc * 0.08);
-    g.style.filter  = mf;
-    g.style.transition = 'opacity 0.4s ease-out';
-    stage.appendChild(g);
-    requestAnimationFrame(() => { g.style.opacity = '0'; });
-    setTimeout(() => g.remove(), 450);
-    if (tc >= 5) clearInterval(iv);
-  }, 58);
+  await new Promise(resolve => {
+    const start = performance.now();
+    let lastGhost = -999;
+    function frame(now){
+      if (myRun !== runId){ resolve(); return; }
+      let t = (now - start) / MOVE_MS;
+      if (t > 1) t = 1;
+      const ease = t * (2 - t);                 // easeOutQuad
+      const curLeft = fromLeft + (toLeft - fromLeft) * ease;
+      unitEl.style.left = curLeft + 'px';
 
-  await wait(MOVE_MS + 40);
-  clearInterval(iv);
+      // 약 55ms 마다 잔상 한 장
+      if (now - lastGhost >= 55 && t < 0.98){
+        lastGhost = now;
+        const g = document.createElement('img');
+        g.src = imgSrc;
+        g.className = flipCls;
+        g.style.width  = imgSz + 'px';
+        g.style.height = imgSz + 'px';
+        g.style.left   = (curLeft + offset) + 'px';
+        g.style.top    = (topPx  + offset) + 'px';
+        g.style.opacity = '0.5';
+        g.style.filter  = mf;
+        g.style.transition = 'opacity 0.4s ease-out';
+        stage.appendChild(g);
+        requestAnimationFrame(() => { g.style.opacity = '0'; });
+        setTimeout(() => g.remove(), 450);
+      }
+
+      if (t >= 1){ resolve(); return; }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+
   if (myRun !== runId) return;
-  unitEl.classList.remove('moving');
+  cellIdx = toCell;
+  unitEl.style.left = toLeft + 'px';
   curObjFilterMove = false;
 }
 
-/* ── 자동 시퀀스: 공격 → 아이들 ×2 → 이동 ── */
+/* ── 자동 시퀀스: 아이들 ×2 → 공격 → 이동 (이동 후 다시 아이들 ×2) ── */
 async function runSequence(){
   const myRun = runId;
   const e = cur;
@@ -428,14 +449,14 @@ async function runSequence(){
   const attackUrl = `art/${e.art}_attack.gif`;
 
   while (myRun === runId && !dead){
-    phaseEl.textContent = '공격';
-    const atkMs = await showGif(attackUrl, myRun, ATK_R);
-    await wait(atkMs);
-    if (myRun !== runId) return;
-
     phaseEl.textContent = '아이들 ×2';
     const idleMs = await showGif(idleUrl, myRun, IDLE_R);
     await wait(idleMs * 2);
+    if (myRun !== runId) return;
+
+    phaseEl.textContent = '공격';
+    const atkMs = await showGif(attackUrl, myRun, ATK_R);
+    await wait(atkMs);
     if (myRun !== runId) return;
 
     phaseEl.textContent = '이동';
