@@ -61,9 +61,7 @@
   }
   .stage-head .name{font-size:22px; font-weight:700;}
   .stage-head .tier{font-size:13px; color:var(--sub);}
-  .stage-wrap{
-    flex:1 1 auto; display:flex; min-height:0; padding:8px;
-  }
+  .stage-wrap{ flex:1 1 auto; display:flex; min-height:0; padding:8px; }
   .stage{
     position:relative; width:100%; height:100%;
     display:flex; align-items:center; justify-content:center;
@@ -72,17 +70,14 @@
     border:1px solid var(--line); border-radius:14px;
     overflow:hidden;
   }
-  /* 2칸 보드 — 인게임과 동일한 정사각형 셀 (하단 정렬) */
-  .board{display:flex; align-items:flex-end;}
-  .cell{
-    background:var(--cell-piece);
-    border:1px solid var(--cell-border);
-    flex:0 0 auto;
-  }
+  /* 2칸 보드 — 인게임과 동일한 정사각형 셀 */
+  .board{display:flex; align-items:center;}
+  .cell{ background:var(--cell-piece); border:1px solid var(--cell-border); flex:0 0 auto; }
 
+  /* 인게임: 모든 모션은 셀 중앙 기준 센터링 (idle/attack/death 동일 중심점) */
   .unit{
     position:absolute;
-    display:flex; align-items:flex-end; justify-content:center;
+    display:flex; align-items:center; justify-content:center;
     pointer-events:none; z-index:6; overflow:visible;
   }
   .unit.moving{transition:left .35s cubic-bezier(0.25,0.46,0.45,0.94);}
@@ -99,12 +94,12 @@
 
   .remains{
     position:absolute;
-    display:flex; align-items:flex-end; justify-content:center;
-    opacity:0; transition:opacity .25s; z-index:4;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition:opacity .25s; z-index:4; overflow:visible;
   }
   .remains.show{opacity:1;}
-  .remains img{ image-rendering:pixelated;
-    filter:drop-shadow(0 0 2px rgba(0,0,0,1)); }
+  .remains img{ object-fit:contain; image-rendering:pixelated; }
+  .remains img.flip{transform:scaleX(-1);}
 
   /* ── 컨트롤 ── */
   .controls{
@@ -210,15 +205,31 @@ const CHARS = [
 const TIER_LABEL = {1:'1티어', 2:'2티어', 3:'3티어', S:'소환 유닛'};
 const TIER_CLASS = {1:'t1', 2:'t2', 3:'t3', S:'sum'};
 
-/* ── 인게임 비율 ── */
-const IDLE_R = 0.68;   // 인게임 .p-gif 38/56
-const MOVE_R = 0.88;   // 인게임 이동 floater
+/* ── 인게임과 동일한 비율 (셀=56px 기준) ──
+   idle  : .p-gif 38/56            = 0.679
+   attack: idle × 2  = 76/56       = 1.357  (animateAttackGif: _gifSize = idle*2, 동일 중심)
+   move  : cell × 0.88 (dragon 1.5)        (animateMove)
+   death : .death-gif 140%                 (= cell × 1.4)
+   remains: .remains-marker 140%           (= cell × 1.4)
+   모두 셀 중심 기준 센터링 (수평·수직 동일 중심점) */
+const IDLE_R   = 38 / 56;
+const ATK_R    = (38 * 2) / 56;
+const MOVE_R   = 0.88;
 const DRAGON_MOVE_R = 1.50;
-const GAP_R  = 0.28;   // 셀 간격 (셀 크기 대비)
-const MOVE_MS = 350;
+const DEATH_R  = 1.40;
+const REMAINS_R = 1.40;
+const GAP_R    = 0.28;
+const MOVE_MS  = 350;
 
-const IDLE_FILTER = 'drop-shadow(0 0 2px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(0,0,0,1))';
-const MOVE_FILTER = IDLE_FILTER + ' drop-shadow(0 0 16px rgba(82,183,136,0.85))';
+/* 필터 — 인게임과 동일 (검은 아웃라인, 이동만 초록 글로우). CELL 비례 스케일. */
+function outlineF(){
+  const px = Math.max(1, Math.round(CELL * 0.018));   // 인게임 1px / 38px ≈ 비율 유지
+  return `drop-shadow(0 0 ${px}px rgba(0,0,0,1)) drop-shadow(0 0 ${px}px rgba(0,0,0,1))`;
+}
+function moveF(){
+  const g = Math.max(8, Math.round(CELL * 0.075));
+  return outlineF() + ` drop-shadow(0 0 ${g}px rgba(82,183,136,0.85))`;
+}
 
 /* ── DOM ── */
 const sidebar   = document.getElementById('sidebar');
@@ -234,16 +245,17 @@ const nameEl    = document.getElementById('charName');
 const tierEl    = document.getElementById('charTier');
 const phaseEl   = document.getElementById('phase');
 
-/* ── 동적 레이아웃 값 ── */
+/* ── 동적 레이아웃 ── */
 let CELL = 200;
-let cellPos = [{left:0,top:0},{left:0,top:0}];  // stage 기준 좌표
+let cellPos = [{left:0,top:0},{left:0,top:0}];
 
 function relayout(){
+  // attack(1.357)·death(1.4)·dragon move(1.5) 가 셀 밖으로 나가므로 여유분 확보 후 셀 산정
   const aw = stageWrap.clientWidth  - 16;
   const ah = stageWrap.clientHeight - 16;
   const byW = aw / (2 + GAP_R);
-  const byH = ah * 0.92;
-  CELL = Math.max(120, Math.floor(Math.min(byW, byH)));
+  const byH = ah / 1.55;              // 가장 큰 모션(1.5×)도 세로로 들어오도록
+  CELL = Math.max(110, Math.floor(Math.min(byW, byH)));
   const gap = Math.round(CELL * GAP_R);
   const radius = Math.round(CELL * 0.089);  // 인게임 5/56
   board.style.gap = gap + 'px';
@@ -251,9 +263,8 @@ function relayout(){
     c.style.width = c.style.height = CELL + 'px';
     c.style.borderRadius = radius + 'px';
   }
-  unitEl.style.width  = unitEl.style.height  = CELL + 'px';
+  unitEl.style.width    = unitEl.style.height    = CELL + 'px';
   remainsEl.style.width = remainsEl.style.height = CELL + 'px';
-  remainsImg.style.width = Math.round(CELL * 0.6) + 'px';
 
   requestAnimationFrame(() => {
     const sr = stage.getBoundingClientRect();
@@ -261,16 +272,17 @@ function relayout(){
       const r = c.getBoundingClientRect();
       cellPos[i] = { left: r.left - sr.left, top: r.top - sr.top };
     });
-    // 현재 셀 위치 반영
     const p = cellPos[cellIdx] || cellPos[0];
     unitEl.style.left = p.left + 'px';
     unitEl.style.top  = p.top  + 'px';
-    // 현재 모션 크기 반영
     applyImgSize();
+    applyRemainsSize();
+    if (curObjFilterMove) unitImg.style.filter = moveF();
+    else                  unitImg.style.filter = outlineF();
   });
 }
 
-/* ── GIF 캐시 (루프 / 1회재생) ── */
+/* ── GIF 캐시 ── */
 function parseGifMs(bytes){
   let ms = 0;
   for (let i = 0; i < bytes.length - 7; i++){
@@ -280,7 +292,6 @@ function parseGifMs(bytes){
   }
   return ms || 700;
 }
-// NETSCAPE2.0 루프 블록 제거 → 1회 재생 후 마지막 프레임 고정
 function stripLoop(bytes){
   for (let i = 0; i < bytes.length - 18; i++){
     if (bytes[i]===0x21 && bytes[i+1]===0xFF && bytes[i+2]===0x0B &&
@@ -293,7 +304,7 @@ function stripLoop(bytes){
   }
   return bytes;
 }
-const gifCache = {};       // 루프 재생
+const gifCache = {};
 async function loadGif(url){
   if (gifCache[url]) return gifCache[url];
   try {
@@ -302,14 +313,13 @@ async function loadGif(url){
     return gifCache[url] = { ms: parseGifMs(bytes), blob: new Blob([bytes], {type:'image/gif'}) };
   } catch(_){ return gifCache[url] = { ms: 700, blob: null }; }
 }
-const gifOnceCache = {};   // 1회 재생 (사망용)
+const gifOnceCache = {};
 async function loadGifOnce(url){
   if (gifOnceCache[url]) return gifOnceCache[url];
   try {
     const ab = await (await fetch(url, {cache:'default'})).arrayBuffer();
     const bytes = new Uint8Array(ab);
-    const ms = parseGifMs(bytes);
-    return gifOnceCache[url] = { ms, blob: new Blob([stripLoop(bytes)], {type:'image/gif'}) };
+    return gifOnceCache[url] = { ms: parseGifMs(bytes), blob: new Blob([stripLoop(bytes)], {type:'image/gif'}) };
   } catch(_){ return gifOnceCache[url] = { ms: 700, blob: null }; }
 }
 
@@ -320,7 +330,8 @@ let cellIdx = 0;
 let facingRight = true;
 let dead = false;
 let curObjUrl = null;
-let curRatio = IDLE_R;   // 현재 모션 크기 비율
+let curRatio = IDLE_R;
+let curObjFilterMove = false;
 
 function setUnitSrc(blobUrl){
   if (curObjUrl){ URL.revokeObjectURL(curObjUrl); curObjUrl = null; }
@@ -335,27 +346,32 @@ function applyImgSize(){
   const sz = Math.round(CELL * curRatio);
   unitImg.style.width = unitImg.style.height = sz + 'px';
 }
+function applyRemainsSize(){
+  const sz = Math.round(CELL * REMAINS_R);
+  remainsImg.style.width = remainsImg.style.height = sz + 'px';
+}
 function applyFacing(){ unitImg.classList.toggle('flip', !facingRight); }
 function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
 
 /* ── GIF 모션 표시 (idle / attack) ── */
-async function showGif(url, myRun){
+async function showGif(url, myRun, ratio){
   const {ms, blob} = await loadGif(url);
   if (myRun !== runId) return ms;
-  curRatio = IDLE_R; applyImgSize();
-  unitImg.style.filter = IDLE_FILTER;
+  curRatio = ratio; curObjFilterMove = false;
+  applyImgSize();
+  unitImg.style.filter = outlineF();
   applyFacing();
   if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(url);
   return ms;
 }
 
-/* ── 이동: 인게임과 동일 (잔상 + 초록 글로우 + 슬라이드) ── */
+/* ── 이동: 인게임과 동일 (잔상 + 초록 글로우 + 슬라이드, 셀 중심) ── */
 async function doMove(myRun){
   const e = cur;
   const moveUrl  = e.noMovePng ? `art/${e.art}_idle.gif` : `art/${e.art}_move.png`;
   const isDragon = (e.type === 'dragon');
 
-  const dir = (cellIdx === 0) ? +1 : -1;   // 좌→우 = +1
+  const dir = (cellIdx === 0) ? +1 : -1;
   facingRight = (dir > 0);
 
   if (e.noMovePng){
@@ -365,17 +381,18 @@ async function doMove(myRun){
   } else {
     setUnitStatic(moveUrl);
   }
-  curRatio = isDragon ? DRAGON_MOVE_R : MOVE_R; applyImgSize();
-  unitImg.style.filter = MOVE_FILTER;
+  curRatio = isDragon ? DRAGON_MOVE_R : MOVE_R; curObjFilterMove = true;
+  applyImgSize();
+  unitImg.style.filter = moveF();
   applyFacing();
 
   unitEl.classList.add('moving');
   cellIdx = (cellIdx === 0) ? 1 : 0;
   unitEl.style.left = cellPos[cellIdx].left + 'px';
 
-  // 잔상 (인게임: 58ms 간격, opacity 감쇠, 0.4s 페이드)
   const stageRect = stage.getBoundingClientRect();
   const flipCls = facingRight ? 'ghost' : 'ghost flip';
+  const mf = moveF();
   let tc = 0;
   const iv = setInterval(() => {
     tc++;
@@ -388,7 +405,7 @@ async function doMove(myRun){
     g.style.left   = (r.left - stageRect.left) + 'px';
     g.style.top    = (r.top  - stageRect.top)  + 'px';
     g.style.opacity = Math.max(0, 0.5 - tc * 0.08);
-    g.style.filter  = MOVE_FILTER;
+    g.style.filter  = mf;
     g.style.transition = 'opacity 0.4s ease-out';
     stage.appendChild(g);
     requestAnimationFrame(() => { g.style.opacity = '0'; });
@@ -400,6 +417,7 @@ async function doMove(myRun){
   clearInterval(iv);
   if (myRun !== runId) return;
   unitEl.classList.remove('moving');
+  curObjFilterMove = false;
 }
 
 /* ── 자동 시퀀스: 공격 → 아이들 ×2 → 이동 ── */
@@ -411,12 +429,12 @@ async function runSequence(){
 
   while (myRun === runId && !dead){
     phaseEl.textContent = '공격';
-    const atkMs = await showGif(attackUrl, myRun);
+    const atkMs = await showGif(attackUrl, myRun, ATK_R);
     await wait(atkMs);
     if (myRun !== runId) return;
 
     phaseEl.textContent = '아이들 ×2';
-    const idleMs = await showGif(idleUrl, myRun);
+    const idleMs = await showGif(idleUrl, myRun, IDLE_R);
     await wait(idleMs * 2);
     if (myRun !== runId) return;
 
@@ -426,7 +444,7 @@ async function runSequence(){
   }
 }
 
-/* ── 사망 모션 (깜빡임 없음: 1회재생 + remains 프리로드) ── */
+/* ── 사망 모션 (1회재생 + 140% + remains 방향 일치) ── */
 async function playDeath(){
   if (!cur || dead) return;
   dead = true;
@@ -434,23 +452,27 @@ async function playDeath(){
   const myRun = runId;
   phaseEl.textContent = '사망';
 
+  const deathFacingLeft = !facingRight;   // 사망 시점 방향 → 유해에 동일 적용
+
   const deathUrl = cur.death ? `art/death_${cur.death}.gif` : 'art/death_common.gif';
   const {ms, blob} = await loadGifOnce(deathUrl);
   if (myRun !== runId) return;
 
-  curRatio = IDLE_R; applyImgSize();
-  unitImg.style.filter = IDLE_FILTER;
-  applyFacing();
+  curRatio = DEATH_R; curObjFilterMove = false;
+  applyImgSize();
+  unitImg.style.filter = outlineF();
+  applyFacing();   // facingRight 기준 → 사망 GIF 방향
   if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(deathUrl);
 
   await wait(ms);
   if (myRun !== runId) return;
 
-  // 유해 표시 (드래곤/유황솥 제외) — 사망 GIF 마지막 프레임은 빈 화면이라 끊김 없음
   if (!cur.noRemains){
     const p = cellPos[cellIdx];
     remainsEl.style.left = p.left + 'px';
     remainsEl.style.top  = p.top  + 'px';
+    applyRemainsSize();
+    remainsImg.classList.toggle('flip', deathFacingLeft);   // 유해 방향 일치
     remainsImg.src = 'art/remains.png';
     remainsEl.classList.add('show');
   }
@@ -465,15 +487,17 @@ function resetSequence(){
   cellIdx = 0;
   facingRight = true;
   curRatio = IDLE_R;
+  curObjFilterMove = false;
   unitEl.classList.remove('moving','hidden');
   remainsEl.classList.remove('show');
+  remainsImg.classList.remove('flip');
   stage.querySelectorAll('.ghost').forEach(g => g.remove());
   const p = cellPos[0];
   unitEl.style.left = p.left + 'px';
   unitEl.style.top  = p.top  + 'px';
   if (cur){
     applyImgSize();
-    unitImg.style.filter = IDLE_FILTER;
+    unitImg.style.filter = outlineF();
     setUnitStatic(`art/${cur.art}_idle.gif`);
     applyFacing();
     runSequence();
@@ -490,7 +514,7 @@ function selectChar(e, btn){
   resetSequence();
 }
 
-/* ── 사이드바 구성 ── */
+/* ── 사이드바 ── */
 function buildSidebar(){
   const groups = {1:[], 2:[], 3:[], S:[]};
   CHARS.forEach(c => groups[c.tier].push(c));
@@ -512,7 +536,6 @@ function buildSidebar(){
   });
 }
 
-/* remains 미리 디코드 (깜빡임 방지) */
 (function preloadRemains(){ const i = new Image(); i.src = 'art/remains.png'; })();
 
 document.getElementById('btnDeath').addEventListener('click', playDeath);
