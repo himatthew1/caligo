@@ -5205,12 +5205,23 @@ function getSpFlightEndMs(cost) {
   return 780 + (c - 1) * 130 + SP_END_OFFSET_MS;
 }
 // 이벤트 payload 에 spCost 가 없을 때 fallback (SP delta 로 추정)
+// ★ 버그 수정 (2인전 스킬 타이밍): 이전에는 viewer 본인 슬롯(mySlot)의 감소량만 봤다.
+//   하지만 상대/적팀이 시전하면 viewer 슬롯 delta=0 → 항상 1 반환 → getSpFlightEndMs(1)=780ms 로
+//   효과가 발동 → 고비용 스킬은 SP 마법구가 아직 비행 중인데 효과가 먼저 터졌다
+//   (= "마법구 이동 타이밍과 동일하게 발동"). 시전자는 본인이 아닐 수 있으므로,
+//   특정 슬롯이 아니라 '감소한' 슬롯(=실제 시전자)의 소비량을 cost 로 사용한다.
+//   본인 시전 시에도 본인 슬롯이 감소 슬롯이므로 동일하게 동작 (회귀 없음).
 function spCostFromDelta(oldSp, newSp, oldInstantSp, newInstantSp) {
   if (!oldSp || !newSp) return 1;
-  const mySlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
-  const reg = (oldSp[mySlot] || 0) - (newSp[mySlot] || 0);
-  const ins = ((oldInstantSp || [])[mySlot] || 0) - ((newInstantSp || [])[mySlot] || 0);
-  return Math.max(1, (reg > 0 ? reg : 0) + (ins > 0 ? ins : 0));
+  const n = Math.max(oldSp.length || 0, newSp.length || 0);
+  let maxConsumed = 0;
+  for (let i = 0; i < n; i++) {
+    const reg = (oldSp[i] || 0) - (newSp[i] || 0);
+    const ins = ((oldInstantSp || [])[i] || 0) - ((newInstantSp || [])[i] || 0);
+    const consumed = (reg > 0 ? reg : 0) + (ins > 0 ? ins : 0);
+    if (consumed > maxConsumed) maxConsumed = consumed;
+  }
+  return Math.max(1, maxConsumed);
 }
 
 function spendSPAttention(oldSp, newSp, oldInstantSp, newInstantSp) {

@@ -1233,74 +1233,67 @@ function aiTeamPlace(room, idx) {
 
 // ── 팀전 AI 점수 헬퍼 (1v1 aiScoreAttack/aiScoreMove의 팀모드 적응판) ──
 // probMap 대신 실제 적 위치 + 가중치(HP, tier, 스킬 보유) 기반 점수
-function aiTeamCellThreatScore(room, idx, col, row, opts) {
-  // opts.revealedOnly = true 면 "표식된 적 + 최근 hit 기억" 만 인지 (마녀·그림자 자유 타겟형)
-  // 페어플레이: 일반 전수조사 X. 인간 플레이어와 동일한 정보(표식·관측)만 사용
-  const revealedOnly = !!(opts && opts.revealedOnly);
-  const enemyIdxs = getEnemyIndices(room, idx);
-  let score = 0;
-  for (const ei of enemyIdxs) {
-    for (const pc of (room.players[ei]?.pieces || [])) {
-      if (!pc.alive) continue;
-      if (revealedOnly) {
-        // 표식 OR 최근 AI 팀이 hit 으로 확인한 위치만 인지
-        const isMarked = (pc.statusEffects || []).some(e => e.type === 'mark');
-        const teamId = getTeamOf(room, idx);
-        const teamMem = (room.aiTeamMemory && room.aiTeamMemory[teamId]) || null;
-        const memKey = `${pc.col},${pc.row}`;
-        const memTurn = teamMem?.hits?.[memKey];
-        const isRecentHit = (memTurn != null) && (room.turnNumber - memTurn <= 3);  // 3턴 이내 hit 기억
-        if (!isMarked && !isRecentHit) continue;
-      }
-      if (pc.col === col && pc.row === row) {
-        const tierW = (pc.tier || 1) * 1.5;
-        const hpW = Math.max(0, 4 - pc.hp);
-        const skillW = pc.hasSkill ? 2 : 0;
-        score += 9 + tierW + hpW + skillW;
-      }
-    }
+// ── 팀전 AI 브레인 — 팀별 확률맵(fog-of-war 존중). 1v1 room.aiBrain 과 완전히 동일한 구조·학습. ──
+//   사용자 요청: "팀전 AI 를 1대1 AI 와 정확히 똑같이 동작시키고, 실제 플레이어와 같은 정보만 보게 하라."
+//   이전 구현(aiTeamCellThreatScore 전수조사)은 적의 실제 위치를 fog 무시하고 들여다보는 치트였고,
+//   추격 로직이 없어 정보 우위도 전혀 못 살렸다. 이제 1v1 과 동일하게 "추론된 확률맵"만 보고 싸운다.
+function getTeamBrain(room, teamId) {
+  if (!room.aiTeamBrains) room.aiTeamBrains = {};
+  if (!room.aiTeamBrains[teamId]) {
+    const size = room.boardBounds ? room.boardBounds.max + 1 : 7;
+    room.aiTeamBrains[teamId] = initAiBrain(size);
   }
-  return score;
+  return room.aiTeamBrains[teamId];
 }
 
-// AI 팀 hit 기억 — AI 팀이 (col, row) 셀에 hit 을 기록한 턴 번호 저장
-// 마녀·그림자 같이 무차별 타겟형 캐릭터의 다음 시전 시 위치 추론에 사용
-function aiTeamRecordHit(room, attackerIdx, col, row) {
+// 팀 학습 훅 — 공격 1건이 처리될 때마다 호출(인간/AI 공격 공통).
+//   공격자 팀이 AI → 내 hit/miss 로 적 확률맵 갱신(aiProcessAttackResult).
+//   피격당한 적 팀이 AI → 공격자(상대 팀) 위치를 역추론(aiObserveEnemyAttack).
+//   → 정보가 끝없이 누적·정제됨 (사용자 요청: "끝없이 플레이 정보를 스택킹해서 발전").
+function aiTeamLearnFromAttack(room, attackerIdx, atkCells, hitResults) {
   if (room.mode !== 'team') return;
-  if (!room.aiTeamMemory) room.aiTeamMemory = {};
-  const teamId = getTeamOf(room, attackerIdx);
-  if (!room.aiTeamMemory[teamId]) room.aiTeamMemory[teamId] = { hits: {} };
-  room.aiTeamMemory[teamId].hits[`${col},${row}`] = room.turnNumber;
+  const playersOfTeam = (tid) => room.players.filter(pl => pl && pl.teamId === tid);
+  const teamHasAI = (tid) => playersOfTeam(tid).some(pl => pl.socketId === 'AI');
+  const teamPieces = (tid) => playersOfTeam(tid).flatMap(pl => pl.pieces || []);
+  const atkTeam = getTeamOf(room, attackerIdx);
+  if (teamHasAI(atkTeam)) {
+    aiProcessAttackResult(getTeamBrain(room, atkTeam), atkCells,
+      hitResults.map(h => ({ col: h.col, row: h.row, destroyed: h.destroyed })));
+  }
+  const enemyTeam = atkTeam === 0 ? 1 : 0;
+  if (teamHasAI(enemyTeam)) {
+    aiObserveEnemyAttack(getTeamBrain(room, enemyTeam), room,
+      teamPieces(enemyTeam), teamPieces(atkTeam), atkCells, hitResults);
+  }
 }
+
 function aiTeamScoreAttack(room, idx, piece, extra) {
+  const brain = getTeamBrain(room, getTeamOf(room, idx));
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
   let score = 0;
-  for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row);
+  for (const c of cells) score += brain.probMap[c.row]?.[c.col] || 0;
   // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK
   const effAtk = _effectiveAtkForAi(piece, room, idx);
   score *= (1 + effAtk * 0.1);
   return score;
 }
+
+// 팀전 이동 점수 — 1v1 aiScoreMove 와 동일한 항목 구성(확률맵 공격 잠재력 + 축소회피 + commander
+//   + 가장자리회피 + 중앙회귀 + 피격기억 도주 + 추격). 오직 브레인·ownerIdx 만 다름.
 function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
+  const brain = getTeamBrain(room, getTeamOf(room, idx));
   const bounds = room.boardBounds;
-  // 마녀·그림자 암살자는 표식된 적 위치만 인지 — 이동 점수 산정도 동일
-  const revealedOnly = (piece.type === 'witch' || piece.type === 'shadowAssassin');
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
   let score = 0;
-  for (const c of cells) score += aiTeamCellThreatScore(room, idx, c.col, c.row, { revealedOnly });
-  // 보드 축소 회피 — 다음 축소 예상 영역에 들어갔는지 강하게 페널티
-  // (사용자 요청 #20b: 축소 예고 중 AI가 외곽으로 나도는 바보짓 절대 금지)
+  for (const c of cells) score += brain.probMap[c.row]?.[c.col] || 0;
+  // ── 보드 축소 회피 + 외곽 탈출 (사용자 요청: 축소에서 절대 도망쳐라) ──
   const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
-  let curIsOutside = false;       // 현재 위치가 곧 파괴될 영역인가
-  let newIsOutside = false;       // 새 위치가 곧 파괴될 영역인가
-  let mostUrgentTurns = 99;       // 가장 임박한 축소까지 남은 턴
+  let curIsOutside = false, newIsOutside = false, mostUrgentTurns = 99;
   for (const ev of schedule) {
-    if (room.boardShrinkStage >= ev.stage) continue;  // 이미 거친 단계
+    if (room.boardShrinkStage >= ev.stage) continue;
     const turnsToShrink = ev.shrinkTurn - room.turnNumber;
-    if (turnsToShrink > 10 || turnsToShrink < 0) continue;  // 10턴 이내만
-    // 새 위치가 곧 파괴될 영역(현재 bounds 밖이지만 ev.newBounds 안인 셀)인지
-    // ★ AI freeze 버그 수정 — ev.newBounds 미설정 → undefined.min throw 방어.
+    if (turnsToShrink > 10 || turnsToShrink < 0) continue;
     const evBaseSize = room.mode === 'team' ? 7 : 5;
     const evNextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
     const evBounds = ev.newBounds || _levelToBounds(evNextLevel, evBaseSize);
@@ -1308,72 +1301,45 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
                           newRow < evBounds.min || newRow > evBounds.max;
     const curOutside = piece.col < evBounds.min || piece.col > evBounds.max ||
                        piece.row < evBounds.min || piece.row > evBounds.max;
-    if (willBeOutside) {
-      // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)
-      const urgency = Math.max(1, 11 - turnsToShrink);
-      score -= 25 * urgency;
-      newIsOutside = true;
-    }
+    if (willBeOutside) { score -= 25 * Math.max(1, 11 - turnsToShrink); newIsOutside = true; }
     if (curOutside) curIsOutside = true;
     if (turnsToShrink < mostUrgentTurns) mostUrgentTurns = turnsToShrink;
   }
-  // ★ 사용자 보고 (축소 예고 중 외곽 서성임): 현재 위치가 곧 파괴되는 셀이고 새 위치는 안전하면
-  //   강력한 보너스. 임박할수록 보너스 증가 → 공격 가치가 0 이어도 안쪽으로 도망가도록.
-  if (curIsOutside && !newIsOutside) {
-    const urgency = Math.max(1, 11 - mostUrgentTurns);
-    score += 30 * urgency;  // 1턴 전: +300, 10턴 전: +30
-  }
-  // ★ commander 사기증진 인접 보너스 — 새 위치에서 버프 받으면 점수 가산
+  if (curIsOutside && !newIsOutside) score += 30 * Math.max(1, 11 - mostUrgentTurns);
+  // commander 인접 보너스
   const _teamEffAtk = _effectiveAtkAtCellForAi(piece, room, idx, newCol, newRow);
-  if (_teamEffAtk > (piece.atk || 0)) {
-    score += 6;
-  }
-  // 일반 가장자리 회피 (보드 축소 임박 안 해도)
+  if (_teamEffAtk > (piece.atk || 0)) score += 6;
+  // 일반 가장자리 회피
   if (room.turnNumber >= 25 && !room.boardShrunk) {
-    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) {
-      score *= 0.5;
-    }
+    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) score *= 0.5;
   }
-  // ★ 추가 — 무조건적인 중앙 회귀 약한 인센티브 (외곽 서성임 방지)
-  //   piece 가 보드 외곽 1칸에 있고 안쪽으로 이동하면 +5 보너스 (공격 가치 0 일 때도 안쪽 선호).
-  const isCurEdge = piece.col === bounds.min || piece.col === bounds.max ||
-                    piece.row === bounds.min || piece.row === bounds.max;
-  const isNewEdge = newCol === bounds.min || newCol === bounds.max ||
-                    newRow === bounds.min || newRow === bounds.max;
+  // 중앙 회귀 약한 인센티브
+  const isCurEdge = piece.col === bounds.min || piece.col === bounds.max || piece.row === bounds.min || piece.row === bounds.max;
+  const isNewEdge = newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max;
   if (isCurEdge && !isNewEdge) score += 5;
-  // HP 낮은데 적 인접 → 멀어지면 보너스 (도망 장려)
-  if (piece.hp <= 2) {
-    const enemyIdxs = getEnemyIndices(room, idx);
-    let nearestE = Infinity;
-    for (const ei of enemyIdxs) {
-      for (const pc of (room.players[ei]?.pieces || [])) {
-        if (!pc.alive || pc.col == null) continue;
-        const d = Math.abs(pc.col - newCol) + Math.abs(pc.row - newRow);
-        if (d < nearestE) nearestE = d;
-      }
-    }
-    const curNearest = (() => {
-      let n = Infinity;
-      for (const ei of enemyIdxs) for (const pc of (room.players[ei]?.pieces || [])) {
-        if (!pc.alive || pc.col == null) continue;
-        const d = Math.abs(pc.col - piece.col) + Math.abs(pc.row - piece.row);
-        if (d < n) n = d;
-      }
-      return n;
-    })();
-    if (nearestE > curNearest) score += 20 * (3 - piece.hp);
+  // HP 낮을 때 도주 — 피격 기억(fog 존중) 기반. 맞은 위치에서 멀어지면 보너스.
+  const mem = brain.hitMemory[piece.type];
+  if (mem && brain.turnCount - mem.turn <= 2 && piece.hp <= 2) {
+    const distFromHit = Math.abs(newCol - mem.col) + Math.abs(newRow - mem.row);
+    const curDistFromHit = Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row);
+    if (distFromHit > curDistFromHit) score += 20 * (3 - piece.hp);
   }
+  // ★ 추격 — 적 확률질량으로 능동 접근 (사거리 밖 적에게 다가감)
+  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * 2.5;
   return score;
 }
+// 팀전 마녀·그림자 암살자 best target — 1v1 aiBestTargetCell 과 동일하게 팀 확률맵만 본다.
+//   그림자 암살자는 주변 3x3 만, 마녀는 전역. fog 존중 → 추론된 확률 질량이 가장 큰 셀을 노린다.
 function aiTeamBestTargetCell(room, idx, piece) {
   const bounds = room.boardBounds;
-  // 마녀·그림자 암살자는 보드 전체 어디든 공격 가능 → 페어플레이 차원에서 표식된 적만 인지
-  const revealedOnly = (piece.type === 'witch' || piece.type === 'shadowAssassin');
+  const brain = getTeamBrain(room, getTeamOf(room, idx));
+  const isShadow = piece && piece.type === 'shadowAssassin';
   let best = { col: piece.col, row: piece.row, score: 0 };
   for (let r = bounds.min; r <= bounds.max; r++) {
     for (let c = bounds.min; c <= bounds.max; c++) {
       if (c === piece.col && r === piece.row) continue;
-      const sc = aiTeamCellThreatScore(room, idx, c, r, { revealedOnly });
+      if (isShadow && (Math.abs(c - piece.col) > 1 || Math.abs(r - piece.row) > 1)) continue;
+      const sc = brain.probMap[r]?.[c] || 0;
       if (sc > best.score) { best = { col: c, row: r, score: sc }; }
     }
   }
@@ -1442,10 +1408,13 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
 
   // ★ 기폭 (detonate) — 폭발 애니메이션 emit. 인간 use_skill 경로와 동일.
   //   누락 시 팀모드 AI 기폭이 다른 플레이어에게 폭발 애니가 안 보임.
+  let _aiBombAnimEndsAt = 0;
   if (result && result.data && Array.isArray(result.data.deferredBombEmits)) {
     const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
     if (bombList.length > 0) {
       emitToBoth(room, 'detonation_intro', { bombs: bombList });
+      // ★ 폭발 애니 종료 시각 — 마지막 적이 폭탄으로 사망 시 게임종료 판정을 이 시점까지 지연.
+      _aiBombAnimEndsAt = Date.now() + bombAnimDurationMs(bombList.length);
     }
     const deferred = [...result.data.deferredBombEmits];
     setTimeout(() => {
@@ -1462,10 +1431,9 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   }
 
   // ★ 사망 기폭 페이즈 flush — 팀모드 AI 스킬로 화약상 사망 시 cast/intro/bomb_detonated 시퀀스 emit.
+  //   폭탄 기폭으로 마지막 적이 사망하는 경우 폭발/사망/토스트 애니 종료까지 game_over 지연.
   flushPhase(room, () => {
-    if (rooms[room.id] && room.phase === 'game') {
-      checkGameEndAfterPhase(room);
-    }
+    checkGameEndAfterBombPhase(room, _aiBombAnimEndsAt);
   });
 
   // AI 토스트 추적 — 스킬은 ~7.6s 동안 표시
@@ -1599,9 +1567,13 @@ function aiTeamUsePreSkills(room, idx) {
           Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1);
       if (woundedAlly) { aiTeamExecSkill(room, idx, pi, 'herb'); return true; }
     }
-    // recon — 무작위 적 정보 공개
-    if (piece.skillId === 'recon' && Math.random() < 0.4) {
-      aiTeamExecSkill(room, idx, pi, 'recon'); return true;
+    // recon — 적 위치 정보가 빈약할 때만 (확률맵 최대값이 낮음 = 적 위치 불확실).
+    //   1v1 aiUsePreSkills 의 scout 정책과 동일. 의미없는 랜덤 사용 금지(사용자 요청).
+    if (piece.skillId === 'recon') {
+      const brain = getTeamBrain(room, getTeamOf(room, idx));
+      if (brain.mode === 'scan' && aiMaxProb(brain) < 6) {
+        aiTeamExecSkill(room, idx, pi, 'recon'); return true;
+      }
     }
     // bomb — 폭탄 설치 (적 인접 셀 우선)
     if (piece.skillId === 'bomb') {
@@ -1614,10 +1586,13 @@ function aiTeamUsePreSkills(room, idx) {
         if (occ) continue;
         const hasBomb = (room.boardObjects[idx] || []).some(o => o.type === 'bomb' && o.col === c && o.row === r);
         if (hasBomb) continue;
-        cands.push({ col: c, row: r });
+        // ★ 적 확률질량이 높은 칸에 설치 — 적이 밟을 가능성이 큰 곳(의도된 배치, 랜덤 금지).
+        const brain = getTeamBrain(room, getTeamOf(room, idx));
+        cands.push({ col: c, row: r, score: brain.probMap[r]?.[c] || 0 });
       }
       if (cands.length > 0) {
-        const t = cands[Math.floor(Math.random() * cands.length)];
+        cands.sort((a, b) => b.score - a.score);
+        const t = cands[0];
         aiTeamExecSkill(room, idx, pi, 'bomb', { col: t.col, row: t.row }); return true;
       }
     }
@@ -1738,6 +1713,24 @@ function aiTeamTakeTurn(room, idx) {
   if (myAlive.length === 0) { endTurn(room); return; }
   const enemyIdxs = getEnemyIndices(room, idx);
 
+  // ★ 턴 시작 브레인 갱신 — 1v1 aiTakeTurn 의 aiSpreadProbability/enemiesAlive 와 동등.
+  //   확률맵을 시간 경과만큼 번지게(불확실성 증가) + 살아있는 적 수 추산. fog 존중.
+  //   재진입(스킬 후) 시 중복 spread 방지 위해 turnNumber 가드.
+  {
+    const brain = getTeamBrain(room, getTeamOf(room, idx));
+    if (brain._lastSpreadTurn !== room.turnNumber) {
+      brain._lastSpreadTurn = room.turnNumber;
+      brain.turnCount = (brain.turnCount || 0) + 1;
+      aiSpreadProbability(brain);
+      let alive = 0;
+      for (const ei of enemyIdxs) {
+        const ep = room.players[ei];
+        if (ep && ep.pieces) alive += ep.pieces.filter(pc => pc.alive).length;
+      }
+      brain.enemiesAlive = alive;
+    }
+  }
+
   // ★ STEP 0: 보드 축소 임박 시 외곽 말 대피 (최우선) — 1v1 aiFindEvacuation 동등
   const evac = aiTeamFindEvacuation(room, idx);
   if (evac && !p.actionDone) {
@@ -1800,11 +1793,12 @@ function aiTeamTakeTurn(room, idx) {
     const pi = p.pieces.indexOf(piece);
 
     if (piece.type === 'manhunter') {
-      const enemies = enemyIdxs.flatMap(ei => room.players[ei]?.pieces || []).filter(e => e.alive);
-      const minDist = Math.min(...enemies.map(e => e.col != null ? Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row) : 99));
-      const prob = minDist <= 3 ? 0.7 : 0.3;
+      // 덫 설치 — 1v1 정책과 동일(랜덤 금지): 적이 밟을 만큼 가까울 때만(맨해튼 ≤2) 결정적으로.
+      const enemies = enemyIdxs.flatMap(ei => room.players[ei]?.pieces || []).filter(e => e.alive && e.col != null);
+      const aliveEnemyDists = enemies.map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row));
+      const nearestEnemyDist = aliveEnemyDists.length ? Math.min(...aliveEnemyDists) : 99;
       const hasTrap = (room.boardObjects[idx] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
-      if (!hasTrap && Math.random() < prob) {
+      if (!hasTrap && nearestEnemyDist <= 2) {
         aiTeamExecSkill(room, idx, pi, 'trap');
         scheduleAITurnEnd(room, idx, 3000);
         return;
@@ -1915,19 +1909,26 @@ function aiTeamTakeTurn(room, idx) {
   }
 
   if (!bestAction || bestAction.score <= 0) {
-    // 안전한 행동 없음 — 무작위 이동 (이전 폴백 유지)
-    const piecesToTry = myAlive.slice().sort(() => Math.random() - 0.5);
-    for (const piece of piecesToTry) {
-      const dirs = [[1,0],[-1,0],[0,1],[0,-1]].sort(() => Math.random() - 0.5);
-      for (const [dc, dr] of dirs) {
+    // 안전한 행동 없음 — 랜덤 금지(사용자 요청). 추론된 적 확률질량 쪽으로 결정적 접근.
+    //   가능한 모든 (말×4방향) 중 접근 포텐셜이 최대인 이동을 선택. 동점이면 중앙 회귀.
+    const brain = getTeamBrain(room, getTeamOf(room, idx));
+    const center = (bounds.min + bounds.max) / 2;
+    let fb = null;
+    for (const piece of myAlive) {
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) {
         const nc = piece.col + dc, nr = piece.row + dr;
         if (!inBounds(nc, nr, bounds)) continue;
-        // ★ 룰 통일: 쌍둥이 합류 예외 포함 점유 검사.
         if (!_canMoveTo(room, piece, nc, nr)) continue;
-        aiTeamExecuteMove(room, idx, p.pieces.indexOf(piece), nc, nr);
-        return;
+        const appr = aiApproachScore(brain, piece.col, piece.row, nc, nr, bounds);
+        // 접근 정보가 전무할 때 대비한 중앙 회귀 미세 가산(결정적 tie-break).
+        const centerPull = -(Math.abs(nc - center) + Math.abs(nr - center)) * 0.01;
+        const sc = appr + centerPull;
+        if (!fb || sc > fb.score) {
+          fb = { pieceIdx: p.pieces.indexOf(piece), col: nc, row: nr, score: sc };
+        }
       }
     }
+    if (fb) { aiTeamExecuteMove(room, idx, fb.pieceIdx, fb.col, fb.row); return; }
     endTurn(room);
     return;
   }
@@ -2075,6 +2076,9 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
   const hitResults = processAttack(room, idx, piece, atkCells, undefined, { suppressSpUpdate: true });
+  // ★ 팀 브레인 학습 — AI 공격은 socket 을 안 타므로 여기서 직접 호출(끝없는 정보 누적).
+  //   내 hit/miss → 적 확률맵 갱신. (피격당한 적팀이 AI 라면 역추론도 함께 처리됨.)
+  aiTeamLearnFromAttack(room, idx, atkCells, hitResults);
   p.actionDone = true;
   // 사용자 요청: 학살영웅 / 쥐 격파 등 임팩트 발생 시 빗나감 토스트 X.
   const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
@@ -3744,6 +3748,48 @@ function checkGameEndAfterPhase(room) {
     if (p1Dead) { endGame(room, 0); return true; }
   }
   return false;
+}
+
+// 페이즈 종료 시점에 게임이 끝나는 상태(어느 한쪽 전멸)인지 — endGame 호출 없이 검사만.
+function isGameEndingState(room) {
+  if (room.mode === 'team') {
+    return isTeamEliminated(room, 0) || isTeamEliminated(room, 1);
+  }
+  return checkWin(room, 0) || checkWin(room, 1);
+}
+
+// 폭탄 기폭 애니가 끝난 뒤 게임종료 판정 — flushPhase 콜백에서 사용.
+// ★ 버그 수정: 폭탄 기폭으로 마지막 적이 사망할 때, 사망 기폭 체인이 없으면 flushPhase cursor=0 →
+//   onComplete(checkGameEndAfterPhase)가 ~100ms 에 fire → 폭발/사망/격파 토스트 애니가 끝나기도 전에
+//   game_over 가 전송되던 문제. deferredBombEmits 가 있고 이 기폭으로 게임이 끝나는 상태면,
+//   detonation_intro 시점에 계산한 bombAnimEndsAt(폭발+사망+유해 애니 종료 시각)까지 판정을 지연한다.
+//   사망 기폭 체인이 있던 경우엔 flushPhase 가 이미 그만큼 지연했으므로 bombAnimEndsAt 는 이미 지나
+//   _remain≈0 → 즉시 판정 (이중 지연 없음).
+function checkGameEndAfterBombPhase(room, bombAnimEndsAt) {
+  if (!rooms[room.id] || room.phase !== 'game') return;
+  const _remain = bombAnimEndsAt ? Math.max(0, bombAnimEndsAt - Date.now()) : 0;
+  if (_remain > 50 && isGameEndingState(room)) {
+    room._phaseDeferredGameEndCheck = true;
+    const _pe = Date.now() + _remain;
+    room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, _pe);
+    if (!room._aiEndTurnEarliest || _pe > room._aiEndTurnEarliest) room._aiEndTurnEarliest = _pe;
+    if (!room._aiNextActionEarliest || _pe > room._aiNextActionEarliest) room._aiNextActionEarliest = _pe;
+    setTimeout(() => {
+      room._phaseDeferredGameEndCheck = false;
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      checkGameEndAfterPhase(room);
+    }, _remain);
+    return;
+  }
+  checkGameEndAfterPhase(room);
+}
+
+// 클라 폭발 시퀀스 총 길이(ms) — detonation_intro emit 시점 기준.
+//   SP 마법구 비행(780) + (n-1)*폭탄 stagger(350) + impact(1300)
+//   + 사망 GIF 시작 지연(400) + 사망 GIF/유해 정착(~1200).
+function bombAnimDurationMs(bombCount) {
+  const n = Math.max(1, bombCount || 1);
+  return 780 + (n - 1) * 350 + 1300 + 400 + 1200;
 }
 
 function handleDeath(room, deadPiece, ownerIdx) {
@@ -5752,15 +5798,48 @@ function aiSpreadProbability(brain) {
 }
 
 function normalizeProbMap(brain) {
+  // ★ size-agnostic — 1v1(5x5)·팀전(7x7) 공용. 이전엔 5 하드코딩으로 팀 7x7 의
+  //   바깥 행·열(5,6)이 정규화 누락되어 확률맵이 망가졌음.
+  const size = brain.probMap.length;
   let max = 0;
-  for (let r = 0; r < 5; r++)
-    for (let c = 0; c < 5; c++)
+  for (let r = 0; r < size; r++)
+    for (let c = 0; c < size; c++)
       if (brain.probMap[r][c] > max) max = brain.probMap[r][c];
   if (max > 0) {
-    for (let r = 0; r < 5; r++)
-      for (let c = 0; c < 5; c++)
+    for (let r = 0; r < size; r++)
+      for (let c = 0; c < size; c++)
         brain.probMap[r][c] = brain.probMap[r][c] / max * 10;
   }
+}
+
+// ── 확률맵 최대값 — 정보 신뢰도 판단용 (정찰 스킬 등 결정에 사용) ──
+function aiMaxProb(brain) {
+  const size = brain.probMap.length;
+  let max = 0;
+  for (let r = 0; r < size; r++)
+    for (let c = 0; c < size; c++)
+      if (brain.probMap[r][c] > max) max = brain.probMap[r][c];
+  return max;
+}
+
+// ── 추격(접근) 포텐셜 — 적 확률질량으로 능동 접근하도록 이동 점수에 가산 ──
+//   사용자 요청: "공격 사거리에 적이 올 때까지 멍청하게 기다리지 말고 추리·추산해 다가가라."
+//   포텐셜필드: 각 셀의 확률값을 거리로 나눠 합산 → 새 위치가 확률질량에 더 가까우면 +.
+//   공격이 즉시 가능한 강한 칸(원점수 6~10+)은 이 보너스를 압도하므로, 접근은
+//   "딱히 더 좋은 공격이 없을 때" 적 쪽으로 한 칸씩 좁혀가는 약한 유도력으로 작동.
+function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
+  let potFrom = 0, potTo = 0;
+  for (let r = bounds.min; r <= bounds.max; r++) {
+    for (let c = bounds.min; c <= bounds.max; c++) {
+      const p = brain.probMap[r]?.[c] || 0;
+      if (p <= 0.5) continue;
+      const dFrom = Math.abs(c - fromC) + Math.abs(r - fromR);
+      const dTo = Math.abs(c - toC) + Math.abs(r - toR);
+      potFrom += p / (dFrom + 1);
+      potTo += p / (dTo + 1);
+    }
+  }
+  return potTo - potFrom;
 }
 
 function aiProcessAttackResult(brain, atkCells, hitResults) {
@@ -5785,13 +5864,103 @@ function aiProcessAttackResult(brain, atkCells, hitResults) {
 }
 
 function boostHuntArea(brain, col, row) {
+  const size = brain.probMap.length;
   // 적중 셀: 최고 확신 — 상대가 도망가기 전까지 같은 칸 지속 공격
   brain.probMap[row][col] = 9;
   // 인접 4방: 상대가 도망갈 가능성 — 두번째 우선순위
   for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
     const nc = col + dc, nr = row + dr;
-    if (nc >= 0 && nc < 5 && nr >= 0 && nr < 5) {
+    if (nc >= 0 && nc < size && nr >= 0 && nr < size) {
       brain.probMap[nr][nc] = Math.max(brain.probMap[nr][nc], 6);
+    }
+  }
+}
+
+// ── 적의 공격을 관측해 공격자 위치를 역추론 (fog-of-war 존중, 1v1·팀전 공용) ──
+//   사용자 요청: "실제 플레이어와 같은 정보만 보고 추리·추산해 정보를 끝없이 스택킹하라."
+//   AI 는 적의 정확한 위치를 직접 볼 수 없다. 대신 "내가 어느 칸에서 맞았는가"(atkCells/hitResults)
+//   + "적이 보유한 유닛 타입"(초기 공개로 알고 있음) 을 결합해, 그 타입들이 실제로 그 칸을
+//   때릴 수 있는 후보 위치만 확률맵에 가산한다. 후보가 적을수록 신뢰도↑. 회피 후 재피격 시
+//   직전 후보군과의 교집합으로 위치를 거의 확정(9). 빗나가면 직전 후보군을 감쇠.
+//   → 1v1 socket('attack') 핸들러 인라인 로직을 그대로 추출 (동작 보존) + size/진영-무관 일반화.
+function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, hitResults) {
+  const size = brain.probMap.length;
+  // 피격 기억 — 어느 내 말이 어디서 맞았는지 (도망 판단용)
+  for (const h of hitResults) {
+    const hitPiece = ownPieces.find(p => p.col === h.col && p.row === h.row && p.alive);
+    if (hitPiece) aiRecordHit(brain, hitPiece);
+  }
+  if (hitResults.length > 0) {
+    const aliveEnemyTypes = (attackerPieces || []).filter(p => p.alive)
+      .map(p => ({ type: p.type, atk: p.atk, toggleState: p.toggleState }));
+    if (aliveEnemyTypes.length === 0) {
+      // 폴백 — 타입 정보 없으면 hit 셀 주변 8칸 가산
+      for (const h of hitResults) {
+        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nc = h.col + dc, nr = h.row + dr;
+          if (nc >= 0 && nc < size && nr >= 0 && nr < size)
+            brain.probMap[nr][nc] = Math.max(brain.probMap[nr][nc], 5);
+        }
+      }
+    } else {
+      // 각 hit 별 후보 셀 — 그 타입이 어딘가에서 hit 셀을 공격범위에 포함하는 위치
+      const newCandidates = new Set();
+      for (const h of hitResults) {
+        for (const et of aliveEnemyTypes) {
+          for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+            // 내 말이 있는 칸엔 적이 있을 수 없음
+            if (ownPieces.some(p => p.alive && p.col === c && p.row === r)) continue;
+            const extra = et.toggleState ? { toggleState: et.toggleState } : {};
+            let cells;
+            try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
+            if (cells.some(cc => cc.col === h.col && cc.row === h.row)) {
+              newCandidates.add(`${c},${r}`);
+            }
+          }
+        }
+      }
+      const candList = [...newCandidates];
+      const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
+      // 회피 후 재피격 추론 — 직전 후보군과 교집합이 작으면 거의 확정
+      const prevCands = brain.lastHitCandidates;
+      if (prevCands && prevCands.size > 0) {
+        const intersect = candList.filter(k => prevCands.has(k));
+        if (intersect.length > 0 && intersect.length <= 4) {
+          for (const key of intersect) {
+            const [c, r] = key.split(',').map(Number);
+            brain.probMap[r][c] = 9;
+          }
+        }
+      }
+      for (const key of candList) {
+        const [c, r] = key.split(',').map(Number);
+        brain.probMap[r][c] = Math.max(brain.probMap[r][c], baseConf);
+      }
+      brain.lastHitCandidates = newCandidates;
+      brain.lastHitTurn = brain.turnCount;
+    }
+  } else {
+    // 빗나감 — 직전 후보군 유지하되 회피 성공으로 감쇠
+    if (brain.lastHitCandidates) {
+      for (const key of brain.lastHitCandidates) {
+        const [c, r] = key.split(',').map(Number);
+        brain.probMap[r][c] = Math.max(0, (brain.probMap[r][c] || 0) * 0.7);
+      }
+    }
+  }
+  // 공격 범위 셀 자체도 적이 있을 수 있음
+  if (atkCells.length > 0) {
+    for (const c of atkCells) {
+      if (c.row >= 0 && c.row < size && c.col >= 0 && c.col < size) {
+        brain.probMap[c.row][c.col] = Math.max(brain.probMap[c.row][c.col], 4);
+      }
+    }
+    const avgCol = atkCells.reduce((s, c) => s + c.col, 0) / atkCells.length;
+    const avgRow = atkCells.reduce((s, c) => s + c.row, 0) / atkCells.length;
+    const cr = Math.round(avgRow), cc = Math.round(avgCol);
+    if (cr >= 0 && cr < size && cc >= 0 && cc < size) {
+      brain.probMap[cr][cc] = Math.max(brain.probMap[cr][cc], 7);
     }
   }
 }
@@ -5897,6 +6066,11 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
       score += 25 * (1 + (piece.maxHp - piece.hp) / piece.maxHp); // HP 낮을수록 더 도망
     }
   }
+
+  // ★ 추격 — 적 확률질량으로 한 칸씩 다가가는 유도력 (사거리 밖 적에게도 능동 접근).
+  //   강한 즉시공격(원점수 6~10) 은 이 약한 보너스를 압도하므로 공격 기회는 그대로 우선.
+  //   HP 낮은 도망 상황에서는 위 도주 보너스(25↑) 가 압도 → 추격이 도주를 방해하지 않음.
+  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * 2.5;
 
   return score;
 }
@@ -6334,9 +6508,11 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 척후병: 정찰 자주 사용 (SP 2 — scan 모드일 때 70%)
+      // 척후병: 정찰 — 사용자 요청(무의미한 random 금지). "정보가 부족할 때만" 의도적으로 시전.
+      //   확률맵 최대값이 낮다 = 적 위치 단서가 약하다 → 정찰로 정보를 캐낸다.
+      //   강한 추론(≥6) 이 이미 있으면 SP 낭비 안 함.
       case 'scout': {
-        if (brain.mode === 'scan' && Math.random() < 0.7) {
+        if (brain.mode === 'scan' && aiMaxProb(brain) < 6) {
           _tryExec(pidx, 'recon');
         }
         break;
@@ -6352,9 +6528,9 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 쥐장수: 쥐가 적으면 적극 소환 (SP 2)
+      // 쥐장수: 쥐가 부족하면 소환 (SP 2). 사용자 요청 — random 제거, 부족분만 결정적으로 보충.
       case 'ratMerchant': {
-        if (room.rats[1].length < 3 && Math.random() < 0.85) {
+        if (room.rats[1].length < 3) {
           _tryExec(pidx, 'rats');
         }
         break;
@@ -6367,13 +6543,13 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 양손검객: 인접 적이 있고 SP 충분하면 거의 항상 (SP 2)
+      // 양손검객: 쌍검무(2회 공격) — 사용자 요청(random 금지). "때릴 표적이 있을 때만" 의도적 시전.
+      //   현재 위치 공격범위의 확률질량(probMap 합)이 충분(≥4)하면 두 번 때릴 가치가 있다.
       case 'dualBlade': {
-        // 인접 4방향에 적이 있으면 90% 확률, 아니면 60%
-        const adjEnemy = human.pieces.some(p => p.alive &&
-          ((Math.abs(p.col - piece.col) === 1 && p.row === piece.row) ||
-           (Math.abs(p.row - piece.row) === 1 && p.col === piece.col)));
-        if (adjEnemy ? Math.random() < 0.9 : Math.random() < 0.6) {
+        const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
+        let dbScore = 0;
+        for (const c of dbCells) dbScore += brain.probMap[c.row]?.[c.col] || 0;
+        if (dbScore >= 4) {
           _tryExec(pidx, 'dualStrike');
         }
         break;
@@ -6623,6 +6799,9 @@ function aiTakeTurn(room) {
 
   brain.turnCount++;
   aiSpreadProbability(brain);
+  // ★ enemiesAlive 동적화 — 이전엔 3 하드코딩이라 실제 적 말 수와 어긋나 finish 모드 전환이 틀어짐.
+  //   매 턴 실제 살아있는 적 말 수로 갱신 → aiProcessAttackResult 의 finish(≤1) 판정이 정확.
+  brain.enemiesAlive = humanPlayer.pieces.filter(p => p.alive).length;
 
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
   if (alivePieces.length === 0) return;
@@ -6753,13 +6932,14 @@ function aiTakeTurn(room) {
       const pidx = aiPlayer.pieces.indexOf(piece);
 
       if (piece.type === 'manhunter') {
-        // 덫 설치 — 자기 자리에. 적이 가까이 있으면 더 적극적
-        const nearestEnemyDist = Math.min(...room.players[0].pieces.filter(p => p.alive && p.col != null)
-          .map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row)));
-        const prob = nearestEnemyDist <= 3 ? 0.7 : 0.4;
+        // 덫 설치 — 자기 자리에. 사용자 요청(random 금지): 적이 밟을 만큼 가까울 때만 결정적으로 설치.
+        //   적이 인접(맨해튼 ≤2)에 있으면 다음 이동으로 덫 칸을 밟을 가능성이 높다.
+        const aliveEnemyDists = room.players[0].pieces.filter(p => p.alive && p.col != null)
+          .map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row));
+        const nearestEnemyDist = aliveEnemyDists.length ? Math.min(...aliveEnemyDists) : 99;
         // 같은 자리에 이미 덫이 있으면 X
         const hasTrap = (room.boardObjects[1] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
-        if (!hasTrap && Math.random() < prob) {
+        if (!hasTrap && nearestEnemyDist <= 2) {
           aiExecSkill(room, pidx, 'trap');
           aiPlayer.actionDone = true;
           aiEndTurn(room);
@@ -9122,99 +9302,14 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: `${player.name} 공격 빗나감`, type: 'miss', playerIdx: idx });
     }
 
-    // AI 피격 기억 + 공격자 위치 추론 (실제 적 타입·ATK 기반 후보 좁히기)
+    // AI 피격 기억 + 공격자 위치 추론 — 공유 헬퍼로 통일 (1v1·팀전 동일 알고리즘)
     if (room.isAI && 1 - idx === 1 && room.aiBrain) {
-      for (const h of hitResults) {
-        const hitPiece = defender.pieces.find(p => p.col === h.col && p.row === h.row && p.alive);
-        if (hitPiece) {
-          aiRecordHit(room.aiBrain, hitPiece);
-        }
-      }
-      // ── 공격자 위치 역산 (스마트 버전) ──
-      // 적 유닛 타입은 초기공개로 이미 알고 있음 → 그 타입들이 실제로 hit 셀을 공격할 수 있는 후보 위치만 가산
-      if (hitResults.length > 0) {
-        const bSize = 5;  // AI 1v1
-        const opp = room.players[0];
-        // 적 살아있는 유닛 타입 목록 (각 타입의 ATK도 함께)
-        const aliveEnemyTypes = (opp.pieces || []).filter(p => p.alive).map(p => ({ type: p.type, atk: p.atk, toggleState: p.toggleState }));
-        if (aliveEnemyTypes.length === 0) {
-          // 폴백 — 기존 방식
-          for (const h of hitResults) {
-            for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-              if (dr === 0 && dc === 0) continue;
-              const nc = h.col + dc, nr = h.row + dr;
-              if (nc >= 0 && nc < bSize && nr >= 0 && nr < bSize)
-                room.aiBrain.probMap[nr][nc] = Math.max(room.aiBrain.probMap[nr][nc], 5);
-            }
-          }
-        } else {
-          // 각 hit별 후보 셀 집합 (이번 공격에서 가능한 공격자 위치들)
-          const newCandidates = new Set();
-          for (const h of hitResults) {
-            // ATK 값으로 추가 필터 — damage가 일치하는 유닛만 (commander 버프 ±1, monk vs 악인 = 3 등 변수 있어 완전 필터링은 안 함)
-            const hitDamage = h.damage;
-            for (const et of aliveEnemyTypes) {
-              // 가능 공격자 셀 — 그 타입이 어디서든 hit 셀을 공격 범위에 포함하는지
-              for (let r = 0; r < bSize; r++) for (let c = 0; c < bSize; c++) {
-                // 자기 자리(AI 말 위치)는 적이 있을 수 없음
-                if (room.players[1].pieces.some(p => p.alive && p.col === c && p.row === r)) continue;
-                // 그 타입 기준 공격 셀
-                const extra = et.toggleState ? { toggleState: et.toggleState } : {};
-                let cells;
-                try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
-                if (cells.some(cc => cc.col === h.col && cc.row === h.row)) {
-                  newCandidates.add(`${c},${r}`);
-                }
-              }
-            }
-          }
-          // 후보 집합에 가산 — 후보 수가 적을수록 신뢰도 ↑
-          const candList = [...newCandidates];
-          const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
-          // 회피 후 재피격 추론: brain.lastHitCandidates와 교집합 시 신뢰도 +1
-          const prevCands = room.aiBrain.lastHitCandidates;
-          if (prevCands && prevCands.size > 0) {
-            const intersect = candList.filter(k => prevCands.has(k));
-            if (intersect.length > 0 && intersect.length <= 4) {
-              // 교집합이 작으면 거의 확정 → 9
-              for (const key of intersect) {
-                const [c, r] = key.split(',').map(Number);
-                room.aiBrain.probMap[r][c] = 9;
-              }
-            }
-          }
-          // 일반 후보 가산
-          for (const key of candList) {
-            const [c, r] = key.split(',').map(Number);
-            room.aiBrain.probMap[r][c] = Math.max(room.aiBrain.probMap[r][c], baseConf);
-          }
-          // 다음 회피 후 재피격 추론용 저장
-          room.aiBrain.lastHitCandidates = newCandidates;
-          room.aiBrain.lastHitTurn = room.aiBrain.turnCount;
-        }
-      } else {
-        // 빗나감 — 직전 후보군 기억 유지하되 회피 성공으로 약간 감쇠
-        if (room.aiBrain.lastHitCandidates) {
-          for (const key of room.aiBrain.lastHitCandidates) {
-            const [c, r] = key.split(',').map(Number);
-            room.aiBrain.probMap[r][c] = Math.max(0, (room.aiBrain.probMap[r][c] || 0) * 0.7);
-          }
-        }
-      }
-      // 공격 범위 셀 자체도 적이 있을 수 있음
-      if (atkCells.length > 0) {
-        for (const c of atkCells) {
-          if (c.row >= 0 && c.row < 5 && c.col >= 0 && c.col < 5) {
-            room.aiBrain.probMap[c.row][c.col] = Math.max(room.aiBrain.probMap[c.row][c.col], 4);
-          }
-        }
-        const avgCol = atkCells.reduce((s, c) => s + c.col, 0) / atkCells.length;
-        const avgRow = atkCells.reduce((s, c) => s + c.row, 0) / atkCells.length;
-        const cr = Math.round(avgRow), cc = Math.round(avgCol);
-        if (cr >= 0 && cr < 5 && cc >= 0 && cc < 5) {
-          room.aiBrain.probMap[cr][cc] = Math.max(room.aiBrain.probMap[cr][cc], 7);
-        }
-      }
+      // 1v1: AI(1) 가 인간(0) 에게 맞음 → AI brain 이 인간 공격자 위치 추론
+      aiObserveEnemyAttack(room.aiBrain, room, room.players[1].pieces, room.players[0].pieces, atkCells, hitResults);
+    } else if (room.mode === 'team') {
+      // 팀전: 인간이 공격 → 피격당한 AI 팀의 brain 이 공격자(인간 팀) 위치 추론.
+      //   AI 가 공격하는 경우는 socket 을 안 타므로 (aiTeamExecuteAttack 에서 직접 학습) 여기 없음.
+      aiTeamLearnFromAttack(room, idx, atkCells, hitResults);
     }
 
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
@@ -9562,11 +9657,14 @@ io.on('connection', (socket) => {
     // 기폭 스킬: SP_END(1) + offset 200ms = 980ms + 폭탄 애니(950ms) = ~1930ms
     // 1) 즉시 detonation_intro emit — 클라가 980ms 후 시퀀스 시작
     // 2) 1930ms 후 bomb_detonated 이벤트로 피해 적용 (클라 시퀀스 종료 시점)
+    let _bombAnimEndsAt = 0;
     if (result.data && Array.isArray(result.data.deferredBombEmits)) {
       const bombList = result.data.deferredBombEmits.map(b => ({ col: b.col, row: b.row, owner: b.owner }));
       if (bombList.length > 0) {
         // emitToBoth 가 spectators 까지 포함 — 중복 emit 제거.
         emitToBoth(room, 'detonation_intro', { bombs: bombList });
+        // ★ 폭발 애니 종료 시각 — 마지막 적이 폭탄으로 사망 시 게임종료 판정을 이 시점까지 지연.
+        _bombAnimEndsAt = Date.now() + bombAnimDurationMs(bombList.length);
       }
       const deferred = [...result.data.deferredBombEmits];
       setTimeout(() => {
@@ -9581,10 +9679,11 @@ io.on('connection', (socket) => {
     }
 
     // Check win after skill effects (모드별)
-    // ★ 게임종료 검사 — 사망 기폭 페이즈 deferred 면 flushPhase callback 이 처리 (simultaneous_draw 포함)
+    // ★ 게임종료 검사 — 사망 기폭 페이즈 deferred 면 flushPhase callback 이 처리 (simultaneous_draw 포함).
+    //   추가로 폭탄 기폭(deferredBombEmits)으로 게임이 끝나는 경우엔 폭발/사망/토스트 애니가
+    //   끝난 뒤 game_over 가 가도록 checkGameEndAfterBombPhase 가 지연 처리.
     flushPhase(room, () => {
-      if (!rooms[room.id] || room.phase !== 'game') return;
-      checkGameEndAfterPhase(room);
+      checkGameEndAfterBombPhase(room, _bombAnimEndsAt);
     });
   });
 
