@@ -523,6 +523,7 @@ async function playDeath(){
     remainsEl.style.left = p.left + 'px';
     remainsEl.style.top  = p.top  + 'px';
     applyRemainsSize();
+    remainsImg.style.filter = outlineF();                   // 게임과 동일한 블랙 아웃라인
     remainsImg.classList.toggle('flip', deathFacingLeft);   // 유해 방향 일치
     remainsImg.src = 'art/remains.png';
     remainsEl.classList.add('show');
