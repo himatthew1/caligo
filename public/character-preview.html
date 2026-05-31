@@ -10,6 +10,7 @@
     --txt:#e6edf3; --sub:#9aa7b4; --accent:#d9a441; --accent2:#5aa9e6;
     --t1:#7ec699; --t2:#5aa9e6; --t3:#d9a441; --sum:#c678dd;
     --danger:#e06c75;
+    --cell:#12182b; --cell-piece:#1a2040; --cell-border:#3a4a80;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
@@ -66,48 +67,51 @@
   }
   .stage{
     position:relative;
-    width:440px; height:300px;
+    width:480px; height:300px;
     background:
-      radial-gradient(120% 90% at 50% 20%, #1d2530 0%, #11161d 70%, #0c1015 100%);
+      radial-gradient(120% 90% at 50% 25%, #1a2233 0%, #11161d 70%, #0c1015 100%);
     border:1px solid var(--line); border-radius:16px;
     box-shadow:inset 0 0 60px rgba(0,0,0,.5);
     overflow:hidden;
   }
-  /* 2칸 보드 */
+  /* 2칸 보드 — 인게임과 동일한 정사각형 셀 (56px → 160px 비율 유지) */
   .cell{
-    position:absolute; bottom:46px; width:170px; height:120px;
-    border:2px solid #313b48; border-radius:12px;
-    background:linear-gradient(180deg,rgba(58,72,90,.35),rgba(30,38,48,.5));
+    position:absolute; top:70px; width:160px; height:160px;
+    background:var(--cell-piece);
+    border:1px solid var(--cell-border);
+    border-radius:14px;            /* 5/56 * 160 ≈ 14 */
   }
-  .cell.left{left:30px;}
-  .cell.right{left:240px;}
-  .cell .floor{
-    position:absolute; left:50%; bottom:-10px; transform:translateX(-50%);
-    width:150px; height:26px; border-radius:50%;
-    background:radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.45), transparent 70%);
-  }
+  .cell.left{left:56px;}
+  .cell.right{left:264px;}
 
   .unit{
-    position:absolute; bottom:60px; width:170px; height:170px;
-    left:30px;
-    display:flex; align-items:flex-end; justify-content:center;
-    pointer-events:none;
+    position:absolute; top:70px; left:56px;
+    width:160px; height:160px;
+    display:flex; align-items:center; justify-content:center;
+    pointer-events:none; z-index:6; overflow:visible;
   }
-  .unit.moving{transition:left .6s ease-in-out;}
+  .unit.moving{transition:left .35s cubic-bezier(0.25,0.46,0.45,0.94);}
   .unit img{
-    max-width:150px; max-height:150px;
-    image-rendering:pixelated;
-    filter:drop-shadow(0 6px 6px rgba(0,0,0,.5));
+    object-fit:contain; image-rendering:pixelated;
   }
   .unit img.flip{transform:scaleX(-1);}
   .unit.hidden{opacity:0;}
 
+  /* 이동 잔상 */
+  .ghost{
+    position:absolute; pointer-events:none; z-index:5;
+    object-fit:contain; image-rendering:pixelated;
+  }
+  .ghost.flip{transform:scaleX(-1);}
+
   .remains{
-    position:absolute; bottom:52px; width:170px; left:30px;
-    display:flex; justify-content:center; opacity:0; transition:opacity .25s;
+    position:absolute; top:70px; left:56px; width:160px; height:160px;
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition:opacity .25s; z-index:4;
   }
   .remains.show{opacity:1;}
-  .remains img{max-width:120px; image-rendering:pixelated;}
+  .remains img{width:100px; image-rendering:pixelated;
+    filter:drop-shadow(0 0 2px rgba(0,0,0,1));}
 
   /* ── 컨트롤 ── */
   .controls{
@@ -134,7 +138,7 @@
 <body>
   <header>
     <h1>CALIGO · 캐릭터 모션 프리뷰</h1>
-    <span class="sub">아이들 ×2 → 공격 → 이동 자동 반복 · 사망 모션 / 초기화 버튼</span>
+    <span class="sub">공격 → 아이들 ×2 → 이동 자동 반복 · 사망 모션 / 초기화 버튼</span>
   </header>
 
   <div class="layout">
@@ -148,8 +152,8 @@
 
       <div class="stage-wrap">
         <div class="stage" id="stage">
-          <div class="cell left"><div class="floor"></div></div>
-          <div class="cell right"><div class="floor"></div></div>
+          <div class="cell left"></div>
+          <div class="cell right"></div>
           <div class="remains" id="remains"><img id="remainsImg" alt=""></div>
           <div class="unit" id="unit"><img id="unitImg" alt=""></div>
         </div>
@@ -168,10 +172,7 @@
 "use strict";
 
 /* ─────────────────────────────────────────────
-   캐릭터 정의
-   art : 에셋 파일 접두사 (art/{art}_idle.gif 등)
-   icon: 좌측 리스트 아이콘
-   상대 경로 사용 → 로컬 서버 & GitHub Pages 양쪽에서 동작
+   캐릭터 정의 (상대 경로 → 로컬·GitHub Pages 양쪽 동작)
    ───────────────────────────────────────────── */
 const CHARS = [
   // ── Tier 1 ──
@@ -216,6 +217,19 @@ const CHARS = [
 const TIER_LABEL = {1:'1티어', 2:'2티어', 3:'3티어', S:'소환 유닛'};
 const TIER_CLASS = {1:'t1', 2:'t2', 3:'t3', S:'sum'};
 
+/* ── 인게임 비율 상수 (cell 160 = 인게임 56px × ~2.86) ── */
+const CELL      = 160;
+const IDLE_SIZE = Math.round(CELL * 0.68);   // 인게임 .p-gif 38/56
+const MOVE_SIZE = Math.round(CELL * 0.88);   // 인게임 이동 floater
+const DRAGON_MOVE_SIZE = Math.round(CELL * 1.50);
+const LEFT_X    = 56;
+const RIGHT_X   = 264;
+const MOVE_MS   = 350;
+
+/* 인게임과 동일한 필터: 검은 아웃라인 / 이동 시 초록 글로우 추가 */
+const IDLE_FILTER = 'drop-shadow(0 0 2px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(0,0,0,1))';
+const MOVE_FILTER = IDLE_FILTER + ' drop-shadow(0 0 14px rgba(82,183,136,0.85))';
+
 /* ── DOM ── */
 const sidebar   = document.getElementById('sidebar');
 const stage     = document.getElementById('stage');
@@ -227,12 +241,8 @@ const nameEl    = document.getElementById('charName');
 const tierEl    = document.getElementById('charTier');
 const phaseEl   = document.getElementById('phase');
 
-/* ── 셀 위치(좌/우) ── */
-const LEFT_X  = 30;
-const RIGHT_X = 240;
-
 /* ── GIF 캐시 (재생시간 파싱 + Blob) ── */
-const gifCache = {};   // url -> {ms, blob}
+const gifCache = {};
 async function loadGif(url){
   if (gifCache[url]) return gifCache[url];
   try {
@@ -252,75 +262,117 @@ async function loadGif(url){
 }
 
 /* ── 상태 ── */
-let cur = null;        // 현재 선택 엔트리
-let runId = 0;         // 시퀀스 취소용 토큰
-let cellIdx = 0;       // 0 = 좌, 1 = 우
+let cur = null;
+let runId = 0;
+let cellIdx = 0;
 let facingRight = true;
 let dead = false;
 let curObjUrl = null;
 
 function setUnitSrc(blobUrl){
-  // 매번 새 ObjectURL → 브라우저 전역 GIF 시계 우회(프레임 0부터 재생)
   if (curObjUrl){ URL.revokeObjectURL(curObjUrl); curObjUrl = null; }
   curObjUrl = blobUrl;
   unitImg.src = blobUrl;
 }
-
-function applyFacing(){
-  unitImg.classList.toggle('flip', !facingRight);
+function setUnitStatic(url){
+  if (curObjUrl){ URL.revokeObjectURL(curObjUrl); curObjUrl = null; }
+  unitImg.src = url;
 }
-
+function applyFacing(){ unitImg.classList.toggle('flip', !facingRight); }
 function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
 
 /* ── GIF 모션 표시 (idle / attack / death) ── */
 async function showGif(url, myRun){
   const {ms, blob} = await loadGif(url);
   if (myRun !== runId) return ms;
+  unitImg.style.width = unitImg.style.height = IDLE_SIZE + 'px';
+  unitImg.style.filter = IDLE_FILTER;
   applyFacing();
   if (blob) setUnitSrc(URL.createObjectURL(blob));
-  else      unitImg.src = url;
+  else      setUnitStatic(url);
   return ms;
 }
 
-/* ── 자동 시퀀스: idle×2 → 공격 → 이동 ── */
+/* ── 이동: 인게임과 동일 (잔상 + 초록 글로우 + 슬라이드) ── */
+async function doMove(myRun){
+  const e = cur;
+  const moveUrl  = e.noMovePng ? `art/${e.art}_idle.gif` : `art/${e.art}_move.png`;
+  const isDragon = (e.type === 'dragon');
+  const sz = isDragon ? DRAGON_MOVE_SIZE : MOVE_SIZE;
+
+  const dir = (cellIdx === 0) ? +1 : -1;   // 좌→우 = +1
+  facingRight = (dir > 0);
+
+  // 이동 이미지 적용
+  if (e.noMovePng){
+    const {blob} = await loadGif(moveUrl);
+    if (myRun !== runId) return;
+    if (blob) setUnitSrc(URL.createObjectURL(blob)); else setUnitStatic(moveUrl);
+  } else {
+    setUnitStatic(moveUrl);
+  }
+  unitImg.style.width = unitImg.style.height = sz + 'px';
+  unitImg.style.filter = MOVE_FILTER;
+  applyFacing();
+
+  // 슬라이드 시작
+  unitEl.classList.add('moving');
+  cellIdx = (cellIdx === 0) ? 1 : 0;
+  unitEl.style.left = (cellIdx === 0 ? LEFT_X : RIGHT_X) + 'px';
+
+  // 잔상 인터벌 (인게임: 58ms 간격, opacity 감쇠, 0.4s 페이드)
+  const stageRect = stage.getBoundingClientRect();
+  let tc = 0;
+  const flipCls = facingRight ? 'ghost' : 'ghost flip';
+  const iv = setInterval(() => {
+    tc++;
+    const r = unitImg.getBoundingClientRect();
+    const g = document.createElement('img');
+    g.src = unitImg.src;
+    g.className = flipCls;
+    g.style.width  = r.width + 'px';
+    g.style.height = r.height + 'px';
+    g.style.left   = (r.left - stageRect.left) + 'px';
+    g.style.top    = (r.top  - stageRect.top)  + 'px';
+    g.style.opacity = Math.max(0, 0.5 - tc * 0.08);
+    g.style.filter  = MOVE_FILTER;
+    g.style.transition = 'opacity 0.4s ease-out';
+    stage.appendChild(g);
+    requestAnimationFrame(() => { g.style.opacity = '0'; });
+    setTimeout(() => g.remove(), 450);
+    if (tc >= 5) clearInterval(iv);
+  }, 58);
+
+  await wait(MOVE_MS + 40);
+  clearInterval(iv);
+  if (myRun !== runId) return;
+  unitEl.classList.remove('moving');
+}
+
+/* ── 자동 시퀀스: 공격 → 아이들 ×2 → 이동 ── */
 async function runSequence(){
   const myRun = runId;
   const e = cur;
   const idleUrl   = `art/${e.art}_idle.gif`;
   const attackUrl = `art/${e.art}_attack.gif`;
-  const moveUrl   = e.noMovePng ? `art/${e.art}_idle.gif` : `art/${e.art}_move.png`;
 
   while (myRun === runId && !dead){
-    // 1) 아이들 ×2
-    phaseEl.textContent = '아이들 ×2';
-    const idleMs = await showGif(idleUrl, myRun);
-    await wait(idleMs * 2);
-    if (myRun !== runId) return;
-
-    // 2) 공격 ×1
+    // 1) 공격 ×1
     phaseEl.textContent = '공격';
     const atkMs = await showGif(attackUrl, myRun);
     await wait(atkMs);
     if (myRun !== runId) return;
 
-    // 3) 이동 (다른 칸으로)
-    phaseEl.textContent = '이동';
-    const dir = (cellIdx === 0) ? +1 : -1;   // 좌→우 = +1
-    facingRight = (dir > 0);
-    applyFacing();
-    if (e.noMovePng){
-      const {blob} = await loadGif(moveUrl);
-      if (myRun !== runId) return;
-      if (blob) setUnitSrc(URL.createObjectURL(blob));
-    } else {
-      unitImg.src = moveUrl;   // 정적 PNG
-    }
-    unitEl.classList.add('moving');
-    cellIdx = (cellIdx === 0) ? 1 : 0;
-    unitEl.style.left = (cellIdx === 0 ? LEFT_X : RIGHT_X) + 'px';
-    await wait(620);
+    // 2) 아이들 ×2
+    phaseEl.textContent = '아이들 ×2';
+    const idleMs = await showGif(idleUrl, myRun);
+    await wait(idleMs * 2);
     if (myRun !== runId) return;
-    unitEl.classList.remove('moving');
+
+    // 3) 이동
+    phaseEl.textContent = '이동';
+    await doMove(myRun);
+    if (myRun !== runId) return;
   }
 }
 
@@ -328,21 +380,17 @@ async function runSequence(){
 async function playDeath(){
   if (!cur || dead) return;
   dead = true;
-  runId++;                       // 자동 시퀀스 중단
+  runId++;
   const myRun = runId;
   phaseEl.textContent = '사망';
 
-  const deathUrl = cur.death
-    ? `art/death_${cur.death}.gif`
-    : 'art/death_common.gif';
+  const deathUrl = cur.death ? `art/death_${cur.death}.gif` : 'art/death_common.gif';
   const ms = await showGif(deathUrl, myRun);
   await wait(ms);
   if (myRun !== runId) return;
 
-  // 유닛 사라짐
   unitEl.classList.add('hidden');
 
-  // 유해 생성 (드래곤/유황솥 제외)
   if (!cur.noRemains){
     const cellX = (cellIdx === 0 ? LEFT_X : RIGHT_X);
     remainsEl.style.left = cellX + 'px';
@@ -361,8 +409,16 @@ function resetSequence(){
   unitEl.classList.remove('moving','hidden');
   unitEl.style.left = LEFT_X + 'px';
   remainsEl.classList.remove('show');
-  applyFacing();
-  if (cur) runSequence();
+  // 잔상 잔여물 제거
+  stage.querySelectorAll('.ghost').forEach(g => g.remove());
+  // 즉시 idle 프레임 표시
+  if (cur){
+    unitImg.style.width = unitImg.style.height = IDLE_SIZE + 'px';
+    unitImg.style.filter = IDLE_FILTER;
+    setUnitStatic(`art/${cur.art}_idle.gif`);
+    applyFacing();
+    runSequence();
+  }
 }
 
 /* ── 캐릭터 선택 ── */
@@ -401,7 +457,6 @@ document.getElementById('btnDeath').addEventListener('click', playDeath);
 document.getElementById('btnReset').addEventListener('click', resetSequence);
 
 buildSidebar();
-// 첫 캐릭터 자동 선택
 selectChar(CHARS[0], sidebar.querySelector('.char-btn'));
 </script>
 </body>
