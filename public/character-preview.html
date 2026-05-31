@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO 캐릭터 모션 프리뷰</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a323d;
+    --txt:#e6edf3; --sub:#9aa7b4; --accent:#d9a441; --accent2:#5aa9e6;
+    --t1:#7ec699; --t2:#5aa9e6; --t3:#d9a441; --sum:#c678dd;
+    --danger:#e06c75;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+  header{
+    padding:14px 20px; border-bottom:1px solid var(--line);
+    display:flex; align-items:baseline; gap:14px; flex:0 0 auto;
+    background:linear-gradient(180deg,#141a22,#0e1116);
+  }
+  header h1{font-size:18px; margin:0; letter-spacing:1px;}
+  header .sub{font-size:12px; color:var(--sub);}
+  .layout{display:flex; flex:1 1 auto; min-height:0;}
+
+  /* ── 좌측 캐릭터 리스트 ── */
+  .sidebar{
+    width:240px; flex:0 0 240px; border-right:1px solid var(--line);
+    overflow-y:auto; background:var(--panel); padding:8px;
+  }
+  .group-label{
+    font-size:11px; color:var(--sub); letter-spacing:1px;
+    padding:10px 8px 4px; text-transform:uppercase;
+  }
+  .char-btn{
+    display:flex; align-items:center; gap:10px; width:100%;
+    padding:8px 10px; margin:2px 0; border:1px solid transparent;
+    border-radius:8px; background:transparent; color:var(--txt);
+    cursor:pointer; text-align:left; font-size:14px; transition:.12s;
+  }
+  .char-btn:hover{background:var(--panel2);}
+  .char-btn.active{background:var(--panel2); border-color:var(--accent);}
+  .char-btn img{width:30px; height:30px; object-fit:contain; image-rendering:pixelated;}
+  .char-btn .nm{flex:1;}
+  .char-btn .tg{
+    font-size:10px; padding:2px 6px; border-radius:6px;
+    background:#0e1116; border:1px solid var(--line); color:var(--sub);
+  }
+  .tg.t1{color:var(--t1);} .tg.t2{color:var(--t2);}
+  .tg.t3{color:var(--t3);} .tg.sum{color:var(--sum);}
+
+  /* ── 중앙 스테이지 ── */
+  .main{flex:1 1 auto; display:flex; flex-direction:column; min-width:0;}
+  .stage-head{
+    padding:16px 20px 6px; display:flex; align-items:baseline; gap:12px;
+  }
+  .stage-head .name{font-size:22px; font-weight:700;}
+  .stage-head .tier{font-size:13px; color:var(--sub);}
+  .stage-wrap{
+    flex:1 1 auto; display:flex; align-items:center; justify-content:center;
+    min-height:0; padding:10px;
+  }
+  .stage{
+    position:relative;
+    width:440px; height:300px;
+    background:
+      radial-gradient(120% 90% at 50% 20%, #1d2530 0%, #11161d 70%, #0c1015 100%);
+    border:1px solid var(--line); border-radius:16px;
+    box-shadow:inset 0 0 60px rgba(0,0,0,.5);
+    overflow:hidden;
+  }
+  /* 2칸 보드 */
+  .cell{
+    position:absolute; bottom:46px; width:170px; height:120px;
+    border:2px solid #313b48; border-radius:12px;
+    background:linear-gradient(180deg,rgba(58,72,90,.35),rgba(30,38,48,.5));
+  }
+  .cell.left{left:30px;}
+  .cell.right{left:240px;}
+  .cell .floor{
+    position:absolute; left:50%; bottom:-10px; transform:translateX(-50%);
+    width:150px; height:26px; border-radius:50%;
+    background:radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,.45), transparent 70%);
+  }
+
+  .unit{
+    position:absolute; bottom:60px; width:170px; height:170px;
+    left:30px;
+    display:flex; align-items:flex-end; justify-content:center;
+    pointer-events:none;
+  }
+  .unit.moving{transition:left .6s ease-in-out;}
+  .unit img{
+    max-width:150px; max-height:150px;
+    image-rendering:pixelated;
+    filter:drop-shadow(0 6px 6px rgba(0,0,0,.5));
+  }
+  .unit img.flip{transform:scaleX(-1);}
+  .unit.hidden{opacity:0;}
+
+  .remains{
+    position:absolute; bottom:52px; width:170px; left:30px;
+    display:flex; justify-content:center; opacity:0; transition:opacity .25s;
+  }
+  .remains.show{opacity:1;}
+  .remains img{max-width:120px; image-rendering:pixelated;}
+
+  /* ── 컨트롤 ── */
+  .controls{
+    flex:0 0 auto; padding:14px 20px 22px;
+    display:flex; gap:12px; justify-content:center; align-items:center;
+    border-top:1px solid var(--line); background:var(--panel);
+  }
+  .btn{
+    padding:11px 26px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel2); color:var(--txt); font-size:15px; cursor:pointer;
+    transition:.12s; font-weight:600;
+  }
+  .btn:hover{filter:brightness(1.15);}
+  .btn.death{border-color:var(--danger); color:var(--danger);}
+  .btn.death:hover{background:var(--danger); color:#fff;}
+  .btn.reset{border-color:var(--accent2); color:var(--accent2);}
+  .btn.reset:hover{background:var(--accent2); color:#0e1116;}
+  .phase{
+    font-size:12px; color:var(--sub); min-width:120px; text-align:center;
+  }
+  .hint{font-size:12px; color:var(--sub); margin-left:auto;}
+</style>
+</head>
+<body>
+  <header>
+    <h1>CALIGO · 캐릭터 모션 프리뷰</h1>
+    <span class="sub">아이들 ×2 → 공격 → 이동 자동 반복 · 사망 모션 / 초기화 버튼</span>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar"></nav>
+
+    <div class="main">
+      <div class="stage-head">
+        <span class="name" id="charName">캐릭터를 선택하세요</span>
+        <span class="tier" id="charTier"></span>
+      </div>
+
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <div class="cell left"><div class="floor"></div></div>
+          <div class="cell right"><div class="floor"></div></div>
+          <div class="remains" id="remains"><img id="remainsImg" alt=""></div>
+          <div class="unit" id="unit"><img id="unitImg" alt=""></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <span class="phase" id="phase">대기</span>
+        <button class="btn death" id="btnDeath">사망 모션</button>
+        <button class="btn reset" id="btnReset">초기화</button>
+        <span class="hint">발표용 · 어느 기기에서나 열람 가능</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+/* ─────────────────────────────────────────────
+   캐릭터 정의
+   art : 에셋 파일 접두사 (art/{art}_idle.gif 등)
+   icon: 좌측 리스트 아이콘
+   상대 경로 사용 → 로컬 서버 & GitHub Pages 양쪽에서 동작
+   ───────────────────────────────────────────── */
+const CHARS = [
+  // ── Tier 1 ──
+  {type:'archer',       name:'궁수',          tier:1, art:'archer',       icon:'archer'},
+  {type:'spearman',     name:'창병',          tier:1, art:'spearman',     icon:'spearman'},
+  {type:'cavalry',      name:'기마병',        tier:1, art:'cavalry',      icon:'cavalry'},
+  {type:'watchman',     name:'파수꾼',        tier:1, art:'watchman',     icon:'watchman'},
+  {type:'scout',        name:'척후병',        tier:1, art:'scout',        icon:'scout'},
+  {type:'manhunter',    name:'인간 사냥꾼',   tier:1, art:'manhunter',    icon:'manhunter'},
+  {type:'messenger',    name:'전령',          tier:1, art:'messenger',    icon:'messenger'},
+  {type:'gunpowder',    name:'화약상',        tier:1, art:'gunpowder',    icon:'gunpowder'},
+  {type:'herbalist',    name:'약초전문가',    tier:1, art:'herbalist',    icon:'herbalist'},
+  {type:'twins_red',    name:'쌍둥이 강도 (누나)', tier:1, art:'twins_red',  icon:'twins'},
+  {type:'twins_blue',   name:'쌍둥이 강도 (동생)', tier:1, art:'twins_blue', icon:'twins'},
+  {type:'twins_joined', name:'쌍둥이 강도 (합류)', tier:1, art:'twins_joined', icon:'twins', noMovePng:true},
+  // ── Tier 2 ──
+  {type:'general',        name:'장군',          tier:2, art:'general',        icon:'general'},
+  {type:'knight',         name:'기사',          tier:2, art:'knight',         icon:'knight'},
+  {type:'shadowAssassin', name:'그림자 암살자', tier:2, art:'shadowAssassin', icon:'shadowAssassin'},
+  {type:'wizard',         name:'마법사',        tier:2, art:'wizard',         icon:'wizard'},
+  {type:'armoredWarrior', name:'갑주무사',      tier:2, art:'armoredWarrior', icon:'armoredWarrior'},
+  {type:'witch',          name:'마녀',          tier:2, art:'witch',          icon:'witch'},
+  {type:'dualBlade',      name:'양손 검객',     tier:2, art:'dualBlade',      icon:'dualBlade'},
+  {type:'ratMerchant',    name:'쥐 장수',       tier:2, art:'ratMerchant',    icon:'ratMerchant'},
+  {type:'weaponSmith',    name:'무기상',        tier:2, art:'weaponSmith',    icon:'weaponSmith'},
+  {type:'bodyguard',      name:'호위 무사',     tier:2, art:'bodyguard',      icon:'bodyguard'},
+  // ── Tier 3 ──
+  {type:'prince',         name:'왕자',          tier:3, art:'prince',         icon:'prince'},
+  {type:'princess',       name:'공주',          tier:3, art:'princess',       icon:'princess'},
+  {type:'king',           name:'국왕',          tier:3, art:'king',           icon:'king'},
+  {type:'dragonTamer',    name:'드래곤 조련사', tier:3, art:'dragonTamer',    icon:'dragonTamer'},
+  {type:'monk',           name:'수도승',        tier:3, art:'monk',           icon:'monk'},
+  {type:'slaughterHero',  name:'학살 영웅',     tier:3, art:'slaughterHero',  icon:'slaughterHero'},
+  {type:'commander',      name:'지휘관',        tier:3, art:'commander',      icon:'commander'},
+  {type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, art:'sulfurCauldron', icon:'sulfurCauldron', noRemains:true, death:'sulfurCauldron'},
+  {type:'torturer',       name:'고문 기술자',   tier:3, art:'torturer',       icon:'torturer'},
+  {type:'count',          name:'백작',          tier:3, art:'count',          icon:'count'},
+  // ── 소환 유닛 ──
+  {type:'dragon',         name:'드래곤',        tier:'S', art:'dragon',       icon:'dragon', noRemains:true, death:'dragon'},
+];
+
+const TIER_LABEL = {1:'1티어', 2:'2티어', 3:'3티어', S:'소환 유닛'};
+const TIER_CLASS = {1:'t1', 2:'t2', 3:'t3', S:'sum'};
+
+/* ── DOM ── */
+const sidebar   = document.getElementById('sidebar');
+const stage     = document.getElementById('stage');
+const unitEl    = document.getElementById('unit');
+const unitImg   = document.getElementById('unitImg');
+const remainsEl = document.getElementById('remains');
+const remainsImg= document.getElementById('remainsImg');
+const nameEl    = document.getElementById('charName');
+const tierEl    = document.getElementById('charTier');
+const phaseEl   = document.getElementById('phase');
+
+/* ── 셀 위치(좌/우) ── */
+const LEFT_X  = 30;
+const RIGHT_X = 240;
+
+/* ── GIF 캐시 (재생시간 파싱 + Blob) ── */
+const gifCache = {};   // url -> {ms, blob}
+async function loadGif(url){
+  if (gifCache[url]) return gifCache[url];
+  try {
+    const ab = await (await fetch(url, {cache:'default'})).arrayBuffer();
+    const bytes = new Uint8Array(ab);
+    let ms = 0;
+    for (let i = 0; i < bytes.length - 7; i++){
+      if (bytes[i] === 0x21 && bytes[i+1] === 0xF9 && bytes[i+2] === 0x04){
+        ms += (bytes[i+4] | (bytes[i+5] << 8)) * 10;
+        i += 7;
+      }
+    }
+    return gifCache[url] = { ms: ms || 700, blob: new Blob([ab], {type:'image/gif'}) };
+  } catch(_){
+    return gifCache[url] = { ms: 700, blob: null };
+  }
+}
+
+/* ── 상태 ── */
+let cur = null;        // 현재 선택 엔트리
+let runId = 0;         // 시퀀스 취소용 토큰
+let cellIdx = 0;       // 0 = 좌, 1 = 우
+let facingRight = true;
+let dead = false;
+let curObjUrl = null;
+
+function setUnitSrc(blobUrl){
+  // 매번 새 ObjectURL → 브라우저 전역 GIF 시계 우회(프레임 0부터 재생)
+  if (curObjUrl){ URL.revokeObjectURL(curObjUrl); curObjUrl = null; }
+  curObjUrl = blobUrl;
+  unitImg.src = blobUrl;
+}
+
+function applyFacing(){
+  unitImg.classList.toggle('flip', !facingRight);
+}
+
+function wait(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+/* ── GIF 모션 표시 (idle / attack / death) ── */
+async function showGif(url, myRun){
+  const {ms, blob} = await loadGif(url);
+  if (myRun !== runId) return ms;
+  applyFacing();
+  if (blob) setUnitSrc(URL.createObjectURL(blob));
+  else      unitImg.src = url;
+  return ms;
+}
+
+/* ── 자동 시퀀스: idle×2 → 공격 → 이동 ── */
+async function runSequence(){
+  const myRun = runId;
+  const e = cur;
+  const idleUrl   = `art/${e.art}_idle.gif`;
+  const attackUrl = `art/${e.art}_attack.gif`;
+  const moveUrl   = e.noMovePng ? `art/${e.art}_idle.gif` : `art/${e.art}_move.png`;
+
+  while (myRun === runId && !dead){
+    // 1) 아이들 ×2
+    phaseEl.textContent = '아이들 ×2';
+    const idleMs = await showGif(idleUrl, myRun);
+    await wait(idleMs * 2);
+    if (myRun !== runId) return;
+
+    // 2) 공격 ×1
+    phaseEl.textContent = '공격';
+    const atkMs = await showGif(attackUrl, myRun);
+    await wait(atkMs);
+    if (myRun !== runId) return;
+
+    // 3) 이동 (다른 칸으로)
+    phaseEl.textContent = '이동';
+    const dir = (cellIdx === 0) ? +1 : -1;   // 좌→우 = +1
+    facingRight = (dir > 0);
+    applyFacing();
+    if (e.noMovePng){
+      const {blob} = await loadGif(moveUrl);
+      if (myRun !== runId) return;
+      if (blob) setUnitSrc(URL.createObjectURL(blob));
+    } else {
+      unitImg.src = moveUrl;   // 정적 PNG
+    }
+    unitEl.classList.add('moving');
+    cellIdx = (cellIdx === 0) ? 1 : 0;
+    unitEl.style.left = (cellIdx === 0 ? LEFT_X : RIGHT_X) + 'px';
+    await wait(620);
+    if (myRun !== runId) return;
+    unitEl.classList.remove('moving');
+  }
+}
+
+/* ── 사망 모션 ── */
+async function playDeath(){
+  if (!cur || dead) return;
+  dead = true;
+  runId++;                       // 자동 시퀀스 중단
+  const myRun = runId;
+  phaseEl.textContent = '사망';
+
+  const deathUrl = cur.death
+    ? `art/death_${cur.death}.gif`
+    : 'art/death_common.gif';
+  const ms = await showGif(deathUrl, myRun);
+  await wait(ms);
+  if (myRun !== runId) return;
+
+  // 유닛 사라짐
+  unitEl.classList.add('hidden');
+
+  // 유해 생성 (드래곤/유황솥 제외)
+  if (!cur.noRemains){
+    const cellX = (cellIdx === 0 ? LEFT_X : RIGHT_X);
+    remainsEl.style.left = cellX + 'px';
+    remainsImg.src = 'art/remains.png';
+    remainsEl.classList.add('show');
+  }
+  phaseEl.textContent = '사망 완료';
+}
+
+/* ── 초기화 ── */
+function resetSequence(){
+  runId++;
+  dead = false;
+  cellIdx = 0;
+  facingRight = true;
+  unitEl.classList.remove('moving','hidden');
+  unitEl.style.left = LEFT_X + 'px';
+  remainsEl.classList.remove('show');
+  applyFacing();
+  if (cur) runSequence();
+}
+
+/* ── 캐릭터 선택 ── */
+function selectChar(e, btn){
+  cur = e;
+  nameEl.textContent = e.name;
+  tierEl.textContent = TIER_LABEL[e.tier];
+  document.querySelectorAll('.char-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  resetSequence();
+}
+
+/* ── 사이드바 구성 ── */
+function buildSidebar(){
+  const groups = {1:[], 2:[], 3:[], S:[]};
+  CHARS.forEach(c => groups[c.tier].push(c));
+  [1,2,3,'S'].forEach(t => {
+    const lbl = document.createElement('div');
+    lbl.className = 'group-label';
+    lbl.textContent = TIER_LABEL[t];
+    sidebar.appendChild(lbl);
+    groups[t].forEach(e => {
+      const btn = document.createElement('button');
+      btn.className = 'char-btn';
+      btn.innerHTML =
+        `<img src="assets/icons/${e.icon}.png" alt="">` +
+        `<span class="nm">${e.name}</span>` +
+        `<span class="tg ${TIER_CLASS[e.tier]}">${TIER_LABEL[e.tier]}</span>`;
+      btn.addEventListener('click', () => selectChar(e, btn));
+      sidebar.appendChild(btn);
+    });
+  });
+}
+
+document.getElementById('btnDeath').addEventListener('click', playDeath);
+document.getElementById('btnReset').addEventListener('click', resetSequence);
+
+buildSidebar();
+// 첫 캐릭터 자동 선택
+selectChar(CHARS[0], sidebar.querySelector('.char-btn'));
+</script>
+</body>
+</html>
