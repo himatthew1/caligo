@@ -195,11 +195,11 @@ const CHARS = [
   {type:'monk',           name:'수도승',        tier:3, art:'monk',           icon:'monk'},
   {type:'slaughterHero',  name:'학살 영웅',     tier:3, art:'slaughterHero',  icon:'slaughterHero'},
   {type:'commander',      name:'지휘관',        tier:3, art:'commander',      icon:'commander'},
-  {type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, art:'sulfurCauldron', icon:'sulfurCauldron', noRemains:true, death:'sulfurCauldron'},
+  {type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, art:'sulfurCauldron', icon:'sulfurCauldron', noRemains:true, death:'sulfurCauldron', deathR:0.70},
   {type:'torturer',       name:'고문 기술자',   tier:3, art:'torturer',       icon:'torturer'},
   {type:'count',          name:'백작',          tier:3, art:'count',          icon:'count'},
   // ── 소환 유닛 ──
-  {type:'dragon',         name:'드래곤',        tier:'S', art:'dragon',       icon:'dragon', noRemains:true, death:'dragon'},
+  {type:'dragon',         name:'드래곤',        tier:'S', art:'dragon',       icon:'dragon', noRemains:true, death:'dragon', deathR:0.70},
 ];
 
 const TIER_LABEL = {1:'1티어', 2:'2티어', 3:'3티어', S:'소환 유닛'};
@@ -479,7 +479,9 @@ async function playDeath(){
   const {ms, blob} = await loadGifOnce(deathUrl);
   if (myRun !== runId) return;
 
-  curRatio = DEATH_R; curObjFilterMove = false;
+  // death_dragon/sulfurCauldron 은 32×32 (death_common 은 64×64) → 같은 140% 박스에 넣으면
+  // 2배 더 업스케일되어 과도하게 커 보임. 해상도 비율(32/64)만큼 축소해 픽셀 밀도를 맞춤.
+  curRatio = (cur.deathR != null) ? cur.deathR : DEATH_R; curObjFilterMove = false;
   applyImgSize();
   unitImg.style.filter = outlineF();
   applyFacing();   // facingRight 기준 → 사망 GIF 방향
