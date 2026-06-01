@@ -36,7 +36,26 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-app.use(express.static(path.join(__dirname, 'public')));
+// ── 정적 파일 캐시 정책 ──
+//   ❗ 기본 express.static 은 Cache-Control: max-age=0 → 브라우저가 매 렌더마다 모든
+//      이미지/GIF 를 재검증(conditional GET → 304)함. 보드/프로필/스킬 메뉴가 재렌더될 때마다
+//      <img> 가 새로 생성되므로, 클릭·상호작용 한 번에 수십 개의 304 요청이 발생("끊임없이 새로 로드").
+//   ✅ 해결: 이미지·오디오·폰트 등 "내용이 바뀌면 어차피 파일을 교체하는" 정적 에셋은 길게 캐시 →
+//      브라우저가 네트워크 요청 없이 메모리/디스크 캐시에서 즉시 페인트. (에셋 교체 시 강력 새로고침)
+//   - 코드 파일(html/js/css)은 코드 수정이 즉시 반영되도록 no-cache(매번 재검증, 변경 없으면 304).
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(png|jpe?g|gif|webp|svg|ico|mp3|ogg|wav|m4a|woff2?|ttf|otf)$/i.test(filePath)) {
+      // 정적 에셋 — 1일 캐시 (한 세션 내 재로드 0). 에셋 교체 시엔 Ctrl+Shift+R 로 강제 새로고침.
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    } else {
+      // html/js/css — 코드 갱신 즉시 반영. 변경 없으면 304(본문 미전송)로 가볍게.
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  },
+}));
 app.use(express.json({ limit: '8mb' }));
 
 // ── 진단용: 현재 서버 프로세스/방 상태를 외부에서 확인 ──
