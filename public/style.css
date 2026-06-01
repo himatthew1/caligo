@@ -2789,8 +2789,10 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 140%;
-  height: 140%;
+  /* idle GIF(38px)에 맞춘 고정 px — 셀 크기(%)에 묶으면 1v1(56px)·팀전(44px)에서
+     절대 크기가 달라지고 idle 대비 과대해짐("묘하게 큼"). 고정 px 로 모드 무관 통일. */
+  width: 48px;
+  height: 48px;
   object-fit: contain;
   image-rendering: pixelated;
   z-index: 2;
@@ -2836,8 +2838,9 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   overflow: visible;
 }
 .death-anim-overlay .death-gif {
-  width: 140%;
-  height: 140%;
+  /* idle GIF(38px)에 맞춘 고정 px — remains-marker 와 동일 정책 (모드 무관 통일) */
+  width: 48px;
+  height: 48px;
   object-fit: contain;
   image-rendering: pixelated;
   /* 블랙 아웃라인 — 아이들 GIF 와 동일 */
@@ -2853,6 +2856,11 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
 /* 보드 오브젝트 */
 .cell.has-trap::before    { content: ''; position: absolute; inset: 0; background: rgba(226,168,75,0.15); }
 .cell.has-bomb::before    { content: '💣'; position: absolute; top: 1px; right: 2px; font-size: 0.55rem; }
+/* 팀전 셀(44px)은 piece-marker(38px gif + HP 텍스트 ≈ 53px)보다 작아
+   overflow:hidden 이 유닛 상·하단을 잘라냄("셀 안에 갇힘"). 1v1(56px)은 여유가 있어 무관.
+   → 팀전에서 말이 있는 셀만 overflow:visible + z-index 로 셀 밖으로 튀어나오게. */
+body.team-mode #game-board .cell.has-piece,
+body.team-mode #placement-board .cell.has-piece { overflow: visible; z-index: 4; }
 /* 쥐 셀 — overflow:visible + z-index 로 인접 셀 위로 올라옴 */
 .cell.has-rat { overflow: visible !important; z-index: 5; }
 .cell:has(.rat-attack-gif) { overflow: visible !important; z-index: 21; }  /* 공격 GIF 재생 중 */
@@ -6631,6 +6639,7 @@ body.team-mode .placement-opp-panel {
   .board { grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(5, 46px); }
   .board .cell { width: 46px; height: 46px; }
   img.p-gif { width: 30px; height: 30px; }
+  .remains-marker, .death-anim-overlay .death-gif { width: 38px; height: 38px; }
   .reveal-layout { flex-direction: column; }
   .reveal-vs { align-self: center; }
 }
@@ -7028,6 +7037,7 @@ body[data-my-team="red"] #chat-scope-team.active {
   }
   body:not(.team-mode) .cell { width: 42px; height: 42px; font-size: 0.55rem; }
   img.p-gif { width: 26px; height: 26px; }
+  .remains-marker, .death-anim-overlay .death-gif { width: 33px; height: 33px; }
   body.team-mode .cell {
     width: auto !important; height: auto !important;
     aspect-ratio: 1; font-size: 0.55rem;

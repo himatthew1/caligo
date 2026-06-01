@@ -1260,6 +1260,8 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 1v1 과 동일.
   score += aiAttackTargetBonus(room, idx, cells, effAtk);
+  // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(제자리)하면 페널티 (1v1 과 동일).
+  score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
 }
 
@@ -1547,7 +1549,10 @@ function aiTeamUsePreSkills(room, idx) {
       const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState });
       const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
-      if (altScore > curScore + 8) { aiTeamExecSkill(room, idx, pi, 'reform'); return true; }
+      // ★ SP 수읽기 — 정규 SP 이관 문턱까지 넘는 확실한 이득일 때만 (1v1 과 동일 정책).
+      if (altScore > curScore + 8 + _aiSpTransferBar(room, getTeamOf(room, idx), piece.skillCost)) {
+        aiTeamExecSkill(room, idx, pi, 'reform'); return true;
+      }
     }
     // sprint — 위급(HP≤1) + 도망 필요시에만. 1v1 AI 와 동일한 정책.
     if (piece.skillId === 'sprint') {
@@ -3886,8 +3891,38 @@ function handleDeath(room, deadPiece, ownerIdx) {
       icon: deadPiece.icon,
       owner: ownerIdx,
       turnCreated: room.turnNumber,
+      hits: 0,        // 유해 피격 누적 — 3 이 되면 파괴. stage = hits+1 (1=무피해,2=1타,3=2타)
     });
   }
+}
+
+// ── 유해 3타 파괴 ──
+// 공격 범위(atkCells)에 들어온 유해는 공격력과 무관하게 공격 1회당 hits 1 증가.
+//   stage: 1=막 생성(무피해), 2=1타, 3=2타. hits 가 3 이 되면 파괴(제거)되어 칸이 해제됨.
+// 반환: 이번 공격으로 영향받은 유해 [{col,row,stage,destroyed}] (클라 그래픽/피드백용).
+function processRemainsHits(room, atkCells) {
+  if (!room.remains || room.remains.length === 0 || !atkCells || atkCells.length === 0) return [];
+  const touched = [];
+  const survivors = [];
+  for (const rem of room.remains) {
+    const inRange = atkCells.some(c => c.col === rem.col && c.row === rem.row);
+    if (!inRange) { survivors.push(rem); continue; }
+    rem.hits = (rem.hits || 0) + 1;
+    if (rem.hits >= 3) {
+      touched.push({ col: rem.col, row: rem.row, stage: 4, destroyed: true });
+      // survivors 에 넣지 않음 → 제거
+    } else {
+      touched.push({ col: rem.col, row: rem.row, stage: rem.hits + 1, destroyed: false });
+      survivors.push(rem);
+    }
+  }
+  if (touched.length > 0) {
+    room.remains = survivors;
+    // 즉시 동기화 — 클라가 stage 변화/파괴를 반영 (그래픽은 클라가 stage 기반으로 처리).
+    emitToBoth(room, 'remains_update', { remains: room.remains, hits: touched });
+    emitToSpectators(room, 'spectator_remains_update', { remains: room.remains, hits: touched });
+  }
+  return touched;
 }
 
 function detonateBomb(room, ownerIdx, bomb, options) {
@@ -4177,6 +4212,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     emitToSpectators(room, 'spectator_log', { msg: `충성: ${namesStr} 대신 1 피해`, type: 'passive', playerIdx: ownerIdx });
     room._pendingBodyguardPassive = null;
   }
+
+  // ── 유해 3타 파괴 — 공격 범위에 든 유해 카운트 (공격력 무관, 공격 1회당 1) ──
+  room._remainsHitsThisAttack = processRemainsHits(room, atkCells);
 
   return hitResults;
 }
@@ -5796,6 +5834,9 @@ function initAiBrain(boardSize) {
     lastHitTurn: -10,
     // 피격 기억: { pieceType: { col, row, turn } } — 맞은 위치를 기억해서 도망
     hitMemory: {},
+    // 반격 실패 도주 충동: { pieceType: turnCount } — 피격 후 반격이 빗나가면(추론 실패)
+    //   다음 턴 그 자리에서 또 맞지 말고 도주하도록 마킹.
+    fleeUrge: {},
   };
 }
 
@@ -5991,7 +6032,7 @@ function aiClearOwnCells(brain, room, ownerIdx) {
   }
 }
 
-function aiProcessAttackResult(brain, atkCells, hitResults) {
+function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
   for (const cell of atkCells) {
     const hit = hitResults.find(h => h.col === cell.col && h.row === cell.row);
     if (hit) {
@@ -6007,6 +6048,14 @@ function aiProcessAttackResult(brain, atkCells, hitResults) {
       }
     } else {
       brain.probMap[cell.row][cell.col] *= 0.1;
+    }
+  }
+  // ★ 반격 실패 → 도주 충동: 피격당해 위치를 기억 중인 말이 반격했는데 전부 빗나갔다면
+  //   추론이 틀렸고 그 자리에 계속 있으면 또 맞는다 → 다음 턴 도주하도록 마킹 (사용자 보고).
+  if (attackPiece && brain.fleeUrge && hitResults.length === 0) {
+    const mem = brain.hitMemory[attackPiece.type];
+    if (mem && brain.turnCount - mem.turn <= 2) {
+      brain.fleeUrge[attackPiece.type] = brain.turnCount;
     }
   }
   if (brain.turnCount - brain.lastHitTurn > 5) brain.mode = 'scan';
@@ -6166,6 +6215,61 @@ function aiCommanderAuraScore(piece, room, ownerIdx, newCol, newRow) {
   return aura;
 }
 
+// ── AI 공용 헬퍼 (1v1·팀전 동일 적용) ───────────────────────────────
+// 주어진 셀이 임박한 보드 축소로 곧 파괴되는지에 따른 위험 점수(>=0).
+//   공격(=제자리 유지)·이동 평가 양쪽에서 "곧 사라질 칸에 머무는 것"을 일관되게 페널티.
+//   → 사용자 보고: AI 가 보드축소를 1순위로 안 두고 공격만 남발하다 사망. 공격 점수에서 차감해
+//      doom 셀에 머무르며 공격하는 선택보다 안전한 칸으로의 이동이 우선되게 한다.
+function _aiCellDoomPenalty(room, col, row) {
+  const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
+  let penalty = 0;
+  for (const ev of schedule) {
+    if (room.boardShrinkStage >= ev.stage) continue;
+    const turnsToShrink = ev.shrinkTurn - room.turnNumber;
+    if (turnsToShrink > 8 || turnsToShrink < 0) continue;
+    const baseSize = room.mode === 'team' ? 7 : 5;
+    const nextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
+    const evB = ev.newBounds || (typeof _levelToBounds === 'function' ? _levelToBounds(nextLevel, baseSize) : null);
+    if (!evB) continue;
+    const willBeOutside = col < evB.min || col > evB.max || row < evB.min || row > evB.max;
+    if (willBeOutside) {
+      const urgency = Math.max(1, 9 - turnsToShrink);
+      penalty = Math.max(penalty, 30 * urgency);
+    }
+  }
+  return penalty;
+}
+
+// 스킬 비용 중 "정규 SP"(쓰면 상대에게 이관됨) 분량. instant SP 우선 소진 가정.
+function _aiRegularSpCost(room, slot, cost) {
+  const inst = (room.instantSp && room.instantSp[slot]) || 0;
+  return Math.max(0, (cost || 0) - inst);
+}
+// 상대에게 SP 를 넘겨주는 위험도(0~3). 적이 스킬 보유 말을 많이 살려둘수록 큼(공개 정보만 사용).
+function _aiOppSpThreat(room, mySlot) {
+  const oppSlot = 1 - mySlot;
+  let danger = 0;
+  for (let pi = 0; pi < room.players.length; pi++) {
+    const pl = room.players[pi];
+    if (!pl) continue;
+    const plSlot = (room.mode === 'team') ? getTeamOf(room, pi) : pi;
+    if (plSlot !== oppSlot) continue;
+    for (const p of (pl.pieces || [])) {
+      if (p.alive && p.hasSkill) danger += 0.5;
+    }
+  }
+  return Math.min(3, danger);
+}
+// 한계가치 스킬(쌍검무·전령질주·토글 등)의 시전 문턱 가산치.
+//   정규 SP 를 상대에게 넘기면서까지 쓸 가치가 있는지 — 수읽기(상대가 받은 SP 로 스킬 시전 가능).
+//   instant SP 로 충당되면 이관이 없어 문턱 0.
+function _aiSpTransferBar(room, slot, cost) {
+  const regSp = _aiRegularSpCost(room, slot, cost);
+  if (regSp <= 0) return 0;
+  const oppThreat = _aiOppSpThreat(room, slot); // 0~3
+  return regSp * (3 + oppThreat * 2);           // 정규 SP 1당 +3~9 문턱
+}
+
 function aiScoreAttack(brain, piece, room, extra) {
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
@@ -6180,6 +6284,8 @@ function aiScoreAttack(brain, piece, room, extra) {
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 끝낼 수 있으면 끝낸다.
   score += aiAttackTargetBonus(room, 1, cells, effAtk);
+  // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(=제자리 유지)하면 강한 페널티 → 안전한 이동 우선.
+  score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
 }
 
@@ -6703,7 +6809,8 @@ function aiUsePreSkills(room) {
         const altCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: altState });
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
-        if (altScore > curScore * 1.3 && altScore >= 4) {
+        // ★ SP 수읽기 — 토글로 얻는 이득이 정규 SP 이관 문턱까지 넘을 때만.
+        if (altScore > curScore * 1.3 && altScore >= 4 + _aiSpTransferBar(room, 1, piece.skillCost)) {
           _tryExec(pidx, 'reform');
         }
         break;
@@ -6723,7 +6830,10 @@ function aiUsePreSkills(room) {
         const curAtkCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds);
         let curThreatScore = 0;
         for (const c of curAtkCells) curThreatScore += brain.probMap[c.row]?.[c.col] || 0;
-        const needsRepositioning = curThreatScore < 0.5 && recentlyHit;
+        // ★ SP 수읽기 — 위급 도주(critical)는 항상 가치 있음. 단순 재배치는 정규 SP 를 상대에게
+        //   넘기면서까지 할 가치가 없으므로, 이관 없이(instant SP 충당) 가능할 때만 시전.
+        const reposNoTransfer = _aiSpTransferBar(room, 1, piece.skillCost) <= 1;
+        const needsRepositioning = curThreatScore < 0.5 && recentlyHit && reposNoTransfer;
         if ((critical && recentlyHit) || needsRepositioning) {
           _tryExec(pidx, 'sprint');
         }
@@ -6768,9 +6878,15 @@ function aiUsePreSkills(room) {
       //   현재 위치 공격범위의 확률질량(probMap 합)이 충분(≥4)하면 두 번 때릴 가치가 있다.
       case 'dualBlade': {
         const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
-        let dbScore = 0;
-        for (const c of dbCells) dbScore += brain.probMap[c.row]?.[c.col] || 0;
-        if (dbScore >= 4) {
+        let dbScore = 0, dbBest = 0;
+        for (const c of dbCells) {
+          const v = brain.probMap[c.row]?.[c.col] || 0;
+          dbScore += v; if (v > dbBest) dbBest = v;
+        }
+        // ★ 의미없는 쌍검무 금지 — 집중된 실제 표적(한 칸 ≥6)이 있고, 정규 SP 이관 문턱을 넘는
+        //   확실한 이득이 있을 때만. 분산된 확률질량(diffuse)만으로는 시전 안 함.
+        const dbBar = 4 + _aiSpTransferBar(room, 1, piece.skillCost);
+        if (dbBest >= 6 && dbScore >= dbBar) {
           _tryExec(pidx, 'dualStrike');
         }
         break;
@@ -7143,9 +7259,13 @@ function aiTakeTurn(room) {
       if (v >= 9) sureHit = true;
       if (v >= 6) { canHitProbTarget = true; probTargetScore += v; }
     }
+    // ★ 직전 턴 반격이 빗나갔다면(추론 실패) 같은 자리에서 또 때리지 말고 도주 — 사용자 보고.
+    //   단, 지금 확정 타겟(probMap=9, 표식 등)이 보이면 도주 충동보다 격파를 우선.
+    const fu = brain.fleeUrge && brain.fleeUrge[piece.type];
+    const justMissedCounter = (typeof fu === 'number') && (brain.turnCount - fu <= 1);
     // 확정 격파 가능 (probMap=9 셀 공격 가능)이면 HP 위험 무시하고 공격 — 적의 사망이 더 가치 있음
     const shouldCounterAttack = sureHit || (
-      !criticalHp && (
+      !justMissedCounter && !criticalHp && (
         canHitProbTarget ||
         (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
       )
@@ -7386,7 +7506,7 @@ function aiExecuteAttack(room, action) {
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, action.extra);
   const hitResults = processAttack(room, 1, piece, atkCells, undefined, { suppressSpUpdate: true });
 
-  aiProcessAttackResult(brain, atkCells, hitResults);
+  aiProcessAttackResult(brain, atkCells, hitResults, piece);
 
   // ★ 학살영웅 등 임팩트 발생 시 빗나감 토스트 X (사용자 요청). 적쥐 격파는 hitResults 후처리에 포함.
   const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
@@ -7454,7 +7574,7 @@ function aiExecuteAttack(room, action) {
       piece.dualBladeAttacksLeft--;
       const extraCells = getAttackCells(piece.type, piece.col, piece.row, bounds);
       const extraHits = processAttack(room, 1, piece, extraCells);
-      aiProcessAttackResult(brain, extraCells, extraHits);
+      aiProcessAttackResult(brain, extraCells, extraHits, piece);
       emitToPlayer(room, 0, 'being_attacked', {
         atkCells: extraCells,
         hitPieces: extraHits.map(h => {

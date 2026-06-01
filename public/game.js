@@ -2768,6 +2768,8 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
   const hasMsg = !!msg;
+  // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기)
+  _markSkillDeathIncoming(hits);
 
   // ★ 분신 비행 애니메이션 — 같은 팀(myTeam)에만 공유, 적팀에는 비공유.
   //   서버는 모두에게 twinJoin 좌표를 보내지만, 클라에서 viewer 팀 기준으로 필터링.
@@ -2927,8 +2929,14 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
         // 팀모드: 시전자 팀이면 적 사망(isEnemy=true), 아니면 내 아군 사망(isEnemy=false)
         const _nmDeathInfosTeam = _detectDeaths(_nmDeadTeam, !myTeam);
         if (_nmDeathInfosTeam.length > 0) {
+          // ★ _pendingDeathCells 설정 → renderGameBoard 가 사망 GIF 동안 유해를 가림
+          //   (team_game_update 가 서버 유해를 먼저 반영해도 이 셀은 가려짐).
+          if (!S._pendingDeathCells) S._pendingDeathCells = new Set();
+          for (const di of _nmDeathInfosTeam) S._pendingDeathCells.add(`${di.col},${di.row}`);
+          renderGameBoard();
           setTimeout(() => {
             playDeathAnimations(_nmDeathInfosTeam, () => {
+              S._pendingDeathCells = null;
               _addClientSideRemains(_nmDeathInfosTeam);
               renderGameBoard();
             });
@@ -6827,6 +6835,8 @@ function playBoardQuake() {
 //   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx }) => {
   const _skillTeamSeq = _teamUpdateSeq; // C-10: capture sequence at event time
+  // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
+  _markSkillDeathIncoming(data && data.hits);
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -6932,7 +6942,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (oppPieces) S.oppPieces = oppPieces;
       pruneDeductionTokens();
       if (boardObjects) S.boardObjects = boardObjects;
-      if (remains) S.remains = remains;
+      // ★ 스킬 사망 셀의 유해는 사망 GIF 완료 후 추가 (즉시 반영 시 사망 모션과 유해 동시 표시 버그).
+      _applyServerRemainsExcludingDeaths(remains, _nightmareDeathInfos);
 
       const oppSkillDmgIdx = [];
       if (S.oppPieces) {
@@ -7179,6 +7190,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 
   // 마법구 비행 + dim 오버레이 — skill_result(시전자) 와 동일한 시퀀스로 재현.
   // 시전자 카드는 1v1 상대 시점이므로 #opp-pieces-info 에 위치.
+  // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기)
+  _markSkillDeathIncoming(hits);
   const oldMyHpsCaptured = S.myPieces.map(p => p.hp);
   const oldOppHpsCaptured = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -7238,7 +7251,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       if (oppPieces) S.oppPieces = oppPieces;
       pruneDeductionTokens();
       if (boardObjects) S.boardObjects = boardObjects;
-      if (remains) S.remains = remains;
+      // ★ 스킬 사망 셀의 유해는 사망 GIF 완료 후 추가 (즉시 반영 시 사망 모션과 유해 동시 표시 버그).
+      _applyServerRemainsExcludingDeaths(remains, _nightmareDeathInfosVictim);
 
       const mySkillDmgIdx = [];
       for (let i = 0; i < S.myPieces.length; i++) {
@@ -8789,6 +8803,25 @@ socket.on('passive_alert', (payload) => {
   _renderPassiveAlert(payload);
 });
 
+// ── 유해 피격/파괴 동기화 ──
+// 서버가 공격으로 유해 stage 가 바뀌거나(1→2→3) 파괴(3타)될 때 보낸다.
+//   hits: [{col,row,stage,destroyed}] — stage 기반 그래픽 처리는 추후 확장.
+socket.on('remains_update', ({ remains, hits }) => {
+  S.remains = remains || [];
+  S._cellFP = null;  // 유해 변경 — 셀 핑거프린트 캐시 무효화
+  if (typeof renderGameBoard === 'function') renderGameBoard();
+});
+socket.on('spectator_remains_update', ({ remains, hits }) => {
+  S.remains = remains || [];
+  S._cellFP = null;
+  if (S.specGameState) {
+    S.specGameState.remains = remains || [];
+    if (typeof renderSpectatorGame === 'function') renderSpectatorGame(S.specGameState);
+  } else if (typeof renderGameBoard === 'function') {
+    renderGameBoard();
+  }
+});
+
 // ── 게임 오버 ──
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason, replayWinnerPieces, replayBoardObjects, replayBounds }) => {
   // 게임 간 stale 데이터 차단 — 다음 게임의 교환 배지 오탐 방지
@@ -8942,6 +8975,15 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
 //   - 보드 파괴(축소)로 인한 종료: 보드 파괴 애니 + 프로필 사망 갱신 완료까지 대기 → 1초 후.
 //   - 세팅 단계 종료(기권 등): 연출이 없으므로 즉시.
 // 진행 중인 연출은 S._pendingDeathCells(사망 GIF) / S._shrinkAnimUntil(보드 파괴) 로 감지.
+// 스킬 hits 에 destroyed 가 있으면(스킬로 누군가 사망) 동기 가드를 켠다.
+//   _pendingDeathCells 는 SP 비행 종료 후에야 세팅되므로, 그 전에 game_over 가 도착해도
+//   scheduleGameOverReveal 이 결과 화면을 조기 노출하지 않도록 ~2.3초간 가드.
+function _markSkillDeathIncoming(hits) {
+  if (Array.isArray(hits) && hits.some(h => h && h.destroyed)) {
+    S._skillDeathGuardUntil = Date.now() + 2300;
+  }
+}
+
 function scheduleGameOverReveal(inGame, revealFn, opts) {
   opts = opts || {};
   if (!inGame) { revealFn(); return; }               // 세팅 단계 — 즉시
@@ -8951,7 +8993,11 @@ function scheduleGameOverReveal(inGame, revealFn, opts) {
   (function waitAnims() {
     const deathPending  = !!S._pendingDeathCells;             // 사망 GIF/유해 진행 중
     const shrinkPending = (S._shrinkAnimUntil || 0) > Date.now();  // 보드 파괴 애니 진행 중
-    if ((deathPending || shrinkPending) && (Date.now() - start) < MAX_WAIT) {
+    // ★ 스킬 사망 가드 — 스킬 핸들러는 SP 비행(~0.8~1.3s) 후에야 _pendingDeathCells 를 세팅하므로,
+    //   game_over 가 먼저 도착하면 deathPending 이 아직 false 라 결과 화면이 조기 노출됨.
+    //   동기 가드 타임스탬프로 그 공백을 메워, _pendingDeathCells 가 세팅될 때까지 폴링 유지.
+    const skillDeathGuard = (S._skillDeathGuardUntil || 0) > Date.now();
+    if ((deathPending || shrinkPending || skillDeathGuard) && (Date.now() - start) < MAX_WAIT) {
       setTimeout(waitAnims, 80);
       return;
     }
@@ -12734,8 +12780,12 @@ function _cellStateFP(col, row, pre) {
   }
 
   // ── 유해 ──
-  if (S.remains && S.remains.some(r => r.col === col && r.row === row)) {
-    f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '');
+  {
+    const _rm = S.remains && S.remains.find(r => r.col === col && r.row === row);
+    if (_rm) {
+      // stage(=hits) 포함 — 추후 단계별 그래픽 시 stage 변화로 재렌더 보장
+      f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '') + 's' + (_rm.hits || 0);
+    }
   }
 
   // ── 공격 로그 ── (#14: 사전 구축된 Map 사용)
@@ -13219,7 +13269,10 @@ function renderGameBoard() {
     }
 
     // ── 유해 (remains) 렌더링 — 양측 모두 보임 ──
-    if (S.remains) {
+    // ★ 사망 GIF 진행 중인 셀(_pendingDeathCells)은 유해를 그리지 않음 — 사망 모션과 유해가
+    //   동시에 보이는 버그 방지. 서버 payload·team_game_update 가 유해를 미리 보내도 여기서 가려짐.
+    //   (사망 GIF 완료 콜백에서 _pendingDeathCells 해제 → 다음 렌더부터 유해 표시)
+    if (S.remains && !(S._pendingDeathCells && S._pendingDeathCells.has(`${col},${row}`))) {
       const rem = S.remains.find(r => r.col === col && r.row === row);
       if (rem) {
         cell.classList.add('has-remains');
@@ -13229,7 +13282,9 @@ function renderGameBoard() {
         //   이전: scaleX(-1) 만 설정 → CSS translate(-50%,-50%) 유실 → 유해가 셀 밖으로 이탈.
         const _remFacing = (S._remainsFacing && S._remainsFacing[`${col},${row}`])
           ? 'transform:translate(-50%,-50%) scaleX(-1);' : '';
-        cell.innerHTML += `<img class="remains-marker" src="${_remainsUrl}" alt="" style="${_remFacing}">`;
+        // data-stage: 1=무피해, 2=1타, 3=2타 (추후 단계별 그래픽 훅)
+        const _remStage = (rem.hits || 0) + 1;
+        cell.innerHTML += `<img class="remains-marker" src="${_remainsUrl}" alt="" data-stage="${_remStage}" style="${_remFacing}">`;
       }
     }
 
@@ -17558,6 +17613,20 @@ const DEATH_ANIM_EXTRA_MS = 100; // GIF 종료 후 잔여 여유
 // 사망 GIF 완료 후 renderGameBoard 호출 전에 S.remains 에 유해를 즉시 추가.
 // 서버는 attack_result / being_attacked 에 remains 를 포함하지 않으므로,
 // 다음 상태 이벤트(your_turn 등)가 올 때까지 빈 칸으로 보이는 문제를 방지.
+// 서버 payload 의 유해 목록을 적용하되, 지금 사망 GIF 가 재생될 셀의 유해는 제외한다.
+//   → 그 셀의 유해는 사망 애니 완료 후 _addClientSideRemains 가 추가 (일반 공격 사망과 동일 타이밍).
+//   이렇게 하지 않으면 서버가 보낸 유해가 즉시 렌더되어 "사망 모션 + 유해" 가 동시에 보임.
+function _applyServerRemainsExcludingDeaths(remains, deathInfos) {
+  if (!remains) return;
+  if (deathInfos && deathInfos.length > 0) {
+    const deadKeys = new Set(deathInfos.map(d => `${d.col},${d.row}`));
+    S.remains = remains.filter(r => !deadKeys.has(`${r.col},${r.row}`));
+  } else {
+    S.remains = remains;
+  }
+  S._cellFP = null;
+}
+
 function _addClientSideRemains(deathInfos) {
   if (!deathInfos) return;
   if (!S.remains) S.remains = [];

@@ -107,8 +107,13 @@ function animateRatSpawn(rats, owner, opts) {
           const _idleConf = window.RAT_ANIM_CONFIG?.idle;
           const _idleUrl = rGifs?.[rColor]?.idle;
 
+          // ★ spawn ↔ idle 겹침 제거 (사용자 보고: 소환모션과 idle 이 겹쳐 불안정):
+          //   이전엔 idle 을 spawn 뒤(z-index 낮게) 300ms 먼저 배치 → 크기·위치가 달라
+          //   spawn 뒤로 idle 이 삐져나와 "겹치는 지점" 발생.
+          //   해결: idle 을 opacity:0 으로 미리 배치(로드·디코드만) → spawn 제거와 동시에
+          //         opacity:1 노출. 겹침 구간 0 + 빈 프레임 0.
+          let _idleEl = null;
           if (_idleUrl && _idleConf) {
-            // spawn 종료 300ms 전에 idle GIF 를 셀에 미리 배치 (z-index 낮게 → spawn 뒤에 숨김)
             const _preloadAt = Math.max(100, dur - 300);
             setTimeout(() => {
               const _cell = board.querySelector(`.cell[data-col="${rat.col}"][data-row="${rat.row}"]`);
@@ -118,14 +123,17 @@ function animateRatSpawn(rats, owner, opts) {
               const _idleZ = isMyRat ? 4 : 3;
               const _idle = document.createElement('img');
               _idle.className = 'rat-board-gif';
-              _idle.style.cssText = `width:${_idleConf.w}%;height:${_idleConf.h}%;left:${50+_idleRx}%;top:${50+_idleConf.y}%;transform:translate(-50%,-50%)${_idleFlip};z-index:${_idleZ}`;
+              // opacity:0 — 로드/디코드만 시키고 보이지 않게 (spawn 과 겹치지 않음)
+              _idle.style.cssText = `width:${_idleConf.w}%;height:${_idleConf.h}%;left:${50+_idleRx}%;top:${50+_idleConf.y}%;transform:translate(-50%,-50%)${_idleFlip};z-index:${_idleZ};opacity:0`;
               _idle.src = _idleUrl;
               _cell.appendChild(_idle);
+              _idleEl = _idle;
             }, _preloadAt);
           }
 
-          // spawn 재생 완료 → spawn 제거 + onLanded (renderGameBoard 없이 상태만 갱신)
+          // spawn 재생 완료 → spawn 제거 + idle 동시 노출 (겹침 없이 매끄럽게 전환)
           setTimeout(() => {
+            if (_idleEl) _idleEl.style.opacity = '1';  // spawn 제거와 같은 프레임에 노출
             if (img.parentNode) img.remove();
             URL.revokeObjectURL(blobUrl);
             // ★ skipRender:true → renderGameBoard 미호출. idle GIF 는 이미 셀에 존재.
