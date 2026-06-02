@@ -3761,6 +3761,8 @@ socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits }) => {
   const hitCellList = (hits || []).filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;
   const _mySeq = ++_spectatorAttackSeq;
+  // ★ 유해 피격 애니 동기화 기준 — 일반 유닛 피격과 같은 임팩트 순간.
+  S._impactAtTs = Date.now() + ATTACK_IMPACT_DELAY;
 
   setTimeout(() => {
     if (S.turnNumber !== _capturedTurn) return; // C-1: turn changed, skip stale update
@@ -4651,6 +4653,8 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       _impactDelay = ATTACK_IMPACT_DELAY; // GIF 없거나 파싱 실패 시 폴백 — 다른 시점과 동기화
     }
     _impactDelay = Math.min(_impactDelay, 3000);
+    // ★ 유해 피격 애니를 일반 유닛 피격과 같은 임팩트 순간에 발동시키기 위한 기준 시각.
+    S._impactAtTs = Date.now() + _impactDelay;
     setTimeout(() => {
       // ── ★ 사망 감지 — 상태 업데이트 전에 현재 DOM 에서 방향 캡처 ──────────
       const _destroyedCells = cellResults.filter(c => c.hit && c.destroyed);
@@ -4951,6 +4955,8 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;
   const _mySeq = ++_beingAttackedSeq;
+  // ★ 유해 피격 애니 동기화 기준 — 일반 유닛 피격과 같은 임팩트 순간.
+  S._impactAtTs = Date.now() + ATTACK_IMPACT_DELAY;
   setTimeout(() => {
     if (S.turnNumber !== _capturedTurn) return; // turn changed, skip stale update
     if (_beingAttackedSeq !== _mySeq) return; // newer being_attacked arrived, skip
@@ -8231,7 +8237,7 @@ socket.on('detonation_intro', ({ bombs }) => {
 });
 
 // ── 폭탄 폭발 ──
-socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits }) {
+socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsHits }) {
   // ★ 폭탄 피격 타이밍 동기화 — detonation_intro 의 셀 흔들림 시점까지 HP 갱신/데미지 표시 대기.
   //   서버가 bomb_detonated 를 먼저 보내도, 클라이언트에서 셀이 흔들리는 그 순간에 피격이 보이도록.
   const _ik = col + ',' + row;
@@ -8239,8 +8245,25 @@ socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits }) {
     const _delay = S._bombImpactAt[_ik] - Date.now();
     delete S._bombImpactAt[_ik];
     if (_delay > 50) {
-      setTimeout(() => _onBombDetonated({ col, row, hits }), _delay);
+      setTimeout(() => _onBombDetonated({ col, row, hits, remainsHits }), _delay);
       return;
+    }
+  }
+
+  // ★ 유해 폭발 피격 — 폭발 임팩트(blast)와 동일 순간에 단계별 연출 재생.
+  //   (이 시점은 위 delay 재스케줄로 인해 정확히 셀 흔들림/폭발 프레임과 일치)
+  if (Array.isArray(remainsHits) && remainsHits.length > 0 && typeof animateRemainsHit === 'function') {
+    const _rb = document.getElementById('game-board');
+    if (_rb) {
+      for (const rh of remainsHits) {
+        const facingLeft = !!(S._remainsFacing && S._remainsFacing[`${rh.col},${rh.row}`]);
+        animateRemainsHit(_rb, rh.col, rh.row, { hitNumber: (rh.stage || 2) - 1, facingLeft, onSettle: () => {
+          if (!S.remains) return;
+          if (rh.destroyed) S.remains = S.remains.filter(r => !(r.col === rh.col && r.row === rh.row));
+          else { const e = S.remains.find(r => r.col === rh.col && r.row === rh.row); if (e) e.hits = (rh.stage || 2) - 1; }
+          S._cellFP = null;
+        }});
+      }
     }
   }
 
@@ -8807,9 +8830,37 @@ socket.on('passive_alert', (payload) => {
 // 서버가 공격으로 유해 stage 가 바뀌거나(1→2→3) 파괴(3타)될 때 보낸다.
 //   hits: [{col,row,stage,destroyed}] — stage 기반 그래픽 처리는 추후 확장.
 socket.on('remains_update', ({ remains, hits }) => {
-  S.remains = remains || [];
-  S._cellFP = null;  // 유해 변경 — 셀 핑거프린트 캐시 무효화
-  if (typeof renderGameBoard === 'function') renderGameBoard();
+  const board = document.getElementById('game-board');
+  // 폴백 — 애니 모듈/보드 없거나 hits 정보 없으면 상태만 즉시 반영.
+  if (!board || !Array.isArray(hits) || hits.length === 0 || typeof animateRemainsHit !== 'function') {
+    S.remains = remains || [];
+    S._cellFP = null;
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    return;
+  }
+  // ★ 단계별 피격 연출 — 현재 DOM(이전 단계)에서 GIF 재생 후 다음 단계 정착/제거.
+  //   S.remains(상태)는 애니 정착 후에 갱신 → 그 전 동시 렌더가 셀을 새 단계로 덮어쓰지 않음
+  //   (핑거프린트가 변하지 않아 해당 셀은 재구축되지 않고 진행 중 GIF 가 보존됨).
+  // ★ 타이밍 동기화 — 일반 유닛 피격과 동일한 임팩트 순간(S._impactAtTs)에 발동.
+  //   서버가 remains_update 를 공격 이벤트 뒤(process.nextTick)에 보내므로, 이 핸들러가 돌 때
+  //   직전 공격 핸들러가 S._impactAtTs 를 이미 세팅해 둠. 그 시각까지 대기 후 재생.
+  const _now = Date.now();
+  const _aimAt = S._impactAtTs || 0;
+  const _delay = (_aimAt > _now && (_aimAt - _now) < 4000) ? (_aimAt - _now) : 0;
+  S._impactAtTs = 0;  // 1회성 — 다음 이벤트로 재사용 방지
+  let pending = hits.length;
+  const finalize = () => {
+    if (--pending > 0) return;
+    S.remains = remains || [];
+    S._cellFP = null;  // 다음 렌더가 최종 단계를 정확히 반영
+  };
+  const _run = () => {
+    for (const h of hits) {
+      const facingLeft = !!(S._remainsFacing && S._remainsFacing[`${h.col},${h.row}`]);
+      animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
+    }
+  };
+  if (_delay > 0) setTimeout(_run, _delay); else _run();
 });
 socket.on('spectator_remains_update', ({ remains, hits }) => {
   S.remains = remains || [];
@@ -13276,14 +13327,14 @@ function renderGameBoard() {
       const rem = S.remains.find(r => r.col === col && r.row === row);
       if (rem) {
         cell.classList.add('has-remains');
-        // 유해 마커: remains PNG (center, z-index 2 — piece 아래에 깔림)
-        const _remainsUrl = window.REMAINS_IMG || '/art/remains.png';
+        // 유해 마커: 단계별 정적 이미지 (stage = hits+1). 1=공통,2=1타,3=2타.
+        const _remStage = (rem.hits || 0) + 1;
+        const _stageImgs = window.REMAINS_STAGE_IMGS || {};
+        const _remainsUrl = _stageImgs[_remStage] || window.REMAINS_IMG || '/art/remains.png';
         // ★ 인라인 transform 은 CSS transform 을 덮어쓰므로, translate 센터링을 반드시 포함해야 함.
         //   이전: scaleX(-1) 만 설정 → CSS translate(-50%,-50%) 유실 → 유해가 셀 밖으로 이탈.
         const _remFacing = (S._remainsFacing && S._remainsFacing[`${col},${row}`])
           ? 'transform:translate(-50%,-50%) scaleX(-1);' : '';
-        // data-stage: 1=무피해, 2=1타, 3=2타 (추후 단계별 그래픽 훅)
-        const _remStage = (rem.hits || 0) + 1;
         cell.innerHTML += `<img class="remains-marker" src="${_remainsUrl}" alt="" data-stage="${_remStage}" style="${_remFacing}">`;
       }
     }

@@ -113,6 +113,22 @@
 
   // ── 유해 PNG ──────────────────────────────────────
   window.REMAINS_IMG = '/art/remains.png';
+  // ── 유해 단계별 정적 이미지 (stage = hits+1) ──
+  //   1 = 공통 유해(피해 없음), 2 = 1타, 3 = 2타. (4타째는 제거되어 이미지 없음)
+  window.REMAINS_STAGE_IMGS = {
+    1: '/art/remains.png',        // 공통 유해_PNG
+    2: '/art/remains_hit1.png',   // 유해피격_1_png
+    3: '/art/remains_hit2.png',   // 유해피격_2_png
+  };
+  // ── 유해 피격 시 재생할 GIF (피격 횟수 N = 1·2·3) ──
+  //   1타 → remains_hit1.gif → remains_hit1.png 로 정착
+  //   2타 → remains_hit2.gif → remains_hit2.png 로 정착
+  //   3타 → remains_hit3.gif → 유해 제거
+  window.REMAINS_HIT_GIFS = {
+    1: '/art/remains_hit1.gif',   // 유해피격_1_gif
+    2: '/art/remains_hit2.gif',   // 유해피격_2_gif
+    3: '/art/remains_hit3.gif',   // 유해피격_3_gif
+  };
 
   // ── 폭탄 보드 오브젝트 GIF ──────────────────────────────
   window.BOMB_IDLE_GIF    = '/assets/bomb_idle.gif';
@@ -366,6 +382,8 @@
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),
       ...Object.values(window.PIECE_ICONS       || {}),
       window.REMAINS_IMG,
+      ...Object.values(window.REMAINS_STAGE_IMGS || {}),  // ★ 유해 단계별 정적 이미지
+      ...Object.values(window.REMAINS_HIT_GIFS   || {}),  // ★ 유해 피격 GIF
       window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF 프리로드
       window.BOMB_IDLE_GIF,                               // ★ 폭탄 아이들 GIF
       window.BOMB_EXPLODE_GIF,                             // ★ 폭탄 폭발 GIF
@@ -456,6 +474,8 @@
       ...Object.values(window.PIECE_MOVE_PNGS   || {}),  // 이동 PNG
       ...Object.values(window.PIECE_ICONS       || {}),  // 캐릭터 아이콘 PNG
       window.REMAINS_IMG,                                 // 유해 PNG
+      ...Object.values(window.REMAINS_STAGE_IMGS || {}),  // ★ 유해 단계별 정적 PNG
+      ...Object.values(window.REMAINS_HIT_GIFS   || {}),  // ★ 유해 피격 GIF (1·2·3타)
       window.DRAGON_LANDING_GIF,                          // ★ 드래곤 착지 GIF
       window.BOMB_IDLE_GIF,                               // ★ 폭탄 아이들 GIF
       window.BOMB_EXPLODE_GIF,                             // ★ 폭탄 폭발 GIF

@@ -223,6 +223,54 @@ const CHARACTERS = {
 const ALL_CHARS = Object.values(CHARACTERS).flat();
 const getChar = (type) => ALL_CHARS.find(c => c.type === type);
 
+// ══════════════════════════════════════════════════════════════════
+// ── 더미 캐릭터 (미정 — 추후 커스텀 모드 전용) ────────────────────
+// ══════════════════════════════════════════════════════════════════
+//   ⚠️ 의도적으로 CHARACTERS / ALL_CHARS 에 합치지 않음.
+//      → 드래프트·AI 선택·공격범위(getAttackCells)·커스텀 모드 등 어떤 게임 로직도 이 배열을
+//         참조하지 않으므로, 현재로선 어디에서도 선택/플레이 불가능(완전 비활성 데이터).
+//   📝 채우는 방법: 각 항목의 tier / name / atk / icon / tag / desc / skills / 공격범위(아래 참고)를
+//      직접 채운 뒤, 나중에 정식 합류 시 CHARACTERS[tier] 로 옮기거나 커스텀 모드 풀에 연결.
+//      - 공격범위: getAttackCells() 의 switch 문에 해당 type case 를 추가해야 실제 공격 패턴이 생김.
+//      - 그래픽: 클라(public/piece-gifs.js)의 PIECE_ICONS / PIECE_GIFS 등에 type→경로를 추가.
+//      - 스킬: skills:[{ id, name, cost, replacesAction, oncePerTurn?, desc }] 형태.
+//      - 패시브: passives:['...'] (선택).
+//   현재 값은 전부 임의 placeholder 이며 playable:false 로 명시해 둠.
+const DUMMY_CHARACTERS = [
+  { type:'dummy1',  name:'더미 1',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy2',  name:'더미 2',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy3',  name:'더미 3',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy4',  name:'더미 4',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy5',  name:'더미 5',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy6',  name:'더미 6',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy7',  name:'더미 7',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy8',  name:'더미 8',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy9',  name:'더미 9',  tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy10', name:'더미 10', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy11', name:'더미 11', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy12', name:'더미 12', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy13', name:'더미 13', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy14', name:'더미 14', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy15', name:'더미 15', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy16', name:'더미 16', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy17', name:'더미 17', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy18', name:'더미 18', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy19', name:'더미 19', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy20', name:'더미 20', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy21', name:'더미 21', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy22', name:'더미 22', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy23', name:'더미 23', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy24', name:'더미 24', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy25', name:'더미 25', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy26', name:'더미 26', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy27', name:'더미 27', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy28', name:'더미 28', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy29', name:'더미 29', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+  { type:'dummy30', name:'더미 30', tier:null, atk:0, icon:'/assets/icons/placeholder.png', tag:null, desc:'(미정)', skills:[], passives:[], placeholder:true, playable:false },
+];
+// (의도적으로 어디에서도 참조하지 않음 — 정식 합류 전까지 완전 비활성)
+void DUMMY_CHARACTERS;
+
 // Helper: find skill data from CHARACTERS definition
 function getSkillData(pieceType, skillId) {
   const baseType = pieceType === 'twins_elder' || pieceType === 'twins_younger' ? 'twins' : pieceType;
@@ -3675,7 +3723,8 @@ function flushPhase(room, onComplete) {
       for (const bomb of bombs) {
         const hits = detonateBomb(room, dd.ownerIdx, bomb, { deferEmit: true });
         // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
-        deferredEmits.push({ col: bomb.col, row: bomb.row, hits, owner: dd.ownerIdx });
+        //   remainsHits — 이 폭탄 셀 유해 피격 (blast 타이밍에 클라가 재생)
+        deferredEmits.push({ col: bomb.col, row: bomb.row, hits, owner: dd.ownerIdx, remainsHits: room._lastBombRemainsHits || [] });
       }
       room.boardObjects[dd.ownerIdx] = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type !== 'bomb');
     }
@@ -3919,7 +3968,8 @@ function handleDeath(room, deadPiece, ownerIdx) {
 // 공격 범위(atkCells)에 들어온 유해는 공격력과 무관하게 공격 1회당 hits 1 증가.
 //   stage: 1=막 생성(무피해), 2=1타, 3=2타. hits 가 3 이 되면 파괴(제거)되어 칸이 해제됨.
 // 반환: 이번 공격으로 영향받은 유해 [{col,row,stage,destroyed}] (클라 그래픽/피드백용).
-function processRemainsHits(room, atkCells) {
+function processRemainsHits(room, atkCells, opts) {
+  opts = opts || {};
   if (!room.remains || room.remains.length === 0 || !atkCells || atkCells.length === 0) return [];
   const touched = [];
   const survivors = [];
@@ -3937,9 +3987,20 @@ function processRemainsHits(room, atkCells) {
   }
   if (touched.length > 0) {
     room.remains = survivors;
-    // 즉시 동기화 — 클라가 stage 변화/파괴를 반영 (그래픽은 클라가 stage 기반으로 처리).
-    emitToBoth(room, 'remains_update', { remains: room.remains, hits: touched });
-    emitToSpectators(room, 'spectator_remains_update', { remains: room.remains, hits: touched });
+    // skipEmit — 호출부(폭탄 등)가 자체 이벤트(bomb_detonated)에 remainsHits 를 실어 보내고
+    //   blast 타이밍에 직접 재생한다. 이 경우 별도 remains_update 를 보내지 않는다(이중·오타이밍 방지).
+    if (!opts.skipEmit) {
+      const payload = { remains: room.remains.slice(), hits: touched };
+      // ★ 타이밍 — 공격 임팩트 이벤트(attack_result/being_attacked/spectator_attack_anim)보다
+      //   뒤에 도착하도록 다음 tick 에 emit. processAttack 은 그 이벤트들보다 먼저 실행되므로,
+      //   동기 emit 이면 유해 피격 연출이 일반 유닛 피격보다 이르게 터진다. nextTick 으로 미뤄
+      //   클라가 직전 공격 핸들러가 세팅한 임팩트 시각(S._impactAtTs)에 맞춰 정렬하게 한다.
+      process.nextTick(() => {
+        if (!rooms[room.id]) return;
+        emitToBoth(room, 'remains_update', payload);
+        emitToSpectators(room, 'spectator_remains_update', payload);
+      });
+    }
   }
   return touched;
 }
@@ -3992,9 +4053,14 @@ function detonateBomb(room, ownerIdx, bomb, options) {
       }
     }
   }
+  // ★ 유해도 폭발 피해 — 폭탄 셀에 유해가 있으면 1 hit (일반 공격과 동일 카운트, 3타째 제거).
+  //   skipEmit:true → 별도 remains_update 안 보냄. 대신 bomb_detonated 페이로드에 remainsHits 를 실어
+  //   클라가 폭발 임팩트(blast) 순간에 직접 재생 → 폭탄 유닛 피격과 동일 타이밍.
+  const remainsHits = processRemainsHits(room, [{ col: bomb.col, row: bomb.row }], { skipEmit: true });
+  room._lastBombRemainsHits = remainsHits;   // deferEmit 경로(기폭 스킬)에서 deferredBombEmits 에 싣기 위한 side-channel
   // 기폭 스킬에서 호출 시(deferEmit) bomb_detonated 는 skill_result 다음에 외부에서 emit
   if (!deferEmit) {
-    emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits });
+    emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits, remainsHits });
   }
   const bombKilled = hits.filter(h => h.destroyed);
   if (bombKilled.length > 0) {
@@ -5414,7 +5480,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           const hits = detonateBomb(room, playerIdx, bomb, { deferEmit: true });
           allHits.push(...hits);
           // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
-          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits, owner: playerIdx });
+          //   remainsHits — 이 폭탄 셀 유해 피격 (blast 타이밍에 클라가 재생)
+          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits, owner: playerIdx, remainsHits: room._lastBombRemainsHits || [] });
         }
         room.boardObjects[playerIdx] = room.boardObjects[playerIdx].filter(o => o.type !== 'bomb');
         result.msg = `기폭: 폭탄 폭발!`;

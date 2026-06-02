@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>유해 단계별 피격 + 타이밍 동기화 프리뷰 — CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { background:#0c0c14; color:#e8e8f0; font-family:system-ui,sans-serif; margin:0; padding:24px;
+         display:flex; flex-direction:column; align-items:center; gap:22px; }
+  h1 { font-size:1.2rem; margin:4px 0; }
+  h2 { font-size:1.0rem; margin:0 0 6px; color:#ffd166; }
+  .sub { color:#9aa; font-size:0.85rem; max-width:680px; text-align:center; line-height:1.5; }
+  .panel { background:#14141f; border:1px solid #2a2a3a; border-radius:12px; padding:20px 24px;
+           display:flex; flex-direction:column; align-items:center; gap:14px; width:min(760px,92vw); }
+  .preview-board { display:grid; gap:4px; background:var(--surface2,#1a1a28); border:2px solid #2a2a3a;
+                   border-radius:10px; padding:8px; }
+  .zoom-wrap { display:flex; align-items:center; justify-content:center; min-height:170px; }
+  .zoom { transform:scale(2.2); transform-origin:center; }
+  .cell .unit-label { position:absolute; bottom:-12px; left:50%; transform:translateX(-50%);
+                      font-size:0.34rem; color:#bcd; white-space:nowrap; }
+  .dmg-pop { position:absolute; top:-2px; left:50%; transform:translateX(-50%); color:#ff6a6a;
+             font-weight:800; font-size:0.5rem; z-index:30; text-shadow:0 0 3px #000; animation:dmgUp 0.7s ease-out forwards; }
+  @keyframes dmgUp { 0%{opacity:0; transform:translate(-50%,4px);} 20%{opacity:1;} 100%{opacity:0; transform:translate(-50%,-12px);} }
+  .sulfur-flash { animation:sulfurF 0.5s ease-out; }
+  @keyframes sulfurF { 0%{box-shadow:inset 0 0 0 0 rgba(255,140,40,0);} 40%{box-shadow:inset 0 0 12px 3px rgba(255,150,40,0.9);} 100%{box-shadow:inset 0 0 0 0 rgba(255,140,40,0);} }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  button { background:#2a2a44; color:#e8e8f0; border:1px solid #3a3a5a; border-radius:8px;
+           padding:9px 16px; font-size:0.88rem; cursor:pointer; transition:background 0.12s; }
+  button:hover { background:#34345a; }
+  button.attack { background:#6a2a2a; border-color:#8a3a3a; }
+  button.attack:hover { background:#8a3434; }
+  button:disabled { opacity:0.4; cursor:not-allowed; }
+  .timeline { width:100%; max-width:520px; background:#0a0a12; border:1px solid #24243a; border-radius:8px;
+              padding:10px 12px; font-family:ui-monospace,monospace; font-size:0.78rem; line-height:1.6;
+              min-height:90px; max-height:200px; overflow-y:auto; }
+  .timeline .imp { color:#ffd166; font-weight:700; }
+  .timeline .sync { color:#7ee787; }
+  table { border-collapse:collapse; width:100%; font-size:0.8rem; }
+  th,td { border:1px solid #2a2a3a; padding:5px 9px; text-align:left; }
+  th { background:#1e1e2e; color:#ffd166; }
+  td.yes { color:#7ee787; font-weight:700; }
+  td.no { color:#777; }
+  tr.dmg td { background:rgba(126,231,135,0.06); }
+  .status { font-size:0.9rem; font-weight:600; }
+  .status .stage { color:#ffd166; } .status .gone { color:#ef6a6a; }
+  .gallery { display:flex; gap:22px; flex-wrap:wrap; justify-content:center; }
+  .gcol { display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .gcell { width:56px; height:56px; background:rgba(80,60,60,0.35); border:1px solid rgba(120,80,80,0.4);
+           border-radius:5px; position:relative; overflow:visible; }
+  .gcap { font-size:0.7rem; color:#9aa; text-align:center; line-height:1.35; }
+  .gcap b { color:#ffd166; }
+  code { background:#20202e; padding:1px 6px; border-radius:4px; color:#ffd; }
+</style>
+</head>
+<body>
+  <h1>유해 단계별 피격 + 타이밍 동기화 프리뷰</h1>
+  <p class="sub">게임 내부 <b>remains-anim.js</b> 의 <code>animateRemainsHit()</code> 를 그대로 호출하고,
+    인게임과 동일한 임팩트 지연 <code>ATTACK_IMPACT_DELAY = 500ms</code> 로 <b>공격자 휘두름 → (T+500ms) 피격자 피격 + 유해 피격</b>을
+    동시에 발동합니다. 아래 타임라인에서 둘이 같은 순간에 터지는지 확인하세요.</p>
+
+  <!-- ── 타이밍 동기화 데모 ── -->
+  <div class="panel">
+    <h2>① 타이밍 동기화 — 공격자 · 피격자 · 유해</h2>
+    <div class="zoom-wrap"><div class="zoom"><div class="preview-board" id="demo-board"></div></div></div>
+    <div class="timeline" id="timeline"></div>
+    <div class="controls">
+      <button class="attack" id="b-normal">⚔ 일반 공격 (궁수)</button>
+      <button class="attack" id="b-dual">⚔⚔ 쌍검무 (2타)</button>
+      <button class="attack" id="b-sulfur">🔥 유황범람 (테두리 AoE)</button>
+      <button class="attack" id="b-bomb">💣 기폭 (폭탄 폭발)</button>
+      <button id="b-reset-demo">↺ 리셋</button>
+    </div>
+  </div>
+
+  <!-- ── 유해 데미지 가능 스킬 목록 ── -->
+  <div class="panel">
+    <h2>② 전체 스킬 목록 — 유해에 데미지 가능 여부</h2>
+    <p class="sub" style="margin:0">유해 피격은 <code>processAttack()</code> 경로(공격 범위 셀 판정)를 타는 공격만 발생합니다.
+      덫·기폭·반지·악몽은 별도 경로(직접 HP/트랩)라 유해를 때리지 않습니다.</p>
+    <table id="skill-table"></table>
+  </div>
+
+  <!-- ── 단일 유해 단계 데모 ── -->
+  <div class="panel">
+    <h2>③ 유해 단계 진행 (1→2→3→제거)</h2>
+    <div class="zoom-wrap" style="min-height:150px"><div class="zoom"><div class="preview-board" id="stage-board"></div></div></div>
+    <div class="status" id="stage-status"></div>
+    <div class="controls">
+      <button class="attack" id="b-stage-hit">⚔ 공격</button>
+      <button id="b-stage-reset">↺ 새 유해</button>
+    </div>
+    <div class="gallery" id="gallery"></div>
+  </div>
+
+<script src="piece-gifs.js?v=20260516a"></script>
+<script src="remains-anim.js"></script>
+<script>
+const IMPACT = 500; // ATTACK_IMPACT_DELAY (game.js) 와 동일
+
+// ── 공통 헬퍼 ─────────────────────────────────────────
+function gifDur(url, fb) { return (window._gifDurationCache && window._gifDurationCache[url]) || fb; }
+function mkBoard(boardEl, cols) {
+  boardEl.style.gridTemplateColumns = `repeat(${cols},56px)`;
+  boardEl.style.gridTemplateRows = '56px';
+  boardEl.innerHTML = '';
+  for (let c = 0; c < cols; c++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell'; cell.dataset.col = c; cell.dataset.row = 0;
+    boardEl.appendChild(cell);
+  }
+}
+function cellAt(boardEl, c) { return boardEl.querySelector(`.cell[data-col="${c}"][data-row="0"]`); }
+// 유닛 GIF 를 새 <img> 로 교체 → 항상 프레임 0 부터 재생
+function setUnit(cell, url, facing) {
+  let img = cell.querySelector('img.p-gif');
+  if (img) img.remove();
+  img = document.createElement('img');
+  img.className = 'p-gif';
+  if (facing === 'left') img.style.transform = 'scaleX(-1)';
+  img.src = url;
+  cell.insertBefore(img, cell.firstChild);
+  return img;
+}
+function labelCell(cell, text) {
+  let l = cell.querySelector('.unit-label');
+  if (!l) { l = document.createElement('div'); l.className = 'unit-label'; cell.appendChild(l); }
+  l.textContent = text;
+}
+function putRemains(cell, stage, facing) {
+  cell.classList.add('has-remains');
+  let img = cell.querySelector('img.remains-marker');
+  if (!img) { img = document.createElement('img'); img.className = 'remains-marker'; cell.appendChild(img); }
+  img.src = (window.REMAINS_STAGE_IMGS||{})[stage] || window.REMAINS_IMG;
+  img.dataset.stage = String(stage);
+  if (facing === 'left') img.style.transform = 'translate(-50%,-50%) scaleX(-1)';
+}
+function dmgPop(cell, n) {
+  const d = document.createElement('div'); d.className = 'dmg-pop'; d.textContent = '-' + n;
+  cell.appendChild(d); setTimeout(() => d.remove(), 750);
+}
+
+// ── 데모 ① 타이밍 ─────────────────────────────────────
+const demoBoard = document.getElementById('demo-board');
+const tl = document.getElementById('timeline');
+let demoRemainsHits = 0;   // 데모 유해의 누적 피격
+let demoBusy = false;
+let t0 = 0;
+function log(msg, cls) {
+  const ms = Math.round(performance.now() - t0);
+  const line = document.createElement('div');
+  line.innerHTML = `<span style="color:#778">T+${String(ms).padStart(3,' ')}ms</span> ` + (cls?`<span class="${cls}">${msg}</span>`:msg);
+  tl.appendChild(line); tl.scrollTop = tl.scrollHeight;
+}
+function resetDemo() {
+  demoBusy = false; demoRemainsHits = 0;
+  mkBoard(demoBoard, 3);
+  // col0 공격자(궁수, 우향) / col1 피격자(창병, 좌향) / col2 유해(공통)
+  const aCell = cellAt(demoBoard, 0), dCell = cellAt(demoBoard, 1), rCell = cellAt(demoBoard, 2);
+  setUnit(aCell, window.PIECE_GIFS.archer); labelCell(aCell, '공격자(궁수)');
+  setUnit(dCell, window.PIECE_GIFS.spearman, 'left'); labelCell(dCell, '피격자(창병)');
+  putRemains(rCell, 1); labelCell(rCell, '유해');
+  tl.innerHTML = ''; log('리셋 완료 — 공격자/피격자/유해 배치');
+}
+// 한 번의 임팩트: 피격자 hit + 유해 hit 를 같은 setTimeout(IMPACT) 에 발동 (= 인게임 동일)
+function oneImpact(attackerType, attackerFacing, hitGifDefender) {
+  return new Promise(resolve => {
+    const aCell = cellAt(demoBoard, 0), dCell = cellAt(demoBoard, 1), rCell = cellAt(demoBoard, 2);
+    // T0: 공격 휘두름
+    const atkUrl = (window.PIECE_ATTACK_GIFS||{})[attackerType] || window.PIECE_GIFS[attackerType];
+    setUnit(aCell, atkUrl, attackerFacing);
+    log(`공격 휘두름 (${attackerType} attack GIF)`);
+    const atkDur = gifDur(atkUrl, 800);
+    // T+IMPACT: 피격자 피격 + 유해 피격 — 동시
+    setTimeout(() => {
+      // 피격자
+      if (hitGifDefender) {
+        const hUrl = (window.PIECE_HIT_GIFS||{}).spearman || window.PIECE_GIFS.spearman;
+        setUnit(dCell, hUrl, 'left'); dmgPop(dCell, 1);
+        setTimeout(() => setUnit(dCell, window.PIECE_GIFS.spearman, 'left'), gifDur(hUrl, 500));
+        log('⚔ 피격자 피격 GIF + 데미지 표시', 'imp');
+      }
+      // 유해 — 같은 순간
+      demoRemainsHits = Math.min(3, demoRemainsHits + 1);
+      animateRemainsHit(demoBoard, 2, 0, { hitNumber: demoRemainsHits, onSettle: () => {} });
+      log('💀 유해 피격 GIF 발동 — 피격자와 동일 프레임', 'sync');
+      log('→ 두 반응이 같은 T+500ms 에 동시 시작 ✓', 'sync');
+    }, IMPACT);
+    // 공격 GIF 종료 → idle 복귀, 시퀀스 완료
+    setTimeout(() => { setUnit(aCell, window.PIECE_GIFS.archer, attackerFacing); resolve(); },
+              Math.max(atkDur, IMPACT + 700));
+  });
+}
+async function doNormal() {
+  if (demoBusy) return; demoBusy = true; t0 = performance.now(); tl.innerHTML='';
+  log('일반 공격 시작'); await oneImpact('archer', null, true); demoBusy = false;
+}
+async function doDual() {
+  if (demoBusy) return; demoBusy = true; t0 = performance.now(); tl.innerHTML='';
+  log('쌍검무 — 1타'); await oneImpact('archer', null, true);
+  await new Promise(r => setTimeout(r, 350));
+  log('쌍검무 — 2타 (추가 공격, 유해 또 1단계 상승)'); await oneImpact('archer', null, true);
+  demoBusy = false;
+}
+async function doSulfur() {
+  if (demoBusy) return; demoBusy = true; t0 = performance.now(); tl.innerHTML='';
+  log('유황범람 시전 (테두리 AoE · 2뎀)');
+  const rCell = cellAt(demoBoard, 2);
+  setTimeout(() => {
+    [0,1,2].forEach(c => cellAt(demoBoard,c).classList.add('sulfur-flash'));
+    setTimeout(()=>[0,1,2].forEach(c=>cellAt(demoBoard,c).classList.remove('sulfur-flash')),500);
+    const dCell = cellAt(demoBoard, 1);
+    const hUrl = (window.PIECE_HIT_GIFS||{}).spearman || window.PIECE_GIFS.spearman;
+    setUnit(dCell, hUrl, 'left'); dmgPop(dCell, 2);
+    setTimeout(() => setUnit(dCell, window.PIECE_GIFS.spearman, 'left'), gifDur(hUrl,500));
+    log('🔥 테두리 피격 + 데미지 (피격자)', 'imp');
+    demoRemainsHits = Math.min(3, demoRemainsHits + 1);
+    animateRemainsHit(demoBoard, 2, 0, { hitNumber: demoRemainsHits });
+    log('💀 유해 피격 — AoE 임팩트와 동일 순간 ✓', 'sync');
+  }, IMPACT);
+  setTimeout(() => { demoBusy = false; }, IMPACT + 900);
+}
+// 기폭 — 폭탄이 유해 칸 위에서 폭발. 인게임과 동일: 폭발 GIF 의 boom 프레임(BOMB_IMPACT_DELAY=1300ms)에
+//   피격자 유닛 피격 + 유해 피격을 동시에 발동 → 유닛과 완전히 동일한 처리.
+const BOMB_IMPACT_DELAY = 1300;  // 인게임 game.js 와 동일 — 폭발 GIF 최대 크기(boom) 프레임
+function doBomb() {
+  if (demoBusy) return; demoBusy = true; t0 = performance.now(); tl.innerHTML='';
+  const dCell = cellAt(demoBoard, 1), rCell = cellAt(demoBoard, 2);
+  // 폭발 GIF 즉시 시작 (T0). boom 은 T0 + BOMB_IMPACT_DELAY 에 도달.
+  const ex = document.createElement('img');
+  // 쿼리 카운터로 매번 프레임 0부터 재생 (Chrome 동일 바이너리 타이머 공유 회피 — 데모용)
+  window._exCount = (window._exCount || 0) + 1;
+  ex.src = (window.BOMB_EXPLODE_GIF || '/assets/bomb_explode.gif') + '?n=' + window._exCount;
+  ex.style.cssText = 'position:absolute;left:50%;top:50%;width:150%;height:150%;transform:translate(-50%,-50%);z-index:25;pointer-events:none';
+  rCell.appendChild(ex); setTimeout(() => ex.remove(), 2600);
+  log('💣 폭발 GIF 시작 (T+0) — boom 은 T+1300');
+  setTimeout(() => {
+    log('💥 폭발 boom 임팩트 (T+1300)', 'imp');
+    // 피격자 유닛 — 폭발 범위(인접). boom 순간 피격.
+    const hUrl = (window.PIECE_HIT_GIFS||{}).spearman || window.PIECE_GIFS.spearman;
+    setUnit(dCell, hUrl, 'left'); dmgPop(dCell, 1);
+    setTimeout(() => setUnit(dCell, window.PIECE_GIFS.spearman, 'left'), gifDur(hUrl, 500));
+    log('⚔ 피격자 유닛 피격 + 데미지', 'imp');
+    // 유해 — 유닛 피격과 같은 순간
+    demoRemainsHits = Math.min(3, demoRemainsHits + 1);
+    animateRemainsHit(demoBoard, 2, 0, { hitNumber: demoRemainsHits });
+    log('💀 유해 피격 — 유닛 피격·폭발 boom 과 동일 순간 ✓', 'sync');
+  }, BOMB_IMPACT_DELAY);
+  setTimeout(() => { demoBusy = false; }, BOMB_IMPACT_DELAY + 900);
+}
+document.getElementById('b-normal').addEventListener('click', doNormal);
+document.getElementById('b-dual').addEventListener('click', doDual);
+document.getElementById('b-sulfur').addEventListener('click', doSulfur);
+document.getElementById('b-bomb').addEventListener('click', doBomb);
+document.getElementById('b-reset-demo').addEventListener('click', resetDemo);
+
+// ── ② 스킬 목록 ──────────────────────────────────────
+const SKILLS = [
+  ['1','궁수','정비','공격 범위 반전', false],
+  ['1','쌍둥이 강도','분신','동생/누나 위치로 합류', false],
+  ['1','척후병','정찰','랜덤 적 행/열 공개', false],
+  ['1','인간 사냥꾼','덫 설치','덫 설치(작동 시 2뎀 · 트랩 경로)', false],
+  ['1','전령','질주','이번 턴 이동 2회', false],
+  ['1','화약상','폭탄 설치','주변 1칸 폭탄 설치(설치만 — 피해 X)', false],
+  ['1','화약상','기폭','설치 폭탄 폭발 1뎀 — 폭발 셀 유해도 피격', true],
+  ['1','약초전문가','약초학','주변 아군 1 회복', false],
+  ['2','그림자 암살자','그림자 숨기','면역(방어)', false],
+  ['2','마녀','저주','적 1명 저주(상태이상)', false],
+  ['2','양손 검객','쌍검무','이번 턴 공격 2회(추가 공격)', true],
+  ['2','쥐 장수','역병의 자손들','쥐 3마리 소환', false],
+  ['2','무기상','정비','가로/세로 공격 전환', false],
+  ['3','국왕','절대복종 반지','적 1명 강제 이동', false],
+  ['3','드래곤 조련사','드래곤 소환','드래곤 소환(드래곤의 일반 공격은 유해 피격 O)', false],
+  ['3','수도승','신성','아군 2 회복 + 상태이상 제거', false],
+  ['3','유황이 끓는 솥','유황범람','보드 테두리 전체 2뎀(AoE)', true],
+  ['3','고문 기술자','악몽','표식 적 1뎀(직접 HP)', false],
+];
+(function buildSkillTable(){
+  const t = document.getElementById('skill-table');
+  let html = '<tr><th>티어</th><th>유닛</th><th>스킬</th><th>효과</th><th>유해 피격</th></tr>';
+  for (const [tier,unit,skill,eff,dmg] of SKILLS) {
+    html += `<tr class="${dmg?'dmg':''}"><td>${tier}</td><td>${unit}</td><td>${skill}</td><td>${eff}</td>`
+          + `<td class="${dmg?'yes':'no'}">${dmg?'O':'✕'}</td></tr>`;
+  }
+  html += '<tr class="dmg"><td>—</td><td>모든 공격 유닛</td><td>일반 공격</td><td>공격 범위 셀 판정</td><td class="yes">O</td></tr>';
+  t.innerHTML = html;
+})();
+
+// ── ③ 단일 유해 단계 데모 ────────────────────────────
+const stageBoard = document.getElementById('stage-board');
+const stStatus = document.getElementById('stage-status');
+let stHits = 0, stBusy = false;
+function stReset() {
+  stBusy = false; stHits = 0; mkBoard(stageBoard, 1);
+  putRemains(cellAt(stageBoard, 0), 1); stUpdate();
+}
+function stUpdate() {
+  const btn = document.getElementById('b-stage-hit');
+  if (stHits >= 3) { stStatus.innerHTML = '<span class="gone">유해 제거됨 — 칸 재사용 가능</span>'; btn.disabled = true; }
+  else { stStatus.innerHTML = `현재 <span class="stage">${stHits+1}단계</span> · 다음 피격 ${stHits+1}타`; btn.disabled = false; btn.textContent = `⚔ 공격 (${stHits+1}타)`; }
+}
+function stAttack() {
+  if (stBusy || stHits >= 3) return; stBusy = true; stHits++;
+  document.getElementById('b-stage-hit').disabled = true;
+  animateRemainsHit(stageBoard, 0, 0, { hitNumber: stHits, onSettle: () => { stBusy = false; stUpdate(); } });
+}
+document.getElementById('b-stage-hit').addEventListener('click', stAttack);
+document.getElementById('b-stage-reset').addEventListener('click', stReset);
+(function gallery(){
+  const g = document.getElementById('gallery');
+  const items = [
+    ['<b>1단계</b><br>공통 유해', window.REMAINS_STAGE_IMGS[1]],
+    ['1타 GIF', window.REMAINS_HIT_GIFS[1]],
+    ['<b>2단계</b>', window.REMAINS_STAGE_IMGS[2]],
+    ['2타 GIF', window.REMAINS_HIT_GIFS[2]],
+    ['<b>3단계</b>', window.REMAINS_STAGE_IMGS[3]],
+    ['3타 GIF', window.REMAINS_HIT_GIFS[3]],
+  ];
+  for (const [cap,img] of items) {
+    const col = document.createElement('div'); col.className = 'gcol';
+    const cell = document.createElement('div'); cell.className = 'gcell';
+    const im = document.createElement('img'); im.className = 'remains-marker'; im.src = img; cell.appendChild(im);
+    const cp = document.createElement('div'); cp.className = 'gcap'; cp.innerHTML = cap;
+    col.appendChild(cell); col.appendChild(cp); g.appendChild(col);
+  }
+})();
+
+function init() {
+  resetDemo(); stReset();
+  if (typeof window.preloadAllAsync === 'function') window.preloadAllAsync().catch(()=>{});
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
+</script>
+</body>
+</html>
