@@ -12757,6 +12757,17 @@ function _cellStateFP(col, row, pre) {
   const _pmTeam = (_pmEntry && _pmEntry.teammate) || null;
   const _pmOpp = (_pmEntry && _pmEntry.opp) || null;
 
+  // ★ 멀티유닛(캐러셀) 구성 신호 — 같은 칸의 *모든* 유닛(내말/팀원/표식적)을 핑거프린트에 반영.
+  //   이전엔 아래 단일 .find 만 반영 → 한 칸에 두 아군이 쌓였다가 하나가 이동(2→1)해도 FP 가 불변
+  //   → 해당 셀 DOM 재빌드가 생략 → 남아야 할 아군이 사라지는 버그. 구성 변화를 FP 에 포함해 해결.
+  {
+    const _comp = [];
+    if (_pmMine) for (const p of _pmMine) if (alv(p)) _comp.push('m' + p.type + (p.subUnit || '') + p.hp);
+    if (_pmTeam) for (const p of _pmTeam) if (alv(p)) _comp.push('t' + p.type + (p.subUnit || '') + p.hp);
+    if (_pmOpp)  for (const p of _pmOpp)  if (p.marked && alv(p)) _comp.push('o' + p.type + p.hp);
+    if (_comp.length > 1) f += '|CC' + _comp.join('~');
+  }
+
   // ── 내 말 ──
   const mp = _pmMine ? _pmMine.find(p => alv(p)) : null;
   if (mp) {
@@ -13103,12 +13114,22 @@ function renderGameBoard() {
     // 내 말 + 팀원 + 표식 적이 2개 이상 같은 셀에 있으면 캐러셀로 표시.
     const _crUnits = (() => {
       const arr = [];
-      const _mp = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
-      if (_mp && !(_mp.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)))
-        arr.push({ p: _mp, owner: 'mine' });
+      // ★ 내 말 — 같은 칸의 *모든* 내 말 (이전엔 .find 로 1개만 → 내 아군끼리 겹치면 캐러셀 미발동 버그).
+      //   절대복종반지가 내 유닛을 내 아군 칸으로 강제 이동시키면 두 아군이 한 칸에 쌓인다.
+      const _myHere = S.myPieces.filter(p => p.col === col && p.row === row && _aliveOrPending(p) &&
+        !(p.isDragon && S._dragonIncoming && S._dragonIncoming.has(`${col},${row},${S.playerIdx}`)));
+      // 쌍둥이 합류(elder+younger)는 "한 몸"으로 합산 렌더 → 캐러셀 슬롯 1개로만 취급(단일 렌더 경로가 처리).
+      const _twinMerge = _myHere.length === 2 &&
+        _myHere.every(p => p.subUnit === 'elder' || p.subUnit === 'younger') &&
+        _myHere[0].subUnit !== _myHere[1].subUnit;
+      if (_twinMerge) {
+        arr.push({ p: _myHere[0], owner: 'mine' });
+      } else {
+        for (const mp of _myHere) arr.push({ p: mp, owner: 'mine' });
+      }
       if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
-        const _tp = S.teammatePieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
-        if (_tp) {
+        const _tmHere = S.teammatePieces.filter(p => p.col === col && p.row === row && _aliveOrPending(p));
+        for (const _tp of _tmHere) {
           const _tmDragonSkip = _tp.isDragon && S._dragonIncoming &&
             (S.teamGamePlayers || []).some(pl =>
               (pl.pieces || []).some(pp => pp.col === col && pp.row === row && pp.isDragon) &&

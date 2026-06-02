@@ -3975,7 +3975,10 @@ function processRemainsHits(room, atkCells, opts) {
   const survivors = [];
   for (const rem of room.remains) {
     const inRange = atkCells.some(c => c.col === rem.col && c.row === rem.row);
-    if (!inRange) { survivors.push(rem); continue; }
+    // ★ onlyExisting — 이번 공격 *이전부터* 있던 유해만 피격 대상. 이번 공격으로 유닛이 죽어
+    //   방금 생성된 유해(=같은 칸)는 제외 → "유닛 사망 시점 = 유해 생성(1단계)"이지 피격이 아님.
+    const preExisting = !opts.onlyExisting || opts.onlyExisting.has(`${rem.col},${rem.row}`);
+    if (!inRange || !preExisting) { survivors.push(rem); continue; }
     rem.hits = (rem.hits || 0) + 1;
     if (rem.hits >= 3) {
       touched.push({ col: rem.col, row: rem.row, stage: 4, destroyed: true });
@@ -4017,6 +4020,8 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   //   알 수 없는 잔재가 남아있음). bomb 폭발마다 fresh Set 으로 초기화.
   room._attackPassivesFired = new Set();
   room._pendingBodyguardPassive = null;
+  // ★ 폭발 이전부터 있던 유해만 피격 대상 (이 폭발로 죽어 새로 생긴 유해 제외 — 사망=생성).
+  const _preRemainsCellsBomb = new Set((room.remains || []).map(r => `${r.col},${r.row}`));
   const enemyIndices = (room.mode === 'team') ? getEnemyIndices(room, ownerIdx) : [1 - ownerIdx];
   const hits = [];
   for (const defOwnerIdx of enemyIndices) {
@@ -4056,7 +4061,7 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   // ★ 유해도 폭발 피해 — 폭탄 셀에 유해가 있으면 1 hit (일반 공격과 동일 카운트, 3타째 제거).
   //   skipEmit:true → 별도 remains_update 안 보냄. 대신 bomb_detonated 페이로드에 remainsHits 를 실어
   //   클라가 폭발 임팩트(blast) 순간에 직접 재생 → 폭탄 유닛 피격과 동일 타이밍.
-  const remainsHits = processRemainsHits(room, [{ col: bomb.col, row: bomb.row }], { skipEmit: true });
+  const remainsHits = processRemainsHits(room, [{ col: bomb.col, row: bomb.row }], { skipEmit: true, onlyExisting: _preRemainsCellsBomb });
   room._lastBombRemainsHits = remainsHits;   // deferEmit 경로(기폭 스킬)에서 deferredBombEmits 에 싣기 위한 side-channel
   // 기폭 스킬에서 호출 시(deferEmit) bomb_detonated 는 skill_result 다음에 외부에서 emit
   if (!deferEmit) {
@@ -4072,6 +4077,9 @@ function detonateBomb(room, ownerIdx, bomb, options) {
 function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts) {
   const attacker = room.players[attackerIdx];
   const baseDmg = (extraDamage !== undefined) ? extraDamage : atkPiece.atk;
+  // ★ 이번 공격 *이전*에 존재하던 유해 칸 스냅샷 — 공격으로 죽어 새로 생긴 유해를 피격에서 제외하기 위함.
+  //   (유닛 사망 = 유해 생성. 생성 즉시 피격 카운트되면 안 됨.)
+  const _preRemainsCells = new Set((room.remains || []).map(r => `${r.col},${r.row}`));
   // 스킬(유황범람 등)에서 호출 시 sp_update 가 후속 skill_result 보다 먼저 가지 않도록 suppress.
   const suppressSpUpdate = !!(opts && opts.suppressSpUpdate);
   room._suppressSpUpdate = suppressSpUpdate;
@@ -4299,7 +4307,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   }
 
   // ── 유해 3타 파괴 — 공격 범위에 든 유해 카운트 (공격력 무관, 공격 1회당 1) ──
-  room._remainsHitsThisAttack = processRemainsHits(room, atkCells);
+  //   onlyExisting — 이번 공격으로 방금 죽어 생성된 유해는 제외 (사망=생성이지 피격 아님).
+  room._remainsHitsThisAttack = processRemainsHits(room, atkCells, { onlyExisting: _preRemainsCells });
 
   return hitResults;
 }

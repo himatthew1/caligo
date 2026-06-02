@@ -73,13 +73,19 @@ function animateRingTeleport(rt, roleHint, opts) {
   //    기존 marker 는 가만히 두고 (사용자 요청), 항상 victimIcon ghost 를 z-index 위에 띄움.
   let hiddenExistingMarker = null;
   let arrivalGhost = null;
+  let hiddenCarousel = null;
   if (toCell && rt.victimIcon) {
     const existing = toCell.querySelector('.piece-marker');
+    const ccWrap = toCell.querySelector('.cc-wrapper');   // 스택(캐러셀) — 도착지에 이미 다른 말이 있음
     const isVictimRole = (roleHint === 'victim');
-    if (isVictimRole && existing) {
+    // ★ 빈 칸 도착(단일 마커=victim 본인)일 때만 기존 마커 재사용 (두 마리 방지).
+    //   캐러셀이 있으면 그 첫 마커는 victim 이 아니라 원래 있던 아군이므로 절대 재사용하지 않는다 (버그 수정).
+    if (isVictimRole && existing && !ccWrap) {
       existing.style.visibility = 'hidden';
       hiddenExistingMarker = existing;
     } else {
+      // victim 역할 + 캐러셀: 도착 연출 동안 캐러셀 숨김 → victim ghost 로 표시 → 도착 완료 후 캐러셀 복원.
+      if (isVictimRole && ccWrap) { ccWrap.style.visibility = 'hidden'; hiddenCarousel = ccWrap; }
       // caster / observer / victim-without-existing-marker 모두 ghost 생성.
       // 기존 marker (있다면) 는 hidden 처리 X — 그대로 정지 유지.
       arrivalGhost = document.createElement('div');
@@ -102,10 +108,10 @@ function animateRingTeleport(rt, roleHint, opts) {
   }
 
   // 1초 후 본 애니 시작
-  setTimeout(() => _animateRingMain(rt, roleHint, board, fromCell, toCell, fromGhost, arrivalGhost, hiddenExistingMarker), 1000);
+  setTimeout(() => _animateRingMain(rt, roleHint, board, fromCell, toCell, fromGhost, arrivalGhost, hiddenExistingMarker, hiddenCarousel), 1000);
 }
 
-function _animateRingMain(rt, roleHint, board, fromCell, toCell, fromGhost, arrivalGhost, hiddenExistingMarker) {
+function _animateRingMain(rt, roleHint, board, fromCell, toCell, fromGhost, arrivalGhost, hiddenExistingMarker, hiddenCarousel) {
   // 1. 오로라 펄스 — aurora-target 으로 시작, 1.5s 후 aurora-fade 로 swap (펄스 정지 + alpha 페이드).
   //    셀 자체와 자식 (마커/토큰/설치물) 은 페이드 영향 받지 않음.
   if (toCell) {
@@ -147,7 +153,11 @@ function _animateRingMain(rt, roleHint, board, fromCell, toCell, fromGhost, arri
         // hiddenExistingMarker (피해자/관전자 시점 본인/실제 marker) 는 그대로 유지 (페이드 X).
         if (arrivalGhost && arrivalGhost.isConnected && arrivedMarker === arrivalGhost) {
           arrivalGhost.classList.add('ring-fade-out');
-          setTimeout(() => { try { arrivalGhost.remove(); } catch (e) {} }, 800);
+          setTimeout(() => {
+            try { arrivalGhost.remove(); } catch (e) {}
+            // ★ 숨겨둔 캐러셀(스택) 복원 — ghost 제거와 동시에 노출 (도착한 victim 이 스택에 합류된 모습).
+            if (hiddenCarousel) { try { hiddenCarousel.style.visibility = ''; } catch (e) {} }
+          }, 800);
         }
       }, 1000);
     }
