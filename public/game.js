@@ -8406,6 +8406,26 @@ socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsH
   const _teammateOwnerIdx = (S.isTeamMode && Array.isArray(S.teamGamePlayers))
     ? (S.teamGamePlayers.find(p => p.teamId === S.teamId && p.idx !== S.playerIdx)?.idx)
     : null;
+
+  // ★ 폭발 임팩트 피격 GIF — 이 핸들러는 이미 폭발 임팩트 시각으로 재스케줄되어 실행됨(위 _bombImpactAt).
+  //   따라서 지금 호출하면 셀 흔들림/폭발 프레임과 같은 순간에 피격 GIF 가 재생됨 (사용자 요청).
+  //   내 말/팀원 = isDefending true(non-opp-marked), 상대 말 = false(opp-marked).
+  //   숨겨진(미공개) 적은 보드에 마커가 없어 animateBoardIconHit 가 자동 스킵.
+  //   (재렌더 생존은 _activeHitGifs/_reapplyActiveHitGifs 가 보장 → 후속 HP 렌더에도 안 사라짐)
+  {
+    const _myHitCells = [], _oppHitCells = [];
+    for (const h of hits) {
+      if (h.col == null || h.row == null) continue;
+      const _mine = (h.defOwnerIdx === _myOwnerIdx) ||
+        (S.isTeamMode && _teammateOwnerIdx != null && h.defOwnerIdx === _teammateOwnerIdx);
+      (_mine ? _myHitCells : _oppHitCells).push({ col: h.col, row: h.row });
+    }
+    // 셀 배경 플래시/흔들림은 폭발(bomb-blast/bomb-cell-shake)이 이미 담당 →
+    // 여기선 유닛 아이콘 피격 GIF + 마커 흔들림만(animateBoardIconHit) 재생.
+    if (_oppHitCells.length > 0) animateBoardIconHit(_oppHitCells, false);
+    if (_myHitCells.length > 0)  animateBoardIconHit(_myHitCells, true);
+  }
+
   for (const h of hits) {
     const updateInArr = (arr, expectedOwnerIdx) => {
       if (!Array.isArray(arr)) return -1;
@@ -13790,6 +13810,9 @@ function renderGameBoard() {
     const gif = pIcon.querySelector('img.p-gif');
     if (gif && gif.src) pIcon.style.setProperty('--gif-mask', `url(${gif.src})`);
   });
+
+  // ── 피격 GIF 재생 중인 셀 — 재렌더(특히 스킬 직후 비동기 렌더)로 idle 로 덮였으면 hit GIF 재적용 ──
+  try { _reapplyActiveHitGifs(); } catch (e) {}
 }
 
 // ── 멀티유닛 캐러셀: 셀 HTML 렌더 ──────────────────────────────────────
@@ -17670,22 +17693,30 @@ function animateBoardIconHit(cells, isDefending) {
       const hitImg = document.createElement('img');
       hitImg.className = idleImg.className;
       hitImg.alt = '';
+      hitImg.dataset.hitgif = '1';   // ★ 재렌더 생존 식별자
       // ★ 바라보는 방향 상속 — idle GIF 의 scaleX(-1) transform 을 피격 GIF 에도 적용
       if (idleImg.style.transform) hitImg.style.transform = idleImg.style.transform;
 
       const _savedTransform = idleImg.style.transform || '';
-      const restore = (blobUrl) => {
-        if (!hitImg.parentNode) return;
+      const _hitKey = `${c.col},${c.row}`;
+      // ★ 셀 기준 복원 — 재생 도중 renderGameBoard 로 hitImg 가 교체돼도 현재 DOM 에서 hit→idle 복원.
+      //   (기존엔 hitImg 참조 기반이라, 비동기 재렌더로 셀이 갈리면 복원도 hit gif 도 모두 유실됐음)
+      const _restoreCell = (blobUrl) => {
+        if (window._activeHitGifs) window._activeHitGifs.delete(_hitKey);
+        const b = document.getElementById('game-board');
+        const cell2 = b && b.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+        if (cell2) {
+          const mk = cell2.querySelector(markerSel) || cell2.querySelector('.piece-marker');
+          const cur = mk && mk.querySelector('.p-icon img.p-gif[data-hitgif]');
+          if (cur) {
+            const r = document.createElement('img');
+            r.className = cur.className; r.alt = ''; r.src = idleSrc;
+            if (_savedTransform) r.style.transform = _savedTransform;
+            r.decode().then(() => { if (cur.parentNode) cur.parentNode.replaceChild(r, cur); })
+              .catch(() => { if (cur.parentNode) cur.parentNode.replaceChild(r, cur); });
+          }
+        }
         if (blobUrl) URL.revokeObjectURL(blobUrl);
-        const restoreImg = document.createElement('img');
-        restoreImg.className = hitImg.className;
-        restoreImg.alt = '';
-        restoreImg.src = idleSrc;
-        // ★ 복원 시에도 방향 유지
-        if (_savedTransform) restoreImg.style.transform = _savedTransform;
-        restoreImg.decode()
-          .then(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); })
-          .catch(() => { if (hitImg.parentNode) hitImg.parentNode.replaceChild(restoreImg, hitImg); });
       };
 
       // ★ NETSCAPE 블록 제거 + Blob URL로 1회만 재생 (무한루프 방지)
@@ -17712,27 +17743,61 @@ function animateBoardIconHit(cells, isDefending) {
         const pBlob = new Blob([patched], { type: 'image/gif' });
         const blobUrl = URL.createObjectURL(pBlob);
         hitImg.src = blobUrl;
+        // ★ 재렌더 생존 등록 — renderGameBoard 가 _reapplyActiveHitGifs 로 재적용.
+        const _reg = () => (window._activeHitGifs || (window._activeHitGifs = new Map()))
+          .set(_hitKey, { blobUrl, idleSrc, transform: _savedTransform, markerSel, className: hitImg.className });
 
         Promise.all([hitImg.decode(), _fetchGifDuration(hitUrl)])
           .then(([, dur]) => {
             if (!idleImg.parentNode) { URL.revokeObjectURL(blobUrl); return; }
             idleImg.parentNode.replaceChild(hitImg, idleImg);
-            setTimeout(() => restore(blobUrl), dur);
+            _reg();
+            setTimeout(() => _restoreCell(blobUrl), dur);
           })
           .catch(() => {
             if (!idleImg.parentNode) { URL.revokeObjectURL(blobUrl); return; }
             idleImg.parentNode.replaceChild(hitImg, idleImg);
-            setTimeout(() => restore(blobUrl), 650);
+            _reg();
+            setTimeout(() => _restoreCell(blobUrl), 650);
           });
       }).catch(() => {
         // fetch 실패 폴백 — 원본 URL 직접 사용
         hitImg.src = hitUrl;
         if (!idleImg.parentNode) return;
         idleImg.parentNode.replaceChild(hitImg, idleImg);
-        setTimeout(() => restore(null), 650);
+        (window._activeHitGifs || (window._activeHitGifs = new Map()))
+          .set(_hitKey, { blobUrl: hitUrl, idleSrc, transform: _savedTransform, markerSel, className: hitImg.className });
+        setTimeout(() => _restoreCell(null), 650);
       });
     }
   });
+}
+
+// ── 재렌더 생존: 활성 피격 GIF 재적용 ─────────────────────────────────────
+//   renderGameBoard 가 셀을 재구축하면 hit GIF 가 idle 로 덮여 사라짐(특히 스킬 직후
+//   비동기 재렌더). 재생 중인 셀은 새 idle 위에 hit GIF 를 즉시 재적용해 끊김 방지.
+function _reapplyActiveHitGifs() {
+  const map = window._activeHitGifs;
+  if (!map || map.size === 0) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  for (const [key, info] of map) {
+    const c = key.split(',');
+    const cell = board.querySelector(`.cell[data-col="${c[0]}"][data-row="${c[1]}"]`);
+    if (!cell) continue;
+    const mk = cell.querySelector(info.markerSel) || cell.querySelector('.piece-marker');
+    if (!mk) continue;
+    const icon = mk.querySelector('.p-icon');
+    if (!icon) continue;
+    const cur = icon.querySelector('img.p-gif');
+    if (!cur || cur.dataset.hitgif) continue;   // 이미 hit gif 면 스킵
+    const hit = document.createElement('img');
+    hit.className = info.className || cur.className;
+    hit.alt = ''; hit.dataset.hitgif = '1';
+    if (info.transform) hit.style.transform = info.transform;
+    hit.src = info.blobUrl;
+    cur.parentNode.replaceChild(hit, cur);
+  }
 }
 
 // ── 사망 애니메이션 ─────────────────────────────────────────────────────

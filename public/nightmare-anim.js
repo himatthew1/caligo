@@ -125,12 +125,8 @@ function animateNightmareCast(positions, opts) {
       void mark.offsetWidth;
       mark.classList.add('nightmare-chained');
     }
-    const marker = cell.querySelector('.piece-marker');
-    if (marker) {
-      marker.classList.remove('nightmare-tremble');
-      void marker.offsetWidth;
-      marker.classList.add('nightmare-tremble');
-    }
+    // ★ 피해자 마커 떨림(nightmare-tremble) 제거 — idle gif 위치가 어긋나 보이고
+    //   실제 피격 GIF 흔들림과 겹쳐 어색함 (사용자 요청). 나선/안개/cell-mark 사슬은 유지.
     // ★ ::after 가 SVG 를 표시 — CSS var 로 data URI 전달. 오퍼시티 class 도 부여.
     cell.style.setProperty('--nightmare-spiral-bg', bgValue);
     cell.classList.add('nightmare-spiral-host', styleClass, opacityClass);
@@ -141,7 +137,6 @@ function animateNightmareCast(positions, opts) {
         mark.classList.add('nightmare-impact-flash');
         setTimeout(() => mark.classList.remove('nightmare-impact-flash'), 550);
       }
-      if (marker) marker.classList.remove('nightmare-tremble');
       cell.classList.remove('nightmare-spiral-host', styleClass, opacityClass);
       cell.style.removeProperty('--nightmare-spiral-bg');
     }, 2400);
