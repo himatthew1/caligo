@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>폭탄 아웃라인 튜너 — CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#0c0c14;color:#e8e8f0;
+    font-family:system-ui,sans-serif}
+  .app{height:100vh;display:flex;flex-direction:column}
+  .bar{display:flex;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid #222232;flex-wrap:nowrap}
+  .bar strong{font-size:0.82rem;color:#ffb066}
+  .bar button{background:#22223a;color:#e8e8f0;border:1px solid #34344a;border-radius:7px;
+    padding:6px 11px;font-size:0.8rem;cursor:pointer;white-space:nowrap}
+  .bar button:hover{background:#2e2e4a}
+  .bar button.go{background:#c2541a;border-color:#e0701f}
+  .bar button.active{background:#3f6a3f;border-color:#5f8a5f}
+  .spacer{flex:1}
+  .body{flex:1;display:flex;gap:10px;padding:8px 10px;min-height:0}
+  .stage{flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+    background:#101019;border:1px solid #20202e;border-radius:12px;padding:6px}
+  /* ── 인게임과 동일한 셀/보드 ── */
+  #game-board{display:grid;gap:6px}
+  #game-board .cell{width:var(--cw,56px);height:var(--cw,56px)}
+  .board-zoom{zoom:1.7}
+  .idle-ghost{opacity:0.4}
+  /* ── 다이얼 패널 ── */
+  .dials{flex:1;min-width:0;background:#13131e;border:1px solid #242436;border-radius:10px;
+    padding:12px 14px;overflow:auto}
+  .dials h3{margin:4px 0 9px;font-size:0.72rem;color:#ffd166;font-weight:600;
+    text-transform:uppercase;letter-spacing:.5px}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 14px}
+  .presets button{flex:1;min-width:78px;background:#222b38;border:1px solid #36465a;
+    color:#dbe4ef;border-radius:7px;padding:7px 4px;font-size:0.7rem;cursor:pointer}
+  .presets button:hover{background:#2e3b4c}
+  .row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .row label{flex:0 0 92px;font-size:0.72rem;color:#c4d0de}
+  .row input[type=range]{flex:1;accent-color:#e0701f}
+  .row input[type=color]{width:42px;height:26px;border:none;background:none;padding:0;cursor:pointer}
+  .row .val{flex:0 0 48px;text-align:right;font-size:0.72rem;color:#ffb066;font-variant-numeric:tabular-nums}
+  .out{margin-top:14px;background:#0e1218;border:1px solid #2a3340;border-radius:8px;padding:10px}
+  .out .cap{font-size:0.68rem;color:#8fa3bb;margin-bottom:6px}
+  .out code{display:block;font-size:0.68rem;line-height:1.5;color:#9fe6b0;word-break:break-all;
+    white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace}
+  .out .copy{margin-top:8px;width:100%;background:#244;border:1px solid #356;color:#cfe;
+    border-radius:6px;padding:6px;font-size:0.74rem;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <strong>💣 폭탄 아웃라인 튜너</strong>
+    <span class="spacer"></span>
+    <button class="go" id="detonate">💥 기폭 미리보기</button>
+    <button id="reset">↺ 기본값</button>
+  </div>
+  <div class="body">
+    <div class="stage"><div class="board-zoom"><div class="board" id="game-board"></div></div></div>
+    <div class="dials">
+      <h3>빠른 프리셋</h3>
+      <div class="presets" id="presets"></div>
+
+      <h3>아웃라인</h3>
+      <div class="row"><label>색상</label><input type="color" id="d-color"><span class="val" id="v-color"></span></div>
+      <div class="row"><label>채도(%)</label><input type="range" id="d-sat" min="0" max="100" step="5"><span class="val" id="v-sat"></span></div>
+      <div class="row"><label>밝기(%)</label><input type="range" id="d-light" min="30" max="80" step="2"><span class="val" id="v-light"></span></div>
+      <div class="row"><label>두께(px)</label><input type="range" id="d-thick" min="0.2" max="1.2" step="0.1"><span class="val" id="v-thick"></span></div>
+      <div class="row"><label>외곽불투명</label><input type="range" id="d-alpha" min="0" max="1" step="0.05"><span class="val" id="v-alpha"></span></div>
+
+      <h3>글로우</h3>
+      <div class="row"><label>번짐(px)</label><input type="range" id="d-glow" min="0" max="4" step="0.5"><span class="val" id="v-glow"></span></div>
+      <div class="row"><label>글로우투명</label><input type="range" id="d-galpha" min="0" max="1" step="0.05"><span class="val" id="v-galpha"></span></div>
+
+      <h3>기폭</h3>
+      <div class="row"><label>아웃라인 프레임</label><input type="range" id="d-frames" min="0" max="20" step="1"><span class="val" id="v-frames"></span></div>
+
+      <div class="out">
+        <div class="cap">filter 값 (style.css / JS에 붙여넣기)</div>
+        <code id="out-css"></code>
+        <button class="copy" id="copy">📋 복사</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="piece-gifs.js?v=20260516a"></script>
+<script>
+  const CB='?cb='+Date.now();
+  const PG=window.PIECE_GIFS||{};
+  // 인게임/프리뷰에서 쓰는 실제 에셋.
+  const A={
+    bomb:(window.BOMB_IDLE_GIF||'/assets/bomb_idle.gif')+CB,
+    bombExplode:(window.BOMB_EXPLODE_GIF||'/assets/bomb_explode.gif')+CB,
+    general:(PG.general||'/art/general_idle.gif')+CB,
+    archer:(PG.archer||'/art/archer_idle.gif')+CB,
+    knight:(PG.knight||'/art/knight_idle.gif')+CB,
+    wizard:(PG.wizard||'/art/wizard_idle.gif')+CB,
+  };
+  // ★ 프리뷰(tuner.html)에서 사용자가 맞춘 1v1 수치 — 그대로 사용.
+  const UNIT_SIZE=38, BOMB_SIZE=39, BOMB_BOTTOM=7, BOMB_RIGHT=7;
+
+  const board=document.getElementById('game-board');
+  // 인게임과 동일한 유닛 마커: piece-marker > p-icon > p-gif(38px) + p-hp 텍스트
+  function unitMarker(url){
+    const mk=document.createElement('div'); mk.className='piece-marker';
+    const ic=document.createElement('span'); ic.className='p-icon';
+    const g=document.createElement('img'); g.className='p-gif'; g.src=url;
+    g.style.width=UNIT_SIZE+'px'; g.style.height=UNIT_SIZE+'px'; ic.appendChild(g);
+    mk.appendChild(ic);
+    const hp=document.createElement('span'); hp.className='p-hp'; hp.textContent='3/3'; mk.appendChild(hp);
+    return mk;
+  }
+  function bombImg(){
+    const b=document.createElement('img'); b.className='bomb-marker-gif b-gif'; b.src=A.bomb;
+    b.style.width=BOMB_SIZE+'px'; b.style.height=BOMB_SIZE+'px';
+    b.style.bottom=BOMB_BOTTOM+'px'; b.style.right=BOMB_RIGHT+'px';
+    return b;
+  }
+  // 여러 유닛 스프라이트 위 + 단독 — 모두 인게임과 동일한 셀
+  const SLOTS=[
+    {unit:A.general}, {unit:A.archer}, {unit:A.knight}, {unit:A.wizard}, {unit:null},
+  ];
+  function build(){
+    board.style.gridTemplateColumns='repeat(5, var(--cw,56px))';
+    board.style.width='fit-content'; board.innerHTML='';
+    SLOTS.forEach(s=>{
+      const c=document.createElement('div'); c.className='cell';
+      if(s.unit){ c.classList.add('has-piece'); c.appendChild(unitMarker(s.unit)); }
+      c.appendChild(bombImg());
+      board.appendChild(c);
+    });
+  }
+  build();
+
+  // ── 아웃라인 다이얼 ──
+  const BOMB_FRAME_MS=130;
+  // 기본값: 두께(0.5)는 유지, 색만 덜 비비드(채도 65%)한 주황.
+  const DEF={color:'#ff8c1a',sat:65,light:55,thick:0.5,alpha:0.85,glow:1,galpha:0.4,frames:10};
+  const PRESETS={
+    '은은한 주황':{color:'#ff8c1a',sat:55,light:58,thick:0.5,alpha:0.8,glow:1,galpha:0.35,frames:10},
+    '소프트 앰버':{color:'#e8a050',sat:45,light:60,thick:0.5,alpha:0.75,glow:1.5,galpha:0.4,frames:10},
+    '머스타드':{color:'#d99a3a',sat:50,light:55,thick:0.5,alpha:0.8,glow:0.5,galpha:0.3,frames:10},
+    '비비드(이전)':{color:'#ff8c1a',sat:100,light:55,thick:0.5,alpha:1,glow:1,galpha:0.5,frames:10},
+  };
+  const S={...DEF};
+
+  function hexToHsl(hex){
+    let r=parseInt(hex.slice(1,3),16)/255,g=parseInt(hex.slice(3,5),16)/255,b=parseInt(hex.slice(5,7),16)/255;
+    const mx=Math.max(r,g,b),mn=Math.min(r,g,b);let h,s,l=(mx+mn)/2;
+    if(mx===mn){h=s=0;}else{const d=mx-mn;s=l>0.5?d/(2-mx-mn):d/(mx+mn);
+      switch(mx){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;default:h=(r-g)/d+4;}h/=6;}
+    return {h:h*360,s:s*100,l:l*100};
+  }
+  function hslToRgb(h,s,l){h/=360;s/=100;l/=100;
+    const f=n=>{const k=(n+h*12)%12;return l-s*Math.min(l,1-l)*Math.max(-1,Math.min(k-3,9-k,1));};
+    return [Math.round(f(0)*255),Math.round(f(8)*255),Math.round(f(4)*255)];
+  }
+  function curColor(){const b=hexToHsl(S.color);return hslToRgb(b.h,S.sat,S.light);}
+  function buildFilter(){
+    const [r,g,b]=curColor(); const oc=`rgba(${r},${g},${b},${S.alpha})`; const t=S.thick;
+    let f=`drop-shadow(${t}px 0 0 ${oc}) drop-shadow(-${t}px 0 0 ${oc})`+
+          ` drop-shadow(0 ${t}px 0 ${oc}) drop-shadow(0 -${t}px 0 ${oc})`;
+    if(S.glow>0&&S.galpha>0) f+=` drop-shadow(0 0 ${S.glow}px rgba(${r},${g},${b},${S.galpha}))`;
+    return f;
+  }
+  function setv(k,v){const e=document.getElementById('v-'+k); if(e)e.textContent=v;}
+  function apply(){
+    const f=buildFilter();
+    document.querySelectorAll('.b-gif').forEach(b=>b.style.filter=f);
+    document.getElementById('out-css').textContent=f;
+    const [r,g,b]=curColor();
+    setv('color',`#${[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('')}`);
+    setv('sat',S.sat+'%');setv('light',S.light+'%');setv('thick',S.thick);
+    setv('alpha',S.alpha);setv('glow',S.glow);setv('galpha',S.galpha);setv('frames',S.frames);
+  }
+  function syncInputs(){
+    for(const [id,key] of [['d-color','color'],['d-sat','sat'],['d-light','light'],
+      ['d-thick','thick'],['d-alpha','alpha'],['d-glow','glow'],['d-galpha','galpha'],['d-frames','frames']])
+      document.getElementById(id).value=S[key];
+  }
+  function bind(id,key,num){document.getElementById(id).addEventListener('input',e=>{
+    S[key]=num?parseFloat(e.target.value):e.target.value; apply();});}
+  bind('d-color','color',false);bind('d-sat','sat',true);bind('d-light','light',true);
+  bind('d-thick','thick',true);bind('d-alpha','alpha',true);
+  bind('d-glow','glow',true);bind('d-galpha','galpha',true);bind('d-frames','frames',true);
+
+  const pbox=document.getElementById('presets');
+  Object.keys(PRESETS).forEach(name=>{
+    const b=document.createElement('button'); b.textContent=name;
+    b.onclick=()=>{Object.assign(S,PRESETS[name]); syncInputs(); apply();};
+    pbox.appendChild(b);
+  });
+  document.getElementById('reset').onclick=()=>{Object.assign(S,DEF); syncInputs(); apply();};
+
+  document.getElementById('detonate').onclick=()=>{
+    const f=buildFilter();
+    document.querySelectorAll('.b-gif').forEach((bomb,i)=>{
+      const cell=bomb.closest('.cell'); const r=cell.getBoundingClientRect();
+      const ex=document.createElement('img'); ex.src=A.bombExplode.split('?')[0]+'?x='+Date.now()+'_'+i;
+      ex.style.cssText=`position:fixed;left:${r.left+r.width/2}px;top:${r.top+r.height/2}px;`+
+        `width:${r.width*1.5}px;height:${r.height*1.5}px;transform:translate(-50%,-50%);`+
+        `z-index:9999;pointer-events:none;image-rendering:pixelated`;
+      if(S.frames>0) ex.style.filter=f;
+      document.body.appendChild(ex);
+      if(S.frames>0) setTimeout(()=>{ex.style.filter='';}, S.frames*BOMB_FRAME_MS);
+      setTimeout(()=>ex.remove(),2600);
+    });
+  };
+  document.getElementById('copy').onclick=()=>{
+    navigator.clipboard.writeText(buildFilter()).then(()=>{
+      const b=document.getElementById('copy'); b.textContent='✓ 복사됨';
+      setTimeout(()=>b.textContent='📋 복사',1200);
+    });
+  };
+
+  syncInputs(); apply();
+</script>
+</body>
+</html>

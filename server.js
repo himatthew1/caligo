@@ -1436,6 +1436,7 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       cursedOwnerIdx: result.data?.cursedOwnerIdx,
       // ★ 유황범람 borderCells — 라바 애니
       borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
       // ★ 회복 애니 — { ownerIdx, pieceIdx } 페어 (heal-flash + 스파클)
       healedPieces: result.data?.healedPieces || null,
       // ★ 분신 비행 — fog-of-war 우회용 좌표
@@ -4080,6 +4081,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   // ★ 이번 공격 *이전*에 존재하던 유해 칸 스냅샷 — 공격으로 죽어 새로 생긴 유해를 피격에서 제외하기 위함.
   //   (유닛 사망 = 유해 생성. 생성 즉시 피격 카운트되면 안 됨.)
   const _preRemainsCells = new Set((room.remains || []).map(r => `${r.col},${r.row}`));
+  // ★ 쥐 공격 모션 — *쥐장수(ratMerchant)가 공격할 때만* 본인 소유 쥐 전부가 공격 모션을 재생.
+  //   이전엔 클라가 "atkCells 에 쥐가 있으면 쥐장수 공격"이라고 자동 추정 → 일반 유닛의 공격 범위가
+  //   우연히 쥐 셀을 덮으면 그 쥐가 잘못 공격 모션을 재생하는 버그(특히 상대 쥐). 서버가 공격자 신원을
+  //   정확히 알므로, 쥐장수 공격일 때만 전용 이벤트로 알린다. (피격/사망 모션은 별도 경로.)
+  if (atkPiece.type === 'ratMerchant') {
+    emitToBoth(room, 'rat_attack_anim', { owner: attackerIdx });
+  }
   // 스킬(유황범람 등)에서 호출 시 sp_update 가 후속 skill_result 보다 먼저 가지 않도록 suppress.
   const suppressSpUpdate = !!(opts && opts.suppressSpUpdate);
   room._suppressSpUpdate = suppressSpUpdate;
@@ -4263,10 +4271,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
         r => !(r.col === cell.col && r.row === cell.row)
       );
       if (room.rats[defIdx].length < before) {
-        destroyedRatCells.push({ col: cell.col, row: cell.row });
+        destroyedRatCells.push({ col: cell.col, row: cell.row, owner: defIdx });
       }
     }
   }
+  // ★ 사이드 채널 — 스킬(유황범람 등)이 result.data.destroyedRats 로 실어 클라 사망 애니에 사용.
+  room._destroyedRatCellsThisAttack = destroyedRatCells;
   if (destroyedRatCells.length > 0) {
     const attackerName = room.players[attackerIdx].name;
     const coordStr = destroyedRatCells.map(c => coord(c.col, c.row)).join(', ');
@@ -5842,6 +5852,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.oppMsg = `유황범람: 보드 외곽 전체 2 피해`;
       result.data.hits = hits;
       result.data.borderCells = borderCells;
+      // ★ 유황범람으로 파괴된 쥐 — 클라가 사망 모션 재생하도록 좌표/소유자 전달.
+      result.data.destroyedRats = room._destroyedRatCellsThisAttack || [];
       break;
     }
 
@@ -6612,6 +6624,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       hits: result.data?.hits || null,
       // ★ 유황범람 borderCells — 라바 애니 적용용
       borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
       // ★ 저주 부여 정보 — 1v1 receiver 시점에서도 turn-bright 적용
       cursedPieceIdx: result.data?.cursedPieceIdx,
       cursedOwnerIdx: result.data?.cursedOwnerIdx,
@@ -6641,6 +6654,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       healedPieces: result.data?.healedPieces || null,
       // ★ 유황범람 borderCells — 라바 애니
       borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
       // ★ 저주 부여 정보 — turn-bright
       cursedPieceIdx: result.data?.cursedPieceIdx,
       cursedOwnerIdx: result.data?.cursedOwnerIdx,
@@ -7778,6 +7792,12 @@ io.on('connection', (socket) => {
           boardBounds: room.boardBounds,
           boardObjects: boardObjectsSummary(room, idx),
           remains: room.remains || [],
+          // ★ 재접속 시 이번 턴 행동 소진 상태 복원 (이미 행동했는데 새로고침하면 다시 가능해 보이던 버그).
+          actionDone: !!player.actionDone,
+          actionUsedSkillReplace: !!player.actionUsedSkillReplace,
+          skillsUsed: player.skillsUsedBeforeAction || [],
+          lastActionPieceType: player._lastActionPieceType || null,
+          lastActionType: player._lastActionType || null,
           reconnected: true,
         });
       }
@@ -9936,6 +9956,7 @@ io.on('connection', (socket) => {
         cursedOwnerIdx: result.data?.cursedOwnerIdx,
         // ★ 유황범람 borderCells — 라바 애니 적용용 (사용자 요청).
         borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
         // ★ 회복 애니메이션 — { ownerIdx, pieceIdx } 페어로 모든 회복 대상 (팀모드 팀원 포함)
         healedPieces: result.data?.healedPieces || null,
         // ★ 분신 비행 — 모든 비시전자에게 좌표 전달. 클라가 같은 팀이면 표시, 적팀이면 무시.
@@ -10012,6 +10033,7 @@ io.on('connection', (socket) => {
           hits: result.data?.hits || null,
           // ★ 유황범람 borderCells — 라바 애니 적용용 (1v1 상대 시점 누락 수정)
           borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
           // ★ 저주 부여 정보 — 1v1 상대 시점에서도 turn-bright 적용 (누락 수정)
           cursedPieceIdx: result.data?.cursedPieceIdx,
           cursedOwnerIdx: result.data?.cursedOwnerIdx,
@@ -10043,6 +10065,7 @@ io.on('connection', (socket) => {
           healedPieces: result.data?.healedPieces || null,
           // ★ 유황범람 borderCells — 라바 애니 (1v1 관전자 시점 누락 수정)
           borderCells: result.data?.borderCells || null,
+      destroyedRats: result.data?.destroyedRats || [],
           // ★ 저주 부여 정보 — 1v1 관전자 시점에서도 turn-bright (누락 수정)
           cursedPieceIdx: result.data?.cursedPieceIdx,
           cursedOwnerIdx: result.data?.cursedOwnerIdx,

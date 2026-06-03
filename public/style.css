@@ -2788,11 +2788,10 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  /* idle GIF(38px)에 맞춘 고정 px — 셀 크기(%)에 묶으면 1v1(56px)·팀전(44px)에서
-     절대 크기가 달라지고 idle 대비 과대해짐("묘하게 큼"). 고정 px 로 모드 무관 통일. */
-  width: 48px;
-  height: 48px;
+  /* 튜너 확정값 — 1v1 74px, Y 오프셋 -6px (팀전은 아래 body.team-mode 에서 별도) */
+  transform: translate(-50%, calc(-50% - 6px));
+  width: 74px;
+  height: 74px;
   object-fit: contain;
   image-rendering: pixelated;
   z-index: 2;
@@ -2836,23 +2835,33 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   z-index: 20;
   pointer-events: none;
   overflow: visible;
+  /* 튜너 확정 Y 오프셋 — 1v1 -6px (유닛이 있던 위치로 살짝 위로) */
+  transform: translateY(-6px);
 }
 .death-anim-overlay .death-gif {
-  /* idle GIF(38px)에 맞춘 고정 px — remains-marker 와 동일 정책 (모드 무관 통일) */
-  width: 48px;
-  height: 48px;
+  /* 일반 사망 — 튜너 확정값 1v1 74px (팀전은 body.team-mode 에서 60px) */
+  width: 74px;
+  height: 74px;
   object-fit: contain;
   image-rendering: pixelated;
   /* 블랙 아웃라인 — 아이들 GIF 와 동일 */
   filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
 }
-/* 드래곤·유황솥 사망 GIF — JS 에서 idle GIF 좌표를 읽어 absolute 배치하므로
-   여기서는 fallback 스타일만 유지 (JS inline style 이 우선 적용됨) */
+/* ★ 드래곤·유황솥 사망 GIF — 일반 사망과 별개 크기 (튜너 확정값 1v1 40px / 팀전 33px) */
 .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
 .death-anim-overlay .death-gif[data-death-type="dragon"] {
+  width: 40px;
+  height: 40px;
   object-fit: contain;
   image-rendering: pixelated;
 }
+/* ★ 팀전(2v2) — 셀이 더 작으므로(44px) 유해·사망 사이즈/오프셋을 별도로 맞춤 (튜너 확정값) */
+body.team-mode .remains-marker,
+body.team-mode .death-anim-overlay .death-gif { width: 60px; height: 60px; }
+body.team-mode .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
+body.team-mode .death-anim-overlay .death-gif[data-death-type="dragon"] { width: 33px; height: 33px; }
+body.team-mode .death-anim-overlay { transform: translateY(-5px); }
+body.team-mode .remains-marker { transform: translate(-50%, calc(-50% - 5px)); }
 /* 보드 오브젝트 */
 .cell.has-trap::before    { content: ''; position: absolute; inset: 0; background: rgba(226,168,75,0.15); }
 .cell.has-bomb::before    { content: '💣'; position: absolute; top: 1px; right: 2px; font-size: 0.55rem; }
@@ -3042,11 +3051,23 @@ body.team-mode #placement-board .cell.has-piece { overflow: visible; z-index: 4;
   z-index: 4;
   pointer-events: none;
   image-rendering: pixelated;
-  width: 32px;
-  height: 32px;
-  bottom: 36px;
-  right: -8px;
-  filter: drop-shadow(0 0 0.5px rgba(0,0,0,1)) drop-shadow(0 0 2.5px rgba(220,150,50,0.4));
+  /* 튜너 확정값 — 1v1: 39px, bottom 7, right 7 (팀전은 아래 body.team-mode 에서 별도) */
+  width: 39px;
+  height: 39px;
+  bottom: 7px;
+  right: 7px;
+  /* 폭탄 idle 아웃라인 (튜너 확정값) — 블루그레이 외곽 + 소프트 글로우 */
+  filter:
+    drop-shadow(0.9px 0 0 rgba(98,101,147,0.65)) drop-shadow(-0.9px 0 0 rgba(98,101,147,0.65))
+    drop-shadow(0 0.9px 0 rgba(98,101,147,0.65)) drop-shadow(0 -0.9px 0 rgba(98,101,147,0.65))
+    drop-shadow(0 0 1.5px rgba(98,101,147,0.9));
+}
+/* ★ 팀전(2v2) — 작은 셀(44px)에 맞춘 폭탄 크기/위치 (튜너 확정값) */
+body.team-mode .bomb-marker-gif {
+  width: 31px;
+  height: 31px;
+  bottom: 5px;
+  right: 5px;
 }
 /* ── 폭발 GIF 오버레이 (detonation_intro) ── */
 /* position:fixed + body 배치 — renderGameBoard 셀 재구축에도 GIF 전체 재생 보장 */
@@ -3080,6 +3101,11 @@ img.p-gif {
   image-rendering: -moz-crisp-edges;
   /* 블랙 아웃라인 — 균일 가우시안 1px 2중 적용 */
   filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));
+}
+/* ★ 팀전(2v2) — 작은 셀에 맞춘 유닛 idle 크기 (튜너 확정값 34px) */
+body.team-mode img.p-gif {
+  width: 34px;
+  height: 34px;
 }
 /* GIF 포함 시 span 의 기본 line-height 여백 제거 */
 .piece-marker .p-icon:has(> img.p-gif) {
@@ -6639,7 +6665,7 @@ body.team-mode .placement-opp-panel {
   .board { grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(5, 46px); }
   .board .cell { width: 46px; height: 46px; }
   img.p-gif { width: 30px; height: 30px; }
-  .remains-marker, .death-anim-overlay .death-gif { width: 38px; height: 38px; }
+  .remains-marker, .death-anim-overlay .death-gif { width: 46px; height: 46px; }
   .reveal-layout { flex-direction: column; }
   .reveal-vs { align-self: center; }
 }
@@ -7037,7 +7063,7 @@ body[data-my-team="red"] #chat-scope-team.active {
   }
   body:not(.team-mode) .cell { width: 42px; height: 42px; font-size: 0.55rem; }
   img.p-gif { width: 26px; height: 26px; }
-  .remains-marker, .death-anim-overlay .death-gif { width: 33px; height: 33px; }
+  .remains-marker, .death-anim-overlay .death-gif { width: 40px; height: 40px; }
   body.team-mode .cell {
     width: auto !important; height: auto !important;
     aspect-ratio: 1; font-size: 0.55rem;

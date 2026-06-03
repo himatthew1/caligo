@@ -373,6 +373,30 @@ function animateRatAttackFromCells(atkCells, viewerIdx, excludeOwner) {
   }
 }
 
+// ── 쥐 공격 모션 (서버 신호) — 쥐장수가 실제로 공격했을 때만 서버가 보냄 ──────────
+//   클라 자동 추정(atkCells 에 쥐가 있으면 공격) 은 일반 유닛 공격이 쥐 셀을 덮을 때 오작동 →
+//   서버가 공격자=ratMerchant 일 때만 이 이벤트를 보내므로, 그 owner 의 쥐만 정확히 공격 모션 재생.
+socket.on('rat_attack_anim', ({ owner }) => {
+  if (typeof owner !== 'number' || typeof animateRatAttackGifs !== 'function') return;
+  const viewerIdx = S.isSpectator ? 0 : S.playerIdx;
+  animateRatAttackGifs(owner, viewerIdx);   // 해당 owner 의 모든 쥐 (쥐장수 공격 = 전원 가담)
+});
+
+// ── 스킬(유황범람 등)로 파괴된 쥐 사망 모션 ───────────────────────────────
+//   서버가 result.data.destroyedRats=[{col,row,owner}] 로 전달. boardObjects 에서 제거 + 소유자별 사망 애니.
+function _animateSkillDestroyedRats(destroyedRats) {
+  if (!Array.isArray(destroyedRats) || destroyedRats.length === 0 || typeof animateRatDestruction !== 'function') return;
+  const viewerIdx = S.isSpectator ? 0 : S.playerIdx;
+  if (Array.isArray(S.boardObjects)) {
+    S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' &&
+      destroyedRats.some(r => r.col === o.col && r.row === o.row && r.owner === o.owner)));
+    S._cellFP = null;
+  }
+  const byOwner = {};
+  for (const r of destroyedRats) (byOwner[r.owner] = byOwner[r.owner] || []).push({ col: r.col, row: r.row });
+  for (const owner in byOwner) animateRatDestruction(byOwner[owner], parseInt(owner) === viewerIdx);
+}
+
 // ── 게임 상태 ─────────────────────────────────────────────────
 const S = {
   playerIdx: null,
@@ -2612,11 +2636,18 @@ function applyTeamGameState(state) {
 socket.on('team_game_start', (state) => {
   S.isTeamMode = true;          // buildBoard가 7x7로 그리도록 보장
   S._gameEnded = false;         // C-9: 이전 판의 _gameEnded 플래그 리셋
+  S._gameOverShown = false;     // 결과화면 토스트 차단 플래그 리셋
   resetAnimGuards();            // C-4: 애니메이션 lock·guard 일괄 리셋 (재접속/새 판 대비)
   closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 팀전 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
   applyTeamGameState(state);
+  // ★ 재접속 시 내 이번 턴 행동 소진 상태 복원 (이미 행동했는데 새로고침하면 다시 가능해 보이던 버그).
+  //   팀 상태의 per-player actionDone 사용. 신규 게임이면 actionDone=false 이므로 영향 없음.
+  if (state.reconnected) {
+    const _me = (S.teamGamePlayers || []).find(p => p.idx === S.playerIdx);
+    S.actionDone = !!(_me && _me.actionDone);
+  }
   if (typeof buildGameUI === 'function') {
     try { buildGameUI(); } catch (e) {}
   }
@@ -2763,7 +2794,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2919,6 +2950,8 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
     }
+    // ★ 유황범람으로 죽은 쥐 사망 모션 (팀 시점)
+    _animateSkillDestroyedRats(destroyedRats);
     // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀 보라 펄스 + scale.
     if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
         typeof animateNightmareCast === 'function') {
@@ -3601,7 +3634,7 @@ socket.on('spectator_update', (gameState) => {
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget, nightmareCells }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats }) => {
   if (!S.isSpectator) return;
 
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
@@ -3703,6 +3736,8 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
         }
       }, 50);
     }
+    // ★ 유황범람으로 죽은 쥐 사망 모션 (관전자 시점)
+    _animateSkillDestroyedRats(destroyedRats);
     // ★ 유황범람 라바 애니 — 1v1 관전자 시점에서도 표시 (사용자 보고 누락 수정).
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
@@ -3756,8 +3791,7 @@ socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits }) => {
   if (!S.isSpectator) return;
   // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
-  // ★ 쥐장수 공격 감지 → 쥐 셀에 공격 GIF 동시 재생 (관전자: viewerIdx=0 → P0=black)
-  animateRatAttackFromCells(atkCells, 0);
+  // ★ 쥐 공격 모션은 서버의 rat_attack_anim 이벤트(쥐장수 공격 시에만)로 처리 — 여기서 자동 추정 X.
   const hitCellList = (hits || []).filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;
   const _mySeq = ++_spectatorAttackSeq;
@@ -4208,6 +4242,7 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
   S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
+  S._gameOverShown = false;  // 결과화면 토스트 차단 플래그 리셋
   resetAnimGuards();     // 애니메이션 lock·guard 일괄 리셋 (재접속/다음 판 대비)
   closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 게임 시작 시 stale 엔트리 모두 정리
@@ -4220,6 +4255,13 @@ socket.on('game_start', (data) => {
   S.oppPieces = data.oppPieces || [];
   S.turnNumber = data.turnNumber;
   S.isMyTurn = data.isYourTurn;
+  // ★ 이번 턴 행동 소진 상태 복원 (재접속) — 새 게임이면 모두 undefined → false 로 초기화.
+  //   이 값을 buildGameUI/액션바 표시 *전*에 세팅해야 "이미 행동함" 상태가 UI 에 정확히 반영됨.
+  S.actionDone = !!data.actionDone;
+  S.actionUsedSkillReplace = !!data.actionUsedSkillReplace;
+  S.skillsUsedThisTurn = Array.isArray(data.skillsUsed) ? data.skillsUsed : [];
+  S.lastActionPieceType = data.lastActionPieceType || null;
+  S.lastActionType = data.lastActionType || null;
   S.sp = data.sp || [1, 1];
   S.instantSp = data.instantSp || [0, 0];
   S.boardBounds = data.boardBounds || { min: 0, max: 4 };
@@ -4623,10 +4665,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         _gifPromises.push(animateAttackGif(_partner.col, _partner.row, _partner.type, _partner.subUnit, false, _partnerIdx));
       }
     }
-    // ★ 쥐장수 — 본인 쥐 셀에도 동시에 쥐 공격 GIF 재생
-    if (_pc.type === 'ratMerchant') {
-      _gifPromises.push(animateRatAttackGifs(S.playerIdx, S.playerIdx));
-    }
+    // ★ 쥐장수 본인 쥐 공격 모션은 서버 rat_attack_anim 이벤트로 처리 (공격자 포함 모든 시점 동일 1회).
   })();
 
   // ══ 공격 GIF ~4번째 프레임 시점에 공격 범위 이펙트 + 피격 판정 시작 ══════════
@@ -4923,9 +4962,8 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   _pendingSpUpdate = null;
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
-  // ★ 쥐장수 공격 감지 → 적 쥐 셀에 공격 GIF 동시 재생
-  //   excludeOwner=S.playerIdx — 내 쥐가 atkCells 에 있어도 피격이지 공격이 아님
-  animateRatAttackFromCells(atkCells, S.playerIdx, S.playerIdx);
+  // ★ 쥐 공격 모션은 서버의 rat_attack_anim 이벤트(쥐장수 공격 시에만)로 처리 — 여기서 자동 추정 X.
+  //   (이전엔 일반 유닛 공격 범위가 적 쥐 셀을 우연히 덮으면 그 쥐가 잘못 공격 모션을 재생했음.)
   if (S._bodyguardIntercepted) {
     S._bodyguardIntercepted = false;
   }
@@ -5087,8 +5125,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
 socket.on('marked_enemy_attack', ({ atkCells, hitCells, attacker }) => {
   if (!atkCells || !Array.isArray(atkCells)) return;
   try { playSfx('attack'); } catch (e) {}
-  // 쥐장수 감지 → 쥐 공격 GIF
-  animateRatAttackFromCells(atkCells, S.playerIdx, S.playerIdx);
+  // ★ 쥐 공격 모션은 서버 rat_attack_anim 이벤트(쥐장수 공격 시에만, 전 플레이어 수신)로 처리 — 자동 추정 X.
   // ★ 표식 적의 공격 캐릭터 모션 GIF — 공격 시작과 동시에 재생 (attack_result 와 동일 패턴).
   //   500ms(ATTACK_IMPACT_DELAY) 후 셀 효과/피격 판정이 GIF 4번째 프레임과 정렬됨.
   //   pieceIdx=null → animateAttackGif 가 내 piece 키 조회를 건너뛰고, 보드에 렌더된
@@ -7013,6 +7050,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(data.borderCells);
       }
+      // ★ 유황범람으로 죽은 쥐 사망 모션 (시전자 시점)
+      if (data) _animateSkillDestroyedRats(data.destroyedRats);
       // ★ 악몽 시전 (시전자 시점) — 표식 상태 적 셀에 보라 펄스 + scale.
       if (data && Array.isArray(data.nightmareCells) && data.nightmareCells.length > 0 &&
           typeof animateNightmareCast === 'function') {
@@ -7186,7 +7225,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats }) => {
   // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
   //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
@@ -7295,6 +7334,8 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(borderCells);
       }
+      // ★ 유황범람으로 죽은 쥐 사망 모션 (1v1 피해자 시점)
+      _animateSkillDestroyedRats(destroyedRats);
       // ★ 절대복종 반지 — 1v1 상대(피해자) 시점: 자기 piece 가 vanish 후 재등장.
       if (ringTeleport && typeof animateRingTeleport === 'function') {
         animateRingTeleport(ringTeleport, 'victim');
@@ -8196,6 +8237,13 @@ socket.on('detonation_intro', ({ bombs }) => {
         gif.style.width = Math.round(cellRect.width * 1.4) + 'px';
         gif.style.height = Math.round(cellRect.height * 1.4) + 'px';
         gif.style.zIndex = '9600';
+        // ★ 기폭 앞 10프레임(=BOMB_IMPACT_DELAY)은 폭탄 idle 과 동일한 아웃라인 유지,
+        //   임팩트(frame10) 이후 본격 폭발에서는 아웃라인 제거.
+        gif.style.filter =
+          'drop-shadow(0.9px 0 0 rgba(98,101,147,0.65)) drop-shadow(-0.9px 0 0 rgba(98,101,147,0.65))' +
+          ' drop-shadow(0 0.9px 0 rgba(98,101,147,0.65)) drop-shadow(0 -0.9px 0 rgba(98,101,147,0.65))' +
+          ' drop-shadow(0 0 1.5px rgba(98,101,147,0.9))';
+        setTimeout(() => { gif.style.filter = ''; }, BOMB_IMPACT_DELAY);
         document.body.appendChild(gif);
 
         // ★ 임팩트 타임스탬프 기록 — bomb_detonated 핸들러가 이 시점까지 대기
@@ -9039,16 +9087,24 @@ function scheduleGameOverReveal(inGame, revealFn, opts) {
   opts = opts || {};
   if (!inGame) { revealFn(); return; }               // 세팅 단계 — 즉시
   const start = Date.now();
-  const MAX_WAIT = 6500;                              // 안전장치: 연출이 비정상적으로 길어도 진행
+  // ★ 사용자 요청(강조): 승리/패배 대기 카운트는 *게임 중 모든 애니메이션 + 모든 토스트가
+  //   완료된 시점*부터 시작. 결과 화면에 토스트가 뜨면 안 됨. → 토스트 큐/처리/표시 + 풀스크린
+  //   연출 큐까지 모두 비워질 때까지 대기. 무한 대기 방지용 넉넉한 안전 캡만 둔다.
+  const MAX_WAIT = 20000;
   const BUFFER = (opts.buffer != null) ? opts.buffer : 1000;  // 연출 완료 후 인지 텀
   (function waitAnims() {
     const deathPending  = !!S._pendingDeathCells;             // 사망 GIF/유해 진행 중
     const shrinkPending = (S._shrinkAnimUntil || 0) > Date.now();  // 보드 파괴 애니 진행 중
-    // ★ 스킬 사망 가드 — 스킬 핸들러는 SP 비행(~0.8~1.3s) 후에야 _pendingDeathCells 를 세팅하므로,
-    //   game_over 가 먼저 도착하면 deathPending 이 아직 false 라 결과 화면이 조기 노출됨.
-    //   동기 가드 타임스탬프로 그 공백을 메워, _pendingDeathCells 가 세팅될 때까지 폴링 유지.
-    const skillDeathGuard = (S._skillDeathGuardUntil || 0) > Date.now();
-    if ((deathPending || shrinkPending || skillDeathGuard) && (Date.now() - start) < MAX_WAIT) {
+    const skillDeathGuard = (S._skillDeathGuardUntil || 0) > Date.now();  // 스킬 사망 연출 가드
+    // ★ 풀스크린 연출(보드파괴/SP증정 등) 큐 진행 중
+    const fullscreenPending = !!S._fullscreenBusy ||
+      (Array.isArray(S._fullscreenQueue) && S._fullscreenQueue.length > 0) ||
+      (Array.isArray(S._eventDuringFullscreen) && S._eventDuringFullscreen.length > 0);
+    // ★ 토스트 — 큐 대기 / 처리 중 / 화면에 보이는 것까지 모두 사라질 때까지 대기.
+    const toastPending = (_toastQueue && _toastQueue.length > 0) || _toastProcessing ||
+      (_toastVisible && _toastVisible.length > 0);
+    if ((deathPending || shrinkPending || skillDeathGuard || fullscreenPending || toastPending)
+        && (Date.now() - start) < MAX_WAIT) {
       setTimeout(waitAnims, 80);
       return;
     }
@@ -9058,6 +9114,9 @@ function scheduleGameOverReveal(inGame, revealFn, opts) {
 
 // 게임오버 화면 전환 — instant=true면 즉시, 아니면 느린 페이드인 (1.5초)
 function _showGameOverScreen(instant) {
+  // ★ 결과 화면 표시 후로는 토스트 절대 금지 (사용자 요청). scheduleGameOverReveal 이 이미 큐를
+  //   비우고 호출하지만, 늦게 도착한 이벤트의 토스트까지 차단하는 안전장치.
+  S._gameOverShown = true;
   const scr = document.getElementById('screen-gameover');
   if (scr) {
     scr.classList.remove('fade-in', 'fade-in-slow');
@@ -17117,6 +17176,8 @@ function _processToastQueue() {
 }
 
 function showSkillToast(msg, isEnemy = false, specPlayerIdx = undefined, toastType = undefined) {
+  // ★ 결과 화면 표시 후엔 토스트 금지 (승리/패배 화면에 토스트 X — 사용자 요청).
+  if (S._gameOverShown) return;
   // 풀스크린 오버레이 재생 중에는 토스트도 보류 → 종료 후 출력
   if (S._fullscreenBusy) {
     if (!S._eventDuringFullscreen) S._eventDuringFullscreen = [];

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>사망·유해·효과 튜너 (인게임 동일) — CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { background:#0c0c14; color:#e8e8f0; font-family:system-ui,sans-serif; margin:0; padding:18px; }
+  h1 { font-size:1.1rem; margin:2px 0 8px; text-align:center; }
+  .sub { color:#9aa; font-size:0.78rem; text-align:center; max-width:780px; margin:0 auto 12px; line-height:1.5; }
+  .modebar { display:flex; gap:8px; justify-content:center; margin-bottom:12px; }
+  .modebar button { background:#2a2a44; color:#e8e8f0; border:1px solid #3a3a5a; border-radius:8px; padding:7px 14px; font-size:0.85rem; cursor:pointer; }
+  .modebar button.active { background:#4a6a4a; border-color:#6a8a6a; }
+  .main { display:flex; gap:26px; align-items:flex-start; justify-content:center; flex-wrap:wrap; }
+  /* ── 스테이지(보드) — zoom 으로 레이아웃 공간을 실제로 차지 → 다이얼과 겹치지 않음 ── */
+  .stage { background:#14141f; border:1px solid #2a2a3a; border-radius:12px; padding:18px; }
+  .stage .lab { font-size:0.72rem; color:#9aa; margin:6px 0 16px; }
+  /* 인게임 보드: 셀 크기 --cw 로 제어. 팀모드 overflow:visible 규칙(style.css)이 그대로 적용되도록 id=game-board 사용 */
+  #game-board { display:grid; gap:6px; }
+  #game-board .cell { width:var(--cw,56px); height:var(--cw,56px); }
+  .board-zoom { zoom:2.2; }                 /* Chrome: zoom 은 레이아웃 박스에 반영됨 */
+  .cellcap { font-size:0.42rem; color:#9ab; text-align:center; margin-top:1px; }
+  /* idle 잔상 — 모션 뒤에 희미하게 (위치 조절 기준) */
+  .idle-ghost { opacity:0.4; }
+  /* ── 다이얼 패널 ── */
+  .panel { display:flex; flex-direction:column; gap:10px; width:340px; max-height:78vh; overflow-y:auto; padding-right:6px; }
+  .grp { background:#14141f; border:1px solid #242436; border-radius:9px; padding:10px 12px; }
+  .grp h3 { margin:0 0 6px; font-size:0.86rem; color:#ffd166; display:flex; justify-content:space-between; }
+  .grp h3 .cur { font-family:ui-monospace,monospace; font-size:0.72rem; color:#7ee787; font-weight:400; }
+  .dial { display:grid; grid-template-columns:54px 1fr 42px; align-items:center; gap:7px; margin:3px 0; }
+  .dial label { font-size:0.74rem; color:#cbd; }
+  .dial input { width:100%; }
+  .dial .v { font-family:ui-monospace,monospace; font-size:0.76rem; color:#7ee787; text-align:right; }
+  .fx { display:flex; gap:6px; flex-wrap:wrap; }
+  .fx button { background:#2a2a44; color:#e8e8f0; border:1px solid #3a3a5a; border-radius:7px; padding:7px 11px; font-size:0.8rem; cursor:pointer; }
+  .fx button:hover { background:#34345a; }
+  .actions { display:flex; gap:8px; }
+  .actions button { background:#3a2a4a; color:#e8e8f0; border:1px solid #5a3a6a; border-radius:8px; padding:8px 12px; font-size:0.82rem; cursor:pointer; }
+  #out { white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:0.72rem; color:#ffd; background:#0a0a12; border:1px solid #24243a; border-radius:8px; padding:9px; }
+</style>
+</head>
+<body>
+  <h1>사망·유해·효과 튜너 — 인게임 동일 (드래곤·유황솥 독립)</h1>
+  <p class="sub">실제 게임 <code>style.css</code>·에셋·DOM·<code>id=game-board</code> 그대로 → 팀전 overflow(셀 밖 튀어나옴)도 인게임과 동일.
+    에셋은 캐시 우회로 항상 최신. <b>드래곤·유황솥은 일반 사망과 완전히 독립</b>으로 조절됩니다.</p>
+  <div class="modebar">
+    <button id="m-1v1" class="active">1v1 (셀 56px)</button>
+    <button id="m-team">2v2 팀전 (셀 44px · 셀밖 튀어나옴)</button>
+  </div>
+
+  <div class="main">
+    <div class="stage">
+      <div class="board-zoom"><div class="board" id="game-board"></div></div>
+      <div class="lab" id="modelab"></div>
+    </div>
+
+    <div class="panel">
+      <div class="grp">
+        <h3>유닛 idle <span class="cur" id="c-unit"></span></h3>
+        <div class="dial"><label>크기</label><input type="range" id="u-size" min="26" max="56" value="38"><span class="v" id="vu-size">38</span></div>
+        <div class="dial"><label>X</label><input type="range" id="u-x" min="-14" max="14" value="0"><span class="v" id="vu-x">0</span></div>
+        <div class="dial"><label>Y</label><input type="range" id="u-y" min="-16" max="16" value="0"><span class="v" id="vu-y">0</span></div>
+      </div>
+      <div class="grp">
+        <h3>일반 사망 GIF <span class="cur" id="c-dc"></span></h3>
+        <div class="dial"><label>크기</label><input type="range" id="dc-size" min="30" max="90" value="56"><span class="v" id="vdc-size">56</span></div>
+        <div class="dial"><label>X</label><input type="range" id="dc-x" min="-20" max="20" value="0"><span class="v" id="vdc-x">0</span></div>
+        <div class="dial"><label>Y</label><input type="range" id="dc-y" min="-24" max="24" value="0"><span class="v" id="vdc-y">0</span></div>
+      </div>
+      <div class="grp">
+        <h3>🐉 드래곤 사망 GIF <span class="cur" id="c-dd"></span></h3>
+        <div class="dial"><label>크기</label><input type="range" id="dd-size" min="40" max="160" value="56"><span class="v" id="vdd-size">56</span></div>
+        <div class="dial"><label>X</label><input type="range" id="dd-x" min="-40" max="40" value="0"><span class="v" id="vdd-x">0</span></div>
+        <div class="dial"><label>Y</label><input type="range" id="dd-y" min="-50" max="50" value="0"><span class="v" id="vdd-y">0</span></div>
+      </div>
+      <div class="grp">
+        <h3>🔥 유황솥 사망 GIF <span class="cur" id="c-ds"></span></h3>
+        <div class="dial"><label>크기</label><input type="range" id="ds-size" min="40" max="140" value="56"><span class="v" id="vds-size">56</span></div>
+        <div class="dial"><label>X</label><input type="range" id="ds-x" min="-40" max="40" value="0"><span class="v" id="vds-x">0</span></div>
+        <div class="dial"><label>Y</label><input type="range" id="ds-y" min="-50" max="50" value="0"><span class="v" id="vds-y">0</span></div>
+      </div>
+      <div class="grp">
+        <h3>유해 PNG/GIF <span class="cur" id="c-rm"></span></h3>
+        <div class="dial"><label>크기</label><input type="range" id="rm-size" min="30" max="90" value="56"><span class="v" id="vrm-size">56</span></div>
+        <div class="dial"><label>X</label><input type="range" id="rm-x" min="-20" max="20" value="0"><span class="v" id="vrm-x">0</span></div>
+        <div class="dial"><label>Y</label><input type="range" id="rm-y" min="-24" max="24" value="0"><span class="v" id="vrm-y">0</span></div>
+      </div>
+      <div class="grp">
+        <h3>효과 미리보기 (가운데 셀에 재생)</h3>
+        <div class="fx">
+          <button data-fx="hit">⚔ 피격</button>
+          <button data-fx="death">💀 사망</button>
+          <button data-fx="bomb">💣 기폭</button>
+          <button data-fx="mark">🎯 표식</button>
+        </div>
+        <div class="fx" style="margin-top:8px">
+          <button id="btn-freeze" style="background:#5a2a2a;border-color:#8a3a3a">⏸ 모든 모션 정지</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="btn-report">현재 값 표시</button>
+        <button id="btn-reset">기본값</button>
+      </div>
+      <div id="out">조절 후 [현재 값 표시] — 1v1/2v2 각각의 값을 알려주시면 style.css 에 반영합니다.</div>
+    </div>
+  </div>
+
+<script src="piece-gifs.js?v=20260516a"></script>
+<script src="mark-anim.js"></script>
+<script>
+  const CB = '?cb=' + Date.now();   // 캐시 우회 — 항상 최신 에셋
+  const A = {
+    unit: '/art/archer_idle.gif' + CB,
+    idleDragon: ((window.PIECE_GIFS||{}).dragon || '/art/dragon_idle.gif') + CB,
+    idleSulfur: ((window.PIECE_GIFS||{}).sulfurCauldron || '/art/sulfurCauldron_idle.gif') + CB,
+    dCommon: ((window.PIECE_DEATH_GIFS||{})._common || '/art/death_common.gif') + CB,
+    dDragon: ((window.PIECE_DEATH_GIFS||{}).dragon || '/art/death_dragon.gif') + CB,
+    dSulfur: ((window.PIECE_DEATH_GIFS||{}).sulfurCauldron || '/art/death_sulfurCauldron.gif') + CB,
+    remains: ((window.REMAINS_STAGE_IMGS||{})[1] || '/art/remains.png') + CB,
+    hit: '/art/archer_hit.gif' + CB,
+    bombExplode: (window.BOMB_EXPLODE_GIF || '/assets/bomb_explode.gif') + CB,
+  };
+
+  const board = document.getElementById('game-board');
+  const val = id => +document.getElementById(id).value;
+  const setLbl = id => { const e=document.getElementById('v'+id); if(e) e.textContent = document.getElementById(id).value; };
+
+  // 셀 빌더 — 인게임 클래스 그대로
+  function mkUnitCell() {
+    const c = cell(); c.classList.add('has-piece');
+    const mk = document.createElement('div'); mk.className='piece-marker u-marker';
+    const ic = document.createElement('span'); ic.className='p-icon';
+    const g = document.createElement('img'); g.className='p-gif u-gif'; g.src=A.unit;
+    ic.appendChild(g); mk.appendChild(ic);
+    const hp=document.createElement('span'); hp.className='p-hp'; hp.textContent='3/3'; mk.appendChild(hp);
+    c.appendChild(mk); return c;
+  }
+  // ★ 모션 뒤에 깔 idle 잔상 — 해당 유닛의 idle GIF (희미하게). 위치 조절 기준점.
+  function addGhost(c, idleUrl) {
+    c.classList.add('has-piece');
+    const mk=document.createElement('div'); mk.className='piece-marker u-marker idle-ghost';
+    const ic=document.createElement('span'); ic.className='p-icon';
+    const g=document.createElement('img'); g.className='p-gif u-gif'; g.src=idleUrl;
+    ic.appendChild(g); mk.appendChild(ic);
+    const hp=document.createElement('span'); hp.className='p-hp'; hp.textContent='3/3'; mk.appendChild(hp);
+    c.insertBefore(mk, c.firstChild);   // 맨 뒤(아래 레이어)에 깔림
+  }
+  function mkDeathCell(type, url, cls, idleUrl) {
+    const c = cell();
+    if (idleUrl) addGhost(c, idleUrl);
+    const ov=document.createElement('div'); ov.className='death-anim-overlay';
+    const img=document.createElement('img'); img.className='death-gif '+cls; if(type) img.dataset.deathType=type; img.src=url;
+    ov.appendChild(img); c.appendChild(ov); return c;
+  }
+  function mkRemainsCell(url, idleUrl) {
+    const c = cell(); c.classList.add('has-remains');
+    if (idleUrl) addGhost(c, idleUrl);
+    const img=document.createElement('img'); img.className='remains-marker rm-img'; img.src=url; c.appendChild(img); return c;
+  }
+  function cell(){ const d=document.createElement('div'); d.className='cell'; return d; }
+  function withCap(c, txt){ const w=document.createElement('div'); w.appendChild(c); const p=document.createElement('div'); p.className='cellcap'; p.textContent=txt; w.appendChild(p); return w; }
+
+  let fxCell;
+  function build() {
+    board.style.gridTemplateColumns = 'repeat(6, var(--cw,56px))';
+    board.style.gridTemplateRows = 'auto';
+    board.style.width = 'fit-content';
+    board.innerHTML = '';
+    // 셀 6개 (캡션을 위해 래퍼로 감싸되, grid 자식은 .cell 이어야 overflow 규칙 적용 → 캡션은 cell 밖 별도 행 생략, title 속성으로)
+    const u = mkUnitCell(); u.title='유닛 idle'; u.dataset.col=0; u.dataset.row=0;
+    fxCell = u;  // 효과는 유닛 셀에 재생
+    const dc = mkDeathCell(null,A.dCommon,'dc-img',A.unit); dc.title='일반 사망'; dc.dataset.col=1; dc.dataset.row=0;
+    const dd = mkDeathCell('dragon',A.dDragon,'dd-img',A.idleDragon); dd.title='드래곤 사망'; dd.dataset.col=2; dd.dataset.row=0;
+    const ds = mkDeathCell('sulfurCauldron',A.dSulfur,'ds-img',A.idleSulfur); ds.title='유황솥 사망'; ds.dataset.col=3; ds.dataset.row=0;
+    const rm = mkRemainsCell(A.remains, A.unit); rm.title='유해'; rm.dataset.col=4; rm.dataset.row=0;
+    const sp = cell(); sp.title='빈 셀(겹침 확인용)'; sp.dataset.col=5; sp.dataset.row=0;
+    [u,dc,dd,ds,rm,sp].forEach(c => board.appendChild(c));
+  }
+
+  function applyAll() {
+    // 유닛
+    document.querySelectorAll('.u-gif').forEach(g=>{ g.style.width=val('u-size')+'px'; g.style.height=val('u-size')+'px'; });
+    document.querySelectorAll('.u-marker').forEach(m=>{ m.style.transform=`translate(${val('u-x')}px,${val('u-y')}px)`; });
+    // 사망 GIF (공통/드래곤/유황솥 독립)
+    const dgif = (cls, sz, x, y) => document.querySelectorAll(cls).forEach(g=>{
+      g.style.width=val(sz)+'px'; g.style.height=val(sz)+'px'; g.style.transform=`translate(${val(x)}px,${val(y)}px)`;
+    });
+    dgif('.dc-img','dc-size','dc-x','dc-y');
+    dgif('.dd-img','dd-size','dd-x','dd-y');
+    dgif('.ds-img','ds-size','ds-x','ds-y');
+    // 유해 (절대중앙 → translate 에 -50% 합산)
+    document.querySelectorAll('.rm-img, .rm-fx').forEach(g=>{
+      g.style.width=val('rm-size')+'px'; g.style.height=val('rm-size')+'px';
+      g.style.transform=`translate(calc(-50% + ${val('rm-x')}px), calc(-50% + ${val('rm-y')}px))`;
+    });
+    // 라벨
+    ['u-size','u-x','u-y','dc-size','dc-x','dc-y','dd-size','dd-x','dd-y','ds-size','ds-x','ds-y','rm-size','rm-x','rm-y'].forEach(setLbl);
+    document.getElementById('c-unit').textContent = `${val('u-size')}px (${val('u-x')},${val('u-y')})`;
+    document.getElementById('c-dc').textContent = `${val('dc-size')}px (${val('dc-x')},${val('dc-y')})`;
+    document.getElementById('c-dd').textContent = `${val('dd-size')}px (${val('dd-x')},${val('dd-y')})`;
+    document.getElementById('c-ds').textContent = `${val('ds-size')}px (${val('ds-x')},${val('ds-y')})`;
+    document.getElementById('c-rm').textContent = `${val('rm-size')}px (${val('rm-x')},${val('rm-y')})`;
+  }
+
+  // ── 효과 재생 (유닛 셀에) ──
+  function playHit() {
+    const ic = fxCell.querySelector('.p-icon'); if(!ic) return;
+    ic.classList.remove('p-icon-hit'); void ic.offsetWidth; ic.classList.add('p-icon-hit');
+    setTimeout(()=>ic.classList.remove('p-icon-hit'), 600);
+  }
+  function playDeath() {
+    // 사망 GIF 오버레이를 유닛 셀에 직접 재생 (인게임 .death-anim-overlay 구조)
+    fxCell.querySelectorAll('.death-anim-overlay').forEach(o=>o.remove());
+    const ov=document.createElement('div'); ov.className='death-anim-overlay';
+    const img=document.createElement('img'); img.className='death-gif dc-img'; img.src='/art/death_common.gif'+'?x='+Date.now();
+    ov.appendChild(img); fxCell.appendChild(ov); applyAll();
+    setTimeout(()=>{ ov.remove(); }, 1400);
+  }
+  function playBomb() {
+    const r = fxCell.getBoundingClientRect();
+    const ex=document.createElement('img'); ex.src=A.bombExplode.replace(CB,'?x='+Date.now());
+    ex.style.cssText=`position:fixed;left:${r.left+r.width/2}px;top:${r.top+r.height/2}px;width:${r.width*1.5}px;height:${r.height*1.5}px;transform:translate(-50%,-50%);z-index:9999;pointer-events:none;image-rendering:pixelated`;
+    document.body.appendChild(ex); setTimeout(()=>ex.remove(),2600);
+  }
+  function playMark() {
+    if (typeof animateMarkBrand !== 'function') return;
+    // mark-anim 은 board(id=game-board) 기준 col/row 로 동작 — 유닛 셀(0,0)
+    try { animateMarkBrand([{ col:0, row:0 }], { boardId:'game-board' }); } catch(e) { console.warn(e); }
+  }
+  const FX = { hit:playHit, death:playDeath, bomb:playBomb, mark:playMark };
+
+  // ── 모든 모션 정지 / 재생 (GIF 를 현재 프레임 캔버스 스냅샷으로 고정) ──
+  let frozen = false;
+  function freezeImg(img) {
+    if (img.dataset.frozen || img._froze) return;
+    try {
+      const r = img.getBoundingClientRect();
+      const nw = img.naturalWidth || r.width, nh = img.naturalHeight || r.height;
+      if (!nw || !nh) return;
+      const cv = document.createElement('canvas'); cv.width = nw; cv.height = nh;
+      cv.getContext('2d').drawImage(img, 0, 0, nw, nh);
+      cv.className = img.className + ' froze-canvas';
+      cv.style.cssText = img.style.cssText;   // 동일 위치/크기/transform
+      img.style.visibility = 'hidden';
+      img.dataset.frozen = '1'; img._froze = cv;
+      img.parentNode.insertBefore(cv, img.nextSibling);
+    } catch(e) {}
+  }
+  function freezeAll() {
+    document.querySelectorAll('#game-board img').forEach(freezeImg);
+    document.querySelectorAll('body > img[src*="bomb_explode"]').forEach(freezeImg);
+    frozen = true; document.getElementById('btn-freeze').textContent = '▶ 모든 모션 재생';
+  }
+  function resumeAll() {
+    document.querySelectorAll('img[data-frozen]').forEach(img => {
+      if (img._froze) { try{ img._froze.remove(); }catch(e){} img._froze = null; }
+      img.style.visibility = '';
+      delete img.dataset.frozen;
+      const base = img.src.split(/[?#]/)[0];      // gif 재시작 (프레임 0)
+      img.src = base + '?r=' + Date.now();
+    });
+    frozen = false; document.getElementById('btn-freeze').textContent = '⏸ 모든 모션 정지';
+  }
+
+  function report() {
+    const mode = document.body.classList.contains('team-mode')?'2v2':'1v1';
+    const g = id => val(id);
+    document.getElementById('out').textContent =
+`[${mode}] 현재 값
+유닛 idle : 크기 ${g('u-size')}px, 오프셋(${g('u-x')},${g('u-y')})
+일반 사망 : 크기 ${g('dc-size')}px, 오프셋(${g('dc-x')},${g('dc-y')})
+드래곤 사망: 크기 ${g('dd-size')}px, 오프셋(${g('dd-x')},${g('dd-y')})
+유황솥 사망: 크기 ${g('ds-size')}px, 오프셋(${g('ds-x')},${g('ds-y')})
+유해      : 크기 ${g('rm-size')}px, 오프셋(${g('rm-x')},${g('rm-y')})`;
+  }
+  const DEF = {'u-size':38,'u-x':0,'u-y':0,'dc-size':56,'dc-x':0,'dc-y':0,'dd-size':56,'dd-x':0,'dd-y':0,'ds-size':56,'ds-x':0,'ds-y':0,'rm-size':56,'rm-x':0,'rm-y':0};
+  function reset(){ for(const k in DEF) document.getElementById(k).value=DEF[k]; applyAll(); }
+
+  function setMode(team) {
+    document.body.classList.toggle('team-mode', team);
+    board.style.setProperty('--cw', team?'44px':'56px');
+    document.getElementById('m-1v1').classList.toggle('active', !team);
+    document.getElementById('m-team').classList.toggle('active', team);
+    document.getElementById('modelab').textContent = team
+      ? '2v2 팀전 — 셀 44px, 캐릭터가 셀 밖으로 튀어나옴 (overflow:visible, 인게임 동일)'
+      : '1v1 — 셀 56px';
+    // 팀전 기본 크기 권장값 미적용 — 사용자가 직접 다이얼로 (독립 조절)
+  }
+
+  document.querySelectorAll('input[type=range]').forEach(s=>s.addEventListener('input', applyAll));
+  document.querySelectorAll('.fx button').forEach(b=>b.addEventListener('click', ()=>FX[b.dataset.fx] && FX[b.dataset.fx]()));
+  document.getElementById('btn-report').addEventListener('click', report);
+  document.getElementById('btn-reset').addEventListener('click', reset);
+  document.getElementById('btn-freeze').addEventListener('click', () => { frozen ? resumeAll() : freezeAll(); });
+  document.getElementById('m-1v1').addEventListener('click', ()=>setMode(false));
+  document.getElementById('m-team').addEventListener('click', ()=>setMode(true));
+
+  function init() {
+    build(); setMode(false); applyAll();
+    if (typeof window.preloadAllAsync==='function') window.preloadAllAsync().catch(()=>{});
+  }
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
+</script>
+</body>
+</html>
