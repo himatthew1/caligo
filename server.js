@@ -7810,6 +7810,13 @@ io.on('connection', (socket) => {
     //   초기공개/교환/최종공개/HP 등 세팅 화면이 전부 깨짐. phase 이벤트보다 먼저 DB 전송(순서 보장).
     socket.emit('characters_data', CHARACTERS);
 
+    // ★ FIX: 재접속 시 현재 페이즈 타이머 재전송 (게임뿐 아니라 HP/드래프트/배치 등 세팅 페이즈도).
+    //   기존엔 game 페이즈에서만 재전송 → 세팅 중 새로고침 시 타이머가 사라져 보이지 않던 문제.
+    if (room.timerDeadline) {
+      const _remainSec = Math.ceil(Math.max(0, room.timerDeadline - Date.now()) / 1000);
+      if (_remainSec > 0) socket.emit('timer_start', { seconds: _remainSec, phase: room.phase, reconnected: true });
+    }
+
     // ── 페이즈별 상태 재전송 ──
     if (phase === 'game') {
       if (room.mode === 'team') {
@@ -7842,14 +7849,7 @@ io.on('connection', (socket) => {
           reconnected: true,
         });
       }
-      // ★ 재접속 시 남은 턴 타이머 재전송 (클라이언트가 타이머 표시 없이 갑자기 턴이 넘어가는 버그 방지)
-      if (room.timerDeadline) {
-        const remainMs = Math.max(0, room.timerDeadline - Date.now());
-        const remainSec = Math.ceil(remainMs / 1000);
-        if (remainSec > 0) {
-          socket.emit('timer_start', { seconds: remainSec, phase: 'game', reconnected: true });
-        }
-      }
+      // (타이머 재전송은 위 페이즈 공통 블록에서 처리)
       // ★ 재접속 시 보드 축소 경고(카운트다운) 재전송 — 다음 축소 예정 경고가 활성이면 복원.
       try {
         const _sched = getBoardShrinkSchedule(room);

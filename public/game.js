@@ -4882,8 +4882,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 
       // ── 추리 토큰 자동 배치 ─────────────────────────────────────────────
       // ★ bodyguardRedirect 도 제외 — 충성으로 대신 맞은 호위무사에 추리 토큰 자동 배치 금지.
+      // ★ FIX: 충성 흡수된 원 타깃(redirectedToBodyguard)도 1명으로 카운트 → 2명 이상 피격 시 토큰 금지.
+      const _distinctHitKeys = new Set((cellResults || []).filter(c => c.hit && c.defPieceIdx != null && !c.bodyguardRedirect).map(c => `${c.defOwnerIdx ?? ''}:${c.defPieceIdx}`));
       const _meaningfulHits = (cellResults || []).filter(c => c.hit && !c.redirectedToBodyguard && !c.bodyguardRedirect && c.defPieceIdx !== undefined);
-      if (_meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
+      if (_distinctHitKeys.size === 1 && _meaningfulHits.length === 1 && !_meaningfulHits[0].destroyed) {
         const c = _meaningfulHits[0];
         let piece = null, pieceKey = null;
         if (S.isTeamMode && c.defOwnerIdx !== undefined) {
@@ -7251,8 +7253,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         //   "여러 명 동시 피격" 정보 자체가 추리 단서 — 자동 노출 금지.
         //   이전 버그: aliveHits (사망 제외) 만 카운트 → 2 hit 중 1 사망 → length=1 → 토큰 자동 배치.
         // ★ bodyguardRedirect 도 제외 — 충성으로 대신 맞은 호위무사에 추리 토큰 자동 배치 금지.
+        // ★ FIX: 실제 피격된 서로 다른 piece 수를 따로 카운트 — 충성으로 흡수된 원 타깃(redirectedToBodyguard,
+        //   예: 척후병)도 1명으로 셈. (bodyguardRedirect 흡수 엔트리는 호위무사 중복 → 제외.)
+        //   유황솥이 척후병+호위무사를 동시 타격하면 distinct=2 → 자동 토큰 금지(2명 이상 피격).
+        const distinctHitKeys = new Set(hitsData.filter(h => h.defPieceIdx != null && !h.bodyguardRedirect).map(h => `${h.defOwnerIdx ?? ''}:${h.defPieceIdx}`));
         const meaningfulHits = hitsData.filter(h => !h.redirectedToBodyguard && !h.bodyguardRedirect && h.defPieceIdx !== undefined);
-        if (meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
+        if (distinctHitKeys.size === 1 && meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
           const c = meaningfulHits[0];
           let piece = null;
           let pieceKey = null;
