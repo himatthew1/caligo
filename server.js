@@ -1051,6 +1051,34 @@ function aiTeamHpDistribute(room, idx) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// ── AI 휴리스틱 가중치 (튜닝 대상 / 셀프플레이 학습) ───────────────────
+//   기본값 = 기존 손튜닝 상수 → 변경 없이 동작 동일.
+//   ai-weights.json 있으면 머지(라이브 챔피언 로드). 셀프플레이는 brain._weights 로 per-side override.
+//   1v1(aiScoreMove)·팀전(aiTeamScoreMove) 둘 다 같은 키 사용 → 튜닝이 라이브 1v1 에도 전이.
+// ══════════════════════════════════════════════════════════════════
+const AI_WEIGHTS_DEFAULT = {
+  commanderAdj: 6,       // 사기증진 인접 시 보너스
+  shrinkAvoid: 25,       // 보드축소 영역 밖 진입 페널티 (×urgency)
+  escapeOutside: 30,     // (팀) 외곽→안쪽 탈출 보너스 (×urgency)
+  edgePenaltyMul: 0.5,   // 후반(턴≥25) 가장자리 점수 배율
+  centerReturn: 5,       // (팀) 가장자리→중앙 회귀 보너스
+  fleeBonus: 25,         // 피격기억 도주 보너스 (×HP항; 팀 버전은 ×(3-hp))
+  approachMul: 2.5,      // 적 확률질량 추격 유도
+  threatMul: 1.0,        // 위협 회피 감점 배율
+  infoGainMul: 0.4,      // 정보획득(정찰) 가산
+  commanderAuraMul: 3,   // 지휘관 본인 오라 진형 유지
+};
+let AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT };
+try {
+  const _wf = require('path').join(__dirname, 'ai-weights.json');
+  if (require('fs').existsSync(_wf)) {
+    AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT, ...JSON.parse(require('fs').readFileSync(_wf, 'utf8')) };
+    console.log('[AI] ai-weights.json 로드됨 (학습된 챔피언 가중치 적용)');
+  }
+} catch (e) { console.warn('[AI] ai-weights.json 로드 실패 — 기본값 사용:', e.message); }
+// 점수 함수에서: const W = (brain && brain._weights) || AI_WEIGHTS;
+
 // AI 배치 — 전략적 배치 (적팀 공격범위 회피 + 시너지 형성)
 // 자동 배치 후에도 다른 플레이어 배치가 갱신되면 재평가 (확정 X — 보드 위 배치만)
 // ── 배치 점수 공유 헬퍼 (1v1 aiPlacePieces 와 팀전 aiTeamPlace 가 동일 로직 사용) ──
@@ -1336,6 +1364,7 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
 //   + 가장자리회피 + 중앙회귀 + 피격기억 도주 + 추격). 오직 브레인·ownerIdx 만 다름.
 function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   const brain = getTeamBrain(room, getTeamOf(room, idx));
+  const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
   let score = 0;
@@ -1354,36 +1383,36 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
                           newRow < evBounds.min || newRow > evBounds.max;
     const curOutside = piece.col < evBounds.min || piece.col > evBounds.max ||
                        piece.row < evBounds.min || piece.row > evBounds.max;
-    if (willBeOutside) { score -= 25 * Math.max(1, 11 - turnsToShrink); newIsOutside = true; }
+    if (willBeOutside) { score -= W.shrinkAvoid * Math.max(1, 11 - turnsToShrink); newIsOutside = true; }
     if (curOutside) curIsOutside = true;
     if (turnsToShrink < mostUrgentTurns) mostUrgentTurns = turnsToShrink;
   }
-  if (curIsOutside && !newIsOutside) score += 30 * Math.max(1, 11 - mostUrgentTurns);
+  if (curIsOutside && !newIsOutside) score += W.escapeOutside * Math.max(1, 11 - mostUrgentTurns);
   // commander 인접 보너스
   const _teamEffAtk = _effectiveAtkAtCellForAi(piece, room, idx, newCol, newRow);
-  if (_teamEffAtk > (piece.atk || 0)) score += 6;
+  if (_teamEffAtk > (piece.atk || 0)) score += W.commanderAdj;
   // 일반 가장자리 회피
   if (room.turnNumber >= 25 && !room.boardShrunk) {
-    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) score *= 0.5;
+    if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) score *= W.edgePenaltyMul;
   }
   // 중앙 회귀 약한 인센티브
   const isCurEdge = piece.col === bounds.min || piece.col === bounds.max || piece.row === bounds.min || piece.row === bounds.max;
   const isNewEdge = newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max;
-  if (isCurEdge && !isNewEdge) score += 5;
+  if (isCurEdge && !isNewEdge) score += W.centerReturn;
   // HP 낮을 때 도주 — 피격 기억(fog 존중) 기반. 맞은 위치에서 멀어지면 보너스.
   const mem = brain.hitMemory[piece.type];
   if (mem && brain.turnCount - mem.turn <= 2 && piece.hp <= 2) {
     const distFromHit = Math.abs(newCol - mem.col) + Math.abs(newRow - mem.row);
     const curDistFromHit = Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row);
-    if (distFromHit > curDistFromHit) score += 20 * (3 - piece.hp);
+    if (distFromHit > curDistFromHit) score += W.fleeBonus * (3 - piece.hp);
   }
   // ★ 추격 — 적 확률질량으로 능동 접근 (사거리 밖 적에게 다가감)
-  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * 2.5;
+  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * W.approachMul;
   // ★ 위협 회피 + 정보 획득 — 1v1 aiScoreMove 와 동일. 치팅 X (표식+확률맵만).
-  score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow);
-  score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * 0.4;
+  score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
+  score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * W.infoGainMul;
   // ★ 지휘관 본인 — 버프 가능한 아군 수만큼 가산 (사기증진 진형 유지). 1v1 과 동일.
-  score += aiCommanderAuraScore(piece, room, idx, newCol, newRow) * 3;
+  score += aiCommanderAuraScore(piece, room, idx, newCol, newRow) * W.commanderAuraMul;
   return score;
 }
 // 팀전 마녀·그림자 암살자 best target — 1v1 aiBestTargetCell 과 동일하게 팀 확률맵만 본다.
@@ -1544,6 +1573,8 @@ function aiNextActionWaitMs(room, fallbackMs) {
 // 이 헬퍼는 핸들을 추적해 중복 스케줄/취소를 안전하게 처리하고, 30초 워치독으로 강제 endTurn 보장.
 function scheduleAITurnEnd(room, idx, delayMs) {
   if (!room) return;
+  // ★ 헤드리스(셀프플레이): 연출 딜레이 없이 즉시 동기 턴 종료.
+  if (room._headless) { room._aiEndTurnEarliest = 0; if (room.currentPlayerIdx === idx) endTurn(room); return; }
   if (!room._aiTurnEndHandle) room._aiTurnEndHandle = {};
   if (!room._aiTurnEndWatchdog) room._aiTurnEndWatchdog = {};
   // 이미 예약된 핸들이 있으면 취소 (중복 방지)
@@ -1835,6 +1866,8 @@ function aiTeamTakeTurn(room, idx) {
     return;
   }
   if (usedPreSkill) {
+    // ★ 헤드리스: 연출 대기 없이 즉시 동기 재진입(스킬→다음 행동).
+    if (room._headless) { aiTeamTakeTurn(room, idx); return; }
     // 사용자 요청: 이전 스킬의 토스트·애니메이션이 화면에서 사라질 때까지 freeze.
     //   _aiEndTurnEarliest 기준 (skill = now + 5900ms) + 1500ms 마진. 최소 6000ms 보장.
     //   사용자 요청: 스킬과 다음 행동 사이 명확한 호흡 텀.
@@ -4919,6 +4952,9 @@ function endTurn(room, opts) {
     return;
   }
 
+  // ★ 헤드리스(셀프플레이): 상태 전이만 끝내고 emit/타이머/AI 스케줄은 스킵. 다음 턴은 드라이버가 구동.
+  if (room._headless) return;
+
   const turnData = {
     turnNumber: room.turnNumber,
     sp: room.sp,
@@ -6397,6 +6433,7 @@ function aiScoreAttack(brain, piece, room, extra) {
 }
 
 function aiScoreMove(brain, piece, newCol, newRow, room) {
+  const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
   let score = 0;
@@ -6408,7 +6445,7 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
   // ★ commander 인접 보너스 — 새 위치에서 사기증진 받으면 점수 증폭.
   const effAtkAtNew = _effectiveAtkAtCellForAi(piece, room, 1, newCol, newRow);
   if (effAtkAtNew > (piece.atk || 0)) {
-    score += 6;
+    score += W.commanderAdj;
   }
   // 보드 축소 회피 — 다음 축소 영역(newBounds) 밖에 들어가면 강한 페널티 (팀모드와 동일 로직)
   // 임박할수록 강한 페널티 (10턴 전: -25, 1턴 전: -250)
@@ -6425,13 +6462,13 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
                           newRow < _evB.min || newRow > _evB.max;
     if (willBeOutside) {
       const urgency = Math.max(1, 11 - turnsToShrink);
-      score -= 25 * urgency;
+      score -= W.shrinkAvoid * urgency;
     }
   }
   // 일반 가장자리 페널티 (보드 축소 임박 안 해도)
   if (room.turnNumber >= 25 && !room.boardShrunk) {
     if (newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max) {
-      score *= 0.5;
+      score *= W.edgePenaltyMul;
     }
   }
 
@@ -6443,21 +6480,21 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
     const curDistFromHit = Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row);
     if (distFromHit > curDistFromHit) {
       // 맞은 곳에서 멀어지는 방향 → 큰 보너스
-      score += 25 * (1 + (piece.maxHp - piece.hp) / piece.maxHp); // HP 낮을수록 더 도망
+      score += W.fleeBonus * (1 + (piece.maxHp - piece.hp) / piece.maxHp); // HP 낮을수록 더 도망
     }
   }
 
   // ★ 추격 — 적 확률질량으로 한 칸씩 다가가는 유도력 (사거리 밖 적에게도 능동 접근).
   //   강한 즉시공격(원점수 6~10) 은 이 약한 보너스를 압도하므로 공격 기회는 그대로 우선.
   //   HP 낮은 도망 상황에서는 위 도주 보너스(25↑) 가 압도 → 추격이 도주를 방해하지 않음.
-  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * 2.5;
+  score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * W.approachMul;
 
   // ★ 위협 회피 — 새 위치에서 받을 예상 피격량만큼 감점 (사람처럼 사거리 회피). 치팅 X.
-  score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow);
+  score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
   // ★ 정보 획득(정찰) — 새 위치 공격범위가 불확실 영역을 덮으면 소액 가산 (다음 턴 확정 유도).
-  score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * 0.4;
+  score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * W.infoGainMul;
   // ★ 지휘관 본인 — 버프 가능한 아군 수만큼 가산 (사기증진 진형 유지).
-  score += aiCommanderAuraScore(piece, room, 1, newCol, newRow) * 3;
+  score += aiCommanderAuraScore(piece, room, 1, newCol, newRow) * W.commanderAuraMul;
 
   return score;
 }
@@ -10434,15 +10471,35 @@ io.on('connection', (socket) => {
 // ══════════════════════════════════════════════════════════════════
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`CALIGO server running:`);
-  console.log(`   Local: http://localhost:${PORT}`);
-  const nets = require('os').networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === 'IPv4' && !net.internal) {
-        console.log(`   Network: http://${net.address}:${PORT}`);
+// ★ 직접 실행(`node server.js`) 시에만 리스닝. require 시엔 부작용 없음 → AI 셀프플레이 하니스가
+//   순수 게임/AI 로직을 재사용할 수 있도록 함. (헤드리스 학습 인프라 1단계)
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`CALIGO server running:`);
+    console.log(`   Local: http://localhost:${PORT}`);
+    const nets = require('os').networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name]) {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log(`   Network: http://${net.address}:${PORT}`);
+        }
       }
     }
-  }
-});
+  });
+}
+
+// ★ 헤드리스 셀프플레이/테스트용 export — 순수 게임/AI 로직 재사용.
+//   (소켓 emit 은 클라이언트가 없으면 무해한 no-op. 타이머 기반 페이싱은 하니스가 자체 동기 루프로 대체.)
+module.exports = {
+  app, server, io, rooms,
+  CHARACTERS,
+  getAttackCells, resolveDamage, processAttack,
+  inBounds, getBorderCells, getBoardShrinkSchedule,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink,
+  // ★ 헤드리스 셀프플레이용
+  createRoom, createPiece, initAiBrain, getTeamBrain,
+  aiTeamTakeTurn, endTurn, getNextPlayerIdx, checkWin,
+  processTurnStart, getEnemyIndices, endGame,
+  // ★ AI 가중치 (튜닝/학습용)
+  AI_WEIGHTS_DEFAULT, getAiWeights: () => AI_WEIGHTS, setAiWeights: (w) => { AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT, ...w }; },
+};
