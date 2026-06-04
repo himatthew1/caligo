@@ -4821,20 +4821,21 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
       }
 
       // ── 데미지 도장 추적 ────────────────────────────────────────────────
+      // ★ FIX (충성 도장 2배 표기): 충성(bodyguardRedirect) 도장은 아래 bodyguardHits 루프가 전담.
+      //   여기서 또 찍으면 같은 흡수가 cellResults+bodyguardHits 양쪽에서 도장돼 충성 1→2 로 표기됐음.
+      //   (bodyguardHits 는 모든 흡수 히트를 포함하므로 여기선 본체 데미지만 처리.)
       for (const c of cellResults) {
         if (!c.hit) continue;
         const dmg = (typeof c.damage === 'number') ? c.damage : 0;
         if (dmg <= 0 || c.defPieceIdx === undefined) continue;
+        if (c.bodyguardRedirect || c.redirectedToBodyguard) continue;   // 충성 흡수/리다이렉트 원본은 본체도장 X
         const key = (S.isTeamMode && c.defOwnerIdx !== undefined)
           ? `${c.defOwnerIdx}:${c.defPieceIdx}`
           : `opp:${c.defPieceIdx}`;
-        if (c.bodyguardRedirect) {
-          addLoyaltyDamage(key, dmg);
-        } else if (!c.redirectedToBodyguard) {
-          addBodyDamage(key, dmg);
-        }
+        addBodyDamage(key, dmg);
       }
-      // ★ 호위무사 충성 도장 — cellResults 에 없는 bodyguardRedirect 히트를 별도 처리
+      // ★ 호위무사 충성 도장 — 모든 흡수(bodyguardRedirect) 히트는 여기서 전담 처리(유일 출처).
+      //   (cellResults 루프는 충성을 안 찍음 → 중복 없음.)
       if (bodyguardHits && bodyguardHits.length > 0) {
         for (const bg of bodyguardHits) {
           const bgDmg = (typeof bg.damage === 'number') ? bg.damage : 0;
