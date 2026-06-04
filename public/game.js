@@ -10628,8 +10628,9 @@ function buildHpUI() {
   rows.className = 'hp-piece-rows';
 
   for (let i = 0; i < 3; i++) {
-    const charData = findChar(types[i]);
-    if (!charData) continue;
+    // ★ 먹통 방지: S.characters 미로드 등으로 findChar 가 null 이어도 행을 스킵하지 말고
+    //   타입 기반 폴백(이름=타입, 아이콘=예측 경로)으로 렌더 → HP 분배 화면이 빈 화면이 되지 않음.
+    const charData = findChar(types[i]) || { type: types[i], name: types[i], icon: `/assets/icons/${types[i]}.png`, tag: null };
     const row = document.createElement('div');
     row.className = 'hp-piece-row';
     const tagHtml = charData.tag
