@@ -4674,6 +4674,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
+  // ★ FIX (마지막 유닛 사망 시 게임 즉시 종료): 사망 셋업(_pendingDeathCells)은 공격 GIF ~4프레임
+  //   시점까지 지연되므로, 직후 도착하는 game_over 가 그 전에 결과화면을 노출했음. 스킬과 동일하게
+  //   여기서 동기 사망 가드(_skillDeathGuardUntil)를 즉시 켜서 사망 GIF/유해 연출이 끝날 때까지 대기시킴.
+  _markSkillDeathIncoming(cellResults);
   // 쥐 격파 감지: 공격 범위에 있던 상대 쥐 찾기 (서버가 자동 제거)
   const destroyedRats = [];
   if (S.boardObjects) {
@@ -5036,6 +5040,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
+  // ★ FIX (마지막 유닛 사망 즉시 종료 방지): 사망 셋업 전 도착하는 game_over 가 결과화면을 조기 노출하지 않도록
+  //   동기 사망 가드를 즉시 켬 (내 말이 마지막에 죽는 경우 — 사망 GIF/유해 연출 보장).
+  _markSkillDeathIncoming(hitPieces);
   // 적 공격 휘두름 SFX — 1v1 attack_result 의 'attack' 과 동일 톤 (피격자 측에도 들림)
   try { playSfx('attack'); } catch (e) {}
   // ★ 쥐 공격 모션은 서버의 rat_attack_anim 이벤트(쥐장수 공격 시에만)로 처리 — 여기서 자동 추정 X.
