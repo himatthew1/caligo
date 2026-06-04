@@ -7945,7 +7945,7 @@ io.on('connection', (socket) => {
         { ...findCharData(oppDraft.t2, 2), tier: 2 },
         { ...findCharData(oppDraft.t3, 3), tier: 3 },
       ];
-      socket.emit('initial_reveal_phase', { myDraft: player.draft, oppChars });
+      socket.emit('initial_reveal_phase', { myDraft: player.draft, oppChars, alreadyDecided: !!room.initialRevealDone[idx] });
     } else if (phase === 'exchange_draft') {
       const available = {};
       for (const tier of [1, 2, 3]) {
@@ -7956,6 +7956,7 @@ io.on('connection', (socket) => {
       }
       socket.emit('exchange_draft_phase', {
         myDraft: player.draft, available, oppDraft: room.players[1 - idx].draft,
+        alreadyExchanged: !!room.exchangeDone[idx],
       });
       // ★ 재접속 시 이미 확정한 경우 — 대기 중임을 알려 클라가 다시 확인 버튼을 클릭하는 혼란 방지
       if (room.exchangeDone[idx]) {
@@ -7969,7 +7970,7 @@ io.on('connection', (socket) => {
         { ...findCharData(oppDraft.t2, 2), tier: 2 },
         { ...findCharData(oppDraft.t3, 3), tier: 3 },
       ];
-      socket.emit('final_reveal_phase', { myDraft: player.draft, oppChars });
+      socket.emit('final_reveal_phase', { myDraft: player.draft, oppChars, reconnected: true });
     } else if (phase === 'hp_distribution') {
       socket.emit('hp_phase', { draft: player.draft, hasTwins: player.draft.t1 === 'twins', hpDist: player.hpDist || null });
     } else if (phase === 'reveal') {
@@ -7989,7 +7990,7 @@ io.on('connection', (socket) => {
         hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
         passiveName: pc.passiveName, passives: pc.passives,
       }));
-      socket.emit('placement_phase', { pieces: pieceSummary(player.pieces), oppPieces });
+      socket.emit('placement_phase', { pieces: pieceSummary(player.pieces), oppPieces, alreadyConfirmed: !!room.placementDone[idx] });
     } else {
       // 그 외(드래프트 단일 단계 등) — 기본 resume 이벤트만
       socket.emit('reconnect_phase_resume', { phase, idx });

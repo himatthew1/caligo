@@ -4089,7 +4089,7 @@ socket.on('reveal_phase', ({ yourPieces, oppPieces }) => {
 });
 
 // ── 초기 공개 (드래프트 직후) ──
-socket.on('initial_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName }) => {
+socket.on('initial_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName, alreadyDecided }) => {
   S.phase = 'initial_reveal';
   S.myDraft = myDraft;
   S.oppRevealChars = oppChars;
@@ -4098,11 +4098,18 @@ socket.on('initial_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName,
   buildInitialRevealUI(myDraft, oppChars);
   applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName);
   showScreen('screen-initial-reveal');
+  // ★ 재접속 — 이미 교체 여부를 결정했으면 선택 UI 숨기고 대기 상태 표시(다시 선택하는 혼란 방지).
+  if (alreadyDecided) {
+    ['btn-irev-no', 'btn-irev-yes', 'btn-irev-confirm'].forEach(id => { const b = document.getElementById(id); if (b) { b.classList.add('hidden'); b.disabled = true; } });
+    const q = document.querySelector('#screen-initial-reveal .irev-decision-question, #screen-initial-reveal .irev-question');
+    if (q) q.textContent = '결정 완료 — 상대를 기다리는 중...';
+    try { showSkillToast('이미 교체 결정 완료. 상대 대기 중...', false, undefined, 'event'); } catch (e) {}
+  }
 });
 
 // ── 교환 드래프트 ── 캐릭터 딕셔너리처럼 우측에서 슬라이드 인하는 오버레이로 표시.
 //   뒤의 screen-initial-reveal 은 그대로 active 유지 → 백드롭 너머로 보임.
-socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
+socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft, alreadyExchanged }) => {
   S.phase = 'exchange_draft';
   S.exchangeAvailable = available;
   S.exchangeMyDraft = { ...myDraft };
@@ -4111,6 +4118,12 @@ socket.on('exchange_draft_phase', ({ myDraft, available, oppDraft }) => {
   S._myExchangedThisRound = false;  // 새 교체 라운드 진입 — 플래그 초기화
   buildExchangeDraftUI(myDraft, available, oppDraft);
   openOverlayScreen('screen-exchange');
+  // ★ 재접속 — 이미 교환 결정을 확정했으면 확정 버튼 비활성 + 대기 표시(재클릭 혼란 방지).
+  if (alreadyExchanged) {
+    const cb = document.getElementById('btn-exchange-confirm');
+    if (cb) { cb.disabled = true; cb.textContent = '교환 완료 — 상대 대기 중'; }
+    try { showSkillToast('이미 교환 결정 완료. 상대 대기 중...', false, undefined, 'event'); } catch (e) {}
+  }
 });
 
 socket.on('exchange_done', ({ draft, exchanged, timeout }) => {
@@ -4173,10 +4186,19 @@ function animateMySwapInReveal(exchanged) {
 //   화면 전환 없이 screen-initial-reveal 위에서 변경된 티어의 카드만 swap-reveal 애니메이션 진행 (1.5초).
 //   양측 모두 교체했으면 동시 진행, 변경 없으면 즉시 다음 단계로 진행.
 //   "교체됨" 태그(exchanged-highlight) + SFX(playSfxSwapBlink/playSfxSwapReveal) 유지.
-socket.on('final_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName }) => {
+socket.on('final_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, myName, oppName, reconnected }) => {
   S.phase = 'final_reveal';
   S.myDeckName = myDeckName || S.myDeckName || '';
   S.oppDeckName = oppDeckName || S.oppDeckName || '';
+  // ★ 재접속 — 스왑 reveal 애니 재재생 생략, 최종 공개 화면을 정적으로 표시.
+  if (reconnected) {
+    clearAiWaitCountdown();
+    const wOv = document.getElementById('exchange-waiting-overlay'); if (wOv) wOv.remove();
+    try { buildFinalRevealUI(myDraft, oppChars); } catch (e) {}
+    applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, /*final=*/true);
+    showScreen('screen-final-reveal');
+    return;
+  }
   // 교환 드래프트 화면에서 돌아오는 경우 — 대기 오버레이 + 교환 드래프트 오버레이 + AI 카운트다운 모두 정리
   clearAiWaitCountdown();
   const waitOverlay = document.getElementById('exchange-waiting-overlay');
@@ -4228,7 +4250,7 @@ function applyRevealDeckNames(myName, oppName, myDeckName, oppDeckName, isFinal)
 }
 
 // ── 배치 ──
-socket.on('placement_phase', ({ pieces, oppPieces }) => {
+socket.on('placement_phase', ({ pieces, oppPieces, alreadyConfirmed }) => {
   S.myPieces = pieces;
   if (oppPieces) S.oppPieces = oppPieces;
   S.teamPlacementMode = false;
@@ -4237,6 +4259,12 @@ socket.on('placement_phase', ({ pieces, oppPieces }) => {
   if (tmStatus) tmStatus.remove();
   buildPlacementUI();
   showScreen('screen-placement');
+  // ★ 재접속 — 이미 배치 확정했으면 확정 버튼 비활성 + 대기 표시(배치 좌표는 buildPlacementUI 가 이미 복원).
+  if (alreadyConfirmed) {
+    const cb = document.getElementById('btn-placement-confirm');
+    if (cb) { cb.disabled = true; cb.textContent = '배치 완료 — 상대 대기 중'; }
+    try { showSkillToast('배치 완료. 상대를 기다리는 중...', false, undefined, 'event'); } catch (e) {}
+  }
 });
 
 socket.on('placed_ok', ({ pieceIdx, col, row }) => {
@@ -4259,6 +4287,7 @@ function _saveKnowledge() {
     sessionStorage.setItem(key, JSON.stringify({
       deductionTokens: S.deductionTokens || [],
       attackLog: S.attackLog || [],
+      gameLog: S.gameLog || [],
       remainsFacing: S._remainsFacing || {},
       revealedMarkedOpps: (S._revealedMarkedOpps instanceof Map) ? [...S._revealedMarkedOpps.entries()] : [],
     }));
@@ -4271,6 +4300,7 @@ function _restoreKnowledge() {
     const d = JSON.parse(raw);
     if (Array.isArray(d.deductionTokens)) S.deductionTokens = d.deductionTokens;
     if (Array.isArray(d.attackLog)) S.attackLog = d.attackLog;
+    if (Array.isArray(d.gameLog)) S.gameLog = d.gameLog;
     if (d.remainsFacing && typeof d.remainsFacing === 'object') S._remainsFacing = d.remainsFacing;
     if (Array.isArray(d.revealedMarkedOpps) && S._revealedMarkedOpps instanceof Map) {
       for (const [k, v] of d.revealedMarkedOpps) S._revealedMarkedOpps.set(k, v);
@@ -4328,6 +4358,8 @@ socket.on('game_start', (data) => {
   refreshGameView();
   showActionBar(S.isMyTurn);
   updateSPBar();
+  // ★ 재접속 — 복원된 S.gameLog 로 게임로그 DOM 재구성(정찰/공격/스킬 텍스트 히스토리 복원). buildGameUI 로 로그 DOM 생성된 뒤 호출.
+  if (data.reconnected) { try { _rerenderGameLogFromState(); } catch (e) {} }
   // 재접속 (data.reconnected 또는 turnNumber > 1) — 다른 안내 메시지
   //   서버는 reconnected 키를 보냄(과거 reconnect 오타로 1턴 재접속 시 인트로가 재생되던 버그 수정).
   const isReconnect = !!data.reconnected || (data.turnNumber && data.turnNumber > 1);
@@ -16334,6 +16366,11 @@ function addLog(msg, type = 'system') {
     S._eventDuringFullscreen.push(() => addLog(msg, type));
     return;
   }
+  // ★ 재접속 복원용 — 게임로그를 S.gameLog 배열에도 누적(정찰 정보 등 텍스트 히스토리 보존).
+  S.gameLog = S.gameLog || [];
+  S.gameLog.push({ msg, type, turn: S.turnNumber });
+  while (S.gameLog.length > 50) S.gameLog.shift();
+  try { _saveKnowledge(); } catch (e) {}   // 로그 추가 즉시 영속(렌더 사이 유실 방지)
   const log = document.getElementById('game-log');
   if (!log) return;
   const entry = document.createElement('div');
@@ -16342,6 +16379,18 @@ function addLog(msg, type = 'system') {
   entry.innerHTML = `<span class="turn-num">T${S.turnNumber}</span> ${formatted}`;
   log.prepend(entry);
   while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// ★ 재접속 시 저장된 S.gameLog 로 게임로그 DOM 재구성 (정찰/공격/스킬 히스토리 복원).
+function _rerenderGameLogFromState() {
+  const log = document.getElementById('game-log'); if (!log) return;
+  log.innerHTML = '';
+  for (const e of (S.gameLog || [])) {
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${e.type || 'system'}`;
+    entry.innerHTML = `<span class="turn-num">T${e.turn}</span> ${formatMsgMiniHeader(e.msg)}`;
+    log.prepend(entry);
+  }
 }
 
 // ── 풀스크린 오버레이 큐/락 ─────────────────────────────────────
