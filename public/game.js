@@ -4054,8 +4054,10 @@ socket.on('draft_ok', ({ t1, t2, t3, timeout, timeoutMsg }) => {
 });
 
 // ── HP 분배 페이즈 ──
-socket.on('hp_phase', ({ draft, hasTwins }) => {
+socket.on('hp_phase', ({ draft, hasTwins, hpDist }) => {
   S.myDraft = draft;
+  // ★ 재접속 시 이미 분배한 HP 값 복원 (없으면 buildHpUI 가 기본 4/3/3 사용).
+  S._restoredHpDist = (Array.isArray(hpDist) && hpDist.length === 3) ? hpDist.slice() : null;
   S.hasTwins = !!hasTwins;
   S.teamHpMode = false;
   // 1v1 모드 진입 시 팀전 패널 제거
@@ -10583,7 +10585,9 @@ document.getElementById('recommend-close').addEventListener('click', () => {
 function buildHpUI() {
   renderProgressStepper('screen-hp', 'hp');
   const draft = S.myDraft;
-  S.hpValues = [4, 3, 3];
+  // ★ 재접속 복원값이 있으면 사용(이미 분배한 HP), 없으면 기본 4/3/3. 1회 사용 후 해제.
+  S.hpValues = (Array.isArray(S._restoredHpDist) && S._restoredHpDist.length === 3) ? S._restoredHpDist.slice() : [4, 3, 3];
+  S._restoredHpDist = null;
   const types = [draft.t1, draft.t2, draft.t3];
   const tierLabels = ['1티어', '2티어', '3티어'];
   const container = document.getElementById('hp-pieces');

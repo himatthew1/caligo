@@ -7971,7 +7971,7 @@ io.on('connection', (socket) => {
       ];
       socket.emit('final_reveal_phase', { myDraft: player.draft, oppChars });
     } else if (phase === 'hp_distribution') {
-      socket.emit('hp_phase', { draft: player.draft, hasTwins: player.draft.t1 === 'twins' });
+      socket.emit('hp_phase', { draft: player.draft, hasTwins: player.draft.t1 === 'twins', hpDist: player.hpDist || null });
     } else if (phase === 'reveal') {
       const oppPieces = room.players[1 - idx].pieces.map(pc => ({
         type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
