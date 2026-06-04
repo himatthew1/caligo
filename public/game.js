@@ -4243,6 +4243,39 @@ socket.on('placed_ok', ({ pieceIdx, col, row }) => {
   updatePlacementUI();
 });
 
+// ── 재접속 지식 영속 (클라 전용 사적 정보: 추리토큰·공격마크·표식위치·유해방향) ──
+//   서버 권위 상태는 페이로드로 오지만, 플레이어가 쌓은 사적 추리 정보는 서버에 없어 새로고침 시 유실.
+//   sessionStorage(roomId 키)에 저장 → 재접속 game_start 에서 복원. (탭 닫으면 자동 정리)
+function _knowledgeKey() {
+  let rid = S.roomId;
+  if (!rid) { try { rid = (JSON.parse(sessionStorage.getItem('caligo_session') || '{}') || {}).roomId; } catch (e) {} }
+  return rid ? 'caligo_know_' + rid : null;
+}
+function _saveKnowledge() {
+  const key = _knowledgeKey(); if (!key) return;
+  try {
+    sessionStorage.setItem(key, JSON.stringify({
+      deductionTokens: S.deductionTokens || [],
+      attackLog: S.attackLog || [],
+      remainsFacing: S._remainsFacing || {},
+      revealedMarkedOpps: (S._revealedMarkedOpps instanceof Map) ? [...S._revealedMarkedOpps.entries()] : [],
+    }));
+  } catch (e) {}
+}
+function _restoreKnowledge() {
+  const key = _knowledgeKey(); if (!key) return;
+  try {
+    const raw = sessionStorage.getItem(key); if (!raw) return;
+    const d = JSON.parse(raw);
+    if (Array.isArray(d.deductionTokens)) S.deductionTokens = d.deductionTokens;
+    if (Array.isArray(d.attackLog)) S.attackLog = d.attackLog;
+    if (d.remainsFacing && typeof d.remainsFacing === 'object') S._remainsFacing = d.remainsFacing;
+    if (Array.isArray(d.revealedMarkedOpps) && S._revealedMarkedOpps instanceof Map) {
+      for (const [k, v] of d.revealedMarkedOpps) S._revealedMarkedOpps.set(k, v);
+    }
+  } catch (e) {}
+}
+
 // ── 게임 시작 ──
 socket.on('game_start', (data) => {
   S._gameEnded = false;  // 게임 종료 플래그 리셋 (재시작/다음 판 대비)
@@ -4276,6 +4309,9 @@ socket.on('game_start', (data) => {
   S.attackLog = [];
   S.action = null;
   S.selectedPiece = null;
+  // ★ 재접속(새로고침) — 위 초기화 직후, 저장해둔 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향) 복원.
+  //   oppPieces 는 위(4259)에서 이미 세팅됨 → _revealedMarkedOpps 복원 후 재대입으로 setter reseed 재실행(표식 위치 반영).
+  if (data.reconnected) { try { _restoreKnowledge(); S.oppPieces = S.oppPieces; } catch (e) {} }
   // 게임 시작 — 데미지 도장 초기 스냅샷
   if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps();
 
@@ -5179,6 +5215,10 @@ function resetAnimGuards() {
   S._bombImpactAt = null;
   _attackAnimDeferred = false;
   _pendingSpUpdate = null;
+  // ★ 재접속/새 판 시 쌍둥이 이동 페이즈 잔류 상태 해제 (UI 가 쌍둥이 모드로 잠기는 것 방지).
+  S.twinPhaseActive = false;
+  S.twinMovePending = false;
+  S.twinFirstSubMoved = null;
 }
 function _flushPendingSpUpdate() {
   _attackAnimDeferred = false;
@@ -13817,6 +13857,9 @@ function renderGameBoard() {
 
   // ── 피격 GIF 재생 중인 셀 — 재렌더(특히 스킬 직후 비동기 렌더)로 idle 로 덮였으면 hit GIF 재적용 ──
   try { _reapplyActiveHitGifs(); } catch (e) {}
+
+  // ── 재접속 대비 — 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향) 영속 저장 ──
+  try { _saveKnowledge(); } catch (e) {}
 }
 
 // ── 멀티유닛 캐러셀: 셀 HTML 렌더 ──────────────────────────────────────

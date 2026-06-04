@@ -7850,6 +7850,23 @@ io.on('connection', (socket) => {
           socket.emit('timer_start', { seconds: remainSec, phase: 'game', reconnected: true });
         }
       }
+      // ★ 재접속 시 보드 축소 경고(카운트다운) 재전송 — 다음 축소 예정 경고가 활성이면 복원.
+      try {
+        const _sched = getBoardShrinkSchedule(room);
+        for (const ev of _sched) {
+          if (room.boardShrinkStage >= ev.stage) continue;
+          if (room.turnNumber >= ev.warnTurn && room.turnNumber < ev.shrinkTurn) {
+            const remaining = ev.shrinkTurn - room.turnNumber;
+            if (remaining > 0) {
+              socket.emit('board_shrink_warning', {
+                turnsRemaining: remaining, turnsLeft: remaining,
+                stage: ev.stage, key: ev.key, stalemate: !!ev.stalemate, reconnected: true,
+              });
+            }
+            break;
+          }
+        }
+      } catch (e) {}
     } else if (phase === 'waiting') {
       if (room.mode === 'team') {
         // team_joined 먼저 — 클라가 (전체 새로고침이었더라도) 팀 대기 화면으로 복귀.
