@@ -1579,6 +1579,10 @@ function escapeHtmlGlobal(str) {
 // ── 소켓 이벤트 핸들러 ──────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+// ★ FIX: 재접속(새로고침) 시 캐릭터 DB 복원 — 서버 reconnect_game 이 phase 이벤트보다 먼저 전송.
+//   이게 없으면 S.characters=null → findLocalChar 가 전부 '?' → 초기공개 등 세팅 화면이 깨짐.
+socket.on('characters_data', (characters) => { if (characters) S.characters = characters; });
+
 socket.on('joined', ({ idx, roomId, characters, sessionToken, reconnected }) => {
   S.playerIdx = idx;
   S.characters = characters;

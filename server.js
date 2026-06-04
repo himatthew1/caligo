@@ -7806,6 +7806,10 @@ io.on('connection', (socket) => {
     // ★ S-10: 재접속 중 동시 이벤트 방지 — 상태 전송 완료까지 brief lock
     player._reconnecting = true;
 
+    // ★ FIX: 재접속(새로고침) 시 클라 캐릭터 DB(S.characters) 가 비어 findLocalChar 가 모두 '?' 반환 →
+    //   초기공개/교환/최종공개/HP 등 세팅 화면이 전부 깨짐. phase 이벤트보다 먼저 DB 전송(순서 보장).
+    socket.emit('characters_data', CHARACTERS);
+
     // ── 페이즈별 상태 재전송 ──
     if (phase === 'game') {
       if (room.mode === 'team') {
