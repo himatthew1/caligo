@@ -8412,7 +8412,7 @@ socket.on('detonation_intro', ({ bombs }) => {
 });
 
 // ── 폭탄 폭발 ──
-socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsHits }) {
+socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsHits, destroyedRats }) {
   // ★ 폭탄 피격 타이밍 동기화 — detonation_intro 의 셀 흔들림 시점까지 HP 갱신/데미지 표시 대기.
   //   서버가 bomb_detonated 를 먼저 보내도, 클라이언트에서 셀이 흔들리는 그 순간에 피격이 보이도록.
   const _ik = col + ',' + row;
@@ -8420,9 +8420,15 @@ socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsH
     const _delay = S._bombImpactAt[_ik] - Date.now();
     delete S._bombImpactAt[_ik];
     if (_delay > 50) {
-      setTimeout(() => _onBombDetonated({ col, row, hits, remainsHits }), _delay);
+      setTimeout(() => _onBombDetonated({ col, row, hits, remainsHits, destroyedRats }), _delay);
       return;
     }
+  }
+
+  // ★ FIX (폭탄으로 쥐 격파): 폭발 임팩트 순간에 쥐 사망 애니 + boardObjects 제거.
+  //   _animateSkillDestroyedRats 가 관전/플레이어 시점 모두 처리(viewerIdx 분기).
+  if (Array.isArray(destroyedRats) && destroyedRats.length > 0) {
+    _animateSkillDestroyedRats(destroyedRats);
   }
 
   // ★ 유해 폭발 피격 — 폭발 임팩트(blast)와 동일 순간에 단계별 연출 재생.
@@ -18628,9 +18634,14 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
 //     셀 마크 (💥/·) / 빗나감·격파 토스트·로그 / 적 프로필 피격 애니 / 자동 추리토큰.
 //   ★ "공격했습니다!" 같은 별도 토스트 (= being_attacked 의 알림) 만 X.
 let _teamAllyAttackedSeq = 0;
-socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything }) => {
+socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atkCol, atkRow, atkPieceType, atkPieceSubUnit }) => {
   // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
+  // ★ FIX (팀원 공격 모션 부재): 공격자(팀원) 칸에 공격 GIF 를 즉시 재생 — 1v1 공격자 시점(attack_result
+  //   의 animateAttackGif)과 동일. 방향은 보드에 렌더된 팀원 idle GIF 의 transform 에서 폴백 조회.
+  if (atkPieceType != null && atkCol != null && atkRow != null && typeof animateAttackGif === 'function') {
+    try { animateAttackGif(atkCol, atkRow, atkPieceType, atkPieceSubUnit || null, false, null); } catch (e) {}
+  }
   const meaningful = (hits || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;

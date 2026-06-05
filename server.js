@@ -3758,7 +3758,8 @@ function flushPhase(room, onComplete) {
         const hits = detonateBomb(room, dd.ownerIdx, bomb, { deferEmit: true });
         // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
         //   remainsHits — 이 폭탄 셀 유해 피격 (blast 타이밍에 클라가 재생)
-        deferredEmits.push({ col: bomb.col, row: bomb.row, hits, owner: dd.ownerIdx, remainsHits: room._lastBombRemainsHits || [] });
+        //   destroyedRats — 이 폭탄 셀 적 쥐 격파 (blast 타이밍에 클라가 사망 애니 재생)
+        deferredEmits.push({ col: bomb.col, row: bomb.row, hits, owner: dd.ownerIdx, remainsHits: room._lastBombRemainsHits || [], destroyedRats: room._lastBombDestroyedRats || [] });
       }
       room.boardObjects[dd.ownerIdx] = (room.boardObjects[dd.ownerIdx] || []).filter(o => o.type !== 'bomb');
     }
@@ -4097,9 +4098,23 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   //   클라가 폭발 임팩트(blast) 순간에 직접 재생 → 폭탄 유닛 피격과 동일 타이밍.
   const remainsHits = processRemainsHits(room, [{ col: bomb.col, row: bomb.row }], { skipEmit: true, onlyExisting: _preRemainsCellsBomb });
   room._lastBombRemainsHits = remainsHits;   // deferEmit 경로(기폭 스킬)에서 deferredBombEmits 에 싣기 위한 side-channel
+  // ★ FIX (폭탄으로 쥐 격파 누락): 일반 공격(processAttack 4298-4310)은 쥐를 격파하지만 detonateBomb
+  //   엔 쥐 제거 로직이 빠져 있었음. 폭탄 셀의 적 쥐를 제거하고 destroyedRats 로 클라에 전달
+  //   (클라가 폭발 임팩트 순간에 쥐 사망 애니 재생). deferEmit 경로용 side-channel 도 저장.
+  const destroyedRats = [];
+  for (const defOwnerIdx of enemyIndices) {
+    const before = (room.rats[defOwnerIdx] || []).length;
+    room.rats[defOwnerIdx] = (room.rats[defOwnerIdx] || []).filter(
+      r => !(r.col === bomb.col && r.row === bomb.row)
+    );
+    if (room.rats[defOwnerIdx].length < before) {
+      destroyedRats.push({ col: bomb.col, row: bomb.row, owner: defOwnerIdx });
+    }
+  }
+  room._lastBombDestroyedRats = destroyedRats;
   // 기폭 스킬에서 호출 시(deferEmit) bomb_detonated 는 skill_result 다음에 외부에서 emit
   if (!deferEmit) {
-    emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits, remainsHits });
+    emitToBoth(room, 'bomb_detonated', { col: bomb.col, row: bomb.row, hits, remainsHits, destroyedRats });
   }
   const bombKilled = hits.filter(h => h.destroyed);
   if (bombKilled.length > 0) {
@@ -5536,7 +5551,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           allHits.push(...hits);
           // ★ owner 추가 — 클라가 팀 컬러 (mine 파랑 / enemy 빨강) 결정
           //   remainsHits — 이 폭탄 셀 유해 피격 (blast 타이밍에 클라가 재생)
-          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits, owner: playerIdx, remainsHits: room._lastBombRemainsHits || [] });
+          //   destroyedRats — 이 폭탄 셀 적 쥐 격파 (blast 타이밍에 클라가 사망 애니 재생)
+          deferredBombEmits.push({ col: bomb.col, row: bomb.row, hits, owner: playerIdx, remainsHits: room._lastBombRemainsHits || [], destroyedRats: room._lastBombDestroyedRats || [] });
         }
         room.boardObjects[playerIdx] = room.boardObjects[playerIdx].filter(o => o.type !== 'bomb');
         result.msg = `기폭: 폭탄 폭발!`;
@@ -9739,6 +9755,10 @@ io.on('connection', (socket) => {
           atkPieceType: atkPiece.type,
           atkPieceIcon: atkPiece.icon,
           atkPieceName: atkPiece.name,
+          // ★ FIX (팀원 공격 모션 부재): 공격자 위치/subUnit — ally 가 공격자 칸에 공격 GIF 재생용.
+          atkCol: atkPiece.col,
+          atkRow: atkPiece.row,
+          atkPieceSubUnit: atkPiece.subUnit || null,
           atkCells,
           attackerImpactedAnything,
           // hits 요약 — 어떤 적을 어디서 맞췄는지 ally 측이 셀 흔들림 + 로그용
