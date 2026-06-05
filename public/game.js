@@ -2744,22 +2744,20 @@ socket.on('team_game_update', (state) => {
   //   gated 핸들러(skill_result/team_skill_notice/attack_result/being_attacked/team_ally_*)가 연출
   //   시작 시 S._teamRenderGateUntil(= 마법구 착지 or 공격 임팩트 예정 시각)을 기록한다. 서버가 그
   //   알림들을 broadcastTeamGameState 보다 먼저 보내므로 이 시점엔 이미 설정돼 있음.
-  // 턴이 바뀐 업데이트는 지연하지 않고 즉시 렌더 — 턴 전환 응답성 보장 + 직전 액션 게이트 무시.
+  // 턴이 바뀐 업데이트는 게이트 무시하고 즉시 렌더 — 턴 전환 응답성 보장.
   if (prevTurnIdx !== S.currentPlayerIdx) S._teamRenderGateUntil = 0;
+  // ★ FIX (팀전 보드 애니 충돌 — 1v1 단일 렌더 경로 통일): 게이트(스킬 마법구/공격 임팩트) 진행
+  //   중이면 여기서 보드를 렌더하지 않는다. 연출 핸들러(skill_result/team_skill_notice/attack_result/
+  //   being_attacked/team_ally_attacked)가 임팩트 시점에 보드 렌더 + 피격/사망 GIF 재생을 전담한다.
+  //   team_game_update 가 그 사이 추가 렌더하면 핸들러가 적용한 피격 셀 플래시/사망 GIF 를 덮어써
+  //   모션이 잘리거나 프레임이 밀려 보였음(1v1 은 team_game_update 가 없어 단일 렌더라 이 문제 없음).
+  //   데이터(state)는 위 applyTeamGameState 로 이미 반영 → 핸들러가 최신 상태로 렌더한다.
   const _gatePending = S.isTeamMode && (S._teamRenderGateUntil || 0) > Date.now();
-  const _applyTeamVisuals = () => {
-    renderTeamGameSnapshot();
-    showActionBar(S.isMyTurn);
-    // 보드 외곽 팀 컬러 갱신 (현재 차례 플레이어의 팀)
-    if (typeof setTurnBackground === 'function') setTurnBackground(S.isMyTurn);
-    if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
-  };
-  if (_gatePending) {
-    const _delay = Math.max(0, (S._teamRenderGateUntil - Date.now())) + 40;
-    setTimeout(_applyTeamVisuals, _delay);
-  } else {
-    _applyTeamVisuals();
-  }
+  if (!_gatePending) renderTeamGameSnapshot();
+  showActionBar(S.isMyTurn);
+  // 보드 외곽 팀 컬러 갱신 (현재 차례 플레이어의 팀)
+  if (typeof setTurnBackground === 'function') setTurnBackground(S.isMyTurn);
+  if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
   // 스냅샷 비교 — HP 줄어든 piece에 profile-hit, HP 회복된 piece에 heal flash
   if (changes && changes.length > 0) {
     const damaged = changes.filter(c => !c.healed);
@@ -2884,6 +2882,17 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     if (instantSp) { S.instantSp = instantSp; }
     if (sp || instantSp) { try { updateSPBar(); } catch (e) {} }
 
+    // ★ FIX (관전 시점 사망 GIF — 유황범람 등 비-악몽 데미지 스킬): 사망 셀을 먼저 _pendingDeathCells
+    //   로 가려 유해 조기 노출 방지(증상2). 실제 사망 GIF 는 아래 통합 블록에서 재생(증상3). _detectDeaths
+    //   는 렌더 전 DOM(생존 마커)에서 방향을 읽으므로 첫 renderGameBoard 전에 호출해야 함.
+    let _skillDeathInfosT = [];
+    if (!_isDetonateMsgTeam && Array.isArray(hits) && hits.some(h => h.destroyed)) {
+      _skillDeathInfosT = _detectDeaths(hits.filter(h => h.destroyed), !myTeam);
+      if (_skillDeathInfosT.length > 0) {
+        if (!S._pendingDeathCells) S._pendingDeathCells = new Set();
+        for (const di of _skillDeathInfosT) S._pendingDeathCells.add(`${di.col},${di.row}`);
+      }
+    }
     // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
     //   팀모드 키 형식: `${defOwnerIdx}:${defPieceIdx}` — owner 별 인덱스로 통일.
     //   ★ 기폭은 스킵 — bomb_detonated 가 폭발 순간 처리.
@@ -2981,30 +2990,22 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     }
     // ★ 유황범람으로 죽은 쥐 사망 모션 (팀 시점)
     _animateSkillDestroyedRats(destroyedRats);
-    // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀 보라 펄스 + scale.
+    // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀 보라 펄스 + scale. (사망 GIF 는 아래 통합 블록에서 처리.)
     if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
         typeof animateNightmareCast === 'function') {
       animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
-      // ★ 악몽 사망 애니메이션 (팀 시점) — hits 에서 destroyed 감지
-      if (Array.isArray(hits) && hits.some(h => h.destroyed)) {
-        const _nmDeadTeam = hits.filter(h => h.destroyed);
-        // 팀모드: 시전자 팀이면 적 사망(isEnemy=true), 아니면 내 아군 사망(isEnemy=false)
-        const _nmDeathInfosTeam = _detectDeaths(_nmDeadTeam, !myTeam);
-        if (_nmDeathInfosTeam.length > 0) {
-          // ★ _pendingDeathCells 설정 → renderGameBoard 가 사망 GIF 동안 유해를 가림
-          //   (team_game_update 가 서버 유해를 먼저 반영해도 이 셀은 가려짐).
-          if (!S._pendingDeathCells) S._pendingDeathCells = new Set();
-          for (const di of _nmDeathInfosTeam) S._pendingDeathCells.add(`${di.col},${di.row}`);
+    }
+    // ★ FIX (관전 시점 사망 GIF 통합): 악몽뿐 아니라 유황범람 등 모든 데미지 스킬의 사망 GIF 를 재생.
+    //   위에서 _pendingDeathCells 로 사망 셀을 가려 둠(유해 조기노출 차단) → 피격 표시 후 사망 GIF 재생
+    //   → 완료 콜백에서 유해 생성. (skill_result 시전자 시점과 동일한 500ms 딜레이로 통일.)
+    if (_skillDeathInfosT.length > 0) {
+      setTimeout(() => {
+        playDeathAnimations(_skillDeathInfosT, () => {
+          S._pendingDeathCells = null;
+          _addClientSideRemains(_skillDeathInfosT);
           renderGameBoard();
-          setTimeout(() => {
-            playDeathAnimations(_nmDeathInfosTeam, () => {
-              S._pendingDeathCells = null;
-              _addClientSideRemains(_nmDeathInfosTeam);
-              renderGameBoard();
-            });
-          }, 500);
-        }
-      }
+        });
+      }, 500);
     }
     // ★ 회복 애니메이션 — 약초학/신성 등이 시전자 외 시점(팀원/적팀)에서도 보이도록.
     //   team_game_update 가 곧이어 도착해 renderTeamProfiles 가 DOM 을 재생성하므로
@@ -6997,7 +6998,6 @@ function playBoardQuake() {
 //   ③ 화면 dim 해제 (밝아짐)
 //   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx }) => {
-  const _skillTeamSeq = _teamUpdateSeq; // C-10: capture sequence at event time
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
@@ -7140,13 +7140,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         }
       }
 
-      // C-10: team mode — skip redundant render if team_game_update already applied newer state
-      const _skipTeamRender = S.isTeamMode && _teamUpdateSeq !== _skillTeamSeq;
-      if (!_skipTeamRender) {
-        renderGameBoard();
-        renderMyPieces();
-        renderOppPieces();
-      }
+      // ★ FIX: team_game_update 는 게이트(마법구 비행) 중 보드를 렌더하지 않으므로(이 핸들러가 임팩트
+      //   시점 렌더 전담), 팀 모드에서도 여기서 반드시 렌더해야 보드/도장이 갱신됨. (이전 _skipTeamRender
+      //   는 team_game_update 가 즉시 렌더한다는 가정이었으나, 1v1 통일 위해 렌더를 임팩트 시점으로 일원화.)
+      renderGameBoard();
+      renderMyPieces();
+      renderOppPieces();
       if (S.isMyTurn) showActionBar(true);
 
       if (!S.isTeamMode) {
