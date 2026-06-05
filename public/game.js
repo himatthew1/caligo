@@ -2735,21 +2735,43 @@ socket.on('team_game_update', (state) => {
     if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(state.preCurseHps);
     S.attackLog = S.attackLog.filter(a => a.turn >= S.turnNumber - 1); // C-5: prune old entries
   }
-  renderTeamGameSnapshot();
-  showActionBar(S.isMyTurn);
-  // 보드 외곽 팀 컬러 갱신 (현재 차례 플레이어의 팀)
-  if (typeof setTurnBackground === 'function') setTurnBackground(S.isMyTurn);
-  if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
+  // ★ FIX (팀전 스킬 타이밍 — 1v1 통일): 마법구(SP 오브) 비행 중에는 보드/HP 시각 갱신을
+  //   orb 도착(T+SP_END) 시점까지 지연. 데이터(state)는 위 applyTeamGameState 로 이미 반영됨.
+  //   - 증상1(난리): 이전엔 team_game_update 가 T+0 에 즉시 렌더 → HP/보드가 마법구보다 먼저 변함.
+  //   - 증상2(지연): skill_result 의 도장 렌더는 _skipTeamRender 로 건너뛰어졌고(team_game_update 가
+  //     이미 렌더했다고 판단), team_game_update 의 T+0 렌더는 도장이 생기기 전이라 도장이 다음
+  //     렌더(턴 종료)까지 안 보였음. → orb 착지 직후(+40ms) 렌더하면 도장+HP가 함께 표시됨.
+  //   gated 핸들러(skill_result/team_skill_notice/attack_result/being_attacked/team_ally_*)가 연출
+  //   시작 시 S._teamRenderGateUntil(= 마법구 착지 or 공격 임팩트 예정 시각)을 기록한다. 서버가 그
+  //   알림들을 broadcastTeamGameState 보다 먼저 보내므로 이 시점엔 이미 설정돼 있음.
+  // 턴이 바뀐 업데이트는 지연하지 않고 즉시 렌더 — 턴 전환 응답성 보장 + 직전 액션 게이트 무시.
+  if (prevTurnIdx !== S.currentPlayerIdx) S._teamRenderGateUntil = 0;
+  const _gatePending = S.isTeamMode && (S._teamRenderGateUntil || 0) > Date.now();
+  const _applyTeamVisuals = () => {
+    renderTeamGameSnapshot();
+    showActionBar(S.isMyTurn);
+    // 보드 외곽 팀 컬러 갱신 (현재 차례 플레이어의 팀)
+    if (typeof setTurnBackground === 'function') setTurnBackground(S.isMyTurn);
+    if (state.extra_msg) showSkillToast(state.extra_msg, false, undefined, 'event');
+  };
+  if (_gatePending) {
+    const _delay = Math.max(0, (S._teamRenderGateUntil - Date.now())) + 40;
+    setTimeout(_applyTeamVisuals, _delay);
+  } else {
+    _applyTeamVisuals();
+  }
   // 스냅샷 비교 — HP 줄어든 piece에 profile-hit, HP 회복된 piece에 heal flash
   if (changes && changes.length > 0) {
     const damaged = changes.filter(c => !c.healed);
     const healed = changes.filter(c => c.healed);
-    // 회복량 추적 — 녹색 도장 + HP 바 녹색 오버레이용 (skill_result 외 경로의 회복도 캡처)
+    // 회복량 추적(데이터) — 녹색 도장 + HP 바 녹색 오버레이용. 항상 누적(지연 렌더가 표시).
     for (const ch of healed) {
       const delta = (ch.newHp || 0) - (ch.oldHp || 0);
       if (delta > 0) addHeal(`${ch.playerIdx}:${ch.pieceIdx}`, delta);
     }
-    requestAnimationFrame(() => {
+    // ★ 피격 플래시(시각)는 게이트 진행 중이면 gated 핸들러(skill_result/team_skill_notice/
+    //   attack_result/being_attacked)가 임팩트 시점에 전담 → 중복/조기노출 방지로 스킵.
+    if (!_gatePending) requestAnimationFrame(() => {
       for (const ch of damaged) {
         // 직전 curse_tick 으로 처리된 piece는 빨간 일반 피격 애니 스킵 (보라 애니가 이미 발동)
         const player = (S.teamGamePlayers || []).find(p => p.idx === ch.playerIdx);
@@ -2843,6 +2865,9 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   // ★ 통일된 시퀀스 — SP 비행 종료 시점에 SFX + 토스트/로그 동시 발사
   const _spCost = spCostFromDelta(oldSpSnap, newSp, oldInstantSnap, newInstant);
   const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
+  // ★ FIX (팀전 스킬 타이밍): 마법구 착지 예정 시각 기록 → 곧 도착할 team_game_update 가 이 시각까지
+  //   보드/HP 시각 갱신을 지연(1v1 호흡 통일). 서버가 team_skill_notice 를 broadcast 보다 먼저 보냄.
+  S._teamRenderGateUntil = Date.now() + TOAST_DELAY_MS;
 
   // T+SP_END: SFX + dim 해제 + sp 동기화 + 토스트·로그 (HP/보드는 team_game_update 가 동시 처리)
   //   ★ 기폭 msg 는 SFX 스킵 — detonation_intro blast 가 폭발 SFX 담당
@@ -4674,6 +4699,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
+  // ★ FIX (팀전 공격 타이밍 — 1v1 통일): 임팩트(피격 판정) 예정 시각 기록 → 곧 도착할
+  //   team_game_update 가 이 시각까지 보드/HP 시각 갱신을 지연. 이전엔 T+0 에 HP가 임팩트보다
+  //   먼저 떨어졌음. (실제 임팩트는 GIF 프레임 기준이나 동기 시점엔 미정 → ATTACK_IMPACT_DELAY 추정.)
+  if (S.isTeamMode) S._teamRenderGateUntil = Date.now() + ATTACK_IMPACT_DELAY;
   // ★ FIX (마지막 유닛 사망 시 게임 즉시 종료): 사망 셋업(_pendingDeathCells)은 공격 GIF ~4프레임
   //   시점까지 지연되므로, 직후 도착하는 game_over 가 그 전에 결과화면을 노출했음. 스킬과 동일하게
   //   여기서 동기 사망 가드(_skillDeathGuardUntil)를 즉시 켜서 사망 GIF/유해 연출이 끝날 때까지 대기시킴.
@@ -5079,6 +5108,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   const _mySeq = ++_beingAttackedSeq;
   // ★ 유해 피격 애니 동기화 기준 — 일반 유닛 피격과 같은 임팩트 순간.
   S._impactAtTs = Date.now() + ATTACK_IMPACT_DELAY;
+  // ★ FIX (팀전 공격 타이밍 — 1v1 통일): 피격자 측도 team_game_update 의 보드/HP 시각 갱신을
+  //   임팩트 시점까지 지연 → HP가 피격 연출보다 먼저 떨어지지 않도록.
+  if (S.isTeamMode) S._teamRenderGateUntil = Date.now() + ATTACK_IMPACT_DELAY;
   setTimeout(() => {
     if (S.turnNumber !== _capturedTurn) return; // turn changed, skip stale update
     if (_beingAttackedSeq !== _mySeq) return; // newer being_attacked arrived, skip
@@ -7038,6 +7070,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   T+SP_END  : SFX + 스킬 효과(HP/보드) + 토스트/로그 + dim 해제 — 모두 동시
   const _spCost = spCostFromDelta(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp);
   const TOAST_DELAY_MS = getSpFlightEndMs(_spCost);
+  // ★ FIX (팀전 스킬 타이밍): 마법구 착지 예정 시각 기록 → 곧 도착할 team_game_update 가 이 시각까지
+  //   보드/HP 시각 갱신을 지연(1v1 호흡 통일). 서버가 skill_result 를 broadcast 보다 먼저 보내므로
+  //   team_game_update 도착 시점엔 이미 설정돼 있음.
+  S._teamRenderGateUntil = Date.now() + TOAST_DELAY_MS;
   const isDetonate = data && Array.isArray(data.deferredBombEmits) && data.deferredBombEmits.length > 0;
 
   // 2단계 — T+SP_END: SFX + 스킬 효과 + 토스트·로그 + dim 해제 (모두 동시)
@@ -18600,6 +18636,9 @@ socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything }) =
   const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;
   const _mySeq = ++_teamAllyAttackedSeq;
+  // ★ FIX (팀전 공격 타이밍 — 1v1 통일): 이 핸들러는 임팩트(ATTACK_IMPACT_DELAY) 후 연출하므로,
+  //   team_game_update 의 보드/HP 시각 갱신도 그 시점까지 지연시켜 HP가 연출보다 먼저 변하지 않게.
+  if (S.isTeamMode) S._teamRenderGateUntil = Date.now() + ATTACK_IMPACT_DELAY;
 
   setTimeout(() => {
     if (S.turnNumber !== _capturedTurn) return; // C-1: turn changed, skip stale update
