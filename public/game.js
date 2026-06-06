@@ -3731,6 +3731,32 @@ socket.on('spectator_update', (gameState) => {
   }
 });
 
+// ── 관전자 저주 데미지 모션 — 플레이어와 동일하게 데미지 GIF 4번째 프레임에 피격 모션 ──
+//   (curse_tick 은 플레이어 전용이라, 관전자는 별도 spectator_curse_tick 으로 col/row 를 받아 연출.)
+socket.on('spectator_curse_tick', ({ playerIdx, col, row }) => {
+  if (!S.isSpectator) return;
+  if (col == null || row == null) return;
+  // 피격 흔들림 대상 — 팀 관전자는 owner 팀으로 결정(teamId 0 → piece-marker / 1 → opp-marked).
+  //   1v1 관전자(.spec-piece)는 animateBoardIconHit 가 no-op 이라 값 무관(망령 데미지 GIF 만 재생).
+  let isDef = true;
+  if (S.isTeamMode) {
+    const owner = (S.teamGamePlayers || []).find(p => p.idx === playerIdx);
+    isDef = !(owner && owner.teamId === 1);
+  }
+  const _fire = () => { if (typeof animateBoardIconHit === 'function') { try { animateBoardIconHit([{ col, row }], isDef); } catch (e) {} } };
+  setTimeout(() => {
+    if (typeof playCurseBoardAnim === 'function') playCurseBoardAnim(col, row, 'damage');
+    const _u = window.CURSE_GIFS && window.CURSE_GIFS.damage;
+    const _fp = (_u && typeof _fetchGifFrameTimings === 'function') ? _fetchGifFrameTimings(_u) : Promise.resolve({ frameDelays: [] });
+    Promise.resolve(_fp).then(t => {
+      const fd = (t && t.frameDelays) || [];
+      let d = (fd.length > 3) ? fd[3] : (fd.length ? fd[fd.length - 1] : (typeof ATTACK_IMPACT_DELAY !== 'undefined' ? ATTACK_IMPACT_DELAY : 500));
+      d = Math.min(d, 3000);
+      setTimeout(_fire, d);
+    }).catch(() => setTimeout(_fire, 500));
+  }, 250);
+});
+
 // ── 관전자 이동 슬라이드 애니 ──
 //   ★ FIX (관전자 이동 모션): 서버가 상태 동기화(spectator_update / team_spectator_update) *직전* 에
 //   이 이벤트를 보냄 → 보드가 아직 옛 위치를 표시하는 동안 animateMove 가 옛→새 칸으로 슬라이드.
@@ -13154,6 +13180,8 @@ function _cellStateFP(col, row, pre) {
   if (mo) {
     f += '|O' + (mo.type || '') + ',' + mo.hp + ',' + mo.maxHp + ',' + (mo.icon || '');
     f += ((mo.statusEffects || []).some(e => e.type === 'mark') ? 'K' : '');
+    // 표식 적의 상태(저주 등) 변화도 반영 — 빠지면 저주 idle 레이어가 적용/해제돼도 재렌더 누락 → 잔상.
+    f += '|si' + (typeof getStatusIcons === 'function' ? (getStatusIcons(mo) || '') : '');
   }
 
   // ── 보드 오브젝트 ──
@@ -13480,7 +13508,7 @@ function renderGameBoard() {
     const _dragonSkipPiece = pc && pc.isDragon && S._dragonIncoming &&
       S._dragonIncoming.has(`${col},${row},${S.playerIdx}`);
     if (!_isCarousel && pc && !_dragonSkipPiece) {
-      const statusIcons = getStatusIcons(pc);
+      const statusIcons = getBoardStatusIcons(pc);
       // 딤 통일: 쌍둥이/쌍검무/질주 중 — 해당 piece 외 전부 흐리게
       const isTwinDimmed = S.twinMovePending && S.twinMovedSub && pc.subUnit === S.twinMovedSub;
       const dualActive = S.myPieces.find(p => p.alive && p.dualBladeAttacksLeft > 0);
@@ -13590,7 +13618,7 @@ function renderGameBoard() {
         const tmHpText = otherTwin
           ? `${tmPc.hp + otherTwin.hp}/${tmPc.maxHp + otherTwin.maxHp}`
           : `${tmPc.hp}/${tmPc.maxHp}`;
-        const tmStatus = getStatusIcons(tmPc);
+        const tmStatus = getBoardStatusIcons(tmPc);
         // 팀 절대 컬러: S.teamId === 0 → 블루, 1 → 레드
         const teamColorCls = S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red';
         cell.innerHTML += `
@@ -14060,7 +14088,8 @@ function renderGameBoard() {
     for (const _mdKey of _moveAnimDest) {
       const [_mdc, _mdr] = _mdKey.split(',').map(Number);
       const _mdCell = board.querySelector(`.cell[data-col="${_mdc}"][data-row="${_mdr}"]`);
-      if (_mdCell) _mdCell.querySelectorAll('img.p-gif').forEach(g => { g.style.opacity = '0'; });
+      // ★ 도착칸의 말 idle + 저주 idle 레이어 둘 다 숨김 — 슬라이드 완료 전 도착칸에 미리 보이는 것 방지
+      if (_mdCell) _mdCell.querySelectorAll('img.p-gif, .curse-board-layer').forEach(g => { g.style.opacity = '0'; });
     }
   }
 
@@ -14095,7 +14124,7 @@ function _renderCellCarousel(cell, col, row, units) {
     if      (u.owner === 'opp')      hpColor = '#f87171';
     else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
     else                             hpColor = 'var(--success)';
-    const statusIcons = (typeof getStatusIcons === 'function') ? getStatusIcons(pc) : '';
+    const statusIcons = (typeof getBoardStatusIcons === 'function') ? getBoardStatusIcons(pc) : '';
     return { iconHtml, hpText: `${pc.hp}/${pc.maxHp}`, hpColor, statusIcons, owner: u.owner };
   });
 
@@ -14263,6 +14292,11 @@ function getStatusIcons(pc) {
   }
   return icons.join('');
 }
+// 보드 셀 전용 상태 아이콘 — 저주(☠)는 보드 위 망령 idle 레이어가 대신 표현하므로 제외.
+//   (fingerprint/프로필 등 다른 곳은 getStatusIcons 그대로 사용 — 재렌더 추적 유지.)
+function getBoardStatusIcons(pc) {
+  return (getStatusIcons(pc) || '').replace(/☠/g, '');
+}
 // ── 저주 상태 보드 레이어 HTML — 저주 상태면 유닛 뒤(z:0)에 깔리는 idle 망령 GIF ──
 //   (보드 위 전용. facing 은 renderGameBoard 후 _pieceFacingDir 재적용 루프에서 .face-left 부여.)
 function _isCursed(pc){ return !!(pc && (pc.statusEffects || []).some(e => e.type === 'curse')); }
@@ -14302,6 +14336,8 @@ function playCurseBoardAnim(col, row, kind){
   if (!board) return;
   const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
   if (!cell) return;
+  // 같은 셀의 기존 저주 오버레이 제거 — 잔상/중첩 방지 (연속 모션 시 겹침 방지)
+  cell.querySelectorAll('.curse-anim-overlay').forEach(o => { try { o.remove(); } catch(e){} });
   // 유닛 방향 상속 — 셀의 idle GIF 가 scaleX(-1) 면 좌향
   let faceLeft = false;
   const g = cell.querySelector('img.p-gif') || cell.querySelector('.curse-board-layer.face-left');
@@ -14310,14 +14346,16 @@ function playCurseBoardAnim(col, row, kind){
   img.className = 'curse-anim-overlay' + (faceLeft ? ' face-left' : '');
   img.alt = '';
   let _url = null;
-  const _cleanup = () => { if (img.parentNode) img.remove(); if (_url && _url.startsWith('blob:')) { try{URL.revokeObjectURL(_url);}catch(e){} } };
+  let _done = false;
+  const _cleanup = () => { if (_done) return; _done = true; if (img.parentNode) img.remove(); if (_url && _url.startsWith('blob:')) { try{URL.revokeObjectURL(_url);}catch(e){} } };
   cell.appendChild(img);
   _curseOnceBlobUrl(kind).then(u => {
     if (!u) { _cleanup(); return; }
     _url = u; img.src = u;
-    if (typeof _fetchGifDuration === 'function') {
-      _fetchGifDuration(u, (dur) => setTimeout(_cleanup, (dur || 1200) + 150));
-    } else { setTimeout(_cleanup, 1500); }
+    // ★ _fetchGifDuration 은 Promise 반환(async) — 콜백 아님. 콜백식으로 잘못 쓰면 cleanup 이
+    //   4초 안전망에서만 발동 → 마지막 프레임이 4초간 잔상으로 남아 다음 모션과 겹침.
+    const _dp = (typeof _fetchGifDuration === 'function') ? _fetchGifDuration(u) : Promise.resolve(1200);
+    Promise.resolve(_dp).then(dur => setTimeout(_cleanup, (dur || 1200) + 80)).catch(() => setTimeout(_cleanup, 1500));
   });
   setTimeout(_cleanup, 4000); // 안전 폴백
 }
@@ -14361,6 +14399,24 @@ function _processCurseTransitions(){
     if (!nowCursed.has(k)) playCurseBoardAnim(pos.col, pos.row, 'release');
   }
   S._cursedSeen = nowCursed;
+}
+// ── 1v1 관전자용 저주 전이 — renderSpectatorGame 끝에서 호출 (p0/p1 모두 공개되므로 양측 추적) ──
+function _processSpecCurseTransitions(gs){
+  if (!gs) return;
+  if (!(S._specCursedSeen instanceof Map)) S._specCursedSeen = new Map();
+  const nowCursed = new Map();
+  const collect = (pc, key) => {
+    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0 && pc.alive !== false) nowCursed.set(key, { col: pc.col, row: pc.row });
+  };
+  (gs.p0Pieces || []).forEach((pc, i) => collect(pc, `0:${i}`));
+  (gs.p1Pieces || []).forEach((pc, i) => collect(pc, `1:${i}`));
+  for (const [k, pos] of nowCursed) {
+    if (!S._specCursedSeen.has(k)) playCurseBoardAnim(pos.col, pos.row, 'summon');
+  }
+  for (const [k, pos] of S._specCursedSeen) {
+    if (!nowCursed.has(k)) playCurseBoardAnim(pos.col, pos.row, 'release');
+  }
+  S._specCursedSeen = nowCursed;
 }
 
 // ── 턴 데미지 추적 — 매 턴 시작 시 모든 piece HP 스냅샷, 변화량을 도장·HP바로 표시 ──
@@ -17332,6 +17388,8 @@ function renderSpectatorGame(gs) {
         <div class="spec-hp-bar"><div class="spec-hp-fill p0-fill" style="width:${hpPct0}%"></div></div>
       </div>`;
       cell.classList.add('has-piece');
+      // ★ 저주 보드 레이어 (관전자) — 저주 상태면 유닛 뒤 망령 idle
+      if (_isCursed(p0)) { cell.innerHTML += curseBoardLayerHtml(p0); cell.classList.add('has-curse'); }
     }
     // P1 말 (빨간색)
     const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
@@ -17343,6 +17401,8 @@ function renderSpectatorGame(gs) {
         <div class="spec-hp-bar"><div class="spec-hp-fill p1-fill" style="width:${hpPct1}%"></div></div>
       </div>`;
       cell.classList.add('has-piece');
+      // ★ 저주 보드 레이어 (관전자)
+      if (_isCursed(p1)) { cell.innerHTML += curseBoardLayerHtml(p1); cell.classList.add('has-curse'); }
     }
     // 보드 오브젝트
     if (gs.boardObjects) {
@@ -17377,6 +17437,9 @@ function renderSpectatorGame(gs) {
       if (!p0 && !p1) cell.innerHTML += `<span class="cell-mark">${_atkSpec.hit ? '💥' : '·'}</span>`;
     }
   });
+
+  // ★ 저주 소환/해제 전이 (관전자) — 셀 렌더 후 1회성 연출
+  try { _processSpecCurseTransitions(gs); } catch (e) {}
 
   // 관전자 말 클릭 이벤트
   document.querySelectorAll('#game-board [data-spec-click]').forEach(el => {
@@ -17811,6 +17874,8 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
       const finalCell = freshBoard?.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
       const finalGif  = finalCell?.querySelector('.p-gif');
       if (finalGif) finalGif.style.opacity = '';
+      // 저주 idle 레이어도 도착칸에서 다시 표시 (슬라이드 중 숨겼던 것 복원)
+      if (finalCell) finalCell.querySelectorAll('.curse-board-layer').forEach(c => { c.style.opacity = ''; });
     }, DURATION + 80);
   };
 

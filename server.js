@@ -4920,6 +4920,8 @@ function processTurnStart(room) {
           } else {
             p.hp = Math.max(0, p.hp - 0.5);
             emitToBoth(room, 'curse_tick', { playerIdx: idx, targetName: p.name, damage: 0.5, newHp: p.hp });
+            // 관전자에게도 저주 데미지 모션 공유 — col/row 직접 전달(이름 역조회 불필요). 1v1·팀 모두 동일 처리.
+            emitToSpectators(room, 'spectator_curse_tick', { playerIdx: idx, targetName: p.name, col: p.col, row: p.row, damage: 0.5, newHp: p.hp });
             if (p.hp <= 0) {
               handleDeath(room, p, idx);
             } else {

@@ -2880,6 +2880,8 @@ body.team-mode .remains-marker.remains-flip { transform: translate(-50%, calc(-5
    has-curse 셀만 마커를 z:2 로 올려 저주를 뒤로(전역 .piece-marker 영향 없음). */
 .cell.has-curse { overflow: visible; }
 .cell.has-curse .piece-marker { position: relative; z-index: 2; }
+/* 관전자 보드(.spec-piece)도 저주 레이어(z:0) 앞에 오도록 */
+.cell.has-curse .spec-piece { position: relative; z-index: 2; }
 .cell:has(.curse-anim-overlay) { overflow: visible; }
 .curse-board-layer, .curse-anim-overlay {
   position: absolute; left: 50%; top: 50%;
@@ -6706,7 +6708,8 @@ body.team-mode .placement-opp-panel {
   .board { grid-template-columns: repeat(5, 46px); grid-template-rows: repeat(5, 46px); }
   .board .cell { width: 46px; height: 46px; }
   img.p-gif { width: 30px; height: 30px; }
-  .remains-marker, .death-anim-overlay .death-gif { width: 46px; height: 46px; }
+  /* 유해·사망 모션은 유닛 대비 ~1.95배(데스크탑 74/38) 유지 — 모바일에서 유난히 작아 보이던 것 보정 (46→58) */
+  .remains-marker, .death-anim-overlay .death-gif { width: 58px; height: 58px; }
   .reveal-layout { flex-direction: column; }
   .reveal-vs { align-self: center; }
 }
@@ -7104,7 +7107,8 @@ body[data-my-team="red"] #chat-scope-team.active {
   }
   body:not(.team-mode) .cell { width: 42px; height: 42px; font-size: 0.55rem; }
   img.p-gif { width: 26px; height: 26px; }
-  .remains-marker, .death-anim-overlay .death-gif { width: 40px; height: 40px; }
+  /* 유해·사망 모션 유닛 대비 ~1.95배 유지 (40→51) — 모바일 축소 보정 */
+  .remains-marker, .death-anim-overlay .death-gif { width: 51px; height: 51px; }
   body.team-mode .cell {
     width: auto !important; height: auto !important;
     aspect-ratio: 1; font-size: 0.55rem;
