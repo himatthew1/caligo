@@ -5210,7 +5210,9 @@ function endTurn(room, opts) {
     // 현재 차례가 AI라면 자동 행동 트리거. 애니메이션 페이즈 진행 중이면 그 종료 + 1.5s 까지 대기.
     if (cur && cur.socketId === 'AI') {
       const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
-      const aiDelay = Math.max(2000, phaseRemain);  // ★ #6: 턴 시작 지연 2500→2000 단축
+      // ★ #6: 턴 시작 지연 2500→2000 단축. ★ 상한 7000 — 폭탄 체인 등으로 _animPhaseEndsAt 가
+      //   먼 미래로 누적돼 AI 턴 시작이 수십 초 지연(=프리징 체감)되는 것 방지(정상 페이즈는 7s 이내).
+      const aiDelay = Math.min(7000, Math.max(2000, phaseRemain));
       // ★ epoch 토큰 — 동일 슬롯 재진입/중복 스케줄 시 stale 콜백이 aiTeamTakeTurn 을 중복 실행하지 못하게 차단.
       const _epoch = (room._aiSchedEpoch = (room._aiSchedEpoch || 0) + 1);
       setTimeout(() => {
@@ -8080,6 +8082,7 @@ io.on('connection', (socket) => {
 
     // ★ S-10: 재접속 중 동시 이벤트 방지 — 상태 전송 완료까지 brief lock
     player._reconnecting = true;
+    try {
 
     // ★ FIX: 재접속(새로고침) 시 클라 캐릭터 DB(S.characters) 가 비어 findLocalChar 가 모두 '?' 반환 →
     //   초기공개/교환/최종공개/HP 등 세팅 화면이 전부 깨짐. phase 이벤트보다 먼저 DB 전송(순서 보장).
@@ -8270,8 +8273,15 @@ io.on('connection', (socket) => {
       // 그 외(드래프트 단일 단계 등) — 기본 resume 이벤트만
       socket.emit('reconnect_phase_resume', { phase, idx });
     }
-    player._reconnecting = false;
     socket.emit('reconnect_ok', { idx, phase });
+    } catch (e) {
+      console.error('[reconnect_game]', e && e.message);
+      try { socket.emit('reconnect_failed', { reason: 'internal_error' }); } catch (_) {}
+    } finally {
+      // ★ FIX (영구 프리징 방지): 재접속 처리 중 예외가 나도 _reconnecting 을 반드시 해제.
+      //   안 하면 이후 move/attack/skill/end_turn 이 '재접속 처리 중'으로 영구 차단됨(워치독 없음).
+      player._reconnecting = false;
+    }
   });
 
   // ── 방 입장 ──
