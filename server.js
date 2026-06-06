@@ -5867,7 +5867,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     case 'monk': {
       const targetIdx2 = params?.targetPieceIdx;
       if (targetIdx2 === undefined) return { ok: false, msg: '대상을 지정하세요.' };
-      const target = player.pieces[targetIdx2];
+      // ★ FIX (팀전 신성 — 팀원 회복 대상 지목): targetOwnerIdx 로 시전자 본인 OR 팀원 지정 가능.
+      //   (이전엔 player.pieces 본인 말만 가능 → 팀전에서 팀원을 치유 대상으로 못 골랐음.)
+      //   대상 제약은 "아군(같은 팀)" + "수도승 본인 제외" 만 — 풀체력·무상태 대상도 허용(상태이상
+      //   제거 유틸/사용자 요청). 아군이 모두 풀체력·무상태여도 시전 가능.
+      const targetOwnerIdx = (typeof params?.targetOwnerIdx === 'number') ? params.targetOwnerIdx : playerIdx;
+      const allyIdxs = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      if (!allyIdxs.includes(targetOwnerIdx)) return { ok: false, msg: '아군만 치유할 수 있습니다.' };
+      const targetPlayer = room.players[targetOwnerIdx];
+      const target = targetPlayer && targetPlayer.pieces[targetIdx2];
       if (!target || !target.alive) return { ok: false, msg: '대상이 없습니다.' };
       if (target === piece) return { ok: false, msg: '자신은 치유할 수 없습니다.' };
       target.hp = Math.min(target.maxHp, target.hp + 2);
@@ -5877,14 +5885,14 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         const witchOwner = room.players[hadCurse.source];
         if (witchOwner && witchOwner.socketId === 'AI') {
           if (!witchOwner._curseHistory) witchOwner._curseHistory = {};
-          const key = `${playerIdx}:${target.type}:${target.subUnit || ''}`;
+          const key = `${targetOwnerIdx}:${target.type}:${target.subUnit || ''}`;
           witchOwner._curseHistory[key] = (witchOwner._curseHistory[key] || 0) + 1;
         }
       }
       target.statusEffects = [];
       spendSP(room, playerIdx, cost);
       result.data.healedPieceIdxs = [targetIdx2];
-      result.data.healedPieces = [{ ownerIdx: playerIdx, pieceIdx: targetIdx2 }];
+      result.data.healedPieces = [{ ownerIdx: targetOwnerIdx, pieceIdx: targetIdx2 }];
       // ★ 신성 시전 애니용 — 대상의 위치 (빛 기둥이 내려올 곳).
       result.data.divineTarget = { col: target.col, row: target.row };
       result.msg = `신성: ${target.name}의 상태이상 제거, 2 HP 회복`;
@@ -9781,6 +9789,11 @@ io.on('connection', (socket) => {
             hitName: h.hitName, hitIcon: h.hitIcon,
             redirectedToBodyguard: h.redirectedToBodyguard || false,
             bodyguardRedirect: h.bodyguardRedirect || false,
+          })),
+          // ★ FIX (팀원 공격 — 아군 오사 데미지 도장): 학살영웅 등 betrayer 오사로 피격된 아군 정보.
+          friendlyFireHits: (room._friendlyFireHits || []).map(ff => ({
+            col: ff.col, row: ff.row, damage: ff.damage, destroyed: ff.destroyed,
+            defOwnerIdx: ff.ownerIdx, defPieceIdx: ff.defPieceIdx,
           })),
         };
         for (const aIdx of casterAllyIdxs) {

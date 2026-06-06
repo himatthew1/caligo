@@ -12775,9 +12775,11 @@ function skillHasValidTarget(piece, sk) {
     const candidates = alive(S.oppPieces).filter(p => p.hp >= 1 && !(p.statusEffects || []).some(e => e.type === 'curse'));
     return candidates.length > 0;
   }
-  // 수도승 신성: 자신 외 살아있는 아군
+  // 수도승 신성: 자신 외 살아있는 아군 (팀전이면 팀원 말도 대상). 풀체력·무상태도 대상 허용.
   if (skillId === 'divine') {
-    return alive(S.myPieces).some(p => p.type !== 'monk');
+    const ownOk = alive(S.myPieces).some(p => p.type !== 'monk');
+    const allyOk = S.isTeamMode && Array.isArray(S.teammatePieces) && alive(S.teammatePieces).length > 0;
+    return ownOk || allyOk;
   }
   // 국왕 절대복종 반지: 살아있는 적
   if (skillId === 'ring') {
@@ -15454,18 +15456,35 @@ function showMonkSkillUI(pieceIdx) {
   document.getElementById('skill-modal-title').textContent = '신성 — 치유 대상 선택';
   body.innerHTML = '';
 
-  for (let i = 0; i < S.myPieces.length; i++) {
-    const apc = S.myPieces[i];
-    if (!apc.alive || i === pieceIdx) continue;
+  // ★ FIX (팀전 신성): 본인 말(수도승 제외) + 팀전이면 팀원 말도 치유 대상으로 표시.
+  //   풀체력·무상태 대상도 선택 가능(상태이상 제거 유틸) — 별도 필터 없음.
+  const _addOpt = (apc, i, ownerIdx, ownerLabel) => {
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, {size:'1.2em'})} ${apc.name}</div>
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, {size:'1.2em'})} ${apc.name}${ownerLabel}</div>
       <div class="skill-desc">HP ${apc.hp}/${apc.maxHp} — 치유 +2, 상태이상 제거</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
-      socket.emit('use_skill', { pieceIdx, skillId: 'divine', params: { targetPieceIdx: i } });
+      socket.emit('use_skill', { pieceIdx, skillId: 'divine', params: { targetPieceIdx: i, targetOwnerIdx: ownerIdx } });
     });
     body.appendChild(opt);
+  };
+  // 본인 말 (수도승 자신 제외)
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const apc = S.myPieces[i];
+    if (!apc.alive || i === pieceIdx) continue;
+    _addOpt(apc, i, S.playerIdx, '');
+  }
+  // 팀전: 팀원 말도 치유 가능
+  if (S.isTeamMode && Array.isArray(S.teammatePieces) && S.teammatePieces.length > 0) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) {
+      for (let i = 0; i < S.teammatePieces.length; i++) {
+        const apc = S.teammatePieces[i];
+        if (!apc.alive) continue;
+        _addOpt(apc, i, teammate.idx, ` <span style="opacity:.7">(${teammate.name})</span>`);
+      }
+    }
   }
   modal.classList.remove('hidden');
 }
@@ -18674,7 +18693,7 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
 //     셀 마크 (💥/·) / 빗나감·격파 토스트·로그 / 적 프로필 피격 애니 / 자동 추리토큰.
 //   ★ "공격했습니다!" 같은 별도 토스트 (= being_attacked 의 알림) 만 X.
 let _teamAllyAttackedSeq = 0;
-socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atkCol, atkRow, atkPieceType, atkPieceSubUnit }) => {
+socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atkCol, atkRow, atkPieceType, atkPieceSubUnit, friendlyFireHits }) => {
   // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
   // ★ FIX (팀원 공격 모션 부재): 공격자(팀원) 칸에 공격 GIF 를 즉시 재생 — 1v1 공격자 시점(attack_result
@@ -18703,6 +18722,30 @@ socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atk
       const wasHit = (hits || []).some(h => h.col === ac.col && h.row === ac.row);
       S.attackLog.push({ col: ac.col, row: ac.row, hit: wasHit, turn: S.turnNumber });
     }
+    // ★ FIX (팀원 공격 데미지 도장 누락): team_ally_attacked 는 피격 카드 flash 만 하고 데미지 도장
+    //   (빨간 본체/파란 충성)을 안 찍었음. attack_result/team_skill_notice 와 동일하게 도장 누적 후
+    //   renderTeamProfiles 로 표시 → 관전(팀원) 시점에서도 누가 몇 데미지 입었는지 보임.
+    for (const h of (hits || [])) {
+      const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+      if (dmg <= 0 || h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+      const key = `${h.defOwnerIdx}:${h.defPieceIdx}`;
+      if (h.bodyguardRedirect) addLoyaltyDamage(key, dmg);
+      else if (!h.redirectedToBodyguard) addBodyDamage(key, dmg);
+    }
+    // ★ 아군 오사(학살영웅 betrayer) 데미지 도장 + 셀 플래시 + attackLog(위치).
+    for (const ff of (friendlyFireHits || [])) {
+      const dmg = (typeof ff.damage === 'number') ? ff.damage : 0;
+      if (ff.col != null && ff.row != null) {
+        animateAttack([], [{ col: ff.col, row: ff.row }], true);
+        S.attackLog.push({ col: ff.col, row: ff.row, hit: true, turn: S.turnNumber });
+      }
+      if (dmg > 0 && ff.defPieceIdx != null && ff.defOwnerIdx != null) {
+        addBodyDamage(`${ff.defOwnerIdx}:${ff.defPieceIdx}`, dmg);
+        const card = document.querySelector(`.team-profile-block[data-player-idx="${ff.defOwnerIdx}"] [data-piece-idx="${ff.defPieceIdx}"]`);
+        if (card) applyHitFlashWithBrighten(card);
+      }
+    }
+    if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
     // 적 프로필 피격 애니메이션
     requestAnimationFrame(() => {
       for (const h of (hits || [])) {

@@ -4936,8 +4936,16 @@ body.dim-morale-zone .piece-marker.morale-buffed {
 /* 팀모드 절대 컬러 — 블루 / 레드 */
 .turn-banner.team-turn-blue { border-color: #3b82f6; color: #93c5fd; background: rgba(59,130,246,0.12); }
 .turn-banner.team-turn-red  { border-color: #ef4444; color: #fca5a5; background: rgba(239,68,68,0.10); }
-.timer-clock.timer-team-blue { color: #93c5fd; }
-.timer-clock.timer-team-red  { color: #fca5a5; }
+/* ★ FIX (팀 타이머 노란색): 이전엔 text color 만 지정 → SVG 링(.timer-arc)이 기본 노란색이었음.
+   1v1(my/opp-turn-timer)과 동일하게 arc/track/text 모두 팀 색으로 칠한다. */
+.timer-clock.timer-team-blue { color: #3b82f6; }
+.timer-clock.timer-team-blue .timer-arc:not(.urgent) { stroke: #3b82f6; }
+.timer-clock.timer-team-blue .timer-track { fill: rgba(59,130,246,0.08); }
+.timer-clock.timer-team-blue .timer-clock-text:not(.urgent) { color: #3b82f6; }
+.timer-clock.timer-team-red  { color: #ef4444; }
+.timer-clock.timer-team-red .timer-arc:not(.urgent) { stroke: #ef4444; }
+.timer-clock.timer-team-red .timer-track { fill: rgba(239,68,68,0.08); }
+.timer-clock.timer-team-red .timer-clock-text:not(.urgent) { color: #ef4444; }
 
 /* 팀전 턴 오더 바 — 현재 플레이어 강조 + A/B팀 색상 구분 */
 .turn-banner-main { font-weight: 700; }
