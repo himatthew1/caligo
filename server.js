@@ -2309,6 +2309,41 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       });
     }
   }
+  // ★ FIX (AI 동료 공격 알림 누락): 인간 공격(server 9836)은 team_ally_attacked 를 보내 동료가
+  //   공격 모션·데미지 도장·자동 추리토큰을 받지만, AI 공격(이 함수)엔 이게 빠져 있어 — 2v2 에서
+  //   동료가 AI 면 그 공격에 대한 정보를 인간이 전혀 못 받았음. 인간 공격과 동일하게 시전자(AI)의
+  //   ally 에게 team_ally_attacked emit. (room._friendlyFireHits 리셋 전이라 오사 정보도 포함.)
+  {
+    const casterAllyIdxs = getAllyIndices(room, idx).filter(i => i !== idx);
+    if (casterAllyIdxs.length > 0) {
+      const _attackedPayload = {
+        casterIdx: idx,
+        casterName: p.name,
+        atkPieceType: piece.type,
+        atkPieceIcon: piece.icon,
+        atkPieceName: piece.name,
+        atkCol: piece.col, atkRow: piece.row, atkPieceSubUnit: piece.subUnit || null,
+        atkCells,
+        attackerImpactedAnything,
+        hits: hitResults.map(h => ({
+          col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed,
+          defOwnerIdx: h.defOwnerIdx, defPieceIdx: h.defPieceIdx,
+          hitName: h.hitName, hitIcon: h.hitIcon,
+          redirectedToBodyguard: h.redirectedToBodyguard || false,
+          bodyguardRedirect: h.bodyguardRedirect || false,
+        })),
+        friendlyFireHits: (room._friendlyFireHits || []).map(ff => ({
+          col: ff.col, row: ff.row, damage: ff.damage, destroyed: ff.destroyed,
+          defOwnerIdx: ff.ownerIdx, defPieceIdx: ff.defPieceIdx,
+        })),
+      };
+      for (const aIdx of casterAllyIdxs) {
+        const ally = room.players[aIdx];
+        if (!ally || !ally.socketId || ally.socketId === 'AI') continue;
+        io.to(ally.socketId).emit('team_ally_attacked', _attackedPayload);
+      }
+    }
+  }
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
   room._friendlyFireHits = [];
