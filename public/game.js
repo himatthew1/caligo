@@ -3188,6 +3188,13 @@ socket.on('team_game_over', ({ win, winnerTeamId, winTeamLabel, loseTeamLabel, w
 // 팀전 게임 화면 렌더 — 4인 프로필 + 턴 표시 (턴 배너는 updateTurnBanner가 통일)
 function renderTeamGameSnapshot() {
   try {
+    // ★ #2 차례별 밝기 반전: 평소엔 내 말 밝게/팀원 말 딤(.teammate-piece). 팀원 차례에는 반대로
+    //   팀원 말을 밝게, 내 말을 딤한다(body.team-teammate-turn 토글 → CSS 가 반전 적용).
+    if (S.isTeamMode && !S.isSpectator) {
+      const curIsTeammate = S.currentPlayerIdx !== S.playerIdx &&
+        (S.teamGamePlayers || []).some(p => p.idx === S.currentPlayerIdx && p.teamId === S.teamId);
+      document.body.classList.toggle('team-teammate-turn', !!curIsTeammate);
+    }
     if (typeof renderGameBoard === 'function') renderGameBoard();
     renderTeamProfiles();  // 1v1의 renderMyPieces/renderOppPieces 대체
     // 사용자 #14 수정: spotlight 진행 중에 재렌더되면 caster-spotlight 가 사라지므로 즉시 재적용.

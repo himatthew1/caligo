@@ -2453,6 +2453,14 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 }
 .piece-marker.teammate-piece .p-icon { opacity: 0.85; }
 .piece-marker.teammate-piece .p-hp { opacity: 0.85; }
+/* #2 차례별 밝기 반전 — 팀원 차례(body.team-teammate-turn)엔 팀원 말을 밝게, 내 말을 딤 */
+body.team-teammate-turn .piece-marker.teammate-piece { opacity: 1; filter: none; }
+body.team-teammate-turn .piece-marker.teammate-piece .p-icon,
+body.team-teammate-turn .piece-marker.teammate-piece .p-hp { opacity: 1; }
+body.team-teammate-turn #game-board .piece-marker:not(.teammate-piece):not(.opp-marked) {
+  opacity: 0.65;
+  filter: saturate(0.7);
+}
 /* 팀 절대 컬러 — 블루팀 */
 .piece-marker.piece-team-blue .p-icon { filter: drop-shadow(0 0 2px rgba(96,165,250,0.7)); }
 .piece-marker.piece-team-blue .p-hp { color: #93c5fd; }
