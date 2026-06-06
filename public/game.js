@@ -4722,7 +4722,8 @@ socket.on('team_ally_moved', ({ moverName, pieceType, pieceIcon, pieceName, subU
   if (typeof renderGameBoard === 'function') renderGameBoard();
   // ★ 팀원 프로필 카드 좌표도 즉시 갱신 — renderGameBoard 만으로는 프로필 카드 미갱신.
   //   _augmentPl 이 S.teammatePieces 를 쓰므로, renderTeamProfiles 호출만 하면 됨.
-  if (typeof renderMyPieces === 'function') renderMyPieces();
+  //   ★ FIX: 1v1용 renderMyPieces 가 아니라 renderTeamProfiles 를 호출해야 팀원 프로필이 갱신됨(주석대로).
+  if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
   // 새 위치 셀 강조 + 이전 위치는 잔상
   const boardEl = document.getElementById('game-board');
   if (boardEl) {
@@ -5959,7 +5960,7 @@ function _registerProfileAnim(playerIdx, pieceIdx, kind, durationMs) {
   if (playerIdx == null || pieceIdx == null) return;
   const key = `${kind}:${playerIdx}:${pieceIdx}`;
   const expiresAt = Date.now() + durationMs;
-  window._activeProfileAnims.set(key, { kind, playerIdx, pieceIdx, expiresAt });
+  window._activeProfileAnims.set(key, { kind, playerIdx, pieceIdx, expiresAt, startAt: Date.now() });
   setTimeout(() => {
     const cur = window._activeProfileAnims.get(key);
     if (cur && cur.expiresAt <= Date.now() + 5) window._activeProfileAnims.delete(key);
@@ -5998,10 +5999,19 @@ function reapplyActiveProfileAnims() {
       const card = _findPieceCard(info.playerIdx, info.pieceIdx);
       if (!card) return;
       if (info.kind === 'hit') {
-        if (!card.classList.contains('profile-hit')) card.classList.add('profile-hit');
+        // ★ FIX (팀전 프로필 피격 애니 깜빡임): innerHTML 재생성된 카드에 클래스를 그냥 재적용하면
+        //   1.8s 플래시가 처음부터 재생돼 매 렌더마다 깜빡이고 "마지막쯤 갑자기 플래시"가 보였다.
+        //   경과시간만큼 음수 animation-delay 로 "이어서" 재생 → 재시작 없음(이미 끝났으면 종료 상태 유지).
+        if (!card.classList.contains('profile-hit')) {
+          card.style.animationDelay = '-' + Math.max(0, now - (info.startAt || now)) + 'ms';
+          card.classList.add('profile-hit');
+        }
         card.classList.add('turn-bright');
       } else if (info.kind === 'heal') {
-        if (!card.classList.contains('heal-flash')) card.classList.add('heal-flash');
+        if (!card.classList.contains('heal-flash')) {
+          card.style.animationDelay = '-' + Math.max(0, now - (info.startAt || now)) + 'ms';
+          card.classList.add('heal-flash');
+        }
         card.classList.add('turn-bright');
       } else if (info.kind === 'protected') {
         if (!card.classList.contains('profile-protected')) card.classList.add('profile-protected', 'v3');
@@ -6030,6 +6040,7 @@ function _findPieceCard(playerIdx, pieceIdx) {
 function applyHitFlashWithBrighten(card, durationMs) {
   if (!card) return;
   card.classList.remove('profile-hit');
+  card.style.animationDelay = '';   // ★ 첫 플래시는 처음부터 (reapply 의 음수 delay 잔류 제거)
   void card.offsetWidth;
   card.classList.add('profile-hit');
   card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
@@ -6051,6 +6062,7 @@ function applyHitFlashWithBrighten(card, durationMs) {
 function applyHealFlashWithBrighten(card, durationMs) {
   if (!card) return;
   card.classList.remove('heal-flash');
+  card.style.animationDelay = '';   // ★ 첫 플래시는 처음부터 (reapply 의 음수 delay 잔류 제거)
   void card.offsetWidth;
   card.classList.add('heal-flash');
   card.classList.add('turn-bright');  // 그 턴 동안 풀 밝기 유지
