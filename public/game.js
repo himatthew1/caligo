@@ -7601,6 +7601,10 @@ socket.on('scout_result', ({ axis, value, targetName }) => {
 
 // ── 쥐 소환 ──
 socket.on('rats_spawned', ({ rats, owner, spCost, casterCol, casterRow }) => {
+  // ★ FIX (관전자 쥐 소환 모션): 팀 관전자는 renderGameBoard 기반이라 플레이어와 동일 처리.
+  //   단, 1v1 관전자는 별도 렌더 경로(renderSpectatorGame)라 이 핸들러의 renderGameBoard 가 보드를
+  //   덮어쓸 수 있어 건너뜀(쥐는 다음 spectator_update 상태 동기화로 표시 — 무애니, 회귀 없음).
+  if (S.isSpectator && !S.isTeamMode) return;
   const SP_END_MS = getSpFlightEndMs(spCost || 2);
   const isMine = owner === S.playerIdx;
   const isAlly = S.isTeamMode && (S.teamGamePlayers || []).some(p => p.idx === owner && p.teamId === S.teamId && p.idx !== S.playerIdx);
@@ -7647,6 +7651,9 @@ socket.on('rats_spawned', ({ rats, owner, spCost, casterCol, casterRow }) => {
 
 // ── 드래곤 소환 ──
 socket.on('dragon_spawned', ({ dragon, owner, spCost }) => {
+  // ★ FIX (관전자 드래곤 소환 모션): 팀 관전자는 플레이어와 동일 처리. 1v1 관전자는 별도 렌더
+  //   경로라 건너뜀(드래곤은 다음 spectator_update 상태 동기화로 표시 — 무애니, 회귀 없음).
+  if (S.isSpectator && !S.isTeamMode) return;
   // ★ 통일 — SP 비행 종료 시점에 SFX + 토스트/로그 + 강림 애니 (드래곤 5 SP → 1300ms)
   //   다른 스킬 (역병의 자손들/덫 발동 등) 과 같은 페이즈 정렬: SP 마법구 비행 후 일제히 발동.
   const SP_END_MS = getSpFlightEndMs(spCost || 5);

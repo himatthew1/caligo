@@ -4136,7 +4136,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   //   우연히 쥐 셀을 덮으면 그 쥐가 잘못 공격 모션을 재생하는 버그(특히 상대 쥐). 서버가 공격자 신원을
   //   정확히 알므로, 쥐장수 공격일 때만 전용 이벤트로 알린다. (피격/사망 모션은 별도 경로.)
   if (atkPiece.type === 'ratMerchant') {
-    emitToBoth(room, 'rat_attack_anim', { owner: attackerIdx });
+    emitToBothAndSpectators(room, 'rat_attack_anim', { owner: attackerIdx });  // ★ 관전자도 쥐 공격 모션
   }
   // 스킬(유황범람 등)에서 호출 시 sp_update 가 후속 skill_result 보다 먼저 가지 않도록 suppress.
   const suppressSpUpdate = !!(opts && opts.suppressSpUpdate);
@@ -5727,7 +5727,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       room.rats[playerIdx].push(...newRats);
       spendSP(room, playerIdx, cost);
       // 쥐장수 위치 — 보드 비행 시작점 (사용자 요청)
-      emitToBoth(room, 'rats_spawned', {
+      emitToBothAndSpectators(room, 'rats_spawned', {  // ★ 관전자도 쥐 소환 모션(팀 관전자)
         rats: newRats, owner: playerIdx, spCost: cost,
         casterCol: piece.col, casterRow: piece.row,
       });
@@ -5854,7 +5854,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       dragon.desc = '자신 + 십자4칸 · 총 5칸';
       player.pieces.push(dragon);
       spendSP(room, playerIdx, cost);
-      emitToBoth(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx, spCost: cost });
+      emitToBothAndSpectators(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx, spCost: cost });  // ★ 관전자도 드래곤 소환 모션(팀 관전자)
       emitToSpectators(room, 'spectator_log', { msg: `드래곤 소환: ${coord(dc,dr)}에 드래곤 소환`, type: 'skill', playerIdx });
       result.msg = ``;
       result.skipLog = true;
