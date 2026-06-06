@@ -2870,6 +2870,31 @@ body.team-mode .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
 body.team-mode .death-anim-overlay .death-gif[data-death-type="dragon"] { width: 33px; height: 33px; }
 body.team-mode .death-anim-overlay { transform: translateY(-5px); }
 body.team-mode .remains-marker { transform: translate(-50%, calc(-50% - 5px)); }
+/* ★ 유해 좌우반전 — Y 오프셋(1v1 -6px / 팀 -5px)을 그대로 보존하며 scaleX(-1) 만 추가.
+   (이전: 인라인 transform 으로 Y 오프셋이 통째로 덮여 좌향 유해가 5~6px 아래로 어긋났음.) */
+.remains-marker.remains-flip { transform: translate(-50%, calc(-50% - 6px)) scaleX(-1); }
+body.team-mode .remains-marker.remains-flip { transform: translate(-50%, calc(-50% - 5px)) scaleX(-1); }
+
+/* ── 저주 상태 보드 레이어 (유닛 뒤 망령) — 프리뷰 튜너 확정값 ──────────────
+   idle = 루프(유닛 뒤 z:0) · 1회성(소환/데미지/해제)은 z:1 (idle 위, 마커 아래).
+   has-curse 셀만 마커를 z:2 로 올려 저주를 뒤로(전역 .piece-marker 영향 없음). */
+.cell.has-curse { overflow: visible; }
+.cell.has-curse .piece-marker { position: relative; z-index: 2; }
+.cell:has(.curse-anim-overlay) { overflow: visible; }
+.curse-board-layer, .curse-anim-overlay {
+  position: absolute; left: 50%; top: 50%;
+  width: 44px; height: 44px;
+  pointer-events: none; image-rendering: pixelated; object-fit: contain;
+  transform: translate(-50%, -50%) translate(-19px, -21px) scaleX(1);
+  filter: drop-shadow(0 0 2px #a371f7);
+}
+.curse-board-layer { z-index: 0; animation: curseBoardBob 2.6s ease-in-out infinite; }
+.curse-anim-overlay { z-index: 1; }
+.curse-board-layer.face-left, .curse-anim-overlay.face-left {
+  transform: translate(-50%, -50%) translate(19px, -21px) scaleX(-1);
+}
+@keyframes curseBoardBob { 0%,100% { margin-top: 0; } 50% { margin-top: -3px; } }
+
 /* 보드 오브젝트 */
 .cell.has-trap::before    { content: ''; position: absolute; inset: 0; background: rgba(226,168,75,0.15); }
 .cell.has-bomb::before    { content: '💣'; position: absolute; top: 1px; right: 2px; font-size: 0.55rem; }

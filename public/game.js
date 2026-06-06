@@ -8866,82 +8866,65 @@ socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsH
 // 그래서 다음 team_game_update 의 빨간 profile-hit 트리거를 스킵하기 위해 _recentCurseDamageKeys 마킹.
 socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
   if (!targetName) return;
-  try { playSfxCurseDamage(); } catch (e) {}
-  // 일반 피격 애니메이션이 후속 team_game_update 에서 발동되지 않게 마킹
+  // 일반 피격 애니가 후속 team_game_update 에서 중복 발동되지 않게 마킹 (임팩트까지 커버하도록 길게)
   if (!S._recentCurseDamageKeys) S._recentCurseDamageKeys = new Set();
   const key = `${playerIdx}:${targetName}`;
   S._recentCurseDamageKeys.add(key);
-  setTimeout(() => { if (S._recentCurseDamageKeys) S._recentCurseDamageKeys.delete(key); }, 800);
+  setTimeout(() => { if (S._recentCurseDamageKeys) S._recentCurseDamageKeys.delete(key); }, 2500);
+  // ★ 저주 데미지를 "공격 모션"처럼 — 아래에서 대상만 해석하고, 실제 효과(피격모션·토스트·로그·HP)는
+  //   저주 데미지 GIF 4번째 프레임(임팩트) 시점에 동기. (일반 공격과 동일 타이밍.)
+  let _ctPc = null, _ctCol = null, _ctRow = null, _ctStamp = null, _ctDef = true, _ctBO = playerIdx, _ctBI = -1, _ctOn = false;
 
   // 1v1: playerIdx 로 피해 대상 플레이어를 특정 — 양쪽에 이름이 같은 말이 있어도 혼동 없음
   // ★ 이름(targetName)만으로 myPieces/oppPieces 를 동시 탐색하면 마녀 vs 마녀처럼
   //   같은 캐릭터명이 양쪽에 있을 때 상대 말에도 HP 변경 + 도장이 잘못 적용되는 버그 발생.
   if (!S.isTeamMode) {
     if (playerIdx === S.playerIdx) {
-      // 내 말이 저주 피해를 받은 경우
       const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
-      if (myIdx >= 0) {
-        addCurseDamageStampValue(`my:${myIdx}`, damage);
-        if (typeof newHp === 'number' && S.myPieces[myIdx]) S.myPieces[myIdx].hp = newHp;
-      }
+      if (myIdx >= 0) { _ctPc=S.myPieces[myIdx]; _ctCol=_ctPc.col; _ctRow=_ctPc.row; _ctStamp=`my:${myIdx}`; _ctDef=true; _ctBO=S.playerIdx; _ctBI=myIdx; _ctOn=true; }
     } else {
-      // 상대 말이 저주 피해를 받은 경우
       const oppIdx = S.oppPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
-      if (oppIdx >= 0) {
-        addCurseDamageStampValue(`opp:${oppIdx}`, damage);
-        if (typeof newHp === 'number' && S.oppPieces[oppIdx]) S.oppPieces[oppIdx].hp = newHp;
-      }
+      if (oppIdx >= 0) { _ctPc=S.oppPieces[oppIdx]; _ctCol=_ctPc.col; _ctRow=_ctPc.row; _ctStamp=`opp:${oppIdx}`; _ctDef=false; _ctBO=1-S.playerIdx; _ctBI=oppIdx; _ctOn=!!_ctPc.marked; }
     }
   }
   // 팀모드: playerIdx 가 일치하는 플레이어만 업데이트
   if (S.isTeamMode) {
     for (const pl of (S.teamGamePlayers || [])) {
-      if (pl.idx !== playerIdx) continue; // ★ playerIdx 불일치 → 이름이 같아도 스킵
+      if (pl.idx !== playerIdx) continue;
       const idxInPl = (pl.pieces || []).findIndex(p => p.alive && p.name === targetName);
       if (idxInPl < 0) continue;
-      addCurseDamageStampValue(`${pl.idx}:${idxInPl}`, damage);
-      if (typeof newHp === 'number' && pl.pieces[idxInPl]) pl.pieces[idxInPl].hp = newHp;
+      const _cp = pl.pieces[idxInPl]; const _ours = (pl.idx === S.playerIdx) || (pl.teamId === S.teamId);
+      _ctPc=_cp; _ctCol=_cp.col; _ctRow=_cp.row; _ctStamp=`${pl.idx}:${idxInPl}`; _ctDef=_ours; _ctBO=pl.idx; _ctBI=idxInPl; _ctOn = _ours || !!_cp.marked;
+      break;
     }
   }
-  // 저주 지속 데미지 로그 (토스트는 없음) — 해골 이모지 (저주 관련 통일)
-  try {
-    const dmgStr = Number.isInteger(damage) ? `${damage}` : `${damage.toFixed(1)}`;
-    addLog(`☠ 저주: ${targetName} ${dmgStr} 피해`, 'skill');
-  } catch (e) {}
-  // 즉시 재렌더 — 보라 도장 반영
-  try {
-    if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
-    else { renderMyPieces(); renderOppPieces(); }
-  } catch (e) {}
-  // ★ 사용자 보고: 저주 데미지로 dim 해제된 turn-bright 가 후속 render 에서 wipe 됨.
-  //   _persistTurnBright 레지스트리에 등록 → reapplyActiveProfileAnims 가 매 render 후 자동 복원.
-  requestAnimationFrame(() => {
-    if (S.isTeamMode) {
-      const piIdx = (S.teamGamePlayers || []).find(p => p.idx === playerIdx)?.pieces?.findIndex(p => p.name === targetName) ?? -1;
-      if (piIdx >= 0) {
-        _persistTurnBright(playerIdx, piIdx);
-        const card = _findPieceCard(playerIdx, piIdx);
-        if (card) card.classList.add('turn-bright');
-      }
-    } else {
-      // 1v1 — playerIdx 로 내 말/상대 말 구분 (이름이 같아도 혼동 없음)
-      if (playerIdx === S.playerIdx) {
-        const myI = S.myPieces?.findIndex(p => p.name === targetName) ?? -1;
-        if (myI >= 0) {
-          _persistTurnBright(S.playerIdx, myI);
-          const card = document.querySelectorAll('#my-pieces-info .my-piece-card')[myI];
-          if (card) card.classList.add('turn-bright');
-        }
-      } else {
-        const oppI = S.oppPieces?.findIndex(p => p.name === targetName) ?? -1;
-        if (oppI >= 0) {
-          _persistTurnBright(1 - S.playerIdx, oppI);
-          const card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[oppI];
-          if (card) card.classList.add('turn-bright');
-        }
-      }
-    }
-  });
+  if (!_ctPc) return;
+  const _ctDmgStr = Number.isInteger(damage) ? `${damage}` : `${damage.toFixed(1)}`;
+  // ── 임팩트 — 저주 데미지 GIF 4번째 프레임 시점: 피격모션 + 토스트 + 로그 + 실제 데미지(도장/HP) 동기 ──
+  const _ctImpact = () => {
+    try { playSfxCurseDamage(); } catch (e) {}
+    if (_ctStamp) addCurseDamageStampValue(_ctStamp, damage);
+    if (typeof newHp === 'number' && _ctPc) _ctPc.hp = newHp;
+    if (_ctOn && typeof animateBoardIconHit === 'function') animateBoardIconHit([{ col: _ctCol, row: _ctRow }], _ctDef);
+    try { addLog(`☠ 저주: ${targetName} ${_ctDmgStr} 피해`, 'skill'); } catch (e) {}
+    try { showSkillToast(`☠ 저주: ${targetName} ${_ctDmgStr} 피해`, !_ctDef, undefined, 'curse'); } catch (e) {}
+    try { if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles(); else { renderMyPieces(); renderOppPieces(); } } catch (e) {}
+    // dim 해제(turn-bright) persist — 후속 render 에서 wipe 방지
+    if (_ctBI >= 0) { try { _persistTurnBright(_ctBO, _ctBI); const _c = _findPieceCard(_ctBO, _ctBI); if (_c) _c.classList.add('turn-bright'); } catch (e) {} }
+  };
+  // ── 모션 시작(턴 시작 렌더 settle 후) → 저주 데미지 GIF 재생 → 4번째 프레임(frame4)에 임팩트 ──
+  //   타이밍은 일반 공격과 동일: _fetchGifFrameTimings 의 frameDelays[3] (없으면 ATTACK_IMPACT_DELAY).
+  setTimeout(() => {
+    if (_ctOn) playCurseBoardAnim(_ctCol, _ctRow, 'damage');
+    const _u = window.CURSE_GIFS && window.CURSE_GIFS.damage;
+    const _fp = (_u && typeof _fetchGifFrameTimings === 'function') ? _fetchGifFrameTimings(_u) : Promise.resolve({ frameDelays: [] });
+    _fp.then(t => {
+      const fd = (t && t.frameDelays) || [];
+      let d = (fd.length > 3) ? fd[3] : (fd.length ? fd[fd.length - 1] : ATTACK_IMPACT_DELAY);
+      d = Math.min(d, 3000);
+      setTimeout(_ctImpact, d);
+    }).catch(() => setTimeout(_ctImpact, ATTACK_IMPACT_DELAY));
+  }, 250);
 });
 // (구) DOM 기반 저주 도장 함수 — 더 이상 호출되지 않음.
 // 새 시스템: S.curseDamageThisTurn 누적 → buildDamageOverlay 가 카드 마크업에 도장 포함.
@@ -13549,6 +13532,8 @@ function renderGameBoard() {
           <span class="p-hp">${hpText}</span>
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
+      // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
+      if (_isCursed(pc)) { cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
@@ -13614,6 +13599,7 @@ function renderGameBoard() {
             <span class="p-hp">${tmHpText}</span>
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
+        if (_isCursed(tmPc)) { cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
         cell.classList.add('has-piece');
         cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
       }
@@ -13641,6 +13627,8 @@ function renderGameBoard() {
       if (hasMarkStatus) {
         cell.innerHTML += `<span class="cell-mark">🎯</span>`;
       }
+      // ★ 저주 보드 레이어 — 표식돼 공개된 적 말이 저주 상태면 뒤에 망령 idle
+      if (_isCursed(markedOpp)) { cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
       cell.classList.add('has-piece');
     }
 
@@ -13697,11 +13685,11 @@ function renderGameBoard() {
         const _remStage = (rem.hits || 0) + 1;
         const _stageImgs = window.REMAINS_STAGE_IMGS || {};
         const _remainsUrl = _stageImgs[_remStage] || window.REMAINS_IMG || '/art/remains.png';
-        // ★ 인라인 transform 은 CSS transform 을 덮어쓰므로, translate 센터링을 반드시 포함해야 함.
-        //   이전: scaleX(-1) 만 설정 → CSS translate(-50%,-50%) 유실 → 유해가 셀 밖으로 이탈.
-        const _remFacing = (S._remainsFacing && S._remainsFacing[`${col},${row}`])
-          ? 'transform:translate(-50%,-50%) scaleX(-1);' : '';
-        cell.innerHTML += `<img class="remains-marker" src="${_remainsUrl}" alt="" data-stage="${_remStage}" style="${_remFacing}">`;
+        // ★ FIX (유해 위치 틀어짐): 좌향 반전을 인라인 transform 으로 주면 CSS 의 Y 오프셋
+        //   (translate(-50%, calc(-50% - 6px)) 1v1 / -5px 팀)이 통째로 덮여 좌향 유해만 5~6px 아래로
+        //   어긋났다(사망모션 위치와 불일치). → .remains-flip 클래스로 처리해 Y 오프셋을 양 방향 보존.
+        const _remFlip = (S._remainsFacing && S._remainsFacing[`${col},${row}`]) ? ' remains-flip' : '';
+        cell.innerHTML += `<img class="remains-marker${_remFlip}" src="${_remainsUrl}" alt="" data-stage="${_remStage}">`;
       }
     }
 
@@ -14051,8 +14039,13 @@ function renderGameBoard() {
       const fCell = board.querySelector(`.cell[data-col="${targetPc.col}"][data-row="${targetPc.row}"]`);
       const fGif = fCell?.querySelector('.p-gif');
       if (fGif) fGif.style.transform = 'scaleX(-1)';
+      // ★ 저주 보드 레이어도 유닛 방향 따라 반전 (등을 바라보는 망령)
+      const fCurse = fCell?.querySelector('.curse-board-layer');
+      if (fCurse) fCurse.classList.add('face-left');
     }
   }
+  // ★ 저주 소환/해제 전이 연출 (보드에 보이는 말 대상, 1회) — facing 적용 후 호출
+  try { _processCurseTransitions(); } catch (e) {}
 
   // ── 공격 GIF 재생 중인 셀 — 재렌더 후에도 idle img 숨김 유지 ──
   if (typeof _attackPlayingCells !== 'undefined' && _attackPlayingCells.size > 0) {
@@ -14269,6 +14262,105 @@ function getStatusIcons(pc) {
     if (e.type === 'mark') icons.push('🎯');
   }
   return icons.join('');
+}
+// ── 저주 상태 보드 레이어 HTML — 저주 상태면 유닛 뒤(z:0)에 깔리는 idle 망령 GIF ──
+//   (보드 위 전용. facing 은 renderGameBoard 후 _pieceFacingDir 재적용 루프에서 .face-left 부여.)
+function _isCursed(pc){ return !!(pc && (pc.statusEffects || []).some(e => e.type === 'curse')); }
+function curseBoardLayerHtml(pc){
+  if (!_isCursed(pc)) return '';
+  const url = (window.CURSE_GIFS && window.CURSE_GIFS.idle) || '/art/curse/curse_idle.gif';
+  return `<img class="curse-board-layer" src="${url}" alt="">`;
+}
+// ── 저주 1회성 연출(소환/데미지/해제) — NETSCAPE 루프 제거로 정확히 1회 재생, 유닛 방향 상속 ──
+const _curseGifBytes = {};
+function _curseStripLoopBlob(buf){
+  for (let i=0;i<buf.length-13;i++){
+    if (buf[i]===0x21 && buf[i+1]===0xFF && buf[i+2]===0x0B){
+      let tag=''; for(let k=0;k<11;k++) tag+=String.fromCharCode(buf[i+3+k]);
+      if (tag==='NETSCAPE2.0'){
+        const out=new Uint8Array(buf.length-19);
+        out.set(buf.slice(0,i),0); out.set(buf.slice(i+19), i);
+        return URL.createObjectURL(new Blob([out],{type:'image/gif'}));
+      }
+    }
+  }
+  return URL.createObjectURL(new Blob([buf],{type:'image/gif'}));
+}
+async function _curseOnceBlobUrl(kind){
+  const url = window.CURSE_GIFS && window.CURSE_GIFS[kind];
+  if (!url) return null;
+  if (!_curseGifBytes[kind]){
+    try { _curseGifBytes[kind] = new Uint8Array(await (await fetch(url)).arrayBuffer()); }
+    catch(e){ return url; }   // fetch 실패 → 원본(루프될 수 있음)
+  }
+  return _curseStripLoopBlob(_curseGifBytes[kind]);
+}
+// 보드 셀(col,row)에 저주 연출 1회 재생. kind: 'summon'|'damage'|'release'
+function playCurseBoardAnim(col, row, kind){
+  if (col == null || row == null) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  // 유닛 방향 상속 — 셀의 idle GIF 가 scaleX(-1) 면 좌향
+  let faceLeft = false;
+  const g = cell.querySelector('img.p-gif') || cell.querySelector('.curse-board-layer.face-left');
+  if (g && ((g.style && (g.style.transform||'').includes('scaleX(-1)')) || g.classList.contains('face-left'))) faceLeft = true;
+  const img = document.createElement('img');
+  img.className = 'curse-anim-overlay' + (faceLeft ? ' face-left' : '');
+  img.alt = '';
+  let _url = null;
+  const _cleanup = () => { if (img.parentNode) img.remove(); if (_url && _url.startsWith('blob:')) { try{URL.revokeObjectURL(_url);}catch(e){} } };
+  cell.appendChild(img);
+  _curseOnceBlobUrl(kind).then(u => {
+    if (!u) { _cleanup(); return; }
+    _url = u; img.src = u;
+    if (typeof _fetchGifDuration === 'function') {
+      _fetchGifDuration(u, (dur) => setTimeout(_cleanup, (dur || 1200) + 150));
+    } else { setTimeout(_cleanup, 1500); }
+  });
+  setTimeout(_cleanup, 4000); // 안전 폴백
+}
+// owner/pieceIdx → 보드 셀 좌표 (1v1·팀 공용). 저주 연출용.
+function _cursedCellOf(ownerIdx, pieceIdx){
+  if (typeof ownerIdx !== 'number' || typeof pieceIdx !== 'number') return null;
+  let pc = null;
+  if (S.isTeamMode){
+    const pl = (S.teamGamePlayers || []).find(p => p.idx === ownerIdx);
+    if (pl && pl.pieces) pc = pl.pieces[pieceIdx];
+  } else {
+    pc = (ownerIdx === S.playerIdx) ? (S.myPieces||[])[pieceIdx] : (S.oppPieces||[])[pieceIdx];
+  }
+  if (pc && pc.col != null && pc.col >= 0) return { col: pc.col, row: pc.row };
+  return null;
+}
+// ── 저주 상태 전이 감지 → 소환(신규)/해제(소멸) 1회 연출. renderGameBoard 끝에서 호출 ──
+//   이벤트별 배선 대신 상태 기반 — 어떤 경로(스킬/반사/충성 redirect 등)로 저주가 붙거나 풀려도
+//   보드에 보이는 말이면 자동으로 소환/해제 연출이 1회 재생됨. (숨겨진 적은 표식 전까지 미표시.)
+function _processCurseTransitions(){
+  if (!(S._cursedSeen instanceof Map)) S._cursedSeen = new Map();
+  const nowCursed = new Map();
+  const collect = (pc, key) => {
+    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0) nowCursed.set(key, { col: pc.col, row: pc.row });
+  };
+  (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`));
+  if (S.isTeamMode) {
+    (S.teamGamePlayers || []).forEach(pl => {
+      if (pl.idx === S.playerIdx) return;
+      (pl.pieces || []).forEach((pc, i) => collect(pc, `${pl.idx}:${i}`));
+    });
+  } else {
+    (S.oppPieces || []).forEach((pc, i) => { if (pc && pc.marked) collect(pc, `opp:${i}`); });
+  }
+  // 신규 저주 → 소환
+  for (const [k, pos] of nowCursed) {
+    if (!S._cursedSeen.has(k)) playCurseBoardAnim(pos.col, pos.row, 'summon');
+  }
+  // 더 이상 저주 아님 → 해제 (직전 위치)
+  for (const [k, pos] of S._cursedSeen) {
+    if (!nowCursed.has(k)) playCurseBoardAnim(pos.col, pos.row, 'release');
+  }
+  S._cursedSeen = nowCursed;
 }
 
 // ── 턴 데미지 추적 — 매 턴 시작 시 모든 piece HP 스냅샷, 변화량을 도장·HP바로 표시 ──
@@ -17571,6 +17663,8 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
   const toCell   = [...cells].find(c => parseInt(c.dataset.col) === toCol   && parseInt(c.dataset.row) === toRow);
   if (!fromCell || !toCell) { _moveAnimDest.delete(_destKey); return; }
+  // ★ 저주 유닛 이동 — 출발칸이 저주 상태(idle 레이어/has-curse)면 이동 PNG 뒤에 저주 이동 PNG 동반.
+  const _moveCursed = !!(fromCell.classList.contains('has-curse') || fromCell.querySelector('.curse-board-layer'));
 
   const fromRect = fromCell.getBoundingClientRect();
   const toRect   = toCell.getBoundingClientRect();
@@ -17640,11 +17734,29 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   // 디코드 전까지 플로터를 투명으로 유지하고 출발칸 유닛도 그대로 둔다.
   // decode() 완료 → 플로터 표시 + 출발칸 유닛 숨김을 동시에 수행하여
   // 어떤 프레임에서도 유닛이 사라지는 순간이 없도록 보장한다.
+  // ★ 저주 이동 플로터 — 이동 PNG 뒤(z 낮음)에서 같은 경로로 슬라이드 (idle 과 동일 오프셋/글로우)
+  const _CURSE_MV_SZ = 44, _curseOffX = (scaleX === 1) ? -19 : 19, _curseOffY = -21;
+  let curseFloater = null;
   const _beginSlide = () => {
     // 플로터 표시 + 출발칸 유닛 숨김 (동시)
     el.style.opacity = '1';
     const fromGif = fromCell.querySelector('.p-gif');
     if (fromGif) fromGif.style.opacity = '0';
+    // 저주 이동 PNG 플로터 생성 (출발칸 중심 + 오프셋)
+    if (_moveCursed) {
+      curseFloater = document.createElement('img');
+      curseFloater.src = window.CURSE_MOVE_PNG || '/art/curse/curse_move.png';
+      curseFloater.onerror = () => { if (curseFloater) curseFloater.style.display = 'none'; };
+      curseFloater.style.cssText = `
+        position:fixed; z-index:2499; pointer-events:none;
+        width:${_CURSE_MV_SZ}px; height:${_CURSE_MV_SZ}px;
+        object-fit:contain; image-rendering:pixelated;
+        left:${cx + _curseOffX - _CURSE_MV_SZ/2}px; top:${cy + _curseOffY - _CURSE_MV_SZ/2}px;
+        transform:scaleX(${scaleX}); transform-origin:center center;
+        filter:drop-shadow(0 0 2px #a371f7);
+      `;
+      document.body.appendChild(curseFloater);
+    }
 
     // ── 잔상(trail) 인터벌 ──────────────────────────────────
     let trailCount = 0;
@@ -17679,6 +17791,13 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
         el.style.transition = `left ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94), top ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94)`;
         el.style.left = `${tx}px`;
         el.style.top  = `${ty}px`;
+        // 저주 이동 플로터도 같은 경로로 (도착칸 중심 + 오프셋)
+        if (curseFloater) {
+          const _toCx = toRect.left + toRect.width / 2, _toCy = toRect.top + toRect.height / 2;
+          curseFloater.style.transition = `left ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94), top ${DURATION}ms cubic-bezier(0.25,0.46,0.45,0.94)`;
+          curseFloater.style.left = `${_toCx + _curseOffX - _CURSE_MV_SZ/2}px`;
+          curseFloater.style.top  = `${_toCy + _curseOffY - _CURSE_MV_SZ/2}px`;
+        }
       });
     });
 
@@ -17686,6 +17805,7 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
     setTimeout(() => {
       clearInterval(trailIv);
       el.remove();
+      if (curseFloater && curseFloater.parentNode) curseFloater.remove();
       _moveAnimDest.delete(_destKey);
       const freshBoard = document.getElementById('game-board');
       const finalCell = freshBoard?.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);

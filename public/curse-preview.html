@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO · 저주 모션 프리뷰</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232c; --line:#2a323d;
+    --text:#e6edf3; --muted:#8b98a5; --accent:#a371f7; --accent2:#7c5cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,sans-serif;font-size:14px}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:17px;margin:0;font-weight:700}
+  header .sub{color:var(--muted);font-size:12.5px}
+  .wrap{display:flex;gap:18px;padding:18px;align-items:flex-start;flex-wrap:wrap}
+  .stage-col{flex:1 1 460px;min-width:380px}
+  .ctrl-col{flex:0 0 360px;min-width:320px}
+
+  /* ── 무대(보드) ── */
+  .stage{background:
+      linear-gradient(#0000 0 0) padding-box,
+      repeating-linear-gradient(0deg,#1a212b 0 1px,#0000 1px 100%),
+      repeating-linear-gradient(90deg,#1a212b 0 1px,#0000 1px 100%);
+    background-color:#11161d;border:1px solid var(--line);border-radius:12px;
+    position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;
+    min-height:340px;padding:30px}
+  .stage.checker{background-image:
+      linear-gradient(45deg,#1b2530 25%,transparent 25%),
+      linear-gradient(-45deg,#1b2530 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#1b2530 75%),
+      linear-gradient(-45deg,transparent 75%,#1b2530 75%);
+    background-size:20px 20px;background-position:0 0,0 10px,10px -10px,-10px 0}
+
+  .units{display:flex;gap:26px;align-items:flex-end;justify-content:center;flex-wrap:wrap}
+
+  /* ── 셀 + 유닛 + 저주 레이어 ── */
+  .cell{
+    position:relative;width:var(--cell,64px);height:var(--cell,64px);
+    border:1px dashed #ffffff14;border-radius:6px;display:flex;align-items:flex-end;justify-content:center;
+  }
+  .cell .unit{
+    position:relative;z-index:3;width:var(--unit,40px);height:var(--unit,40px);
+    image-rendering:pixelated;object-fit:contain;margin-bottom:6px;
+    transform:scaleX(var(--face,1));
+  }
+  .cell .hp{position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);font-size:9px;color:#cbd5e1;z-index:4;text-shadow:0 1px 2px #000}
+  /* 저주 레이어 — 유닛 뒤(z 낮음), 좌상단 오프셋, 떠다니는 느낌. 위치/크기/반전/글로우는 인라인 변수로 */
+  .cell .curse{
+    position:absolute;z-index:1;left:50%;top:50%;
+    width:var(--csize,44px);height:var(--csize,44px);
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;
+    transform:translate(-50%,-50%) translate(var(--coffx,-19px),var(--coffy,-21px)) scaleX(var(--cface,1));
+    filter:var(--cglow,none);
+    transition:none;
+  }
+  .cell .curse.bob{animation:curseBob var(--bobdur,2.6s) ease-in-out infinite}
+  @keyframes curseBob{0%,100%{margin-top:0}50%{margin-top:-3px}}
+  @keyframes cpHitShake{
+    0%,100%{transform:translateX(0) scaleX(var(--face,1))}
+    20%{transform:translateX(-3px) scaleX(var(--face,1))}
+    40%{transform:translateX(3px) scaleX(var(--face,1))}
+    60%{transform:translateX(-2px) scaleX(var(--face,1))}
+    80%{transform:translateX(2px) scaleX(var(--face,1))}
+  }
+  .label{margin-top:8px;text-align:center;color:var(--muted);font-size:11.5px}
+
+  /* ── 컨트롤 패널 ── */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .panel h2{font-size:13px;margin:0 0 10px;color:var(--accent);letter-spacing:.3px;text-transform:uppercase}
+  .row{display:flex;align-items:center;gap:10px;margin:9px 0}
+  .row label{flex:0 0 110px;color:var(--muted);font-size:12.5px}
+  .row input[type=range]{flex:1;accent-color:var(--accent)}
+  .row .val{flex:0 0 56px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text);font-size:12px}
+  .row input[type=color]{width:36px;height:24px;border:1px solid var(--line);background:none;border-radius:5px;padding:0}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;transition:.12s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.primary{background:linear-gradient(135deg,var(--accent2),var(--accent));border-color:transparent;font-weight:600}
+  button.sel{border-color:var(--accent);background:#2a2140;color:#fff}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .toggle{display:flex;align-items:center;gap:8px}
+  .toggle input{width:18px;height:18px;accent-color:var(--accent)}
+  .note{color:var(--muted);font-size:11.5px;line-height:1.5;margin-top:4px}
+  .codebox{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:11.5px;color:#a8d4ff;white-space:pre-wrap;word-break:break-all;margin-top:8px}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12.5px}
+  .pillrow{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>🟣 저주 모션 프리뷰</h1>
+  <span class="sub">보드 위 전용 · 유닛 뒤(좌상단)에서 등을 바라보며 떠다니는 망령 · 적용 전 위치/크기/글로우 튜닝용</span>
+</header>
+
+<div class="wrap">
+  <!-- ── 무대 ── -->
+  <div class="stage-col">
+    <div class="stage" id="stage">
+      <div class="units" id="units">
+        <!-- 단일 유닛 (메인) -->
+        <div>
+          <div class="cell" id="cell">
+            <img class="curse" id="curse" alt="curse">
+            <img class="unit" id="unit" src="/art/general_idle.gif" alt="unit">
+            <span class="hp">4/4</span>
+          </div>
+          <div class="label">메인 유닛 (저주 대상)</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h2>현재 단계</h2>
+      <div class="pillrow" id="phasePills"></div>
+      <div class="note" id="phaseNote"></div>
+    </div>
+  </div>
+
+  <!-- ── 컨트롤 ── -->
+  <div class="ctrl-col">
+    <div class="panel">
+      <h2>저주 모션 재생</h2>
+      <div class="btns">
+        <button class="primary" data-act="summon">① 저주 소환 → 아이들</button>
+        <button data-act="idle">아이들만</button>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button data-act="damage">② 저주 데미지 (1회)</button>
+        <button data-act="release">③ 저주 해제</button>
+      </div>
+      <div class="note">소환/데미지/해제는 <b>1회 재생(루프 제거)</b> · 아이들은 루프. 데미지는 아이들 위에 겹쳐 재생.</div>
+      <div class="btns" style="margin-top:8px">
+        <button class="primary" data-act="moveDemo">▶ 이동 데모 (이동PNG + 저주이동PNG)</button>
+        <button data-act="dmgHit">데미지 + 유닛 피격 흔들림</button>
+      </div>
+      <div class="note">이동 데모는 유닛 방향(아래 ▶/◀) 기준으로 슬라이드 · 저주 이동 PNG가 같은 오프셋/글로우로 뒤따라옴.</div>
+    </div>
+
+    <div class="panel">
+      <h2>다중 대상 (동시 데미지)</h2>
+      <div class="row"><label>대상 수</label>
+        <input type="range" id="multiN" min="1" max="4" step="1" value="3"><span class="val" id="multiNV">3</span></div>
+      <div class="btns">
+        <button data-act="multiApply">대상 배치/저주 부여</button>
+        <button class="primary" data-act="multiDamage">전원 동시 데미지</button>
+      </div>
+      <div class="note">저주 대상이 여럿이면 모든 저주가 <b>동시에</b> 데미지 모션 발동(턴 시작 틱).</div>
+    </div>
+
+    <div class="panel">
+      <h2>위치 · 크기 · 방향</h2>
+      <div class="row"><label>오프셋 X</label><input type="range" id="offx" min="-40" max="40" step="1" value="-19"><span class="val" id="offxV">-19</span></div>
+      <div class="row"><label>오프셋 Y</label><input type="range" id="offy" min="-40" max="40" step="1" value="-21"><span class="val" id="offyV">-21</span></div>
+      <div class="row"><label>저주 크기</label><input type="range" id="csize" min="16" max="80" step="1" value="44"><span class="val" id="csizeV">44</span></div>
+      <div class="row"><label>유닛 방향</label>
+        <div class="seg">
+          <button class="sel" data-face="1">▶ 오른쪽</button>
+          <button data-face="-1">◀ 왼쪽(반전)</button>
+        </div>
+      </div>
+      <div class="toggle" style="margin:8px 0 0"><input type="checkbox" id="bob" checked><label for="bob" style="flex:none;color:var(--muted)">떠다니는 bobbing 애니</label></div>
+      <div class="row"><label>bobbing 속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.6"><span class="val" id="bobdurV">2.6s</span></div>
+      <div class="note">왼쪽 방향이면 오프셋 X가 자동 미러링(반대편) + 저주도 좌우반전.</div>
+    </div>
+
+    <div class="panel">
+      <h2>글로우</h2>
+      <div class="toggle"><input type="checkbox" id="glowOn" checked><label for="glowOn" style="flex:none;color:var(--muted)">글로우 사용</label></div>
+      <div class="row"><label>색상</label><input type="color" id="glowColor" value="#a371f7"><span class="val" id="glowColorV" style="flex:1;text-align:left;color:var(--muted)">#a371f7</span></div>
+      <div class="row"><label>블러</label><input type="range" id="glowBlur" min="0" max="16" step="0.5" value="2"><span class="val" id="glowBlurV">2</span></div>
+      <div class="row"><label>세기(겹침)</label><input type="range" id="glowLayers" min="1" max="4" step="1" value="1"><span class="val" id="glowLayersV">1</span></div>
+      <div class="row"><label>전체 불투명도</label><input type="range" id="opacity" min="0.2" max="1" step="0.05" value="1"><span class="val" id="opacityV">1.0</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>무대 옵션</h2>
+      <div class="row"><label>셀 크기</label><input type="range" id="cellsz" min="44" max="120" step="2" value="64"><span class="val" id="cellszV">64</span></div>
+      <div class="row"><label>유닛 크기</label><input type="range" id="unitsz" min="24" max="80" step="1" value="40"><span class="val" id="unitszV">40</span></div>
+      <div class="row"><label>샘플 유닛</label>
+        <select id="unitPick">
+          <option value="general_idle.gif">장군</option>
+          <option value="prince_idle.gif">왕자</option>
+          <option value="archer_idle.gif">궁수</option>
+          <option value="knight_idle.gif">기사</option>
+          <option value="monk_idle.gif">수도승</option>
+          <option value="witch_idle.gif">마녀</option>
+          <option value="commander_idle.gif">지휘관</option>
+        </select>
+      </div>
+      <div class="toggle" style="margin-top:8px"><input type="checkbox" id="checker"><label for="checker" style="flex:none;color:var(--muted)">체커 배경</label></div>
+    </div>
+
+    <div class="panel">
+      <h2>현재 설정값 (적용 참고용)</h2>
+      <div class="codebox" id="cssOut"></div>
+      <div class="btns" style="margin-top:8px"><button data-act="copy">설정값 복사</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ART = '/art/curse/';
+const GIFS = {
+  idle:    ART + 'curse_idle.gif',
+  summon:  ART + 'curse_summon.gif',
+  damage:  ART + 'curse_damage.gif',
+  release: ART + 'curse_release.gif',
+};
+
+// ── 1회 재생 GIF: NETSCAPE2.0 루프 블록 제거 후 blob URL 생성 (게임과 동일 기법) ──
+const _onceCache = {};
+async function makeOnceGif(url){
+  if(_onceCache[url]) return _onceCache[url]; // 원본 바이트 캐시 (매번 새 blob 생성)
+  const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  _onceCache[url] = buf;
+  return buf;
+}
+function stripLoopToBlobUrl(buf){
+  // GIF89a Application Extension(0x21 0xFF, 'NETSCAPE2.0') 블록 탐색 후 제거 → 무한루프 해제(1회)
+  const bytes = buf.slice();
+  for(let i=0;i<bytes.length-13;i++){
+    if(bytes[i]===0x21 && bytes[i+1]===0xFF && bytes[i+2]===0x0B){
+      const tag = String.fromCharCode.apply(null, bytes.slice(i+3,i+14));
+      if(tag==='NETSCAPE2.0'){
+        // 블록 길이: 0x21 0xFF 0x0B + 11바이트 + sub-block(0x03 0x01 LL LH) + terminator 0x00 = 19바이트
+        const out = new Uint8Array(bytes.length-19);
+        out.set(bytes.slice(0,i),0);
+        out.set(bytes.slice(i+19), i);
+        return URL.createObjectURL(new Blob([out],{type:'image/gif'}));
+      }
+    }
+  }
+  return URL.createObjectURL(new Blob([bytes],{type:'image/gif'})); // 루프 블록 없으면 그대로
+}
+async function playOnce(imgEl, key){
+  const buf = await makeOnceGif(GIFS[key]);
+  const url = stripLoopToBlobUrl(buf);
+  imgEl.classList.remove('bob');
+  imgEl.src = url;                 // 매번 새 blob → 처음부터 1회 재생
+  return url;
+}
+function setIdle(imgEl){
+  imgEl.src = GIFS.idle + '?t=' + Date.now(); // 캐시버스트로 재시작
+  if(document.getElementById('bob').checked) imgEl.classList.add('bob');
+}
+
+// ── 컨트롤 바인딩 ──
+const cell = document.getElementById('cell');
+const curse = document.getElementById('curse');
+const unit = document.getElementById('unit');
+const stage = document.getElementById('stage');
+let face = 1;
+
+function num(id){ return parseFloat(document.getElementById(id).value); }
+function setVal(id,txt){ const e=document.getElementById(id+'V'); if(e) e.textContent=txt; }
+
+function glowFilter(){
+  if(!document.getElementById('glowOn').checked) return 'none';
+  const c = document.getElementById('glowColor').value;
+  const b = num('glowBlur');
+  const layers = num('glowLayers');
+  let f=''; for(let i=0;i<layers;i++) f += `drop-shadow(0 0 ${b}px ${c}) `;
+  return f.trim();
+}
+
+function applyAll(){
+  const cs = num('cellsz'), us = num('unitsz'), csz = num('csize');
+  const offx = num('offx'), offy = num('offy');
+  document.documentElement.style.setProperty('--cell', cs+'px');
+  // 모든 셀에 공통 적용
+  document.querySelectorAll('.cell').forEach(c=>{
+    c.style.setProperty('--cell', cs+'px');
+    c.style.setProperty('--unit', us+'px');
+    c.style.setProperty('--csize', csz+'px');
+    c.style.setProperty('--face', face);
+    // 왼쪽 방향이면 오프셋 X 미러 + 저주 좌우반전
+    c.style.setProperty('--coffx', (face===1? offx : -offx)+'px');
+    c.style.setProperty('--coffy', offy+'px');
+    c.style.setProperty('--cface', face);
+    c.style.setProperty('--bobdur', num('bobdur')+'s');
+    const cur = c.querySelector('.curse');
+    if(cur){ cur.style.filter = glowFilter(); cur.style.opacity = num('opacity'); }
+  });
+  // 방향 버튼 표시
+  document.querySelectorAll('[data-face]').forEach(b=>b.classList.toggle('sel', (+b.dataset.face)===face));
+  // 값 라벨
+  setVal('cellsz',cs); setVal('unitsz',us); setVal('csize',csz);
+  setVal('offx',offx); setVal('offy',offy); setVal('opacity',num('opacity').toFixed(2));
+  setVal('glowBlur',num('glowBlur')); setVal('glowLayers',num('glowLayers'));
+  setVal('bobdur',num('bobdur')+'s'); setVal('multiN',num('multiN'));
+  document.getElementById('glowColorV').textContent = document.getElementById('glowColor').value;
+  renderCss();
+}
+
+function renderCss(){
+  const offx=num('offx'), offy=num('offy'), csz=num('csize');
+  const glow = document.getElementById('glowOn').checked
+    ? `drop-shadow(0 0 ${num('glowBlur')}px ${document.getElementById('glowColor').value}) ×${num('glowLayers')}`
+    : '없음';
+  document.getElementById('cssOut').textContent =
+`저주 크기      : ${csz}px (유닛크기 ${num('unitsz')}px 기준)
+오프셋(우향)   : x=${offx}px, y=${offy}px  (좌향 시 x=${-offx}px)
+z-index        : 유닛 뒤 (curse=1, unit=3)
+좌우반전        : 유닛 방향 따라 scaleX(±1)
+글로우          : ${glow}
+불투명도        : ${num('opacity').toFixed(2)}
+bobbing        : ${document.getElementById('bob').checked? num('bobdur')+'s':'없음'}`;
+}
+
+// 슬라이더/체크 일괄 바인딩
+['offx','offy','csize','cellsz','unitsz','glowBlur','glowLayers','opacity','bobdur','multiN','glowColor','glowOn','bob']
+  .forEach(id=>document.getElementById(id).addEventListener('input',applyAll));
+document.getElementById('checker').addEventListener('change',e=>stage.classList.toggle('checker',e.target.checked));
+document.getElementById('unitPick').addEventListener('change',e=>{
+  document.querySelectorAll('.cell .unit').forEach(u=>u.src='/art/'+e.target.value+'?t='+Date.now());
+});
+
+// 방향
+document.querySelectorAll('[data-face]').forEach(b=>b.addEventListener('click',()=>{ face=+b.dataset.face; applyAll(); }));
+
+// 단계 표시
+function setPhase(name, note){
+  const pills=['소환','아이들','데미지','해제'];
+  const map={summon:'소환',idle:'아이들',damage:'데미지',release:'해제'};
+  document.getElementById('phasePills').innerHTML = pills.map(p=>
+    `<span class="val" style="flex:none;padding:3px 10px;border-radius:20px;border:1px solid ${map[name]===p?'var(--accent)':'var(--line)'};color:${map[name]===p?'#fff':'var(--muted)'};background:${map[name]===p?'#2a2140':'transparent'}">${p}</span>`
+  ).join('');
+  document.getElementById('phaseNote').textContent = note||'';
+}
+
+// 액션 버튼
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',async ()=>{
+  const act=b.dataset.act;
+  if(act==='idle'){ setIdle(curse); setPhase('idle','저주 기본 상태 — 루프, 다른 모션과 무관'); }
+  else if(act==='summon'){
+    setPhase('summon','저주 최초 부여 — 소환 모션 1회 후 아이들로 전환');
+    await playOnce(curse,'summon');
+    setTimeout(()=>setIdle(curse), 1100); // 소환 끝나면 아이들 (대략치 — 실제 길이에 맞춰 조정)
+  }
+  else if(act==='damage'){
+    setPhase('damage','턴 시작 저주 데미지 틱 — 1회 재생 (아이들 위에)');
+    await playOnce(curse,'damage');
+    setTimeout(()=>setIdle(curse), 1100);
+  }
+  else if(act==='release'){
+    setPhase('release','저주 해제 — 1회 재생 후 소멸');
+    await playOnce(curse,'release');
+    setTimeout(()=>{ curse.src=''; curse.classList.remove('bob'); }, 1100);
+  }
+  else if(act==='multiApply'){ buildMulti(num('multiN')); }
+  else if(act==='multiDamage'){
+    setPhase('damage','다중 대상 동시 데미지');
+    document.querySelectorAll('.cell .curse').forEach(async c=>{
+      const buf=await makeOnceGif(GIFS.damage); c.classList.remove('bob'); c.src=stripLoopToBlobUrl(buf);
+    });
+    setTimeout(()=>document.querySelectorAll('.cell .curse').forEach(c=>setIdle(c)),1100);
+  }
+  else if(act==='moveDemo'){ setPhase('idle','이동 — 이동 PNG 뒤에 저주 이동 PNG 동반'); playMoveDemo(); }
+  else if(act==='dmgHit'){
+    setPhase('damage','저주 데미지 + 유닛 피격(흔들림/피격GIF)');
+    await playOnce(curse,'damage'); setTimeout(()=>setIdle(curse),1100);
+    // 유닛 피격: 흔들림 + 피격 GIF 잠깐 스왑
+    const pick=document.getElementById('unitPick').value;
+    const hitUrl='/art/'+pick.replace('_idle.gif','_hit.gif');
+    unit.style.animation='cpHitShake 0.35s ease'; setTimeout(()=>unit.style.animation='',400);
+    const _prev=unit.src; unit.src=hitUrl+'?t='+Date.now();
+    setTimeout(()=>{ unit.src='/art/'+pick+'?t='+Date.now(); }, 700);
+  }
+  else if(act==='copy'){ navigator.clipboard.writeText(document.getElementById('cssOut').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='설정값 복사',1200); }
+}));
+
+// 이동 데모 — 유닛 이동 PNG + 저주 이동 PNG 가 같은 경로로 슬라이드 (게임 animateMove 재현)
+function playMoveDemo(){
+  const stage=document.getElementById('stage'); const r=stage.getBoundingClientRect();
+  const sz=num('unitsz'), csz=num('csize'), offx=num('offx'), offy=num('offy');
+  const goLeft = face === -1;
+  const sx = r.left + r.width*0.30, ex = r.left + r.width*0.70;
+  const startX = goLeft ? ex : sx, endX = goLeft ? sx : ex;
+  const midY = r.top + r.height*0.55;
+  const pick=document.getElementById('unitPick').value;
+  const unitPng='/art/'+pick.replace('_idle.gif','_move.png');
+  const cOffX = goLeft ? -offx : offx;  // 게임과 동일: 우향 offx, 좌향 미러
+  const u=document.createElement('img'); u.src=unitPng; u.onerror=()=>u.style.display='none';
+  u.style.cssText=`position:fixed;z-index:30;width:${sz}px;height:${sz}px;object-fit:contain;image-rendering:pixelated;left:${startX-sz/2}px;top:${midY-sz/2}px;transform:scaleX(${goLeft?-1:1});filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94);`;
+  const c=document.createElement('img'); c.src='/art/curse/curse_move.png';
+  c.style.cssText=`position:fixed;z-index:29;width:${csz}px;height:${csz}px;object-fit:contain;image-rendering:pixelated;left:${startX+cOffX-csz/2}px;top:${midY+offy-csz/2}px;transform:scaleX(${goLeft?-1:1});filter:${glowFilter()==='none'?'':glowFilter()};transition:left .7s cubic-bezier(.25,.46,.45,.94);`;
+  document.body.appendChild(u); document.body.appendChild(c);
+  requestAnimationFrame(()=>{ u.style.left=`${endX-sz/2}px`; c.style.left=`${endX+cOffX-csz/2}px`; });
+  setTimeout(()=>{ u.remove(); c.remove(); }, 950);
+}
+
+// 다중 대상 셀 생성
+function buildMulti(n){
+  const units=document.getElementById('units');
+  const pick=document.getElementById('unitPick').value;
+  units.innerHTML='';
+  for(let i=0;i<n;i++){
+    const wrap=document.createElement('div');
+    wrap.innerHTML=`<div class="cell"><img class="curse" alt="curse"><img class="unit" src="/art/${pick}?t=${Date.now()+i}"><span class="hp">3/3</span></div><div class="label">대상 ${i+1}</div>`;
+    units.appendChild(wrap);
+  }
+  // 새로 만든 저주들에 아이들 + 현재 설정 적용
+  applyAll();
+  document.querySelectorAll('.cell .curse').forEach(c=>setIdle(c));
+}
+
+// 초기화
+setIdle(curse);
+setPhase('idle','저주 기본 상태 — 루프, 다른 모션과 무관');
+applyAll();
+</script>
+</body>
+</html>

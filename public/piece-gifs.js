@@ -134,6 +134,21 @@
   window.BOMB_IDLE_GIF    = '/assets/bomb_idle.gif';
   window.BOMB_EXPLODE_GIF = '/assets/bomb_explode.gif';
 
+  // ── 저주 상태 GIF (보드 위 전용 — 유닛 뒤 망령) ──────────────
+  //   idle = 저주 지속 상태(루프, 뒤에 깔림) / summon = 최초 부여(1회) /
+  //   damage = 매턴 저주 데미지 틱(1회, 대상 전원 동시) / release = 해제(1회).
+  window.CURSE_GIFS = {
+    idle:    '/art/curse/curse_idle.gif',
+    summon:  '/art/curse/curse_summon.gif',
+    damage:  '/art/curse/curse_damage.gif',
+    release: '/art/curse/curse_release.gif',
+  };
+  window.getCurseGifUrl = function (kind) {
+    return (window.CURSE_GIFS && window.CURSE_GIFS[kind]) || null;
+  };
+  // 저주 이동 PNG — 저주 유닛 이동 시 이동 PNG 뒤에 따라붙는 망령 (idle 과 동일 배치/글로우)
+  window.CURSE_MOVE_PNG = '/art/curse/curse_move.png';
+
   // ── 쥐 보드 오브젝트 GIF ────────────────────────────
   // black = 아군 쥐, white = 적군 쥐.
   // 적군 쥐는 대척점 배치: x/y 부호 반전 + scaleX(-1) 좌우반전.
@@ -389,6 +404,8 @@
       window.BOMB_EXPLODE_GIF,                             // ★ 폭탄 폭발 GIF
       ...Object.values(window.RAT_GIFS?.black  || {}),
       ...Object.values(window.RAT_GIFS?.white  || {}),
+      ...Object.values(window.CURSE_GIFS       || {}),    // ★ 저주 상태 GIF
+      window.CURSE_MOVE_PNG,                              // ★ 저주 이동 PNG
     ]);
     const container = _getPreloadContainer();
     for (const url of knownUrls) {
