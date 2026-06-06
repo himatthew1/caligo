@@ -2797,6 +2797,14 @@ socket.on('team_game_update', (state) => {
       const delta = (ch.newHp || 0) - (ch.oldHp || 0);
       if (delta > 0) addHeal(`${ch.playerIdx}:${ch.pieceIdx}`, delta);
     }
+    // ★ FIX (회복 도장 지연): 회복 스킬(herb/divine)은 skill_result 의 프로필 재렌더가 데미지 스킬
+    //   (hitsData) 경로에만 있어 호출되지 않는다 → 게이트 중엔 team_game_update 렌더도 스킵돼 도장이
+    //   턴 종료까지 안 보였다. 게이트 진행 중 회복이 있으면 게이트 종료(마법구 착지) 시점에 프로필만
+    //   렌더 예약 → HP 변화와 함께 도장이 제때 표시. (이중 도장 없음 — addHeal 단일 소스 유지.)
+    if (_gatePending && healed.length > 0) {
+      const _hd = Math.max(0, (S._teamRenderGateUntil || 0) - Date.now()) + 40;
+      setTimeout(() => { if (typeof renderTeamProfiles === 'function') { try { renderTeamProfiles(); } catch (e) {} } }, _hd);
+    }
     // ★ 피격 플래시(시각)는 게이트 진행 중이면 gated 핸들러(skill_result/team_skill_notice/
     //   attack_result/being_attacked)가 임팩트 시점에 전담 → 중복/조기노출 방지로 스킵.
     if (!_gatePending) requestAnimationFrame(() => {
