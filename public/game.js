@@ -14366,7 +14366,7 @@ function playCurseBoardAnim(col, row, kind){
   const g = cell.querySelector('img.p-gif') || cell.querySelector('.curse-board-layer.face-left');
   if (g && ((g.style && (g.style.transform||'').includes('scaleX(-1)')) || g.classList.contains('face-left'))) faceLeft = true;
   const img = document.createElement('img');
-  img.className = 'curse-anim-overlay' + (faceLeft ? ' face-left' : '');
+  img.className = 'curse-anim-overlay curse-kind-' + kind + (faceLeft ? ' face-left' : '');
   img.alt = '';
   let _url = null;
   let _done = false;
@@ -14419,8 +14419,10 @@ function _curseTransitionPreScan(){
   if (!(S._cursedSeen instanceof Map)) S._cursedSeen = new Map();
   if (!(S._curseSummoning instanceof Map)) S._curseSummoning = new Map();
   const nowCursed = new Map();
+  // ★ alive !== false 조건 — 죽은 말은 cursed 집합에서 빠짐 → 사망 시 해제 모션이 사망 임팩트
+  //   시점(_curseRemovalWaitMs 가 _impactAtTs 로 보류)에 자동 재생 = "사망과 동일 타이밍에 저주 해제".
   const collect = (pc, key, owner) => {
-    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0)
+    if (_isCursed(pc) && pc && pc.alive !== false && pc.col != null && pc.col >= 0)
       nowCursed.set(key, { col: pc.col, row: pc.row, name: pc.name, owner });
   };
   (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`, S.playerIdx));
@@ -14447,14 +14449,25 @@ function _curseTransitionPreScan(){
   S._pendingCurseRelease = release;
   S._cursedSeen = nowCursed;
 }
+// 저주 오라 페이드 — 셀에 curse-aura-in/out 클래스 부여(애니 1회). cell loop 밖(flush)에서 DOM 직접 조작.
+function _applyCurseAuraFade(col, row, kind, durMs){
+  const board = document.getElementById('game-board');
+  const cell = board && board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const cls = (kind === 'in') ? 'curse-aura-in' : 'curse-aura-out';
+  cell.style.setProperty('--cadur', (durMs || 1150) + 'ms');
+  cell.classList.remove(cls); void cell.offsetWidth; cell.classList.add(cls);
+  setTimeout(() => { try { cell.classList.remove(cls); } catch (e) {} }, (durMs || 1150) + 80);
+}
 function _curseTransitionFlush(){
   const summon = S._pendingCurseSummon || [];
   const release = S._pendingCurseRelease || [];
   S._pendingCurseSummon = null;
   S._pendingCurseRelease = null;
-  // 신규 저주 → 소환 모션 재생 후 idle 등장 (소환 동안 셀 루프가 idle 억제 중).
+  // 신규 저주 → 소환 모션 재생 + 유닛 오라 페이드 인(소환 길이) → 소환 종료 시 idle 등장.
   for (const info of summon) {
     playCurseBoardAnim(info.col, info.row, 'summon');
+    _applyCurseAuraFade(info.col, info.row, 'in', 1150);   // 동기 적용(같은 프레임) → 플래시 없음
     const _su = (window.CURSE_GIFS && window.CURSE_GIFS.summon);
     const _dpP = (_su && typeof _fetchGifDuration === 'function') ? _fetchGifDuration(_su) : Promise.resolve(1200);
     const _ck = `${info.col},${info.row}`, _fpk = info.col * 100 + info.row;
@@ -14464,11 +14477,15 @@ function _curseTransitionFlush(){
       if (typeof renderGameBoard === 'function') renderGameBoard();
     }, (dur || 1200) + 40)).catch(() => {});
   }
-  // 더 이상 저주 아님 → 해제. 데미지/공격/스킬 임팩트가 진행 중이면 그 후로 보류(순차 절차).
+  // 더 이상 저주 아님 → 해제. 데미지/공격/스킬/사망 임팩트가 진행 중이면 그 후로 보류(순차 절차).
   for (const info of release) {
     const wait = _curseRemovalWaitMs(`${info.owner}:${info.name}`);
-    if (wait > 0) setTimeout(() => { try { playCurseBoardAnim(info.col, info.row, 'release'); } catch (e) {} }, wait + 40);
-    else playCurseBoardAnim(info.col, info.row, 'release');
+    const _play = () => {
+      try { playCurseBoardAnim(info.col, info.row, 'release'); } catch (e) {}
+      _applyCurseAuraFade(info.col, info.row, 'out', 1150);  // 해제 모션과 함께 오라 페이드 아웃
+    };
+    if (wait > 0) setTimeout(_play, wait + 40);
+    else _play();
   }
 }
 // ── 1v1 관전자용 저주 전이 — 플레이어와 동일 구조(PreScan: 렌더 시작 / Flush: 렌더 끝) ──
@@ -14606,6 +14623,53 @@ function addProtectedHit(key) {
   _clearOtherStampTypes(key, 'protected');
   S.protectedHitsThisTurn[key] = true;
 }
+// ── 도장 key('my:i'/'opp:i'/'owner:i') → 보드에 보이는 말의 셀 좌표 ──
+//   숨은 적(표식 아님)은 위치 노출 방지로 제외. 보드 데미지 도장 표시 대상 판정.
+function _keyToPieceCell(key) {
+  if (!key) return null;
+  const p = String(key).split(':');
+  let pc = null, isOpp = false;
+  if (p[0] === 'my') pc = (S.myPieces || [])[parseInt(p[1])];
+  else if (p[0] === 'opp') { pc = (S.oppPieces || [])[parseInt(p[1])]; isOpp = true; }
+  else {
+    const o = parseInt(p[0]), i = parseInt(p[1]);
+    if (S.isTeamMode) {
+      const pl = (S.teamGamePlayers || []).find(x => x.idx === o);
+      if (pl) { pc = (pl.pieces || [])[i]; isOpp = (pl.teamId !== S.teamId); }
+    } else {
+      if (o === S.playerIdx) pc = (S.myPieces || [])[i];
+      else { pc = (S.oppPieces || [])[i]; isOpp = true; }
+    }
+  }
+  if (!pc) return null;
+  if (isOpp && !pc.marked) return null;      // 숨은 적 — 보드 도장 미표시
+  if (pc.col == null || pc.col < 0) return null;
+  return { col: pc.col, row: pc.row };
+}
+// ── 보드 위 데미지 도장 — 유닛 위 오버레이(피격 시점). body 고정배치라 보드 재렌더에도 안전. ──
+function showBoardDamageStamp(col, row, type, value) {
+  if (col == null || row == null) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const r = cell.getBoundingClientRect();
+  if (!r.width) return;
+  const span = document.createElement('span');
+  span.className = 'board-dmg-stamp ' + (type || 'normal');
+  const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
+  const tag = { curse: '저주', loyalty: '충성' }[type] || '';
+  span.innerHTML = '−' + v + (tag ? `<span class="bds-tag">${tag}</span>` : '');
+  span.style.left = (r.left + r.width / 2) + 'px';
+  span.style.top  = (r.top + r.height * 0.12) + 'px';
+  document.body.appendChild(span);
+  setTimeout(() => { if (span.parentNode) span.remove(); }, 1000);
+}
+function _boardStampFromKey(key, type, dmg) {
+  if (!(dmg > 0)) return;
+  try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, type, dmg); } catch (e) {}
+}
+
 function addLoyaltyDamage(key, dmg) {
   // ★ 충성 도장은 호위무사 전용 — 다른 유닛에 대한 호출은 무시
   const _lp = key.split(':');
@@ -14621,12 +14685,14 @@ function addLoyaltyDamage(key, dmg) {
   // ★ body 와 공존 가능 — 호위무사가 본체 피해 + 충성 피해를 동시에 받을 때 둘 다 표시
   _clearOtherStampTypes(key, 'loyalty', ['body']);
   S.loyaltyDamageThisTurn[key] = (S.loyaltyDamageThisTurn[key] || 0) + dmg;
+  _boardStampFromKey(key, 'loyalty', dmg);   // 보드 도장(파랑)
 }
 // 저주(curse) 지속 데미지 — 매 턴 재렌더에도 보존되도록 도장 데이터로 누적
 function addCurseDamageStampValue(key, dmg) {
   if (!S.curseDamageThisTurn) S.curseDamageThisTurn = {};
   _clearOtherStampTypes(key, 'curse');
   S.curseDamageThisTurn[key] = (S.curseDamageThisTurn[key] || 0) + dmg;
+  _boardStampFromKey(key, 'curse', dmg);     // 보드 도장(보라)
 }
 // 직접 피격(공격/스킬/덫/폭탄) 으로 본체가 받은 데미지를 누적.
 // HP delta 에서 끌어내지 않고 명시적으로 분류 — 빨간 도장이 충성/저주 데미지를 흡수해
@@ -14636,6 +14702,7 @@ function addBodyDamage(key, dmg) {
   // ★ loyalty 와 공존 가능 — 호위무사가 본체 피해 + 충성 피해를 동시에 받을 때 둘 다 표시
   _clearOtherStampTypes(key, 'body', ['loyalty']);
   S.bodyDamageThisTurn[key] = (S.bodyDamageThisTurn[key] || 0) + dmg;
+  _boardStampFromKey(key, 'normal', dmg);    // 보드 도장(빨강)
 }
 // 회복(신성/약초학) 누적 — 녹색 회복 도장 + HP 바 녹색 오버레이용.
 function addHeal(key, amount) {
@@ -17894,8 +17961,8 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
     filter:${fullF};
     opacity:0;
   `;
-  // ★ 저주 유닛 이동 PNG 에도 보라 글로우 오라 (인라인 filter 라 클래스 대신 직접 덧붙임)
-  if (_moveCursed) el.style.filter = (el.style.filter || '') + ' drop-shadow(0 0 2px #a371f7) drop-shadow(0 0 3px #a371f7)';
+  // ★ 저주 유닛 이동 PNG 에도 보라 오라(밝기 .5) — idle/공격과 통일 (인라인 filter)
+  if (_moveCursed) el.style.filter = (el.style.filter || '') + ' drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5))';
   document.body.appendChild(el);
 
   // ── 이미지 디코드 완료 후 애니메이션 시작 ─────────────────
@@ -18773,11 +18840,16 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
         img.src = url;
       }
       img.alt = '';
+      // ★ 저주 유닛이면 공격 모션에도 보라 오라(밝기 .5) — idle/이동과 통일. (플로터라 CSS 미적용 → 인라인)
+      const _atkCursed = cell.classList.contains('has-curse');
+      const _atkGlow = _atkCursed
+        ? ' drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5))'
+        : '';
       // ★ img.p-gif 와 동일한 블랙 아웃라인 + pixelated (이동·아이들 모션과 통일)
       img.style.cssText =
         `position:absolute;width:${_gifSize}px;height:${_gifSize}px;` +
         `left:${left}px;top:${top}px;z-index:50;pointer-events:none;image-rendering:pixelated;` +
-        `filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))` +
+        `filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))${_atkGlow}` +
         (_facingLeft ? ';transform:scaleX(-1);transform-origin:center center;' : ';');
 
       const cleanup = () => {

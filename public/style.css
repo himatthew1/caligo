@@ -2897,14 +2897,60 @@ body.team-mode .remains-marker.remains-flip { transform: translate(-50%, calc(-5
 }
 @keyframes curseBoardBob { 0%,100% { margin-top: 0; } 50% { margin-top: -3px; } }
 
-/* ── 저주 유닛 보라 글로우 오라 — 망령과 동일 스타일(#a371f7). 모든 모션에 적용 ──
-   in-cell: idle/피격 GIF(piece-marker 내부, 피격 GIF 도 idle className 상속) · 관전자 아이콘 · 사망 GIF.
-   floater(이동 PNG)는 document.body 로 떠서 .cell 선택자가 안 닿으므로 .curse-aura 클래스로 직접 부여. */
+/* ── 저주 유닛 보라 글로우 오라 — 망령과 동일 색(#a371f7), 밝기 절반(alpha .5). 모든 모션에 적용 ──
+   in-cell: idle/피격/공격 GIF(piece-marker 내부, className 상속) · 관전자 아이콘 · 사망 GIF.
+   floater(이동·공격 PNG/GIF)는 body 로 떠서 .cell 선택자가 안 닿으므로 .curse-aura 클래스/인라인으로 부여.
+   --ca = 오라 알파(페이드용 기본 .5), --cadur = 페이드 시간. transition 으로 소환 페이드인/해제 페이드아웃. */
 .cell.has-curse .piece-marker img.p-gif,
 .cell.has-curse .spec-piece .p-icon img,
 .cell.has-curse .death-anim-overlay .death-gif,
 img.curse-aura {
-  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 2px #a371f7) drop-shadow(0 0 3px #a371f7);
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
+          drop-shadow(0 0 1.5px rgba(163,113,247,var(--ca,0.5)))
+          drop-shadow(0 0 2.5px rgba(163,113,247,var(--ca,0.5)));
+  transition: filter var(--cadur,0s) linear;
+}
+/* 저주 데미지 모션(망령이 공격) 동안에는 망령 글로우를 더 강하게 — 가시성 ↑ */
+.curse-anim-overlay.curse-kind-damage {
+  filter: drop-shadow(0 0 3px #a371f7) drop-shadow(0 0 5px #a371f7) drop-shadow(0 0 2px #c9a9ff) !important;
+}
+/* 소환: 오라가 소환 길이(--cadur)에 맞춰 0→.5 페이드 인 / 해제: .5→0 페이드 아웃 */
+.cell.curse-aura-in .piece-marker img.p-gif,
+.cell.curse-aura-in .spec-piece .p-icon img { animation: curseAuraIn var(--cadur,1.15s) linear; }
+.cell.curse-aura-out .piece-marker img.p-gif,
+.cell.curse-aura-out .spec-piece .p-icon img {
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
+          drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5));
+  animation: curseAuraOut var(--cadur,1.15s) linear forwards;
+}
+@keyframes curseAuraIn {
+  from { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 0 rgba(163,113,247,0)) drop-shadow(0 0 0 rgba(163,113,247,0)); }
+  to   { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(163,113,247,.5)) drop-shadow(0 0 2.5px rgba(163,113,247,.5)); }
+}
+@keyframes curseAuraOut {
+  from { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(163,113,247,.5)) drop-shadow(0 0 2.5px rgba(163,113,247,.5)); }
+  to   { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 0 rgba(163,113,247,0)) drop-shadow(0 0 0 rgba(163,113,247,0)); }
+}
+
+/* ── 보드 위 데미지 도장 (유닛 오버레이, 피격 시점) — body 고정배치라 보드 재렌더에도 안전 ──
+   색: 저주=보라(139,92,246) · 충성=파랑(59,130,246) · 일반=빨강(220,38,38) — 프로필 카드 도장과 동일. */
+.board-dmg-stamp {
+  position: fixed; z-index: 2600; pointer-events: none; opacity: 0; text-align: center;
+  padding: 1px 6px; border-radius: 9px; font-size: 0.62rem; font-weight: 800; line-height: 1.05;
+  white-space: nowrap; color: #fff; border: 1.5px solid rgba(255,255,255,0.85);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+  animation: boardStampPop 0.95s ease forwards;
+}
+.board-dmg-stamp.curse   { background: linear-gradient(135deg,#7c3aed,#a371f7); box-shadow: 0 2px 5px #0008, 0 0 6px #a371f7aa; }
+.board-dmg-stamp.loyalty { background: linear-gradient(135deg,#2563eb,#3b82f6); box-shadow: 0 2px 5px #0008, 0 0 6px #3b82f6aa; }
+.board-dmg-stamp.normal  { background: linear-gradient(135deg,#b91c1c,#dc2626); box-shadow: 0 2px 5px #0008, 0 0 6px #dc2626aa; }
+.board-dmg-stamp .bds-tag { display: block; font-size: 0.42rem; font-weight: 700; letter-spacing: 0.08em; opacity: 0.9; margin-top: -1px; }
+@keyframes boardStampPop {
+  0%   { opacity: 0; transform: translate(-50%, 2px)   scale(0.5); }
+  18%  { opacity: 1; transform: translate(-50%, -10px) scale(1.08); }
+  32%  {             transform: translate(-50%, -12px) scale(1); }
+  80%  { opacity: 1; transform: translate(-50%, -15px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -22px) scale(1); }
 }
 
 /* 보드 오브젝트 */
