@@ -3733,9 +3733,11 @@ socket.on('spectator_update', (gameState) => {
 
 // ── 관전자 저주 데미지 모션 — 플레이어와 동일하게 데미지 GIF 4번째 프레임에 피격 모션 ──
 //   (curse_tick 은 플레이어 전용이라, 관전자는 별도 spectator_curse_tick 으로 col/row 를 받아 연출.)
-socket.on('spectator_curse_tick', ({ playerIdx, col, row }) => {
+socket.on('spectator_curse_tick', ({ playerIdx, targetName, col, row }) => {
   if (!S.isSpectator) return;
   if (col == null || row == null) return;
+  // 순차 처리 — 해제가 데미지 임팩트 전에 터지지 않게 보류 기준 기록 (플레이어와 동일).
+  if (typeof targetName === 'string') { if (!S._curseBusyUntil) S._curseBusyUntil = {}; S._curseBusyUntil[`${playerIdx}:${targetName}`] = Date.now() + 1300; }
   // 피격 흔들림 대상 — 팀 관전자는 owner 팀으로 결정(teamId 0 → piece-marker / 1 → opp-marked).
   //   1v1 관전자(.spec-piece)는 animateBoardIconHit 가 no-op 이라 값 무관(망령 데미지 GIF 만 재생).
   let isDef = true;
@@ -8897,6 +8899,11 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
   const key = `${playerIdx}:${targetName}`;
   S._recentCurseDamageKeys.add(key);
   setTimeout(() => { if (S._recentCurseDamageKeys) S._recentCurseDamageKeys.delete(key); }, 2500);
+  // ★ 순차 처리: 이 저주 데미지가 곧바로 해제(HP≤1)로 이어질 때, 해제 모션·토스트·로그가 데미지
+  //   임팩트(피격 모션) 전에 먼저 터지는 것을 막는다. 임팩트+피격 완료 시각까지 해제를 보류시킬
+  //   기준 시각을 기록(_curseBusyUntil). 데미지 모션 시작(250) + 임팩트(~520) + 피격(~450) 여유.
+  if (!S._curseBusyUntil) S._curseBusyUntil = {};
+  S._curseBusyUntil[key] = Date.now() + 1300;
   // ★ 저주 데미지를 "공격 모션"처럼 — 아래에서 대상만 해석하고, 실제 효과(피격모션·토스트·로그·HP)는
   //   저주 데미지 GIF 4번째 프레임(임팩트) 시점에 동기. (일반 공격과 동일 타이밍.)
   let _ctPc = null, _ctCol = null, _ctRow = null, _ctStamp = null, _ctDef = true, _ctBO = playerIdx, _ctBI = -1, _ctOn = false;
@@ -9030,7 +9037,14 @@ function showPassiveBubble(type, playerIdx) {
   }
 }
 
-function _renderPassiveAlert({ type, msg, playerIdx, targetName }) {
+function _renderPassiveAlert(payload) {
+  const { type, msg, playerIdx, targetName } = payload || {};
+  // ★ 순차 처리: 저주 데미지가 곧 해제로 이어지는 경우(HP≤1), 해제 토스트/로그/SFX 가 데미지
+  //   임팩트(피격 모션) 전에 먼저 터지지 않도록, 임팩트 완료 시각까지 이 알림 전체를 보류한다.
+  if (type === 'curse_removed' && typeof playerIdx === 'number' && targetName) {
+    const _wait = (typeof _curseRemovalWaitMs === 'function') ? _curseRemovalWaitMs(`${playerIdx}:${targetName}`) : 0;
+    if (_wait > 0) { setTimeout(() => { try { _renderPassiveAlert(payload); } catch (e) {} }, _wait + 50); return; }
+  }
   addLog(msg, 'skill');
   if (type !== 'curse_tick') {
     const passiveSfx = pickPassiveSfxByType(type);
@@ -13245,6 +13259,9 @@ function _cellStateFP(col, row, pre) {
     m => m.col === col && m.row === row && m.spawnT && (Date.now() - m.spawnT) < 3000))
     f += '|SM';
 
+  // ── 저주 소환 중(idle 억제) — 소환 종료 시 CSUM 이 사라져 재빌드 → idle 등장 ──
+  if (typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)) f += '|CSUM';
+
   // ── 모라일 존 ──
   if (pre.moraleCenter && pre.moraleCenter.has(k)) f += '|MC';
   else if (pre.moraleZone && pre.moraleZone.has(k)) {
@@ -13280,6 +13297,10 @@ function renderGameBoard() {
   if (!board) return;
   // ★ 매 렌더 전에 표식 노출 정보 강제 적용 — direct mutation 이 소실된 경우 보완
   try { _reseedMarkedOppsFromMap(); } catch (e) {}
+  // ★ 저주 전이 사전 감지 — 셀 루프 *전* 에 신규/소멸을 판정해, 신규 저주 셀의 idle(망령)을
+  //   소환 모션 동안 억제(_curseSummoning). 이렇게 해야 첫 렌더부터 idle 없이 소환만 재생되고,
+  //   소환 종료 후에 idle 이 등장한다. (감지 결과는 flush 에서 모션 재생.)
+  try { _curseTransitionPreScan(); } catch (e) {}
   const bounds = S.boardBounds;
 
   // ★ iPad 최적화: boardBounds 변경 감지 → 핑거프린트 캐시 자동 무효화
@@ -13561,7 +13582,7 @@ function renderGameBoard() {
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
-      if (_isCursed(pc)) { cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
+      if (_isCursed(pc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
@@ -13627,7 +13648,7 @@ function renderGameBoard() {
             <span class="p-hp">${tmHpText}</span>
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
-        if (_isCursed(tmPc)) { cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
+        if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
         cell.classList.add('has-piece');
         cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
       }
@@ -13656,7 +13677,7 @@ function renderGameBoard() {
         cell.innerHTML += `<span class="cell-mark">🎯</span>`;
       }
       // ★ 저주 보드 레이어 — 표식돼 공개된 적 말이 저주 상태면 뒤에 망령 idle
-      if (_isCursed(markedOpp)) { cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
+      if (_isCursed(markedOpp)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
       cell.classList.add('has-piece');
     }
 
@@ -14072,8 +14093,10 @@ function renderGameBoard() {
       if (fCurse) fCurse.classList.add('face-left');
     }
   }
-  // ★ 저주 소환/해제 전이 연출 (보드에 보이는 말 대상, 1회) — facing 적용 후 호출
-  try { _processCurseTransitions(); } catch (e) {}
+  // ★ 저주 소환/해제 전이 연출 (보드에 보이는 말 대상, 1회) — facing 적용 후 flush.
+  //   감지(신규/소멸)는 렌더 *시작* 의 _curseTransitionPreScan 에서 끝났고, 여기선 셀이 렌더된 뒤
+  //   소환/해제 모션을 재생(소환은 idle 억제 후 재생 → 모션 종료 후 idle 등장).
+  try { _curseTransitionFlush(); } catch (e) {}
 
   // ── 공격 GIF 재생 중인 셀 — 재렌더 후에도 idle img 숨김 유지 ──
   if (typeof _attackPlayingCells !== 'undefined' && _attackPlayingCells.size > 0) {
@@ -14372,51 +14395,128 @@ function _cursedCellOf(ownerIdx, pieceIdx){
   if (pc && pc.col != null && pc.col >= 0) return { col: pc.col, row: pc.row };
   return null;
 }
-// ── 저주 상태 전이 감지 → 소환(신규)/해제(소멸) 1회 연출. renderGameBoard 끝에서 호출 ──
-//   이벤트별 배선 대신 상태 기반 — 어떤 경로(스킬/반사/충성 redirect 등)로 저주가 붙거나 풀려도
-//   보드에 보이는 말이면 자동으로 소환/해제 연출이 1회 재생됨. (숨겨진 적은 표식 전까지 미표시.)
-function _processCurseTransitions(){
+// ── 저주 소환 동안 idle(망령) 억제 여부 — 셀 루프/핑거프린트에서 사용 ──
+function _curseSummoningActive(col, row){
+  if (!(S._curseSummoning instanceof Map)) return false;
+  const e = S._curseSummoning.get(col + ',' + row);
+  return !!(e && e > Date.now());
+}
+// ── 저주 해제(모션+토스트/로그)를 보류할 시간(ms) — 모든 해제 경로 공용 ──
+//   기준: ① 턴시작 저주 데미지 임팩트(_curseBusyUntil) ② 진행 중인 일반공격/스킬 임팩트(_impactAtTs).
+//   둘 중 더 늦은 시점 + 피격 정착(450)까지 보류 → 데미지/피격 모션이 끝난 뒤에 해제가 처리됨.
+//   (idle 과 해제 모션은 애초에 겹치지 않음: 해제는 저주가 상태에서 사라진 렌더에서만 감지되고,
+//    그 렌더의 셀 루프는 idle 을 그리지 않으므로. 이 보류는 "순차 절차" 보장용.)
+function _curseRemovalWaitMs(busyKey){
+  let until = (S._curseBusyUntil && busyKey && S._curseBusyUntil[busyKey]) || 0;
+  if (S._impactAtTs && S._impactAtTs > Date.now()) until = Math.max(until, S._impactAtTs + 450);
+  return Math.max(0, until - Date.now());
+}
+// ── 저주 상태 전이 — 상태 기반 (어떤 경로로 붙거나 풀려도 보드에 보이는 말이면 자동 1회 연출) ──
+//   renderGameBoard 흐름: PreScan(렌더 시작, 신규/소멸 판정 + 소환셀 idle 억제 표시) → 셀 루프(억제 반영)
+//   → Flush(렌더 끝, 소환/해제 모션 재생). 소환은 idle 억제 후 모션 재생 → 종료 시 idle 등장.
+//   해제는 같은 턴 저주 데미지 임팩트 중이면 그 후로 보류(_curseBusyUntil) → 순차 처리.
+function _curseTransitionPreScan(){
   if (!(S._cursedSeen instanceof Map)) S._cursedSeen = new Map();
+  if (!(S._curseSummoning instanceof Map)) S._curseSummoning = new Map();
   const nowCursed = new Map();
-  const collect = (pc, key) => {
-    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0) nowCursed.set(key, { col: pc.col, row: pc.row });
+  const collect = (pc, key, owner) => {
+    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0)
+      nowCursed.set(key, { col: pc.col, row: pc.row, name: pc.name, owner });
   };
-  (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`));
+  (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`, S.playerIdx));
   if (S.isTeamMode) {
     (S.teamGamePlayers || []).forEach(pl => {
       if (pl.idx === S.playerIdx) return;
-      (pl.pieces || []).forEach((pc, i) => collect(pc, `${pl.idx}:${i}`));
+      (pl.pieces || []).forEach((pc, i) => collect(pc, `${pl.idx}:${i}`, pl.idx));
     });
   } else {
-    (S.oppPieces || []).forEach((pc, i) => { if (pc && pc.marked) collect(pc, `opp:${i}`); });
+    (S.oppPieces || []).forEach((pc, i) => { if (pc && pc.marked) collect(pc, `opp:${i}`, 1 - S.playerIdx); });
   }
-  // 신규 저주 → 소환
-  for (const [k, pos] of nowCursed) {
-    if (!S._cursedSeen.has(k)) playCurseBoardAnim(pos.col, pos.row, 'summon');
+  const summon = [], release = [];
+  for (const [k, info] of nowCursed) {
+    if (!S._cursedSeen.has(k)) {
+      summon.push(info);
+      // 소환 동안 idle 억제 (셀 루프가 이 표시를 보고 idle 미렌더 + 핑거프린트 CSUM 으로 안정 유지).
+      S._curseSummoning.set(`${info.col},${info.row}`, Date.now() + 2500);
+    }
   }
-  // 더 이상 저주 아님 → 해제 (직전 위치)
-  for (const [k, pos] of S._cursedSeen) {
-    if (!nowCursed.has(k)) playCurseBoardAnim(pos.col, pos.row, 'release');
+  for (const [k, info] of S._cursedSeen) {
+    if (!nowCursed.has(k)) release.push(info);
   }
+  S._pendingCurseSummon = summon;
+  S._pendingCurseRelease = release;
   S._cursedSeen = nowCursed;
 }
-// ── 1v1 관전자용 저주 전이 — renderSpectatorGame 끝에서 호출 (p0/p1 모두 공개되므로 양측 추적) ──
-function _processSpecCurseTransitions(gs){
+function _curseTransitionFlush(){
+  const summon = S._pendingCurseSummon || [];
+  const release = S._pendingCurseRelease || [];
+  S._pendingCurseSummon = null;
+  S._pendingCurseRelease = null;
+  // 신규 저주 → 소환 모션 재생 후 idle 등장 (소환 동안 셀 루프가 idle 억제 중).
+  for (const info of summon) {
+    playCurseBoardAnim(info.col, info.row, 'summon');
+    const _su = (window.CURSE_GIFS && window.CURSE_GIFS.summon);
+    const _dpP = (_su && typeof _fetchGifDuration === 'function') ? _fetchGifDuration(_su) : Promise.resolve(1200);
+    const _ck = `${info.col},${info.row}`, _fpk = info.col * 100 + info.row;
+    Promise.resolve(_dpP).then(dur => setTimeout(() => {
+      if (S._curseSummoning instanceof Map) S._curseSummoning.delete(_ck);
+      if (S._cellFP) S._cellFP.delete(_fpk);   // 해당 셀만 재빌드 → idle 등장
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+    }, (dur || 1200) + 40)).catch(() => {});
+  }
+  // 더 이상 저주 아님 → 해제. 데미지/공격/스킬 임팩트가 진행 중이면 그 후로 보류(순차 절차).
+  for (const info of release) {
+    const wait = _curseRemovalWaitMs(`${info.owner}:${info.name}`);
+    if (wait > 0) setTimeout(() => { try { playCurseBoardAnim(info.col, info.row, 'release'); } catch (e) {} }, wait + 40);
+    else playCurseBoardAnim(info.col, info.row, 'release');
+  }
+}
+// ── 1v1 관전자용 저주 전이 — 플레이어와 동일 구조(PreScan: 렌더 시작 / Flush: 렌더 끝) ──
+//   p0/p1 모두 공개되므로 양측 추적. 소환 동안 idle 억제 → 모션 후 등장. 해제는 데미지 임팩트 후 보류.
+function _specCurseSummoningActive(col, row){
+  if (!(S._specCurseSummoning instanceof Map)) return false;
+  const e = S._specCurseSummoning.get(col + ',' + row);
+  return !!(e && e > Date.now());
+}
+function _specCursePreScan(gs){
   if (!gs) return;
   if (!(S._specCursedSeen instanceof Map)) S._specCursedSeen = new Map();
+  if (!(S._specCurseSummoning instanceof Map)) S._specCurseSummoning = new Map();
   const nowCursed = new Map();
-  const collect = (pc, key) => {
-    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0 && pc.alive !== false) nowCursed.set(key, { col: pc.col, row: pc.row });
+  const collect = (pc, key, owner) => {
+    if (_isCursed(pc) && pc && pc.col != null && pc.col >= 0 && pc.alive !== false)
+      nowCursed.set(key, { col: pc.col, row: pc.row, name: pc.name, owner });
   };
-  (gs.p0Pieces || []).forEach((pc, i) => collect(pc, `0:${i}`));
-  (gs.p1Pieces || []).forEach((pc, i) => collect(pc, `1:${i}`));
-  for (const [k, pos] of nowCursed) {
-    if (!S._specCursedSeen.has(k)) playCurseBoardAnim(pos.col, pos.row, 'summon');
+  (gs.p0Pieces || []).forEach((pc, i) => collect(pc, `0:${i}`, 0));
+  (gs.p1Pieces || []).forEach((pc, i) => collect(pc, `1:${i}`, 1));
+  const summon = [], release = [];
+  for (const [k, info] of nowCursed) {
+    if (!S._specCursedSeen.has(k)) { summon.push(info); S._specCurseSummoning.set(`${info.col},${info.row}`, Date.now() + 2500); }
   }
-  for (const [k, pos] of S._specCursedSeen) {
-    if (!nowCursed.has(k)) playCurseBoardAnim(pos.col, pos.row, 'release');
-  }
+  for (const [k, info] of S._specCursedSeen) { if (!nowCursed.has(k)) release.push(info); }
+  S._pendingSpecSummon = summon;
+  S._pendingSpecRelease = release;
   S._specCursedSeen = nowCursed;
+}
+function _specCurseFlush(){
+  const summon = S._pendingSpecSummon || [];
+  const release = S._pendingSpecRelease || [];
+  S._pendingSpecSummon = null; S._pendingSpecRelease = null;
+  for (const info of summon) {
+    playCurseBoardAnim(info.col, info.row, 'summon');
+    const _su = (window.CURSE_GIFS && window.CURSE_GIFS.summon);
+    const _dpP = (_su && typeof _fetchGifDuration === 'function') ? _fetchGifDuration(_su) : Promise.resolve(1200);
+    const _ck = `${info.col},${info.row}`;
+    Promise.resolve(_dpP).then(dur => setTimeout(() => {
+      if (S._specCurseSummoning instanceof Map) S._specCurseSummoning.delete(_ck);
+      if (S.specGameState && typeof renderSpectatorGame === 'function') renderSpectatorGame(S.specGameState);
+    }, (dur || 1200) + 40)).catch(() => {});
+  }
+  for (const info of release) {
+    const wait = _curseRemovalWaitMs(`${info.owner}:${info.name}`);
+    if (wait > 0) setTimeout(() => { try { playCurseBoardAnim(info.col, info.row, 'release'); } catch (e) {} }, wait + 40);
+    else playCurseBoardAnim(info.col, info.row, 'release');
+  }
 }
 
 // ── 턴 데미지 추적 — 매 턴 시작 시 모든 piece HP 스냅샷, 변화량을 도장·HP바로 표시 ──
@@ -17364,6 +17464,9 @@ function renderSpectatorGame(gs) {
     }
   }
 
+  // ★ 저주 전이 사전 감지 (관전자) — 셀 루프 전, 신규 저주 셀의 idle 억제 표시.
+  try { _specCursePreScan(gs); } catch (e) {}
+
   document.querySelectorAll('#game-board .cell').forEach(cell => {
     const col = parseInt(cell.dataset.col), row = parseInt(cell.dataset.row);
     cell.className = 'cell';
@@ -17389,7 +17492,7 @@ function renderSpectatorGame(gs) {
       </div>`;
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자) — 저주 상태면 유닛 뒤 망령 idle
-      if (_isCursed(p0)) { cell.innerHTML += curseBoardLayerHtml(p0); cell.classList.add('has-curse'); }
+      if (_isCursed(p0)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p0); cell.classList.add('has-curse'); }
     }
     // P1 말 (빨간색)
     const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
@@ -17402,7 +17505,7 @@ function renderSpectatorGame(gs) {
       </div>`;
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자)
-      if (_isCursed(p1)) { cell.innerHTML += curseBoardLayerHtml(p1); cell.classList.add('has-curse'); }
+      if (_isCursed(p1)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p1); cell.classList.add('has-curse'); }
     }
     // 보드 오브젝트
     if (gs.boardObjects) {
@@ -17439,7 +17542,7 @@ function renderSpectatorGame(gs) {
   });
 
   // ★ 저주 소환/해제 전이 (관전자) — 셀 렌더 후 1회성 연출
-  try { _processSpecCurseTransitions(gs); } catch (e) {}
+  try { _specCurseFlush(); } catch (e) {}
 
   // 관전자 말 클릭 이벤트
   document.querySelectorAll('#game-board [data-spec-click]').forEach(el => {
@@ -17791,6 +17894,8 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
     filter:${fullF};
     opacity:0;
   `;
+  // ★ 저주 유닛 이동 PNG 에도 보라 글로우 오라 (인라인 filter 라 클래스 대신 직접 덧붙임)
+  if (_moveCursed) el.style.filter = (el.style.filter || '') + ' drop-shadow(0 0 2px #a371f7) drop-shadow(0 0 3px #a371f7)';
   document.body.appendChild(el);
 
   // ── 이미지 디코드 완료 후 애니메이션 시작 ─────────────────
