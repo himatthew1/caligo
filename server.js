@@ -2133,6 +2133,96 @@ function aiTeamTakeTurn(room, idx) {
   }
 }
 
+// ── AI 자동조작(플레이어 대리): 실행 없이 "이번 수 최선 행동"만 결정해 반환 ──────────
+//   서버 AI 지능(evac·정찰·도주·공격/이동 점수)을 그대로 재사용. 클라가 이 행동을 정상 인간
+//   경로(move_piece/attack/use_skill)로 실행 → 렌더·페이즈·타이밍·검증을 모두 인간 경로가 처리.
+//   반환: {type:'move',pieceIdx,col,row} | {type:'attack',pieceIdx[,tCol,tRow]} | {type:'skill',pieceIdx,skillId,params} | {type:'end'} | null
+function aiDecideAction(room, idx) {
+  if (!room || room.phase !== 'game' || room.currentPlayerIdx !== idx) return null;
+  const p = room.players[idx]; if (!p) return null;
+  const bounds = room.boardBounds;
+  const myAlive = p.pieces.filter(pc => pc.alive);
+  if (myAlive.length === 0) return { type: 'end' };
+  const teamId = getTeamOf(room, idx);
+  const brain = getTeamBrain(room, teamId);
+  // 브레인 갱신 (aiTeamTakeTurn 초기화와 동일 — 확률 spread + 위협맵)
+  if (brain._lastSpreadTurn !== room.turnNumber) {
+    brain._lastSpreadTurn = room.turnNumber; brain.turnCount = (brain.turnCount || 0) + 1;
+    aiSpreadProbability(brain);
+    let alive = 0; for (const ei of getEnemyIndices(room, idx)) { const ep = room.players[ei]; if (ep && ep.pieces) alive += ep.pieces.filter(x => x.alive).length; }
+    brain.enemiesAlive = alive;
+    aiClearOwnCells(brain, room, idx);
+    brain._dangerMap = aiBuildDangerMap(room, idx, brain); brain._dangerTurn = brain.turnCount;
+  }
+  // STEP 0: 보드축소 대피
+  const evac = aiTeamFindEvacuation(room, idx);
+  if (evac) return { type: 'move', pieceIdx: evac.pieceIdx, col: evac.col, row: evac.row };
+  // STEP 1: 자유 스킬 (정찰=정보부족 시 / 약초·신성=부상 아군)
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const piece = p.pieces[pi];
+    if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
+    if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(`${pi}:${piece.skillId}`)) continue;
+    if ((room.sp[teamId] + room.instantSp[teamId]) < piece.skillCost) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
+    if (piece.skillId === 'recon' && brain.mode === 'scan' && aiMaxProb(brain) < 6) return { type: 'skill', pieceIdx: pi, skillId: 'recon', params: {} };
+    if (piece.skillId === 'herb') {
+      const wounded = getAllyIndices(room, idx).flatMap(ai => room.players[ai] ? room.players[ai].pieces : []).some(a => a.alive && a !== piece && a.hp < a.maxHp && Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1);
+      if (wounded) return { type: 'skill', pieceIdx: pi, skillId: 'herb', params: {} };
+    }
+  }
+  // STEP 1.5: 피격 후 도주 vs 반격 (aiTeamTakeTurn STEP 1.5 동일 — 실행 대신 반환)
+  {
+    let fleePiece = null, fleeIdx = -1, fleeMem = null, fleeUrg = -1;
+    for (let pi = 0; pi < p.pieces.length; pi++) {
+      const piece = p.pieces[pi]; if (!piece.alive) continue;
+      const mem = brain.hitMemory && brain.hitMemory[piece.type];
+      if (!mem || (brain.turnCount - mem.turn) > 2) continue;
+      if (Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row) > 1) continue;
+      const urg = (piece.maxHp - piece.hp) / piece.maxHp;
+      if (urg > fleeUrg) { fleeUrg = urg; fleePiece = piece; fleeIdx = pi; fleeMem = mem; }
+    }
+    if (fleePiece) {
+      const piece = fleePiece, mem = fleeMem;
+      const counterExtra = {};
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch') { const bt = aiBestTargetCell(brain, piece, room); counterExtra.tCol = bt.col; counterExtra.tRow = bt.row; }
+      if (piece.toggleState) counterExtra.toggleState = piece.toggleState;
+      const counterScore = aiTeamScoreAttack(room, idx, piece, counterExtra);
+      let bestMove = null, bestFleeScore = -1;
+      for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const fs = (Math.abs(nc - mem.col) + Math.abs(nr - mem.row)) * 15 + aiTeamScoreMove(room, idx, piece, nc, nr); if (fs > bestFleeScore) { bestFleeScore = fs; bestMove = { col: nc, row: nr }; } }
+      const criticalHp = piece.hp <= 2; let sureHit = false, canHitProb = false;
+      for (const c of getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState })) { const v = brain.probMap[c.row] ? (brain.probMap[c.row][c.col] || 0) : 0; if (v >= 9) sureHit = true; if (v >= 6) canHitProb = true; }
+      const shouldCounter = sureHit || (!criticalHp && (canHitProb || (counterScore > bestFleeScore * 1.05 && counterScore > 4)));
+      if (shouldCounter) { const a = { type: 'attack', pieceIdx: fleeIdx }; if (typeof counterExtra.tCol === 'number') { a.tCol = counterExtra.tCol; a.tRow = counterExtra.tRow; } return a; }
+      if (bestMove) return { type: 'move', pieceIdx: fleeIdx, col: bestMove.col, row: bestMove.row };
+    }
+  }
+  // STEP 3: 공격 vs 이동 점수 (aiTeamTakeTurn STEP 3 동일)
+  let bestAction = null;
+  const dualPiece = myAlive.find(pc => pc.dualBladeAttacksLeft > 0);
+  if (dualPiece) { const dpi = p.pieces.indexOf(dualPiece); bestAction = { type: 'attack', pieceIdx: dpi, score: aiTeamScoreAttack(room, idx, dualPiece, { toggleState: dualPiece.toggleState }), extra: { toggleState: dualPiece.toggleState } }; }
+  else {
+    for (const piece of myAlive) {
+      if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
+      const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState };
+      if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
+      const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
+      if (!bestAction || atkScore > bestAction.score) bestAction = { type: 'attack', pieceIdx: pi, score: atkScore, extra };
+      for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const ms = aiTeamScoreMove(room, idx, piece, nc, nr) * 0.7; if (!bestAction || ms > bestAction.score) bestAction = { type: 'move', pieceIdx: pi, score: ms, col: nc, row: nr }; }
+    }
+  }
+  if (!bestAction || bestAction.score <= 0) {
+    const center = (bounds.min + bounds.max) / 2; let fb = null;
+    for (const piece of myAlive) for (const d of [[1,0],[-1,0],[0,1],[0,-1]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const sc = aiApproachScore(brain, piece.col, piece.row, nc, nr, bounds) - (Math.abs(nc - center) + Math.abs(nr - center)) * 0.01; if (!fb || sc > fb.score) fb = { pieceIdx: p.pieces.indexOf(piece), col: nc, row: nr, score: sc }; }
+    if (fb) return { type: 'move', pieceIdx: fb.pieceIdx, col: fb.col, row: fb.row };
+    return { type: 'end' };
+  }
+  if (bestAction.type === 'move') return { type: 'move', pieceIdx: bestAction.pieceIdx, col: bestAction.col, row: bestAction.row };
+  const a = { type: 'attack', pieceIdx: bestAction.pieceIdx };
+  if (bestAction.extra && typeof bestAction.extra.tCol === 'number') { a.tCol = bestAction.extra.tCol; a.tRow = bestAction.extra.tRow; }
+  return a;
+}
+
 // 팀전 AI 이동 실행 — 1v1 aiExecuteMove의 팀모드판
 function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   const p = room.players[idx];
@@ -7801,6 +7891,9 @@ function aiExecuteAttack(room, action) {
   const hitResults = processAttack(room, 1, piece, atkCells, undefined, { suppressSpUpdate: true });
 
   aiProcessAttackResult(brain, atkCells, hitResults, piece);
+  // ★ 자동조작(서버 AI 오토파일럿) — 인간(0) 팀 브레인이 AI 공격을 관측해 적(AI) 위치 역추론.
+  //   1v1 AI연습에서 내 팀(0)엔 AI 멤버가 없어 getTeamBrain(0) 이 평소 학습되지 않으므로 여기서 보강.
+  aiObserveEnemyAttack(getTeamBrain(room, getTeamOf(room, 0)), room, room.players[0].pieces, room.players[1].pieces, atkCells, hitResults);
 
   // ★ 학살영웅 등 임팩트 발생 시 빗나감 토스트 X (사용자 요청). 적쥐 격파는 hitResults 후처리에 포함.
   const _atkOwnRats = (room._attackerOwnRatsDestroyedCount || 0);
@@ -7870,6 +7963,8 @@ function aiExecuteAttack(room, action) {
       const extraCells = getAttackCells(piece.type, piece.col, piece.row, bounds);
       const extraHits = processAttack(room, 1, piece, extraCells);
       aiProcessAttackResult(brain, extraCells, extraHits, piece);
+      // ★ 자동조작 — 인간(0) 팀 브레인이 AI 쌍검무 2타도 관측해 적 위치 역추론.
+      aiObserveEnemyAttack(getTeamBrain(room, getTeamOf(room, 0)), room, room.players[0].pieces, room.players[1].pieces, extraCells, extraHits);
       emitToPlayer(room, 0, 'being_attacked', {
         atkCells: extraCells,
         hitPieces: extraHits.map(h => {
@@ -9540,6 +9635,18 @@ io.on('connection', (socket) => {
   });
 
   // ── 공격 ──
+  // ── AI 자동조작: 클라가 "내 턴 최선수"를 요청 → 서버 AI 결정 후 반환(실행은 클라가 인간 경로로). ──
+  socket.on('request_ai_move', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.phase !== 'game') { socket.emit('ai_move', { action: null }); return; }
+    const idx = socket.data.idx;
+    if (room.currentPlayerIdx !== idx) { socket.emit('ai_move', { action: null }); return; }
+    if (room.players[idx] && room.players[idx]._reconnecting) { socket.emit('ai_move', { action: null }); return; }
+    let action = null;
+    try { action = aiDecideAction(room, idx); } catch (e) { console.error('[request_ai_move]', e.message); action = null; }
+    socket.emit('ai_move', { action });
+  });
+
   socket.on('attack', ({ pieceIdx, tCol, tRow }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') return;
@@ -10004,6 +10111,13 @@ io.on('connection', (socket) => {
       emitToSpectators(room, 'spectator_log', { msg: `${player.name} 공격 빗나감`, type: 'miss', playerIdx: idx });
     }
 
+    // ★ 자동조작(서버 AI 오토파일럿) — 1v1 AI연습에서 내 팀(0) 브레인이 내 공격 hit/miss 를 학습.
+    //   (헛맞은 칸 확률 감쇠 → 같은 칸 반복공격 방지 / 명중 칸 주변 hunt 강화).
+    //   팀전은 아래 aiTeamLearnFromAttack 가 공격자 팀 브레인까지 처리하므로 여기선 1v1 만.
+    if (room.mode !== 'team') {
+      aiProcessAttackResult(getTeamBrain(room, getTeamOf(room, idx)), atkCells,
+        hitResults.map(h => ({ col: h.col, row: h.row, destroyed: h.destroyed })));
+    }
     // AI 피격 기억 + 공격자 위치 추론 — 공유 헬퍼로 통일 (1v1·팀전 동일 알고리즘)
     if (room.isAI && 1 - idx === 1 && room.aiBrain) {
       // 1v1: AI(1) 가 인간(0) 에게 맞음 → AI brain 이 인간 공격자 위치 추론
