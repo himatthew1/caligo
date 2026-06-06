@@ -1580,6 +1580,33 @@ function aiNextActionWaitMs(room, fallbackMs) {
 // 기존 setTimeout(...endTurn..., 4000) 패턴은 4초 대기 중 다른 곳에서 endTurn이 먼저 호출되면
 // currentPlayerIdx가 바뀌어 조건이 false가 되고 게임이 멈출 위험이 있었다.
 // 이 헬퍼는 핸들을 추적해 중복 스케줄/취소를 안전하게 처리하고, 30초 워치독으로 강제 endTurn 보장.
+// ── AI 무행동(패스) 알림 ─────────────────────────────────────────────────────
+//   사용자 보고: AI(내 동료 포함)가 "할 행동이 없다"고 판단해 턴을 조용히 넘기면
+//   토스트·로그가 전혀 안 떠 "이유 없이 스킵"으로 보임. 무행동 종료 시점마다 호출해
+//   적/팀원/관전자에게 "행동 없이 턴을 넘김"을 명시한다. 1v1·팀전 공용
+//   (getEnemyIndices/getTeammates 가 두 모드 모두 처리). 헤드리스 측정용 카운터도 증가.
+function aiAnnounceTurnPass(room, idx, reason) {
+  if (!room) return;
+  room._passCount = (room._passCount || 0) + 1;       // 헤드리스 측정용
+  const p = room.players[idx];
+  if (!p) return;
+  const name = p.name || 'AI';
+  const why = reason === 'boxed' ? '움직일 곳이 없어 ' : '';
+  for (const enIdx of getEnemyIndices(room, idx)) {
+    const en = room.players[enIdx];
+    if (en && en.socketId && en.socketId !== 'AI') {
+      io.to(en.socketId).emit('opp_passed', { msg: `${name}${조사(name, '이', '가')} ${why}행동 없이 턴을 넘겼습니다.` });
+    }
+  }
+  for (const tIdx of getTeammates(room, idx)) {
+    const tp = room.players[tIdx];
+    if (tp && tp.socketId && tp.socketId !== 'AI') {
+      io.to(tp.socketId).emit('team_ally_passed', { msg: `동료 ${name}${조사(name, '이', '가')} ${why}행동 없이 턴을 넘겼습니다.` });
+    }
+  }
+  emitToSpectators(room, 'spectator_log', { msg: `${name} ${why}행동 없이 턴을 넘김`, type: 'move', playerIdx: idx });
+}
+
 function scheduleAITurnEnd(room, idx, delayMs) {
   if (!room) return;
   // ★ 헤드리스(셀프플레이): 연출 딜레이 없이 즉시 동기 턴 종료.
@@ -2122,6 +2149,8 @@ function aiTeamTakeTurn(room, idx) {
       }
     }
     if (fb) { aiTeamExecuteMove(room, idx, fb.pieceIdx, fb.col, fb.row); return; }
+    // 모든 말이 완전히 막힘(보드축소·아군/유해로 둘러싸임) + 유효 행동 없음 → 패스 명시 후 종료.
+    aiAnnounceTurnPass(room, idx, 'boxed');
     endTurn(room);
     return;
   }
@@ -2227,7 +2256,7 @@ function aiDecideAction(room, idx) {
 function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   const p = room.players[idx];
   const piece = p.pieces[pieceIdx];
-  if (!piece || !piece.alive) { endTurn(room); return; }
+  if (!piece || !piece.alive) { aiAnnounceTurnPass(room, idx); endTurn(room); return; }
   const prevCol = piece.col, prevRow = piece.row;
   piece.col = nc; piece.row = nr;
   p._lastActionType = 'move';
@@ -2355,7 +2384,7 @@ function markedAttackerMotion(piece, ownerPieces) {
 function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const p = room.players[idx];
   const piece = p.pieces[pieceIdx];
-  if (!piece || !piece.alive) { endTurn(room); return; }
+  if (!piece || !piece.alive) { aiAnnounceTurnPass(room, idx); endTurn(room); return; }
   const bounds = room.boardBounds;
   const atkExtra = extra || { toggleState: piece.toggleState };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
@@ -7794,6 +7823,7 @@ function aiTakeTurn(room) {
 
   if (!bestAction) {
     aiPlayer.actionDone = true;
+    aiAnnounceTurnPass(room, 1, 'boxed');
     aiEndTurn(room);
     return;
   }

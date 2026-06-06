@@ -4722,6 +4722,19 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
   showSkillToast(`상대가 이동했습니다.`, true);
 });
 
+// ── 상대 AI 무행동(패스) 알림 — "이유 없이 스킵"처럼 보이지 않도록 명시 ──
+socket.on('opp_passed', ({ msg }) => {
+  const m = msg || '상대가 행동 없이 턴을 넘겼습니다.';
+  addLog(m, 'move');
+  showSkillToast(m, true);
+});
+// ── 팀원(아군 AI) 무행동(패스) 알림 ──
+socket.on('team_ally_passed', ({ msg }) => {
+  const m = msg || '동료가 행동 없이 턴을 넘겼습니다.';
+  addLog(m, 'move');
+  showSkillToast(m, true);
+});
+
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits }) => {
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
