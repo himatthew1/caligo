@@ -2828,7 +2828,8 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
 
   // ★ 분신 비행 애니메이션 — 같은 팀(myTeam)에만 공유, 적팀에는 비공유.
   //   서버는 모두에게 twinJoin 좌표를 보내지만, 클라에서 viewer 팀 기준으로 필터링.
-  if (twinJoin && myTeam && typeof playTwinJoinFlight === 'function') {
+  //   ★ FIX (관전자 패리티): 관전자는 전 정보 가시 → 양 팀 분신 비행 모두 표시.
+  if (twinJoin && (myTeam || S.isSpectator) && typeof playTwinJoinFlight === 'function') {
     const moverSub = twinJoin.moverSub || 'elder';
     playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
   }
@@ -3017,10 +3018,11 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
       setTimeout(() => flashHealPiecesByOwner(healedPieces), 50);
     }
     // ★ 약초학 / 신성 보드 시전 애니 — 같은 팀(myTeam)만 표시. 적팀에는 비공개.
-    if (myTeam && herbCenter && typeof animateHerbCast === 'function') {
+    //   ★ FIX (관전자 패리티): 관전자(S.isSpectator)는 전 정보 가시 → 양 팀 시전 모두 표시.
+    if ((myTeam || S.isSpectator) && herbCenter && typeof animateHerbCast === 'function') {
       animateHerbCast(herbCenter.col, herbCenter.row);
     }
-    if (myTeam && divineTarget && typeof animateDivineCast === 'function') {
+    if ((myTeam || S.isSpectator) && divineTarget && typeof animateDivineCast === 'function') {
       animateDivineCast(divineTarget.col, divineTarget.row);
     }
     // ★ 절대복종 반지 — 모든 viewer 가 보는 애니. 같은 팀이면 'observer', 적팀(피해자 팀)은 'victim'.
@@ -3775,22 +3777,25 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
     }
-    // ★ 악몽 시전 (1v1 관전자 시점) — 표식 적 셀 보라 펄스.
+    // ★ 악몽 시전 (1v1 관전자 시점) — 표식 적 셀 보라 펄스. (사망 GIF 는 아래 통합 블록에서 처리.)
     if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
         typeof animateNightmareCast === 'function') {
       animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
-      // ★ 악몽 사망 애니메이션 (관전자 시점) — hits 에서 destroyed 감지
-      if (Array.isArray(hits) && hits.some(h => h.destroyed)) {
-        const _nmDeadSpec = hits.filter(h => h.destroyed);
-        const _nmDeathInfosSpec = _detectDeaths(_nmDeadSpec, false);
-        if (_nmDeathInfosSpec.length > 0) {
-          setTimeout(() => {
-            playDeathAnimations(_nmDeathInfosSpec, () => {
-              _addClientSideRemains(_nmDeathInfosSpec);
-              if (S.specGameState) renderSpectatorGame(S.specGameState);
-            });
-          }, 500);
-        }
+    }
+    // ★ FIX (관전자 사망 GIF — 유황범람 등 비-악몽 데미지 스킬): 이전엔 악몽 사망만 재생 → 유황범람 등은
+    //   사망 모션 없이 상태만 갱신됐음. 모든 데미지 스킬의 destroyed hit 에 사망 GIF + 유해 생성.
+    //   라바면 피격 표시(+1100ms) 이후로 사망 지연(피격 모션이 사망 렌더에 덮이지 않도록).
+    if (Array.isArray(hits) && hits.some(h => h.destroyed)) {
+      const _deadSpec = hits.filter(h => h.destroyed);
+      const _deathInfosSpec = _detectDeaths(_deadSpec, false);
+      if (_deathInfosSpec.length > 0) {
+        const _lavaDeathDelaySpec = (Array.isArray(borderCells) && borderCells.length > 0) ? 1600 : 500;
+        setTimeout(() => {
+          playDeathAnimations(_deathInfosSpec, () => {
+            _addClientSideRemains(_deathInfosSpec);
+            if (S.specGameState) renderSpectatorGame(S.specGameState);
+          });
+        }, _lavaDeathDelaySpec);
       }
     }
     // ★ 저주 부여 turn-bright — 1v1 관전자 시점 (누락 수정).
