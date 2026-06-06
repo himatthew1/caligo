@@ -1399,12 +1399,14 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   const isCurEdge = piece.col === bounds.min || piece.col === bounds.max || piece.row === bounds.min || piece.row === bounds.max;
   const isNewEdge = newCol === bounds.min || newCol === bounds.max || newRow === bounds.min || newRow === bounds.max;
   if (isCurEdge && !isNewEdge) score += W.centerReturn;
-  // HP 낮을 때 도주 — 피격 기억(fog 존중) 기반. 맞은 위치에서 멀어지면 보너스.
+  // 피격 기억(fog 존중) 기반 도주 — 맞은 위치에서 멀어지면 보너스. ★ 1v1 aiScoreMove 와 동일화:
+  //   HP<=2 게이트 제거(맞으면 HP 무관 회피 고려) + 가중치를 maxHp 비율 기반으로(저HP일수록 ↑).
+  //   (이전: hp<=2 일 때만 + (3-hp) 선형 → 팀 AI 가 맞고도 같은 자리에서 또 맞는 원인.)
   const mem = brain.hitMemory[piece.type];
-  if (mem && brain.turnCount - mem.turn <= 2 && piece.hp <= 2) {
+  if (mem && brain.turnCount - mem.turn <= 2) {
     const distFromHit = Math.abs(newCol - mem.col) + Math.abs(newRow - mem.row);
     const curDistFromHit = Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row);
-    if (distFromHit > curDistFromHit) score += W.fleeBonus * (3 - piece.hp);
+    if (distFromHit > curDistFromHit) score += W.fleeBonus * (1 + (piece.maxHp - piece.hp) / piece.maxHp);
   }
   // ★ 추격 — 적 확률질량으로 능동 접근 (사거리 밖 적에게 다가감)
   score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * W.approachMul;
@@ -1581,31 +1583,9 @@ function aiNextActionWaitMs(room, fallbackMs) {
 // currentPlayerIdx가 바뀌어 조건이 false가 되고 게임이 멈출 위험이 있었다.
 // 이 헬퍼는 핸들을 추적해 중복 스케줄/취소를 안전하게 처리하고, 30초 워치독으로 강제 endTurn 보장.
 // ── AI 무행동(패스) 알림 ─────────────────────────────────────────────────────
-//   사용자 보고: AI(내 동료 포함)가 "할 행동이 없다"고 판단해 턴을 조용히 넘기면
-//   토스트·로그가 전혀 안 떠 "이유 없이 스킵"으로 보임. 무행동 종료 시점마다 호출해
-//   적/팀원/관전자에게 "행동 없이 턴을 넘김"을 명시한다. 1v1·팀전 공용
-//   (getEnemyIndices/getTeammates 가 두 모드 모두 처리). 헤드리스 측정용 카운터도 증가.
-function aiAnnounceTurnPass(room, idx, reason) {
-  if (!room) return;
-  room._passCount = (room._passCount || 0) + 1;       // 헤드리스 측정용
-  const p = room.players[idx];
-  if (!p) return;
-  const name = p.name || 'AI';
-  const why = reason === 'boxed' ? '움직일 곳이 없어 ' : '';
-  for (const enIdx of getEnemyIndices(room, idx)) {
-    const en = room.players[enIdx];
-    if (en && en.socketId && en.socketId !== 'AI') {
-      io.to(en.socketId).emit('opp_passed', { msg: `${name}${조사(name, '이', '가')} ${why}행동 없이 턴을 넘겼습니다.` });
-    }
-  }
-  for (const tIdx of getTeammates(room, idx)) {
-    const tp = room.players[tIdx];
-    if (tp && tp.socketId && tp.socketId !== 'AI') {
-      io.to(tp.socketId).emit('team_ally_passed', { msg: `동료 ${name}${조사(name, '이', '가')} ${why}행동 없이 턴을 넘겼습니다.` });
-    }
-  }
-  emitToSpectators(room, 'spectator_log', { msg: `${name} ${why}행동 없이 턴을 넘김`, type: 'move', playerIdx: idx });
-}
+//   ※ 별도 알림 함수는 제거함. endTurn() 이 이미 "행동·스킬 모두 안 함"을 감지해
+//      no_action_notice 로 "⏰ {name}의 턴 스킵" 을 모든 플레이어/관전자에게 송신한다
+//      (emitToBoth → 팀 4명 전원 포함). AI 패스도 endTurn 을 거치므로 자동 처리됨.
 
 function scheduleAITurnEnd(room, idx, delayMs) {
   if (!room) return;
@@ -2149,8 +2129,8 @@ function aiTeamTakeTurn(room, idx) {
       }
     }
     if (fb) { aiTeamExecuteMove(room, idx, fb.pieceIdx, fb.col, fb.row); return; }
-    // 모든 말이 완전히 막힘(보드축소·아군/유해로 둘러싸임) + 유효 행동 없음 → 패스 명시 후 종료.
-    aiAnnounceTurnPass(room, idx, 'boxed');
+    // 모든 말이 완전히 막힘(보드축소·아군/유해로 둘러싸임) + 유효 행동 없음 → 종료.
+    //   endTurn 이 무행동을 감지해 "⏰ {name}의 턴 스킵" no_action_notice 를 송신한다.
     endTurn(room);
     return;
   }
@@ -2256,7 +2236,7 @@ function aiDecideAction(room, idx) {
 function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
   const p = room.players[idx];
   const piece = p.pieces[pieceIdx];
-  if (!piece || !piece.alive) { aiAnnounceTurnPass(room, idx); endTurn(room); return; }
+  if (!piece || !piece.alive) { endTurn(room); return; }
   const prevCol = piece.col, prevRow = piece.row;
   piece.col = nc; piece.row = nr;
   p._lastActionType = 'move';
@@ -2384,7 +2364,7 @@ function markedAttackerMotion(piece, ownerPieces) {
 function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const p = room.players[idx];
   const piece = p.pieces[pieceIdx];
-  if (!piece || !piece.alive) { aiAnnounceTurnPass(room, idx); endTurn(room); return; }
+  if (!piece || !piece.alive) { endTurn(room); return; }
   const bounds = room.boardBounds;
   const atkExtra = extra || { toggleState: piece.toggleState };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
@@ -5236,6 +5216,21 @@ function endTurn(room, opts) {
           aiTeamTakeTurn(room, curIdx);
         }
       }, aiDelay);
+      // ★ FIX (#6 팀전 AI 프리징): 턴 시작 시 "턴 레벨" 안전 워치독.
+      //   aiTeamTakeTurn 의 재진입 setTimeout 경로(스킬 후 재평가 등)는 scheduleAITurnEnd 워치독을
+      //   거치지 않아, 그 경로에서 턴이 끝나지 못하면 무한 정지했다(실측: 한 AI 턴 18초 정지).
+      //   이 워치독은 경로와 무관하게 turn 이 여전히 curIdx 면 강제 종료해 정지 구간을 없앤다.
+      //   정상 복잡 턴(스킬+행동+애니)도 ~13s 안에 끝나므로 여유 마진을 둔 16s 캡.
+      if (room._aiTurnWatchdog) clearTimeout(room._aiTurnWatchdog);
+      const _wdEpoch = _epoch;
+      room._aiTurnWatchdog = setTimeout(() => {
+        room._aiTurnWatchdog = null;
+        if (room.phase === 'game' && room.currentPlayerIdx === curIdx && room._aiSchedEpoch === _wdEpoch) {
+          console.warn('[AI turn watchdog] forcing endTurn for stalled team AI', curIdx);
+          room._aiEndTurnEarliest = 0;
+          endTurn(room);
+        }
+      }, aiDelay + 16000);
     }
     return;
   }
@@ -7823,7 +7818,6 @@ function aiTakeTurn(room) {
 
   if (!bestAction) {
     aiPlayer.actionDone = true;
-    aiAnnounceTurnPass(room, 1, 'boxed');
     aiEndTurn(room);
     return;
   }
@@ -8048,7 +8042,11 @@ io.on('connection', (socket) => {
 
   // ── 캐릭터 데이터 요청 (덱빌더용) ──
   socket.on('request_characters', () => {
-    socket.emit('characters_data', { characters: CHARACTERS });
+    // ★ FIX (덱빌더/딕셔너리/추천/랜덤 전부 빈 화면): 재접속 경로(아래)는 characters_data 를
+    //   래핑 없이 CHARACTERS 로 보내는데 여기서만 { characters: CHARACTERS } 로 래핑해 불일치였다.
+    //   전역 핸들러가 S.characters = payload 로 받으면 S.characters[1/2/3] 가 undefined → 전부 빈 화면.
+    //   → 래핑 제거로 통일.
+    socket.emit('characters_data', CHARACTERS);
   });
 
   // ── #9: 재접속 (새로고침/연결 끊김 복구) ──

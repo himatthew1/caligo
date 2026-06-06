@@ -16,6 +16,10 @@ socket.on('connect', () => {
       sessionStorage.removeItem('caligo_session');
       return;
     }
+    // ★ FIX (팀전 새로고침 시 isTeamMode 유실): 커스텀 2v2 vs AI 는 1v1 셋업 페이즈(hp/placement/reveal)를
+    //   재사용하므로 서버가 1v1 재접속 이벤트를 보내 S.isTeamMode 가 false 로 남았다 → 보드가 5×5/단일
+    //   프로필로 깨짐. 세션에 저장된 isTeam 으로 재접속 즉시 복원(team_game_start 가 오면 거기서도 true).
+    if (sess.isTeam) { try { S.isTeamMode = true; } catch (e) {} }
     socket.emit('reconnect_game', { roomId: sess.roomId, sessionToken: sess.token });
   } catch (e) {}
 });
@@ -1013,7 +1017,9 @@ document.getElementById('btn-deck').addEventListener('click', () => {
     openDeckBuilder();
   } else {
     socket.emit('request_characters');
-    socket.once('characters_data', ({ characters }) => {
+    socket.once('characters_data', (characters) => {
+      // ★ FIX: characters_data 페이로드는 래핑 없는 CHARACTERS 그대로 (전역 핸들러 line ~1588 과 동일).
+      //   이전엔 ({ characters }) 로 구조분해해 undefined 가 되어 덱빌더가 텅 비었음.
       S.characters = characters;
       openDeckBuilder();
       updateLobbyDeckButton();
@@ -2626,7 +2632,17 @@ function applyTeamGameState(state) {
   if (typeof applyTurnUiState === 'function') applyTurnUiState();
   S.teamGamePlayers = state.players || [];
   S.boardObjects = state.boardObjects || [];
-  S.remains = state.remains || [];
+  // ★ FIX (#1 유해 타이밍 / #5 사망·피격 모션과 유해 겹침): 1v1 의 _applyServerRemainsExcludingDeaths
+  //   와 동일하게, 지금 사망 GIF 가 재생 중인 셀(_pendingDeathCells)의 유해는 제외하고 적용한다.
+  //   그 셀의 유해는 사망 GIF 완료 후 _addClientSideRemains 가 추가·렌더한다. (이전엔 무조건 교체라
+  //   사망/피격 모션 위에 유해가 겹쳐 보이거나, 게이트로 렌더가 밀려 그 턴에 유해가 안 보였음.)
+  {
+    const _rem = state.remains || [];
+    const _pend = S._pendingDeathCells;
+    S.remains = (_pend && _pend.size > 0)
+      ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`))
+      : _rem;
+  }
   // 내 pieces / 팀원 pieces / 적팀 pieces 재구성
   const me = S.teamGamePlayers.find(p => p.idx === S.playerIdx);
   const teammate = S.teamGamePlayers.find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
@@ -3640,7 +3656,17 @@ function applyTeamSpectatorState(state) {
   if (typeof state.turnSlotIdx === 'number') S.turnSlotIdx = state.turnSlotIdx;  // ★ 관전자도 슬롯 강조 통일
   S.teamGamePlayers = state.players || [];
   S.boardObjects = state.boardObjects || [];
-  S.remains = state.remains || [];
+  // ★ FIX (#1 유해 타이밍 / #5 사망·피격 모션과 유해 겹침): 1v1 의 _applyServerRemainsExcludingDeaths
+  //   와 동일하게, 지금 사망 GIF 가 재생 중인 셀(_pendingDeathCells)의 유해는 제외하고 적용한다.
+  //   그 셀의 유해는 사망 GIF 완료 후 _addClientSideRemains 가 추가·렌더한다. (이전엔 무조건 교체라
+  //   사망/피격 모션 위에 유해가 겹쳐 보이거나, 게이트로 렌더가 밀려 그 턴에 유해가 안 보였음.)
+  {
+    const _rem = state.remains || [];
+    const _pend = S._pendingDeathCells;
+    S.remains = (_pend && _pend.size > 0)
+      ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`))
+      : _rem;
+  }
   S.teamTeams = state.teams || S.teamTeams;
   // 관전자 보드 표시 — A팀=내팀 슬롯, B팀=상대 슬롯 (적 좌표는 marked로 모두 노출)
   const teamA = (S.teamGamePlayers || []).filter(p => p.teamId === 0);
@@ -4720,19 +4746,6 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
   }
   addLog(`상대가 이동했습니다.`, 'move');
   showSkillToast(`상대가 이동했습니다.`, true);
-});
-
-// ── 상대 AI 무행동(패스) 알림 — "이유 없이 스킵"처럼 보이지 않도록 명시 ──
-socket.on('opp_passed', ({ msg }) => {
-  const m = msg || '상대가 행동 없이 턴을 넘겼습니다.';
-  addLog(m, 'move');
-  showSkillToast(m, true);
-});
-// ── 팀원(아군 AI) 무행동(패스) 알림 ──
-socket.on('team_ally_passed', ({ msg }) => {
-  const m = msg || '동료가 행동 없이 턴을 넘겼습니다.';
-  addLog(m, 'move');
-  showSkillToast(m, true);
 });
 
 // ── 공격 결과 ──
@@ -7163,13 +7176,18 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         if (i < oldMyHps.length && S.myPieces[i].hp < oldMyHps[i]) mySkillDmgIdx.push(i);
       }
       // 회복 추적 — HP 가 늘어난 pieces 의 delta 를 healThisTurn 에 누적 (녹색 도장 + HP 바 녹색 오버레이)
-      const _myStampPrefix = S.isTeamMode ? `${S.playerIdx}` : 'my';
+      // ★ FIX (팀전 회복 도장 2 중복): 팀 모드는 team_game_update 가 HP 스냅샷 diff 로 회복 도장을
+      //   단일 소스로 처리함. 여기서 또 같은 키(`${ownerIdx}:${i}`)로 addHeal 하면 1회복이 2로 찍힘
+      //   (예: 약초학 호위무사 1회복 → 2회복 표시). 따라서 팀 모드에서는 skill_result 회복 도장을 스킵.
+      const _myStampPrefix = S.isTeamMode ? null : 'my';
       const _oppStampPrefix = S.isTeamMode
         ? null  // 팀 모드는 owner 별 키이므로 별도 처리 필요 (skill_result 에서 opp 회복은 드뭄)
         : 'opp';
-      for (let i = 0; i < S.myPieces.length; i++) {
-        if (i < oldMyHps.length && S.myPieces[i].hp > oldMyHps[i]) {
-          addHeal(`${_myStampPrefix}:${i}`, S.myPieces[i].hp - oldMyHps[i]);
+      if (_myStampPrefix) {
+        for (let i = 0; i < S.myPieces.length; i++) {
+          if (i < oldMyHps.length && S.myPieces[i].hp > oldMyHps[i]) {
+            addHeal(`${_myStampPrefix}:${i}`, S.myPieces[i].hp - oldMyHps[i]);
+          }
         }
       }
       if (S.oppPieces && _oppStampPrefix) {
