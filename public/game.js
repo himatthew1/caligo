@@ -2639,9 +2639,19 @@ function applyTeamGameState(state) {
   {
     const _rem = state.remains || [];
     const _pend = S._pendingDeathCells;
-    S.remains = (_pend && _pend.size > 0)
-      ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`))
-      : _rem;
+    let _next = (_pend && _pend.size > 0) ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`)) : _rem;
+    // ★ #5: 유해 피격 애니 진행 중인 셀은 현재 단계(hits)를 유지 — 서버의 새 단계로 조기 교체하면
+    //   피격 GIF 위에 다음 단계 PNG 가 겹쳐 보임. 정착(finalize) 후 remains_update 가 최종 단계 반영.
+    const _hitPend = S._pendingRemainsHitCells;
+    if (_hitPend && _hitPend.size > 0) {
+      const _cur = S.remains || [];
+      _next = _next.map(r => {
+        if (!_hitPend.has(`${r.col},${r.row}`)) return r;
+        const _old = _cur.find(o => o.col === r.col && o.row === r.row);
+        return _old || r;
+      });
+    }
+    S.remains = _next;
   }
   // 내 pieces / 팀원 pieces / 적팀 pieces 재구성
   const me = S.teamGamePlayers.find(p => p.idx === S.playerIdx);
@@ -2667,6 +2677,10 @@ socket.on('team_game_start', (state) => {
   if (state.reconnected) {
     const _me = (S.teamGamePlayers || []).find(p => p.idx === S.playerIdx);
     S.actionDone = !!(_me && _me.actionDone);
+    // ★ FIX (#8 팀전 재접속 기억): 새로고침으로 잃은 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향)
+    //   복원. 1v1 game_start 는 _restoreKnowledge 를 호출하지만 team_game_start 는 빠져 있었다.
+    try { _restoreKnowledge(); S.oppPieces = S.oppPieces; } catch (e) {}
+    if (typeof refreshDeductionTokens === 'function') { try { refreshDeductionTokens(); } catch (e) {} }
   }
   if (typeof buildGameUI === 'function') {
     try { buildGameUI(); } catch (e) {}
@@ -3670,9 +3684,19 @@ function applyTeamSpectatorState(state) {
   {
     const _rem = state.remains || [];
     const _pend = S._pendingDeathCells;
-    S.remains = (_pend && _pend.size > 0)
-      ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`))
-      : _rem;
+    let _next = (_pend && _pend.size > 0) ? _rem.filter(r => !_pend.has(`${r.col},${r.row}`)) : _rem;
+    // ★ #5: 유해 피격 애니 진행 중인 셀은 현재 단계(hits)를 유지 — 서버의 새 단계로 조기 교체하면
+    //   피격 GIF 위에 다음 단계 PNG 가 겹쳐 보임. 정착(finalize) 후 remains_update 가 최종 단계 반영.
+    const _hitPend = S._pendingRemainsHitCells;
+    if (_hitPend && _hitPend.size > 0) {
+      const _cur = S.remains || [];
+      _next = _next.map(r => {
+        if (!_hitPend.has(`${r.col},${r.row}`)) return r;
+        const _old = _cur.find(o => o.col === r.col && o.row === r.row);
+        return _old || r;
+      });
+    }
+    S.remains = _next;
   }
   S.teamTeams = state.teams || S.teamTeams;
   // 관전자 보드 표시 — A팀=내팀 슬롯, B팀=상대 슬롯 (적 좌표는 marked로 모두 노출)
@@ -9127,9 +9151,15 @@ socket.on('remains_update', ({ remains, hits }) => {
   const _aimAt = S._impactAtTs || 0;
   const _delay = (_aimAt > _now && (_aimAt - _now) < 4000) ? (_aimAt - _now) : 0;
   S._impactAtTs = 0;  // 1회성 — 다음 이벤트로 재사용 방지
+  // ★ FIX (#5 팀전 유해 피격 다음단계 겹침): 피격 애니 진행 중인 셀을 보호 집합에 등록.
+  //   팀전의 team_game_update(applyTeamGameState)가 이 셀의 유해를 서버의 새 단계로 조기 교체하면
+  //   피격 GIF 위에 다음 단계 PNG 가 겹쳐 보인다 → 보호 집합의 셀은 현재 단계를 유지(아래 applyTeamGameState).
+  if (!S._pendingRemainsHitCells) S._pendingRemainsHitCells = new Set();
+  for (const h of hits) S._pendingRemainsHitCells.add(`${h.col},${h.row}`);
   let pending = hits.length;
   const finalize = () => {
     if (--pending > 0) return;
+    for (const h of hits) S._pendingRemainsHitCells.delete(`${h.col},${h.row}`);
     S.remains = remains || [];
     S._cellFP = null;  // 다음 렌더가 최종 단계를 정확히 반영
   };

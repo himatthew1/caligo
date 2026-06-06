@@ -1897,7 +1897,9 @@ function aiTeamTakeTurn(room, idx) {
     //   사용자 요청: 스킬과 다음 행동 사이 명확한 호흡 텀.
     const _now = Date.now();
     const _earliest = room._aiEndTurnEarliest || 0;
-    const waitMs = Math.max(6000, (_earliest - _now) + 1500);
+    // ★ #6 프리징 체감 완화: 토스트 종료 시점(_earliest)은 그대로 존중하되 여분 마진을 단축
+    //   (1500→600, 바닥 6000→4000). 토스트 길이 자체는 안 줄여 스킬↔행동 겹침 위험 없음.
+    const waitMs = Math.max(4000, (_earliest - _now) + 600);
     setTimeout(() => {
       if (room.phase === 'game' && room.currentPlayerIdx === idx) {
         aiTeamTakeTurn(room, idx);
@@ -1915,7 +1917,7 @@ function aiTeamTakeTurn(room, idx) {
     const _now = Date.now();
     const _earliest = room._aiEndTurnEarliest || 0;
     const remain = Math.max(0, _earliest - _now);
-    const waitMs = remain + 1500;
+    const waitMs = remain + 600;  // ★ #6: 여분 마진 1500→600 단축 (토스트 종료는 remain 으로 존중)
     if (waitMs >= 200) {
       setTimeout(() => {
         if (room.phase === 'game' && room.currentPlayerIdx === idx) {
@@ -5208,7 +5210,7 @@ function endTurn(room, opts) {
     // 현재 차례가 AI라면 자동 행동 트리거. 애니메이션 페이즈 진행 중이면 그 종료 + 1.5s 까지 대기.
     if (cur && cur.socketId === 'AI') {
       const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
-      const aiDelay = Math.max(2500, phaseRemain);
+      const aiDelay = Math.max(2000, phaseRemain);  // ★ #6: 턴 시작 지연 2500→2000 단축
       // ★ epoch 토큰 — 동일 슬롯 재진입/중복 스케줄 시 stale 콜백이 aiTeamTakeTurn 을 중복 실행하지 못하게 차단.
       const _epoch = (room._aiSchedEpoch = (room._aiSchedEpoch || 0) + 1);
       setTimeout(() => {
