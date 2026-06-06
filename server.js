@@ -9639,6 +9639,8 @@ io.on('connection', (socket) => {
   socket.on('request_ai_move', () => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') { socket.emit('ai_move', { action: null }); return; }
+    // ★ 공정성: 사람 간 PvP 에서 "최선수 힌트" 로 악용 방지 — AI 연습 룸에서만 자동조작 응답.
+    if (!room.isAI) { socket.emit('ai_move', { action: null }); return; }
     const idx = socket.data.idx;
     if (room.currentPlayerIdx !== idx) { socket.emit('ai_move', { action: null }); return; }
     if (room.players[idx] && room.players[idx]._reconnecting) { socket.emit('ai_move', { action: null }); return; }
