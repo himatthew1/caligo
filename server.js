@@ -1631,7 +1631,10 @@ function aiTeamUsePreSkills(room, idx) {
     if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
     if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
-    if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(piece.skillId)) continue;
+    // ★ FIX (팀 AI 루프 버그 — 질주 등 oncePerTurn 스킬 반복 시전): skillsUsedBeforeAction 은
+    //   `${pieceIdx}:${skillId}` 형식으로 저장(executeSkill 5973)되는데 여기서 bare skillId 로
+    //   검사해 절대 매치 안 됨 → 질주(oncePerTurn)를 질주 이동 재진입마다 재시전(SP 소진까지 루프)했음.
+    if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(`${pi}:${piece.skillId}`)) continue;
     // shadow — 방어 스킬. 적 위치는 직접 알 수 없으므로(치팅 금지) '표식' 찍힌 적이
     //   인접하거나, 위협맵상 자기 칸의 예상 피격치가 높을 때 시전.
     if (piece.skillId === 'shadow') {
@@ -2203,6 +2206,9 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const atkExtra = extra || { toggleState: piece.toggleState };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
+  // ★ FIX (팀 AI 공격 페이즈 누락 — 1v1 통일): 사망 기폭/표식 페이즈 시작. 이게 없어 표식이 적용
+  //   안 되고(flushMarkPhase 미호출), 화약상 사망 시 폭탄이 연출 페이즈 없이 즉시 폭발했었음.
+  startPhase(room);
   const hitResults = processAttack(room, idx, piece, atkCells, undefined, { suppressSpUpdate: true });
   // ★ 팀 브레인 학습 — AI 공격은 socket 을 안 타므로 여기서 직접 호출(끝없는 정보 누적).
   //   내 hit/miss → 적 확률맵 갱신. (피격당한 적팀이 AI 라면 역추론도 함께 처리됨.)
@@ -2318,6 +2324,11 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   broadcastTeamGameState(room);
   // ★ 공격 처리 완료 — suppressed SP 업데이트 emit
   emitSPUpdate(room);
+  // ★ FIX (팀 AI 공격 페이즈 — 1v1 통일): 표식 적용(flushMarkPhase) + 사망 기폭 체인 연출 + 게임종료
+  //   판정을 페이즈 종료까지 지연. (인간 팀 공격 핸들러 9921 과 동일.)
+  flushPhase(room, () => {
+    if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room);
+  });
   // 쌍검무 — 두 번째 공격 (1v1과 동일하게 4초 딜레이)
   if (piece.dualBladeAttacksLeft > 0 && piece.alive) {
     const DUAL_BLADE_DELAY = 4000;
@@ -2326,6 +2337,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       if (!piece.alive) { setTimeout(() => endTurn(room), 100); return; }
       piece.dualBladeAttacksLeft--;
       const extra2Cells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
+      startPhase(room);  // ★ FIX (팀 AI 쌍검무 2타 페이즈): 표식/사망 기폭 페이즈 (1v1 통일)
       const extra2Hits = processAttack(room, idx, piece, extra2Cells);
       // 두 번째 공격 결과 emit
       const hitsByOwner2 = new Map();
@@ -2385,6 +2397,10 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         })),
       });
       broadcastTeamGameState(room);
+      // ★ FIX (팀 AI 쌍검무 2타 페이즈): 표식 적용 + 사망 기폭 + 게임종료 판정 지연.
+      flushPhase(room, () => {
+        if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room);
+      });
       scheduleAITurnEnd(room, idx, 3000);
     }, DUAL_BLADE_DELAY);
     return;
