@@ -3825,10 +3825,15 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
 // ── 관전자 일반 공격 애니메이션 ──
 //   서버가 each being_attacked emit 옆에 같이 emit 함. defOwnerIdx 0/1 → my/opp 패널 매핑.
 let _spectatorAttackSeq = 0;
-socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits }) => {
+socket.on('spectator_attack_anim', ({ atkCells, hits, friendlyFireHits, atkCol, atkRow, atkType, atkSubUnit }) => {
   if (!S.isSpectator) return;
   // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
+  // ★ FIX (관전자 공격 모션): 공격자 칸에 공격 GIF 즉시 재생 — 플레이어 시점과 동일. 오버레이라
+  //   관전자 렌더 모델(renderSpectatorGame/renderTeamGameSnapshot)과 무관하게 동작. 방향은 DOM 폴백.
+  if (atkType != null && atkCol != null && atkRow != null && typeof animateAttackGif === 'function') {
+    try { animateAttackGif(atkCol, atkRow, atkType, atkSubUnit || null, false, null); } catch (e) {}
+  }
   // ★ 쥐 공격 모션은 서버의 rat_attack_anim 이벤트(쥐장수 공격 시에만)로 처리 — 여기서 자동 추정 X.
   const hitCellList = (hits || []).filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;

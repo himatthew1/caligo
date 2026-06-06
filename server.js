@@ -2283,6 +2283,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   // ★ 관전자 일반 공격 애니메이션 — 팀모드. defOwnerIdx 포함 hits.
   emitToSpectators(room, 'spectator_attack_anim', {
     atkCells,
+    atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
     hits: hitResults.map(h => ({
       col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
       defPieceIdx: h.defPieceIdx,
@@ -2373,6 +2374,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       // ★ 관전자 — 쌍검무 두 번째 공격 애니
       emitToSpectators(room, 'spectator_attack_anim', {
         atkCells: extra2Cells,
+        atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
         hits: extra2Hits.map(h => ({
           col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
           defPieceIdx: h.defPieceIdx, defOwnerIdx: h.defOwnerIdx,
@@ -7692,6 +7694,7 @@ function aiExecuteAttack(room, action) {
   // ★ 관전자 일반 공격 애니 (1v1 AI 공격) — defOwnerIdx 0 (인간 = p0)
   emitToSpectators(room, 'spectator_attack_anim', {
     atkCells,
+    atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
     hits: hitResults.map(h => ({
       col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
       defPieceIdx: h.defPieceIdx, defOwnerIdx: 0,
@@ -7751,6 +7754,7 @@ function aiExecuteAttack(room, action) {
       // ★ 관전자 — 쌍검무 두 번째 공격 (1v1 AI). defOwnerIdx 0
       emitToSpectators(room, 'spectator_attack_anim', {
         atkCells: extraCells,
+        atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
         hits: extraHits.map(h => ({
           col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
           defPieceIdx: h.defPieceIdx, defOwnerIdx: 0,
@@ -9515,6 +9519,7 @@ io.on('connection', (socket) => {
         // ★ 관전자 — 쌍검무 추가 공격 (1v1·팀전 공통)
         emitToSpectators(room, 'spectator_attack_anim', {
           atkCells,
+          atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
           hits: hitResults.map(h => ({
             col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
             defPieceIdx: h.defPieceIdx, defOwnerIdx: h.defOwnerIdx ?? (1 - idx),
@@ -9812,8 +9817,10 @@ io.on('connection', (socket) => {
 
     // ★ 관전자 일반 공격 애니메이션 — 셀 hit 번쩍임 + 카드 hit flash + 본체 도장.
     //   defOwnerIdx 가 hits 에 들어있어 클라가 패널 매핑 가능.
+    //   ★ FIX (관전자 공격 모션): 공격자 위치/타입 — 관전자가 공격자 칸에 공격 GIF 재생용.
     emitToSpectators(room, 'spectator_attack_anim', {
       atkCells,
+      atkCol: atkPiece.col, atkRow: atkPiece.row, atkType: atkPiece.type, atkSubUnit: atkPiece.subUnit || null,
       hits: hitResults.map(h => ({
         col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
         defPieceIdx: h.defPieceIdx,
