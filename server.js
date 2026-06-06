@@ -2118,6 +2118,8 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
     piece.messengerMovesLeft--;
     if (piece.messengerMovesLeft <= 0) piece.messengerSprintActive = false;
   }
+  // ★ FIX (관전자 이동 모션): 팀 AI 이동 — broadcast(상태 동기화) 전에 슬라이드 애니용 좌표 전송.
+  emitToSpectators(room, 'spectator_move_anim', { prevCol, prevRow, col: nc, row: nr, pieceType: piece.type, pieceSubUnit: piece.subUnit || null, owner: idx });
   // 트랩 보류 시 broadcast 도 지연 — 이동 직후엔 piece 가 alive=true 인 상태로 보드에 노출.
   if (!teamAiTrapPending) broadcastTeamGameState(room);
 
@@ -7606,6 +7608,8 @@ function aiExecuteMove(room, action) {
 
   emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}${조사(room.players[1].name, '이', '가')} 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.name} 이동`, type: 'move', playerIdx: 1 });
+  // ★ FIX (관전자 이동 모션): 1v1 AI 이동 — spectator_update 전에 슬라이드 애니용 좌표 전송.
+  emitToSpectators(room, 'spectator_move_anim', { prevCol, prevRow, col: action.col, row: action.row, pieceType: piece.type, pieceSubUnit: piece.subUnit || null, owner: 1 });
   if (!aiTrapPending) emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
 
   aiTrackToast(room, 'move');
@@ -9312,6 +9316,8 @@ io.on('connection', (socket) => {
           }
         }
       }
+      // ★ FIX (관전자 이동 모션): 상태 동기화(broadcast) 전에 슬라이드 애니용 좌표 전송 → 옛 위치에서 시작.
+      emitToSpectators(room, 'spectator_move_anim', { prevCol: prev.col, prevRow: prev.row, col, row, pieceType: piece.type, pieceSubUnit: piece.subUnit || null, owner: idx });
       // 트랩 발동 보류 시 broadcast 도 지연 — 이동 후 piece 가 alive=true 상태로 보드에 노출되도록.
       if (!trapPending) broadcastTeamGameState(room);
     } else {
@@ -9322,6 +9328,8 @@ io.on('connection', (socket) => {
           io.to(opp.socketId).emit('opp_moved', { msg: `${room.players[idx].name}${조사(room.players[idx].name, '이', '가')} 이동했습니다.`, prevCol: prev.col, prevRow: prev.row, col, row });
         }
       }
+      // ★ FIX (관전자 이동 모션): 1v1 — spectator_update(아래) 전에 슬라이드 애니용 좌표 전송.
+      emitToSpectators(room, 'spectator_move_anim', { prevCol: prev.col, prevRow: prev.row, col, row, pieceType: piece.type, pieceSubUnit: piece.subUnit || null, owner: idx });
     }
     emitToSpectators(room, 'spectator_log', { msg: `${player.name}, ${piece.name} 이동`, type: 'move', playerIdx: idx });
     if (!trapPending) emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));

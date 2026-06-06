@@ -3666,6 +3666,20 @@ socket.on('spectator_update', (gameState) => {
   }
 });
 
+// ── 관전자 이동 슬라이드 애니 ──
+//   ★ FIX (관전자 이동 모션): 서버가 상태 동기화(spectator_update / team_spectator_update) *직전* 에
+//   이 이벤트를 보냄 → 보드가 아직 옛 위치를 표시하는 동안 animateMove 가 옛→새 칸으로 슬라이드.
+//   animateMove 는 오버레이(플로팅 img)+_moveAnimDest 기반이라 1v1·팀 관전자 렌더 모델 모두 동작.
+socket.on('spectator_move_anim', ({ prevCol, prevRow, col, row, pieceType, pieceSubUnit, owner }) => {
+  if (!S.isSpectator) return;
+  if (typeof animateMove !== 'function') return;
+  if (prevCol == null || prevRow == null || col == null || row == null) return;
+  if (prevCol === col && prevRow === row) return;
+  try { playSfx('move'); } catch (e) {}
+  const key = `spec:${owner}:${pieceType}:${pieceSubUnit || ''}`;
+  try { animateMove('', prevCol, prevRow, col, row, pieceType, pieceSubUnit || null, key); } catch (e) {}
+});
+
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
