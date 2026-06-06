@@ -1905,6 +1905,56 @@ function aiTeamTakeTurn(room, idx) {
     }
   }
 
+  // ★ STEP 1.5 (FIX: 피격 후 제자리 멍청한 짓): 도주 vs 반격 — 1v1 STEP2(server 7407) 동등.
+  //   행동대체 스킬(덫 등, 아래 STEP 2)보다 먼저 평가해, 위험한 자리에서 덫만 깔지 않도록 한다.
+  //   팀 브레인(getTeamBrain)의 hitMemory 를 공유하므로 최근 피격 위치를 안다(치팅 아님).
+  {
+    const brain = getTeamBrain(room, getTeamOf(room, idx));
+    let fleePiece = null, fleeIdx = -1, fleeMem = null, fleeUrg = -1;
+    for (let pi = 0; pi < p.pieces.length; pi++) {
+      const piece = p.pieces[pi];
+      if (!piece.alive) continue;
+      const mem = brain.hitMemory && brain.hitMemory[piece.type];
+      if (!mem || (brain.turnCount - mem.turn) > 2) continue;
+      if (Math.abs(piece.col - mem.col) + Math.abs(piece.row - mem.row) > 1) continue;
+      const urg = (piece.maxHp - piece.hp) / piece.maxHp;
+      if (urg > fleeUrg) { fleeUrg = urg; fleePiece = piece; fleeIdx = pi; fleeMem = mem; }
+    }
+    if (fleePiece && !p.actionDone) {
+      const piece = fleePiece, mem = fleeMem;
+      // 반격 가치 (현재 자리에서 공격 점수)
+      const counterExtra = {};
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+        const bt = aiBestTargetCell(brain, piece, room);
+        counterExtra.tCol = bt.col; counterExtra.tRow = bt.row;
+      }
+      if (piece.toggleState) counterExtra.toggleState = piece.toggleState;
+      const counterScore = aiTeamScoreAttack(room, idx, piece, counterExtra);
+      // 최적 도주 위치 (피격 위치에서 멀수록 + 이동 후 점수 높을수록)
+      let bestMove = null, bestFleeScore = -1;
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        const nc = piece.col + dc, nr = piece.row + dr;
+        if (!inBounds(nc, nr, bounds)) continue;
+        if (!_canMoveTo(room, piece, nc, nr)) continue;
+        const dist = Math.abs(nc - mem.col) + Math.abs(nr - mem.row);
+        const fleeScore = dist * 15 + aiTeamScoreMove(room, idx, piece, nc, nr);
+        if (fleeScore > bestFleeScore) { bestFleeScore = fleeScore; bestMove = { col: nc, row: nr }; }
+      }
+      // 반격 우선 판단 — 확정/유력 적 위치를 칠 수 있고 위급(HP≤2)하지 않으면 반격, 아니면 도주.
+      const criticalHp = piece.hp <= 2;
+      let sureHit = false, canHitProb = false;
+      const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+      for (const c of atkCells) {
+        const v = brain.probMap[c.row]?.[c.col] || 0;
+        if (v >= 9) sureHit = true;
+        if (v >= 6) canHitProb = true;
+      }
+      const shouldCounter = sureHit || (!criticalHp && (canHitProb || (counterScore > bestFleeScore * 1.05 && counterScore > 4)));
+      if (shouldCounter) { aiTeamExecuteAttack(room, idx, fleeIdx, counterExtra); return; }
+      if (bestMove) { aiTeamExecuteMove(room, idx, fleeIdx, bestMove.col, bestMove.row); return; }
+    }
+  }
+
   // ★ STEP 2: 행동 대체 스킬 (덫/저주/유황범람/분신)
   for (const piece of myAlive) {
     if (!piece.hasSkill || !piece.skillReplacesAction) continue;
