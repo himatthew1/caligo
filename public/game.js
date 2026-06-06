@@ -2997,15 +2997,18 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     }
     // ★ FIX (관전 시점 사망 GIF 통합): 악몽뿐 아니라 유황범람 등 모든 데미지 스킬의 사망 GIF 를 재생.
     //   위에서 _pendingDeathCells 로 사망 셀을 가려 둠(유해 조기노출 차단) → 피격 표시 후 사망 GIF 재생
-    //   → 완료 콜백에서 유해 생성. (skill_result 시전자 시점과 동일한 500ms 딜레이로 통일.)
+    //   → 완료 콜백에서 유해 생성.
+    //   ★ FIX (유황범람 피격 모션 누락): 라바 스킬은 피격 표시가 +1100ms 지연되므로, 사망을 500ms 에
+    //     재생하면 사망 GIF 의 재렌더가 피격 셀 플래시를 덮어씀 → 라바면 사망을 피격 이후(1600ms)로 지연.
     if (_skillDeathInfosT.length > 0) {
+      const _lavaDeathDelayT = (Array.isArray(borderCells) && borderCells.length > 0) ? 1600 : 500;
       setTimeout(() => {
         playDeathAnimations(_skillDeathInfosT, () => {
           S._pendingDeathCells = null;
           _addClientSideRemains(_skillDeathInfosT);
           renderGameBoard();
         });
-      }, 500);
+      }, _lavaDeathDelayT);
     }
     // ★ 회복 애니메이션 — 약초학/신성 등이 시전자 외 시점(팀원/적팀)에서도 보이도록.
     //   team_game_update 가 곧이어 도착해 renderTeamProfiles 가 DOM 을 재생성하므로
@@ -7182,14 +7185,18 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       }
       // ★ 스킬 사망 애니메이션 (시전자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
       //   악몽: 보라 펄스 피크(~500ms) 후 사망 GIF. 기타 스킬: 피격 효과 후 사망 GIF.
+      //   ★ FIX (유황범람 피격 모션 누락): 라바 스킬은 피격 표시가 +1100ms 지연되는데 사망을 500ms 에
+      //     재생하면 사망 GIF 의 재렌더(~1200ms)가 1100ms 의 피격 셀 플래시를 덮어써 피격 모션이 안 보임.
+      //     → 라바면 사망을 피격 모션 이후(1600ms)로 지연.
       if (_nightmareDeathInfos.length > 0) {
+        const _lavaDeathDelay = (data && Array.isArray(data.borderCells) && data.borderCells.length > 0) ? 1600 : 500;
         setTimeout(() => {
           playDeathAnimations(_nightmareDeathInfos, () => {
             S._pendingDeathCells = null;
             _addClientSideRemains(_nightmareDeathInfos);
             renderGameBoard();
           });
-        }, 500);
+        }, _lavaDeathDelay);
       }
       // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
       if (data && data.herbCenter && typeof animateHerbCast === 'function') {
@@ -7489,7 +7496,9 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
         animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
       }
       // ★ 스킬 사망 애니메이션 (1v1 피해자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
+      //   ★ FIX (유황범람 피격 모션 누락): 라바면 사망을 피격 모션(+1100ms) 이후(1600ms)로 지연.
       if (_nightmareDeathInfosVictim.length > 0) {
+        const _lavaDeathDelayV = (Array.isArray(borderCells) && borderCells.length > 0) ? 1600 : 500;
         setTimeout(() => {
           playDeathAnimations(_nightmareDeathInfosVictim, () => {
             S._pendingDeathCells = null;
@@ -7497,7 +7506,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
             renderGameBoard();
             renderMyPieces();
           });
-        }, 500);
+        }, _lavaDeathDelayV);
       }
 
       // ★ 데미지 스킬 hits 처리 — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장.
