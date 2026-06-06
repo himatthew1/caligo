@@ -1437,7 +1437,16 @@ function aiTeamBestTargetCell(room, idx, piece) {
 function aiTeamExecSkill(room, idx, pidx, skillId, params) {
   // ★ 사망 기폭 페이즈 — 팀모드 AI 스킬로 화약상 사망 시 큐.
   startPhase(room);
+  // ★ FIX (팀 AI 스킬 무한 재시전 루프): 자유 스킬을 *시도한* piece 를 이번 턴 동안 기록(성공/실패 무관) →
+  //   aiTeamUsePreSkills 가 같은 piece 의 자유 스킬을 재시전하지 않도록 한다. 실패 시에도 마킹해야 함 —
+  //   bomb 등이 실패해도 aiTeamUsePreSkills 는 결과와 무관하게 return true(재진입)하므로, 실패를
+  //   마킹 안 하면 같은 piece 가 같은 실패 스킬을 무한 재시도(헤드리스 무한재귀 / 실게임 스킬 스팸)했음.
+  //   한 piece 는 한 턴에 자유 스킬 1회만(메인 행동은 별개로 가능).
   const result = executeSkill(room, idx, pidx, skillId, params || {});
+  {
+    const _pl = room.players[idx];
+    if (_pl) { if (!_pl._aiFreeSkillUsedPieces) _pl._aiFreeSkillUsedPieces = new Set(); _pl._aiFreeSkillUsedPieces.add(pidx); }
+  }
   // 모든 비-AI 플레이어 + 관전자에게 스킬 사용 알림 (인간 use_skill 경로와 동일)
   // 누락되면 팀원/적의 스킬 사용을 인지 불가 → 토스트·로그 누락
   const skillPiece = room.players[idx]?.pieces[pidx];
@@ -1631,6 +1640,8 @@ function aiTeamUsePreSkills(room, idx) {
     if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
     if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
+    // ★ FIX (팀 AI 스킬 무한 재시전): 이번 턴에 이미 자유 스킬을 시전한 piece 는 재시전 금지.
+    if (p._aiFreeSkillUsedPieces && p._aiFreeSkillUsedPieces.has(pi)) continue;
     // ★ FIX (팀 AI 루프 버그 — 질주 등 oncePerTurn 스킬 반복 시전): skillsUsedBeforeAction 은
     //   `${pieceIdx}:${skillId}` 형식으로 저장(executeSkill 5973)되는데 여기서 bare skillId 로
     //   검사해 절대 매치 안 됨 → 질주(oncePerTurn)를 질주 이동 재진입마다 재시전(SP 소진까지 루프)했음.
@@ -1685,8 +1696,11 @@ function aiTeamUsePreSkills(room, idx) {
         if (!inBounds(c, r, room.boardBounds)) continue;
         const occ = room.players.some(pl => (pl.pieces || []).some(pc => pc.alive && pc.col === c && pc.row === r));
         if (occ) continue;
-        const hasBomb = (room.boardObjects[idx] || []).some(o => o.type === 'bomb' && o.col === c && o.row === r);
-        if (hasBomb) continue;
+        // ★ FIX: executeSkill(5698) 의 거부 조건과 일치시켜야 함 — 팀 전체의 덫/폭탄 칸 제외.
+        //   (이전엔 자기 폭탄만 검사 → 팀원 덫/폭탄 칸을 골라 설치 실패 → 재시도 루프의 원인이었음.)
+        const _teamIdxs = (room.mode === 'team') ? getAllyIndices(room, idx) : [idx];
+        const hasObstacle = _teamIdxs.some(ai => (room.boardObjects[ai] || []).some(o => (o.type === 'bomb' || o.type === 'trap') && o.col === c && o.row === r));
+        if (hasObstacle) continue;
         // ★ 적 확률질량이 높은 칸에 설치 — 적이 밟을 가능성이 큰 곳(의도된 배치, 랜덤 금지).
         const brain = getTeamBrain(room, getTeamOf(room, idx));
         cands.push({ col: c, row: r, score: brain.probMap[r]?.[c] || 0 });
@@ -4172,7 +4186,9 @@ function detonateBomb(room, ownerIdx, bomb, options) {
       if (ep.alive && ep.col === bomb.col && ep.row === bomb.row) {
         // ★ 그림자 숨기 면역 — 폭탄도 그림자 상태 piece 에는 무효 (사용자 요청).
         if (ep.statusEffects && ep.statusEffects.some(e => e.type === 'shadow')) continue;
-        const dmg = resolveDamage(room, { type: 'gunpowder', tag: null, tier: 1, col: bomb.col, row: bomb.row }, ep, ownerIdx, 1, false);
+        // ★ FIX (팀 모드 폭탄→왕실 적 크래시): defIdx(=defOwnerIdx) 미전달 시 resolveDamage 의
+        //   호위무사 로직이 getAllyIndices(undefined) → room.players[undefined].pieces 로 크래시했음.
+        const dmg = resolveDamage(room, { type: 'gunpowder', tag: null, tier: 1, col: bomb.col, row: bomb.row }, ep, ownerIdx, 1, false, defOwnerIdx);
         ep.hp = Math.max(0, ep.hp - dmg);
         if (ep.hp <= 0) {
           handleDeath(room, ep, defOwnerIdx);
@@ -4616,6 +4632,7 @@ function processTurnStart(room) {
   player.actionDone = false;
   player.actionUsedSkillReplace = false;
   player.skillsUsedBeforeAction = [];
+  player._aiFreeSkillUsedPieces = null;  // ★ FIX: 팀 AI 자유 스킬 1회/턴 기록 리셋
   player.twinMovedSubs = [];
   player._lastActionType = null;  // 'move' | 'attack' | null
   player._anySkillUsedThisTurn = false;  // 턴스킵 판정용 (oncePerTurn 외 자유 스킬 포함)
