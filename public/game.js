@@ -14628,9 +14628,10 @@ function snapshotTurnStartHps(preCurseHps) {
   // ★ 사용자 요청: 도장 애니메이션은 해당 턴에 최초 1회만. 매 턴 시작 시 추적 셋 초기화 →
   //   buildDamageOverlay 가 한번 도장 렌더하면 셋에 등록, 다음 재렌더부터 no-anim 클래스 부여.
   S._stampAnimationsSeen = {};
-  // 저주 데미지: preHps 가 주어졌으면 새로운 턴이라 이전 누적을 버리고 newCurseDmg 로 덮어씀.
-  // preHps 없이 호출된 경우(게임 시작 등)는 그대로 비움.
-  S.curseDamageThisTurn = newCurseDmg;
+  // ★ 저주 데미지 도장은 curse_tick 임팩트(addCurseDamageStampValue)가 *단일 소스* — 보드 위 도장과
+  //   같은 시점(데미지 GIF 4프레임 임팩트)에 동기되고 값도 0.5 로 정확. 여기서 HP차(0.5)로 미리 채우면
+  //   임팩트가 또 +0.5 해 1.0 으로 이중계산 + 보드 도장보다 이르게 떠 타이밍 불일치 → 사전 채움 제거(빈 초기화).
+  S.curseDamageThisTurn = {};
 }
 // 호위무사가 충성으로 대신 받은 피해를 누적
 // ★ 사용자 요청: 새 이벤트 발생 시 다른 type 도장 클리어 → 가장 최신 type 만 표시.
