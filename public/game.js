@@ -17949,6 +17949,11 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
   const toCell   = [...cells].find(c => parseInt(c.dataset.col) === toCol   && parseInt(c.dataset.row) === toRow);
   if (!fromCell || !toCell) { _moveAnimDest.delete(_destKey); return; }
+  // ★ 출발칸 gif 스냅샷 — *호출 시점*(재렌더 전)의 현재 gif. _beginSlide 에서 이걸 숨긴다.
+  //   (이전엔 _beginSlide 에서 fromCell.querySelector 로 재조회 → 그 사이 캐러셀이 단일로 재빌드되면
+  //    '안 움직인 다른 유닛'의 gif 를 잡아 숨겨버려, 캐러셀→단일 전환 시 남은 유닛이 사라지던 버그.
+  //    스냅샷은 재빌드 후 분리(detached)되므로 새 유닛 gif 엔 영향 없음.)
+  const _fromGifSnap = fromCell.querySelector('.p-gif');
   // ★ 저주 유닛 이동 — 출발칸이 저주 상태(idle 레이어/has-curse)면 이동 PNG 뒤에 저주 이동 PNG 동반.
   const _moveCursed = !!(fromCell.classList.contains('has-curse') || fromCell.querySelector('.curse-board-layer'));
 
@@ -18026,10 +18031,9 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   const _CURSE_MV_SZ = 44, _curseOffX = (scaleX === 1) ? -19 : 19, _curseOffY = -21;
   let curseFloater = null;
   const _beginSlide = () => {
-    // 플로터 표시 + 출발칸 유닛 숨김 (동시)
+    // 플로터 표시 + 출발칸 유닛 숨김 (동시) — 호출 시점 스냅샷을 숨김(재빌드 후엔 detached=무영향).
     el.style.opacity = '1';
-    const fromGif = fromCell.querySelector('.p-gif');
-    if (fromGif) fromGif.style.opacity = '0';
+    if (_fromGifSnap) _fromGifSnap.style.opacity = '0';
     // 저주 이동 PNG 플로터 생성 (출발칸 중심 + 오프셋)
     if (_moveCursed) {
       curseFloater = document.createElement('img');
@@ -18101,6 +18105,10 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
       if (finalGif) finalGif.style.opacity = '';
       // 저주 idle 레이어도 도착칸에서 다시 표시 (슬라이드 중 숨겼던 것 복원)
       if (finalCell) finalCell.querySelectorAll('.curse-board-layer').forEach(c => { c.style.opacity = ''; });
+      // ★ 출발칸의 남은 유닛 gif 복원 — 캐러셀→단일 전환 등으로 출발칸에 다른 유닛이 남은 경우
+      //   슬라이드 중 숨겨졌을 수 있으니 복원(영구히 사라지는 것 방지).
+      const fromCellFresh = freshBoard?.querySelector(`.cell[data-col="${fromCol}"][data-row="${fromRow}"]`);
+      if (fromCellFresh) fromCellFresh.querySelectorAll('.p-gif').forEach(g => { g.style.opacity = ''; });
     }, DURATION + 80);
   };
 
