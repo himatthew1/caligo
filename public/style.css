@@ -2941,10 +2941,10 @@ img.curse-aura {
   text-shadow: 0 1px 1px rgba(0,0,0,0.5);
   animation: boardStampPop 0.95s ease forwards;
 }
-.board-dmg-stamp.curse   { background: linear-gradient(135deg,#7c3aed,#a371f7); box-shadow: 0 2px 5px #0008, 0 0 6px #a371f7aa; }
-.board-dmg-stamp.loyalty { background: linear-gradient(135deg,#2563eb,#3b82f6); box-shadow: 0 2px 5px #0008, 0 0 6px #3b82f6aa; }
-.board-dmg-stamp.normal  { background: linear-gradient(135deg,#b91c1c,#dc2626); box-shadow: 0 2px 5px #0008, 0 0 6px #dc2626aa; }
-.board-dmg-stamp .bds-tag { display: block; font-size: 0.42rem; font-weight: 700; letter-spacing: 0.08em; opacity: 0.9; margin-top: -1px; }
+.board-dmg-stamp.curse    { background: linear-gradient(135deg,#7c3aed,#a371f7); box-shadow: 0 2px 5px #0008, 0 0 6px #a371f7aa; }
+.board-dmg-stamp.loyalty  { background: linear-gradient(135deg,#2563eb,#3b82f6); box-shadow: 0 2px 5px #0008, 0 0 6px #3b82f6aa; }
+.board-dmg-stamp.normal   { background: linear-gradient(135deg,#b91c1c,#dc2626); box-shadow: 0 2px 5px #0008, 0 0 6px #dc2626aa; }
+.board-dmg-stamp.protected{ background: linear-gradient(135deg,#2563eb,#60a5fa); box-shadow: 0 2px 5px #0008, 0 0 6px #60a5faaa; }
 @keyframes boardStampPop {
   0%   { opacity: 0; transform: translate(-50%, 2px)   scale(0.5); }
   18%  { opacity: 1; transform: translate(-50%, -10px) scale(1.08); }

@@ -585,10 +585,12 @@ function isActiveGamePhase() {
   return !(lobbyShown || gameoverShown);
 }
 
-socket.on('timer_start', ({ seconds }) => {
+socket.on('timer_start', ({ seconds, reconnected }) => {
   // 게임 종료 후 도착한 stale timer_start 차단 (무승부 시 타이머 계속 울리는 버그 방지)
   if (S._gameEnded) return;
-  if (!isActiveGamePhase()) return;
+  // ★ 재접속 타이머는 화면 전환(게임/세팅 화면 active) *전* 에 도착하므로 isActiveGamePhase 게이트를
+  //   통과 못 해 타이머가 사라지던 버그 → reconnected 면 게이트 우회. (화면은 직후 active 됨.)
+  if (!reconnected && !isActiveGamePhase()) return;
   startClientTimer(seconds);
 });
 
@@ -5188,7 +5190,7 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 
 // ── 피격 ──
 let _beingAttackedSeq = 0;
-socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything }) => {
+socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits }) => {
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -5251,21 +5253,36 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     const _selfStampKey = (idx) => S.isTeamMode ? `${S.playerIdx}:${idx}` : `my:${idx}`;
     for (const h of hitPieces) {
       const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-      if (dmg <= 0) continue;
+      if (dmg < 0) continue;
       if (h.bodyguardRedirect) {
         let bgIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
         if (bgIdx < 0) {
           bgIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row && p.type === 'bodyguard');
         }
         if (bgIdx < 0) continue;
-        addLoyaltyDamage(_selfStampKey(bgIdx), dmg);
+        if (dmg > 0) addLoyaltyDamage(_selfStampKey(bgIdx), dmg);
       } else if (!h.redirectedToBodyguard) {
         let pieceIdx = (typeof h.defPieceIdx === 'number') ? h.defPieceIdx : -1;
         if (pieceIdx < 0) {
           pieceIdx = (S.myPieces || []).findIndex(p => p.alive && p.col === h.col && p.row === h.row);
         }
         if (pieceIdx < 0) continue;
-        addBodyDamage(_selfStampKey(pieceIdx), dmg);
+        // ★ 0데미지(보호됨)도 피격 도장 — addProtectedHit (프로필 파랑 도장 + 보드 도장 자동)
+        if (dmg > 0) addBodyDamage(_selfStampKey(pieceIdx), dmg);
+        else if (!h.destroyed) addProtectedHit(_selfStampKey(pieceIdx));
+      }
+    }
+    // ★ #6 적 학살영웅(배반자) 오사로 피해받은 '적 유닛'도 실시간 표시 (프로필 도장/HP/피격).
+    //   defender 시점 → ff 대상은 공격자(상대)의 말 = opp. 보이는(표식) 말만 보드 도장, 카드는 항상.
+    if (Array.isArray(friendlyFireHits)) {
+      for (const ff of friendlyFireHits) {
+        const _ffDmg = (typeof ff.damage === 'number') ? ff.damage : 0;
+        const _ffKey = S.isTeamMode
+          ? `${(ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx)}:${ff.defPieceIdx}`
+          : `opp:${ff.defPieceIdx}`;
+        if (ff.defPieceIdx == null) continue;
+        if (_ffDmg > 0) addBodyDamage(_ffKey, _ffDmg);
+        else if (!ff.destroyed) addProtectedHit(_ffKey);
       }
     }
     const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
@@ -7494,12 +7511,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
 socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats }) => {
-  // ★ 분신 비행 애니메이션 — 상대(시전자) 시점에서도 보이도록.
-  //   server 가 twinJoin 좌표를 fog-of-war 우회로 전달.
-  if (twinJoin && typeof playTwinJoinFlight === 'function') {
-    const moverSub = twinJoin.moverSub || 'elder';
-    playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
-  }
+  // ★ 분신 비행 애니메이션 — status_update 는 1v1 '적(상대)' 시점이므로 여기선 재생하지 않는다.
+  //   (적에게는 분신 애니 비공개. 시전자=skill_result / 팀원=team_skill_notice / 관전자=spectator_skill_anim 에서 재생.)
 
   // 마법구 비행 + dim 오버레이 — skill_result(시전자) 와 동일한 시퀀스로 재현.
   // 시전자 카드는 1v1 상대 시점이므로 #opp-pieces-info 에 위치.
@@ -13519,7 +13532,9 @@ function renderGameBoard() {
         arr.push({ p: op, owner: 'opp' });
       return arr;
     })();
-    const _isCarousel = _crUnits.length >= 2;
+    // ★ 사망 모션 진행 중인 셀(_pdcHas)은 캐러셀 미발동 — 사망 GIF 오버레이 뒤로 캐러셀 슬롯이
+    //   비쳐 보이는 글리치 방지(예: 같은 칸에서 드래곤 사망 중인데 생존 창병이 캐러셀로 비침).
+    const _isCarousel = (_crUnits.length >= 2) && !_pdcHas;
     if (_isCarousel) _renderCellCarousel(cell, col, row, _crUnits);
 
     // 내 말 (★ 사망 GIF 대기 중이면 alive=false 도 포함)
@@ -14457,7 +14472,8 @@ function _applyCurseAuraFade(col, row, kind, durMs){
   const cls = (kind === 'in') ? 'curse-aura-in' : 'curse-aura-out';
   cell.style.setProperty('--cadur', (durMs || 1150) + 'ms');
   cell.classList.remove(cls); void cell.offsetWidth; cell.classList.add(cls);
-  setTimeout(() => { try { cell.classList.remove(cls); } catch (e) {} }, (durMs || 1150) + 80);
+  // ★ 페이드 종료 후 클래스 제거 + --cadur 0 리셋 — 잔존 transition 으로 인한 글로우 깜빡임 글리치 방지.
+  setTimeout(() => { try { cell.classList.remove(cls); cell.style.setProperty('--cadur', '0s'); } catch (e) {} }, (durMs || 1150) + 80);
 }
 function _curseTransitionFlush(){
   const summon = S._pendingCurseSummon || [];
@@ -14622,6 +14638,8 @@ function addProtectedHit(key) {
   if (!S.protectedHitsThisTurn) S.protectedHitsThisTurn = {};
   _clearOtherStampTypes(key, 'protected');
   S.protectedHitsThisTurn[key] = true;
+  // 보드 도장(파랑 '0') — 0데미지 피격도 항상 보드에 표시 (보이는 말일 때만)
+  try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, 'protected', 0); } catch (e) {}
 }
 // ── 도장 key('my:i'/'opp:i'/'owner:i') → 보드에 보이는 말의 셀 좌표 ──
 //   숨은 적(표식 아님)은 위치 노출 방지로 제외. 보드 데미지 도장 표시 대상 판정.
@@ -14655,15 +14673,27 @@ function showBoardDamageStamp(col, row, type, value) {
   if (!cell) return;
   const r = cell.getBoundingClientRect();
   if (!r.width) return;
+  // 다중 도장 스택 — 같은 셀에 동시/연속 도장이 겹치지 않게 중앙 기준 좌우로 어긋나게 배치.
+  if (!window._bdsActive) window._bdsActive = {};
+  const _ck = col + ',' + row;
+  const idx = (window._bdsActive[_ck] = (window._bdsActive[_ck] || 0) + 1) - 1;  // 0-based 슬롯
+  const offX = ((idx + 1) >> 1) * 18 * (idx % 2 ? 1 : -1);   // 0, -18, +18, -36, +36 ...
   const span = document.createElement('span');
   span.className = 'board-dmg-stamp ' + (type || 'normal');
-  const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
-  const tag = { curse: '저주', loyalty: '충성' }[type] || '';
-  span.innerHTML = '−' + v + (tag ? `<span class="bds-tag">${tag}</span>` : '');
-  span.style.left = (r.left + r.width / 2) + 'px';
-  span.style.top  = (r.top + r.height * 0.12) + 'px';
+  // ★ 유닛 위 보드 도장은 글씨(저주/충성 태그) 없이 숫자만 — 타입은 색으로 구분 (사용자 요청).
+  if (type === 'protected') {
+    span.textContent = '0';
+  } else {
+    const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
+    span.textContent = '−' + v;
+  }
+  span.style.left = (r.left + r.width / 2 + offX) + 'px';
+  span.style.top  = (r.top + r.height * 0.12 - idx * 3) + 'px';
   document.body.appendChild(span);
-  setTimeout(() => { if (span.parentNode) span.remove(); }, 1000);
+  setTimeout(() => {
+    if (span.parentNode) span.remove();
+    window._bdsActive[_ck] = Math.max(0, (window._bdsActive[_ck] || 1) - 1);
+  }, 1000);
 }
 function _boardStampFromKey(key, type, dmg) {
   if (!(dmg > 0)) return;

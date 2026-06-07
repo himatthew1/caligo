@@ -2397,6 +2397,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
     io.to(defPlayer.socketId).emit('being_attacked', {
       atkCells,
       attackerImpactedAnything,
+      friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(AI 공격자) 오사 피해 실시간 공유
       hitPieces: hits.map(h => {
         // ★ 합류 쌍둥이 버그 수정: col/row 기반 find 는 같은 칸의 첫 매치(누나)만 반환 → 동생 hit 도 누나 이름/도장으로 잘못 매핑.
         //   대신 defPieceIdx 로 정확히 해당 piece 를 찾고, 클라에 defPieceIdx 도 함께 전달.
@@ -2420,6 +2421,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       io.to(en.socketId).emit('being_attacked', {
         atkCells, attackerImpactedAnything,
         hitPieces: [],
+        friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
         yourPieces: pieceSummary(en.pieces),
       });
     }
@@ -9975,6 +9977,7 @@ io.on('connection', (socket) => {
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells,
           attackerImpactedAnything,
+          friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
           hitPieces: hits.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
@@ -10002,6 +10005,7 @@ io.on('connection', (socket) => {
             atkCells,
             attackerImpactedAnything,
             hitPieces: [],
+            friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
             yourPieces: pieceSummary(en.pieces),
           });
         }
@@ -10084,6 +10088,7 @@ io.on('connection', (socket) => {
         io.to(defender.socketId).emit('being_attacked', {
           atkCells,
           attackerImpactedAnything,
+          friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
           hitPieces: hitResults.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
