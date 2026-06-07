@@ -2513,13 +2513,17 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const _markEffectAiTeam = (piece.statusEffects || []).find(e => e.type === 'mark');
   if (_markEffectAiTeam && typeof _markEffectAiTeam.source === 'number') {
     const _moIdx = _markEffectAiTeam.source;
-    const _mo = room.players[_moIdx];
-    if (_mo && _mo.socketId && _mo.socketId !== 'AI' && _moIdx !== idx) {
-      io.to(_mo.socketId).emit('marked_enemy_attack', {
-        atkCells,
-        hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
-        attacker: markedAttackerMotion(piece, p.pieces),
-      });
+    // ★ 표식 부여자 팀 전체에 공유 (같은 편이면 표식 적 위치를 알므로 공격 모션도 봄)
+    const _viewers = (room.mode === 'team') ? getAllyIndices(room, _moIdx) : [_moIdx];
+    const _mePayload = {
+      atkCells,
+      hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+      attacker: markedAttackerMotion(piece, p.pieces),
+    };
+    for (const _vIdx of _viewers) {
+      if (_vIdx === idx) continue;
+      const _v = room.players[_vIdx];
+      if (_v && _v.socketId && _v.socketId !== 'AI') io.to(_v.socketId).emit('marked_enemy_attack', _mePayload);
     }
   }
   // 전체 상태 동기화
@@ -4235,7 +4239,11 @@ function processRemainsHits(room, atkCells, opts) {
     // ★ onlyExisting — 이번 공격 *이전부터* 있던 유해만 피격 대상. 이번 공격으로 유닛이 죽어
     //   방금 생성된 유해(=같은 칸)는 제외 → "유닛 사망 시점 = 유해 생성(1단계)"이지 피격이 아님.
     const preExisting = !opts.onlyExisting || opts.onlyExisting.has(`${rem.col},${rem.row}`);
-    if (!inRange || !preExisting) { survivors.push(rem); continue; }
+    // ★ alreadyHit — 한 공격 액션(합류 쌍둥이 본체+겹침 등)에서 같은 유해를 2번 카운트하지 않도록 dedupe.
+    const _rkey = `${rem.col},${rem.row}`;
+    const _already = opts.alreadyHit && opts.alreadyHit.has(_rkey);
+    if (!inRange || !preExisting || _already) { survivors.push(rem); continue; }
+    if (opts.alreadyHit) opts.alreadyHit.add(_rkey);
     rem.hits = (rem.hits || 0) + 1;
     if (rem.hits >= 3) {
       touched.push({ col: rem.col, row: rem.row, stage: 4, destroyed: true });
@@ -4352,7 +4360,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   const baseDmg = (extraDamage !== undefined) ? extraDamage : atkPiece.atk;
   // ★ 이번 공격 *이전*에 존재하던 유해 칸 스냅샷 — 공격으로 죽어 새로 생긴 유해를 피격에서 제외하기 위함.
   //   (유닛 사망 = 유해 생성. 생성 즉시 피격 카운트되면 안 됨.)
-  const _preRemainsCells = new Set((room.remains || []).map(r => `${r.col},${r.row}`));
+  //   opts.preRemainsOverride: 합류 쌍둥이처럼 한 액션에서 여러 번 호출될 때 액션-시작 시점 스냅샷 공유.
+  const _preRemainsCells = (opts && opts.preRemainsOverride) || new Set((room.remains || []).map(r => `${r.col},${r.row}`));
   // ★ 쥐 공격 모션 — *쥐장수(ratMerchant)가 공격할 때만* 본인 소유 쥐 전부가 공격 모션을 재생.
   //   이전엔 클라가 "atkCells 에 쥐가 있으면 쥐장수 공격"이라고 자동 추정 → 일반 유닛의 공격 범위가
   //   우연히 쥐 셀을 덮으면 그 쥐가 잘못 공격 모션을 재생하는 버그(특히 상대 쥐). 서버가 공격자 신원을
@@ -4590,7 +4599,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 
   // ── 유해 3타 파괴 — 공격 범위에 든 유해 카운트 (공격력 무관, 공격 1회당 1) ──
   //   onlyExisting — 이번 공격으로 방금 죽어 생성된 유해는 제외 (사망=생성이지 피격 아님).
-  room._remainsHitsThisAttack = processRemainsHits(room, atkCells, { onlyExisting: _preRemainsCells });
+  room._remainsHitsThisAttack = processRemainsHits(room, atkCells, { onlyExisting: _preRemainsCells, alreadyHit: opts && opts.remainsAlreadyHit });
 
   return hitResults;
 }
@@ -9897,7 +9906,14 @@ io.on('connection', (socket) => {
     startPhase(room);
 
     // 본체 공격 처리 — ★ suppressSpUpdate: 공격 애니 재생 전에 SP 바가 바뀌는 것 방지
-    const _atkOpts = { suppressSpUpdate: true };
+    // ★ 유해 카운트 dedupe (합류 쌍둥이 협공 버그): 공격 *시작 전* 유해 스냅샷 + 이미-타격 집합을
+    //   본체/쌍둥이/겹침 3개 processAttack 호출이 공유 → 한 공격 액션에서 같은 유해는 1회만 카운트.
+    //   (이전엔 겹침 패스가 본체 패스로 막 생성된 유해까지 +1 → 유해가 즉시 1데미지 더 받던 버그.)
+    const _atkOpts = {
+      suppressSpUpdate: true,
+      preRemainsOverride: new Set((room.remains || []).map(r => `${r.col},${r.row}`)),
+      remainsAlreadyHit: new Set(),
+    };
     const hitResults = processAttack(room, idx, atkPiece, baseAtkCells.slice(), undefined, _atkOpts);
     // 쌍둥이 다른 쪽 공격 처리 (겹치는 셀은 이미 본체에서 처리됨 — 중복 피해 방지)
     if (twinAtkPiece) {
@@ -10131,14 +10147,18 @@ io.on('connection', (socket) => {
     const _markEffect = (atkPiece.statusEffects || []).find(e => e.type === 'mark');
     if (_markEffect && typeof _markEffect.source === 'number') {
       const _markOwnerIdx = _markEffect.source;
-      const _markOwner = room.players[_markOwnerIdx];
-      // 이미 attack_result 를 받은 시전자 본인에게는 중복 전송 X
-      if (_markOwner && _markOwner.socketId && _markOwner.socketId !== 'AI' && _markOwnerIdx !== idx) {
-        io.to(_markOwner.socketId).emit('marked_enemy_attack', {
-          atkCells,
-          hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
-          attacker: markedAttackerMotion(atkPiece, attacker.pieces),
-        });
+      // ★ 표식 부여자 *팀 전체* 에게 공유 — 같은 편이면 표식 적이 보이므로 공격 모션도 보여야 함.
+      //   (이전엔 부여자 1명에게만 → 팀전에서 같은 팀 다른 멤버/피격 당사자가 모션을 못 받았음.)
+      const _viewers = (room.mode === 'team') ? getAllyIndices(room, _markOwnerIdx) : [_markOwnerIdx];
+      const _mePayload = {
+        atkCells,
+        hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+        attacker: markedAttackerMotion(atkPiece, attacker.pieces),
+      };
+      for (const _vIdx of _viewers) {
+        if (_vIdx === idx) continue;   // 공격자 본인 제외 (이미 attack_result 수신)
+        const _v = room.players[_vIdx];
+        if (_v && _v.socketId && _v.socketId !== 'AI') io.to(_v.socketId).emit('marked_enemy_attack', _mePayload);
       }
     }
 

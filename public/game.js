@@ -13513,7 +13513,8 @@ function renderGameBoard() {
         _myHere.every(p => p.subUnit === 'elder' || p.subUnit === 'younger') &&
         _myHere[0].subUnit !== _myHere[1].subUnit;
       if (_twinMerge) {
-        arr.push({ p: _myHere[0], owner: 'mine' });
+        // ★ 합류 쌍둥이 — 캐러셀 슬롯에서 합류 아이콘 + 합산 HP 로 표시 (joined 플래그)
+        arr.push({ p: _myHere[0], owner: 'mine', joined: true, twinOther: _myHere[1] });
       } else {
         for (const mp of _myHere) arr.push({ p: mp, owner: 'mine' });
       }
@@ -13530,6 +13531,11 @@ function renderGameBoard() {
       }
       for (const op of (S.oppPieces || []).filter(p => p.marked && _aliveOrPending(p) && p.col === col && p.row === row))
         arr.push({ p: op, owner: 'opp' });
+      // ★ #6 유해 위에 내/팀원/표식적 유닛이 있으면 캐러셀에 유해 슬롯 추가 — 가려진 유해를 순환해 볼 수 있게.
+      if (arr.length >= 1) {
+        const _remHere = (S.remains || []).find(r => r.col === col && r.row === row);
+        if (_remHere) arr.push({ p: _remHere, owner: 'remains' });
+      }
       return arr;
     })();
     // ★ 사망 모션 진행 중인 셀(_pdcHas)은 캐러셀 미발동 — 사망 GIF 오버레이 뒤로 캐러셀 슬롯이
@@ -14155,19 +14161,28 @@ function _renderCellCarousel(cell, col, row, units) {
   // 각 유닛의 렌더 데이터 빌드 (u.p = piece 객체)
   const pieces = units.map(u => {
     const pc = u.p;
+    // ★ #6 유해 슬롯 — 아이콘 자리에 유해 이미지, HP 없음.
+    if (u.owner === 'remains') {
+      const _remUrl = window.REMAINS_IMG || '/art/remains.png';
+      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="" style="width:80%;height:80%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains' };
+    }
+    // ★ #4 합류 쌍둥이 — 합류 아이콘(isJoined=true) + 합산 HP.
     const gifHtml = typeof getPieceGifHtml === 'function'
-      ? getPieceGifHtml(pc.type, pc.subUnit, false) : null;
+      ? getPieceGifHtml(pc.type, pc.subUnit, !!u.joined) : null;
     const iconHtml = gifHtml || pieceIconHtml(pc.icon, {size:'1.3em'}) || '?';
     let hpColor;
     if      (u.owner === 'opp')      hpColor = '#f87171';
     else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
     else                             hpColor = 'var(--success)';
     const statusIcons = (typeof getBoardStatusIcons === 'function') ? getBoardStatusIcons(pc) : '';
-    return { iconHtml, hpText: `${pc.hp}/${pc.maxHp}`, hpColor, statusIcons, owner: u.owner };
+    const hpText = (u.joined && u.twinOther)
+      ? `${pc.hp + u.twinOther.hp}/${pc.maxHp + u.twinOther.maxHp}`
+      : `${pc.hp}/${pc.maxHp}`;
+    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner };
   });
 
   // 유닛 구성이 바뀌면(사망·추가) idx 초기화, HP/상태만 바뀌면 idx 유지
-  const fp = units.map(u => `${u.owner}:${u.p.type}:${u.p.subUnit||''}`).join('|');
+  const fp = units.map(u => `${u.owner}:${u.p.type || 'rem'}:${u.p.subUnit||''}${u.joined?'J':''}`).join('|');
   if (!cs[csKey] || cs[csKey].fp !== fp) {
     cs[csKey] = { idx: 0, busy: false, fp, pieces };
   } else {
@@ -14660,7 +14675,8 @@ function _keyToPieceCell(key) {
     }
   }
   if (!pc) return null;
-  if (isOpp && !pc.marked) return null;      // 숨은 적 — 보드 도장 미표시
+  // 숨은 적은 클라에 col/row 가 없음(null/-1) → 그것만으로 판정. (marked 플래그는 악몽 등이 소비하면
+  //  사라져 도장이 누락되므로 의존하지 않음. 보이는 위치=col≥0 이면 도장 표시.)
   if (pc.col == null || pc.col < 0) return null;
   return { col: pc.col, row: pc.row };
 }
