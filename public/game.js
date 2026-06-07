@@ -14169,7 +14169,14 @@ function _renderCellCarousel(cell, col, row, units) {
     // ★ #4 합류 쌍둥이 — 합류 아이콘(isJoined=true) + 합산 HP.
     const gifHtml = typeof getPieceGifHtml === 'function'
       ? getPieceGifHtml(pc.type, pc.subUnit, !!u.joined) : null;
-    const iconHtml = gifHtml || pieceIconHtml(pc.icon, {size:'1.3em'}) || '?';
+    const _iconFb = pieceIconHtml(pc.icon, {size:'1.3em'}) || '';
+    let iconHtml;
+    if (gifHtml) {
+      // ★ GIF 로드 실패 시 캐릭터 아이콘으로 폴백 — 캐러셀 슬롯이 빈칸으로 보이는 것 방지(표식 적 등).
+      iconHtml = gifHtml.replace('<img ', `<img onerror="this.onerror=null;this.outerHTML=this.dataset.fb||'?'" data-fb="${_iconFb.replace(/"/g, '&quot;')}" `);
+    } else {
+      iconHtml = _iconFb || '?';
+    }
     let hpColor;
     if      (u.owner === 'opp')      hpColor = '#f87171';
     else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
