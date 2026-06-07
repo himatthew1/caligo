@@ -13429,8 +13429,13 @@ function renderGameBoard() {
         }
       }
     } else {
+      // 드래곤 소환은 유해 칸 제외 (소환 불가). king_move 등 기타는 전 칸.
+      const _exRem = (std.type === 'dragon_place');
       for (let c = bounds.min; c <= bounds.max; c++)
-        for (let r = bounds.min; r <= bounds.max; r++) _preRanges.skill.add(c+','+r);
+        for (let r = bounds.min; r <= bounds.max; r++) {
+          if (_exRem && S.remains && S.remains.some(rm => rm.col === c && rm.row === r)) continue;
+          _preRanges.skill.add(c+','+r);
+        }
     }
   }
   // — morale zone —
@@ -13989,7 +13994,8 @@ function renderGameBoard() {
           inSkillRange = true;
         }
       } else {
-        if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+        const _exRem2 = (std.type === 'dragon_place') && S.remains && S.remains.some(r => r.col === col && r.row === row);
+        if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max && !_exRem2) {
           inSkillRange = true;
         }
       }
@@ -14446,6 +14452,8 @@ function _curseSummoningActive(col, row){
 function _curseRemovalWaitMs(busyKey){
   let until = (S._curseBusyUntil && busyKey && S._curseBusyUntil[busyKey]) || 0;
   if (S._impactAtTs && S._impactAtTs > Date.now()) until = Math.max(until, S._impactAtTs + 450);
+  // ★ 사망 애니 진행 중(마녀 사망 등)이면 사망 모션+유해 생성 완료 후로 보류 → "마녀 사망 확정 후 해제".
+  if (S._deathAnimEndsAt && S._deathAnimEndsAt > Date.now()) until = Math.max(until, S._deathAnimEndsAt + 80);
   return Math.max(0, until - Date.now());
 }
 // ── 저주 상태 전이 — 상태 기반 (어떤 경로로 붙거나 풀려도 보드에 보이는 말이면 자동 1회 연출) ──
@@ -16563,6 +16571,11 @@ function handleGameCellClick(col, row) {
     if (data.type === 'bomb_place') {
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     } else if (data.type === 'dragon_place') {
+      // ★ 유해 칸에는 드래곤 소환 불가 — 클릭 차단 + 힌트 (서버도 거부하지만 UX 선제 차단).
+      if (S.remains && S.remains.some(r => r.col === col && r.row === row)) {
+        const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '유해가 있는 위치에는 드래곤을 소환할 수 없습니다.';
+        return;
+      }
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     } else if (data.type === 'king_move') {
       const params = { targetName: data.targetName, col, row };
@@ -18572,9 +18585,13 @@ function _addClientSideRemains(deathInfos) {
 //     scheduleDeathGif(deaths, rawDeaths, () => { <2차 렌더> });
 //   rawDeaths: 유해 선반영 대상(미지정 시 deaths). onDone: 사망 GIF 완료 후 재렌더 콜백.
 function scheduleDeathGif(deaths, rawDeaths, onDone) {
+  // ★ 사망 애니 종료(대략) 시각 기록 — 마녀 사망으로 인한 저주 해제를 이 시점(사망 모션+유해 완료) 이후로
+  //   보류하기 위함(_curseRemovalWaitMs). 400ms 지연 + 사망 GIF(~900ms) 여유.
+  S._deathAnimEndsAt = Date.now() + 1350;
   setTimeout(() => {
     playDeathAnimations(deaths, () => {
       S._pendingDeathCells = null;
+      S._deathAnimEndsAt = Date.now();   // 실제 완료 — 이후 이벤트는 추가 대기 없음
       _addClientSideRemains(rawDeaths || deaths);
       if (onDone) onDone();
     });
