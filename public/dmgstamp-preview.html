@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 데미지 도장 겹침 개선 프리뷰</title>
+<style>
+  :root{ --bg:#15121d; --panel:#241f33; --panel2:#2e2842; --line:#453c5c; --gold:#e2b714; --light:#ede9f0; --mut:#a89fb8; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:20px;line-height:1.5}
+  h1{font-size:19px;color:var(--gold);margin:0 0 4px}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:18px;max-width:880px}
+  .wrap{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .stage{background:#0c0a12;border:1px solid var(--line);border-radius:12px;padding:34px 40px;display:flex;gap:60px}
+  .col{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .col .cap{color:var(--mut);font-size:12px}
+  .col .cap b{color:var(--light)}
+  .unit{position:relative;width:56px;height:56px;border:1px solid #ffffff14;border-radius:6px;background:#1c1828;display:flex;align-items:flex-end;justify-content:center}
+  .unit img{width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);margin-bottom:6px}
+
+  /* 도장 공통 */
+  .stamp{position:absolute;z-index:6;padding:1px 7px;border-radius:9px;font-size:11px;font-weight:800;line-height:1.05;
+    white-space:nowrap;color:#fff;border:1.5px solid rgba(255,255,255,.85);text-shadow:0 1px 1px #0008;opacity:0;text-align:center;left:50%}
+  .stamp.curse  {background:linear-gradient(135deg,#7c3aed,#a371f7);box-shadow:0 2px 5px #0008,0 0 6px #a371f7aa}
+  .stamp.loyalty{background:linear-gradient(135deg,#2563eb,#3b82f6);box-shadow:0 2px 5px #0008,0 0 6px #3b82f6aa}
+  .stamp.normal {background:linear-gradient(135deg,#b91c1c,#dc2626);box-shadow:0 2px 5px #0008,0 0 6px #dc2626aa}
+  .stamp.heal   {background:linear-gradient(135deg,#15803d,#22c55e);box-shadow:0 2px 5px #0008,0 0 6px #22c55eaa}
+  .stamp.protected{background:linear-gradient(135deg,#2563eb,#60a5fa);box-shadow:0 2px 5px #0008}
+
+  /* ── 현재(나쁨): 한 자리에 겹침 ── */
+  @keyframes popBad{0%{opacity:0;transform:translate(-50%,2px) scale(.5)}18%{opacity:1;transform:translate(-50%,-10px) scale(1.08)}100%{opacity:1;transform:translate(-50%,-12px) scale(1)}}
+  .bad .stamp{top:6%;animation:popBad .5s ease forwards}
+
+  /* ── 개선안 A: 세로 스택 (위로 쌓임, 안 겹침) ── */
+  @keyframes popUp{0%{opacity:0;transform:translate(-50%,4px) scale(.5)}20%{opacity:1;transform:translate(-50%,0) scale(1.06)}100%{opacity:1;transform:translate(-50%,0) scale(1)}}
+  .stackv .stamp{animation:popUp .45s ease forwards}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:300px;max-width:380px}
+  .panel h2{font-size:13px;color:var(--gold);margin:0 0 10px;text-transform:uppercase;letter-spacing:.4px}
+  .btns{display:flex;flex-direction:column;gap:7px}
+  button{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;font-size:12.5px;text-align:left}
+  button:hover{border-color:var(--gold);color:#fff}
+  .note{color:var(--mut);font-size:11.5px;margin-top:12px;line-height:1.6}
+  .note b{color:var(--light)}
+</style>
+</head>
+<body>
+<h1>🩸 데미지 도장 겹침 개선 프리뷰</h1>
+<div class="sub">한 유닛에 여러 데미지 도장(저주/충성/일반/회복/보호)이 동시·연속으로 뜰 때 — 현재는 같은 자리에 겹쳐 읽기 어렵습니다. 개선안은 <b>세로로 위로 쌓아</b> 각 도장이 겹치지 않고 색·숫자가 모두 보이게 합니다.</div>
+
+<div class="wrap">
+  <div class="stage">
+    <div class="col">
+      <div class="unit bad" id="uBad"><img src="/art/general_idle.gif"></div>
+      <div class="cap"><b>현재</b> — 한 자리 겹침 (읽기 어려움)</div>
+    </div>
+    <div class="col">
+      <div class="unit stackv" id="uGood"><img src="/art/general_idle.gif"></div>
+      <div class="cap"><b>개선안</b> — 세로 스택 (겹침 없음)</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>데모</h2>
+    <div class="btns">
+      <button data-act="multi">여러 도장 동시 (저주·충성·일반)</button>
+      <button data-act="all">전부 (저주·충성·일반·회복·보호)</button>
+      <button data-act="seq">연속 발생 (시차)</button>
+      <button data-act="clear">지우기</button>
+    </div>
+    <div class="note">
+      <b>개선 규칙</b><br>
+      · 도장은 유닛 위에서 <b>아래→위 순서로 세로 정렬</b> (가장 최근이 위).<br>
+      · 같은 타입이면 누적 갱신(겹치지 않고 값만 갱신).<br>
+      · 색으로 타입 구분(저주 보라·충성 파랑·일반 빨강·회복 초록·보호 하늘).<br>
+      · 글씨 없이 숫자만(유닛 위 도장). 최대 표시 개수 제한 + 페이드.<br>
+      · 인게임: <code>showBoardDamageStamp</code> 의 좌우 스택을 <b>세로 스택</b>으로 변경 + 셀별 슬롯 인덱스로 정렬.
+    </div>
+  </div>
+</div>
+
+<script>
+const TAGS = { curse:'−0.5', loyalty:'−1', normal:'−2', heal:'+2', protected:'0' };
+function clear(){ document.querySelectorAll('.stamp').forEach(s=>s.remove()); }
+function addBad(type){
+  const u=document.getElementById('uBad');
+  const s=document.createElement('span'); s.className='stamp '+type; s.textContent=TAGS[type]; u.appendChild(s);
+  setTimeout(()=>s.remove(),1600);
+}
+let goodSlot=0;
+function addGood(type){
+  const u=document.getElementById('uGood');
+  const existing=[...u.querySelectorAll('.stamp')];
+  const s=document.createElement('span'); s.className='stamp '+type; s.textContent=TAGS[type];
+  // 세로 스택: 기존 도장 위로 쌓기 (24px 간격), 가장 아래가 top 4%
+  const slot=existing.length;
+  s.style.top = `calc(4% - ${slot*23}px)`;
+  u.appendChild(s);
+  setTimeout(()=>{ s.style.transition='opacity .3s'; s.style.opacity='0'; setTimeout(()=>s.remove(),320); }, 2000);
+}
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+  const a=b.dataset.act;
+  if(a==='clear'){ clear(); return; }
+  clear();
+  let list = a==='multi' ? ['curse','loyalty','normal'] : a==='all' ? ['curse','loyalty','normal','heal','protected'] : ['curse','loyalty','normal'];
+  if(a==='seq'){ list.forEach((t,i)=>setTimeout(()=>{addBad(t);addGood(t);}, i*350)); }
+  else { list.forEach(t=>{addBad(t);addGood(t);}); }
+}));
+</script>
+</body>
+</html>
