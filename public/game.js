@@ -18987,6 +18987,10 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
         let _ox = 0, _oy = 0;
         let _cur = _idleImg;
         while (_cur && _cur !== board) { _ox += _cur.offsetLeft; _oy += _cur.offsetTop; _cur = _cur.offsetParent; }
+        // ★ 캐러셀 슬롯(.cc-main)은 transform:translate(-50%,-55%) 로 위치를 잡음 — offsetLeft/Top 은
+        //   이 transform 을 반영하지 않으므로 보정해 일반 셀과 동일한 중심·크기로 오버레이.
+        const _ccMain = _idleImg.closest && _idleImg.closest('.cc-main');
+        if (_ccMain) { _ox -= _ccMain.offsetWidth * 0.5; _oy -= _ccMain.offsetHeight * 0.55; }
         const _iW = _idleImg.offsetWidth;
         const _iH = _idleImg.offsetHeight;
         _gifSize = _iW * 2;
