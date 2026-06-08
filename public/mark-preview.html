@@ -124,6 +124,7 @@
       <div class="row"><label>오프셋 X</label><input type="range" id="offx" min="-30" max="30" step="1" value="0"><span class="val" id="offxV">0</span></div>
       <div class="row"><label>오프셋 Y</label><input type="range" id="offy" min="-30" max="20" step="1" value="-2"><span class="val" id="offyV">-2</span></div>
       <div class="row"><label>표식 크기</label><input type="range" id="msize" min="14" max="56" step="1" value="30"><span class="val" id="msizeV">30</span></div>
+      <div class="row"><label>악몽 배율</label><input type="range" id="nmscale" min="1" max="3" step="0.1" value="2"><span class="val" id="nmscaleV">2.0</span></div>
       <div class="toggle"><input type="checkbox" id="bob" checked><label for="bob">bobbing</label></div>
       <div class="row"><label>bob 속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.4"><span class="val" id="bobdurV">2.4s</span></div>
       <div class="toggle"><input type="checkbox" id="face"><label for="face">유닛 좌향(◀) — 미러</label></div>
@@ -140,11 +141,12 @@
     <div class="panel">
       <h2>무대</h2>
       <div class="row"><label>셀 크기</label><input type="range" id="cellsz" min="44" max="100" step="2" value="64"><span class="val" id="cellszV">64</span></div>
-      <div class="row"><label>유닛 크기</label><input type="range" id="unitsz" min="24" max="64" step="1" value="40"><span class="val" id="unitszV">40</span></div>
+      <div class="row"><label>유닛 크기</label><input type="range" id="unitsz" min="24" max="110" step="1" value="40"><span class="val" id="unitszV">40</span></div>
       <div class="row"><label>유닛</label>
         <select id="unitPick" style="flex:1">
           <option value="general_idle.gif">장군</option><option value="witch_idle.gif">마녀</option>
           <option value="torturer_idle.gif">고문기술자</option><option value="prince_idle.gif">왕자</option><option value="archer_idle.gif">궁수</option>
+          <option value="dragon_idle.gif">드래곤 (최대 유닛)</option>
         </select></div>
       <div class="toggle"><input type="checkbox" id="checker"><label for="checker">체커 배경</label></div>
     </div>
@@ -183,7 +185,7 @@ function apply(){
   });
   ['offx','offy','msize','cellsz','unitsz','ironH','pCount','pSize','pSpread'].forEach(id=>setV(id,num(id)));
   setV('bobdur',num('bobdur')+'s'); setV('multiN',num('multiN')); setV('glowA',num('glowA').toFixed(2)); setV('glowB',num('glowB'));
-  setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2));
+  setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2)); setV('nmscale',num('nmscale').toFixed(1));
   document.getElementById('cssOut').textContent=
 `표식 위치 : 정수리 위(중앙) x=${num('offx')} y=${num('offy')}
 표식 크기 : ${num('msize')}px  (유닛 ${num('unitsz')}px)
@@ -191,7 +193,7 @@ function apply(){
 불꽃      : ${num('pCount')}개 · ${num('pSize')}px · 퍼짐 ${num('pSpread')}
 글로우    : ${document.getElementById('glowOn').checked?glow():'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
 }
-['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
+['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
 document.getElementById('checker').addEventListener('change',e=>document.getElementById('stage').classList.toggle('checker',e.target.checked));
 document.getElementById('face').addEventListener('change',e=>{face=e.target.checked?-1:1;apply();});
 document.getElementById('unitPick').addEventListener('change',e=>document.querySelectorAll('.cell .unit').forEach(u=>u.src='/art/'+e.target.value+'?t='+Date.now()));
@@ -224,7 +226,9 @@ function hitUnit(u){ const pick=document.getElementById('unitPick').value,base='
   u.src=base.replace('_idle.gif','_hit.gif')+'?t='+Date.now(); setTimeout(()=>u.src=base+'?t='+Date.now(),450); }
 
 async function nightmare(c,mk){
-  const ov=document.createElement('img'); ov.className='mark'; ov.style.zIndex='5'; ov.src=await onceGif(MARK.nightmare); c.appendChild(ov);
+  const ov=document.createElement('img'); ov.className='mark'; ov.style.zIndex='5';
+  ov.style.width=ov.style.height='calc(var(--msize) * '+num('nmscale')+')'; // ★ 악몽은 표식 대비 배율(기본 2배)
+  ov.src=await onceGif(MARK.nightmare); c.appendChild(ov);
   const fd=await frameDelays(MARK.nightmare); const impact=(fd.length>3?fd[3]:(fd.length?fd[fd.length-1]:500)); const total=fd.length?fd[fd.length-1]:1000;
   setTimeout(()=>{ const u=c.querySelector('.unit'); if(u){u.style.animation='hitShake .35s ease';setTimeout(()=>u.style.animation='',400);}
     const s=document.createElement('span'); s.textContent='−1';
@@ -242,7 +246,7 @@ function moveDemo(){
   const u=document.createElement('img'); u.src=upng; u.onerror=()=>u.style.display='none';
   u.style.cssText=`position:fixed;z-index:30;width:${us}px;height:${us}px;object-fit:contain;image-rendering:pixelated;left:${startX-us/2}px;top:${midY-us/2}px;transform:scaleX(${goLeft?-1:1});filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
   const m=document.createElement('img'); m.src=MARK.move;
-  const mtop=midY-us/2-(ms*0.5)+num('offy');
+  const mtop=midY-us/2-ms+num('offy'); // 표식 하단이 유닛 정수리에 닿도록(idle과 동일 간격)
   m.style.cssText=`position:fixed;z-index:31;width:${ms}px;height:${ms}px;object-fit:contain;image-rendering:pixelated;left:${startX+num('offx')-ms/2}px;top:${mtop}px;transform:scaleX(${goLeft?-1:1});filter:${glow()==='none'?'':glow()};transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
   document.body.append(u,m); requestAnimationFrame(()=>{ u.style.left=`${endX-us/2}px`; m.style.left=`${endX+num('offx')-ms/2}px`; });
   setTimeout(()=>{ u.remove(); m.remove(); setIdle(mark); },820);
