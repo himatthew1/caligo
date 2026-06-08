@@ -14182,7 +14182,7 @@ function _renderCellCarousel(cell, col, row, units) {
     // ★ #6 유해 슬롯 — 아이콘 자리에 유해 이미지, HP 없음.
     if (u.owner === 'remains') {
       const _remUrl = window.REMAINS_IMG || '/art/remains.png';
-      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains' };
+      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains', pcRef: pc };
     }
     // ★ #4 합류 쌍둥이 — 합류 아이콘(isJoined=true) + 합산 HP.
     const gifHtml = typeof getPieceGifHtml === 'function'
@@ -14203,7 +14203,7 @@ function _renderCellCarousel(cell, col, row, units) {
     const hpText = (u.joined && u.twinOther)
       ? `${pc.hp + u.twinOther.hp}/${pc.maxHp + u.twinOther.maxHp}`
       : `${pc.hp}/${pc.maxHp}`;
-    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner };
+    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc };
   });
 
   // 유닛 구성이 바뀌면(사망·추가) 대표 페이지로 초기화, HP/상태만 바뀌면 idx 유지
@@ -14336,16 +14336,38 @@ window._crSlideTo = function(csKey, targetSlot) {
     st.busy = false;
   }, 200);
 };
-// 액션이 닿은 셀 표시 — 렌더 종료 시 _crApplyForced 가 대표 슬롯으로 슬라이드(회귀 없음).
+// 액션이 닿은 셀 표시 — 렌더 종료 시 _crApplyForced 가 "액션 당사자" 슬롯으로 슬라이드(회귀 없음).
+//   ★ piece 인자(피격자/공격자/이동말)를 주면 그 유닛 슬롯으로, 없으면 셀 대표(repIdx)로.
+//      이전엔 항상 repIdx(내 유닛 우선)로만 가서 — 적이 피격돼도 캐러셀이 내 유닛으로 넘어가
+//      "상대 유닛이 안 보이는" 문제가 있었음. 이제 당사자를 직접 지정한다.
 if (!window._crForce) window._crForce = {};
-window._crForceCell = function(col, row) { if (col != null && row != null) window._crForce[`${col},${row}`] = true; };
+window._crForceCell = function(col, row, piece) {
+  if (col == null || row == null) return;
+  const k = `${col},${row}`;
+  // 이미 piece 가 지정돼 있으면 덮어쓰지 않음(여러 액션 중 첫 당사자 우선) — 단 true 는 piece 로 승격.
+  const prev = window._crForce[k];
+  if (piece) window._crForce[k] = piece;
+  else if (prev === undefined) window._crForce[k] = true;
+};
+// 캐러셀 상태에서 특정 piece 의 슬롯 인덱스 찾기 (참조 동일성)
+function _crSlotOfPiece(st, piece) {
+  if (!st || !st.pieces || !piece) return -1;
+  return st.pieces.findIndex(p => p.pcRef === piece);
+}
 function _crApplyForced() {
   const f = window._crForce; if (!f) return;
   for (const k in f) {
+    const target = f[k];
     delete f[k];
     const st = window._cellCarouselState && window._cellCarouselState[k];
-    if (st && st.pieces && st.pieces.length > 1 && typeof st.repIdx === 'number' && st.repIdx !== st.idx) {
-      try { window._crSlideTo(k, st.repIdx); } catch (e) {}
+    if (!st || !st.pieces || st.pieces.length <= 1) continue;
+    let slot = (typeof st.repIdx === 'number') ? st.repIdx : 0;
+    if (target && target !== true) {
+      const pi = _crSlotOfPiece(st, target);
+      if (pi >= 0) slot = pi;       // 액션 당사자 슬롯
+    }
+    if (typeof slot === 'number' && slot !== st.idx) {
+      try { window._crSlideTo(k, slot); } catch (e) {}
     }
   }
 }
@@ -18497,25 +18519,48 @@ function animateBoardIconHit(cells, isDefending) {
     for (const c of cells) {
       const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
       if (!cell) continue;
-      // ★ 캐러셀이면 피격당한 셀의 대표 슬롯으로 자동 이동 표시
-      if (window._crForceCell) window._crForceCell(c.col, c.row);
+      // ── 피격 당사자(victim) 식별 — 캐러셀이면 이 유닛 슬롯으로 강제 이동 + 그 슬롯에 모션 ──
+      //   isDefending=true → 내 말(또는 팀원) / false → 표식 적
+      let _victim = null;
+      if (isDefending) {
+        _victim = (S.myPieces || []).find(p => p.col === c.col && p.row === c.row && p.alive);
+        if (!_victim && S.isTeamMode) _victim = (S.teammatePieces || []).find(p => p.col === c.col && p.row === c.row && p.alive);
+      } else {
+        _victim = (S.oppPieces || []).find(p => p.marked && p.col === c.col && p.row === c.row && p.alive);
+      }
+      // ★ 캐러셀이면 피격당한 *그 유닛* 슬롯으로 자동 이동(대표=내유닛 으로 새던 버그 수정)
+      if (window._crForceCell) window._crForceCell(c.col, c.row, _victim);
 
       // isDefending=true  → 내 말 피격: opp-marked 가 아닌 piece-marker
       // isDefending=false → 상대 말 피격: opp-marked 만 (내 말이 점령한 경우 오발사 방지)
       const markerSel = isDefending
         ? '.piece-marker:not(.opp-marked)'
         : '.piece-marker.opp-marked';
-      // ── 마커 해소: 일반 셀=.piece-marker, 캐러셀=보이는 대표 슬롯(.cc-main). 흔들림은 .cc-inner 에. ──
+      // ── 마커 해소: 일반 셀=.piece-marker, 캐러셀=피격 유닛 슬롯(.cc-main). 흔들림은 .cc-inner 에. ──
       let marker, shakeTarget, icon;
-      const _ccVis = cell.querySelector('.cc-wrapper .cc-main:not(.cc-hidden)');
-      if (_ccVis) {
-        const _own = _ccVis.dataset.owner;
-        const _mine = _own === 'mine' || _own === 'teammate';
-        // 보이는 대표 슬롯이 피격 측과 다르면 스킵(대표=피격 유닛이라 보통 일치)
-        if (isDefending ? !_mine : _own !== 'opp') continue;
-        marker = _ccVis;
-        shakeTarget = _ccVis.querySelector('.cc-inner') || _ccVis;
-        icon = _ccVis.querySelector('.p-icon');
+      const _ccWrap = cell.querySelector('.cc-wrapper');
+      if (_ccWrap) {
+        const _csKey = `${c.col},${c.row}`;
+        const _st = window._cellCarouselState && window._cellCarouselState[_csKey];
+        // 1) victim 의 슬롯 인덱스 — 참조 매칭, 없으면 owner 매칭으로 폴백
+        let _slotIdx = (_st && _victim) ? _st.pieces.findIndex(p => p.pcRef === _victim) : -1;
+        let _slotEl = _slotIdx >= 0 ? _ccWrap.querySelector(`.cc-main[data-slot="${_slotIdx}"]`) : null;
+        if (!_slotEl) {
+          // owner 폴백 — isDefending 이면 mine/teammate, 아니면 opp 슬롯
+          _slotEl = [..._ccWrap.querySelectorAll('.cc-main')].find(m => {
+            const o = m.dataset.owner, mine = (o === 'mine' || o === 'teammate');
+            return isDefending ? mine : (o === 'opp');
+          }) || null;
+          if (_slotEl) _slotIdx = parseInt(_slotEl.dataset.slot);
+        }
+        if (!_slotEl) continue;
+        // 2) 현재 보이는 슬롯이 아니면 그 슬롯으로 슬라이드(이 프레임에서 직접 구동 — 강제플래그는 다음 렌더라 늦음)
+        if (_st && _slotIdx >= 0 && _slotIdx !== _st.idx && !_st.busy) {
+          try { window._crSlideTo(_csKey, _slotIdx); } catch (e) {}
+        }
+        marker = _slotEl;
+        shakeTarget = _slotEl.querySelector('.cc-inner') || _slotEl;
+        icon = _slotEl.querySelector('.p-icon');
       } else {
         marker = cell.querySelector(markerSel);
         if (!marker) continue;
@@ -18997,8 +19042,11 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
       const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (!cell) { resolve(); return; }
 
-      // ★ 캐러셀이면 공격자(이 셀의 대표) 슬롯으로 자동 이동 표시
-      if (window._crForceCell) window._crForceCell(col, row);
+      // ★ 캐러셀이면 *공격자 그 유닛* 슬롯으로 자동 이동 표시 (대표=내유닛 으로만 새던 것 수정)
+      let _atkPc = null;
+      if (pieceIdx != null) _atkPc = (S.myPieces || [])[pieceIdx];
+      else if (type) _atkPc = (S.oppPieces || []).find(p => p.marked && p.col === col && p.row === row && p.type === type && (subUnit ? p.subUnit === subUnit : true));
+      if (window._crForceCell) window._crForceCell(col, row, _atkPc);
       // 아이들 img 숨김 + 셀 추적 등록
       // ★ visibility:hidden 은 레이아웃을 보존 → 숨긴 후에도 offsetLeft/Width 측정 정확
       _attackPlayingCells.add(`${col},${row}`);
@@ -19016,10 +19064,10 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
         let _ox = 0, _oy = 0;
         let _cur = _idleImg;
         while (_cur && _cur !== board) { _ox += _cur.offsetLeft; _oy += _cur.offsetTop; _cur = _cur.offsetParent; }
-        // ★ 캐러셀 슬롯(.cc-main)은 transform:translate(-50%,-55%) 로 위치를 잡음 — offsetLeft/Top 은
+        // ★ 캐러셀 슬롯(.cc-main)은 transform:translate(-50%,-50%) 로 위치를 잡음 — offsetLeft/Top 은
         //   이 transform 을 반영하지 않으므로 보정해 일반 셀과 동일한 중심·크기로 오버레이.
         const _ccMain = _idleImg.closest && _idleImg.closest('.cc-main');
-        if (_ccMain) { _ox -= _ccMain.offsetWidth * 0.5; _oy -= _ccMain.offsetHeight * 0.55; }
+        if (_ccMain) { _ox -= _ccMain.offsetWidth * 0.5; _oy -= _ccMain.offsetHeight * 0.5; }
         const _iW = _idleImg.offsetWidth;
         const _iH = _idleImg.offsetHeight;
         _gifSize = _iW * 2;

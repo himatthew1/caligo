@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 캐러셀 싱크 비교 (의도 프리뷰 vs 실제 인게임)</title>
+<!-- ★ 실제 인게임 CSS 그대로 — 오른쪽(인게임) 컬럼이 이걸 사용 -->
+<link rel="stylesheet" href="style.css?v=20260608j">
+<style>
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;padding:16px;line-height:1.5}
+  h1{font-size:17px;color:#e2b714;margin:0 0 4px}
+  .sub{color:#a89fb8;font-size:11.5px;margin-bottom:14px;max-width:900px}
+  .wrap{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start}
+  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:26px;display:flex;flex-direction:column;align-items:center;gap:10px}
+  .stagebox h3{margin:0;font-size:13px;color:#e2b714}
+  .stagebox .tag{font-size:10.5px;color:#a89fb8;text-align:center;max-width:240px}
+  .twocell{display:flex;gap:22px;align-items:flex-start}
+  .cellcap{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .cellcap .lbl{font-size:10.5px;color:#8a8298}
+  /* 인게임 보드 그리드(반응형 1fr·정사각) — 실제와 동일 환경 */
+  #game-board{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;width:var(--bw,170px)}
+  #game-board .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center}
+  /* 단일(일반) 셀 비교용 작은 보드 */
+  .miniboard{display:grid;grid-template-columns:1fr;gap:3px;width:var(--cw,52px)}
+  .miniboard .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center}
+
+  /* ───────── 의도(어제 프리뷰) 컬럼 — pv- 프리픽스로 실제 CSS와 격리 ───────── */
+  .pv-cell{position:relative;width:var(--cw,52px);height:var(--cw,52px);border:1px solid #ffffff14;border-radius:6px;background:#1c1828;display:flex;align-items:flex-end;justify-content:center;overflow:visible}
+  .pv-marker{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center}
+  .pv-gif{display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);margin-bottom:6px}
+  .pv-marker.opp .pv-gif{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px #ef4444)}
+  .pv-rem{position:absolute;left:50%;top:50%;width:74px;height:74px;transform:translate(-50%,calc(-50% - 6px));object-fit:contain;image-rendering:pixelated;z-index:2;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);pointer-events:none}
+  .pv-wrap{position:absolute;inset:0;z-index:2;overflow:visible}
+  .pv-main{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;transition:transform .18s cubic-bezier(.4,0,.2,1),opacity .18s;opacity:1}
+  .pv-main.hide{opacity:0;pointer-events:none}
+  .pv-main.slL{transform:translateX(-30px);opacity:0}
+  .pv-main.slR{transform:translateX(30px);opacity:0}
+  .pv-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:30;background:none;border:none;padding:3px 1px;cursor:pointer;opacity:.55}
+  .pv-arrow.l{left:-16px}.pv-arrow.r{right:-16px}
+  .pv-tri{width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent}
+  .pv-tri.l{border-right:6px solid rgba(255,255,255,.8)}
+  .pv-tri.r{border-left:6px solid rgba(255,255,255,.8)}
+
+  .panel{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:14px;min-width:280px;max-width:360px}
+  .panel h2{font-size:12.5px;color:#e2b714;margin:0 0 8px;text-transform:uppercase}
+  .btns{display:flex;flex-direction:column;gap:7px}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:8px 11px;cursor:pointer;font-size:12px;text-align:left}
+  button:hover{border-color:#a874e7}
+  button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
+  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .row label{flex:0 0 90px;color:#a89fb8;font-size:11.5px}
+  .row input[type=range]{flex:1;accent-color:#a874e7}
+  .row .val{flex:0 0 40px;text-align:right;font-size:11px}
+  .note{color:#a89fb8;font-size:10.5px;margin-top:8px;line-height:1.55}
+  .diag{background:#0a0d12;border:1px solid #453c5c;border-radius:7px;padding:9px;font-family:Consolas,monospace;font-size:10.5px;color:#a8d4ff;white-space:pre-wrap;margin-top:8px;line-height:1.5}
+  .diag b{color:#ffd479}
+</style>
+</head>
+<body>
+<h1>🎠 캐러셀 싱크 비교 — <span style="color:#a371f7">의도(어제 프리뷰)</span> vs <span style="color:#5eead4">실제 인게임 코드</span></h1>
+<div class="sub">오른쪽 "실제 인게임" 컬럼은 <b>game.js 의 _renderCellCarousel / _crNav / _crApplyForced 함수와 style.css 를 한 글자도 안 고치고 그대로</b> 실행합니다(수치·스타일 재편집 없음). 왼쪽은 어제 만든 프리뷰의 의도안입니다. 같은 시나리오를 양쪽에 띄워 <b>유닛 크기 · 상대(표식) 유닛 가시성 · 대표 강제 페이지넘김</b>이 얼마나 일치하는지 직접 비교하세요.</div>
+
+<div class="wrap">
+  <!-- 의도 컬럼 -->
+  <div class="stagebox">
+    <h3 style="color:#a371f7">의도안 (어제 프리뷰)</h3>
+    <div class="twocell">
+      <div class="cellcap"><div class="pv-cell" id="pvCell"></div><div class="lbl">캐러셀 (◀▶)</div></div>
+      <div class="cellcap"><div class="pv-cell" id="pvNorm"></div><div class="lbl">일반 셀(내 유닛)</div></div>
+    </div>
+  </div>
+
+  <!-- 실제 인게임 컬럼 -->
+  <div class="stagebox">
+    <h3 style="color:#5eead4">실제 인게임 (game.js + style.css 그대로)</h3>
+    <div class="twocell">
+      <div class="cellcap">
+        <div id="game-board"></div>
+        <div class="lbl">캐러셀 셀 = 보드 중앙</div>
+      </div>
+      <div class="cellcap">
+        <div class="miniboard" id="ig-norm"></div>
+        <div class="lbl">일반 셀(내 유닛)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>시나리오</h2>
+    <div class="btns">
+      <button class="primary" data-act="scn1">① 내 장군 + 표식 마녀(적) + 유해</button>
+      <button data-act="scn2">② 내 장군 + 표식 적 2 + 유해 2</button>
+      <button data-act="scn3">③ 내 유닛 2 겹침(반지)</button>
+    </div>
+    <div class="row" style="margin-top:10px"><label>보드 폭</label><input type="range" id="bw" min="130" max="320" step="10" value="170"><span class="val" id="bwV">170</span></div>
+    <div class="row"><label>일반셀 폭</label><input type="range" id="cw" min="40" max="90" step="2" value="52"><span class="val" id="cwV">52</span></div>
+    <div class="note">양쪽 셀에 ◀▶ 화살표로 직접 넘겨보세요. 상대(표식) 유닛 슬롯이 <b>실제 인게임 컬럼</b>에서 비어 보이는지 확인.</div>
+  </div>
+
+  <div class="panel">
+    <h2>액션 (대표 강제 넘김)</h2>
+    <div class="btns">
+      <button data-act="hitOpp">표식 적 피격 → 그 적 페이지로?</button>
+      <button data-act="hitMine">내 유닛 피격 → 내 페이지로</button>
+    </div>
+    <div class="note">"표식 적 피격"을 누르면 <b>의도</b>는 적(피격자) 페이지로 가야 하고, <b>실제 인게임</b>은 _crApplyForced 가 셀 대표(내 유닛)로 가는지 비교됩니다.</div>
+    <div class="diag" id="diag"></div>
+  </div>
+</div>
+
+<!-- ★ 실제 인게임 모듈 그대로 -->
+<script src="piece-gifs.js?v=20260608j"></script>
+<script>
+/* ─────────────────────────────────────────────────────────────
+   실제 인게임 game.js 의 캐러셀 함수들을 "그대로" 붙여넣음.
+   외부 의존(window.S, getBoardStatusIcons, pieceIconHtml, REMAINS_IMG)만 스텁.
+   ───────────────────────────────────────────────────────────── */
+window.S = { teamId: 0, isTeamMode: false };
+window.REMAINS_IMG = '/art/remains.png';
+function getBoardStatusIcons(pc){ return ''; }                       // 표식 🎯 는 스트립됨 → 빈 문자열
+function pieceIconHtml(icon, opts){ return `<span style="font-size:${(opts&&opts.size)||'1.3em'}">${icon||'❔'}</span>`; }
+
+/* ===== ↓↓↓ game.js 14173–14351 그대로 ↓↓↓ ===== */
+if (!window._cellCarouselState) window._cellCarouselState = {};
+
+function _renderCellCarousel(cell, col, row, units) {
+  const cs = window._cellCarouselState;
+  const csKey = `${col},${row}`;
+  const pieces = units.map(u => {
+    const pc = u.p;
+    if (u.owner === 'remains') {
+      const _remUrl = window.REMAINS_IMG || '/art/remains.png';
+      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains', pcRef: pc };
+    }
+    const gifHtml = typeof getPieceGifHtml === 'function'
+      ? getPieceGifHtml(pc.type, pc.subUnit, !!u.joined) : null;
+    const _iconFb = pieceIconHtml(pc.icon, {size:'1.3em'}) || '';
+    let iconHtml;
+    if (gifHtml) {
+      iconHtml = gifHtml.replace('<img ', `<img onerror="this.onerror=null;this.outerHTML=this.dataset.fb||'?'" data-fb="${_iconFb.replace(/"/g, '&quot;')}" `);
+    } else {
+      iconHtml = _iconFb || '?';
+    }
+    let hpColor;
+    if      (u.owner === 'opp')      hpColor = '#f87171';
+    else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
+    else                             hpColor = 'var(--success)';
+    const statusIcons = (typeof getBoardStatusIcons === 'function') ? getBoardStatusIcons(pc) : '';
+    const hpText = (u.joined && u.twinOther)
+      ? `${pc.hp + u.twinOther.hp}/${pc.maxHp + u.twinOther.maxHp}`
+      : `${pc.hp}/${pc.maxHp}`;
+    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc };
+  });
+
+  const fp = units.map(u => `${u.owner}:${u.p.type || 'rem'}:${u.p.subUnit||''}${u.joined?'J':''}`).join('|');
+  const _repIdx = _crPickRepIdx(units);
+  if (!cs[csKey] || cs[csKey].fp !== fp) {
+    cs[csKey] = { idx: _repIdx, busy: false, fp, pieces, repIdx: _repIdx };
+  } else {
+    cs[csKey].pieces = pieces;
+    cs[csKey].repIdx = _repIdx;
+  }
+  const st = cs[csKey];
+  if (st.idx >= pieces.length) st.idx = _repIdx;
+
+  const cur = pieces[st.idx];
+  const csId = `cc-${col}-${row}`;
+  const statusHtml = cur.statusIcons || '';
+
+  const slotsHtml = pieces.map((pc, i) =>
+    `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
+      `<div class="cc-inner">` +
+        `<span class="p-icon">${pc.iconHtml}</span>` +
+        `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
+      `</div>` +
+    `</div>`
+  ).join('');
+
+  cell.innerHTML += `
+    <div class="cc-wrapper" id="${csId}-wrap">
+      ${slotsHtml}
+      <span class="cell-mark" id="${csId}-mark"${!statusHtml ? ' style="display:none"' : ''}>${statusHtml}</span>
+      <button class="cc-arrow cc-left"  onclick="_crNav('${col},${row}',-1);event.stopPropagation()" title="이전"><div class="cc-tri cc-tri-left"></div></button>
+      <button class="cc-arrow cc-right" onclick="_crNav('${col},${row}', 1);event.stopPropagation()" title="다음"><div class="cc-tri cc-tri-right"></div></button>
+    </div>`;
+
+  cell.classList.add('has-piece');
+}
+
+window._crNav = function(colRow, dir) {
+  const cs = window._cellCarouselState;
+  if (!cs) return;
+  const st = cs[colRow];
+  if (!st || st.busy || st.pieces.length <= 1) return;
+  st.busy = true;
+  const [col, row] = colRow.split(',');
+  const csId = `cc-${col}-${row}`;
+  const wrap = document.getElementById(`${csId}-wrap`);
+  if (!wrap) { st.busy = false; return; }
+  const nextIdx = (st.idx + dir + st.pieces.length) % st.pieces.length;
+  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
+  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${nextIdx}"]`);
+  if (!curSlot || !nextSlot) { st.busy = false; return; }
+  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
+  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+  curSlot.classList.add(outCls);
+  setTimeout(() => {
+    st.idx = nextIdx;
+    const cur = st.pieces[st.idx];
+    curSlot.classList.remove(outCls);
+    curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition = 'none';
+    nextSlot.classList.add(inCls);
+    nextSlot.classList.remove('cc-hidden');
+    void nextSlot.offsetWidth;
+    nextSlot.style.transition = '';
+    nextSlot.classList.remove(inCls);
+    const markEl = document.getElementById(`${csId}-mark`);
+    if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
+    st.busy = false;
+    updateDiag();
+  }, 200);
+};
+
+function _crUnitPrio(u) {
+  const grp = u.owner === 'mine' ? 0 : u.owner === 'teammate' ? 1 : u.owner === 'opp' ? 2 : 3;
+  const tie = u.owner === 'remains' ? -((u.p && u.p.hits) || 0) : -((u.p && u.p.tier) || 0);
+  return [grp, tie];
+}
+function _crPickRepIdx(units) {
+  let best = 0, bk = null;
+  units.forEach((u, i) => {
+    const k = _crUnitPrio(u);
+    if (!bk || k[0] < bk[0] || (k[0] === bk[0] && k[1] < bk[1])) { bk = k; best = i; }
+  });
+  return best;
+}
+window._crSlideTo = function(csKey, targetSlot) {
+  const cs = window._cellCarouselState; const st = cs && cs[csKey];
+  if (!st || st.busy || !st.pieces || st.pieces.length <= 1) return;
+  if (targetSlot == null || targetSlot === st.idx || targetSlot >= st.pieces.length) return;
+  const [col, row] = csKey.split(',');
+  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
+  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
+  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`);
+  if (!curSlot || !nextSlot) return;
+  st.busy = true;
+  const n = st.pieces.length;
+  const fwd = ((targetSlot - st.idx) + n) % n, bwd = ((st.idx - targetSlot) + n) % n;
+  const dir = fwd <= bwd ? 1 : -1;
+  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
+  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+  curSlot.classList.add(outCls);
+  setTimeout(() => {
+    st.idx = targetSlot;
+    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition = 'none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
+    void nextSlot.offsetWidth; nextSlot.style.transition = ''; nextSlot.classList.remove(inCls);
+    const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
+    if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
+    st.busy = false;
+    updateDiag();
+  }, 200);
+};
+if (!window._crForce) window._crForce = {};
+window._crForceCell = function(col, row, piece) {
+  if (col == null || row == null) return;
+  const k = `${col},${row}`;
+  const prev = window._crForce[k];
+  if (piece) window._crForce[k] = piece;
+  else if (prev === undefined) window._crForce[k] = true;
+};
+function _crSlotOfPiece(st, piece) {
+  if (!st || !st.pieces || !piece) return -1;
+  return st.pieces.findIndex(p => p.pcRef === piece);
+}
+function _crApplyForced() {
+  const f = window._crForce; if (!f) return;
+  for (const k in f) {
+    const target = f[k];
+    delete f[k];
+    const st = window._cellCarouselState && window._cellCarouselState[k];
+    if (!st || !st.pieces || st.pieces.length <= 1) continue;
+    let slot = (typeof st.repIdx === 'number') ? st.repIdx : 0;
+    if (target && target !== true) {
+      const pi = _crSlotOfPiece(st, target);
+      if (pi >= 0) slot = pi;
+    }
+    if (typeof slot === 'number' && slot !== st.idx) {
+      try { window._crSlideTo(k, slot); } catch (e) {}
+    }
+  }
+}
+/* ===== ↑↑↑ game.js 그대로 ↑↑↑ ===== */
+
+/* ───────── 시나리오 데이터 ───────── */
+const COL=2, ROW=2;
+const SCN = {
+  scn1: [
+    { p:{type:'general', hp:3, maxHp:3, tier:2, icon:'⚔️'}, owner:'mine' },
+    { p:{type:'witch',   hp:2, maxHp:2, tier:2, marked:true, icon:'🔮'}, owner:'opp' },
+    { p:{type:'spearman', hits:1}, owner:'remains' },
+  ],
+  scn2: [
+    { p:{type:'general', hp:3, maxHp:3, tier:2, icon:'⚔️'}, owner:'mine' },
+    { p:{type:'witch',   hp:2, maxHp:2, tier:2, marked:true, icon:'🔮'}, owner:'opp' },
+    { p:{type:'spearman',hp:2, maxHp:2, tier:1, marked:true, icon:'🔱'}, owner:'opp' },
+    { p:{type:'cavalry', hits:2}, owner:'remains' },
+    { p:{type:'spearman',hits:1}, owner:'remains' },
+  ],
+  scn3: [
+    { p:{type:'general', hp:3, maxHp:3, tier:2, icon:'⚔️'}, owner:'mine' },
+    { p:{type:'archer',  hp:1, maxHp:2, tier:1, icon:'🏹'}, owner:'mine' },
+  ],
+};
+let curUnits = SCN.scn1;
+
+/* ───────── 의도(프리뷰) 컬럼 렌더 ───────── */
+const REM='/art/remains.png', IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t])||('/art/'+t+'_idle.gif');
+let pvIdx=0;
+function pvSlot(u){
+  if(u.owner==='remains') return `<img class="pv-rem" src="${REM}" alt="">`;
+  const cls = u.owner==='opp' ? 'pv-marker opp' : 'pv-marker';
+  return `<div class="${cls}"><img class="pv-gif" src="${IDLE(u.p.type)}" alt=""></div>`;
+}
+function pvRepIdx(units){
+  let best=0,bk=null;
+  units.forEach((u,i)=>{ const g=u.owner==='mine'?0:u.owner==='teammate'?1:u.owner==='opp'?2:3;
+    const tie=u.owner==='remains'?-((u.p.hits)||0):-((u.p.tier)||0);
+    if(!bk||g<bk[0]||(g===bk[0]&&tie<bk[1])){bk=[g,tie];best=i;} });
+  return best;
+}
+function pvRender(){
+  const cell=document.getElementById('pvCell'); cell.innerHTML='';
+  if(pvIdx>=curUnits.length) pvIdx=pvRepIdx(curUnits);
+  if(curUnits.length===1){ cell.innerHTML=pvSlot(curUnits[0]); return; }
+  const wrap=document.createElement('div'); wrap.className='pv-wrap';
+  curUnits.forEach((u,i)=>{ const d=document.createElement('div'); d.className='pv-main'+(i===pvIdx?'':' hide'); d.dataset.slot=i; d.innerHTML=pvSlot(u); wrap.appendChild(d); });
+  const aL=document.createElement('button'); aL.className='pv-arrow l'; aL.innerHTML='<div class="pv-tri l"></div>'; aL.onclick=()=>pvNav(-1);
+  const aR=document.createElement('button'); aR.className='pv-arrow r'; aR.innerHTML='<div class="pv-tri r"></div>'; aR.onclick=()=>pvNav(1);
+  wrap.append(aL,aR); cell.appendChild(wrap);
+  // 일반 셀
+  document.getElementById('pvNorm').innerHTML=`<div class="pv-marker"><img class="pv-gif" src="${IDLE('general')}" alt=""></div>`;
+}
+let pvBusy=false;
+function pvNav(dir){
+  if(pvBusy||curUnits.length<=1) return; pvBusy=true;
+  const cell=document.getElementById('pvCell'); const wrap=cell.querySelector('.pv-wrap');
+  const cur=wrap.querySelector(`.pv-main[data-slot="${pvIdx}"]`);
+  const nx=(pvIdx+dir+curUnits.length)%curUnits.length;
+  const ne=wrap.querySelector(`.pv-main[data-slot="${nx}"]`);
+  cur.classList.add(dir>0?'slL':'slR');
+  setTimeout(()=>{ cur.classList.remove('slL','slR'); cur.classList.add('hide'); pvIdx=nx;
+    ne.classList.remove('hide'); ne.classList.add(dir>0?'slR':'slL'); void ne.offsetWidth; ne.classList.remove('slR','slL');
+    pvBusy=false; updateDiag(); },180);
+}
+
+/* ───────── 실제 인게임 컬럼 렌더 ───────── */
+function igRender(){
+  const board=document.getElementById('game-board'); board.innerHTML='';
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    const cell=document.createElement('div'); cell.className='cell'; cell.dataset.col=c; cell.dataset.row=r;
+    if(c===COL&&r===ROW){
+      _renderCellCarousel(cell, c, r, curUnits);   // ★ 실제 함수
+    }
+    board.appendChild(cell);
+  }
+  // 일반 셀(내 유닛) — 인게임 piece-marker 구조 그대로
+  const nb=document.getElementById('ig-norm'); nb.innerHTML='';
+  const nc=document.createElement('div'); nc.className='cell has-piece';
+  const gif=(typeof getPieceGifHtml==='function')?getPieceGifHtml('general'):`<img class="p-gif" src="${IDLE('general')}">`;
+  nc.innerHTML=`<div class="piece-marker"><span class="p-icon">${gif}</span><span class="p-hp">3/3</span></div>`;
+  nb.appendChild(nc);
+}
+
+function rerenderAll(){ pvIdx=pvRepIdx(curUnits); igRender(); pvRender(); updateDiag(); }
+
+function curIgIdx(){ const st=window._cellCarouselState[`${COL},${ROW}`]; return st?st.idx:0; }
+function ownerName(u){ return u.owner==='remains'?'유해':(u.owner==='opp'?'적 ':u.owner==='teammate'?'팀 ':'내 ')+u.p.type; }
+function updateDiag(){
+  const igI=curIgIdx();
+  const lines=[];
+  lines.push(`슬롯 ${curUnits.length}개`);
+  lines.push(`의도 현재페이지: ${pvIdx+1} (${ownerName(curUnits[pvIdx])})`);
+  lines.push(`인게임 현재페이지: ${igI+1} (${ownerName(curUnits[igI])})`);
+  // 인게임 슬롯별 실제 렌더 내용 점검
+  const board=document.getElementById('game-board');
+  const wrap=board.querySelector('.cc-wrapper');
+  if(wrap){
+    const slotInfo=[...wrap.querySelectorAll('.cc-main')].map(m=>{
+      const img=m.querySelector('img'); const owner=m.dataset.owner;
+      const hasImg=!!img; const w=img?Math.round(img.getBoundingClientRect().width):0;
+      return `  슬롯${m.dataset.slot}[${owner}] img=${hasImg?'O w='+w+'px':'✗없음'}`;
+    });
+    lines.push('인게임 슬롯 점검:'); lines.push(slotInfo.join('\n'));
+  }
+  document.getElementById('diag').innerHTML=lines.join('\n');
+}
+
+/* ───────── 버튼 ───────── */
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+  const a=b.dataset.act;
+  if(a.startsWith('scn')){ curUnits=SCN[a]; window._cellCarouselState={}; rerenderAll(); }
+  else if(a==='hitOpp'){
+    // 피격자(표식 적) 페이지로 — 당사자 piece 를 넘겨 그 슬롯으로 슬라이드(수정 후 동작).
+    const oppIdx=curUnits.findIndex(u=>u.owner==='opp'); if(oppIdx<0)return;
+    pvSlideTo(oppIdx);
+    window._crForceCell(COL,ROW, curUnits[oppIdx].p); _crApplyForced();
+    setTimeout(updateDiag,260);
+  }
+  else if(a==='hitMine'){
+    const mIdx=curUnits.findIndex(u=>u.owner==='mine'); if(mIdx<0)return;
+    pvSlideTo(mIdx);
+    window._crForceCell(COL,ROW, curUnits[mIdx].p); _crApplyForced();
+    setTimeout(updateDiag,260);
+  }
+}));
+function pvSlideTo(target){
+  if(pvBusy||target===pvIdx) return;
+  const n=curUnits.length, fwd=((target-pvIdx)+n)%n, bwd=((pvIdx-target)+n)%n;
+  pvNav(fwd<=bwd?1:-1);
+  if(pvIdx!==target) setTimeout(()=>pvSlideTo(target),200);
+}
+
+document.getElementById('bw').addEventListener('input',e=>{document.documentElement.style.setProperty('--bw',e.target.value+'px');document.getElementById('bwV').textContent=e.target.value;});
+document.getElementById('cw').addEventListener('input',e=>{document.documentElement.style.setProperty('--cw',e.target.value+'px');document.getElementById('cwV').textContent=e.target.value;});
+
+function init(){ if(window.PIECE_GIFS){ document.documentElement.style.setProperty('--bw','170px'); document.documentElement.style.setProperty('--cw','52px'); rerenderAll(); } else setTimeout(init,80); }
+init();
+</script>
+</body>
+</html>
