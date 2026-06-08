@@ -13609,6 +13609,7 @@ function renderGameBoard() {
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
       if (_isCursed(pc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
+      if (_isMarked(pc)) { cell.innerHTML += markBoardLayerHtml(pc); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
@@ -13675,6 +13676,7 @@ function renderGameBoard() {
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
+        if (_isMarked(tmPc)) { cell.innerHTML += markBoardLayerHtml(tmPc); cell.classList.add('has-mark'); }
         cell.classList.add('has-piece');
         cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
       }
@@ -13704,6 +13706,7 @@ function renderGameBoard() {
       }
       // ★ 저주 보드 레이어 — 표식돼 공개된 적 말이 저주 상태면 뒤에 망령 idle
       if (_isCursed(markedOpp)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
+      if (_isMarked(markedOpp)) { cell.innerHTML += markBoardLayerHtml(markedOpp); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
     }
 
@@ -14424,7 +14427,15 @@ function getStatusIcons(pc) {
 // 보드 셀 전용 상태 아이콘 — 저주(☠)는 보드 위 망령 idle 레이어가 대신 표현하므로 제외.
 //   (fingerprint/프로필 등 다른 곳은 getStatusIcons 그대로 사용 — 재렌더 추적 유지.)
 function getBoardStatusIcons(pc) {
-  return (getStatusIcons(pc) || '').replace(/☠/g, '');
+  // ☠(저주)는 보드 망령 레이어, 🎯(표식)은 정수리 위 표식 레이어가 대신 표현하므로 보드 셀에선 제외.
+  return (getStatusIcons(pc) || '').replace(/☠/g, '').replace(/🎯/g, '');
+}
+// ── 표식 상태 — 정수리 위 표식 idle 레이어(에셋) + 캐릭터 글로우(저주 오라와 평행) ──
+function _isMarked(pc){ return !!(pc && (pc.statusEffects || []).some(e => e.type === 'mark')); }
+function markBoardLayerHtml(pc){
+  if (!_isMarked(pc)) return '';
+  const url = (window.MARK_GIFS && window.MARK_GIFS.idle) || '/art/mark/mark_idle.gif';
+  return `<img class="mark-board-layer" src="${url}" alt="">`;
 }
 // ── 저주 상태 보드 레이어 HTML — 저주 상태면 유닛 뒤(z:0)에 깔리는 idle 망령 GIF ──
 //   (보드 위 전용. facing 은 renderGameBoard 후 _pieceFacingDir 재적용 루프에서 .face-left 부여.)
@@ -17697,6 +17708,7 @@ function renderSpectatorGame(gs) {
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자) — 저주 상태면 유닛 뒤 망령 idle
       if (_isCursed(p0)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p0); cell.classList.add('has-curse'); }
+      if (_isMarked(p0)) { cell.innerHTML += markBoardLayerHtml(p0); cell.classList.add('has-mark'); }
     }
     // P1 말 (빨간색)
     const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
@@ -17710,6 +17722,7 @@ function renderSpectatorGame(gs) {
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자)
       if (_isCursed(p1)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p1); cell.classList.add('has-curse'); }
+      if (_isMarked(p1)) { cell.innerHTML += markBoardLayerHtml(p1); cell.classList.add('has-mark'); }
     }
     // 보드 오브젝트
     if (gs.boardObjects) {

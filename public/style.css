@@ -2925,6 +2925,30 @@ img.curse-aura {
           drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5));
   animation: curseAuraOut var(--cadur,1.15s) linear forwards;
 }
+
+/* ── 표식 상태 — 정수리 위 표식 idle 레이어(에셋) + 캐릭터 보라 글로우 (저주와 평행 구조) ── */
+.cell.has-mark { overflow: visible; }
+.cell.has-mark .piece-marker { position: relative; z-index: 2; }
+.cell.has-mark .spec-piece { position: relative; z-index: 2; }
+.mark-board-layer {
+  position: absolute; left: 50%; top: 50%;
+  width: 28px; height: 28px;
+  transform: translate(-50%, -50%) translate(0, -32px);   /* 정수리 위(중앙) — 인게임 튜닝 가능 */
+  z-index: 5; pointer-events: none; image-rendering: pixelated; object-fit: contain;
+  animation: markBoardBob 2.4s ease-in-out infinite;
+  filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+}
+@keyframes markBoardBob { 0%,100% { margin-top: 0; } 50% { margin-top: -2px; } }
+/* 표식 캐릭터 글로우 — 저주 오라와 평행(보라 #a874e7, alpha .6). --ma=알파(페이드용), --madur=페이드 시간 */
+.cell.has-mark .piece-marker img.p-gif,
+.cell.has-mark .spec-piece .p-icon img,
+.cell.has-mark .death-anim-overlay .death-gif,
+img.mark-aura {
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
+          drop-shadow(0 0 1px rgba(168,116,231,var(--ma,0.6)))
+          drop-shadow(0 0 2px rgba(168,116,231,var(--ma,0.6)));
+  transition: filter var(--madur,0s) linear;
+}
 @keyframes curseAuraIn {
   from { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 0 rgba(163,113,247,0)) drop-shadow(0 0 0 rgba(163,113,247,0)); }
   to   { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(163,113,247,.5)) drop-shadow(0 0 2.5px rgba(163,113,247,.5)); }

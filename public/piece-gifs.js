@@ -149,6 +149,18 @@
   // 저주 이동 PNG — 저주 유닛 이동 시 이동 PNG 뒤에 따라붙는 망령 (idle 과 동일 배치/글로우)
   window.CURSE_MOVE_PNG = '/art/curse/curse_move.png';
 
+  // ── 표식/악몽 GIF (저주와 평행 구조: 정수리 위 표식 레이어 + 인두/불꽃/생성·해제·악몽) ──
+  //   iron=인두 PNG / summon=생성 1회 / idle=표식 지속(루프) / move=이동 PNG / release=해제 1회 / nightmare=악몽 1회
+  window.MARK_GIFS = {
+    iron:      '/art/mark/mark_iron.png',
+    summon:    '/art/mark/mark_summon.gif',
+    idle:      '/art/mark/mark_idle.gif',
+    move:      '/art/mark/mark_move.png',
+    release:   '/art/mark/mark_release.gif',
+    nightmare: '/art/mark/nightmare.gif',
+  };
+  window.getMarkGifUrl = function (kind) { return (window.MARK_GIFS && window.MARK_GIFS[kind]) || null; };
+
   // ── 쥐 보드 오브젝트 GIF ────────────────────────────
   // black = 아군 쥐, white = 적군 쥐.
   // 적군 쥐는 대척점 배치: x/y 부호 반전 + scaleX(-1) 좌우반전.
@@ -406,6 +418,7 @@
       ...Object.values(window.RAT_GIFS?.white  || {}),
       ...Object.values(window.CURSE_GIFS       || {}),    // ★ 저주 상태 GIF
       window.CURSE_MOVE_PNG,                              // ★ 저주 이동 PNG
+      ...Object.values(window.MARK_GIFS        || {}),    // ★ 표식/악몽 GIF
     ]);
     const container = _getPreloadContainer();
     for (const url of knownUrls) {
