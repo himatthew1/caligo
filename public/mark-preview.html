@@ -6,72 +6,74 @@
 <title>CALIGO — 표식 / 악몽 모션 프리뷰</title>
 <style>
   :root{ --bg:#14121c; --panel:#221d30; --panel2:#2c2640; --line:#433a58; --accent:#e2b714; --accent2:#b23a48; --light:#ede9f0; --mut:#a89fb8;
-    --cell:64px; --unit:40px; --msize:30px; --moffx:0px; --moffy:-2px; --mface:1; }
+    --cell:64px; --unit:40px; --msize:30px; --moffx:0px; --moffy:-2px; --mface:1; --bobdur:2.4s; --mglow:none;
+    --iron-dur:0.85s; --iron-h:34px; }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:18px;line-height:1.5}
-  header h1{font-size:19px;color:var(--accent);margin:0 0 3px}
-  header .sub{color:var(--mut);font-size:12px;margin-bottom:14px;max-width:900px}
-  .wrap{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
-  .stage-col{display:flex;flex-direction:column;gap:12px}
-  .stage{background:#0b0912;border:1px solid var(--line);border-radius:12px;padding:30px 44px;display:flex;gap:30px;align-items:flex-end}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:12px 16px;line-height:1.45;overflow:hidden}
+  header h1{font-size:17px;color:var(--accent);margin:0 0 2px}
+  header .sub{color:var(--mut);font-size:11px;margin-bottom:10px;max-width:1100px}
+  .main{display:flex;gap:16px;align-items:flex-start}
+
+  /* 좌측: 무대 */
+  .left{display:flex;flex-direction:column;gap:10px;flex:0 0 320px}
+  .stage{background:#0b0912;border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;gap:22px;align-items:flex-end;justify-content:center;min-height:160px}
   .stage.checker{background:repeating-conic-gradient(#181320 0 25%,#221a30 0 50%) 0/30px 30px}
-  .units{display:flex;gap:26px;align-items:flex-end}
-
-  /* ── 인게임 셀/유닛 재현 ── */
-  .cell{position:relative;width:var(--cell);height:var(--cell);border:1px dashed #ffffff14;border-radius:6px;
-    display:flex;align-items:flex-end;justify-content:center;overflow:visible}
-  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;
-    transform:scaleX(var(--face,1))}
-  /* 표식 레이어 — 유닛 정수리 위(중앙). 유닛 피격/공격 모션에 영향 X (별도 오버레이). */
-  .cell .mark{position:absolute;z-index:4;left:50%;
-    /* 유닛 gif 윗변 ≈ 셀바닥에서 (unit+6px) 위 → 그 위에 표식 배치 */
-    bottom:calc(6px + var(--unit));
-    width:var(--msize);height:var(--msize);image-rendering:pixelated;object-fit:contain;pointer-events:none;
-    transform:translate(-50%,0) translate(var(--moffx),var(--moffy)) scaleX(var(--mface));
-    filter:var(--mglow,none)}
-  .cell .mark.bob{animation:markBob var(--bobdur,2.4s) ease-in-out infinite}
+  .units{display:flex;gap:22px;align-items:flex-end}
+  .cell{position:relative;width:var(--cell);height:var(--cell);border:1px dashed #ffffff14;border-radius:6px;display:flex;align-items:flex-end;justify-content:center;overflow:visible}
+  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;transform:scaleX(var(--face,1))}
+  .cell .mark{position:absolute;z-index:4;left:50%;bottom:calc(6px + var(--unit));width:var(--msize);height:var(--msize);
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;
+    transform:translate(-50%,0) translate(var(--moffx),var(--moffy)) scaleX(var(--mface));filter:var(--mglow)}
+  .cell .mark.bob{animation:markBob var(--bobdur) ease-in-out infinite}
   @keyframes markBob{0%,100%{margin-bottom:0}50%{margin-bottom:3px}}
-  /* 인두 (생성 시 위에서 내려옴) */
-  .cell .iron{position:absolute;z-index:6;left:50%;width:calc(var(--msize) * 1.3);height:calc(var(--msize) * 1.3);
-    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;
-    bottom:calc(6px + var(--unit));transform:translate(-50%,var(--moffy))}
-  @keyframes ironDrop{0%{opacity:0;transform:translate(-50%,calc(var(--moffy) - 34px)) scale(.9)}
-    35%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
-    70%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
-    100%{opacity:0;transform:translate(-50%,calc(var(--moffy) - 30px)) scale(.92)}}
+  .cell .iron{position:absolute;z-index:6;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(-50%,var(--moffy))}
+  @keyframes ironDrop{
+    0%{opacity:0;transform:translate(-50%,calc(var(--moffy) - var(--iron-h))) scale(.92)}
+    40%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
+    62%{opacity:1;transform:translate(-50%,calc(var(--moffy) + 3px)) scale(1.04)}
+    78%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
+    100%{opacity:0;transform:translate(-50%,calc(var(--moffy) - var(--iron-h) * 0.7)) scale(.94)}}
   @keyframes hitShake{0%,100%{transform:scaleX(var(--face,1))}20%{transform:translateX(-3px) scaleX(var(--face,1))}40%{transform:translateX(3px) scaleX(var(--face,1))}60%{transform:translateX(-2px) scaleX(var(--face,1))}80%{transform:translateX(2px) scaleX(var(--face,1))}}
-  .label{color:var(--mut);font-size:11px;text-align:center;margin-top:6px}
+  .spark{position:absolute;z-index:9;pointer-events:none;image-rendering:pixelated;transition:transform .5s cubic-bezier(.2,.7,.3,1),opacity .5s}
+  .label{color:var(--mut);font-size:10.5px;text-align:center;margin-top:5px}
+  .phase{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+  .phase .pillrow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px}
+  .pill{font-size:10.5px;padding:2px 8px;border-radius:13px;border:1px solid var(--line);color:var(--mut)}
+  .pill.on{border-color:var(--accent);color:#fff;background:#2a2140}
+  .phaseNote{color:var(--mut);font-size:10.5px}
 
-  /* ── 컨트롤 ── */
-  .ctrl-col{display:flex;flex-direction:column;gap:12px;width:330px}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px}
-  .panel h2{font-size:12.5px;color:var(--accent);margin:0 0 9px;text-transform:uppercase;letter-spacing:.4px}
-  .btns{display:flex;gap:7px;flex-wrap:wrap}
-  button{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:8px;padding:8px 11px;cursor:pointer;font-size:12px}
+  /* 우측: 컨트롤 그리드 (스크롤 없음) */
+  .right{flex:1;display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:11px;align-content:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 11px}
+  .panel.wide{grid-column:span 2}
+  .panel h2{font-size:11.5px;color:var(--accent);margin:0 0 7px;text-transform:uppercase;letter-spacing:.3px}
+  .btns{display:flex;gap:6px;flex-wrap:wrap}
+  button{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:7px;padding:7px 9px;cursor:pointer;font-size:11.5px}
   button:hover{border-color:var(--accent);color:#fff}
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
   button.danger{background:linear-gradient(135deg,#7a2531,#b23a48);border-color:transparent;font-weight:600}
-  .row{display:flex;align-items:center;gap:10px;margin:8px 0}
-  .row label{flex:0 0 96px;color:var(--mut);font-size:12px}
-  .row input[type=range]{flex:1;accent-color:var(--accent)}
-  .row .val{flex:0 0 50px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
-  .toggle{display:flex;align-items:center;gap:8px;margin:6px 0}
-  .toggle input{width:17px;height:17px;accent-color:var(--accent)}
-  .note{color:var(--mut);font-size:11px;line-height:1.5;margin-top:4px}
-  .codebox{background:#0a0d12;border:1px solid var(--line);border-radius:8px;padding:9px;font-family:Consolas,monospace;font-size:11px;color:#a8d4ff;white-space:pre-wrap;margin-top:8px}
-  .pill{font-size:11px;padding:3px 9px;border-radius:14px;border:1px solid var(--line);color:var(--mut)}
-  .pill.on{border-color:var(--accent);color:#fff;background:#2a2140}
-  select{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px}
+  .row{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .row label{flex:0 0 78px;color:var(--mut);font-size:11px}
+  .row input[type=range]{flex:1;accent-color:var(--accent);min-width:60px}
+  .row .val{flex:0 0 42px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px}
+  .row input[type=color]{width:30px;height:22px;border:1px solid var(--line);background:none;border-radius:5px;padding:0}
+  .toggle{display:flex;align-items:center;gap:7px;margin:5px 0;font-size:11px;color:var(--mut)}
+  .toggle input{width:15px;height:15px;accent-color:var(--accent)}
+  .note{color:var(--mut);font-size:10px;line-height:1.45;margin-top:6px}
+  select{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:11px}
+  .codebox{background:#0a0d12;border:1px solid var(--line);border-radius:7px;padding:8px;font-family:Consolas,monospace;font-size:10px;color:#a8d4ff;white-space:pre-wrap;margin-top:6px}
 </style>
 </head>
 <body>
 <header>
   <h1>🎯 표식 / 악몽 모션 프리뷰</h1>
-  <div class="sub">CSS·이모지(🎯) 탈출 — 새 어셋만 사용. 표식은 <b>유닛 정수리 위</b>에 배치(idle·이동 모두). 유닛 피격/공격 모션에 영향 없음(별도 오버레이). 생성=인두+표식생성(1회)→idle 루프 / 이동=표식 PNG(도착 후 등장, 미리 도착 금지) / 파괴=1회 / 악몽=표식 위치·크기에 발동, 4프레임에 데미지 판정.</div>
+  <div class="sub">CSS·🎯 이모지 탈출 — 새 어셋만. 표식은 <b>유닛 정수리 위</b>(idle·이동 공통, 피격/공격 모션 영향 X). 생성=인두 내려찍힘+불꽃→표식 생성(1회)→idle. 이동=표식 PNG(도착 후 등장). 악몽=표식 위치·크기, 4프레임에 데미지.</div>
 </header>
 
-<div class="wrap">
-  <div class="stage-col">
+<div class="main">
+  <div class="left">
     <div class="stage" id="stage">
       <div class="units" id="units">
         <div>
@@ -84,216 +86,192 @@
         </div>
       </div>
     </div>
-    <div class="panel">
-      <h2>현재 단계</h2>
-      <div class="pillrow" id="pills" style="display:flex;gap:7px;flex-wrap:wrap"></div>
-      <div class="note" id="phaseNote"></div>
+    <div class="phase">
+      <div class="pillrow" id="pills"></div>
+      <div class="phaseNote" id="phaseNote"></div>
     </div>
   </div>
 
-  <div class="ctrl-col">
+  <div class="right">
     <div class="panel">
       <h2>표식 모션</h2>
       <div class="btns">
-        <button class="primary" data-act="summon">① 표식 생성 (인두→찍힘→아이들)</button>
-        <button data-act="idle">아이들만</button>
+        <button class="primary" data-act="summon">① 생성(인두+불꽃)</button>
+        <button data-act="idle">아이들</button>
+        <button data-act="move">② 이동</button>
+        <button data-act="release">③ 파괴</button>
       </div>
-      <div class="btns" style="margin-top:7px">
-        <button data-act="move">② 이동 데모 (표식 PNG · 도착 후 등장)</button>
-        <button data-act="release">③ 표식 파괴</button>
+      <div class="btns" style="margin-top:6px">
+        <button class="danger" data-act="nightmare">④ 악몽(4프레임 피격)</button>
+        <button data-act="hit">유닛만 피격</button>
       </div>
-      <div class="btns" style="margin-top:7px">
-        <button class="danger" data-act="nightmare">④ 악몽 발동 (4프레임에 피격+데미지)</button>
-        <button data-act="hit">유닛만 피격(표식 불변 확인)</button>
-      </div>
-      <div class="note">생성/파괴/악몽 = <b>1회 재생, 다른 GIF와 겹침 없음</b>. 악몽은 표식과 같은 위치·크기.</div>
+      <div class="note">생성/파괴/악몽 = 1회 재생, 겹침 없음.</div>
     </div>
 
     <div class="panel">
-      <h2>다중 대상</h2>
-      <div class="row"><label>대상 수</label><input type="range" id="multiN" min="1" max="4" step="1" value="3"><span class="val" id="multiNV">3</span></div>
-      <div class="btns">
-        <button data-act="multiApply">표식 일괄 부여</button>
-        <button class="danger" data-act="multiNightmare">전원 동시 악몽</button>
-      </div>
-      <div class="note">표식 여럿이면 악몽이 <b>동시</b>에 여러 개 발동(각 4프레임에 판정).</div>
+      <h2>인두 · 불꽃 파티클</h2>
+      <div class="row"><label>강하 시간</label><input type="range" id="ironDur" min="0.3" max="1.6" step="0.05" value="0.85"><span class="val" id="ironDurV">0.85s</span></div>
+      <div class="row"><label>강하 높이</label><input type="range" id="ironH" min="14" max="60" step="2" value="34"><span class="val" id="ironHV">34</span></div>
+      <div class="row"><label>인두 크기</label><input type="range" id="ironScale" min="0.9" max="2.2" step="0.05" value="1.35"><span class="val" id="ironScaleV">1.35</span></div>
+      <div class="row"><label>파티클 수</label><input type="range" id="pCount" min="0" max="28" step="1" value="14"><span class="val" id="pCountV">14</span></div>
+      <div class="row"><label>파티클 크기</label><input type="range" id="pSize" min="2" max="6" step="1" value="3"><span class="val" id="pSizeV">3</span></div>
+      <div class="row"><label>퍼짐</label><input type="range" id="pSpread" min="10" max="48" step="2" value="26"><span class="val" id="pSpreadV">26</span></div>
+      <div class="btns" style="margin-top:5px"><button data-act="sparkTest">불꽃만 테스트</button></div>
     </div>
 
     <div class="panel">
-      <h2>위치 · 크기 (정수리 기준)</h2>
+      <h2>위치 · 크기 (정수리)</h2>
       <div class="row"><label>오프셋 X</label><input type="range" id="offx" min="-30" max="30" step="1" value="0"><span class="val" id="offxV">0</span></div>
       <div class="row"><label>오프셋 Y</label><input type="range" id="offy" min="-30" max="20" step="1" value="-2"><span class="val" id="offyV">-2</span></div>
       <div class="row"><label>표식 크기</label><input type="range" id="msize" min="14" max="56" step="1" value="30"><span class="val" id="msizeV">30</span></div>
-      <div class="toggle"><input type="checkbox" id="bob" checked><label for="bob" style="flex:none;color:var(--mut)">떠다니는 bobbing</label></div>
-      <div class="row"><label>bobbing 속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.4"><span class="val" id="bobdurV">2.4s</span></div>
-      <div class="toggle"><input type="checkbox" id="face"><label for="face" style="flex:none;color:var(--mut)">유닛 좌향(◀) — 표식/이동 미러</label></div>
+      <div class="toggle"><input type="checkbox" id="bob" checked><label for="bob">bobbing</label></div>
+      <div class="row"><label>bob 속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.4"><span class="val" id="bobdurV">2.4s</span></div>
+      <div class="toggle"><input type="checkbox" id="face"><label for="face">유닛 좌향(◀) — 미러</label></div>
     </div>
 
     <div class="panel">
       <h2>글로우 (선택)</h2>
-      <div class="toggle"><input type="checkbox" id="glowOn"><label for="glowOn" style="flex:none;color:var(--mut)">글로우 사용</label></div>
-      <div class="row"><label>색상</label><input type="color" id="glowColor" value="#e2b714"><span class="val" id="glowColorV" style="flex:1;text-align:left;color:var(--mut)">#e2b714</span></div>
-      <div class="row"><label>밝기(알파)</label><input type="range" id="glowA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="glowAV">0.60</span></div>
+      <div class="toggle"><input type="checkbox" id="glowOn"><label for="glowOn">글로우 사용</label></div>
+      <div class="row"><label>색상</label><input type="color" id="glowColor" value="#e2b714"></div>
+      <div class="row"><label>밝기</label><input type="range" id="glowA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="glowAV">.60</span></div>
       <div class="row"><label>블러</label><input type="range" id="glowB" min="0" max="8" step="0.5" value="2"><span class="val" id="glowBV">2</span></div>
     </div>
 
     <div class="panel">
       <h2>무대</h2>
-      <div class="row"><label>셀 크기</label><input type="range" id="cellsz" min="44" max="110" step="2" value="64"><span class="val" id="cellszV">64</span></div>
-      <div class="row"><label>유닛 크기</label><input type="range" id="unitsz" min="24" max="72" step="1" value="40"><span class="val" id="unitszV">40</span></div>
-      <div class="row"><label>샘플 유닛</label>
-        <select id="unitPick">
+      <div class="row"><label>셀 크기</label><input type="range" id="cellsz" min="44" max="100" step="2" value="64"><span class="val" id="cellszV">64</span></div>
+      <div class="row"><label>유닛 크기</label><input type="range" id="unitsz" min="24" max="64" step="1" value="40"><span class="val" id="unitszV">40</span></div>
+      <div class="row"><label>유닛</label>
+        <select id="unitPick" style="flex:1">
           <option value="general_idle.gif">장군</option><option value="witch_idle.gif">마녀</option>
-          <option value="torturer_idle.gif">고문기술자</option><option value="prince_idle.gif">왕자</option>
-          <option value="archer_idle.gif">궁수</option>
-        </select>
-      </div>
-      <div class="toggle"><input type="checkbox" id="checker"><label for="checker" style="flex:none;color:var(--mut)">체커 배경</label></div>
-      <div class="btns" style="margin-top:6px"><button data-act="copy">설정값 복사</button></div>
+          <option value="torturer_idle.gif">고문기술자</option><option value="prince_idle.gif">왕자</option><option value="archer_idle.gif">궁수</option>
+        </select></div>
+      <div class="toggle"><input type="checkbox" id="checker"><label for="checker">체커 배경</label></div>
+    </div>
+
+    <div class="panel">
+      <h2>다중 + 복사</h2>
+      <div class="row"><label>대상 수</label><input type="range" id="multiN" min="1" max="4" step="1" value="3"><span class="val" id="multiNV">3</span></div>
+      <div class="btns"><button data-act="multiApply">일괄 부여</button><button class="danger" data-act="multiNightmare">전원 악몽</button></div>
+      <div class="btns" style="margin-top:5px"><button data-act="copy">설정값 복사</button></div>
       <div class="codebox" id="cssOut"></div>
     </div>
   </div>
 </div>
 
 <script>
-const MARK = {
-  iron:    '/art/mark/mark_iron.png',
-  summon:  '/art/mark/mark_summon.gif',
-  idle:    '/art/mark/mark_idle.gif',
-  move:    '/art/mark/mark_move.png',
-  release: '/art/mark/mark_release.gif',
-  nightmare:'/art/mark/nightmare.gif',
-};
-// GIF NETSCAPE(무한루프) 블록 제거 → 1회 재생 blob
-async function onceGif(url){
-  const buf = new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer());
-  for(let i=0;i<buf.length-13;i++){
-    if(buf[i]===0x21&&buf[i+1]===0xFF&&buf[i+2]===0x0B){ let t=''; for(let k=0;k<11;k++)t+=String.fromCharCode(buf[i+3+k]);
-      if(t==='NETSCAPE2.0'){ const out=new Uint8Array(buf.length-19); out.set(buf.slice(0,i),0); out.set(buf.slice(i+19),i); return URL.createObjectURL(new Blob([out],{type:'image/gif'})); } } }
-  return URL.createObjectURL(new Blob([buf],{type:'image/gif'}));
-}
-// GIF 프레임 누적 delay(ms) — 4번째 프레임 시점 계산용
-async function frameDelays(url){
-  const b=new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer()); let t=0,out=[];
-  for(let i=0;i<b.length-5;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04){ t+=((b[i+4]|(b[i+5]<<8))*10); out.push(t); } }
-  return out;
-}
-const cell=document.getElementById('cell'), mark=document.getElementById('mark'), unit=document.getElementById('unit'), iron=document.getElementById('iron');
+const MARK={iron:'/art/mark/mark_iron.png',summon:'/art/mark/mark_summon.gif',idle:'/art/mark/mark_idle.gif',move:'/art/mark/mark_move.png',release:'/art/mark/mark_release.gif',nightmare:'/art/mark/nightmare.gif'};
+async function onceGif(url){ const b=new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer());
+  for(let i=0;i<b.length-13;i++){ if(b[i]===0x21&&b[i+1]===0xFF&&b[i+2]===0x0B){let t='';for(let k=0;k<11;k++)t+=String.fromCharCode(b[i+3+k]); if(t==='NETSCAPE2.0'){const o=new Uint8Array(b.length-19);o.set(b.slice(0,i),0);o.set(b.slice(i+19),i);return URL.createObjectURL(new Blob([o],{type:'image/gif'}));}}}
+  return URL.createObjectURL(new Blob([b],{type:'image/gif'})); }
+async function frameDelays(url){ const b=new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer()); let t=0,out=[];
+  for(let i=0;i<b.length-5;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04){ t+=((b[i+4]|(b[i+5]<<8))*10); out.push(t);} } return out; }
+const cell=document.getElementById('cell'),mark=document.getElementById('mark'),unit=document.getElementById('unit'),iron=document.getElementById('iron');
 let face=1;
 const num=id=>parseFloat(document.getElementById(id).value);
-const setV=(id,t)=>{const e=document.getElementById(id+'V'); if(e)e.textContent=t;};
-
-function glow(){ if(!document.getElementById('glowOn').checked) return 'none';
-  const c=document.getElementById('glowColor').value, a=num('glowA'), b=num('glowB');
+const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
+function glow(){ if(!document.getElementById('glowOn').checked)return 'none'; const c=document.getElementById('glowColor').value,a=num('glowA'),b=num('glowB');
   const r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
-  return `drop-shadow(0 0 ${b}px rgba(${r},${g},${bl},${a})) drop-shadow(0 0 ${b+1}px rgba(${r},${g},${bl},${a}))`;
-}
+  return `drop-shadow(0 0 ${b}px rgba(${r},${g},${bl},${a})) drop-shadow(0 0 ${b+1}px rgba(${r},${g},${bl},${a}))`; }
 function apply(){
-  const r=document.documentElement.style;
   document.querySelectorAll('.cell').forEach(c=>{
-    c.style.setProperty('--cell',num('cellsz')+'px'); c.style.setProperty('--unit',num('unitsz')+'px');
-    c.style.setProperty('--msize',num('msize')+'px'); c.style.setProperty('--moffx',num('offx')+'px'); c.style.setProperty('--moffy',num('offy')+'px');
-    c.style.setProperty('--face',face); c.style.setProperty('--mface',face); c.style.setProperty('--bobdur',num('bobdur')+'s');
-    c.style.setProperty('--mglow',glow());
+    c.style.setProperty('--cell',num('cellsz')+'px'); c.style.setProperty('--unit',num('unitsz')+'px'); c.style.setProperty('--msize',num('msize')+'px');
+    c.style.setProperty('--moffx',num('offx')+'px'); c.style.setProperty('--moffy',num('offy')+'px'); c.style.setProperty('--face',face); c.style.setProperty('--mface',face);
+    c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow());
+    c.style.setProperty('--iron-dur',num('ironDur')+'s'); c.style.setProperty('--iron-h',num('ironH')+'px');
+    const ir=c.querySelector('.iron'); if(ir) ir.style.width=ir.style.height='calc(var(--msize) * '+num('ironScale')+')';
   });
-  setV('offx',num('offx')); setV('offy',num('offy')); setV('msize',num('msize')); setV('cellsz',num('cellsz')); setV('unitsz',num('unitsz'));
+  ['offx','offy','msize','cellsz','unitsz','ironH','pCount','pSize','pSpread'].forEach(id=>setV(id,num(id)));
   setV('bobdur',num('bobdur')+'s'); setV('multiN',num('multiN')); setV('glowA',num('glowA').toFixed(2)); setV('glowB',num('glowB'));
-  document.getElementById('glowColorV').textContent=document.getElementById('glowColor').value;
-  document.getElementById('cssOut').textContent =
-`표식 위치   : 정수리 위 (중앙)  ·  오프셋 x=${num('offx')} y=${num('offy')}
-표식 크기   : ${num('msize')}px  (유닛 ${num('unitsz')}px 기준)
-좌우반전    : 유닛 방향 따라 scaleX(±1)  (현재 ${face===1?'우향':'좌향'})
-글로우      : ${document.getElementById('glowOn').checked?glow():'없음'}
-bobbing     : ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
+  setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2));
+  document.getElementById('cssOut').textContent=
+`표식 위치 : 정수리 위(중앙) x=${num('offx')} y=${num('offy')}
+표식 크기 : ${num('msize')}px  (유닛 ${num('unitsz')}px)
+인두      : 강하 ${num('ironDur')}s · 높이 ${num('ironH')}px · 크기 ×${num('ironScale').toFixed(2)}
+불꽃      : ${num('pCount')}개 · ${num('pSize')}px · 퍼짐 ${num('pSpread')}
+글로우    : ${document.getElementById('glowOn').checked?glow():'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
 }
-['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
+['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
 document.getElementById('checker').addEventListener('change',e=>document.getElementById('stage').classList.toggle('checker',e.target.checked));
-document.getElementById('face').addEventListener('change',e=>{ face=e.target.checked?-1:1; apply(); });
-document.getElementById('unitPick').addEventListener('change',e=>{ document.querySelectorAll('.cell .unit').forEach(u=>u.src='/art/'+e.target.value+'?t='+Date.now()); });
-
-function setPhase(name,note){
-  const map={summon:'표식 생성',idle:'아이들',move:'이동',release:'표식 파괴',nightmare:'악몽'};
-  document.getElementById('pills').innerHTML=['표식 생성','아이들','이동','표식 파괴','악몽'].map(p=>`<span class="pill ${map[name]===p?'on':''}">${p}</span>`).join('');
-  document.getElementById('phaseNote').textContent=note||'';
-}
+document.getElementById('face').addEventListener('change',e=>{face=e.target.checked?-1:1;apply();});
+document.getElementById('unitPick').addEventListener('change',e=>document.querySelectorAll('.cell .unit').forEach(u=>u.src='/art/'+e.target.value+'?t='+Date.now()));
+function setPhase(n,note){ const m={summon:'표식 생성',idle:'아이들',move:'이동',release:'표식 파괴',nightmare:'악몽'};
+  document.getElementById('pills').innerHTML=['표식 생성','아이들','이동','표식 파괴','악몽'].map(p=>`<span class="pill ${m[n]===p?'on':''}">${p}</span>`).join('');
+  document.getElementById('phaseNote').textContent=note||''; }
 function setIdle(el){ el.classList.remove('bob'); el.src=MARK.idle+'?t='+Date.now(); if(document.getElementById('bob').checked) el.classList.add('bob'); }
 async function playOnce(el,key){ el.classList.remove('bob'); el.src=await onceGif(MARK[key]); }
 
-// 액션
-document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',async()=>{
-  const a=b.dataset.act;
-  if(a==='idle'){ setIdle(mark); setPhase('idle','표식 기본 상태 — 루프'); }
-  else if(a==='summon'){
-    setPhase('summon','표식 생성 — 인두가 내려와 찍고, 표식 생성 1회 → 아이들');
-    mark.src=''; iron.style.animation='ironDrop 0.9s ease forwards';
-    setTimeout(async()=>{ await playOnce(mark,'summon'); }, 360);  // 인두 찍히는 순간 표식 생성
-    setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, 950);
-    setTimeout(()=>setIdle(mark), 1300);
+// ── 픽셀 네모 불꽃 파티클 — 표식(정수리) 위치에서 팍 튐 ──
+function sparks(host, mk){
+  const n=num('pCount'); if(n<=0) return; const sz=num('pSize'), spread=num('pSpread');
+  const colors=['#ffd84d','#ff9a3d','#ffefb0','#ff5a2d','#ffffff'];
+  const r=mk.getBoundingClientRect(), hr=host.getBoundingClientRect();
+  const cx=r.left+r.width/2-hr.left, cy=r.top+r.height*0.32-hr.top;
+  for(let i=0;i<n;i++){
+    const p=document.createElement('div'); p.className='spark';
+    const s=sz+Math.floor(Math.random()*2);
+    p.style.cssText+=`;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;background:${colors[i%colors.length]};transform:translate(-50%,-50%);opacity:1`;
+    host.appendChild(p);
+    const ang=-Math.PI/2 + (Math.random()-0.5)*Math.PI*1.5; // 위쪽 부채꼴
+    const dist=spread*(0.5+Math.random()*0.8);
+    const dx=Math.cos(ang)*dist, dy=Math.sin(ang)*dist + spread*0.45; // 살짝 아래로 떨어짐(중력)
+    requestAnimationFrame(()=>{ p.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; p.style.opacity='0'; });
+    setTimeout(()=>p.remove(),520);
   }
-  else if(a==='move'){ setPhase('move','이동 — 표식 PNG가 유닛과 함께 슬라이드, 도착 후 등장(미리 도착 금지)'); moveDemo(); }
-  else if(a==='release'){ setPhase('release','표식 파괴 — 해제 시 1회 재생 후 소멸'); await playOnce(mark,'release');
-    setTimeout(()=>{ mark.src=''; mark.classList.remove('bob'); }, 1100); }
-  else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기에 발동, 4프레임에 피격+데미지'); nightmare(cell,mark); }
-  else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식은 불변(별도 오버레이)'); hitUnit(unit); }
-  else if(a==='multiApply'){ buildMulti(num('multiN')); }
-  else if(a==='multiNightmare'){ setPhase('nightmare','다중 악몽 — 표식 여럿에 동시 발동');
-    document.querySelectorAll('.cell').forEach(c=> nightmare(c, c.querySelector('.mark'))); }
-  else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('cssOut').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='설정값 복사',1200); }
-}));
-
-function hitUnit(u){
-  const pick=document.getElementById('unitPick').value, base='/art/'+pick;
-  u.style.animation='hitShake .35s ease'; setTimeout(()=>u.style.animation='',400);
-  u.src=base.replace('_idle.gif','_hit.gif')+'?t='+Date.now();
-  setTimeout(()=>u.src=base+'?t='+Date.now(),450);
 }
+function hitUnit(u){ const pick=document.getElementById('unitPick').value,base='/art/'+pick;
+  u.style.animation='hitShake .35s ease'; setTimeout(()=>u.style.animation='',400);
+  u.src=base.replace('_idle.gif','_hit.gif')+'?t='+Date.now(); setTimeout(()=>u.src=base+'?t='+Date.now(),450); }
 
-// 악몽: 표식 위치·크기에 1회 재생, 4프레임에 유닛 피격+데미지(도장)
-async function nightmare(c, mk){
-  const wasBob = mk.classList.contains('bob'); const idleSrc = mk.src;
-  // 표식 자리에 악몽 오버레이 (표식과 동일 위치/크기) — 표식 idle 위에 1회
-  const ov=document.createElement('img'); ov.className='mark'; ov.style.zIndex='5';
-  ov.src=await onceGif(MARK.nightmare); c.appendChild(ov);
-  const fd=await frameDelays(MARK.nightmare); const impact=(fd.length>3?fd[3]:(fd.length?fd[fd.length-1]:500));
-  setTimeout(()=>{ // 4프레임 임팩트 → 피격 + 데미지 도장
-    const u=c.querySelector('.unit'); if(u){ u.style.animation='hitShake .35s ease'; setTimeout(()=>u.style.animation='',400); }
+async function nightmare(c,mk){
+  const ov=document.createElement('img'); ov.className='mark'; ov.style.zIndex='5'; ov.src=await onceGif(MARK.nightmare); c.appendChild(ov);
+  const fd=await frameDelays(MARK.nightmare); const impact=(fd.length>3?fd[3]:(fd.length?fd[fd.length-1]:500)); const total=fd.length?fd[fd.length-1]:1000;
+  setTimeout(()=>{ const u=c.querySelector('.unit'); if(u){u.style.animation='hitShake .35s ease';setTimeout(()=>u.style.animation='',400);}
     const s=document.createElement('span'); s.textContent='−1';
-    s.style.cssText='position:absolute;left:50%;top:8%;transform:translate(-50%,-6px);z-index:7;padding:1px 6px;border-radius:9px;font-size:11px;font-weight:800;color:#fff;background:linear-gradient(135deg,#b91c1c,#dc2626);border:1.5px solid #fffd;box-shadow:0 2px 5px #0008;animation:nmStamp .9s ease forwards';
-    c.appendChild(s); setTimeout(()=>s.remove(),950);
-  }, impact);
-  // 악몽 종료 → 오버레이 제거(표식 idle 유지)
-  const total=fd.length?fd[fd.length-1]:1000;
-  setTimeout(()=>{ if(ov.parentNode) ov.remove(); }, total+120);
+    s.style.cssText='position:absolute;left:50%;top:8%;z-index:7;padding:1px 6px;border-radius:9px;font-size:11px;font-weight:800;color:#fff;background:linear-gradient(135deg,#b91c1c,#dc2626);border:1.5px solid #fffd;box-shadow:0 2px 5px #0008;animation:nmStamp .9s ease forwards';
+    c.appendChild(s); setTimeout(()=>s.remove(),950); },impact);
+  setTimeout(()=>{ if(ov.parentNode)ov.remove(); },total+120);
 }
 const st=document.createElement('style'); st.textContent='@keyframes nmStamp{0%{opacity:0;transform:translate(-50%,2px) scale(.5)}20%{opacity:1;transform:translate(-50%,-10px) scale(1.08)}80%{opacity:1;transform:translate(-50%,-13px)}100%{opacity:0;transform:translate(-50%,-19px)}}'; document.head.appendChild(st);
 
-// 이동 데모 — 유닛 이동 PNG + 표식 PNG 동반, 도착 후 등장(미리 도착 금지)
 function moveDemo(){
-  const stage=document.getElementById('stage'); const r=cell.getBoundingClientRect();
-  const goLeft=face===-1; const us=num('unitsz'), ms=num('msize');
+  const r=cell.getBoundingClientRect(); const goLeft=face===-1; const us=num('unitsz'),ms=num('msize');
   const startX=r.left+r.width/2, endX=startX+(goLeft?-90:90), midY=r.top+r.height*0.62;
   const pick=document.getElementById('unitPick').value, upng='/art/'+pick.replace('_idle.gif','_move.png');
-  // 출발칸 표식 숨김 (이동 중)
-  const prevMarkSrc=mark.src; mark.src='';
+  mark.src='';
   const u=document.createElement('img'); u.src=upng; u.onerror=()=>u.style.display='none';
   u.style.cssText=`position:fixed;z-index:30;width:${us}px;height:${us}px;object-fit:contain;image-rendering:pixelated;left:${startX-us/2}px;top:${midY-us/2}px;transform:scaleX(${goLeft?-1:1});filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
   const m=document.createElement('img'); m.src=MARK.move;
   const mtop=midY-us/2-(ms*0.5)+num('offy');
   m.style.cssText=`position:fixed;z-index:31;width:${ms}px;height:${ms}px;object-fit:contain;image-rendering:pixelated;left:${startX+num('offx')-ms/2}px;top:${mtop}px;transform:scaleX(${goLeft?-1:1});filter:${glow()==='none'?'':glow()};transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
-  document.body.appendChild(u); document.body.appendChild(m);
-  requestAnimationFrame(()=>{ u.style.left=`${endX-us/2}px`; m.style.left=`${endX+num('offx')-ms/2}px`; });
-  setTimeout(()=>{ u.remove(); m.remove(); setIdle(mark); /* 도착 후 표식 등장 */ }, 820);
+  document.body.append(u,m); requestAnimationFrame(()=>{ u.style.left=`${endX-us/2}px`; m.style.left=`${endX+num('offx')-ms/2}px`; });
+  setTimeout(()=>{ u.remove(); m.remove(); setIdle(mark); },820);
 }
+function buildMulti(n){ const units=document.getElementById('units'),pick=document.getElementById('unitPick').value; units.innerHTML='';
+  for(let i=0;i<n;i++){ const w=document.createElement('div'); w.innerHTML=`<div class="cell"><img class="iron" src="${MARK.iron}"><img class="mark"><img class="unit" src="/art/${pick}?t=${Date.now()+i}"></div><div class="label">대상 ${i+1}</div>`; units.appendChild(w); }
+  apply(); document.querySelectorAll('.cell .mark').forEach(m=>setIdle(m)); }
 
-function buildMulti(n){
-  const units=document.getElementById('units'); const pick=document.getElementById('unitPick').value; units.innerHTML='';
-  for(let i=0;i<n;i++){ const w=document.createElement('div');
-    w.innerHTML=`<div class="cell"><img class="iron" src="${MARK.iron}"><img class="mark"><img class="unit" src="/art/${pick}?t=${Date.now()+i}"></div><div class="label">대상 ${i+1}</div>`;
-    units.appendChild(w); }
-  apply(); document.querySelectorAll('.cell .mark').forEach(m=>setIdle(m));
-}
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',async()=>{
+  const a=b.dataset.act;
+  if(a==='idle'){ setIdle(mark); setPhase('idle','표식 기본 — 루프'); }
+  else if(a==='summon'){ setPhase('summon','생성 — 인두 내려찍힘 + 불꽃 → 표식 생성 1회 → 아이들');
+    mark.src=''; iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
+    const impactMs=num('ironDur')*1000*0.5;  // 강하 중 찍히는 순간
+    setTimeout(()=>{ sparks(cell, iron); }, impactMs);                 // 불꽃
+    setTimeout(async()=>{ await playOnce(mark,'summon'); }, impactMs+30); // 표식 생성
+    setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, num('ironDur')*1000+60);
+    setTimeout(()=>setIdle(mark), num('ironDur')*1000+450); }
+  else if(a==='move'){ setPhase('move','이동 — 표식 PNG 동반, 도착 후 등장'); moveDemo(); }
+  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>{mark.src='';mark.classList.remove('bob');},1100); }
+  else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기, 4프레임에 피격+데미지'); nightmare(cell,mark); }
+  else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식 불변'); hitUnit(unit); }
+  else if(a==='sparkTest'){ sparks(cell, mark); }
+  else if(a==='multiApply'){ buildMulti(num('multiN')); }
+  else if(a==='multiNightmare'){ setPhase('nightmare','다중 악몽 동시'); document.querySelectorAll('.cell').forEach(c=>nightmare(c,c.querySelector('.mark'))); }
+  else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('cssOut').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='설정값 복사',1100); }
+}));
 
-setIdle(mark); setPhase('idle','표식 기본 상태 — 루프'); apply();
+setIdle(mark); setPhase('idle','표식 기본 — 루프'); apply();
 </script>
 </body>
 </html>

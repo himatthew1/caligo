@@ -87,14 +87,13 @@ function addBad(type){
   const s=document.createElement('span'); s.className='stamp '+type; s.textContent=TAGS[type]; u.appendChild(s);
   setTimeout(()=>s.remove(),1600);
 }
-let goodSlot=0;
+const GAP=18; // 도장 간격(살짝 축소)
 function addGood(type){
   const u=document.getElementById('uGood');
-  const existing=[...u.querySelectorAll('.stamp')];
+  // ★ 최신은 맨 아래, 기존 도장은 위로 밀어올림
+  u.querySelectorAll('.stamp').forEach(s=>{ const cur=parseFloat(s.dataset.lift||'0')+GAP; s.dataset.lift=cur; s.style.top=`calc(4% - ${cur}px)`; });
   const s=document.createElement('span'); s.className='stamp '+type; s.textContent=TAGS[type];
-  // 세로 스택: 기존 도장 위로 쌓기 (24px 간격), 가장 아래가 top 4%
-  const slot=existing.length;
-  s.style.top = `calc(4% - ${slot*23}px)`;
+  s.dataset.lift='0'; s.style.top='calc(4% - 0px)';
   u.appendChild(s);
   setTimeout(()=>{ s.style.transition='opacity .3s'; s.style.opacity='0'; setTimeout(()=>s.remove(),320); }, 2000);
 }
@@ -103,7 +102,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()
   if(a==='clear'){ clear(); return; }
   clear();
   let list = a==='multi' ? ['curse','loyalty','normal'] : a==='all' ? ['curse','loyalty','normal','heal','protected'] : ['curse','loyalty','normal'];
-  if(a==='seq'){ list.forEach((t,i)=>setTimeout(()=>{addBad(t);addGood(t);}, i*350)); }
+  if(a==='seq'){ list.forEach((t,i)=>setTimeout(()=>{addBad(t);addGood(t);}, i*150)); }
   else { list.forEach(t=>{addBad(t);addGood(t);}); }
 }));
 </script>
