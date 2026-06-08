@@ -127,8 +127,10 @@ function _markBrandOne(board, col, row, opts) {
           summonImg.className = 'mark-board-layer';     // CSS 가 정수리 위 위치/크기/글로우/bob 담당
           summonImg.removeAttribute('style');
           const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
-          if (host) { host.style.position = 'relative'; host.appendChild(summonImg); }
-          else summonImg.remove();
+          if (host) {
+            cell.querySelectorAll('.mark-board-layer').forEach(el => { if (el !== summonImg) el.remove(); });  // 기존/숨김 잔재 제거 — 중복 방지
+            host.style.position = 'relative'; host.appendChild(summonImg);
+          } else summonImg.remove();
         } catch (e) { try { summonImg.remove(); } catch (_) {} }
         if (blobUrl) URL.revokeObjectURL(blobUrl);
         // (다음 자연 renderGameBoard 가 진짜 idle 레이어로 교체 — 둘 다 같은 idle 이라 끊김 없음)
