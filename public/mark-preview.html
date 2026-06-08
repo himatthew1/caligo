@@ -6,7 +6,7 @@
 <title>CALIGO — 표식 / 악몽 모션 프리뷰</title>
 <style>
   :root{ --bg:#14121c; --panel:#221d30; --panel2:#2c2640; --line:#433a58; --accent:#e2b714; --accent2:#b23a48; --light:#ede9f0; --mut:#a89fb8;
-    --cell:64px; --unit:40px; --msize:30px; --moffx:0px; --moffy:-2px; --mface:1; --bobdur:2.4s; --mglow:none;
+    --cell:64px; --unit:40px; --msize:30px; --moffx:0px; --moffy:-2px; --mface:1; --bobdur:2.4s; --mglow:none; --uglow:none; --ghost-op:0.3;
     --iron-dur:0.85s; --iron-h:34px; }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -21,7 +21,7 @@
   .stage.checker{background:repeating-conic-gradient(#181320 0 25%,#221a30 0 50%) 0/30px 30px}
   .units{display:flex;gap:22px;align-items:flex-end}
   .cell{position:relative;width:var(--cell);height:var(--cell);border:1px dashed #ffffff14;border-radius:6px;display:flex;align-items:flex-end;justify-content:center;overflow:visible}
-  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;transform:scaleX(var(--face,1))}
+  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;transform:scaleX(var(--face,1));filter:var(--uglow,none)}
   .cell .mark{position:absolute;z-index:4;left:50%;bottom:calc(6px + var(--unit));width:var(--msize);height:var(--msize);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;
     transform:translate(-50%,0) translate(var(--moffx),var(--moffy)) scaleX(var(--mface));filter:var(--mglow)}
@@ -29,6 +29,10 @@
   @keyframes markBob{0%,100%{margin-bottom:0}50%{margin-bottom:3px}}
   .cell .iron{position:absolute;z-index:6;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(-50%,var(--moffy))}
+  /* 인두 착지 가이드 — 정지 반투명 이미지(켜고 끔) */
+  .cell .iron-ghost{position:absolute;z-index:5;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(-50%,var(--moffy))}
+  .cell .iron-ghost.show{opacity:var(--ghost-op,0.3)}
   @keyframes ironDrop{
     0%{opacity:0;transform:translate(-50%,calc(var(--moffy) - var(--iron-h))) scale(.92)}
     40%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
@@ -78,6 +82,7 @@
       <div class="units" id="units">
         <div>
           <div class="cell" id="cell">
+            <img class="iron-ghost" id="ironGhost" src="/art/mark/mark_iron.png" alt="">
             <img class="iron" id="iron" src="/art/mark/mark_iron.png" alt="">
             <img class="mark" id="mark" alt="">
             <img class="unit" id="unit" src="/art/general_idle.gif" alt="">
@@ -116,6 +121,8 @@
       <div class="row"><label>파티클 수</label><input type="range" id="pCount" min="0" max="28" step="1" value="14"><span class="val" id="pCountV">14</span></div>
       <div class="row"><label>파티클 크기</label><input type="range" id="pSize" min="2" max="6" step="1" value="3"><span class="val" id="pSizeV">3</span></div>
       <div class="row"><label>퍼짐</label><input type="range" id="pSpread" min="10" max="48" step="2" value="26"><span class="val" id="pSpreadV">26</span></div>
+      <div class="toggle"><input type="checkbox" id="ironGuide"><label for="ironGuide">인두 착지 가이드(정지 반투명)</label></div>
+      <div class="row"><label>가이드 농도</label><input type="range" id="ghostOp" min="0.1" max="0.8" step="0.05" value="0.35"><span class="val" id="ghostOpV">.35</span></div>
       <div class="btns" style="margin-top:5px"><button data-act="sparkTest">불꽃만 테스트</button></div>
     </div>
 
@@ -131,11 +138,20 @@
     </div>
 
     <div class="panel">
-      <h2>글로우 (선택)</h2>
-      <div class="toggle"><input type="checkbox" id="glowOn"><label for="glowOn">글로우 사용</label></div>
+      <h2>표식 글로우 (선택)</h2>
+      <div class="toggle"><input type="checkbox" id="glowOn"><label for="glowOn">표식 글로우 사용</label></div>
       <div class="row"><label>색상</label><input type="color" id="glowColor" value="#e2b714"></div>
       <div class="row"><label>밝기</label><input type="range" id="glowA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="glowAV">.60</span></div>
       <div class="row"><label>블러</label><input type="range" id="glowB" min="0" max="8" step="0.5" value="2"><span class="val" id="glowBV">2</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>표식 유닛 글로우</h2>
+      <div class="toggle"><input type="checkbox" id="uglowOn"><label for="uglowOn">유닛 글로우 사용</label></div>
+      <div class="row"><label>색상</label><input type="color" id="uglowColor" value="#a371f7"></div>
+      <div class="row"><label>밝기</label><input type="range" id="uglowA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="uglowAV">.60</span></div>
+      <div class="row"><label>블러</label><input type="range" id="uglowB" min="0" max="12" step="0.5" value="3"><span class="val" id="uglowBV">3</span></div>
+      <div class="note" style="margin-top:4px">표식 상태인 캐릭터(유닛)에 글로우를 입힘 — 표식 마커와 별개.</div>
     </div>
 
     <div class="panel">
@@ -172,20 +188,24 @@ const cell=document.getElementById('cell'),mark=document.getElementById('mark'),
 let face=1;
 const num=id=>parseFloat(document.getElementById(id).value);
 const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
-function glow(){ if(!document.getElementById('glowOn').checked)return 'none'; const c=document.getElementById('glowColor').value,a=num('glowA'),b=num('glowB');
+function glowFrom(onId,colId,aId,bId){ if(!document.getElementById(onId).checked)return 'none';
+  const c=document.getElementById(colId).value,a=num(aId),b=num(bId);
   const r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
   return `drop-shadow(0 0 ${b}px rgba(${r},${g},${bl},${a})) drop-shadow(0 0 ${b+1}px rgba(${r},${g},${bl},${a}))`; }
+function glow(){ return glowFrom('glowOn','glowColor','glowA','glowB'); }       // 표식 마커 글로우
+function unitGlow(){ return glowFrom('uglowOn','uglowColor','uglowA','uglowB'); } // 표식 유닛(캐릭터) 글로우
 function apply(){
   document.querySelectorAll('.cell').forEach(c=>{
     c.style.setProperty('--cell',num('cellsz')+'px'); c.style.setProperty('--unit',num('unitsz')+'px'); c.style.setProperty('--msize',num('msize')+'px');
     c.style.setProperty('--moffx',num('offx')+'px'); c.style.setProperty('--moffy',num('offy')+'px'); c.style.setProperty('--face',face); c.style.setProperty('--mface',face);
-    c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow());
-    c.style.setProperty('--iron-dur',num('ironDur')+'s'); c.style.setProperty('--iron-h',num('ironH')+'px');
-    const ir=c.querySelector('.iron'); if(ir) ir.style.width=ir.style.height='calc(var(--msize) * '+num('ironScale')+')';
+    c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow()); c.style.setProperty('--uglow',unitGlow());
+    c.style.setProperty('--iron-dur',num('ironDur')+'s'); c.style.setProperty('--iron-h',num('ironH')+'px'); c.style.setProperty('--ghost-op',num('ghostOp'));
+    c.querySelectorAll('.iron,.iron-ghost').forEach(ir=>{ ir.style.width=ir.style.height='calc(var(--msize) * '+num('ironScale')+')'; });
   });
   ['offx','offy','msize','cellsz','unitsz','ironH','pCount','pSize','pSpread'].forEach(id=>setV(id,num(id)));
   setV('bobdur',num('bobdur')+'s'); setV('multiN',num('multiN')); setV('glowA',num('glowA').toFixed(2)); setV('glowB',num('glowB'));
   setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2)); setV('nmscale',num('nmscale').toFixed(1));
+  setV('uglowA',num('uglowA').toFixed(2)); setV('uglowB',num('uglowB')); setV('ghostOp',num('ghostOp').toFixed(2));
   document.getElementById('cssOut').textContent=
 `표식 위치 : 정수리 위(중앙) x=${num('offx')} y=${num('offy')}
 표식 크기 : ${num('msize')}px  (유닛 ${num('unitsz')}px)
@@ -193,8 +213,9 @@ function apply(){
 불꽃      : ${num('pCount')}개 · ${num('pSize')}px · 퍼짐 ${num('pSpread')}
 글로우    : ${document.getElementById('glowOn').checked?glow():'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
 }
-['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
+['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale','uglowOn','uglowColor','uglowA','uglowB','ghostOp'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
 document.getElementById('checker').addEventListener('change',e=>document.getElementById('stage').classList.toggle('checker',e.target.checked));
+document.getElementById('ironGuide').addEventListener('change',e=>document.getElementById('ironGhost').classList.toggle('show',e.target.checked));
 document.getElementById('face').addEventListener('change',e=>{face=e.target.checked?-1:1;apply();});
 document.getElementById('unitPick').addEventListener('change',e=>document.querySelectorAll('.cell .unit').forEach(u=>u.src='/art/'+e.target.value+'?t='+Date.now()));
 function setPhase(n,note){ const m={summon:'표식 생성',idle:'아이들',move:'이동',release:'표식 파괴',nightmare:'악몽'};
@@ -228,6 +249,9 @@ function hitUnit(u){ const pick=document.getElementById('unitPick').value,base='
 async function nightmare(c,mk){
   const ov=document.createElement('img'); ov.className='mark'; ov.style.zIndex='5';
   ov.style.width=ov.style.height='calc(var(--msize) * '+num('nmscale')+')'; // ★ 악몽은 표식 대비 배율(기본 2배)
+  // ★ idle 마크는 bottom 앵커라 2배로 키우면 위로 치우침 → bottom을 (배율-1)*표식/2 만큼 내려 중심을 idle 마크 중심에 정렬
+  const _nmShift=num('msize')*(num('nmscale')-1)/2;
+  ov.style.bottom='calc(6px + var(--unit) - '+_nmShift+'px)';
   ov.src=await onceGif(MARK.nightmare); c.appendChild(ov);
   const fd=await frameDelays(MARK.nightmare); const impact=(fd.length>3?fd[3]:(fd.length?fd[fd.length-1]:500)); const total=fd.length?fd[fd.length-1]:1000;
   setTimeout(()=>{ const u=c.querySelector('.unit'); if(u){u.style.animation='hitShake .35s ease';setTimeout(()=>u.style.animation='',400);}
@@ -242,9 +266,10 @@ function moveDemo(){
   const r=cell.getBoundingClientRect(); const goLeft=face===-1; const us=num('unitsz'),ms=num('msize');
   const startX=r.left+r.width/2, endX=startX+(goLeft?-90:90), midY=r.top+r.height*0.62;
   const pick=document.getElementById('unitPick').value, upng='/art/'+pick.replace('_idle.gif','_move.png');
-  mark.src='';
+  mark.removeAttribute('src'); // ★ src='' 깨진 이미지 아이콘 방지
+  const ug=(unitGlow()==='none'?'':unitGlow()+' ');
   const u=document.createElement('img'); u.src=upng; u.onerror=()=>u.style.display='none';
-  u.style.cssText=`position:fixed;z-index:30;width:${us}px;height:${us}px;object-fit:contain;image-rendering:pixelated;left:${startX-us/2}px;top:${midY-us/2}px;transform:scaleX(${goLeft?-1:1});filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
+  u.style.cssText=`position:fixed;z-index:30;width:${us}px;height:${us}px;object-fit:contain;image-rendering:pixelated;left:${startX-us/2}px;top:${midY-us/2}px;transform:scaleX(${goLeft?-1:1});filter:${ug}drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
   const m=document.createElement('img'); m.src=MARK.move;
   const mtop=midY-us/2-ms+num('offy'); // 표식 하단이 유닛 정수리에 닿도록(idle과 동일 간격)
   m.style.cssText=`position:fixed;z-index:31;width:${ms}px;height:${ms}px;object-fit:contain;image-rendering:pixelated;left:${startX+num('offx')-ms/2}px;top:${mtop}px;transform:scaleX(${goLeft?-1:1});filter:${glow()==='none'?'':glow()};transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
@@ -259,14 +284,14 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',as
   const a=b.dataset.act;
   if(a==='idle'){ setIdle(mark); setPhase('idle','표식 기본 — 루프'); }
   else if(a==='summon'){ setPhase('summon','생성 — 인두 내려찍힘 + 불꽃 → 표식 생성 1회 → 아이들');
-    mark.src=''; iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
+    mark.removeAttribute('src'); iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
     const impactMs=num('ironDur')*1000*0.5;  // 강하 중 찍히는 순간
     setTimeout(()=>{ sparks(cell, iron); }, impactMs);                 // 불꽃
     setTimeout(async()=>{ await playOnce(mark,'summon'); }, impactMs+30); // 표식 생성
     setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, num('ironDur')*1000+60);
     setTimeout(()=>setIdle(mark), num('ironDur')*1000+450); }
   else if(a==='move'){ setPhase('move','이동 — 표식 PNG 동반, 도착 후 등장'); moveDemo(); }
-  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>{mark.src='';mark.classList.remove('bob');},1100); }
+  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>{mark.removeAttribute('src');mark.classList.remove('bob');},1100); }
   else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기, 4프레임에 피격+데미지'); nightmare(cell,mark); }
   else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식 불변'); hitUnit(unit); }
   else if(a==='sparkTest'){ sparks(cell, mark); }
