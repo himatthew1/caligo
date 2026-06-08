@@ -256,7 +256,7 @@ function sparks(host, mk){
   const n=num('pCount'); if(n<=0) return; const sz=num('pSize'), spread=num('pSpread');
   const colors=['#ffd84d','#ff9a3d','#ffefb0','#ff5a2d','#ffffff'];
   const r=mk.getBoundingClientRect(), hr=host.getBoundingClientRect();
-  const cx=r.left+r.width/2-hr.left, cy=r.top+r.height*0.32-hr.top;
+  const cx=r.left+r.width/2-hr.left, cy=r.top+r.height*0.5-hr.top;  // ★ 표식 한가운데(중심) 기준
   for(let i=0;i<n;i++){
     const p=document.createElement('div'); p.className='spark';
     const s=sz+Math.floor(Math.random()*2);
@@ -317,7 +317,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',as
   else if(a==='summon'){ setPhase('summon','생성 — 인두 내려찍힘 + 불꽃 → 표식 생성 1회 → 아이들');
     hideMark(mark); iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
     const impactMs=num('ironDur')*1000*0.5;  // 강하 중 찍히는 순간
-    setTimeout(()=>{ sparks(cell, iron); }, impactMs);                 // 불꽃
+    setTimeout(()=>{ sparks(cell, mark); }, impactMs);                 // 불꽃 — 표식 중심에서 발생(인두 아닌 표식 기준)
     setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, num('ironDur')*1000+60);
     // ★ 표식 생성 GIF — 재생 시작(src 적용) 시점부터 GIF 총 길이만큼 기다린 뒤 idle 로.
     //   (고정 시간이면 9프레임이 다 안 나오고 잘림)
