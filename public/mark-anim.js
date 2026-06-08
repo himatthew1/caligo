@@ -1,142 +1,146 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// 표식 발동 — 통합 애니메이션 모듈 (v2)
-//   하늘에서 인두가 떨어져 셀의 *실제 표식 인디케이터 위치* (우측 상단) 에 박힘.
-//   단일 연속 시퀀스: 낙하 → 임팩트 → 홀드 → 들어올림 (사라졌다 다시 안 나타남).
+// 표식 발동 — 에셋 기반 (v3, 프리뷰 확정 사양)
+//   인두 PNG 가 정수리 위 표식 위치로 내려찍힘 → 불꽃 → 생성 GIF(1회) → 정수리 위 표식 idle 레이어로 인계.
+//   캐릭터 보라 글로우는 생성에 맞춰 페이드인(.mark-aura-in).
 //
 //   animateMarkBrand(positions, opts):
 //     positions : [{ col, row }, ...]
-//     opts:
-//       boardId : 대상 보드 요소 id (기본 'game-board')
-//       onSizzle : 인두가 박히는 순간 콜백 (사운드 트리거)
-//       stagger : 다중 대상일 때 셀 간 간격 ms (기본 130)
-//       simulateCellMark : preview 전용 — 임팩트 시점에 🎯 cell-mark 가 없으면 자동 생성
+//     opts: boardId(기본 'game-board'), onSizzle(임팩트 콜백), stagger(다중 간격 ms, 기본 130)
 //
-//   타임라인 (셀당, 총 1.8s):
-//     0~450ms    : 인두 위 -260% → 표식 위치 까지 낙하
-//     450ms      : 임팩트 — 셀 흔들림 + 불티/연기 + 사운드 + 인두 짧은 bounce
-//     450~1080ms : 인두 표식 위치 holding (잠시 박혀 있음)
-//     1080~1800ms: 인두 부드럽게 들어올려져 위로 사라짐 (rotation -10deg)
+//   소환 중인 셀은 window._markSummoning 에 등록 → renderGameBoard 가 idle 표식 레이어를 억제
+//   (_markSummoningActive). 생성 GIF 종료 시 해제 → idle 레이어 인계.
 // ─────────────────────────────────────────────────────────────────────────────
+
+if (!window._markSummoning) window._markSummoning = new Set();
+window._markSummoningActive = function (col, row) { return window._markSummoning.has(col + ',' + row); };
+
+// 정수리 위 표식 배치 (style.css .mark-board-layer 와 동일) — 인게임 튜닝 시 함께 조정.
+const _MARK_SIZE = 28;
+const _MARK_OFFY = -32;
+const _MARK_IRONSZ = Math.round(_MARK_SIZE * 1.35);   // 인두 ×1.35
+
+// 1회재생 + 마지막 프레임 hold blob (NETSCAPE 제거 + 마지막 GCE disposal=1)
+function _markOnceHoldBlob(url) {
+  return fetch(url, { cache: 'no-cache' }).then(r => r.arrayBuffer()).then(ab => {
+    let b = new Uint8Array(ab);
+    for (let i = 0; i < b.length - 13; i++) {
+      if (b[i] === 0x21 && b[i + 1] === 0xFF && b[i + 2] === 0x0B) {
+        let t = ''; for (let k = 0; k < 11; k++) t += String.fromCharCode(b[i + 3 + k]);
+        if (t === 'NETSCAPE2.0') { const o = new Uint8Array(b.length - 19); o.set(b.slice(0, i), 0); o.set(b.slice(i + 19), i); b = o; break; }
+      }
+    }
+    let lastG = -1; for (let i = 0; i < b.length - 7; i++) { if (b[i] === 0x21 && b[i + 1] === 0xF9 && b[i + 2] === 0x04 && b[i + 7] === 0x00) lastG = i; }
+    if (lastG >= 0) { const p = lastG + 3; b[p] = (b[p] & ~(7 << 2)) | (1 << 2); }
+    return URL.createObjectURL(new Blob([b], { type: 'image/gif' }));
+  });
+}
+function _markGifTotalMs(url) {
+  return fetch(url, { cache: 'no-cache' }).then(r => r.arrayBuffer()).then(ab => {
+    const b = new Uint8Array(ab); let t = 0;
+    for (let i = 0; i < b.length - 7; i++) { if (b[i] === 0x21 && b[i + 1] === 0xF9 && b[i + 2] === 0x04 && b[i + 7] === 0x00) t += ((b[i + 4] | (b[i + 5] << 8)) * 10); }
+    return t || 1170;
+  }).catch(() => 1170);
+}
 
 function animateMarkBrand(positions, opts) {
   opts = opts || {};
-  const boardId = opts.boardId || 'game-board';
-  const stagger = (typeof opts.stagger === 'number') ? opts.stagger : 130;
-  const board = document.getElementById(boardId);
+  const board = document.getElementById(opts.boardId || 'game-board');
   if (!board) return;
   const list = Array.isArray(positions) ? positions : [positions];
+  const stagger = (typeof opts.stagger === 'number') ? opts.stagger : 130;
   list.forEach((pos, i) => {
     if (!pos || pos.col == null || pos.row == null) return;
-    setTimeout(() => _animateSingleBrand(board, pos.col, pos.row, opts), i * stagger);
+    setTimeout(() => _markBrandOne(board, pos.col, pos.row, opts), i * stagger);
   });
 }
 
-function _animateSingleBrand(board, col, row, opts) {
+function _markBrandOne(board, col, row, opts) {
   const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
   if (!cell) return;
-  try { if (getComputedStyle(cell).position === 'static') cell.style.position = 'relative'; } catch (e) {}
+  const M = window.MARK_GIFS || {};
+  const key = col + ',' + row;
+  window._markSummoning.add(key);
+  cell.classList.add('mark-brand-host');                         // overflow:visible
+  cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = 'none'; });  // 소환 중 idle 숨김
 
-  // ★ 인두가 셀 밖까지 보이도록 overflow:visible 강제 — 애니메이션 종료 후 자동 해제.
-  cell.classList.add('mark-brand-host');
-
-  // ★ 사용자 보고: 표식 대상 유닛이 다른 유닛 아래에 깔려 보임 → 애니 중에만 최상단으로.
-  //   대상 셀의 piece-marker (대상 유닛) + cell-mark 의 z-index 를 임시로 매우 높게.
-  //   애니 종료 (1.82s) 후 inline style 제거로 원복.
-  const targetMarker = cell.querySelector('.piece-marker');
-  if (targetMarker) {
-    targetMarker.dataset.markBrandOrigZ = targetMarker.style.zIndex || '';
-    targetMarker.style.zIndex = '40';   // iron z-index 30 보다 위
-  }
-  const existingMark = cell.querySelector('.cell-mark');
-  if (existingMark) {
-    existingMark.dataset.markBrandOrigZ = existingMark.style.zIndex || '';
-    existingMark.style.zIndex = '45';   // 모든 표식 요소 위
-  }
-
-  // ── 인두 본체 — 단일 연속 시퀀스 (markBrandSeq 1.8s, 슬램 강조) ──
-  const iron = document.createElement('div');
-  iron.className = 'mark-brand-iron';
-  iron.innerHTML = `
-    <div class="mark-brand-iron-handle"></div>
-    <div class="mark-brand-iron-head"></div>
-  `;
+  // ── 인두 PNG 낙하 (정수리 위 표식 위치) ──
+  const iron = document.createElement('img');
+  iron.src = M.iron || '/art/mark/mark_iron.png';
+  iron.className = 'mark-iron-anim'; iron.alt = '';
+  iron.style.cssText = `position:absolute;left:50%;top:50%;width:${_MARK_IRONSZ}px;height:${_MARK_IRONSZ}px;` +
+    `margin-left:${-_MARK_IRONSZ / 2}px;margin-top:${_MARK_OFFY - _MARK_IRONSZ / 2}px;z-index:30;pointer-events:none;` +
+    `image-rendering:pixelated;object-fit:contain;`;
   cell.appendChild(iron);
+  iron.animate([
+    { opacity: 0, transform: 'translateY(-18px) scale(.92)' },
+    { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.4 },
+    { opacity: 1, transform: 'translateY(3px) scale(1.04)', offset: 0.62 },
+    { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.78 },
+    { opacity: 0, transform: 'translateY(-13px) scale(.94)' },
+  ], { duration: 650, easing: 'ease', fill: 'forwards' });
 
-  // 새 슬램 키프레임 — 임팩트는 15% (= 270ms) 에 발생.
-  const IMPACT_MS = 270;
+  const impactMs = 325;
+  if (typeof opts.onSizzle === 'function') setTimeout(() => { try { opts.onSizzle(); } catch (e) {} }, impactMs);
+
+  // ── 임팩트: 불꽃 + 글로우 페이드인 ──
   setTimeout(() => {
-    // 셀 흔들림 + 사운드 + 표식 이모지 붉은 글로우
-    cell.classList.add('mark-brand-cell-shake');
-    setTimeout(() => cell.classList.remove('mark-brand-cell-shake'), 420);
-    if (typeof opts.onSizzle === 'function') {
-      try { opts.onSizzle(); } catch (e) {}
-    }
-    // 표식 인디케이터 — preview 에서는 새로 생성 / 게임에서는 기존 cell-mark 사용
-    let mk = cell.querySelector('.cell-mark');
-    if (!mk && opts.simulateCellMark) {
-      mk = document.createElement('span');
-      mk.className = 'cell-mark mark-brand-spawned';
-      mk.textContent = '🎯';
-      cell.appendChild(mk);
-    }
-    if (mk) {
-      mk.classList.remove('mark-brand-spawn-anim');
-      void mk.offsetWidth;
-      mk.classList.add('mark-brand-spawn-anim');
-      setTimeout(() => mk.classList.remove('mark-brand-spawn-anim'), 1250);
-    }
+    _markSparks(cell);
+    cell.classList.add('mark-aura-in');
+    setTimeout(() => cell.classList.remove('mark-aura-in'), 1300);
+  }, impactMs);
 
-    // 불티 + 연기 — 표식 인디케이터 위치 (셀 우측 상단) 에서 발생.
-    const rect = cell.getBoundingClientRect();
-    const fx = rect.left + rect.width * 0.85;
-    const fy = rect.top + rect.height * 0.16;
-
-    // 연기 (회색 wisp 5개)
-    for (let k = 0; k < 5; k++) {
-      const sm = document.createElement('div');
-      sm.className = 'mark-smoke-particle';
-      sm.style.left = fx + 'px';
-      sm.style.top = fy + 'px';
-      const dx = (Math.random() - 0.5) * 22;
-      const dur = 1.0 + Math.random() * 0.6;
-      sm.style.setProperty('--dx', dx + 'px');
-      sm.style.setProperty('--dur', dur + 's');
-      sm.style.animationDelay = (Math.random() * 0.15) + 's';
-      document.body.appendChild(sm);
-      setTimeout(() => sm.remove(), (dur + 0.3) * 1000);
-    }
-    // 불티 (오렌지 작은 점 8개, 부채꼴)
-    for (let k = 0; k < 8; k++) {
-      const sp = document.createElement('div');
-      sp.className = 'mark-spark-particle';
-      sp.style.left = fx + 'px';
-      sp.style.top = fy + 'px';
-      const angle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.3;
-      const dist = 14 + Math.random() * 22;
-      sp.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
-      sp.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
-      sp.style.setProperty('--dur', (0.5 + Math.random() * 0.4) + 's');
-      document.body.appendChild(sp);
-      setTimeout(() => sp.remove(), 1200);
-    }
-  }, IMPACT_MS);
-
-  // 시퀀스 종료 후 정리 (1.8s 단일 애니메이션 끝)
+  // ── 생성 GIF (1회) → 끝나면 idle 레이어 인계 ──
+  const summonImg = document.createElement('img');
+  summonImg.className = 'mark-summon-anim'; summonImg.alt = '';
+  summonImg.style.cssText = `position:absolute;left:50%;top:50%;width:${_MARK_SIZE}px;height:${_MARK_SIZE}px;` +
+    `margin-left:${-_MARK_SIZE / 2}px;margin-top:${_MARK_OFFY - _MARK_SIZE / 2}px;z-index:6;pointer-events:none;` +
+    `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);`;
+  let blobUrl = null;
   setTimeout(() => {
-    try { iron.remove(); } catch (e) {}
-    cell.classList.remove('mark-brand-host');
-    // ★ piece-marker / cell-mark z-index 원복
-    if (targetMarker) {
-      targetMarker.style.zIndex = targetMarker.dataset.markBrandOrigZ || '';
-      delete targetMarker.dataset.markBrandOrigZ;
-    }
-    // cell-mark 는 spawn-anim 이후에도 표시되므로 spawn 이 만든 mk 가 있을 수 있음 → 다시 조회.
-    const mkAll = cell.querySelectorAll('.cell-mark');
-    mkAll.forEach(mk => {
-      if (mk.dataset.markBrandOrigZ !== undefined) {
-        mk.style.zIndex = mk.dataset.markBrandOrigZ || '';
-        delete mk.dataset.markBrandOrigZ;
-      }
-    });
-  }, 1820);
+    Promise.all([_markOnceHoldBlob(M.summon), _markGifTotalMs(M.summon)]).then(([bu, total]) => {
+      blobUrl = bu; summonImg.src = bu; cell.appendChild(summonImg);
+      setTimeout(() => {
+        window._markSummoning.delete(key);
+        try { if (summonImg.parentNode) summonImg.remove(); } catch (e) {}
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        cell.classList.remove('mark-brand-host');
+        cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = ''; });
+        if (typeof renderGameBoard === 'function') { try { renderGameBoard(); } catch (e) {} }
+      }, total + 120);
+    }).catch(() => { _markBrandCleanup(cell, key); });
+  }, impactMs + 30);
+
+  setTimeout(() => { try { if (iron.parentNode) iron.remove(); } catch (e) {} }, 720);
+  // 안전망 — 3.5s 후 강제 정리
+  setTimeout(() => { if (window._markSummoning.has(key)) _markBrandCleanup(cell, key); }, 3500);
+}
+
+function _markBrandCleanup(cell, key) {
+  window._markSummoning.delete(key);
+  cell.classList.remove('mark-brand-host');
+  cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = ''; });
+  cell.querySelectorAll('.mark-iron-anim, .mark-summon-anim').forEach(el => el.remove());
+}
+
+// 픽셀 네모 불꽃 — 표식 중심에서 팍 튐 (프리뷰와 동일)
+function _markSparks(cell) {
+  const r = cell.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2 + _MARK_OFFY;
+  const colors = ['#ffd84d', '#ff9a3d', '#ffefb0', '#ff5a2d', '#ffffff'];
+  for (let i = 0; i < 12; i++) {
+    const p = document.createElement('div');
+    const s = 2 + Math.floor(Math.random() * 2);
+    p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;background:${colors[i % colors.length]};` +
+      `z-index:60;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 0 3px rgba(255,170,60,.9);` +
+      `transition:transform .55s cubic-bezier(.2,.7,.3,1),opacity .55s;opacity:1`;
+    document.body.appendChild(p);
+    const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.5;
+    const dist = 26 * (0.5 + Math.random() * 0.8);
+    const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist + 26 * 0.45;
+    void p.offsetWidth;
+    p.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    p.style.opacity = '0';
+    setTimeout(() => p.remove(), 600);
+  }
 }

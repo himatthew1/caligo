@@ -13609,7 +13609,7 @@ function renderGameBoard() {
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
       if (_isCursed(pc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
-      if (_isMarked(pc)) { cell.innerHTML += markBoardLayerHtml(pc); cell.classList.add('has-mark'); }
+      if (_isMarked(pc)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(pc); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
       else if (lockedDim) cell.classList.add('locked-dim-cell');
@@ -13676,7 +13676,7 @@ function renderGameBoard() {
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
-        if (_isMarked(tmPc)) { cell.innerHTML += markBoardLayerHtml(tmPc); cell.classList.add('has-mark'); }
+        if (_isMarked(tmPc)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(tmPc); cell.classList.add('has-mark'); }
         cell.classList.add('has-piece');
         cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
       }
@@ -13699,14 +13699,10 @@ function renderGameBoard() {
           <span class="p-icon">${_oppGifHtml || pieceIconHtml(markedOpp.icon, {size:'1.3em'})}</span>
           <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
         </div>`;
-      // 🎯 cell-mark — statusEffects 에 mark 가 들어있을 때만 (인두 낙하 후)
-      const hasMarkStatus = (markedOpp.statusEffects || []).some(e => e.type === 'mark');
-      if (hasMarkStatus) {
-        cell.innerHTML += `<span class="cell-mark">🎯</span>`;
-      }
+      // (표식 🎯 이모지 제거 — 정수리 위 표식 레이어(아래 markBoardLayerHtml)가 대신 표현)
       // ★ 저주 보드 레이어 — 표식돼 공개된 적 말이 저주 상태면 뒤에 망령 idle
       if (_isCursed(markedOpp)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
-      if (_isMarked(markedOpp)) { cell.innerHTML += markBoardLayerHtml(markedOpp); cell.classList.add('has-mark'); }
+      if (_isMarked(markedOpp)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(markedOpp); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
     }
 
@@ -17708,7 +17704,7 @@ function renderSpectatorGame(gs) {
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자) — 저주 상태면 유닛 뒤 망령 idle
       if (_isCursed(p0)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p0); cell.classList.add('has-curse'); }
-      if (_isMarked(p0)) { cell.innerHTML += markBoardLayerHtml(p0); cell.classList.add('has-mark'); }
+      if (_isMarked(p0)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(p0); cell.classList.add('has-mark'); }
     }
     // P1 말 (빨간색)
     const p1 = (gs.p1Pieces || []).find(p => p.col === col && p.row === row && p.alive);
@@ -17722,7 +17718,7 @@ function renderSpectatorGame(gs) {
       cell.classList.add('has-piece');
       // ★ 저주 보드 레이어 (관전자)
       if (_isCursed(p1)) { if (!_specCurseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(p1); cell.classList.add('has-curse'); }
-      if (_isMarked(p1)) { cell.innerHTML += markBoardLayerHtml(p1); cell.classList.add('has-mark'); }
+      if (_isMarked(p1)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(p1); cell.classList.add('has-mark'); }
     }
     // 보드 오브젝트
     if (gs.boardObjects) {
