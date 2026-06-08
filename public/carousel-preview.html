@@ -40,6 +40,11 @@
   .cc-badge{position:absolute;top:-9px;right:-9px;z-index:31;min-width:16px;height:16px;border-radius:9px;background:var(--gold);color:#1a1422;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 3px}
   /* 강제 이동(액션) 표시 테두리 */
   .cell.forced{box-shadow:0 0 0 2px #b23a48, 0 0 10px #b23a4866}
+  /* 캐러셀 내부 데미지 도장 */
+  .cc-stamp{position:absolute;left:50%;top:2px;z-index:40;padding:1px 6px;border-radius:9px;font-size:11px;font-weight:800;color:#fff;
+    border:1.5px solid rgba(255,255,255,.85);box-shadow:0 2px 5px #0008;white-space:nowrap;
+    background:linear-gradient(135deg,#b91c1c,#dc2626);animation:ccStampPop .9s ease forwards}
+  @keyframes ccStampPop{0%{opacity:0;transform:translate(-50%,2px) scale(.5)}20%{opacity:1;transform:translate(-50%,-10px) scale(1.08)}80%{opacity:1;transform:translate(-50%,-13px)}100%{opacity:0;transform:translate(-50%,-19px)}}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:300px;max-width:360px}
   .panel h2{font-size:13px;color:var(--gold);margin:0 0 10px;text-transform:uppercase;letter-spacing:.4px}
@@ -100,6 +105,17 @@
   </div>
 
   <div class="panel">
+    <h2>같은 칸: 내 유닛 공격 + 표식 적 피격</h2>
+    <div class="note" style="margin-top:0">한 칸에 <b>내 장군</b> + <b>표식 마녀(적)</b>가 공존. 내 장군이 (다른 곳을) 공격하는 순간, 같은 칸의 표식 적이 피격당하는 상황. 세 가지 해석을 비교해보세요.</div>
+    <div class="btns" style="margin-top:8px">
+      <button class="primary" data-act="atkSeq">A) 순차 연출 (추천) — 공격자 보여주고 → 임팩트에 피격자로 슬라이드</button>
+      <button data-act="atkAttacker">B) 공격자 고정 — 내 유닛 공격만, 적 피격은 옆 슬롯에서 실시간</button>
+      <button data-act="atkVictim">C) 피격자 고정 — 적 피격+도장만, 내 공격은 옆 슬롯에서 실시간</button>
+    </div>
+    <div class="note" id="atkNote"></div>
+  </div>
+
+  <div class="panel">
     <h2>이동 규칙</h2>
     <ul class="spec" style="padding-left:16px;margin:0">
       <li><b>액션 검출</b>(피격·공격·사망·새 이동진입) → 해당 페이지로 <b>슬라이드 이동(애니 O)</b>.</li>
@@ -112,7 +128,7 @@
 </div>
 
 <script>
-const REM='/art/remains.png', IDLE=t=>'/art/'+t+'_idle.gif', HIT=t=>'/art/'+t+'_hit.gif', DEATH=t=>'/art/death_'+t+'.gif';
+const REM='/art/remains.png', IDLE=t=>'/art/'+t+'_idle.gif', HIT=t=>'/art/'+t+'_hit.gif', ATK=t=>'/art/'+t+'_attack.gif', DEATH=t=>'/art/death_'+t+'.gif';
 const cell=document.getElementById('cell');
 const TIER={general:2,witch:2,archer:1,spearman:1,prince:3,knight:2,scout:1,torturer:3,count:3,cavalry:1};
 const ownerRank=o=>o==='mine'?0:o==='teammate'?1:o==='opp'?2:3;
@@ -127,8 +143,9 @@ function paintNormal(){
 }
 function slotInner(o){
   if(o.kind==='remains') return `<img class="remains-marker" src="${REM}">`;
-  const hit=o._hitUntil&&o._hitUntil>Date.now();
-  const src=hit?HIT(o.type):IDLE(o.type), sh=hit?'animation:hitShake .35s ease;':'';
+  const now=Date.now();
+  const atk=o._atkUntil&&o._atkUntil>now, hit=o._hitUntil&&o._hitUntil>now;
+  const src=atk?ATK(o.type):(hit?HIT(o.type):IDLE(o.type)), sh=hit?'animation:hitShake .35s ease;':'';
   const mk=o.owner==='opp'?'piece-marker opp-marked':'piece-marker';
   return `<div class="${mk}" style="${sh}"><img class="p-gif" src="${src}"></div>`; // HP 숨김
 }
@@ -204,10 +221,50 @@ function deathInside(slot){
   const mk=m.querySelector('.piece-marker'); if(mk)mk.style.opacity='0.25';
   setTimeout(()=>{ occ[slot]={kind:'remains',type:o.type,stage:1}; if(idx===slot)render(); },1000);
 }
+// 공격 모션(실시간) — 보이면 즉시, 안 보여도 상태 보관
+function applyAttack(slot){
+  const o=occ[slot]; if(!o||o.kind!=='unit') return;
+  o._atkUntil=Date.now()+520;
+  const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null);
+  if(idx===slot&&m){ const inner=m.querySelector('.piece-marker'); if(inner)inner.querySelector('.p-gif').src=ATK(o.type); }
+  setTimeout(()=>{ if(occ[slot]===o){ o._atkUntil=0; const mm=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); const inner=mm&&mm.querySelector('.piece-marker'); if(inner&&!(o._hitUntil&&o._hitUntil>Date.now()))inner.querySelector('.p-gif').src=IDLE(o.type); } },540);
+}
+// 캐러셀 내부 데미지 도장 — 지정 슬롯이 현재 보이는 페이지일 때만 표시
+function ccStamp(slot,text){
+  if(idx!==slot) return;
+  const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||cell;
+  const s=document.createElement('span'); s.className='cc-stamp'; s.textContent=text; m.appendChild(s);
+  setTimeout(()=>s.remove(),1000);
+}
+// ── 시나리오: 같은 칸 [내 장군 + 표식 마녀] — 내 공격 + 적 피격 ──
+function attackScenario(mode){
+  occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'}];
+  const G=0,W=1; idx=userPage=0; render();
+  const note=document.getElementById('atkNote');
+  setTimeout(()=>{
+    if(mode==='attacker'){
+      note.innerHTML='→ 대표=내 장군(공격자). 캐러셀은 <b>장군 공격 모션</b>에 고정. 마녀 피격은 옆 슬롯(2페이지)에서 실시간 진행 — 보려면 ▶ 로 넘겨야 함.';
+      triggerAction([G],760,()=>{ applyAttack(G); setTimeout(()=>applyHit(W),260); });
+    } else if(mode==='victim'){
+      note.innerHTML='→ 대표=표식 마녀(피격자). 캐러셀은 <b>마녀 피격+−2 도장</b>에 고정. 내 장군 공격은 옆 슬롯에서 실시간.';
+      triggerAction([W],900,()=>{ applyAttack(G); setTimeout(()=>{ applyHit(W); ccStamp(W,'−2'); },260); });
+    } else { // sequential (추천)
+      note.innerHTML='→ <b>공격자 먼저</b> 보여주고(장군 공격), 임팩트 순간 <b>피격자로 슬라이드</b>해 마녀 피격+−2 도장까지 보여줌. 인과(공격→피격)를 한 흐름으로.';
+      flipTo(G).then(()=>{
+        cell.classList.add('forced'); setTimeout(()=>cell.classList.remove('forced'),700);
+        applyAttack(G);
+        setTimeout(()=>{ applyHit(W); flipTo(W).then(()=>ccStamp(W,'−2')); },300);
+      });
+    }
+  },140);
+}
 
 document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
   const a=b.dataset.act;
-  if(a==='reset'){ occ=[{kind:'unit',type:'general',owner:'mine'}]; idx=userPage=0; inAction=false; render(); }
+  if(a==='reset'){ occ=[{kind:'unit',type:'general',owner:'mine'}]; idx=userPage=0; render(); }
+  else if(a==='atkSeq'){ attackScenario('seq'); }
+  else if(a==='atkAttacker'){ attackScenario('attacker'); }
+  else if(a==='atkVictim'){ attackScenario('victim'); }
   else if(a==='addRem'){ occ.push({kind:'remains',type:'spearman',stage:1}); render(); }
   else if(a==='addRem2'){ occ.push({kind:'remains',type:'cavalry',stage:1}); render(); }
   else if(a==='addOpp'){ occ.push({kind:'unit',type:'witch',owner:'opp'}); render(); }
