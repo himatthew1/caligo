@@ -14217,9 +14217,11 @@ function _renderCellCarousel(cell, col, row, units) {
   //   비활성 슬롯은 .cc-hidden(opacity:0) 으로 숨기되 GIF 애니메이션은 계속 돌아감.
   //   화살표 클릭 시 innerHTML 교체 없이 클래스만 토글 → 디코딩 지연 없음.
   const slotsHtml = pieces.map((pc, i) =>
-    `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}">` +
-      `<span class="p-icon">${pc.iconHtml}</span>` +
-      `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
+    `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
+      `<div class="cc-inner">` +
+        `<span class="p-icon">${pc.iconHtml}</span>` +
+        `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
+      `</div>` +
     `</div>`
   ).join('');
 
@@ -18474,18 +18476,31 @@ function animateBoardIconHit(cells, isDefending) {
       const markerSel = isDefending
         ? '.piece-marker:not(.opp-marked)'
         : '.piece-marker.opp-marked';
-      const marker = cell.querySelector(markerSel);
-      if (!marker) continue;
-
-      // ── 바라보는 방향 기준 피격 흔들림을 marker 에 적용 ──
-      const shakeAnim = _getFacingHitShake(cell, isDefending);
-      marker.style.animation = 'none';
-      void marker.offsetWidth;
-      marker.style.animation = shakeAnim + ' 0.35s ease';
-      setTimeout(() => { marker.style.animation = ''; }, 400);
-
-      const icon = marker.querySelector('.p-icon');
+      // ── 마커 해소: 일반 셀=.piece-marker, 캐러셀=보이는 대표 슬롯(.cc-main). 흔들림은 .cc-inner 에. ──
+      let marker, shakeTarget, icon;
+      const _ccVis = cell.querySelector('.cc-wrapper .cc-main:not(.cc-hidden)');
+      if (_ccVis) {
+        const _own = _ccVis.dataset.owner;
+        const _mine = _own === 'mine' || _own === 'teammate';
+        // 보이는 대표 슬롯이 피격 측과 다르면 스킵(대표=피격 유닛이라 보통 일치)
+        if (isDefending ? !_mine : _own !== 'opp') continue;
+        marker = _ccVis;
+        shakeTarget = _ccVis.querySelector('.cc-inner') || _ccVis;
+        icon = _ccVis.querySelector('.p-icon');
+      } else {
+        marker = cell.querySelector(markerSel);
+        if (!marker) continue;
+        shakeTarget = marker;
+        icon = marker.querySelector('.p-icon');
+      }
       if (!icon) continue;
+
+      // ── 바라보는 방향 기준 피격 흔들림 적용 ──
+      const shakeAnim = _getFacingHitShake(cell, isDefending);
+      shakeTarget.style.animation = 'none';
+      void shakeTarget.offsetWidth;
+      shakeTarget.style.animation = shakeAnim + ' 0.35s ease';
+      setTimeout(() => { shakeTarget.style.animation = ''; }, 400);
 
       const idleImg = icon.querySelector('img.p-gif');
       if (!idleImg || !window.PIECE_HIT_GIFS) continue;
@@ -18513,8 +18528,8 @@ function animateBoardIconHit(cells, isDefending) {
         const b = document.getElementById('game-board');
         const cell2 = b && b.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
         if (cell2) {
-          const mk = cell2.querySelector(markerSel) || cell2.querySelector('.piece-marker');
-          const cur = mk && mk.querySelector('.p-icon img.p-gif[data-hitgif]');
+          // 일반 셀/캐러셀 공통 — hit GIF 를 직접 찾아 idle 로 복원
+          const cur = cell2.querySelector('.p-icon img.p-gif[data-hitgif]');
           if (cur) {
             const r = document.createElement('img');
             r.className = cur.className; r.alt = ''; r.src = idleSrc;
@@ -18592,7 +18607,9 @@ function _reapplyActiveHitGifs() {
     const c = key.split(',');
     const cell = board.querySelector(`.cell[data-col="${c[0]}"][data-row="${c[1]}"]`);
     if (!cell) continue;
-    const mk = cell.querySelector(info.markerSel) || cell.querySelector('.piece-marker');
+    const mk = cell.querySelector(info.markerSel)
+      || cell.querySelector('.cc-wrapper .cc-main:not(.cc-hidden)')   // 캐러셀 보이는 대표 슬롯
+      || cell.querySelector('.piece-marker');
     if (!mk) continue;
     const icon = mk.querySelector('.p-icon');
     if (!icon) continue;
@@ -18962,7 +18979,9 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
       // idle img 를 직접 읽어 → 크기 2배 + 동일 중심점. 셀 크기와 무관하게 항상 정확.
       // offsetLeft 체인 순회 → board 기준 좌표. 스크롤·transform 영향 없음.
       let _gifSize, left, top;
-      const _idleImg = cell.querySelector('img.p-gif');
+      // ★ 캐러셀이면 보이는 대표 슬롯의 idle 기준 — 숨은 슬롯 중심에 어긋나게 띄우는 것 방지
+      const _idleImg = cell.querySelector('.cc-wrapper .cc-main:not(.cc-hidden) img.p-gif')
+        || cell.querySelector('img.p-gif');
       if (_idleImg && _idleImg.offsetWidth > 0) {
         // idle img 의 top-left 를 board 패딩-박스 기준으로 누산
         let _ox = 0, _oy = 0;
