@@ -20,6 +20,9 @@
   .piece-marker{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center}
   .p-gif{display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);margin-bottom:6px}
   .opp-marked .p-gif{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px #ef4444)}
+  /* 공격 GIF는 64×64(2배 캔버스) → idle(38px) 중심에 2배(76px)로 오버레이 = 인게임과 동일 */
+  .atk-gif{position:absolute;left:50%;top:-19px;width:76px;height:76px;object-fit:contain;image-rendering:pixelated;
+    transform:translateX(-50%);filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);pointer-events:none;z-index:4}
   .remains-marker{position:absolute;left:50%;top:50%;width:74px;height:74px;transform:translate(-50%,calc(-50% - 6px));
     object-fit:contain;image-rendering:pixelated;z-index:2;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);pointer-events:none}
   .death-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;transform:translateY(-6px);pointer-events:none}
@@ -106,11 +109,11 @@
 
   <div class="panel">
     <h2>같은 칸: 내 유닛 공격 + 표식 적 피격</h2>
-    <div class="note" style="margin-top:0">한 칸에 <b>내 장군</b> + <b>표식 마녀(적)</b>가 공존. 내 장군이 (다른 곳을) 공격하는 순간, 같은 칸의 표식 적이 피격당하는 상황. 세 가지 해석을 비교해보세요.</div>
+    <div class="note" style="margin-top:0"><b>A 확정.</b> 한 칸에 [내 장군 + 표식 마녀(적) + 유해]가 공존. 공격자 보여주고 → 임팩트에 <b>피격 우선순위(내유닛→동료→<u>적→유해</u>)</b> 순으로 슬라이드. B/C는 비교용.</div>
     <div class="btns" style="margin-top:8px">
-      <button class="primary" data-act="atkSeq">A) 순차 연출 (추천) — 공격자 보여주고 → 임팩트에 피격자로 슬라이드</button>
-      <button data-act="atkAttacker">B) 공격자 고정 — 내 유닛 공격만, 적 피격은 옆 슬롯에서 실시간</button>
-      <button data-act="atkVictim">C) 피격자 고정 — 적 피격+도장만, 내 공격은 옆 슬롯에서 실시간</button>
+      <button class="primary" data-act="atkSeq">A) 순차 연출 (확정) — 공격자 → 적 → 유해 순서로 슬라이드</button>
+      <button data-act="atkAttacker">B) 공격자 고정 (비교)</button>
+      <button data-act="atkVictim">C) 피격자 고정 (비교)</button>
     </div>
     <div class="note" id="atkNote"></div>
   </div>
@@ -145,8 +148,12 @@ function slotInner(o){
   if(o.kind==='remains') return `<img class="remains-marker" src="${REM}">`;
   const now=Date.now();
   const atk=o._atkUntil&&o._atkUntil>now, hit=o._hitUntil&&o._hitUntil>now;
-  const src=atk?ATK(o.type):(hit?HIT(o.type):IDLE(o.type)), sh=hit?'animation:hitShake .35s ease;':'';
   const mk=o.owner==='opp'?'piece-marker opp-marked':'piece-marker';
+  if(atk){
+    // 공격 GIF는 64×64 → idle은 숨기고 2배 오버레이로 캐릭터 크기·중심을 idle과 일치시킴
+    return `<div class="${mk}"><img class="p-gif" src="${IDLE(o.type)}" style="visibility:hidden"><img class="atk-gif" src="${ATK(o.type)}"></div>`;
+  }
+  const src=hit?HIT(o.type):IDLE(o.type), sh=hit?'animation:hitShake .35s ease;':'';
   return `<div class="${mk}" style="${sh}"><img class="p-gif" src="${src}"></div>`; // HP 숨김
 }
 function repIdx(){ let b=0,bv=Infinity; occ.forEach((o,i)=>{const v=prio(o); if(v<bv){bv=v;b=i;}}); return b; }
@@ -221,13 +228,13 @@ function deathInside(slot){
   const mk=m.querySelector('.piece-marker'); if(mk)mk.style.opacity='0.25';
   setTimeout(()=>{ occ[slot]={kind:'remains',type:o.type,stage:1}; if(idx===slot)render(); },1000);
 }
-// 공격 모션(실시간) — 보이면 즉시, 안 보여도 상태 보관
+// 공격 모션(실시간) — 보이면 즉시 2배 오버레이로, 안 보여도 상태 보관
 function applyAttack(slot){
   const o=occ[slot]; if(!o||o.kind!=='unit') return;
   o._atkUntil=Date.now()+520;
-  const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null);
-  if(idx===slot&&m){ const inner=m.querySelector('.piece-marker'); if(inner)inner.querySelector('.p-gif').src=ATK(o.type); }
-  setTimeout(()=>{ if(occ[slot]===o){ o._atkUntil=0; const mm=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); const inner=mm&&mm.querySelector('.piece-marker'); if(inner&&!(o._hitUntil&&o._hitUntil>Date.now()))inner.querySelector('.p-gif').src=IDLE(o.type); } },540);
+  const reRender=()=>{ if(idx===slot){ const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); if(m)m.innerHTML=slotInner(o); } };
+  reRender();
+  setTimeout(()=>{ if(occ[slot]===o){ o._atkUntil=0; reRender(); } },540);
 }
 // 캐러셀 내부 데미지 도장 — 지정 슬롯이 현재 보이는 페이지일 때만 표시
 function ccStamp(slot,text){
@@ -236,25 +243,43 @@ function ccStamp(slot,text){
   const s=document.createElement('span'); s.className='cc-stamp'; s.textContent=text; m.appendChild(s);
   setTimeout(()=>s.remove(),1000);
 }
-// ── 시나리오: 같은 칸 [내 장군 + 표식 마녀] — 내 공격 + 적 피격 ──
+// 유해 파괴(실시간) — 흔들림 + 파괴 도장 → 슬롯 제거
+function breakRemains(slot){
+  const o=occ[slot]; if(!o||o.kind!=='remains') return;
+  if(idx===slot){ const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); const img=m&&m.querySelector('.remains-marker'); if(img)img.style.animation='hitShake .35s ease'; ccStamp(slot,'파괴'); }
+  setTimeout(()=>{ const i=occ.indexOf(o); if(i>=0){ occ.splice(i,1); if(idx>=occ.length)idx=Math.max(0,occ.length-1); render(); } },420);
+}
+// ── 시나리오 A(확정): 같은 칸 [내 장군 + 표식 마녀(적) + 유해] — 내 공격 + 동시 피격 ──
 function attackScenario(mode){
-  occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'}];
-  const G=0,W=1; idx=userPage=0; render();
   const note=document.getElementById('atkNote');
-  setTimeout(()=>{
-    if(mode==='attacker'){
-      note.innerHTML='→ 대표=내 장군(공격자). 캐러셀은 <b>장군 공격 모션</b>에 고정. 마녀 피격은 옆 슬롯(2페이지)에서 실시간 진행 — 보려면 ▶ 로 넘겨야 함.';
-      triggerAction([G],760,()=>{ applyAttack(G); setTimeout(()=>applyHit(W),260); });
-    } else if(mode==='victim'){
-      note.innerHTML='→ 대표=표식 마녀(피격자). 캐러셀은 <b>마녀 피격+−2 도장</b>에 고정. 내 장군 공격은 옆 슬롯에서 실시간.';
-      triggerAction([W],900,()=>{ applyAttack(G); setTimeout(()=>{ applyHit(W); ccStamp(W,'−2'); },260); });
-    } else { // sequential (추천)
-      note.innerHTML='→ <b>공격자 먼저</b> 보여주고(장군 공격), 임팩트 순간 <b>피격자로 슬라이드</b>해 마녀 피격+−2 도장까지 보여줌. 인과(공격→피격)를 한 흐름으로.';
+  if(mode==='seq'){
+    // A) 공격자 → 우선순위(적 → 유해) 순으로 피격자 슬라이드
+    occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'},{kind:'remains',type:'spearman',stage:1}];
+    const G=0,W=1,R=2; idx=userPage=0; render();
+    note.innerHTML='A) <b>공격자(장군)</b> 보여주고 → 임팩트에 우선순위 <b>적(마녀) → 유해</b> 순으로 슬라이드. 동시 피격이어도 적을 먼저, 유해를 나중에.';
+    setTimeout(()=>{
       flipTo(G).then(()=>{
         cell.classList.add('forced'); setTimeout(()=>cell.classList.remove('forced'),700);
         applyAttack(G);
-        setTimeout(()=>{ applyHit(W); flipTo(W).then(()=>ccStamp(W,'−2')); },300);
+        setTimeout(()=>{                                   // 임팩트 → 적(W) 먼저
+          applyHit(W); flipTo(W).then(()=>{ ccStamp(W,'−2');
+            setTimeout(()=>{ flipTo(R).then(()=>breakRemains(R)); }, 760); // → 유해 파괴
+          });
+        },300);
       });
+    },140);
+    return;
+  }
+  // B/C 비교용 (2슬롯)
+  occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'}];
+  const G=0,W=1; idx=userPage=0; render();
+  setTimeout(()=>{
+    if(mode==='attacker'){
+      note.innerHTML='B) 대표=내 장군(공격자). 캐러셀은 <b>장군 공격 모션</b>에 고정. 마녀 피격은 옆 슬롯(2페이지)에서 실시간 — ▶ 로 넘겨야 보임.';
+      triggerAction([G],760,()=>{ applyAttack(G); setTimeout(()=>applyHit(W),260); });
+    } else {
+      note.innerHTML='C) 대표=표식 마녀(피격자). 캐러셀은 <b>마녀 피격+−2 도장</b>에 고정. 내 장군 공격은 옆 슬롯에서 실시간.';
+      triggerAction([W],900,()=>{ applyAttack(G); setTimeout(()=>{ applyHit(W); ccStamp(W,'−2'); },260); });
     }
   },140);
 }
