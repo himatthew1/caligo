@@ -63,12 +63,21 @@ function _markBrandOne(board, col, row, opts) {
   cell.classList.add('mark-brand-host');                         // overflow:visible
   cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = 'none'; });  // 소환 중 idle 숨김
 
+  // ── 표식 중심(정수리 위) — 실제 p-gif 위치 기준(셀 크기·정렬 무관) ──
+  const cr = cell.getBoundingClientRect();
+  const pgif = cell.querySelector('.piece-marker img.p-gif')
+    || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
+  const pr = pgif ? pgif.getBoundingClientRect() : null;
+  const markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
+  const markCy = pr ? (pr.top - cr.top - 9) : cr.height * 0.28;   // p-gif 위 ~9px = idle 레이어 중심과 일치
+  const fixX = cr.left + markCx, fixY = cr.top + markCy;          // 불꽃(position:fixed)용 뷰포트 좌표
+
   // ── 인두 PNG 낙하 (정수리 위 표식 위치) ──
   const iron = document.createElement('img');
   iron.src = M.iron || '/art/mark/mark_iron.png';
   iron.className = 'mark-iron-anim'; iron.alt = '';
-  iron.style.cssText = `position:absolute;left:50%;top:50%;width:${_MARK_IRONSZ}px;height:${_MARK_IRONSZ}px;` +
-    `margin-left:${-_MARK_IRONSZ / 2}px;margin-top:${_MARK_OFFY - _MARK_IRONSZ / 2}px;z-index:30;pointer-events:none;` +
+  iron.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_IRONSZ}px;height:${_MARK_IRONSZ}px;` +
+    `margin-left:${-_MARK_IRONSZ / 2}px;margin-top:${-_MARK_IRONSZ / 2}px;z-index:30;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;`;
   cell.appendChild(iron);
   iron.animate([
@@ -84,7 +93,7 @@ function _markBrandOne(board, col, row, opts) {
 
   // ── 임팩트: 불꽃 + 글로우 페이드인 ──
   setTimeout(() => {
-    _markSparks(cell);
+    _markSparks(fixX, fixY);
     cell.classList.add('mark-aura-in');
     setTimeout(() => cell.classList.remove('mark-aura-in'), 1300);
   }, impactMs);
@@ -92,8 +101,8 @@ function _markBrandOne(board, col, row, opts) {
   // ── 생성 GIF (1회) → 끝나면 idle 레이어 인계 ──
   const summonImg = document.createElement('img');
   summonImg.className = 'mark-summon-anim'; summonImg.alt = '';
-  summonImg.style.cssText = `position:absolute;left:50%;top:50%;width:${_MARK_SIZE}px;height:${_MARK_SIZE}px;` +
-    `margin-left:${-_MARK_SIZE / 2}px;margin-top:${_MARK_OFFY - _MARK_SIZE / 2}px;z-index:6;pointer-events:none;` +
+  summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_SIZE}px;height:${_MARK_SIZE}px;` +
+    `margin-left:${-_MARK_SIZE / 2}px;margin-top:${-_MARK_SIZE / 2}px;z-index:6;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);`;
   let blobUrl = null;
   setTimeout(() => {
@@ -122,11 +131,8 @@ function _markBrandCleanup(cell, key) {
   cell.querySelectorAll('.mark-iron-anim, .mark-summon-anim').forEach(el => el.remove());
 }
 
-// 픽셀 네모 불꽃 — 표식 중심에서 팍 튐 (프리뷰와 동일)
-function _markSparks(cell) {
-  const r = cell.getBoundingClientRect();
-  const cx = r.left + r.width / 2;
-  const cy = r.top + r.height / 2 + _MARK_OFFY;
+// 픽셀 네모 불꽃 — 표식 중심에서 팍 튐 (프리뷰와 동일). cx/cy = 뷰포트 좌표.
+function _markSparks(cx, cy) {
   const colors = ['#ffd84d', '#ff9a3d', '#ffefb0', '#ff5a2d', '#ffffff'];
   for (let i = 0; i < 12; i++) {
     const p = document.createElement('div');

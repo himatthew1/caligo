@@ -2930,15 +2930,16 @@ img.curse-aura {
 .cell.has-mark { overflow: visible; }
 .cell.has-mark .piece-marker { position: relative; z-index: 2; }
 .cell.has-mark .spec-piece { position: relative; z-index: 2; }
+/* 표식 레이어 — 유닛(piece-marker/spec-piece) 자식으로 옮겨 정수리 위에 앵커(셀 크기 무관) */
 .mark-board-layer {
-  position: absolute; left: 50%; top: 50%;
+  position: absolute; left: 50%; bottom: 100%;
+  transform: translate(-50%, 7px);          /* 정수리 위 — 살짝(7px) 겹침. 튜닝 가능 */
   width: 28px; height: 28px;
-  transform: translate(-50%, -50%) translate(0, -32px);   /* 정수리 위(중앙) — 인게임 튜닝 가능 */
   z-index: 5; pointer-events: none; image-rendering: pixelated; object-fit: contain;
   animation: markBoardBob 2.4s ease-in-out infinite;
   filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
 }
-@keyframes markBoardBob { 0%,100% { margin-top: 0; } 50% { margin-top: -2px; } }
+@keyframes markBoardBob { 0%,100% { transform: translate(-50%, 7px); } 50% { transform: translate(-50%, 5px); } }
 /* 표식 캐릭터 글로우 — 저주 오라와 평행(보라 #a874e7, alpha .6). --ma=알파(페이드용), --madur=페이드 시간 */
 .cell.has-mark .piece-marker img.p-gif,
 .cell.has-mark .spec-piece .p-icon img,

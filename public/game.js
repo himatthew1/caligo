@@ -14154,6 +14154,9 @@ function renderGameBoard() {
   // ── ★ 캐러셀 강제 이동 — 액션(공격/피격/이동/사망)이 닿은 캐러셀 셀을 대표 슬롯으로 슬라이드 ──
   try { _crApplyForced(); } catch (e) {}
 
+  // ── ★ 표식 레이어를 유닛 마커 자식으로 이동(정수리 위 앵커) ──
+  try { _relocateMarkLayers(board); } catch (e) {}
+
   // ── 재접속 대비 — 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향) 영속 저장 ──
   try { _saveKnowledge(); } catch (e) {}
 }
@@ -14432,6 +14435,16 @@ function markBoardLayerHtml(pc){
   if (!_isMarked(pc)) return '';
   const url = (window.MARK_GIFS && window.MARK_GIFS.idle) || '/art/mark/mark_idle.gif';
   return `<img class="mark-board-layer" src="${url}" alt="">`;
+}
+// 표식 레이어를 유닛(piece-marker/spec-piece) 자식으로 이동 — 정수리 위에 앵커(셀 크기·정렬 무관).
+function _relocateMarkLayers(board){
+  if (!board) return;
+  board.querySelectorAll('.cell.has-mark').forEach(cell => {
+    cell.querySelectorAll(':scope > .mark-board-layer').forEach(layer => {
+      const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+      if (host) host.appendChild(layer);
+    });
+  });
 }
 // ── 저주 상태 보드 레이어 HTML — 저주 상태면 유닛 뒤(z:0)에 깔리는 idle 망령 GIF ──
 //   (보드 위 전용. facing 은 renderGameBoard 후 _pieceFacingDir 재적용 루프에서 .face-left 부여.)
