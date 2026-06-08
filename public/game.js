@@ -13756,7 +13756,9 @@ function renderGameBoard() {
     // ★ 사망 GIF 진행 중인 셀(_pendingDeathCells)은 유해를 그리지 않음 — 사망 모션과 유해가
     //   동시에 보이는 버그 방지. 서버 payload·team_game_update 가 유해를 미리 보내도 여기서 가려짐.
     //   (사망 GIF 완료 콜백에서 _pendingDeathCells 해제 → 다음 렌더부터 유해 표시)
-    if (S.remains && !(S._pendingDeathCells && S._pendingDeathCells.has(`${col},${row}`))) {
+    // ★ 캐러셀 셀(_isCarousel)은 유해를 캐러셀 슬롯(cc-remains)으로만 보여줌 — 셀에 유해 마커를
+    //   겹쳐 그리지 않음(유닛 위에 유해가 오버레이로 겹쳐 보이던 문제 삭제). 유닛 없는 단독 유해만 마커 렌더.
+    if (S.remains && !_isCarousel && !(S._pendingDeathCells && S._pendingDeathCells.has(`${col},${row}`))) {
       const rem = S.remains.find(r => r.col === col && r.row === row);
       if (rem) {
         cell.classList.add('has-remains');
