@@ -9175,12 +9175,14 @@ socket.on('passive_alert', (payload) => {
         }
       }
     }
-    if (typeof renderGameBoard === 'function') renderGameBoard();
-    if (typeof renderMyPieces === 'function') renderMyPieces();
-    if (typeof renderOppPieces === 'function') renderOppPieces();
+    // ★ animateMarkBrand 를 renderGameBoard 보다 먼저 — 소환 플래그(동기)로 idle 표식 레이어를 억제해
+    //   인두/생성 GIF 가 idle 과 따로 놀지 않고 한 시퀀스로 재생되게 함.
     if (typeof animateMarkBrand === 'function') {
       try { animateMarkBrand(markCells); } catch (e) {}
     }
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    if (typeof renderMyPieces === 'function') renderMyPieces();
+    if (typeof renderOppPieces === 'function') renderOppPieces();
   }
   _renderPassiveAlert(payload);
 });

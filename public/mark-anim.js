@@ -48,6 +48,9 @@ function animateMarkBrand(positions, opts) {
   if (!board) return;
   const list = Array.isArray(positions) ? positions : [positions];
   const stagger = (typeof opts.stagger === 'number') ? opts.stagger : 130;
+  // ★ 소환 플래그를 동기로 먼저 등록 — 직후 renderGameBoard 가 idle 표식 레이어를 억제하도록
+  //   (이게 없으면 idle 이 먼저 뜨고 인두/생성이 나중에 따로 재생됨).
+  list.forEach(pos => { if (pos && pos.col != null && pos.row != null) window._markSummoning.add(pos.col + ',' + pos.row); });
   list.forEach((pos, i) => {
     if (!pos || pos.col == null || pos.row == null) return;
     setTimeout(() => _markBrandOne(board, pos.col, pos.row, opts), i * stagger);
@@ -62,6 +65,9 @@ function _markBrandOne(board, col, row, opts) {
   window._markSummoning.add(key);
   cell.classList.add('mark-brand-host');                         // overflow:visible
   cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = 'none'; });  // 소환 중 idle 숨김
+  // ★ 표식으로 공개되는 적이면 모습 자체도 글로우와 함께 페이드인 — 소환 시작 시 안 보이게.
+  const _oppMk = cell.querySelector('.piece-marker.opp-marked');
+  if (_oppMk) { _oppMk.style.transition = 'none'; _oppMk.style.opacity = '0'; void _oppMk.offsetWidth; }
 
   // ── 표식 중심(정수리 위) — 실제 p-gif 위치 기준(셀 크기·정렬 무관) ──
   const cr = cell.getBoundingClientRect();
@@ -91,10 +97,11 @@ function _markBrandOne(board, col, row, opts) {
   const impactMs = 325;
   if (typeof opts.onSizzle === 'function') setTimeout(() => { try { opts.onSizzle(); } catch (e) {} }, impactMs);
 
-  // ── 임팩트: 불꽃 + 글로우 페이드인 ──
+  // ── 임팩트: 불꽃 + 글로우 페이드인 + (표식 적) 모습 페이드인 ──
   setTimeout(() => {
     _markSparks(fixX, fixY);
     cell.classList.add('mark-aura-in');
+    if (_oppMk) { _oppMk.style.transition = 'opacity 1.1s ease'; _oppMk.style.opacity = '1'; }  // 모습=글로우와 동기 페이드인
     setTimeout(() => cell.classList.remove('mark-aura-in'), 1300);
   }, impactMs);
 
