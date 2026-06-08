@@ -109,9 +109,9 @@
 
   <div class="panel">
     <h2>같은 칸: 내 유닛 공격 + 표식 적 피격</h2>
-    <div class="note" style="margin-top:0"><b>A 확정.</b> 한 칸에 [내 장군 + 표식 마녀(적) + 유해]가 공존. 공격자 보여주고 → 임팩트에 <b>피격 우선순위(내유닛→동료→<u>적→유해</u>)</b> 순으로 슬라이드. B/C는 비교용.</div>
+    <div class="note" style="margin-top:0"><b>A 확정.</b> 한 칸에 [내 장군 + 표식 적 2 + 유해 2]. 공격자 보여주고 → <b>대표 1명만</b> 슬라이드. 대표 우선순위 = <b>적유닛(고티어 먼저) → 유해(많이 부숴진 것 먼저)</b>. 나머지는 데미지 받아도 화면엔 안 띄움. B/C는 비교용.</div>
     <div class="btns" style="margin-top:8px">
-      <button class="primary" data-act="atkSeq">A) 순차 연출 (확정) — 공격자 → 적 → 유해 순서로 슬라이드</button>
+      <button class="primary" data-act="atkSeq">A) 순차 연출 (확정) — 공격자 → 대표 1명만</button>
       <button data-act="atkAttacker">B) 공격자 고정 (비교)</button>
       <button data-act="atkVictim">C) 피격자 고정 (비교)</button>
     </div>
@@ -243,28 +243,31 @@ function ccStamp(slot,text){
   const s=document.createElement('span'); s.className='cc-stamp'; s.textContent=text; m.appendChild(s);
   setTimeout(()=>s.remove(),1000);
 }
-// 유해 파괴(실시간) — 흔들림 + 파괴 도장 → 슬롯 제거
-function breakRemains(slot){
-  const o=occ[slot]; if(!o||o.kind!=='remains') return;
-  if(idx===slot){ const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); const img=m&&m.querySelector('.remains-marker'); if(img)img.style.animation='hitShake .35s ease'; ccStamp(slot,'파괴'); }
-  setTimeout(()=>{ const i=occ.indexOf(o); if(i>=0){ occ.splice(i,1); if(idx>=occ.length)idx=Math.max(0,occ.length-1); render(); } },420);
+// 피격 대표 1명 선정 — 적유닛(고티어 먼저) → 유해(많이 부숴진=높은 stage 먼저)
+function victimKey(o){
+  const g = o.kind==='remains' ? 3 : ownerRank(o.owner);          // mine0 team1 opp2 remains3
+  const tie = o.kind==='remains' ? -(o.stage||1) : -(TIER[o.type]||1); // 유해: 많이부숴진 먼저 / 유닛: 고티어 먼저
+  return [g, tie];
 }
-// ── 시나리오 A(확정): 같은 칸 [내 장군 + 표식 마녀(적) + 유해] — 내 공격 + 동시 피격 ──
+function pickRep(slots){ return slots.slice().sort((a,b)=>{const ka=victimKey(occ[a]),kb=victimKey(occ[b]); return ka[0]-kb[0]||ka[1]-kb[1];})[0]; }
+// ── 시나리오 A(확정): 같은 칸 [내 장군 + 표식 마녀·창병(적) + 유해 2] — 내 공격 + 동시 다중 피격 ──
 function attackScenario(mode){
   const note=document.getElementById('atkNote');
   if(mode==='seq'){
-    // A) 공격자 → 우선순위(적 → 유해) 순으로 피격자 슬라이드
-    occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'},{kind:'remains',type:'spearman',stage:1}];
-    const G=0,W=1,R=2; idx=userPage=0; render();
-    note.innerHTML='A) <b>공격자(장군)</b> 보여주고 → 임팩트에 우선순위 <b>적(마녀) → 유해</b> 순으로 슬라이드. 동시 피격이어도 적을 먼저, 유해를 나중에.';
+    // A) 공격자 → 대표 1명(우선순위)만 보여주고 끝. 나머지 victim도 데미지는 받지만 화면엔 안 띄움.
+    occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'unit',type:'witch',owner:'opp'},
+         {kind:'unit',type:'spearman',owner:'opp'},{kind:'remains',type:'cavalry',stage:2},{kind:'remains',type:'spearman',stage:1}];
+    const G=0; idx=userPage=0; render();
+    const victims=occ.map((o,i)=>i).filter(i=>i!==G);  // 적2 + 유해2 모두 피격
+    const rep=pickRep(victims);                        // 대표 = 마녀(고티어 적)
+    note.innerHTML='A) 공격자(장군) → <b>대표 1명만</b> 보여주고 끝. 마녀·창병·유해2 모두 데미지를 받지만, 대표=<b>마녀(고티어 적)</b> 한 명만 슬라이드해서 보여줌. 유해까지 넘겨 보여주지 않음.';
     setTimeout(()=>{
       flipTo(G).then(()=>{
         cell.classList.add('forced'); setTimeout(()=>cell.classList.remove('forced'),700);
         applyAttack(G);
-        setTimeout(()=>{                                   // 임팩트 → 적(W) 먼저
-          applyHit(W); flipTo(W).then(()=>{ ccStamp(W,'−2');
-            setTimeout(()=>{ flipTo(R).then(()=>breakRemains(R)); }, 760); // → 유해 파괴
-          });
+        setTimeout(()=>{                                // 임팩트: 실제 판정은 전원, 화면은 대표만
+          victims.forEach(s=>{ if(occ[s].kind==='unit') applyHit(s); else occ[s].stage=(occ[s].stage||1)+1; });
+          flipTo(rep).then(()=>ccStamp(rep,'−2'));
         },300);
       });
     },140);
