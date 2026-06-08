@@ -181,10 +181,16 @@
 
 <script>
 const MARK={iron:'/art/mark/mark_iron.png',summon:'/art/mark/mark_summon.gif',idle:'/art/mark/mark_idle.gif',move:'/art/mark/mark_move.png',release:'/art/mark/mark_release.gif',nightmare:'/art/mark/nightmare.gif'};
-async function onceGif(url){ const b=new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer());
-  for(let i=0;i<b.length-13;i++){ if(b[i]===0x21&&b[i+1]===0xFF&&b[i+2]===0x0B){let t='';for(let k=0;k<11;k++)t+=String.fromCharCode(b[i+3+k]); if(t==='NETSCAPE2.0'){const o=new Uint8Array(b.length-19);o.set(b.slice(0,i),0);o.set(b.slice(i+19),i);return URL.createObjectURL(new Blob([o],{type:'image/gif'}));}}}
+async function onceGif(url){ let b=new Uint8Array(await (await fetch(url,{cache:'no-cache'})).arrayBuffer());
+  // 1) NETSCAPE 루프 블록 제거 → 1회 재생
+  for(let i=0;i<b.length-13;i++){ if(b[i]===0x21&&b[i+1]===0xFF&&b[i+2]===0x0B){let t='';for(let k=0;k<11;k++)t+=String.fromCharCode(b[i+3+k]); if(t==='NETSCAPE2.0'){const o=new Uint8Array(b.length-19);o.set(b.slice(0,i),0);o.set(b.slice(i+19),i);b=o;break;}}}
+  // 2) ★ 마지막 프레임 disposal=1(유지)로 패치 — 원본 끝프레임이 disposal=2(배경복원)면 1회 재생 후
+  //    화면이 투명하게 지워져 표식이 사라짐(끝까지 안 보이고 idle 연결도 끊김). 끝 프레임을 홀드시킴.
+  //    GCE 검증: 21 F9 04 <packed><delay×2><tidx> 00 — 블록 종료자(+7==0x00)로 이미지데이터 오인 방지.
+  let lastG=-1; for(let i=0;i<b.length-7;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04&&b[i+7]===0x00) lastG=i; }
+  if(lastG>=0){ const p=lastG+3; b[p]=(b[p]&~(7<<2))|(1<<2); }
   return URL.createObjectURL(new Blob([b],{type:'image/gif'})); }
-async function frameDelays(url){ const b=new Uint8Array(await (await fetch(url,{cache:'force-cache'})).arrayBuffer()); let t=0,out=[];
+async function frameDelays(url){ const b=new Uint8Array(await (await fetch(url,{cache:'no-cache'})).arrayBuffer()); let t=0,out=[];
   for(let i=0;i<b.length-5;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04){ t+=((b[i+4]|(b[i+5]<<8))*10); out.push(t);} } return out; }
 const cell=document.getElementById('cell'),mark=document.getElementById('mark'),unit=document.getElementById('unit'),iron=document.getElementById('iron');
 let face=1;
