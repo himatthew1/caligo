@@ -104,6 +104,28 @@
     const destroyed = resultStage >= 4;
     const resultPng = destroyed ? null : stageImgs[resultStage];
 
+    // ── ★ 캐러셀 셀 — 유해는 슬롯(.cc-remains). 셀에 풀사이즈 오버레이를 그리면 캐러셀 위에 겹침.
+    //   보이는 슬롯이 유해면 그 슬롯 이미지를 hit GIF 로 스왑(슬롯 크기·위치 그대로), 아니면 단계만 갱신. ──
+    const _ccWrap = cell.querySelector('.cc-wrapper');
+    if (_ccWrap) {
+      const _remSlot = _ccWrap.querySelector('.cc-main[data-owner="remains"]');
+      const _remImg = _remSlot && _remSlot.querySelector('img.cc-remains');
+      const _visible = _remSlot && !_remSlot.classList.contains('cc-hidden');
+      if (!gifUrl || !_remImg || !_visible) { if (onSettle) onSettle(); return; }
+      const _gd = (window._gifDurationCache && window._gifDurationCache[gifUrl]) || 650;
+      const _prevSrc = _remImg.src;
+      if (facingLeft) _remImg.style.transform = _facingTransform(true);
+      _oneShotBlobUrl(gifUrl).then(blobUrl => {
+        _remImg.src = blobUrl;
+        setTimeout(() => {
+          if (!destroyed) _remImg.src = _prevSrc;   // 파괴면 재렌더가 슬롯 제거
+          if (onSettle) onSettle();
+          URL.revokeObjectURL(blobUrl);
+        }, _gd + 80);
+      }).catch(() => { if (onSettle) onSettle(); });
+      return;
+    }
+
     cell.classList.add('has-remains');           // 사이즈/overflow 정책 (style.css) 동일 적용
 
     // 피격 전 단계의 정적 유해를 보장 (없으면 생성)
