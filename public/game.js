@@ -14180,7 +14180,7 @@ function _renderCellCarousel(cell, col, row, units) {
     // ★ #6 유해 슬롯 — 아이콘 자리에 유해 이미지, HP 없음.
     if (u.owner === 'remains') {
       const _remUrl = window.REMAINS_IMG || '/art/remains.png';
-      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="" style="width:80%;height:80%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains' };
+      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains' };
     }
     // ★ #4 합류 쌍둥이 — 합류 아이콘(isJoined=true) + 합산 HP.
     const gifHtml = typeof getPieceGifHtml === 'function'
