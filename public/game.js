@@ -9220,6 +9220,9 @@ socket.on('remains_update', ({ remains, hits }) => {
     for (const h of hits) S._pendingRemainsHitCells.delete(`${h.col},${h.row}`);
     S.remains = remains || [];
     S._cellFP = null;  // 다음 렌더가 최종 단계를 정확히 반영
+    // ★ FIX (유해 피격 단계 미반영): 애니 정착 직후 즉시 재렌더 — 새 단계가 화면에 바로 반영되게.
+    //   (이전엔 다음 렌더(턴 종료)까지 옛 단계가 남는 레이스가 있었음)
+    if (typeof renderGameBoard === 'function') renderGameBoard();
   };
   const _run = () => {
     for (const h of hits) {
