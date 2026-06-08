@@ -59,7 +59,7 @@
 <body>
 <h1>🎠 캐러셀 / 유해 스택 — 강제 이동(대표 페이지) 프리뷰</h1>
 <div class="sub">한 칸에 유닛·표식적·유해가 여럿이면 캐러셀. 각 슬롯은 일반 셀과 동일 크기·위치(유해 74px), HP 숫자 숨김.<br>
-<b>새 액션 검출 시 규칙 페이지로 즉시 점프(슬라이드 없음)</b> → 액션 끝나면 <b>파라라락 슬라이드로 원래 보던 페이지 회귀</b>. 우선순위: 내유닛(고티어)→동료(고티어)→적(고티어)→유해. 새 이동 진입(반지 포함)도 액션으로 카운트.</div>
+<b>새 액션 검출 시 규칙 페이지로 슬라이드 이동(애니메이션 O)</b> → 회귀 없이 <b>그 자리 고정</b>. 우선순위: 내유닛(고티어)→동료(고티어)→적(고티어)→유해. 새 이동 진입(반지 포함)도 액션으로 카운트.</div>
 
 <div class="wrap">
   <div class="stage">
@@ -90,9 +90,9 @@
 
   <div class="panel">
     <h2>액션 (강제 이동 데모)</h2>
-    <div class="note" style="margin-top:0">먼저 ◀▶ 로 <b>다른 페이지</b>로 넘겨 둔 뒤 아래를 눌러보세요. 보던 페이지가 달라도 액션 페이지로 즉시 점프 → 끝나면 원래로 회귀.</div>
+    <div class="note" style="margin-top:0">먼저 ◀▶ 로 <b>다른 페이지</b>로 넘겨 둔 뒤 아래를 눌러보세요. 보던 페이지가 달라도 액션 페이지로 <b>슬라이드 이동</b> → 그 자리 고정(회귀 없음).</div>
     <div class="btns" style="margin-top:8px">
-      <button data-act="hit1">단일 피격 — 내 유닛 (강제 점프→회귀)</button>
+      <button data-act="hit1">단일 피격 — 내 유닛 (슬라이드 이동·고정)</button>
       <button data-act="hitMulti">다중 동시 피격 — 대표 1명만(우선순위)</button>
       <button data-act="death">사망 → 캐러셀 내부 사망모션 → 유해</button>
       <button data-act="batch" class="warn">한 공격 → 유해 전부 일괄 피격</button>
@@ -100,13 +100,13 @@
   </div>
 
   <div class="panel">
-    <h2>강제 이동 규칙</h2>
+    <h2>이동 규칙</h2>
     <ul class="spec" style="padding-left:16px;margin:0">
-      <li><b>액션 검출</b>(피격·공격·사망·새 이동진입) → 해당 페이지로 <b>즉시 점프(슬라이드 X)</b>.</li>
+      <li><b>액션 검출</b>(피격·공격·사망·새 이동진입) → 해당 페이지로 <b>슬라이드 이동(애니 O)</b>.</li>
       <li><b>여럿 동시</b> → 대표 1명만: <b>내유닛→동료→적→유해</b>, 각 그룹은 <b>고티어 우선</b>.</li>
-      <li>액션 처리 끝 → <b>파라라락 슬라이드(애니 O)</b> 로 <b>원래 보던 페이지</b> 회귀.</li>
-      <li>회귀 기본값 = 내 대표(최고 우선순위) 유닛. 수동으로 넘겨두면 그 페이지로 회귀.</li>
-      <li>안 보고 있어도 액션은 실시간 진행 — 점프하면 진행 중 모션 그대로 보임.</li>
+      <li>이동 후 <b>회귀 없이 그 자리 고정</b> — 다음 액션이 오면 다시 그쪽으로 슬라이드.</li>
+      <li>수동 ◀▶ 로 본 페이지도 액션 전까지 그대로 유지.</li>
+      <li>안 보고 있어도 액션은 실시간 진행 — 도착하면 진행 중 모션 그대로 보임.</li>
     </ul>
   </div>
 </div>
@@ -119,7 +119,7 @@ const ownerRank=o=>o==='mine'?0:o==='teammate'?1:o==='opp'?2:3;
 // 우선순위 키(작을수록 우선): 그룹*10 - 티어  → 내유닛 고티어가 최우선
 const prio=o=>ownerRank(o.kind==='remains'?'remains':o.owner)*10-(TIER[o.type]||1);
 
-let occ=[], idx=0, userPage=0, inAction=false, flipping=false, endTimer=null;
+let occ=[], idx=0, userPage=0, flipping=false;
 
 function paintNormal(){
   document.getElementById('cellNU').innerHTML=`<div class="piece-marker"><img class="p-gif" src="${IDLE('general')}"></div>`;
@@ -150,7 +150,7 @@ function render(){
 }
 function updateInfo(){
   const parts=occ.map((o,i)=>(i===idx?'<span class="now">▶ ':'· ')+(o.kind==='remains'?'유해'+(o.stage?`(${o.stage}타)`:''):(o.owner==='opp'?'적 ':o.owner==='teammate'?'팀 ':'')+o.type+(TIER[o.type]?' T'+TIER[o.type]:''))+(i===idx?'</span>':''));
-  document.getElementById('occInfo').innerHTML=`슬롯 <b>${occ.length}</b>개 · 회귀 페이지=${userPage+1} ${inAction?'· <b style="color:#f87171">액션 중</b>':''}<br>${parts.join(' ')}`;
+  document.getElementById('occInfo').innerHTML=`슬롯 <b>${occ.length}</b>개 · 현재 페이지=${idx+1}<br>${parts.join(' ')}`;
 }
 
 // ── 한 칸 슬라이드(애니) — Promise ──
@@ -171,26 +171,21 @@ function slideOne(dir,dur=140){
     },dur);
   });
 }
-// 사용자 화살표 → 회귀 페이지 갱신
-async function userNav(dir){ if(flipping||inAction) return; flipping=true; await slideOne(dir,180); userPage=idx; flipping=false; updateInfo(); }
-// 즉시 점프(슬라이드 없음)
-function forceJump(target){ idx=((target%occ.length)+occ.length)%occ.length; render(); }
-// 파라라락 회귀(애니) — 최단 방향으로 한 칸씩
-async function flipBackTo(target){
+// 사용자 화살표 → 현재 페이지 갱신
+async function userNav(dir){ if(flipping) return; flipping=true; await slideOne(dir,180); userPage=idx; flipping=false; updateInfo(); }
+// 슬라이드 이동(애니) — 최단 방향으로 한 칸씩
+async function flipTo(target){
   if(flipping) return; flipping=true;
-  while(idx!==target){ const fwd=((target-idx)+occ.length)%occ.length, bwd=((idx-target)+occ.length)%occ.length; await slideOne(fwd<=bwd?1:-1,110); }
-  flipping=false; updateInfo();
+  while(idx!==target){ const fwd=((target-idx)+occ.length)%occ.length, bwd=((idx-target)+occ.length)%occ.length; await slideOne(fwd<=bwd?1:-1,150); }
+  flipping=false; userPage=idx; updateInfo();
 }
 
-// ── 액션 트리거: 검출 → 우선순위 점프 → 처리 → 회귀 ──
+// ── 액션 트리거: 검출 → 우선순위 페이지로 슬라이드 이동 → 그 자리 고정(회귀 없음) ──
 function triggerAction(slots, durMs, doVisual){
   const target=slots.slice().sort((a,b)=>prio(occ[a])-prio(occ[b]))[0]; // 대표 1명
-  if(!inAction){ userPage=idx; inAction=true; }       // 보던 페이지 저장
-  clearTimeout(endTimer);
-  forceJump(target);                                  // 즉시 점프(슬라이드 X)
+  doVisual(slots);                                    // 모든 슬롯 실시간 처리(상태 적용)
   cell.classList.add('forced'); setTimeout(()=>cell.classList.remove('forced'),Math.min(durMs,700));
-  doVisual(slots);                                    // 모든 슬롯 실시간 처리(보이는건 대표)
-  endTimer=setTimeout(()=>{ inAction=false; flipBackTo(userPage); }, durMs);
+  flipTo(target);                                     // 슬라이드 이동 후 그 자리 고정
   updateInfo();
 }
 
