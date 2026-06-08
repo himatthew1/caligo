@@ -21,7 +21,7 @@
   .stage.checker{background:repeating-conic-gradient(#181320 0 25%,#221a30 0 50%) 0/30px 30px}
   .units{display:flex;gap:22px;align-items:flex-end}
   .cell{position:relative;width:var(--cell);height:var(--cell);border:1px dashed #ffffff14;border-radius:6px;display:flex;align-items:flex-end;justify-content:center;overflow:visible}
-  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;transform:scaleX(var(--face,1));filter:var(--uglow,none)}
+  .cell .unit{position:relative;z-index:3;width:var(--unit);height:var(--unit);image-rendering:pixelated;object-fit:contain;margin-bottom:6px;transform:scaleX(var(--face,1));filter:var(--uglow,none);transition:filter var(--uglow-fade,0.9s) ease}
   .cell .mark{position:absolute;z-index:4;left:50%;bottom:calc(6px + var(--unit));width:var(--msize);height:var(--msize);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;
     transform:translate(-50%,0) translate(var(--moffx),var(--moffy)) scaleX(var(--mface));filter:var(--mglow)}
@@ -148,12 +148,13 @@
     </div>
 
     <div class="panel">
-      <h2>표식 유닛 글로우</h2>
-      <div class="toggle"><input type="checkbox" id="uglowOn"><label for="uglowOn">유닛 글로우 사용</label></div>
-      <div class="row"><label>색상</label><input type="color" id="uglowColor" value="#a371f7"></div>
+      <h2>표식 캐릭터 글로우 (저주식 페이드)</h2>
+      <div class="toggle"><input type="checkbox" id="uglowOn" checked><label for="uglowOn">캐릭터 글로우 사용</label></div>
+      <div class="row"><label>색상</label><input type="color" id="uglowColor" value="#a874e7"></div>
       <div class="row"><label>밝기</label><input type="range" id="uglowA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="uglowAV">.60</span></div>
-      <div class="row"><label>블러</label><input type="range" id="uglowB" min="0" max="12" step="0.5" value="3"><span class="val" id="uglowBV">3</span></div>
-      <div class="note" style="margin-top:4px">표식 상태인 캐릭터(유닛)에 글로우를 입힘 — 표식 마커와 별개.</div>
+      <div class="row"><label>블러</label><input type="range" id="uglowB" min="0" max="12" step="0.5" value="1"><span class="val" id="uglowBV">1</span></div>
+      <div class="row"><label>페이드</label><input type="range" id="uglowFade" min="0.2" max="2" step="0.1" value="0.9"><span class="val" id="uglowFadeV">0.9s</span></div>
+      <div class="note" style="margin-top:4px">저주처럼 — 표식 <b>생성 시 천천히 페이드인</b>, <b>파괴 시 페이드아웃</b>. 캐릭터(유닛)에 적용, 표식 마커와 별개.</div>
     </div>
 
     <div class="panel">
@@ -201,12 +202,28 @@ function glowFrom(onId,colId,aId,bId){ if(!document.getElementById(onId).checked
   const r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
   return `drop-shadow(0 0 ${b}px rgba(${r},${g},${bl},${a})) drop-shadow(0 0 ${b+1}px rgba(${r},${g},${bl},${a}))`; }
 function glow(){ return glowFrom('glowOn','glowColor','glowA','glowB'); }       // 표식 마커 글로우
-function unitGlow(){ return glowFrom('uglowOn','uglowColor','uglowA','uglowB'); } // 표식 유닛(캐릭터) 글로우
+// 표식 캐릭터(유닛) 글로우 — 저주식 페이드. _markGlowOn 으로 alpha 0↔full 전환(.unit transition 으로 페이드).
+let _markGlowOn=true;
+function unitGlow(){
+  if(!document.getElementById('uglowOn').checked) return 'none';
+  const c=document.getElementById('uglowColor').value, b=num('uglowB'), a=_markGlowOn?num('uglowA'):0;
+  const r=parseInt(c.slice(1,3),16),g=parseInt(c.slice(3,5),16),bl=parseInt(c.slice(5,7),16);
+  return `drop-shadow(0 0 ${b}px rgba(${r},${g},${bl},${a})) drop-shadow(0 0 ${b+1}px rgba(${r},${g},${bl},${a}))`;
+}
+// 표식 생성=페이드인(on), 파괴=페이드아웃(off). instant=true 면 전이 없이 즉시.
+function setMarkGlow(on, instant){
+  _markGlowOn = on;
+  document.querySelectorAll('.cell').forEach(c=>{
+    if(instant) c.style.setProperty('--uglow-fade','0s');
+    c.style.setProperty('--uglow', unitGlow());
+  });
+  if(instant) requestAnimationFrame(()=>document.querySelectorAll('.cell').forEach(c=>c.style.setProperty('--uglow-fade',num('uglowFade')+'s')));
+}
 function apply(){
   document.querySelectorAll('.cell').forEach(c=>{
     c.style.setProperty('--cell',num('cellsz')+'px'); c.style.setProperty('--unit',num('unitsz')+'px'); c.style.setProperty('--msize',num('msize')+'px');
     c.style.setProperty('--moffx',num('offx')+'px'); c.style.setProperty('--moffy',num('offy')+'px'); c.style.setProperty('--face',face); c.style.setProperty('--mface',face);
-    c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow()); c.style.setProperty('--uglow',unitGlow());
+    c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow()); c.style.setProperty('--uglow',unitGlow()); c.style.setProperty('--uglow-fade',num('uglowFade')+'s');
     c.style.setProperty('--iron-dur',num('ironDur')+'s'); c.style.setProperty('--iron-h',num('ironH')+'px'); c.style.setProperty('--ghost-op',num('ghostOp'));
     c.style.setProperty('--iron-offx',num('ironOffx')+'px'); c.style.setProperty('--iron-offy',num('ironOffy')+'px');
     c.querySelectorAll('.iron,.iron-ghost').forEach(ir=>{ ir.style.width=ir.style.height='calc(var(--msize) * '+num('ironScale')+')'; });
@@ -215,15 +232,15 @@ function apply(){
   setV('bobdur',num('bobdur')+'s'); setV('multiN',num('multiN')); setV('glowA',num('glowA').toFixed(2)); setV('glowB',num('glowB'));
   setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2)); setV('nmscale',num('nmscale').toFixed(1));
   setV('ironOffx',num('ironOffx')); setV('ironOffy',num('ironOffy'));
-  setV('uglowA',num('uglowA').toFixed(2)); setV('uglowB',num('uglowB')); setV('ghostOp',num('ghostOp').toFixed(2));
+  setV('uglowA',num('uglowA').toFixed(2)); setV('uglowB',num('uglowB')); setV('ghostOp',num('ghostOp').toFixed(2)); setV('uglowFade',num('uglowFade')+'s');
   document.getElementById('cssOut').textContent=
 `표식 위치 : 정수리 위(중앙) x=${num('offx')} y=${num('offy')}
 표식 크기 : ${num('msize')}px  (유닛 ${num('unitsz')}px)
 인두      : 강하 ${num('ironDur')}s · 높이 ${num('ironH')}px · 크기 ×${num('ironScale').toFixed(2)} · 위치 x=${num('ironOffx')} y=${num('ironOffy')}
 불꽃      : ${num('pCount')}개 · ${num('pSize')}px · 퍼짐 ${num('pSpread')}
-글로우    : ${document.getElementById('glowOn').checked?glow():'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
+글로우    : ${document.getElementById('uglowOn').checked?glowFrom('uglowOn','uglowColor','uglowA','uglowB'):'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
 }
-['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale','uglowOn','uglowColor','uglowA','uglowB','ghostOp','ironOffx','ironOffy'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
+['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale','uglowOn','uglowColor','uglowA','uglowB','ghostOp','ironOffx','ironOffy','uglowFade'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
 document.getElementById('checker').addEventListener('change',e=>document.getElementById('stage').classList.toggle('checker',e.target.checked));
 document.getElementById('ironGuide').addEventListener('change',e=>document.getElementById('ironGhost').classList.toggle('show',e.target.checked));
 document.getElementById('face').addEventListener('change',e=>{face=e.target.checked?-1:1;apply();});
@@ -313,21 +330,23 @@ function buildMulti(n){ const units=document.getElementById('units'),pick=docume
 
 document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',async()=>{
   const a=b.dataset.act;
-  if(a==='idle'){ setIdle(mark); setPhase('idle','표식 기본 — 루프'); }
+  if(a==='idle'){ setIdle(mark); setMarkGlow(true, true); setPhase('idle','표식 기본 — 루프'); }
   else if(a==='summon'){ setPhase('summon','생성 — 인두 내려찍힘 + 불꽃 → 표식 생성 1회 → 아이들');
-    hideMark(mark); iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
+    hideMark(mark); setMarkGlow(false, true);  // 표식 없는 상태 — 글로우 0에서 시작
+    iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
     const impactMs=num('ironDur')*1000*0.5;  // 강하 중 찍히는 순간
     setTimeout(()=>{ sparks(cell, mark); }, impactMs);                 // 불꽃 — 표식 중심에서 발생(인두 아닌 표식 기준)
     setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, num('ironDur')*1000+60);
     // ★ 표식 생성 GIF — 재생 시작(src 적용) 시점부터 GIF 총 길이만큼 기다린 뒤 idle 로.
     //   (고정 시간이면 9프레임이 다 안 나오고 잘림)
     setTimeout(async()=>{
+      setMarkGlow(true);                             // ★ 표식 생성에 맞춰 캐릭터 글로우 천천히 페이드인
       await playOnce(mark,'summon');                 // 1회 재생 시작
       let total=1170; try{ const fd=await frameDelays(MARK.summon); if(fd.length) total=fd[fd.length-1]; }catch(e){}
       setTimeout(()=>setIdle(mark), total+100);       // 끝까지 본 뒤 idle
     }, impactMs+30); }
   else if(a==='move'){ setPhase('move','이동 — 표식 PNG 동반, 도착 후 등장'); moveDemo(); }
-  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>hideMark(mark),1100); }
+  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); setMarkGlow(false); /* ★ 파괴에 맞춰 페이드아웃 */ await playOnce(mark,'release'); setTimeout(()=>hideMark(mark),1100); }
   else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기, 4프레임에 피격+데미지'); nightmare(cell,mark); }
   else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식 불변'); hitUnit(unit); }
   else if(a==='sparkTest'){ sparks(cell, mark); }
@@ -337,6 +356,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',as
 }));
 
 setPhase('idle','표식 기본 — 루프'); apply();
+setMarkGlow(true, true);  // 기본: 표식 있는 상태 → 캐릭터 글로우 켜짐
 // idle 디플리커 블롭 준비 후 표시(준비 전엔 원본 폴백)
 _prepIdle().then(()=>setIdle(mark)); setIdle(mark);
 </script>
