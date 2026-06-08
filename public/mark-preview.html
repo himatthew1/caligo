@@ -40,7 +40,7 @@
     78%{opacity:1;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy)) scale(1)}
     100%{opacity:0;transform:translate(calc(-50% + var(--iron-offx)),calc(var(--iron-offy) - var(--iron-h) * 0.7)) scale(.94)}}
   @keyframes hitShake{0%,100%{transform:scaleX(var(--face,1))}20%{transform:translateX(-3px) scaleX(var(--face,1))}40%{transform:translateX(3px) scaleX(var(--face,1))}60%{transform:translateX(-2px) scaleX(var(--face,1))}80%{transform:translateX(2px) scaleX(var(--face,1))}}
-  .spark{position:absolute;z-index:9;pointer-events:none;image-rendering:pixelated;transition:transform .5s cubic-bezier(.2,.7,.3,1),opacity .5s}
+  .spark{position:absolute;z-index:9;pointer-events:none;image-rendering:pixelated;box-shadow:0 0 3px rgba(255,170,60,.9);transition:transform .55s cubic-bezier(.2,.7,.3,1),opacity .55s}
   .label{color:var(--mut);font-size:10.5px;text-align:center;margin-top:5px}
   .phase{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
   .phase .pillrow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:5px}
@@ -240,13 +240,17 @@ function sparks(host, mk){
   for(let i=0;i<n;i++){
     const p=document.createElement('div'); p.className='spark';
     const s=sz+Math.floor(Math.random()*2);
-    p.style.cssText+=`;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;background:${colors[i%colors.length]};transform:translate(-50%,-50%);opacity:1`;
-    host.appendChild(p);
     const ang=-Math.PI/2 + (Math.random()-0.5)*Math.PI*1.5; // 위쪽 부채꼴
     const dist=spread*(0.5+Math.random()*0.8);
     const dx=Math.cos(ang)*dist, dy=Math.sin(ang)*dist + spread*0.45; // 살짝 아래로 떨어짐(중력)
-    requestAnimationFrame(()=>{ p.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; p.style.opacity='0'; });
-    setTimeout(()=>p.remove(),520);
+    p.style.cssText+=`;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;background:${colors[i%colors.length]};transform:translate(-50%,-50%);opacity:1`;
+    host.appendChild(p);
+    // ★ 강제 리플로우로 초기 상태를 커밋한 뒤 최종 상태로 변경 → 전이(튀어나감/페이드) 확실히 발동.
+    //   (rAF 한 번만으로는 초기 페인트 전에 값이 바뀌어 전이가 스킵되고 파티클이 즉시 사라지는 브라우저가 있음)
+    void p.offsetWidth;
+    p.style.transform=`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    p.style.opacity='0';
+    setTimeout(()=>{ if(p.parentNode) p.remove(); },600);
   }
 }
 function hitUnit(u){ const pick=document.getElementById('unitPick').value,base='/art/'+pick;
