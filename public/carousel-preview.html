@@ -9,55 +9,39 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:20px;line-height:1.5}
   h1{font-size:19px;color:var(--gold);margin:0 0 4px}
-  .sub{color:var(--mut);font-size:12.5px;margin-bottom:16px}
+  .sub{color:var(--mut);font-size:12.5px;margin-bottom:16px;max-width:920px}
   .wrap{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
-  .stage{background:#0c0a12;border:1px solid var(--line);border-radius:12px;padding:26px;display:flex;gap:30px;align-items:flex-start}
+  .stage{background:#0c0a12;border:1px solid var(--line);border-radius:12px;padding:30px 34px;display:flex;gap:34px;align-items:flex-start}
   .col{display:flex;flex-direction:column;align-items:center;gap:8px}
-  .col .label{color:var(--mut);font-size:11.5px;text-align:center;max-width:140px}
+  .col .label{color:var(--mut);font-size:11.5px;text-align:center;max-width:150px}
 
-  /* ── 인게임 셀/마커 재현 ── */
-  .cell{
-    position:relative;width:var(--cell);height:var(--cell);
-    border:1px solid #ffffff14;border-radius:6px;background:#1c1828;
-    display:flex;align-items:flex-end;justify-content:center;overflow:visible;
-  }
+  .cell{position:relative;width:var(--cell);height:var(--cell);border:1px solid #ffffff14;border-radius:6px;background:#1c1828;
+    display:flex;align-items:flex-end;justify-content:center;overflow:visible}
   .piece-marker{position:relative;z-index:3;display:flex;flex-direction:column;align-items:center}
-  .p-gif{display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;
-    filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);margin-bottom:6px}
+  .p-gif{display:block;width:38px;height:38px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);margin-bottom:6px}
   .opp-marked .p-gif{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px #ef4444)}
-  /* 유해 — 일반 셀과 동일 크기/위치 (74px, 중앙 + Y -6px) */
-  .remains-marker{
-    position:absolute;left:50%;top:50%;width:74px;height:74px;
-    transform:translate(-50%,calc(-50% - 6px));object-fit:contain;image-rendering:pixelated;z-index:2;
-    filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);pointer-events:none;
-  }
-  .remains-marker.flip{transform:translate(-50%,calc(-50% - 6px)) scaleX(-1)}
-  /* 사망 오버레이 */
+  .remains-marker{position:absolute;left:50%;top:50%;width:74px;height:74px;transform:translate(-50%,calc(-50% - 6px));
+    object-fit:contain;image-rendering:pixelated;z-index:2;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);pointer-events:none}
   .death-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:20;transform:translateY(-6px);pointer-events:none}
   .death-overlay img{width:74px;height:74px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
   @keyframes hitShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
 
-  /* ── 캐러셀 위젯 (인게임 cc-wrapper/cc-main 재현) ── */
   .cc-wrapper{position:absolute;inset:0;z-index:2;overflow:visible}
-  .cc-main{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;
-    transition:transform .2s cubic-bezier(.4,0,.2,1),opacity .2s;opacity:1}
+  .cc-main{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;transition:transform .18s cubic-bezier(.4,0,.2,1),opacity .18s;opacity:1}
   .cc-main.hide{opacity:0;pointer-events:none}
   .cc-main.slL{transform:translateX(-30px);opacity:0}
   .cc-main.slR{transform:translateX(30px);opacity:0}
-  .cc-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:30;width:16px;height:26px;
-    background:#0008;border:1px solid var(--gold);border-radius:4px;color:var(--gold);cursor:pointer;
-    display:flex;align-items:center;justify-content:center;font-size:12px;padding:0}
+  .cc-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:30;width:16px;height:26px;background:#0008;border:1px solid var(--gold);border-radius:4px;color:var(--gold);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;padding:0}
   .cc-arrow.l{left:-19px}.cc-arrow.r{right:-19px}
   .cc-arrow:hover{background:var(--gold);color:#1a1422}
-  /* 페이지 점 — 셀 하단 */
   .cc-dots{position:absolute;left:50%;bottom:-13px;transform:translateX(-50%);display:flex;gap:3px;z-index:30}
   .cc-dots i{width:5px;height:5px;border-radius:50%;background:#ffffff33;display:block}
   .cc-dots i.on{background:var(--gold)}
-  .cc-badge{position:absolute;top:-9px;right:-9px;z-index:31;min-width:16px;height:16px;border-radius:9px;
-    background:var(--gold);color:#1a1422;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  .cc-badge{position:absolute;top:-9px;right:-9px;z-index:31;min-width:16px;height:16px;border-radius:9px;background:var(--gold);color:#1a1422;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  /* 강제 이동(액션) 표시 테두리 */
+  .cell.forced{box-shadow:0 0 0 2px #b23a48, 0 0 10px #b23a4866}
 
-  /* ── 컨트롤 ── */
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:280px;max-width:340px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:300px;max-width:360px}
   .panel h2{font-size:13px;color:var(--gold);margin:0 0 10px;text-transform:uppercase;letter-spacing:.4px}
   .btns{display:flex;flex-direction:column;gap:7px}
   button{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:8px;padding:9px 12px;cursor:pointer;font-size:12.5px;text-align:left}
@@ -65,201 +49,188 @@
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
   button.warn{border-color:#b23a48}
   .note{color:var(--mut);font-size:11.5px;margin-top:10px;line-height:1.55}
-  .occ{font-size:11.5px;color:var(--mut);margin-top:8px;background:#0a0813;border:1px solid var(--line);border-radius:6px;padding:8px}
-  .occ b{color:var(--light)}
-  .spec{margin-top:14px}
+  .occ{font-size:11.5px;color:var(--mut);margin-top:8px;background:#0a0813;border:1px solid var(--line);border-radius:6px;padding:8px;line-height:1.7}
+  .occ b{color:var(--light)} .occ .now{color:var(--gold)}
   .spec li{margin:5px 0;color:var(--mut);font-size:12px}
   .spec b{color:var(--gold)}
   code{background:#0a0813;padding:1px 5px;border-radius:4px;color:#a8d4ff;font-size:11.5px}
 </style>
 </head>
 <body>
-<h1>🎠 캐러셀 / 유해 스택 — 인게임 구현 프리뷰</h1>
-<div class="sub">한 셀에 유닛·표식적·유해가 여럿 쌓이면 캐러셀로 페이지를 넘겨 확인. 각 슬롯은 <b>일반 셀과 똑같은 크기·위치</b>로 표시(유해 74px 그대로). HP 숫자는 숨김. 액션(피격·사망)은 보고 있지 않아도 실시간 진행되고, 넘기는 순간 진행 중이면 그대로 보임.</div>
+<h1>🎠 캐러셀 / 유해 스택 — 강제 이동(대표 페이지) 프리뷰</h1>
+<div class="sub">한 칸에 유닛·표식적·유해가 여럿이면 캐러셀. 각 슬롯은 일반 셀과 동일 크기·위치(유해 74px), HP 숫자 숨김.<br>
+<b>새 액션 검출 시 규칙 페이지로 즉시 점프(슬라이드 없음)</b> → 액션 끝나면 <b>파라라락 슬라이드로 원래 보던 페이지 회귀</b>. 우선순위: 내유닛(고티어)→동료(고티어)→적(고티어)→유해. 새 이동 진입(반지 포함)도 액션으로 카운트.</div>
 
 <div class="wrap">
   <div class="stage">
     <div class="col">
       <div class="cell" id="cell"></div>
-      <div class="label">캐러셀 셀 (◀▶ 로 페이지 넘김)</div>
+      <div class="label">캐러셀 셀 (◀▶ 수동 넘김 가능)</div>
     </div>
     <div class="col">
       <div style="display:flex;gap:14px">
-        <div class="cell" id="cellNormalUnit"></div>
-        <div class="cell" id="cellNormalRem"></div>
+        <div class="cell" id="cellNU"></div>
+        <div class="cell" id="cellNR"></div>
       </div>
-      <div class="label">비교용: 일반 셀의 유닛 / 유해 (캐러셀 슬롯이 이 크기·위치와 동일해야 함)</div>
+      <div class="label">비교용: 일반 셀 유닛 / 유해 (캐러셀 슬롯이 이 크기·위치와 동일)</div>
     </div>
   </div>
 
   <div class="panel">
-    <h2>시나리오 데모</h2>
+    <h2>구성</h2>
     <div class="btns">
-      <button class="primary" data-act="reset">① 리셋 — 빈 칸에 내 유닛 1</button>
-      <button data-act="enterRemains">② 유해 칸에 유닛 진입 → 캐러셀</button>
-      <button data-act="addMarkedOpp">③ 표식 적이 같은 칸에 (캐러셀 +슬롯)</button>
-      <button data-act="ringForce">④ 반지로 내 유닛 강제 합류 (+슬롯)</button>
-      <button data-act="deathHere">⑤ 이 칸에서 유닛 사망 → 캐러셀 내부 사망모션 → 유해 추가</button>
-      <button data-act="hitUnit">⑥ 유닛 피격 (안 보고 있어도 실시간) </button>
-      <button data-act="batchDmg" class="warn">⑦ 한 번의 공격 → 유해 전부 일괄 피격(단계 ↑)</button>
+      <button class="primary" data-act="reset">리셋 — 내 유닛 1 (장군 T2)</button>
+      <button data-act="addRem">+ 유해</button>
+      <button data-act="addRem2">+ 유해 (다른)</button>
+      <button data-act="addOpp">+ 표식 적 (마녀 T2)</button>
+      <button data-act="enterMove">+ 새 유닛 이동 진입 → 강제 점프 (반지 포함)</button>
     </div>
     <div class="occ" id="occInfo"></div>
-    <div class="note">⑥ 누른 뒤 다른 슬롯으로 넘겨 있다가, 피격 슬롯으로 넘기면 피격 모션이 진행 중이면 그대로 보입니다(실시간 상태 유지).</div>
   </div>
 
   <div class="panel">
-    <h2>구현 규칙 (요약)</h2>
+    <h2>액션 (강제 이동 데모)</h2>
+    <div class="note" style="margin-top:0">먼저 ◀▶ 로 <b>다른 페이지</b>로 넘겨 둔 뒤 아래를 눌러보세요. 보던 페이지가 달라도 액션 페이지로 즉시 점프 → 끝나면 원래로 회귀.</div>
+    <div class="btns" style="margin-top:8px">
+      <button data-act="hit1">단일 피격 — 내 유닛 (강제 점프→회귀)</button>
+      <button data-act="hitMulti">다중 동시 피격 — 대표 1명만(우선순위)</button>
+      <button data-act="death">사망 → 캐러셀 내부 사망모션 → 유해</button>
+      <button data-act="batch" class="warn">한 공격 → 유해 전부 일괄 피격</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>강제 이동 규칙</h2>
     <ul class="spec" style="padding-left:16px;margin:0">
-      <li><b>진입 조건:</b> 한 칸에 (내 유닛 + 유해), (내 유닛 + 표식 적), (반지로 합류한 유닛 둘) 등 <b>2개 이상</b>이면 캐러셀.</li>
-      <li><b>슬롯 = 일반 셀 그대로:</b> 유닛은 idle GIF, 유해는 <b>74px 그대로</b>(중앙+Y오프셋). 절대 작아지지 않음.</li>
-      <li><b>HP 숨김:</b> 캐러셀에서는 체력 숫자 표시 안 함.</li>
-      <li><b>다중 유해:</b> 한 칸에서 여러 캐릭터가 죽으면 유해가 <b>여러 개 쌓임</b>(각각 슬롯).</li>
-      <li><b>캐러셀 내부 사망:</b> 유해 칸에 새 사망 발생 시, 캐러셀 안에서 사망 모션 → 유해 슬롯 추가.</li>
-      <li><b>일괄 피격:</b> 한 번의 공격이 그 칸을 덮으면 안의 유해들이 <b>모두 동시에</b> 단계 상승(유닛 피격과 동일).</li>
-      <li><b>실시간:</b> 슬롯 상태(피격·사망 진행)는 보고 있지 않아도 유지 → 넘기면 진행 중인 모션이 보임.</li>
-      <li><b>배지/점:</b> 우상단 슬롯 수 배지, 하단 페이지 점으로 몇 개가 쌓였는지 표시.</li>
+      <li><b>액션 검출</b>(피격·공격·사망·새 이동진입) → 해당 페이지로 <b>즉시 점프(슬라이드 X)</b>.</li>
+      <li><b>여럿 동시</b> → 대표 1명만: <b>내유닛→동료→적→유해</b>, 각 그룹은 <b>고티어 우선</b>.</li>
+      <li>액션 처리 끝 → <b>파라라락 슬라이드(애니 O)</b> 로 <b>원래 보던 페이지</b> 회귀.</li>
+      <li>회귀 기본값 = 내 대표(최고 우선순위) 유닛. 수동으로 넘겨두면 그 페이지로 회귀.</li>
+      <li>안 보고 있어도 액션은 실시간 진행 — 점프하면 진행 중 모션 그대로 보임.</li>
     </ul>
-    <div class="note">※ 서버: 한 칸에 유해 여러 개 허용하도록 <code>S.remains</code>/<code>room.remains</code> 를 col,row 중복 허용으로 변경 필요(현재 1개만).</div>
   </div>
 </div>
 
 <script>
-const REM = '/art/remains.png';
-const IDLE = t => '/art/'+t+'_idle.gif';
-const HIT  = t => '/art/'+t+'_hit.gif';
-const DEATH= t => '/art/death_'+t+'.gif';
-const cell = document.getElementById('cell');
+const REM='/art/remains.png', IDLE=t=>'/art/'+t+'_idle.gif', HIT=t=>'/art/'+t+'_hit.gif', DEATH=t=>'/art/death_'+t+'.gif';
+const cell=document.getElementById('cell');
+const TIER={general:2,witch:2,archer:1,spearman:1,prince:3,knight:2,scout:1,torturer:3,count:3,cavalry:1};
+const ownerRank=o=>o==='mine'?0:o==='teammate'?1:o==='opp'?2:3;
+// 우선순위 키(작을수록 우선): 그룹*10 - 티어  → 내유닛 고티어가 최우선
+const prio=o=>ownerRank(o.kind==='remains'?'remains':o.owner)*10-(TIER[o.type]||1);
 
-// occupants: {kind:'unit'|'remains', type, owner, stage?, _hitUntil?, _dying?} — 실시간 상태를 객체에 보관
-let occ = [];
-let idx = 0;
-let busy = false;
+let occ=[], idx=0, userPage=0, inAction=false, flipping=false, endTimer=null;
 
-// 일반 비교 셀
 function paintNormal(){
-  const u = document.getElementById('cellNormalUnit');
-  u.innerHTML = `<div class="piece-marker"><img class="p-gif" src="${IDLE('general')}"></div>`;
-  const r = document.getElementById('cellNormalRem');
-  r.innerHTML = `<img class="remains-marker" src="${REM}">`;
+  document.getElementById('cellNU').innerHTML=`<div class="piece-marker"><img class="p-gif" src="${IDLE('general')}"></div>`;
+  document.getElementById('cellNR').innerHTML=`<img class="remains-marker" src="${REM}">`;
 }
-
-// 한 슬롯의 내부 HTML (일반 셀과 동일 렌더)
 function slotInner(o){
-  if(o.kind === 'remains'){
-    return `<img class="remains-marker${o.flip?' flip':''}" src="${REM}">`;
-  }
-  // 유닛 — idle 또는 피격 GIF (실시간 상태)
-  const playingHit = o._hitUntil && o._hitUntil > Date.now();
-  const src = playingHit ? HIT(o.type) : IDLE(o.type);
-  const sh = playingHit ? 'animation:hitShake .35s ease;' : '';
-  const mk = o.owner === 'opp' ? 'piece-marker opp-marked' : 'piece-marker';
-  // ★ HP 숫자 없음 (캐러셀에서 숨김)
-  return `<div class="${mk}" style="${sh}"><img class="p-gif" src="${src}"></div>`;
+  if(o.kind==='remains') return `<img class="remains-marker" src="${REM}">`;
+  const hit=o._hitUntil&&o._hitUntil>Date.now();
+  const src=hit?HIT(o.type):IDLE(o.type), sh=hit?'animation:hitShake .35s ease;':'';
+  const mk=o.owner==='opp'?'piece-marker opp-marked':'piece-marker';
+  return `<div class="${mk}" style="${sh}"><img class="p-gif" src="${src}"></div>`; // HP 숨김
 }
+function repIdx(){ let b=0,bv=Infinity; occ.forEach((o,i)=>{const v=prio(o); if(v<bv){bv=v;b=i;}}); return b; }
 
 function render(){
-  if(idx >= occ.length) idx = Math.max(0, occ.length-1);
-  cell.innerHTML = '';
-  if(occ.length === 0){ updateInfo(); return; }
-  if(occ.length === 1){
-    // 단일 — 캐러셀 아님, 일반 렌더
-    cell.innerHTML = slotInner(occ[0]);
-    updateInfo(); return;
-  }
-  // 캐러셀
-  const wrap = document.createElement('div'); wrap.className='cc-wrapper';
-  occ.forEach((o,i)=>{
-    const d = document.createElement('div');
-    d.className = 'cc-main' + (i===idx?'':' hide');
-    d.dataset.slot = i;
-    d.innerHTML = slotInner(o);
-    wrap.appendChild(d);
+  if(idx>=occ.length) idx=Math.max(0,occ.length-1);
+  cell.innerHTML='';
+  if(occ.length===0){ updateInfo(); return; }
+  if(occ.length===1){ cell.innerHTML=slotInner(occ[0]); updateInfo(); return; }
+  const wrap=document.createElement('div'); wrap.className='cc-wrapper';
+  occ.forEach((o,i)=>{ const d=document.createElement('div'); d.className='cc-main'+(i===idx?'':' hide'); d.dataset.slot=i; d.innerHTML=slotInner(o); wrap.appendChild(d); });
+  const aL=document.createElement('button'); aL.className='cc-arrow l'; aL.textContent='‹'; aL.onclick=()=>userNav(-1);
+  const aR=document.createElement('button'); aR.className='cc-arrow r'; aR.textContent='›'; aR.onclick=()=>userNav(1);
+  wrap.append(aL,aR);
+  const dots=document.createElement('div'); dots.className='cc-dots'; occ.forEach((o,i)=>{const t=document.createElement('i'); if(i===idx)t.className='on'; dots.appendChild(t);}); wrap.appendChild(dots);
+  const bd=document.createElement('div'); bd.className='cc-badge'; bd.textContent=occ.length; wrap.appendChild(bd);
+  cell.appendChild(wrap); updateInfo();
+}
+function updateInfo(){
+  const parts=occ.map((o,i)=>(i===idx?'<span class="now">▶ ':'· ')+(o.kind==='remains'?'유해'+(o.stage?`(${o.stage}타)`:''):(o.owner==='opp'?'적 ':o.owner==='teammate'?'팀 ':'')+o.type+(TIER[o.type]?' T'+TIER[o.type]:''))+(i===idx?'</span>':''));
+  document.getElementById('occInfo').innerHTML=`슬롯 <b>${occ.length}</b>개 · 회귀 페이지=${userPage+1} ${inAction?'· <b style="color:#f87171">액션 중</b>':''}<br>${parts.join(' ')}`;
+}
+
+// ── 한 칸 슬라이드(애니) — Promise ──
+function slideOne(dir,dur=140){
+  return new Promise(res=>{
+    if(occ.length<=1){res();return;}
+    const wrap=cell.querySelector('.cc-wrapper'); if(!wrap){res();return;}
+    const cur=wrap.querySelector(`.cc-main[data-slot="${idx}"]`);
+    const nx=(idx+dir+occ.length)%occ.length;
+    const ne=wrap.querySelector(`.cc-main[data-slot="${nx}"]`);
+    if(!cur||!ne){ idx=nx; render(); res(); return; }
+    cur.classList.add(dir>0?'slL':'slR');
+    setTimeout(()=>{
+      cur.classList.remove('slL','slR'); cur.classList.add('hide'); idx=nx;
+      ne.innerHTML=slotInner(occ[idx]); ne.classList.remove('hide'); ne.classList.add(dir>0?'slR':'slL'); void ne.offsetWidth; ne.classList.remove('slR','slL');
+      [...wrap.querySelectorAll('.cc-dots i')].forEach((el,i)=>el.className=i===idx?'on':'');
+      res();
+    },dur);
   });
-  const aL=document.createElement('button'); aL.className='cc-arrow l'; aL.textContent='‹'; aL.onclick=()=>nav(-1);
-  const aR=document.createElement('button'); aR.className='cc-arrow r'; aR.textContent='›'; aR.onclick=()=>nav(1);
-  wrap.appendChild(aL); wrap.appendChild(aR);
-  const dots=document.createElement('div'); dots.className='cc-dots';
-  occ.forEach((o,i)=>{ const dot=document.createElement('i'); if(i===idx)dot.className='on'; dots.appendChild(dot); });
-  wrap.appendChild(dots);
-  const badge=document.createElement('div'); badge.className='cc-badge'; badge.textContent=occ.length; wrap.appendChild(badge);
-  cell.appendChild(wrap);
+}
+// 사용자 화살표 → 회귀 페이지 갱신
+async function userNav(dir){ if(flipping||inAction) return; flipping=true; await slideOne(dir,180); userPage=idx; flipping=false; updateInfo(); }
+// 즉시 점프(슬라이드 없음)
+function forceJump(target){ idx=((target%occ.length)+occ.length)%occ.length; render(); }
+// 파라라락 회귀(애니) — 최단 방향으로 한 칸씩
+async function flipBackTo(target){
+  if(flipping) return; flipping=true;
+  while(idx!==target){ const fwd=((target-idx)+occ.length)%occ.length, bwd=((idx-target)+occ.length)%occ.length; await slideOne(fwd<=bwd?1:-1,110); }
+  flipping=false; updateInfo();
+}
+
+// ── 액션 트리거: 검출 → 우선순위 점프 → 처리 → 회귀 ──
+function triggerAction(slots, durMs, doVisual){
+  const target=slots.slice().sort((a,b)=>prio(occ[a])-prio(occ[b]))[0]; // 대표 1명
+  if(!inAction){ userPage=idx; inAction=true; }       // 보던 페이지 저장
+  clearTimeout(endTimer);
+  forceJump(target);                                  // 즉시 점프(슬라이드 X)
+  cell.classList.add('forced'); setTimeout(()=>cell.classList.remove('forced'),Math.min(durMs,700));
+  doVisual(slots);                                    // 모든 슬롯 실시간 처리(보이는건 대표)
+  endTimer=setTimeout(()=>{ inAction=false; flipBackTo(userPage); }, durMs);
   updateInfo();
 }
 
-function nav(dir){
-  if(busy || occ.length<=1) return;
-  busy = true;
-  const wrap = cell.querySelector('.cc-wrapper');
-  const cur = wrap.querySelector(`.cc-main[data-slot="${idx}"]`);
-  const next = (idx+dir+occ.length)%occ.length;
-  const nx = wrap.querySelector(`.cc-main[data-slot="${next}"]`);
-  cur.classList.add(dir>0?'slL':'slR');
-  setTimeout(()=>{
-    cur.classList.remove('slL','slR'); cur.classList.add('hide');
-    idx = next;
-    // ★ 실시간: 등장 슬롯의 내부를 *현재 상태로 다시 그림* → 그 사이 진행된 피격/사망 반영
-    nx.innerHTML = slotInner(occ[idx]);
-    nx.classList.remove('hide'); nx.classList.add(dir>0?'slR':'slL'); void nx.offsetWidth;
-    nx.classList.remove('slR','slL');
-    // 점/배지 갱신
-    [...wrap.querySelectorAll('.cc-dots i')].forEach((el,i)=>el.className=i===idx?'on':'');
-    busy=false;
-  },200);
+// 피격 모션(실시간) — 보이면 즉시, 안 보여도 상태 보관
+function applyHit(slot){
+  const o=occ[slot]; if(!o||o.kind!=='unit') return;
+  o._hitUntil=Date.now()+450;
+  const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null);
+  if(idx===slot&&m){ const inner=m.querySelector('.piece-marker'); if(inner){inner.querySelector('.p-gif').src=HIT(o.type); inner.style.animation='hitShake .35s ease';} }
+  setTimeout(()=>{ if(occ[slot]===o){ const mm=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||(occ.length===1?cell:null); const inner=mm&&mm.querySelector('.piece-marker'); if(inner){inner.querySelector('.p-gif').src=IDLE(o.type); inner.style.animation='';} } },470);
 }
-
-function updateInfo(){
-  const parts = occ.map((o,i)=> (i===idx?'▶':'·')+' '+(o.kind==='remains'?'유해'+(o.stage?`(${o.stage}타)`:''):(o.owner==='opp'?'적 ':'')+o.type) );
-  document.getElementById('occInfo').innerHTML = `슬롯 ${occ.length}개 · 현재 ${idx+1} — <b>${occ[idx]?(occ[idx].kind==='remains'?'유해':occ[idx].type):'없음'}</b><br>${parts.join('  ')}`;
-}
-
-// ── 실시간 액션: 보고 있지 않아도 객체 상태를 바꿈. 보고 있으면 즉시 반영 ──
-function actHit(slot){
-  const o = occ[slot]; if(!o || o.kind!=='unit') return;
-  o._hitUntil = Date.now()+450;
-  if(idx===slot){ // 보고 있으면 즉시 모션
-    const m = cell.querySelector(`.cc-main[data-slot="${slot}"]`) || cell;
-    const inner = m.querySelector('.piece-marker'); if(inner){ inner.querySelector('.p-gif').src = HIT(o.type); inner.style.animation='hitShake .35s ease'; }
-  }
-  setTimeout(()=>{ // 모션 종료 → idle 복원(보고 있으면)
-    if(idx===slot && occ[slot]===o){ const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||cell; const inner=m.querySelector('.piece-marker'); if(inner){ inner.querySelector('.p-gif').src=IDLE(o.type); inner.style.animation=''; } }
-  },470);
-}
-
-// 캐러셀 내부 사망 → 유해 추가
-function deathToRemains(slot){
-  const o = occ[slot]; if(!o || o.kind!=='unit') return;
-  busy=true; idx=slot; render();
-  // 사망 오버레이를 현재 슬롯에
-  const m = cell.querySelector(`.cc-main[data-slot="${slot}"]`) || cell;
-  const ov=document.createElement('div'); ov.className='death-overlay';
-  ov.innerHTML=`<img src="${DEATH(o.type)}?t=${Date.now()}">`;
-  m.appendChild(ov); const mk=m.querySelector('.piece-marker'); if(mk) mk.style.opacity='0.25';
-  setTimeout(()=>{
-    // 유닛 → 유해로 교체 (같은 슬롯 자리)
-    occ[slot] = { kind:'remains', type:o.type, stage:1 };
-    render(); busy=false;
-  }, 1000);
+function deathInside(slot){
+  const o=occ[slot]; if(!o||o.kind!=='unit') return;
+  const m=cell.querySelector(`.cc-main[data-slot="${slot}"]`)||cell;
+  const ov=document.createElement('div'); ov.className='death-overlay'; ov.innerHTML=`<img src="${DEATH(o.type)}?t=${Date.now()}">`; m.appendChild(ov);
+  const mk=m.querySelector('.piece-marker'); if(mk)mk.style.opacity='0.25';
+  setTimeout(()=>{ occ[slot]={kind:'remains',type:o.type,stage:1}; if(idx===slot)render(); },1000);
 }
 
 document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
   const a=b.dataset.act;
-  if(a==='reset'){ occ=[{kind:'unit',type:'general',owner:'mine'}]; idx=0; render(); }
-  else if(a==='enterRemains'){ if(!occ.some(o=>o.kind==='remains')) occ.push({kind:'remains',type:'spearman',stage:1}); idx=occ.length-1; render(); }
-  else if(a==='addMarkedOpp'){ occ.push({kind:'unit',type:'witch',owner:'opp'}); idx=occ.length-1; render(); }
-  else if(a==='ringForce'){ occ.push({kind:'unit',type:'archer',owner:'mine'}); idx=occ.length-1; render(); }
-  else if(a==='deathHere'){ const ui=occ.findIndex(o=>o.kind==='unit'); if(ui>=0) deathToRemains(ui); }
-  else if(a==='hitUnit'){ const ui=occ.findIndex(o=>o.kind==='unit'); if(ui>=0) actHit(ui); else alert('유닛 슬롯이 없습니다'); }
-  else if(a==='batchDmg'){ // 모든 유해 + 유닛 동시 피격
-    occ.forEach((o,i)=>{ if(o.kind==='remains'){ o.stage=(o.stage||1)+1; } else { actHit(i); } });
-    // 유해 단계 표시 갱신 + 3타 제거
-    occ = occ.filter(o=> !(o.kind==='remains' && o.stage>3));
-    render();
-  }
+  if(a==='reset'){ occ=[{kind:'unit',type:'general',owner:'mine'}]; idx=userPage=0; inAction=false; render(); }
+  else if(a==='addRem'){ occ.push({kind:'remains',type:'spearman',stage:1}); render(); }
+  else if(a==='addRem2'){ occ.push({kind:'remains',type:'cavalry',stage:1}); render(); }
+  else if(a==='addOpp'){ occ.push({kind:'unit',type:'witch',owner:'opp'}); render(); }
+  else if(a==='enterMove'){ // 새 유닛 이동 진입 = 액션 → 강제 점프 후 회귀
+    occ.push({kind:'unit',type:'archer',owner:'mine'}); render();
+    triggerAction([occ.length-1], 900, ()=>{}); }
+  else if(a==='hit1'){ const s=occ.findIndex(o=>o.kind==='unit'&&o.owner==='mine'); if(s<0)return; triggerAction([s],700,()=>applyHit(s)); }
+  else if(a==='hitMulti'){ const slots=occ.map((o,i)=>o.kind==='unit'?i:-1).filter(i=>i>=0); if(!slots.length)return; triggerAction(slots,800,ss=>ss.forEach(applyHit)); }
+  else if(a==='death'){ const s=occ.findIndex(o=>o.kind==='unit'&&o.owner==='mine'); if(s<0)return; triggerAction([s],1200,()=>deathInside(s)); }
+  else if(a==='batch'){ const remSlots=occ.map((o,i)=>o.kind==='remains'?i:-1).filter(i=>i>=0); const unitSlots=occ.map((o,i)=>o.kind==='unit'?i:-1).filter(i=>i>=0);
+    const all=unitSlots.concat(remSlots); if(!all.length)return;
+    triggerAction(all,800,()=>{ unitSlots.forEach(applyHit); occ.forEach(o=>{if(o.kind==='remains')o.stage=(o.stage||1)+1;}); occ=occ.filter(o=>!(o.kind==='remains'&&o.stage>3)); }); }
+  if(['reset','addRem','addRem2','addOpp'].includes(a)){ idx=userPage=repIdx(); render(); }
 }));
 
 paintNormal();
-occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'remains',type:'spearman',stage:1}];
-render();
+occ=[{kind:'unit',type:'general',owner:'mine'},{kind:'remains',type:'spearman',stage:1},{kind:'unit',type:'witch',owner:'opp'}];
+idx=userPage=repIdx(); render();
 </script>
 </body>
 </html>
