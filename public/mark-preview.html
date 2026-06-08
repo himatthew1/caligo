@@ -234,7 +234,18 @@ function setPhase(n,note){ const m={summon:'표식 생성',idle:'아이들',move
 // ★ 투명 1×1 GIF — src 를 비우는 대신 이걸로 채워 '깨진 이미지 아이콘'을 원천 차단
 const BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 function hideMark(el){ if(!el)return; el.classList.remove('bob'); el.style.animation=''; el.src=BLANK; }
-function setIdle(el){ el.classList.remove('bob'); el.src=MARK.idle+'?t='+Date.now(); if(document.getElementById('bob').checked) el.classList.add('bob'); }
+// ★ idle 디플리커 — 원본 idle 은 전 프레임 disposal=2(배경복원)+투명이라 프레임마다 지웠다
+//   그려 깜빡임. 모든 프레임 disposal=1(유지)로 패치한 블롭을 한 번 만들어 캐시(루프는 유지).
+let _idleBlobUrl=null;
+async function _prepIdle(){
+  try{
+    const b=new Uint8Array(await (await fetch(MARK.idle,{cache:'no-cache'})).arrayBuffer());
+    for(let i=0;i<b.length-7;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04&&b[i+7]===0x00){ b[i+3]=(b[i+3]&~(7<<2))|(1<<2); } }
+    if(_idleBlobUrl) URL.revokeObjectURL(_idleBlobUrl);
+    _idleBlobUrl=URL.createObjectURL(new Blob([b],{type:'image/gif'}));
+  }catch(e){}
+}
+function setIdle(el){ el.classList.remove('bob'); el.src=_idleBlobUrl || (MARK.idle+'?t='+Date.now()); if(document.getElementById('bob').checked) el.classList.add('bob'); }
 async function playOnce(el,key){ el.classList.remove('bob'); el.src=await onceGif(MARK[key]); }
 
 // ── 픽셀 네모 불꽃 파티클 — 표식(정수리) 위치에서 팍 튐 ──
@@ -322,7 +333,9 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',as
   else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('cssOut').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='설정값 복사',1100); }
 }));
 
-setIdle(mark); setPhase('idle','표식 기본 — 루프'); apply();
+setPhase('idle','표식 기본 — 루프'); apply();
+// idle 디플리커 블롭 준비 후 표시(준비 전엔 원본 폴백)
+_prepIdle().then(()=>setIdle(mark)); setIdle(mark);
 </script>
 </body>
 </html>
