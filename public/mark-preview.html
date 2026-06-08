@@ -7,7 +7,7 @@
 <style>
   :root{ --bg:#14121c; --panel:#221d30; --panel2:#2c2640; --line:#433a58; --accent:#e2b714; --accent2:#b23a48; --light:#ede9f0; --mut:#a89fb8;
     --cell:64px; --unit:40px; --msize:30px; --moffx:0px; --moffy:-2px; --mface:1; --bobdur:2.4s; --mglow:none; --uglow:none; --ghost-op:0.3;
-    --iron-dur:0.85s; --iron-h:34px; }
+    --iron-dur:0.85s; --iron-h:34px; --iron-offx:0px; --iron-offy:-2px; }
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:12px 16px;line-height:1.45;overflow:hidden}
@@ -28,17 +28,17 @@
   .cell .mark.bob{animation:markBob var(--bobdur) ease-in-out infinite}
   @keyframes markBob{0%,100%{margin-bottom:0}50%{margin-bottom:3px}}
   .cell .iron{position:absolute;z-index:6;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
-    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(-50%,var(--moffy))}
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy))}
   /* 인두 착지 가이드 — 정지 반투명 이미지(켜고 끔) */
   .cell .iron-ghost{position:absolute;z-index:5;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
-    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(-50%,var(--moffy))}
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy))}
   .cell .iron-ghost.show{opacity:var(--ghost-op,0.3)}
   @keyframes ironDrop{
-    0%{opacity:0;transform:translate(-50%,calc(var(--moffy) - var(--iron-h))) scale(.92)}
-    40%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
-    62%{opacity:1;transform:translate(-50%,calc(var(--moffy) + 3px)) scale(1.04)}
-    78%{opacity:1;transform:translate(-50%,var(--moffy)) scale(1)}
-    100%{opacity:0;transform:translate(-50%,calc(var(--moffy) - var(--iron-h) * 0.7)) scale(.94)}}
+    0%{opacity:0;transform:translate(calc(-50% + var(--iron-offx)),calc(var(--iron-offy) - var(--iron-h))) scale(.92)}
+    40%{opacity:1;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy)) scale(1)}
+    62%{opacity:1;transform:translate(calc(-50% + var(--iron-offx)),calc(var(--iron-offy) + 3px)) scale(1.04)}
+    78%{opacity:1;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy)) scale(1)}
+    100%{opacity:0;transform:translate(calc(-50% + var(--iron-offx)),calc(var(--iron-offy) - var(--iron-h) * 0.7)) scale(.94)}}
   @keyframes hitShake{0%,100%{transform:scaleX(var(--face,1))}20%{transform:translateX(-3px) scaleX(var(--face,1))}40%{transform:translateX(3px) scaleX(var(--face,1))}60%{transform:translateX(-2px) scaleX(var(--face,1))}80%{transform:translateX(2px) scaleX(var(--face,1))}}
   .spark{position:absolute;z-index:9;pointer-events:none;image-rendering:pixelated;transition:transform .5s cubic-bezier(.2,.7,.3,1),opacity .5s}
   .label{color:var(--mut);font-size:10.5px;text-align:center;margin-top:5px}
@@ -117,6 +117,8 @@
       <h2>인두 · 불꽃 파티클</h2>
       <div class="row"><label>강하 시간</label><input type="range" id="ironDur" min="0.3" max="1.6" step="0.05" value="0.85"><span class="val" id="ironDurV">0.85s</span></div>
       <div class="row"><label>강하 높이</label><input type="range" id="ironH" min="14" max="60" step="2" value="34"><span class="val" id="ironHV">34</span></div>
+      <div class="row"><label>인두 X</label><input type="range" id="ironOffx" min="-30" max="30" step="1" value="0"><span class="val" id="ironOffxV">0</span></div>
+      <div class="row"><label>인두 Y</label><input type="range" id="ironOffy" min="-40" max="20" step="1" value="-2"><span class="val" id="ironOffyV">-2</span></div>
       <div class="row"><label>인두 크기</label><input type="range" id="ironScale" min="0.9" max="2.2" step="0.05" value="1.35"><span class="val" id="ironScaleV">1.35</span></div>
       <div class="row"><label>파티클 수</label><input type="range" id="pCount" min="0" max="28" step="1" value="14"><span class="val" id="pCountV">14</span></div>
       <div class="row"><label>파티클 크기</label><input type="range" id="pSize" min="2" max="6" step="1" value="3"><span class="val" id="pSizeV">3</span></div>
@@ -200,20 +202,22 @@ function apply(){
     c.style.setProperty('--moffx',num('offx')+'px'); c.style.setProperty('--moffy',num('offy')+'px'); c.style.setProperty('--face',face); c.style.setProperty('--mface',face);
     c.style.setProperty('--bobdur',num('bobdur')+'s'); c.style.setProperty('--mglow',glow()); c.style.setProperty('--uglow',unitGlow());
     c.style.setProperty('--iron-dur',num('ironDur')+'s'); c.style.setProperty('--iron-h',num('ironH')+'px'); c.style.setProperty('--ghost-op',num('ghostOp'));
+    c.style.setProperty('--iron-offx',num('ironOffx')+'px'); c.style.setProperty('--iron-offy',num('ironOffy')+'px');
     c.querySelectorAll('.iron,.iron-ghost').forEach(ir=>{ ir.style.width=ir.style.height='calc(var(--msize) * '+num('ironScale')+')'; });
   });
   ['offx','offy','msize','cellsz','unitsz','ironH','pCount','pSize','pSpread'].forEach(id=>setV(id,num(id)));
   setV('bobdur',num('bobdur')+'s'); setV('multiN',num('multiN')); setV('glowA',num('glowA').toFixed(2)); setV('glowB',num('glowB'));
   setV('ironDur',num('ironDur')+'s'); setV('ironScale',num('ironScale').toFixed(2)); setV('nmscale',num('nmscale').toFixed(1));
+  setV('ironOffx',num('ironOffx')); setV('ironOffy',num('ironOffy'));
   setV('uglowA',num('uglowA').toFixed(2)); setV('uglowB',num('uglowB')); setV('ghostOp',num('ghostOp').toFixed(2));
   document.getElementById('cssOut').textContent=
 `표식 위치 : 정수리 위(중앙) x=${num('offx')} y=${num('offy')}
 표식 크기 : ${num('msize')}px  (유닛 ${num('unitsz')}px)
-인두      : 강하 ${num('ironDur')}s · 높이 ${num('ironH')}px · 크기 ×${num('ironScale').toFixed(2)}
+인두      : 강하 ${num('ironDur')}s · 높이 ${num('ironH')}px · 크기 ×${num('ironScale').toFixed(2)} · 위치 x=${num('ironOffx')} y=${num('ironOffy')}
 불꽃      : ${num('pCount')}개 · ${num('pSize')}px · 퍼짐 ${num('pSpread')}
 글로우    : ${document.getElementById('glowOn').checked?glow():'없음'} · bob ${document.getElementById('bob').checked?num('bobdur')+'s':'없음'}`;
 }
-['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale','uglowOn','uglowColor','uglowA','uglowB','ghostOp'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
+['offx','offy','msize','cellsz','unitsz','bobdur','multiN','glowOn','glowColor','glowA','glowB','bob','ironDur','ironH','ironScale','pCount','pSize','pSpread','nmscale','uglowOn','uglowColor','uglowA','uglowB','ghostOp','ironOffx','ironOffy'].forEach(id=>document.getElementById(id).addEventListener('input',apply));
 document.getElementById('checker').addEventListener('change',e=>document.getElementById('stage').classList.toggle('checker',e.target.checked));
 document.getElementById('ironGuide').addEventListener('change',e=>document.getElementById('ironGhost').classList.toggle('show',e.target.checked));
 document.getElementById('face').addEventListener('change',e=>{face=e.target.checked?-1:1;apply();});
