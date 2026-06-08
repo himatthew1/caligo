@@ -117,12 +117,21 @@ function _markBrandOne(board, col, row, opts) {
     _summonBlobP.then(bu => {                     // ★ 이미 준비된 blob → 즉시 표시(인두와 동시)
       blobUrl = bu; summonImg.src = bu; cell.appendChild(summonImg);
       setTimeout(() => {
-        // 생성 GIF 끝 → idle 인계. idle 먼저 렌더(디코드 시작)한 뒤 생성 오버레이 제거(공백 최소화).
+        // ★ 생성 GIF 끝 → 생성 오버레이를 '그 자리에서' 표식 idle 레이어로 전환(끊김 0).
+        //   renderGameBoard 로 셀을 재구축하면 오버레이 파괴+새 idle 디코드 사이 공백/소멸이 생겨
+        //   "생성 후 표식이 사라지고 턴 넘어가야 보이던" 버그가 났음 → 재구축 대신 직접 전환.
         window._markSummoning.delete(key);
         cell.classList.remove('mark-brand-host');
-        cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = ''; });
-        if (typeof renderGameBoard === 'function') { try { renderGameBoard(); } catch (e) {} }
-        setTimeout(() => { try { if (summonImg.parentNode) summonImg.remove(); } catch (e) {} if (blobUrl) URL.revokeObjectURL(blobUrl); }, 60);
+        try {
+          summonImg.src = (window.MARK_GIFS && window.MARK_GIFS.idle) || '/art/mark/mark_idle.gif';
+          summonImg.className = 'mark-board-layer';     // CSS 가 정수리 위 위치/크기/글로우/bob 담당
+          summonImg.removeAttribute('style');
+          const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+          if (host) { host.style.position = 'relative'; host.appendChild(summonImg); }
+          else summonImg.remove();
+        } catch (e) { try { summonImg.remove(); } catch (_) {} }
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        // (다음 자연 renderGameBoard 가 진짜 idle 레이어로 교체 — 둘 다 같은 idle 이라 끊김 없음)
       }, 1170 + 100);                             // 생성 GIF 총 길이(고정 1170ms) + 버퍼
     }).catch(() => { _markBrandCleanup(cell, key); });
   }, impactMs + 30);
