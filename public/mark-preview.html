@@ -84,7 +84,7 @@
           <div class="cell" id="cell">
             <img class="iron-ghost" id="ironGhost" src="/art/mark/mark_iron.png" alt="">
             <img class="iron" id="iron" src="/art/mark/mark_iron.png" alt="">
-            <img class="mark" id="mark" alt="">
+            <img class="mark" id="mark" alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
             <img class="unit" id="unit" src="/art/general_idle.gif" alt="">
           </div>
           <div class="label">메인 유닛 (표식 대상)</div>
@@ -221,6 +221,9 @@ document.getElementById('unitPick').addEventListener('change',e=>document.queryS
 function setPhase(n,note){ const m={summon:'표식 생성',idle:'아이들',move:'이동',release:'표식 파괴',nightmare:'악몽'};
   document.getElementById('pills').innerHTML=['표식 생성','아이들','이동','표식 파괴','악몽'].map(p=>`<span class="pill ${m[n]===p?'on':''}">${p}</span>`).join('');
   document.getElementById('phaseNote').textContent=note||''; }
+// ★ 투명 1×1 GIF — src 를 비우는 대신 이걸로 채워 '깨진 이미지 아이콘'을 원천 차단
+const BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+function hideMark(el){ if(!el)return; el.classList.remove('bob'); el.style.animation=''; el.src=BLANK; }
 function setIdle(el){ el.classList.remove('bob'); el.src=MARK.idle+'?t='+Date.now(); if(document.getElementById('bob').checked) el.classList.add('bob'); }
 async function playOnce(el,key){ el.classList.remove('bob'); el.src=await onceGif(MARK[key]); }
 
@@ -266,7 +269,7 @@ function moveDemo(){
   const r=cell.getBoundingClientRect(); const goLeft=face===-1; const us=num('unitsz'),ms=num('msize');
   const startX=r.left+r.width/2, endX=startX+(goLeft?-90:90), midY=r.top+r.height*0.62;
   const pick=document.getElementById('unitPick').value, upng='/art/'+pick.replace('_idle.gif','_move.png');
-  mark.removeAttribute('src'); // ★ src='' 깨진 이미지 아이콘 방지
+  hideMark(mark); // ★ 투명 GIF로 숨김 — 깨진 이미지 아이콘 방지
   const ug=(unitGlow()==='none'?'':unitGlow()+' ');
   const u=document.createElement('img'); u.src=upng; u.onerror=()=>u.style.display='none';
   u.style.cssText=`position:fixed;z-index:30;width:${us}px;height:${us}px;object-fit:contain;image-rendering:pixelated;left:${startX-us/2}px;top:${midY-us/2}px;transform:scaleX(${goLeft?-1:1});filter:${ug}drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);transition:left .7s cubic-bezier(.25,.46,.45,.94)`;
@@ -277,21 +280,21 @@ function moveDemo(){
   setTimeout(()=>{ u.remove(); m.remove(); setIdle(mark); },820);
 }
 function buildMulti(n){ const units=document.getElementById('units'),pick=document.getElementById('unitPick').value; units.innerHTML='';
-  for(let i=0;i<n;i++){ const w=document.createElement('div'); w.innerHTML=`<div class="cell"><img class="iron" src="${MARK.iron}"><img class="mark"><img class="unit" src="/art/${pick}?t=${Date.now()+i}"></div><div class="label">대상 ${i+1}</div>`; units.appendChild(w); }
+  for(let i=0;i<n;i++){ const w=document.createElement('div'); w.innerHTML=`<div class="cell"><img class="iron" src="${MARK.iron}"><img class="mark" src="${BLANK}"><img class="unit" src="/art/${pick}?t=${Date.now()+i}"></div><div class="label">대상 ${i+1}</div>`; units.appendChild(w); }
   apply(); document.querySelectorAll('.cell .mark').forEach(m=>setIdle(m)); }
 
 document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',async()=>{
   const a=b.dataset.act;
   if(a==='idle'){ setIdle(mark); setPhase('idle','표식 기본 — 루프'); }
   else if(a==='summon'){ setPhase('summon','생성 — 인두 내려찍힘 + 불꽃 → 표식 생성 1회 → 아이들');
-    mark.removeAttribute('src'); iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
+    hideMark(mark); iron.style.animation='none'; void iron.offsetWidth; iron.style.animation=`ironDrop ${num('ironDur')}s ease forwards`;
     const impactMs=num('ironDur')*1000*0.5;  // 강하 중 찍히는 순간
     setTimeout(()=>{ sparks(cell, iron); }, impactMs);                 // 불꽃
     setTimeout(async()=>{ await playOnce(mark,'summon'); }, impactMs+30); // 표식 생성
     setTimeout(()=>{ iron.style.animation=''; iron.style.opacity='0'; }, num('ironDur')*1000+60);
     setTimeout(()=>setIdle(mark), num('ironDur')*1000+450); }
   else if(a==='move'){ setPhase('move','이동 — 표식 PNG 동반, 도착 후 등장'); moveDemo(); }
-  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>{mark.removeAttribute('src');mark.classList.remove('bob');},1100); }
+  else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); await playOnce(mark,'release'); setTimeout(()=>hideMark(mark),1100); }
   else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기, 4프레임에 피격+데미지'); nightmare(cell,mark); }
   else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식 불변'); hitUnit(unit); }
   else if(a==='sparkTest'){ sparks(cell, mark); }
