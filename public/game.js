@@ -14705,11 +14705,15 @@ function showBoardDamageStamp(col, row, type, value) {
   if (!cell) return;
   const r = cell.getBoundingClientRect();
   if (!r.width) return;
-  // 다중 도장 스택 — 같은 셀에 동시/연속 도장이 겹치지 않게 중앙 기준 좌우로 어긋나게 배치.
-  if (!window._bdsActive) window._bdsActive = {};
+  // 다중 도장 세로 스택 — ★ 최신은 맨 아래(유닛 위), 기존 도장은 위로 밀려 올라감 (사용자 요청).
+  const GAP = 18;
+  if (!window._bdsStacks) window._bdsStacks = {};
   const _ck = col + ',' + row;
-  const idx = (window._bdsActive[_ck] = (window._bdsActive[_ck] || 0) + 1) - 1;  // 0-based 슬롯
-  const offX = ((idx + 1) >> 1) * 18 * (idx % 2 ? 1 : -1);   // 0, -18, +18, -36, +36 ...
+  const stack = (window._bdsStacks[_ck] = window._bdsStacks[_ck] || []);
+  const baseLeft = r.left + r.width / 2;
+  const baseTop  = r.top + r.height * 0.12;
+  // 기존 도장 위로 밀어올림
+  stack.forEach((el) => { el._lift = (el._lift || 0) + GAP; el.style.top = (baseTop - el._lift) + 'px'; });
   const span = document.createElement('span');
   span.className = 'board-dmg-stamp ' + (type || 'normal');
   // ★ 유닛 위 보드 도장은 글씨(저주/충성 태그) 없이 숫자만 — 타입은 색으로 구분 (사용자 요청).
@@ -14719,12 +14723,15 @@ function showBoardDamageStamp(col, row, type, value) {
     const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
     span.textContent = '−' + v;
   }
-  span.style.left = (r.left + r.width / 2 + offX) + 'px';
-  span.style.top  = (r.top + r.height * 0.12 - idx * 3) + 'px';
+  span._lift = 0;
+  span.style.left = baseLeft + 'px';
+  span.style.top  = baseTop + 'px';   // 최신은 맨 아래
   document.body.appendChild(span);
+  stack.push(span);
   setTimeout(() => {
     if (span.parentNode) span.remove();
-    window._bdsActive[_ck] = Math.max(0, (window._bdsActive[_ck] || 1) - 1);
+    const i = stack.indexOf(span); if (i >= 0) stack.splice(i, 1);
+    if (!stack.length) delete window._bdsStacks[_ck];
   }, 1000);
 }
 function _boardStampFromKey(key, type, dmg) {
