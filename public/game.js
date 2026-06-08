@@ -14152,6 +14152,9 @@ function renderGameBoard() {
   // ── 피격 GIF 재생 중인 셀 — 재렌더(특히 스킬 직후 비동기 렌더)로 idle 로 덮였으면 hit GIF 재적용 ──
   try { _reapplyActiveHitGifs(); } catch (e) {}
 
+  // ── ★ 캐러셀 강제 이동 — 액션(공격/피격/이동/사망)이 닿은 캐러셀 셀을 대표 슬롯으로 슬라이드 ──
+  try { _crApplyForced(); } catch (e) {}
+
   // ── 재접속 대비 — 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향) 영속 저장 ──
   try { _saveKnowledge(); } catch (e) {}
 }
@@ -14194,15 +14197,17 @@ function _renderCellCarousel(cell, col, row, units) {
     return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner };
   });
 
-  // 유닛 구성이 바뀌면(사망·추가) idx 초기화, HP/상태만 바뀌면 idx 유지
+  // 유닛 구성이 바뀌면(사망·추가) 대표 페이지로 초기화, HP/상태만 바뀌면 idx 유지
   const fp = units.map(u => `${u.owner}:${u.p.type || 'rem'}:${u.p.subUnit||''}${u.joined?'J':''}`).join('|');
+  const _repIdx = _crPickRepIdx(units);   // 대표 = 내유닛>팀원>표식적>유해, 그룹내 고티어/많이부숴진 우선
   if (!cs[csKey] || cs[csKey].fp !== fp) {
-    cs[csKey] = { idx: 0, busy: false, fp, pieces };
+    cs[csKey] = { idx: _repIdx, busy: false, fp, pieces, repIdx: _repIdx };
   } else {
     cs[csKey].pieces = pieces;
+    cs[csKey].repIdx = _repIdx;
   }
   const st = cs[csKey];
-  if (st.idx >= pieces.length) st.idx = 0;
+  if (st.idx >= pieces.length) st.idx = _repIdx;
 
   const cur = pieces[st.idx];
   const csId = `cc-${col}-${row}`;
@@ -14277,6 +14282,62 @@ window._crNav = function(colRow, dir) {
     st.busy = false;
   }, 200);
 };
+
+// ── 캐러셀 대표(우선순위) 선정 + 액션 시 대표로 자동 슬라이드 ────────────
+//   대표 우선순위: 내 유닛 → 팀원 → 표식 적 → 유해. 그룹 내: 유닛=고티어, 유해=많이 부숴진(hits) 먼저.
+function _crUnitPrio(u) {
+  const grp = u.owner === 'mine' ? 0 : u.owner === 'teammate' ? 1 : u.owner === 'opp' ? 2 : 3;
+  const tie = u.owner === 'remains' ? -((u.p && u.p.hits) || 0) : -((u.p && u.p.tier) || 0);
+  return [grp, tie];
+}
+function _crPickRepIdx(units) {
+  let best = 0, bk = null;
+  units.forEach((u, i) => {
+    const k = _crUnitPrio(u);
+    if (!bk || k[0] < bk[0] || (k[0] === bk[0] && k[1] < bk[1])) { bk = k; best = i; }
+  });
+  return best;
+}
+// 지정 슬롯으로 슬라이드(애니) — _crNav 의 단일 슬라이드를 임의 타깃으로 일반화. 회귀 없이 그 자리 고정.
+window._crSlideTo = function(csKey, targetSlot) {
+  const cs = window._cellCarouselState; const st = cs && cs[csKey];
+  if (!st || st.busy || !st.pieces || st.pieces.length <= 1) return;
+  if (targetSlot == null || targetSlot === st.idx || targetSlot >= st.pieces.length) return;
+  const [col, row] = csKey.split(',');
+  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
+  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
+  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`);
+  if (!curSlot || !nextSlot) return;
+  st.busy = true;
+  const n = st.pieces.length;
+  const fwd = ((targetSlot - st.idx) + n) % n, bwd = ((st.idx - targetSlot) + n) % n;
+  const dir = fwd <= bwd ? 1 : -1;
+  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
+  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+  curSlot.classList.add(outCls);
+  setTimeout(() => {
+    st.idx = targetSlot;
+    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition = 'none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
+    void nextSlot.offsetWidth; nextSlot.style.transition = ''; nextSlot.classList.remove(inCls);
+    const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
+    if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
+    st.busy = false;
+  }, 200);
+};
+// 액션이 닿은 셀 표시 — 렌더 종료 시 _crApplyForced 가 대표 슬롯으로 슬라이드(회귀 없음).
+if (!window._crForce) window._crForce = {};
+window._crForceCell = function(col, row) { if (col != null && row != null) window._crForce[`${col},${row}`] = true; };
+function _crApplyForced() {
+  const f = window._crForce; if (!f) return;
+  for (const k in f) {
+    delete f[k];
+    const st = window._cellCarouselState && window._cellCarouselState[k];
+    if (st && st.pieces && st.pieces.length > 1 && typeof st.repIdx === 'number' && st.repIdx !== st.idx) {
+      try { window._crSlideTo(k, st.repIdx); } catch (e) {}
+    }
+  }
+}
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
 // 적 프로필 카드의 deduction-badge 만 추가/갱신/제거 — 카드 자체는 재생성하지 않음
@@ -17966,6 +18027,8 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   if (!board) return;
   const _destKey = `${toCol},${toRow}`;
   _moveAnimDest.add(_destKey);
+  // ★ 캐러셀로 이동 진입 시 — 도착 셀의 대표 슬롯(들어온 유닛)으로 자동 이동 표시
+  if (window._crForceCell) window._crForceCell(toCol, toRow);
   const cells = board.querySelectorAll('.cell');
   const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
   const toCell   = [...cells].find(c => parseInt(c.dataset.col) === toCol   && parseInt(c.dataset.row) === toRow);
@@ -18403,6 +18466,8 @@ function animateBoardIconHit(cells, isDefending) {
     for (const c of cells) {
       const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
       if (!cell) continue;
+      // ★ 캐러셀이면 피격당한 셀의 대표 슬롯으로 자동 이동 표시
+      if (window._crForceCell) window._crForceCell(c.col, c.row);
 
       // isDefending=true  → 내 말 피격: opp-marked 가 아닌 piece-marker
       // isDefending=false → 상대 말 피격: opp-marked 만 (내 말이 점령한 경우 오발사 방지)
@@ -18620,6 +18685,8 @@ function playDeathAnimations(deaths, callback) {
   for (const d of deaths) {
     const cell = board.querySelector(`.cell[data-col="${d.col}"][data-row="${d.row}"]`);
     if (!cell) { done(); continue; }
+    // ★ 사망 후 같은 칸에 캐러셀이 남으면 대표 슬롯으로 자동 이동 표시
+    if (window._crForceCell) window._crForceCell(d.col, d.row);
 
     const deathUrl = window.getPieceDeathGifUrl ? window.getPieceDeathGifUrl(d.type) : '/art/death_common.gif';
     const noRemains = (d.type === 'dragon' || d.type === 'sulfurCauldron' || d.type === 'rat');
@@ -18884,6 +18951,8 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
       const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
       if (!cell) { resolve(); return; }
 
+      // ★ 캐러셀이면 공격자(이 셀의 대표) 슬롯으로 자동 이동 표시
+      if (window._crForceCell) window._crForceCell(col, row);
       // 아이들 img 숨김 + 셀 추적 등록
       // ★ visibility:hidden 은 레이아웃을 보존 → 숨긴 후에도 offsetLeft/Width 측정 정확
       _attackPlayingCells.add(`${col},${row}`);
