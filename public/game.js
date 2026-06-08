@@ -19045,11 +19045,12 @@ function animateAttackGif(col, row, type, subUnit, isJoined, pieceIdx) {
         img.src = url;
       }
       img.alt = '';
-      // ★ 저주 유닛이면 공격 모션에도 보라 오라(밝기 .5) — idle/이동과 통일. (플로터라 CSS 미적용 → 인라인)
+      // ★ 저주/표식 유닛이면 공격 모션에도 오라 유지 — idle/이동과 통일. (플로터라 CSS 미적용 → 인라인)
       const _atkCursed = cell.classList.contains('has-curse');
-      const _atkGlow = _atkCursed
-        ? ' drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5))'
-        : '';
+      const _atkMarked = cell.classList.contains('has-mark');
+      const _atkGlow =
+        (_atkCursed ? ' drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5))' : '') +
+        (_atkMarked ? ' drop-shadow(0 0 2px rgba(168,116,231,0.6)) drop-shadow(0 0 3px rgba(168,116,231,0.6))' : '');
       // ★ img.p-gif 와 동일한 블랙 아웃라인 + pixelated (이동·아이들 모션과 통일)
       img.style.cssText =
         `position:absolute;width:${_gifSize}px;height:${_gifSize}px;` +

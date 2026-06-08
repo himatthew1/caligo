@@ -62,6 +62,7 @@ function _markBrandOne(board, col, row, opts) {
   if (!cell) return;
   const M = window.MARK_GIFS || {};
   const key = col + ',' + row;
+  const _summonBlobP = _markOnceHoldBlob(M.summon);  // ★ 시작과 동시에 생성 GIF blob 준비 → impact 시점 즉시 표시(인두와 거의 동시)
   window._markSummoning.add(key);
   cell.classList.add('mark-brand-host');                         // overflow:visible
   cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = 'none'; });  // 소환 중 idle 숨김
@@ -84,7 +85,7 @@ function _markBrandOne(board, col, row, opts) {
   iron.className = 'mark-iron-anim'; iron.alt = '';
   iron.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_IRONSZ}px;height:${_MARK_IRONSZ}px;` +
     `margin-left:${-_MARK_IRONSZ / 2}px;margin-top:${-_MARK_IRONSZ / 2}px;z-index:30;pointer-events:none;` +
-    `image-rendering:pixelated;object-fit:contain;`;
+    `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));`;
   cell.appendChild(iron);
   iron.animate([
     { opacity: 0, transform: 'translateY(-18px) scale(.92)' },
@@ -110,19 +111,19 @@ function _markBrandOne(board, col, row, opts) {
   summonImg.className = 'mark-summon-anim'; summonImg.alt = '';
   summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_SIZE}px;height:${_MARK_SIZE}px;` +
     `margin-left:${-_MARK_SIZE / 2}px;margin-top:${-_MARK_SIZE / 2}px;z-index:6;pointer-events:none;` +
-    `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);`;
+    `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
   let blobUrl = null;
   setTimeout(() => {
-    Promise.all([_markOnceHoldBlob(M.summon), _markGifTotalMs(M.summon)]).then(([bu, total]) => {
+    _summonBlobP.then(bu => {                     // ★ 이미 준비된 blob → 즉시 표시(인두와 동시)
       blobUrl = bu; summonImg.src = bu; cell.appendChild(summonImg);
       setTimeout(() => {
+        // 생성 GIF 끝 → idle 인계. idle 먼저 렌더(디코드 시작)한 뒤 생성 오버레이 제거(공백 최소화).
         window._markSummoning.delete(key);
-        try { if (summonImg.parentNode) summonImg.remove(); } catch (e) {}
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
         cell.classList.remove('mark-brand-host');
         cell.querySelectorAll('.mark-board-layer').forEach(el => { el.style.display = ''; });
         if (typeof renderGameBoard === 'function') { try { renderGameBoard(); } catch (e) {} }
-      }, total + 120);
+        setTimeout(() => { try { if (summonImg.parentNode) summonImg.remove(); } catch (e) {} if (blobUrl) URL.revokeObjectURL(blobUrl); }, 60);
+      }, 1170 + 100);                             // 생성 GIF 총 길이(고정 1170ms) + 버퍼
     }).catch(() => { _markBrandCleanup(cell, key); });
   }, impactMs + 30);
 
