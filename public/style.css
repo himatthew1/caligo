@@ -6806,8 +6806,9 @@ body.team-mode .placement-opp-panel {
   .sp-bar-container { flex-direction: row; flex-wrap: nowrap; gap: 8px; }
   .sp-bar-container .sp-side { min-width: 0; }
   .sp-bar-container .sp-side-title { white-space: nowrap; }
-  .sp-bar-container .sp-num { font-size: 1.5rem; }
-  .sp-bar-container .sp-bar { flex: 1 1 90px; min-width: 56px; max-width: 220px; }
+  .sp-bar-container .sp-num { font-size: 1.55rem; }
+  /* ★ 숫자가 더 중요 → 막대는 더 짧고 얇게(공간 양보). 안 늘어나게 flex-grow:0. */
+  .sp-bar-container .sp-bar { flex: 0 1 100px; min-width: 44px; max-width: 120px; height: 11px; }
   .sp-label { text-align: center !important; }
 }
 @media (max-width: 700px) {
