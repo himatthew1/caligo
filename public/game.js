@@ -9132,10 +9132,12 @@ socket.on('passive_alert', (payload) => {
       return false;
     })();
     for (const cell of markCells) {
+      let _markedPc = null;   // ★ 캐러셀이면 이 새로 표식된 유닛 슬롯으로 자동 이동
       // 시전자 시점에서 적 piece 의 statusEffects 갱신 (🎯 아이콘 렌더링 트리거)
       if (isMyOrTeammate && Array.isArray(S.oppPieces)) {
         const opp = S.oppPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
         if (opp) {
+          _markedPc = opp;
           opp.marked = true;
           opp.statusEffects = opp.statusEffects || [];
           if (!opp.statusEffects.some(e => e.type === 'mark')) {
@@ -9158,6 +9160,7 @@ socket.on('passive_alert', (payload) => {
       if (Array.isArray(S.myPieces)) {
         const my = S.myPieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
         if (my) {
+          if (!_markedPc) _markedPc = my;
           my.statusEffects = my.statusEffects || [];
           if (!my.statusEffects.some(e => e.type === 'mark')) {
             my.statusEffects.push({ type: 'mark', source: playerIdx });
@@ -9168,12 +9171,15 @@ socket.on('passive_alert', (payload) => {
       if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
         const tp = S.teammatePieces.find(p => p && p.alive && p.col === cell.col && p.row === cell.row);
         if (tp) {
+          if (!_markedPc) _markedPc = tp;
           tp.statusEffects = tp.statusEffects || [];
           if (!tp.statusEffects.some(e => e.type === 'mark')) {
             tp.statusEffects.push({ type: 'mark', source: playerIdx });
           }
         }
       }
+      // ★ 캐러셀이면 새로 표식된 유닛 슬롯으로 자동 이동(표식 부여 연출이 그 유닛에 보이도록)
+      if (window._crForceCell && _markedPc) window._crForceCell(cell.col, cell.row, _markedPc);
     }
     // ★ animateMarkBrand 를 renderGameBoard 보다 먼저 — 소환 플래그(동기)로 idle 표식 레이어를 억제해
     //   인두/생성 GIF 가 idle 과 따로 놀지 않고 한 시퀀스로 재생되게 함.
@@ -9192,10 +9198,16 @@ socket.on('passive_alert', (payload) => {
 //   hits: [{col,row,stage,destroyed}] — stage 기반 그래픽 처리는 추후 확장.
 socket.on('remains_update', ({ remains, hits }) => {
   const board = document.getElementById('game-board');
+  // ★ 새로 생긴 유해(사망 → 유해 생성) 감지 — 캐러셀이면 그 유해 슬롯으로 자동 이동.
+  //   _crApplyForced 는 renderGameBoard 끝에서 돌므로, 각 renderGameBoard 직전에 플래그를 세팅.
+  const _oldRemKeys = new Set((S.remains || []).map(r => `${r.col},${r.row}`));
+  const _newRemains = (remains || []).filter(r => r && !_oldRemKeys.has(`${r.col},${r.row}`));
+  const _forceNewRemains = () => { if (window._crForceCell) for (const r of _newRemains) window._crForceCell(r.col, r.row, r); };
   // 폴백 — 애니 모듈/보드 없거나 hits 정보 없으면 상태만 즉시 반영.
   if (!board || !Array.isArray(hits) || hits.length === 0 || typeof animateRemainsHit !== 'function') {
     S.remains = remains || [];
     S._cellFP = null;
+    _forceNewRemains();
     if (typeof renderGameBoard === 'function') renderGameBoard();
     return;
   }
@@ -9220,6 +9232,7 @@ socket.on('remains_update', ({ remains, hits }) => {
     for (const h of hits) S._pendingRemainsHitCells.delete(`${h.col},${h.row}`);
     S.remains = remains || [];
     S._cellFP = null;  // 다음 렌더가 최종 단계를 정확히 반영
+    _forceNewRemains();   // ★ 새 유해 생성 셀이 캐러셀이면 그 유해로 이동
     // ★ FIX (유해 피격 단계 미반영): 애니 정착 직후 즉시 재렌더 — 새 단계가 화면에 바로 반영되게.
     //   (이전엔 다음 렌더(턴 종료)까지 옛 단계가 남는 레이스가 있었음)
     if (typeof renderGameBoard === 'function') renderGameBoard();
@@ -14604,7 +14617,7 @@ function _curseTransitionPreScan(){
   //   시점(_curseRemovalWaitMs 가 _impactAtTs 로 보류)에 자동 재생 = "사망과 동일 타이밍에 저주 해제".
   const collect = (pc, key, owner) => {
     if (_isCursed(pc) && pc && pc.alive !== false && pc.col != null && pc.col >= 0)
-      nowCursed.set(key, { col: pc.col, row: pc.row, name: pc.name, owner });
+      nowCursed.set(key, { col: pc.col, row: pc.row, name: pc.name, owner, pc });
   };
   (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`, S.playerIdx));
   if (S.isTeamMode) {
@@ -14649,6 +14662,9 @@ function _curseTransitionFlush(){
   // 신규 저주 → 소환 모션 재생 + 유닛 오라 페이드 인(소환 길이) → 소환 종료 시 idle 등장.
   for (const info of summon) {
     playCurseBoardAnim(info.col, info.row, 'summon');
+    // ★ 캐러셀이면 새로 저주 걸린 그 유닛 슬롯으로 자동 이동(소환 모션이 그 유닛에 보이도록).
+    //   이 flush 는 renderGameBoard 끝에서 _crApplyForced 직전에 실행 → 같은 렌더에 반영.
+    if (window._crForceCell && info.pc) window._crForceCell(info.col, info.row, info.pc);
     _applyCurseAuraFade(info.col, info.row, 'in', 1150);   // 동기 적용(같은 프레임) → 플래시 없음
     const _su = (window.CURSE_GIFS && window.CURSE_GIFS.summon);
     const _dpP = (_su && typeof _fetchGifDuration === 'function') ? _fetchGifDuration(_su) : Promise.resolve(1200);
@@ -18104,8 +18120,22 @@ function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, p
   if (!board) return;
   const _destKey = `${toCol},${toRow}`;
   _moveAnimDest.add(_destKey);
-  // ★ 캐러셀로 이동 진입 시 — 도착 셀의 대표 슬롯(들어온 유닛)으로 자동 이동 표시
-  if (window._crForceCell) window._crForceCell(toCol, toRow);
+  // ★ 캐러셀로 이동 진입 시 — 들어온 *그 유닛* 슬롯으로 자동 이동(대표=내유닛 으로만 새던 것 보완).
+  //   pieceKey: 내/팀원 = `${owner}:${idx}`(위치 무관 인덱스), 표식 적 = `opp:type[:subUnit]`.
+  let _moverPc = null;
+  if (pieceKey) {
+    const sk = String(pieceKey);
+    if (sk.startsWith('opp:')) {
+      _moverPc = (S.oppPieces || []).find(p => p && p.marked && p.alive && p.type === pieceType && (subUnit ? p.subUnit === subUnit : true));
+    } else {
+      const parts = sk.split(':'); const owner = parseInt(parts[0]), pi = parseInt(parts[1]);
+      if (owner === S.playerIdx && !isNaN(pi)) _moverPc = (S.myPieces || [])[pi];
+      else if (S.isTeamMode && Array.isArray(S.teammatePieces) && !isNaN(pi))
+        _moverPc = (S.teammatePieces || []).find(p => p && p.type === pieceType && (subUnit ? p.subUnit === subUnit : true) && p.col === toCol && p.row === toRow)
+                || (S.teammatePieces || []).find(p => p && p.type === pieceType && (subUnit ? p.subUnit === subUnit : true));
+    }
+  }
+  if (window._crForceCell) window._crForceCell(toCol, toRow, _moverPc);
   const cells = board.querySelectorAll('.cell');
   const fromCell = [...cells].find(c => parseInt(c.dataset.col) === fromCol && parseInt(c.dataset.row) === fromRow);
   const toCell   = [...cells].find(c => parseInt(c.dataset.col) === toCol   && parseInt(c.dataset.row) === toRow);
