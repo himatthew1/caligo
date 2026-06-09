@@ -7965,6 +7965,22 @@ function aiExecuteAttack(room, action) {
     }),
     yourPieces: pieceSummary(humanPlayer.pieces),
   });
+  // ★ FIX (표식 적 공격 모션 누락 — 1v1 AI 경로): AI 의 *표식된* 말이 공격하면 표식 부여자에게
+  //   공격 캐릭터 모션 전송(인간 attack 핸들러 10160-10176, 팀 AI 2521 과 동일 패턴). 이게 없어
+  //   1v1 에서 AI 표식 유닛 공격 시 marked_enemy_attack 이 안 와 공격 GIF 가 안 떴음.
+  {
+    const _markEffect = (piece.statusEffects || []).find(e => e.type === 'mark');
+    if (_markEffect && typeof _markEffect.source === 'number') {
+      const _v = room.players[_markEffect.source];
+      if (_v && _v.socketId && _v.socketId !== 'AI') {
+        io.to(_v.socketId).emit('marked_enemy_attack', {
+          atkCells,
+          hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
+          attacker: markedAttackerMotion(piece, aiPlayer.pieces),
+        });
+      }
+    }
+  }
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
   room._friendlyFireHits = [];
