@@ -14381,10 +14381,15 @@ if (!window._crForce) window._crForce = {};
 window._crForceCell = function(col, row, piece) {
   if (col == null || row == null) return;
   const k = `${col},${row}`;
-  // 이미 piece 가 지정돼 있으면 덮어쓰지 않음(여러 액션 중 첫 당사자 우선) — 단 true 는 piece 로 승격.
   const prev = window._crForce[k];
-  if (piece) window._crForce[k] = piece;
-  else if (prev === undefined) window._crForce[k] = true;
+  if (piece) {
+    // ★ 같은 렌더에 여러 당사자(다중 피격·다중 데미지)가 지정되면 대표(고티어→저체력→상태이상多) 유지.
+    window._crForce[k] = (prev && prev !== true && typeof _crPickVictimRep === 'function')
+      ? (_crPickVictimRep([prev, piece]) || piece)
+      : piece;
+  } else if (prev === undefined) {
+    window._crForce[k] = true;
+  }
 };
 // 캐러셀 상태에서 특정 piece 의 슬롯 인덱스 찾기 (참조 동일성)
 function _crSlotOfPiece(st, piece) {
@@ -14886,9 +14891,23 @@ function showBoardDamageStamp(col, row, type, value) {
     if (!stack.length) delete window._bdsStacks[_ck];
   }, 1000);
 }
+// key → piece 객체 (caroussel 강제이동용 — _keyToPieceCell 과 동일 해석, pc 반환)
+function _keyToPiece(key) {
+  if (!key) return null;
+  const p = String(key).split(':');
+  if (p[0] === 'my') return (S.myPieces || [])[parseInt(p[1])] || null;
+  if (p[0] === 'opp') return (S.oppPieces || [])[parseInt(p[1])] || null;
+  const o = parseInt(p[0]), i = parseInt(p[1]);
+  if (S.isTeamMode) { const pl = (S.teamGamePlayers || []).find(x => x.idx === o); return pl ? ((pl.pieces || [])[i] || null) : null; }
+  if (o === S.playerIdx) return (S.myPieces || [])[i] || null;
+  return (S.oppPieces || [])[i] || null;
+}
 function _boardStampFromKey(key, type, dmg) {
   if (!(dmg > 0)) return;
   try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, type, dmg); } catch (e) {}
+  // ★ 데미지(악몽/저주틱/유황범람/폭탄/덫/공격 등 전부 이 경로) → 캐러셀이면 피격 당사자 슬롯으로 자동 이동.
+  //   다중 피격이면 _crForceCell 의 대표 유지 로직(고티어→상태이상多)이 한 명만 선택. 다음 renderGameBoard 에서 반영.
+  try { const _pc = _keyToPiece(key); if (_pc && _pc.col != null && _pc.col >= 0 && window._crForceCell) window._crForceCell(_pc.col, _pc.row, _pc); } catch (e) {}
 }
 
 function addLoyaltyDamage(key, dmg) {
