@@ -14253,6 +14253,21 @@ function _renderCellCarousel(cell, col, row, units) {
       const _jKey = `${_jp.owner}:${(_jp.pcRef && _jp.pcRef.type) || ''}:${(_jp.pcRef && _jp.pcRef.subUnit) || ''}J`;
       if (!_prevFp.includes(_jKey)) _initIdx = _joinedIdx;
     }
+    // ★ 사망 → 유해가 *방금* 생긴 칸이면 그 유해 슬롯을 보여줌 (사용자 결정: "유해로 페이지 넘기기").
+    //   살아있는 내 말이 같은 칸이라도 유해로 전환. _crForce 에도 그 유해 piece 를 박아 _crApplyForced 가
+    //   사망경로(piece 없는 force → repIdx=내 말) 로 되돌리지 못하게 함.
+    //   "방금 생성" 판정: 이번 턴 생성(turnCreated===현재 턴) — 기존 유해 칸으로 이동 진입 시 오발 방지.
+    const _remIdx = pieces.findIndex(p => p.owner === 'remains');
+    if (_remIdx >= 0) {
+      const _rp = pieces[_remIdx], _rpc = _rp.pcRef;
+      const _rEntry = `remains:${(_rpc && _rpc.type) || 'rem'}:`;
+      const _freshByTurn = _rpc && typeof _rpc.turnCreated === 'number' && _rpc.turnCreated === S.turnNumber;
+      const _newInCell = !_prevFp.includes(_rEntry);
+      if (_newInCell && (_freshByTurn || _rpc.turnCreated == null)) {
+        _initIdx = _remIdx;
+        try { if (window._crForce && _rpc) window._crForce[csKey] = _rpc; } catch (e) {}
+      }
+    }
     cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx };
   } else {
     cs[csKey].pieces = pieces;
