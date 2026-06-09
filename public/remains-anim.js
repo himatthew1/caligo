@@ -118,7 +118,9 @@
       _oneShotBlobUrl(gifUrl).then(blobUrl => {
         _remImg.src = blobUrl;
         setTimeout(() => {
-          if (!destroyed) _remImg.src = _prevSrc;   // 파괴면 재렌더가 슬롯 제거
+          // ★ FIX: 피격 GIF 후 이전(옛) 단계로 되돌리던 버그 → 다음 단계 이미지로 전진(캐러셀 유해 단계 미반영 수정).
+          //   파괴면 그대로 두고 onSettle 후 재렌더가 슬롯 제거.
+          if (!destroyed) { _remImg.src = resultPng || _prevSrc; _remImg.dataset.stage = String(resultStage); }
           if (onSettle) onSettle();
           URL.revokeObjectURL(blobUrl);
         }, _gd + 80);

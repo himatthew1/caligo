@@ -9250,29 +9250,31 @@ socket.on('remains_update', ({ remains, hits }) => {
     //   (이전엔 다음 렌더(턴 종료)까지 옛 단계가 남는 레이스가 있었음)
     if (typeof renderGameBoard === 'function') renderGameBoard();
   };
+  // ★ 캐러셀: 유해 슬롯이 숨어있으면 임팩트 대기 전에 "미리" 그 슬롯으로 슬라이드해 둔다.
+  //   → 임팩트 시점에 모든 유해(캐러셀/일반)가 동시에 피격됨(일괄·동기). 슬라이드(200ms)는 임팩트 대기 중 완료.
+  let _slideNeeded = false;
+  for (const h of hits) {
+    try {
+      const _ck = `${h.col},${h.row}`;
+      const _st = window._cellCarouselState && window._cellCarouselState[_ck];
+      if (_st && _st.pieces && _st.pieces.length > 1) {
+        const _ri = _st.pieces.findIndex(p => p.owner === 'remains');
+        if (_ri >= 0 && _ri !== _st.idx && !_st.busy && typeof window._crSlideTo === 'function') {
+          window._crSlideTo(_ck, _ri);
+          _slideNeeded = true;
+        }
+      }
+    } catch (e) {}
+  }
+  // 모든 유해를 한 번에(동기) 발동 — 공격자 임팩트 순간(_delay)에 맞춤. 슬라이드가 필요하면 최소 그 시간만큼 대기.
   const _run = () => {
     for (const h of hits) {
       const facingLeft = !!(S._remainsFacing && S._remainsFacing[`${h.col},${h.row}`]);
-      const _doHit = () => animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
-      // ★ 캐러셀에서 유해가 숨은 슬롯이면 animateRemainsHit 가 그냥 bail(피격 모션 미재생) → 먼저 그 유해
-      //   슬롯으로 슬라이드해 보이게 한 뒤 피격 모션 재생. (유해 피격 시 캐러셀이 유해로 안 넘어가던 문제)
-      let _slid = false;
-      try {
-        const _ck = `${h.col},${h.row}`;
-        const _st = window._cellCarouselState && window._cellCarouselState[_ck];
-        if (_st && _st.pieces && _st.pieces.length > 1) {
-          const _ri = _st.pieces.findIndex(p => p.owner === 'remains');
-          if (_ri >= 0 && _ri !== _st.idx && !_st.busy) {
-            window._crSlideTo(_ck, _ri);     // 200ms 슬라이드
-            setTimeout(_doHit, 230);          // 슬라이드 완료 후 피격 모션
-            _slid = true;
-          }
-        }
-      } catch (e) {}
-      if (!_slid) _doHit();
+      animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
     }
   };
-  if (_delay > 0) setTimeout(_run, _delay); else _run();
+  const _runDelay = Math.max(_delay, _slideNeeded ? 230 : 0);
+  if (_runDelay > 0) setTimeout(_run, _runDelay); else _run();
 });
 socket.on('spectator_remains_update', ({ remains, hits }) => {
   S.remains = remains || [];
