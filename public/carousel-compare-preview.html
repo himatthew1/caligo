@@ -7,20 +7,25 @@
 <!-- ★ 실제 인게임 CSS 그대로 — 오른쪽(인게임) 컬럼이 이걸 사용 -->
 <link rel="stylesheet" href="style.css?v=20260608k">
 <style>
-  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;padding:16px;line-height:1.5}
-  h1{font-size:17px;color:#e2b714;margin:0 0 4px}
-  .sub{color:#a89fb8;font-size:11.5px;margin-bottom:14px;max-width:900px}
-  .wrap{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start}
-  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:26px;display:flex;flex-direction:column;align-items:center;gap:10px}
-  .stagebox h3{margin:0;font-size:13px;color:#e2b714}
-  .stagebox .tag{font-size:10.5px;color:#a89fb8;text-align:center;max-width:240px}
-  .twocell{display:flex;gap:22px;align-items:flex-start}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:14px 16px;line-height:1.45;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+  /* ── 헤더: 항상 최상단 중앙정렬 ── */
+  header.hdr{text-align:center;flex:0 0 auto}
+  header.hdr h1{font-size:17px;color:#e2b714;margin:0 0 4px}
+  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:760px}
+  /* ── 본문: 스크롤 없이 한 화면. 좌(스테이지)·우(컨트롤) ── */
+  main.layout{flex:1 1 auto;display:flex;gap:16px;align-items:stretch;min-height:0}
+  .stages{display:flex;gap:14px;align-items:stretch}
+  .controls{display:flex;flex-direction:column;gap:10px;flex:1 1 0;min-width:260px;max-width:400px}
+  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:16px;display:flex;flex-direction:column;align-items:center;gap:8px;justify-content:center}
+  .stagebox h3{margin:0;font-size:12px;color:#e2b714}
+  .twocell{display:flex;gap:18px;align-items:flex-start}
   .cellcap{display:flex;flex-direction:column;align-items:center;gap:6px}
-  .cellcap .lbl{font-size:10.5px;color:#8a8298}
-  /* 인게임 보드 그리드(반응형 1fr·정사각) — 실제와 동일 환경 */
+  .cellcap .lbl{font-size:10px;color:#8a8298;text-align:center}
   #game-board{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;width:var(--bw,170px)}
   #game-board .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center}
-  /* 단일(일반) 셀 비교용 작은 보드 */
   .miniboard{display:grid;grid-template-columns:1fr;gap:3px;width:var(--cw,52px)}
   .miniboard .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center}
 
@@ -41,72 +46,68 @@
   .pv-tri.l{border-right:6px solid rgba(255,255,255,.8)}
   .pv-tri.r{border-left:6px solid rgba(255,255,255,.8)}
 
-  .panel{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:14px;min-width:280px;max-width:360px}
-  .panel h2{font-size:12.5px;color:#e2b714;margin:0 0 8px;text-transform:uppercase}
-  .btns{display:flex;flex-direction:column;gap:7px}
-  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:8px 11px;cursor:pointer;font-size:12px;text-align:left}
+  .panel{background:#221d30;border:1px solid #453c5c;border-radius:10px;padding:11px 12px}
+  .panel h2{font-size:11.5px;color:#e2b714;margin:0 0 7px;text-transform:uppercase}
+  .btns{display:flex;flex-direction:column;gap:5px}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:11.5px;text-align:left}
   button:hover{border-color:#a874e7}
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
-  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
-  .row label{flex:0 0 90px;color:#a89fb8;font-size:11.5px}
+  .row{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .row label{flex:0 0 84px;color:#a89fb8;font-size:11px}
   .row input[type=range]{flex:1;accent-color:#a874e7}
-  .row .val{flex:0 0 40px;text-align:right;font-size:11px}
-  .note{color:#a89fb8;font-size:10.5px;margin-top:8px;line-height:1.55}
-  .diag{background:#0a0d12;border:1px solid #453c5c;border-radius:7px;padding:9px;font-family:Consolas,monospace;font-size:10.5px;color:#a8d4ff;white-space:pre-wrap;margin-top:8px;line-height:1.5}
+  .row .val{flex:0 0 36px;text-align:right;font-size:11px}
+  .note{color:#a89fb8;font-size:10px;margin-top:6px;line-height:1.5}
+  .diag{background:#0a0d12;border:1px solid #453c5c;border-radius:7px;padding:8px;font-family:Consolas,monospace;font-size:10px;color:#a8d4ff;white-space:pre-wrap;margin-top:6px;line-height:1.45}
   .diag b{color:#ffd479}
 </style>
 </head>
 <body>
-<h1>🎠 캐러셀 싱크 비교 — <span style="color:#a371f7">의도(어제 프리뷰)</span> vs <span style="color:#5eead4">실제 인게임 코드</span></h1>
-<div class="sub">오른쪽 "실제 인게임" 컬럼은 <b>game.js 의 _renderCellCarousel / _crNav / _crApplyForced 함수와 style.css 를 한 글자도 안 고치고 그대로</b> 실행합니다(수치·스타일 재편집 없음). 왼쪽은 어제 만든 프리뷰의 의도안입니다. 같은 시나리오를 양쪽에 띄워 <b>유닛 크기 · 상대(표식) 유닛 가시성 · 대표 강제 페이지넘김</b>이 얼마나 일치하는지 직접 비교하세요.</div>
+<header class="hdr">
+  <h1>🎠 캐러셀 싱크 비교 — <span style="color:#a371f7">의도(어제 프리뷰)</span> vs <span style="color:#5eead4">실제 인게임 코드</span></h1>
+  <div class="sub">오른쪽 "실제 인게임" 컬럼은 <b>game.js 의 _renderCellCarousel / _crNav / _crApplyForced 함수 + style.css 를 그대로</b> 실행합니다. 같은 시나리오로 <b>유닛 크기 · 상대(표식) 가시성 · 대표 강제 페이지넘김</b>을 직접 비교하세요.</div>
+</header>
 
-<div class="wrap">
-  <!-- 의도 컬럼 -->
-  <div class="stagebox">
-    <h3 style="color:#a371f7">의도안 (어제 프리뷰)</h3>
-    <div class="twocell">
-      <div class="cellcap"><div class="pv-cell" id="pvCell"></div><div class="lbl">캐러셀 (◀▶)</div></div>
-      <div class="cellcap"><div class="pv-cell" id="pvNorm"></div><div class="lbl">일반 셀(내 유닛)</div></div>
-    </div>
-  </div>
-
-  <!-- 실제 인게임 컬럼 -->
-  <div class="stagebox">
-    <h3 style="color:#5eead4">실제 인게임 (game.js + style.css 그대로)</h3>
-    <div class="twocell">
-      <div class="cellcap">
-        <div id="game-board"></div>
-        <div class="lbl">캐러셀 셀 = 보드 중앙</div>
-      </div>
-      <div class="cellcap">
-        <div class="miniboard" id="ig-norm"></div>
-        <div class="lbl">일반 셀(내 유닛)</div>
+<main class="layout">
+  <section class="stages">
+    <div class="stagebox">
+      <h3 style="color:#a371f7">의도안 (어제 프리뷰)</h3>
+      <div class="twocell">
+        <div class="cellcap"><div class="pv-cell" id="pvCell"></div><div class="lbl">캐러셀 ◀▶</div></div>
+        <div class="cellcap"><div class="pv-cell" id="pvNorm"></div><div class="lbl">일반 셀</div></div>
       </div>
     </div>
-  </div>
-
-  <div class="panel">
-    <h2>시나리오</h2>
-    <div class="btns">
-      <button class="primary" data-act="scn1">① 내 장군 + 표식 마녀(적) + 유해</button>
-      <button data-act="scn2">② 내 장군 + 표식 적 2 + 유해 2</button>
-      <button data-act="scn3">③ 내 유닛 2 겹침(반지)</button>
+    <div class="stagebox">
+      <h3 style="color:#5eead4">실제 인게임 (game.js + style.css)</h3>
+      <div class="twocell">
+        <div class="cellcap"><div id="game-board"></div><div class="lbl">캐러셀 = 보드 중앙</div></div>
+        <div class="cellcap"><div class="miniboard" id="ig-norm"></div><div class="lbl">일반 셀</div></div>
+      </div>
     </div>
-    <div class="row" style="margin-top:10px"><label>보드 폭</label><input type="range" id="bw" min="130" max="320" step="10" value="170"><span class="val" id="bwV">170</span></div>
-    <div class="row"><label>일반셀 폭</label><input type="range" id="cw" min="40" max="90" step="2" value="52"><span class="val" id="cwV">52</span></div>
-    <div class="note">양쪽 셀에 ◀▶ 화살표로 직접 넘겨보세요. 상대(표식) 유닛 슬롯이 <b>실제 인게임 컬럼</b>에서 비어 보이는지 확인.</div>
-  </div>
+  </section>
 
-  <div class="panel">
-    <h2>액션 (대표 강제 넘김)</h2>
-    <div class="btns">
-      <button data-act="hitOpp">표식 적 피격 → 그 적 페이지로?</button>
-      <button data-act="hitMine">내 유닛 피격 → 내 페이지로</button>
+  <aside class="controls">
+    <div class="panel">
+      <h2>시나리오</h2>
+      <div class="btns">
+        <button class="primary" data-act="scn1">① 내 장군 + 표식 마녀(적) + 유해</button>
+        <button data-act="scn2">② 내 장군 + 표식 적 2 + 유해 2</button>
+        <button data-act="scn3">③ 내 유닛 2 겹침(반지)</button>
+      </div>
+      <div class="row" style="margin-top:8px"><label>보드 폭</label><input type="range" id="bw" min="130" max="320" step="10" value="170"><span class="val" id="bwV">170</span></div>
+      <div class="row"><label>일반셀 폭</label><input type="range" id="cw" min="40" max="90" step="2" value="52"><span class="val" id="cwV">52</span></div>
+      <div class="note">양쪽 셀에 ◀▶ 로 직접 넘겨 상대(표식) 슬롯이 비어 보이는지 확인.</div>
     </div>
-    <div class="note">"표식 적 피격"을 누르면 <b>의도</b>는 적(피격자) 페이지로 가야 하고, <b>실제 인게임</b>은 _crApplyForced 가 셀 대표(내 유닛)로 가는지 비교됩니다.</div>
-    <div class="diag" id="diag"></div>
-  </div>
-</div>
+    <div class="panel">
+      <h2>액션 (대표 강제 넘김)</h2>
+      <div class="btns">
+        <button data-act="hitOpp">표식 적 피격 → 그 적 페이지로</button>
+        <button data-act="hitMine">내 유닛 피격 → 내 페이지로</button>
+      </div>
+      <div class="note">두 컬럼 모두 피격 당사자 페이지로 슬라이드되면 싱크 OK.</div>
+      <div class="diag" id="diag"></div>
+    </div>
+  </aside>
+</main>
 
 <!-- ★ 실제 인게임 모듈 그대로 -->
 <script src="piece-gifs.js?v=20260608k"></script>
