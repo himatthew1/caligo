@@ -7306,6 +7306,10 @@ body[data-my-team="red"] #chat-scope-team.active {
   .my-piece-header, .opp-piece-header { gap: 3px; }
   .my-piece-header .p-icon, .opp-piece-header .p-icon { font-size: 1rem; }
   .my-piece-header strong, .opp-piece-header strong { font-size: 0.72rem; }
+  /* 이름은 잘리지 않고 항상 풀네임 — 길면 글자만 줄여 영역에 맞춤 (name-long/vlong = getNameLengthClass) */
+  .my-piece-header strong, .opp-piece-header strong { white-space: nowrap; overflow: visible; text-overflow: clip; }
+  .my-piece-header strong.name-long, .opp-piece-header strong.name-long { font-size: 0.6rem; }
+  .my-piece-header strong.name-vlong, .opp-piece-header strong.name-vlong { font-size: 0.52rem; letter-spacing: -0.2px; }
   .my-piece-header .tier-badge, .opp-piece-header .tier-badge { font-size: 0.5rem; padding: 0 3px; }
   .my-piece-card .tag-badge, .opp-piece-card .tag-badge { width: 16px; height: 16px; margin-left: 3px; }
   .my-piece-card .hp-bar-bg, .opp-piece-card .hp-bar-bg { height: 11px; }
