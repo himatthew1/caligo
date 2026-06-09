@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CALIGO — 캐러셀 공격·피격 시퀀스 데모</title>
+<title>CALIGO — 캐러셀 공격·피격·상태이상 시퀀스 데모</title>
 <!-- ★ 실제 인게임 CSS 그대로 -->
 <link rel="stylesheet" href="style.css?v=20260608k">
 <style>
@@ -11,55 +11,57 @@
   html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
     padding:10px 12px;line-height:1.4;display:flex;flex-direction:column;gap:8px;overflow:hidden}
-  /* ── 헤더: 항상 최상단 중앙정렬 ── */
   header.hdr{text-align:center;flex:0 0 auto}
   header.hdr h1{font-size:16px;color:#e2b714;margin:0 0 3px}
-  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:780px}
-  /* ── 본문: 스크롤 없이 한 화면 ── */
+  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:800px}
   main.layout{flex:1 1 auto;display:flex;gap:12px;align-items:stretch;min-height:0}
-  /* 좌: 무대 */
   .stage{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;gap:9px;
     background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:14px 16px;min-width:248px}
   .stage h3{margin:0;font-size:12px;color:#5eead4}
-  .boardwrap{display:flex;gap:26px;align-items:center;justify-content:center;padding:14px 0 6px}
+  .boardwrap{display:flex;gap:26px;align-items:center;justify-content:center;padding:16px 0 8px}
   .cellcap{display:flex;flex-direction:column;align-items:center;gap:7px}
   .cellcap .lbl{font-size:10px;color:#8a8298;text-align:center}
-  /* 단일 캐러셀 셀 — 실제 #game-board .cell(56px/팀34) 사이즈 그대로, 5×5 그리드 안 씀 → 오버플로 없음 */
-  #game-board{display:inline-grid;grid-template-columns:auto;place-items:center;padding:14px}
-  .miniboard{display:inline-grid;grid-template-columns:auto;place-items:center;padding:14px}
-  /* 상태 패널(모든 유닛 상태 한눈에 — 페이지 안 넘겨도 보이는 블리드 확인용) */
-  .statepanel{width:100%;background:#0a0813;border:1px solid #2e2842;border-radius:8px;padding:8px 10px}
+  #game-board{display:inline-grid;grid-template-columns:auto;place-items:center;padding:18px}
+  .miniboard{display:inline-grid;grid-template-columns:auto;place-items:center;padding:18px}
+  /* 슬롯 내부 래퍼에 position 부여 — 표식 정수리 레이어(bottom:100%) 앵커용 */
+  .cc-inner{position:relative}
+  .statepanel{width:100%;background:#0a0813;border:1px solid #2e2842;border-radius:8px;padding:7px 10px}
   .statepanel .row2{display:flex;align-items:center;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed #241f33}
   .statepanel .row2:last-child{border-bottom:none}
-  .statepanel .who{flex:0 0 92px;color:#cfc7dd}
-  .statepanel .who .o{font-size:9.5px;padding:1px 5px;border-radius:6px;margin-right:4px}
+  .statepanel .who{flex:0 0 96px;color:#cfc7dd}
+  .o{font-size:9.5px;padding:1px 5px;border-radius:6px;margin-right:4px}
   .o.mine{background:#14532d;color:#86efac}.o.opp{background:#5a1717;color:#fca5a5}.o.rem{background:#3a2f12;color:#e2c878}
   .statepanel .stat{flex:1;color:#a89fb8}
-  .statepanel .cur{color:#ffd479;font-weight:700}
-  .seqlog{width:100%;min-height:46px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;padding:8px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
+  .tag{font-size:9.5px;padding:1px 6px;border-radius:6px;margin-left:3px;font-weight:700}
+  .tag.mark{background:#3a2f12;color:#ffd479;border:1px solid #6b5413}
+  .tag.curse{background:#2a1d44;color:#c9a9ff;border:1px solid #5a3aa0}
+  .cur{color:#ffd479;font-weight:700}
+  .seqlog{width:100%;min-height:42px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;padding:7px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
   .seqlog b{color:#ffd479}
-  /* 우: 컨트롤 */
   .controls{display:flex;flex-direction:column;gap:8px;flex:1 1 0;min-width:200px;max-width:360px;overflow:auto}
   .panel{background:#221d30;border:1px solid #453c5c;border-radius:10px;padding:10px 12px}
   .panel h2{font-size:11px;color:#e2b714;margin:0 0 7px;text-transform:uppercase;letter-spacing:.3px}
   .btns{display:flex;flex-direction:column;gap:5px}
-  .seg{display:flex;gap:6px}
-  .seg button{flex:1;text-align:center}
+  .seg{display:flex;gap:6px}.seg button{flex:1;text-align:center}
   button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:6px 9px;cursor:pointer;font-size:11.5px;text-align:left}
   button:hover{border-color:#a874e7}
   button.on{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:700}
-  button.primary{background:linear-gradient(135deg,#b91c1c,#dc2626);border-color:transparent;font-weight:700;text-align:center}
+  button.atk{background:linear-gradient(135deg,#b91c1c,#dc2626);border-color:transparent;font-weight:700;text-align:center}
+  button.mk{background:#3a2f12;border-color:#6b5413;color:#ffd479}
+  button.cs{background:#2a1d44;border-color:#5a3aa0;color:#c9a9ff}
   .chips{display:flex;flex-wrap:wrap;gap:5px}
   .chip{font-size:10.5px;padding:4px 8px;border-radius:14px;border:1px solid #453c5c;background:#1a1626;cursor:pointer;user-select:none}
   .chip.on{background:#3a2a5c;border-color:#a874e7;color:#fff}
   .note{color:#8a8298;font-size:10px;margin-top:6px;line-height:1.5}
   .unitrow{font-size:10.5px;color:#cfc7dd;margin:6px 0 3px}
+  /* 저주 틱 데미지 도장(보라) */
+  .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
 </style>
 </head>
 <body>
 <header class="hdr">
-  <h1>🎯 캐러셀 공격·피격 시퀀스 데모 (실제 game.js 렌더 + style.css)</h1>
-  <div class="sub">표식 등으로 적 위치가 공개돼 <b>내 유닛 + 표식 적</b>이 한 칸에 겹치면 캐러셀. <b>공격</b> 누르면 ① 내 공격자 공격모션 → ② <b>대표 피격자</b>로 페이지 이동 → ③ 피격모션 + 데미지 도장. 다중 피격 시 대표 = <b>고티어 → (동률)저체력 → 상태이상 多 → 아무나</b>.</div>
+  <h1>🎯 캐러셀 공격·피격·상태이상 시퀀스 데모 (실제 game.js 렌더 + 전용 모션)</h1>
+  <div class="sub">표식으로 적 위치가 공개돼 <b>내 유닛 + 표식 적</b>이 한 칸에 겹치면 캐러셀. 상태이상은 이모지가 아니라 <b>전용 모션</b>(표식=정수리 인두/생성·idle, 저주=망령 소환/틱데미지/idle)으로 표현. 그림자는 보드 비표시.</div>
 </header>
 
 <main class="layout">
@@ -70,7 +72,7 @@
       <div class="cellcap"><div class="miniboard" id="ig-norm"></div><div class="lbl">일반 셀(비교)</div></div>
     </div>
     <div class="statepanel" id="statePanel"></div>
-    <div class="seqlog" id="seqlog">시나리오를 고르고 <b>내 유닛 공격</b>을 눌러보세요.</div>
+    <div class="seqlog" id="seqlog">시나리오를 고르고 액션 버튼을 눌러보세요.</div>
   </div>
 
   <aside class="controls">
@@ -78,282 +80,279 @@
       <h2>모드</h2>
       <div class="seg">
         <button id="mode-1v1" class="on" data-mode="1v1">1v1 (56px)</button>
-        <button id="mode-2v2" data-mode="2v2">2v2 (작은 셀)</button>
+        <button data-mode="2v2">2v2 (작은 셀)</button>
       </div>
-      <div class="note">2v2는 셀이 작아 캐릭터가 위로 튀어나옴(잘림 방지 확인).</div>
     </div>
     <div class="panel">
       <h2>시나리오</h2>
       <div class="btns">
         <button class="scn on" data-scn="s1">① 내 장군 + 표식 마녀(적) + 유해</button>
         <button class="scn" data-scn="s2">② 다중 피격 — 표식 적 3 (고티어 대표)</button>
-        <button class="scn" data-scn="s3">③ 동률 타이브레이크 (티어 같음 → 저체력 → 상태이상)</button>
+        <button class="scn" data-scn="s3">③ 동률 — 티어 같음→저체력→상태이상多</button>
       </div>
     </div>
     <div class="panel">
-      <h2>상태이상 부여 (블리드 확인)</h2>
-      <div id="statusToggles"></div>
-      <div class="note">각 유닛에 표식🎯/저주☠/그림자👻 토글. 캐러셀에서 <b>현재 페이지가 아니어도</b> 상태 패널·슬롯 배지로 모두 보이는지 확인.</div>
+      <h2>⚔ 공격 시퀀스</h2>
+      <button class="atk" id="btnAttack">내 유닛 공격 → 대표 피격자 이동 + 도장</button>
+      <div class="note">①공격자 모션 → ②대표 피격자 페이지 이동 → ③피격+도장. 대표 = 고티어→저체력→상태이상多→아무나.</div>
     </div>
     <div class="panel">
-      <h2>액션</h2>
-      <button class="primary" id="btnAttack">⚔ 내 유닛 공격 → 시퀀스 재생</button>
-      <div class="note">공격자=내 유닛. 피격자=표식 적 전체 중 대표 1명.</div>
+      <h2>상태이상 전용 모션</h2>
+      <div class="btns">
+        <button class="mk" id="btnMark">🔨 표식 부여 (인두 낙하 + 생성 → idle)</button>
+        <button class="cs" id="btnCurse">👻 저주 부여 (망령 소환 → idle)</button>
+        <button class="cs" id="btnCurseTick">💥 저주 틱 데미지 (망령 공격 + 도장)</button>
+      </div>
+      <div class="note">표식 적이 없는 상황에서 새로 부여되는 모션, 저주 지속 유닛에 매턴 틱 데미지가 들어가는 모션.</div>
+    </div>
+    <div class="panel">
+      <h2>상태 수동 토글</h2>
+      <div id="statusToggles"></div>
     </div>
   </aside>
 </main>
 
 <!-- ★ 실제 인게임 모듈 -->
 <script src="piece-gifs.js?v=20260608k"></script>
+<script src="mark-anim.js?v=20260608k"></script>
 <script>
-/* ───── 스텁 (인게임 game.js 전역 의존) ───── */
+/* ───── 스텁 ───── */
 window.S = { teamId: 0, isTeamMode: false };
 window.REMAINS_IMG = '/art/remains.png';
-function getStatusIcons(pc){
-  if(!pc.status || !pc.status.length) return '';
-  return pc.status.map(t=> t==='curse'?'☠':t==='shadow'?'👻':t==='mark'?'🎯':'').join('');
-}
-function getBoardStatusIcons(pc){ return (getStatusIcons(pc)||'').replace(/☠/g,'').replace(/🎯/g,''); }
 function pieceIconHtml(icon, opts){ return `<span style="font-size:${(opts&&opts.size)||'1.3em'}">${icon||'❔'}</span>`; }
 function _isMarked(pc){ return !!(pc && pc.status && pc.status.includes('mark')); }
 function _isCursed(pc){ return !!(pc && pc.status && pc.status.includes('curse')); }
+function getBoardStatusIcons(){ return ''; }  // 상태이상은 이모지 아니라 전용 레이어/모션으로 표현
+// 전용 레이어 HTML (실제 game.js 와 동일 — CURSE_GIFS.idle / MARK_GIFS.idle)
+function markBoardLayerHtml(){ const u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif'; return `<img class="mark-board-layer" src="${u}" alt="">`; }
+function curseBoardLayerHtml(){ const u=(window.CURSE_GIFS&&window.CURSE_GIFS.idle)||'/art/curse/curse_idle.gif'; return `<img class="curse-board-layer" src="${u}" alt="">`; }
 
-/* ===== ↓↓↓ game.js 캐러셀 함수 그대로 (pcRef/액션당사자 강제넘김 수정 반영) ↓↓↓ ===== */
-if (!window._cellCarouselState) window._cellCarouselState = {};
-function _renderCellCarousel(cell, col, row, units) {
-  const cs = window._cellCarouselState; const csKey = `${col},${row}`;
-  const pieces = units.map(u => {
-    const pc = u.p;
-    if (u.owner === 'remains') {
-      const _remUrl = window.REMAINS_IMG || '/art/remains.png';
-      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText:'', hpColor:'', statusIcons:'', owner:'remains', pcRef: pc };
-    }
-    const gifHtml = (window.PIECE_GIFS && window.PIECE_GIFS[pc.type]) ? `<img class="p-gif" src="${window.PIECE_GIFS[pc.type]}" alt="">` : null;
-    const _iconFb = pieceIconHtml(pc.icon, {size:'1.3em'}) || '';
-    let iconHtml = gifHtml ? gifHtml.replace('<img ', `<img onerror="this.onerror=null;this.outerHTML=this.dataset.fb||'?'" data-fb="${_iconFb.replace(/"/g,'&quot;')}" `) : (_iconFb || '?');
-    let hpColor = u.owner==='opp' ? '#f87171' : (u.owner==='teammate' ? (S.teamId===0?'#93c5fd':'#fca5a5') : 'var(--success)');
-    const statusIcons = getBoardStatusIcons(pc);
-    const hpText = `${pc.hp}/${pc.maxHp}`;
-    return { iconHtml, hpText, hpColor, statusIcons, owner:u.owner, pcRef: pc };
+/* ───── 저주 1회성 연출 (game.js playCurseBoardAnim 그대로 복제) ───── */
+const _curseGifBytes={};
+function _curseStripLoopBlob(buf){
+  for(let i=0;i<buf.length-13;i++){ if(buf[i]===0x21&&buf[i+1]===0xFF&&buf[i+2]===0x0B){
+    let tag=''; for(let k=0;k<11;k++) tag+=String.fromCharCode(buf[i+3+k]);
+    if(tag==='NETSCAPE2.0'){ const out=new Uint8Array(buf.length-19); out.set(buf.slice(0,i),0); out.set(buf.slice(i+19),i); return URL.createObjectURL(new Blob([out],{type:'image/gif'})); } } }
+  return URL.createObjectURL(new Blob([buf],{type:'image/gif'}));
+}
+async function _curseOnceBlobUrl(kind){ const url=window.CURSE_GIFS&&window.CURSE_GIFS[kind]; if(!url)return null;
+  if(!_curseGifBytes[kind]){ try{ _curseGifBytes[kind]=new Uint8Array(await(await fetch(url)).arrayBuffer()); }catch(e){ return url; } }
+  return _curseStripLoopBlob(_curseGifBytes[kind]); }
+function _fetchGifDuration(){ return Promise.resolve(1100); }  // 데모 스텁
+function playCurseBoardAnim(col,row,kind){
+  const board=document.getElementById('game-board'); if(!board)return;
+  const cell=board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`); if(!cell)return;
+  cell.querySelectorAll('.curse-anim-overlay').forEach(o=>{try{o.remove();}catch(e){}});
+  const img=document.createElement('img'); img.className='curse-anim-overlay curse-kind-'+kind; img.alt='';
+  let _url=null,_done=false; const _cleanup=()=>{ if(_done)return; _done=true; if(img.parentNode)img.remove(); if(_url&&_url.startsWith('blob:')){try{URL.revokeObjectURL(_url);}catch(e){}} };
+  cell.appendChild(img);
+  _curseOnceBlobUrl(kind).then(u=>{ if(!u){_cleanup();return;} _url=u; img.src=u;
+    Promise.resolve(_fetchGifDuration(u)).then(dur=>setTimeout(_cleanup,(dur||1100)+80)).catch(()=>setTimeout(_cleanup,1500)); });
+  setTimeout(_cleanup,4000);
+}
+
+/* ===== ↓↓↓ game.js 캐러셀 함수 (pcRef/액션당사자 강제넘김 반영) ↓↓↓ ===== */
+if(!window._cellCarouselState) window._cellCarouselState={};
+function _renderCellCarousel(cell,col,row,units){
+  const cs=window._cellCarouselState, csKey=`${col},${row}`;
+  const pieces=units.map(u=>{ const pc=u.p;
+    if(u.owner==='remains'){ const _remUrl=window.REMAINS_IMG||'/art/remains.png';
+      return {iconHtml:`<img class="cc-remains" src="${_remUrl}" alt="">`,hpText:'',hpColor:'',statusIcons:'',owner:'remains',pcRef:pc}; }
+    const gifHtml=(window.PIECE_GIFS&&window.PIECE_GIFS[pc.type])?`<img class="p-gif" src="${window.PIECE_GIFS[pc.type]}" alt="">`:null;
+    const _iconFb=pieceIconHtml(pc.icon,{size:'1.3em'})||'';
+    let iconHtml=gifHtml?gifHtml.replace('<img ',`<img onerror="this.onerror=null;this.outerHTML=this.dataset.fb||'?'" data-fb="${_iconFb.replace(/"/g,'&quot;')}" `):(_iconFb||'?');
+    let hpColor=u.owner==='opp'?'#f87171':(u.owner==='teammate'?(S.teamId===0?'#93c5fd':'#fca5a5'):'var(--success)');
+    return {iconHtml,hpText:`${pc.hp}/${pc.maxHp}`,hpColor,statusIcons:getBoardStatusIcons(pc),owner:u.owner,pcRef:pc};
   });
-  const fp = units.map(u => `${u.owner}:${u.p.type||'rem'}:${u.p.subUnit||''}`).join('|');
-  const _repIdx = _crPickRepIdx(units);
-  if (!cs[csKey] || cs[csKey].fp !== fp) cs[csKey] = { idx:_repIdx, busy:false, fp, pieces, repIdx:_repIdx };
-  else { cs[csKey].pieces = pieces; cs[csKey].repIdx = _repIdx; }
-  const st = cs[csKey]; if (st.idx >= pieces.length) st.idx = _repIdx;
-  const cur = pieces[st.idx]; const csId = `cc-${col}-${row}`; const statusHtml = cur.statusIcons || '';
-  const slotsHtml = pieces.map((pc,i) =>
-    `<div class="cc-main${i===st.idx?'':' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">`+
-      `<div class="cc-inner"><span class="p-icon">${pc.iconHtml}</span><span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span></div>`+
-    `</div>`).join('');
-  cell.innerHTML += `
-    <div class="cc-wrapper" id="${csId}-wrap">
-      ${slotsHtml}
-      <span class="cell-mark" id="${csId}-mark"${!statusHtml?' style="display:none"':''}>${statusHtml}</span>
-      <button class="cc-arrow cc-left"  onclick="_crNav('${col},${row}',-1);event.stopPropagation()"><div class="cc-tri cc-tri-left"></div></button>
-      <button class="cc-arrow cc-right" onclick="_crNav('${col},${row}', 1);event.stopPropagation()"><div class="cc-tri cc-tri-right"></div></button>
-    </div>`;
+  const fp=units.map(u=>`${u.owner}:${u.p.type||'rem'}`).join('|');
+  const _repIdx=_crPickRepIdx(units);
+  if(!cs[csKey]||cs[csKey].fp!==fp) cs[csKey]={idx:_repIdx,busy:false,fp,pieces,repIdx:_repIdx};
+  else { cs[csKey].pieces=pieces; cs[csKey].repIdx=_repIdx; }
+  const st=cs[csKey]; if(st.idx>=pieces.length) st.idx=_repIdx;
+  const csId=`cc-${col}-${row}`;
+  const slotsHtml=pieces.map((pc,i)=>
+    `<div class="cc-main${i===st.idx?'':' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}"><div class="cc-inner"><span class="p-icon">${pc.iconHtml}</span><span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span></div></div>`).join('');
+  cell.innerHTML+=`<div class="cc-wrapper" id="${csId}-wrap">${slotsHtml}
+    <button class="cc-arrow cc-left" onclick="_crNav('${col},${row}',-1);event.stopPropagation()"><div class="cc-tri cc-tri-left"></div></button>
+    <button class="cc-arrow cc-right" onclick="_crNav('${col},${row}',1);event.stopPropagation()"><div class="cc-tri cc-tri-right"></div></button></div>`;
   cell.classList.add('has-piece');
 }
-window._crNav = function(colRow, dir){
-  const cs=window._cellCarouselState, st=cs&&cs[colRow]; if(!st||st.busy||st.pieces.length<=1)return;
+window._crNav=function(colRow,dir){ const cs=window._cellCarouselState,st=cs&&cs[colRow]; if(!st||st.busy||st.pieces.length<=1)return;
   st.busy=true; const [col,row]=colRow.split(','); const wrap=document.getElementById(`cc-${col}-${row}-wrap`); if(!wrap){st.busy=false;return;}
   const nextIdx=(st.idx+dir+st.pieces.length)%st.pieces.length;
-  const curSlot=wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`), nextSlot=wrap.querySelector(`.cc-main[data-slot="${nextIdx}"]`);
-  if(!curSlot||!nextSlot){st.busy=false;return;}
-  const outCls=dir>0?'cc-slide-left':'cc-slide-right', inCls=dir>0?'cc-slide-right':'cc-slide-left';
-  curSlot.classList.add(outCls);
-  setTimeout(()=>{ st.idx=nextIdx; const cur=st.pieces[st.idx];
-    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
-    nextSlot.style.transition='none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
-    void nextSlot.offsetWidth; nextSlot.style.transition=''; nextSlot.classList.remove(inCls);
-    const markEl=document.getElementById(`cc-${col}-${row}-mark`);
-    if(markEl){markEl.textContent=cur.statusIcons||''; markEl.style.display=cur.statusIcons?'':'none';}
-    st.busy=false; afterRender();
-  },200);
+  const curSlot=wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`),nextSlot=wrap.querySelector(`.cc-main[data-slot="${nextIdx}"]`); if(!curSlot||!nextSlot){st.busy=false;return;}
+  const outCls=dir>0?'cc-slide-left':'cc-slide-right',inCls=dir>0?'cc-slide-right':'cc-slide-left'; curSlot.classList.add(outCls);
+  setTimeout(()=>{ st.idx=nextIdx; curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition='none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden'); void nextSlot.offsetWidth; nextSlot.style.transition=''; nextSlot.classList.remove(inCls);
+    st.busy=false; afterRender(); },200);
 };
 function _crUnitPrio(u){ const grp=u.owner==='mine'?0:u.owner==='teammate'?1:u.owner==='opp'?2:3; const tie=u.owner==='remains'?-((u.p&&u.p.hits)||0):-((u.p&&u.p.tier)||0); return [grp,tie]; }
 function _crPickRepIdx(units){ let best=0,bk=null; units.forEach((u,i)=>{const k=_crUnitPrio(u); if(!bk||k[0]<bk[0]||(k[0]===bk[0]&&k[1]<bk[1])){bk=k;best=i;}}); return best; }
-window._crSlideTo = function(csKey, targetSlot){
-  const cs=window._cellCarouselState, st=cs&&cs[csKey]; if(!st||st.busy||!st.pieces||st.pieces.length<=1)return;
+window._crSlideTo=function(csKey,targetSlot){ const cs=window._cellCarouselState,st=cs&&cs[csKey]; if(!st||st.busy||!st.pieces||st.pieces.length<=1)return;
   if(targetSlot==null||targetSlot===st.idx||targetSlot>=st.pieces.length)return;
   const [col,row]=csKey.split(','); const wrap=document.getElementById(`cc-${col}-${row}-wrap`); if(!wrap)return;
-  const curSlot=wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`), nextSlot=wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`);
-  if(!curSlot||!nextSlot)return; st.busy=true; const n=st.pieces.length;
-  const fwd=((targetSlot-st.idx)+n)%n, bwd=((st.idx-targetSlot)+n)%n, dir=fwd<=bwd?1:-1;
-  const outCls=dir>0?'cc-slide-left':'cc-slide-right', inCls=dir>0?'cc-slide-right':'cc-slide-left';
-  curSlot.classList.add(outCls);
-  setTimeout(()=>{ st.idx=targetSlot;
-    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
-    nextSlot.style.transition='none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
-    void nextSlot.offsetWidth; nextSlot.style.transition=''; nextSlot.classList.remove(inCls);
-    const markEl=document.getElementById(`cc-${col}-${row}-mark`), cd=st.pieces[st.idx];
-    if(markEl){markEl.textContent=cd.statusIcons||''; markEl.style.display=cd.statusIcons?'':'none';}
-    st.busy=false; afterRender();
-  },200);
+  const curSlot=wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`),nextSlot=wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`); if(!curSlot||!nextSlot)return;
+  st.busy=true; const n=st.pieces.length,fwd=((targetSlot-st.idx)+n)%n,bwd=((st.idx-targetSlot)+n)%n,dir=fwd<=bwd?1:-1;
+  const outCls=dir>0?'cc-slide-left':'cc-slide-right',inCls=dir>0?'cc-slide-right':'cc-slide-left'; curSlot.classList.add(outCls);
+  setTimeout(()=>{ st.idx=targetSlot; curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition='none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden'); void nextSlot.offsetWidth; nextSlot.style.transition=''; nextSlot.classList.remove(inCls);
+    st.busy=false; afterRender(); },200);
 };
-/* ===== ↑↑↑ game.js 그대로 ↑↑↑ ===== */
+/* ===== ↑↑↑ ===== */
 
-/* ───── 데모 데이터 ───── */
-const COL=2, ROW=2, KEY=`${COL},${ROW}`;
-function U(type,owner,tier,hp,maxHp,icon,status){ return {p:{type,tier,hp,maxHp,icon,status:status||[]}, owner}; }
-const SCN = {
-  s1: ()=>[ U('general','mine',2,3,3,'⚔️'), U('witch','opp',2,2,2,'🔮',['mark']), {p:{type:'spearman',hits:1},owner:'remains'} ],
-  // 다중 피격 — 고티어 대표(고문기술자 T3)
-  s2: ()=>[ U('general','mine',2,3,3,'⚔️'), U('torturer','opp',3,2,2,'😈',['mark']), U('witch','opp',2,2,2,'🔮',['mark']), U('spearman','opp',1,2,2,'🔱',['mark']) ],
-  // 동률 타이브레이크: 적 둘 다 T2 → 저체력(1<2) → 그래도 같으면 상태이상 多
-  s3: ()=>[ U('general','mine',2,3,3,'⚔️'), U('witch','opp',2,1,2,'🔮',['mark','shadow']), U('knight','opp',2,1,2,'🛡️',['mark']) ],
+/* ───── 데모 데이터 (status ⊆ {mark,curse}) ───── */
+const COL=2,ROW=2,KEY=`${COL},${ROW}`;
+function U(type,owner,tier,hp,maxHp,icon,status){ return {p:{type,tier,hp,maxHp,icon,status:status||[]},owner}; }
+const SCN={
+  s1:()=>[ U('general','mine',2,3,3,'⚔️'), U('witch','opp',2,2,2,'🔮',['mark']), {p:{type:'spearman',hits:1},owner:'remains'} ],
+  s2:()=>[ U('general','mine',2,3,3,'⚔️'), U('torturer','opp',3,2,2,'😈',['mark']), U('witch','opp',2,2,2,'🔮',['mark']), U('spearman','opp',1,2,2,'🔱',['mark']) ],
+  s3:()=>[ U('general','mine',2,3,3,'⚔️'), U('witch','opp',2,1,2,'🔮',['mark','curse']), U('knight','opp',2,1,2,'🛡️',['mark']) ],
 };
-let curUnits = SCN.s1();
-let curScn = 's1';
+let curUnits=SCN.s1();
 
-/* ───── 대표 피격자 선정 (사용자 규칙) ─────
-   고티어 → (동률)저체력 → (동률)상태이상 多 → 아무나(첫번째) */
-function pickRepVictim(victims){
-  return victims.slice().sort((a,b)=>{
-    const ta=a.p.tier||0, tb=b.p.tier||0; if(tb!==ta) return tb-ta;          // 고티어
-    const ha=a.p.hp||0, hb=b.p.hp||0; if(ha!==hb) return ha-hb;              // 저체력
-    const sa=(a.p.status||[]).length, sb=(b.p.status||[]).length; if(sb!==sa) return sb-sa; // 상태이상 多
-    return 0;                                                                // 아무나
-  })[0];
-}
+/* ───── 대표 피격자 (고티어→저체력→상태이상多→아무나) ───── */
+function pickRepVictim(victims){ return victims.slice().sort((a,b)=>{
+  const ta=a.p.tier||0,tb=b.p.tier||0; if(tb!==ta)return tb-ta;
+  const ha=a.p.hp||0,hb=b.p.hp||0; if(ha!==hb)return ha-hb;
+  const sa=(a.p.status||[]).length,sb=(b.p.status||[]).length; if(sb!==sa)return sb-sa;
+  return 0; })[0]; }
 
 /* ───── 렌더 ───── */
 function igRender(){
   const board=document.getElementById('game-board'); board.innerHTML='';
   const cell=document.createElement('div'); cell.className='cell'; cell.dataset.col=COL; cell.dataset.row=ROW;
-  _renderCellCarousel(cell, COL, ROW, curUnits);
-  board.appendChild(cell);
-  // 일반 비교 셀 — 내 유닛
+  _renderCellCarousel(cell,COL,ROW,curUnits); board.appendChild(cell);
   const nb=document.getElementById('ig-norm'); nb.innerHTML='';
   const nc=document.createElement('div'); nc.className='cell has-piece';
-  const gu=window.PIECE_GIFS&&window.PIECE_GIFS.general;
-  nc.innerHTML=`<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${gu}"></span><span class="p-hp">3/3</span></div>`;
+  nc.innerHTML=`<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${window.PIECE_GIFS&&window.PIECE_GIFS.general}"></span><span class="p-hp">3/3</span></div>`;
   nb.appendChild(nc);
   afterRender();
 }
-// 각 슬롯에 상태이상 표식/저주/그림자 레이어 부여 (인게임 캐러셀이 슬롯별로 안 붙이는 부분 — 의도 시연)
+// 슬롯별 전용 상태 레이어(표식 정수리 idle / 저주 망령 idle) — 현재 페이지 아닌 슬롯에도 적용(블리드)
 function afterRender(){
-  const wrap=document.querySelector('#game-board .cc-wrapper'); if(!wrap) return;
+  const cell=document.querySelector('#game-board .cell'); const wrap=cell&&cell.querySelector('.cc-wrapper'); if(!wrap)return;
   const st=window._cellCarouselState[KEY];
+  let anyCurse=false;
   wrap.querySelectorAll('.cc-main').forEach(m=>{
     const i=+m.dataset.slot, pc=st.pieces[i].pcRef, inner=m.querySelector('.cc-inner');
-    m.querySelectorAll('.demo-badge,.mark-board-layer,.curse-board-layer').forEach(e=>e.remove());
-    if(!pc||!pc.status) return;
-    // 정수리 표식 레이어
-    if(pc.status.includes('mark') && window.MARK_GIFS){
-      const im=document.createElement('img'); im.className='mark-board-layer'; im.src=window.MARK_GIFS.idle; inner.appendChild(im);
-    }
-    // 슬롯 우상단 상태 배지(모든 페이지 공통으로 보이게 — 블리드)
-    const ic=getStatusIcons(pc);
-    if(ic){ const b=document.createElement('span'); b.className='demo-badge';
-      b.style.cssText='position:absolute;top:-4px;right:-4px;font-size:10px;z-index:7;filter:drop-shadow(0 0 1px #000)';
-      b.textContent=ic; m.appendChild(b); }
+    m.querySelectorAll('.mark-board-layer,.curse-board-layer').forEach(e=>e.remove());
+    if(!pc||!pc.status)return;
+    if(pc.status.includes('mark')&&inner){ inner.insertAdjacentHTML('beforeend',markBoardLayerHtml()); }
+    if(pc.status.includes('curse')){ m.insertAdjacentHTML('beforeend',curseBoardLayerHtml()); anyCurse=true; }
   });
+  cell.classList.toggle('has-curse',anyCurse);
   renderStatePanel();
 }
 function ownerTag(o){ return o==='mine'?'<span class="o mine">내</span>':o==='opp'?'<span class="o opp">적</span>':'<span class="o rem">유해</span>'; }
+function statusTags(pc){ if(!pc.status||!pc.status.length)return '<span style="color:#5a5470">—</span>';
+  return pc.status.map(s=>s==='mark'?'<span class="tag mark">표식</span>':s==='curse'?'<span class="tag curse">저주</span>':'').join(''); }
 function renderStatePanel(){
   const st=window._cellCarouselState[KEY]; const sp=document.getElementById('statePanel');
-  sp.innerHTML = curUnits.map((u,i)=>{
-    const pc=u.p; const cur=i===st.idx;
-    const name = u.owner==='remains'?'유해':pc.type+(pc.tier?` T${pc.tier}`:'');
-    const hp = u.owner==='remains'?'':` ${pc.hp}/${pc.maxHp}`;
-    const status = (pc.status&&pc.status.length)?getStatusIcons(pc):'—';
+  sp.innerHTML=curUnits.map((u,i)=>{ const pc=u.p,cur=i===st.idx;
+    const name=u.owner==='remains'?'유해':pc.type+(pc.tier?` T${pc.tier}`:'');
+    const hp=u.owner==='remains'?'—':`${pc.hp}/${pc.maxHp}`;
     return `<div class="row2"><span class="who">${ownerTag(u.owner)}<span class="${cur?'cur':''}">${name}</span></span>`+
-      `<span class="stat">HP${hp||' —'} · 상태 ${status} ${cur?'· <span class="cur">◀ 현재페이지</span>':''}</span></div>`;
-  }).join('');
+      `<span class="stat">HP ${hp} · ${u.owner==='remains'?'—':statusTags(pc)} ${cur?'<span class="cur">◀</span>':''}</span></div>`; }).join('');
 }
 
-/* ───── 공격 시퀀스: 공격자 모션 → 대표 피격자 페이지 이동 → 피격모션 + 도장 ───── */
+/* ───── 공격 시퀀스 ───── */
 let busy=false;
-const ATK=t=>(window.PIECE_ATTACK_GIFS&&window.PIECE_ATTACK_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]), IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]);
+const ATK=t=>(window.PIECE_ATTACK_GIFS&&window.PIECE_ATTACK_GIFS[t]),HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]);
 function slotEl(i){ return document.querySelector(`#game-board .cc-main[data-slot="${i}"]`); }
-function setSlotGif(i, url, scale){ const im=slotEl(i)&&slotEl(i).querySelector('img.p-gif'); if(im&&url){ im.src=url; im.style.transform=scale?`scale(${scale})`:''; } }
-function dmgStamp(text){
-  const cell=document.querySelector('#game-board .cell'); const r=cell.getBoundingClientRect();
-  const s=document.createElement('span'); s.className='board-dmg-stamp normal'; s.textContent=text;
-  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top+r.height*0.12)+'px'; document.body.appendChild(s);
-  setTimeout(()=>s.remove(),1000);
-}
-async function playAttack(){
-  if(busy) return; busy=true;
-  const st=window._cellCarouselState[KEY];
-  const log=document.getElementById('seqlog');
-  const atkIdx=curUnits.findIndex(u=>u.owner==='mine'); if(atkIdx<0){busy=false;return;}
-  const victims=curUnits.filter(u=>u.owner==='opp');
-  if(!victims.length){ log.innerHTML='표식 적이 없습니다. 시나리오 ②③ 으로.'; busy=false; return; }
-  const rep=pickRepVictim(victims); const repIdx=curUnits.indexOf(rep);
-  const atkType=curUnits[atkIdx].p.type, repType=rep.p.type;
-  // 사유 설명
-  const why = victims.length===1 ? '단일' :
-    `${victims.length}명 중 대표=고티어(T${rep.p.tier})${victims.filter(v=>v.p.tier===rep.p.tier).length>1?' → 저체력('+rep.p.hp+') → 상태이상 多':''}`;
-  log.innerHTML=`① 공격자 <b>${atkType}</b> 공격모션 …`;
-  // ① 공격자 페이지로 이동 후 공격 모션
-  if(st.idx!==atkIdx) window._crSlideTo(KEY, atkIdx);
-  await wait(st.idx!==atkIdx?260:40);
-  setSlotGif(atkIdx, ATK(atkType), 2);  // 공격 GIF 2배 오버레이(중심 동일)
-  await wait(420);
-  setSlotGif(atkIdx, IDLE(atkType), '');
-  // ② 대표 피격자 페이지로 이동
-  log.innerHTML=`① 공격자 <b>${atkType}</b> → ② 대표 피격자 <b>${repType}</b> 로 이동 <span style="color:#8a8298">(${why})</span>`;
-  window._crSlideTo(KEY, repIdx);
-  await wait(260);
-  // ③ 피격 모션 + 도장
-  const repEl=slotEl(repIdx), inner=repEl&&repEl.querySelector('.cc-inner');
-  if(inner){ inner.style.animation='none'; void inner.offsetWidth; inner.style.animation='ccDemoShake .35s ease'; }
-  setSlotGif(repIdx, HIT(repType), '');
-  dmgStamp('−2');
-  log.innerHTML=`① <b>${atkType}</b> 공격 → ② <b>${repType}</b> 페이지 이동 → ③ 피격 + 도장 −2 <span style="color:#8a8298">(${why})</span>`+
-    (victims.length>1?`<br><span style="color:#8a8298">나머지 피격자(${victims.filter(v=>v!==rep).map(v=>v.p.type).join(', ')})는 데미지만 받고 화면엔 대표만.</span>`:'');
-  await wait(520);
-  setSlotGif(repIdx, IDLE(repType), '');
-  if(inner) inner.style.animation='';
-  busy=false;
-}
+function setSlotGif(i,url,scale){ const im=slotEl(i)&&slotEl(i).querySelector('img.p-gif'); if(im&&url){ im.src=url; im.style.transform=scale?`scale(${scale})`:''; } }
+function dmgStamp(text,kind){ const cell=document.querySelector('#game-board .cell'); const r=cell.getBoundingClientRect();
+  const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
+  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top+r.height*0.12)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
+async function playAttack(){
+  if(busy)return; busy=true; const st=window._cellCarouselState[KEY]; const log=document.getElementById('seqlog');
+  const atkIdx=curUnits.findIndex(u=>u.owner==='mine'); const victims=curUnits.filter(u=>u.owner==='opp');
+  if(atkIdx<0){busy=false;return;} if(!victims.length){ log.innerHTML='표식 적이 없습니다. 시나리오 ②③ 으로.'; busy=false; return; }
+  const rep=pickRepVictim(victims), repIdx=curUnits.indexOf(rep), atkType=curUnits[atkIdx].p.type, repType=rep.p.type;
+  const tied=victims.filter(v=>v.p.tier===rep.p.tier).length>1;
+  const why=victims.length===1?'단일':`${victims.length}명 중 고티어(T${rep.p.tier})`+(tied?` → 저체력(${rep.p.hp}) → 상태이상 多`:'');
+  log.innerHTML=`① 공격자 <b>${atkType}</b> 공격모션 …`;
+  if(st.idx!==atkIdx){ window._crSlideTo(KEY,atkIdx); await wait(260); } else await wait(40);
+  setSlotGif(atkIdx,ATK(atkType),2); await wait(420); setSlotGif(atkIdx,IDLE(atkType),'');
+  log.innerHTML=`① <b>${atkType}</b> 공격 → ② 대표 피격자 <b>${repType}</b> 이동 <span style="color:#8a8298">(${why})</span>`;
+  window._crSlideTo(KEY,repIdx); await wait(260);
+  const repEl=slotEl(repIdx),inner=repEl&&repEl.querySelector('.cc-inner');
+  if(inner){ inner.style.animation='none'; void inner.offsetWidth; inner.style.animation='ccDemoShake .35s ease'; }
+  setSlotGif(repIdx,HIT(repType),''); dmgStamp('−2');
+  log.innerHTML=`① <b>${atkType}</b> 공격 → ② <b>${repType}</b> 이동 → ③ 피격+도장 −2 <span style="color:#8a8298">(${why})</span>`+
+    (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(v=>v!==rep).map(v=>v.p.type).join(', ')})는 데미지만, 화면엔 대표만.</span>`:'');
+  await wait(520); setSlotGif(repIdx,IDLE(repType),''); if(inner)inner.style.animation=''; busy=false;
+}
 
-/* ───── 상태이상 토글 UI ───── */
-function buildStatusToggles(){
-  const host=document.getElementById('statusToggles'); host.innerHTML='';
-  curUnits.forEach((u,i)=>{
-    if(u.owner==='remains') return;
-    const row=document.createElement('div');
-    const name=u.p.type+(u.p.tier?` T${u.p.tier}`:'');
-    row.innerHTML=`<div class="unitrow">${ownerTag(u.owner)} ${name}</div>`;
+/* ───── 상태이상 전용 모션 ───── */
+async function markBrand(){ // 표식 부여: 인두 낙하 + 생성 → idle
+  if(busy)return; busy=true; const st=window._cellCarouselState[KEY];
+  // 미표식 적 우선, 없으면 첫 적에 모션 재생(시연용)
+  let tIdx=curUnits.findIndex(u=>u.owner==='opp'&&!_isMarked(u.p));
+  if(tIdx<0) tIdx=curUnits.findIndex(u=>u.owner==='opp');
+  if(tIdx<0){ document.getElementById('seqlog').innerHTML='적이 없습니다.'; busy=false; return; }
+  // 모션 재생을 위해 잠시 표식 idle 해제(인두→생성→idle 흐름을 보이게)
+  { const arr=curUnits[tIdx].p.status||[]; const j=arr.indexOf('mark'); if(j>=0)arr.splice(j,1); curUnits[tIdx].p.status=arr; window._cellCarouselState={}; igRender(); buildStatusToggles(); }
+  if(st.idx!==tIdx){ window._crSlideTo(KEY,tIdx); await wait(260); }
+  document.getElementById('seqlog').innerHTML=`🔨 <b>${curUnits[tIdx].p.type}</b> 에게 표식 부여 — 인두 낙하 + 생성 모션`;
+  try{ if(window.animateMarkBrand) window.animateMarkBrand([{col:COL,row:ROW}]); }catch(e){}
+  await wait(1300);
+  curUnits[tIdx].p.status=curUnits[tIdx].p.status||[]; if(!curUnits[tIdx].p.status.includes('mark'))curUnits[tIdx].p.status.push('mark');
+  if(window._markSummoning)window._markSummoning.delete(`${COL},${ROW}`);
+  igRender(); buildStatusToggles();
+  document.getElementById('seqlog').innerHTML=`🔨 표식 부여 완료 → 정수리 표식 idle 지속 (${curUnits[tIdx].p.type})`; busy=false;
+}
+async function curseCast(){ // 저주 부여: 망령 소환 → idle
+  if(busy)return; busy=true; const st=window._cellCarouselState[KEY];
+  const tIdx=curUnits.findIndex(u=>u.owner==='opp'&&!_isCursed(u.p));
+  if(tIdx<0){ document.getElementById('seqlog').innerHTML='이미 모든 적이 저주 상태입니다.'; busy=false; return; }
+  if(st.idx!==tIdx){ window._crSlideTo(KEY,tIdx); await wait(260); }
+  document.getElementById('seqlog').innerHTML=`👻 <b>${curUnits[tIdx].p.type}</b> 에게 저주 부여 — 망령 소환 모션`;
+  playCurseBoardAnim(COL,ROW,'summon'); await wait(1200);
+  curUnits[tIdx].p.status=curUnits[tIdx].p.status||[]; if(!curUnits[tIdx].p.status.includes('curse'))curUnits[tIdx].p.status.push('curse');
+  igRender(); buildStatusToggles();
+  document.getElementById('seqlog').innerHTML=`👻 저주 부여 완료 → 망령 idle 지속 (${curUnits[tIdx].p.type})`; busy=false;
+}
+async function curseTick(){ // 저주 틱 데미지: 망령 공격 + 도장
+  if(busy)return; busy=true; const st=window._cellCarouselState[KEY];
+  const cursed=curUnits.map((u,i)=>({u,i})).filter(x=>x.u.owner!=='remains'&&_isCursed(x.u.p));
+  if(!cursed.length){ document.getElementById('seqlog').innerHTML='저주 상태 유닛이 없습니다. 먼저 저주 부여.'; busy=false; return; }
+  const tgt=cursed[0]; if(st.idx!==tgt.i){ window._crSlideTo(KEY,tgt.i); await wait(260); }
+  document.getElementById('seqlog').innerHTML=`💥 저주 틱 — 망령이 ${cursed.map(c=>c.u.p.type).join(', ')} 공격 (매턴 동시)`;
+  playCurseBoardAnim(COL,ROW,'damage');
+  await wait(520); dmgStamp('−1','curse');
+  cursed.forEach(c=>{ c.u.p.hp=Math.max(0,(c.u.p.hp||1)-1); });
+  await wait(700); igRender();
+  document.getElementById('seqlog').innerHTML=`💥 저주 틱 데미지 −1 적용 (저주 유닛 전원). 망령 idle 복귀.`; busy=false;
+}
+
+/* ───── 상태 토글 UI ───── */
+function buildStatusToggles(){ const host=document.getElementById('statusToggles'); host.innerHTML='';
+  curUnits.forEach((u)=>{ if(u.owner==='remains')return;
+    const row=document.createElement('div'); row.innerHTML=`<div class="unitrow">${ownerTag(u.owner)} ${u.p.type}${u.p.tier?` T${u.p.tier}`:''}</div>`;
     const chips=document.createElement('div'); chips.className='chips';
-    [['mark','🎯표식'],['curse','☠저주'],['shadow','👻그림자']].forEach(([k,lbl])=>{
-      const c=document.createElement('span'); c.className='chip'+((u.p.status||[]).includes(k)?' on':'');
-      c.textContent=lbl;
-      c.onclick=()=>{ u.p.status=u.p.status||[]; const j=u.p.status.indexOf(k);
-        if(j>=0)u.p.status.splice(j,1); else u.p.status.push(k);
+    [['mark','표식'],['curse','저주']].forEach(([k,lbl])=>{ const c=document.createElement('span');
+      c.className='chip'+((u.p.status||[]).includes(k)?' on':''); c.textContent=lbl;
+      c.onclick=()=>{ u.p.status=u.p.status||[]; const j=u.p.status.indexOf(k); if(j>=0)u.p.status.splice(j,1); else u.p.status.push(k);
         c.classList.toggle('on'); window._cellCarouselState={}; igRender(); };
-      chips.appendChild(c);
-    });
-    row.appendChild(chips); host.appendChild(row);
-  });
+      chips.appendChild(c); });
+    row.appendChild(chips); host.appendChild(row); });
 }
 
 /* ───── 컨트롤 ───── */
-function loadScn(id){ curScn=id; curUnits=SCN[id](); window._cellCarouselState={};
+function loadScn(id){ curUnits=SCN[id](); window._cellCarouselState={};
   document.getElementById('stageTitle').textContent='시나리오 '+({s1:'①',s2:'②',s3:'③'}[id]);
-  igRender(); buildStatusToggles();
-  document.getElementById('seqlog').innerHTML='<b>내 유닛 공격</b>을 눌러 시퀀스를 확인하세요.';
-}
-document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn);
-}));
-document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{
-  document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-  const team=b.dataset.mode==='2v2'; document.body.classList.toggle('team-mode',team); window.S.isTeamMode=team;
-  window._cellCarouselState={}; igRender();
-}));
+  igRender(); buildStatusToggles(); document.getElementById('seqlog').innerHTML='액션 버튼을 눌러 시퀀스/모션을 확인하세요.'; }
+document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
+document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  const team=b.dataset.mode==='2v2'; document.body.classList.toggle('team-mode',team); window.S.isTeamMode=team; window._cellCarouselState={}; igRender(); }));
 document.getElementById('btnAttack').addEventListener('click',playAttack);
+document.getElementById('btnMark').addEventListener('click',markBrand);
+document.getElementById('btnCurse').addEventListener('click',curseCast);
+document.getElementById('btnCurseTick').addEventListener('click',curseTick);
 
-/* 흔들림 키프레임 주입 */
 const _kf=document.createElement('style'); _kf.textContent='@keyframes ccDemoShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}}'; document.head.appendChild(_kf);
-
-function init(){ if(window.PIECE_GIFS){ loadScn('s1'); } else setTimeout(init,80); }
+function init(){ if(window.PIECE_GIFS&&window.CURSE_GIFS){ loadScn('s1'); } else setTimeout(init,80); }
 init();
 </script>
 </body>
