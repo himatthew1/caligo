@@ -5043,11 +5043,17 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   flex-wrap: wrap;
   gap: 16px;
   align-items: flex-start;
-  max-width: 1200px;
+  max-width: 1600px;   /* ★ 가로 확대: 1200→1600 (보드가 가용폭에 맞춰 커지면 양옆 여백 최소화) */
   width: 100%;
   padding: 20px;
 }
 .side-panel { width: 240px; flex-shrink: 0; }     /* 프로필 줄바꿈 방지 — 카드 내용물 fit하는 최소 폭 */
+/* ★ 가로(데스크탑) 화면에서 게임 보드 말 크기를 셀(--cell-px)에 비례 확대.
+   모바일(≤999px)에는 미적용 → 기존 모바일 말 크기(26/30px) 규칙 그대로 유지. */
+@media (min-width: 1000px) {
+  #game-board img.p-gif { width: calc(var(--cell-px, 56px) * 0.68); height: calc(var(--cell-px, 56px) * 0.68); }
+  body.team-mode #game-board img.p-gif { width: calc(var(--cell-px, 44px) * 0.77); height: calc(var(--cell-px, 44px) * 0.77); }
+}
 .log-panel { width: 220px; flex-shrink: 0; position: sticky; top: 60px; }
 .side-panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; }
 /* 보드 가운데, 사이드 프로필이 보드에 가까이 붙도록 — center-panel은 보드 폭만큼만 차지 */
@@ -7325,6 +7331,11 @@ body[data-my-team="red"] #chat-scope-team.active {
   .center-log-wrap { display: none; }
   .game-log { max-height: 150px; }
   .log-entry { font-size: 0.68rem; }
+
+  /* 모바일: 추리 토큰 안내문 숨김(공간 절약) + 보드 중앙정렬 깔끔하게 */
+  .deduction-hint { display: none !important; }
+  .center-panel { align-items: center; }
+  #game-board { margin-left: auto; margin-right: auto; }
 
   /* 타이머 */
   .timer-clock { width: 48px; height: 48px; top: 8px; right: 8px; }

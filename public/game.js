@@ -17004,7 +17004,18 @@ function buildBoard(containerId, clickHandler) {
   // 팀모드에서 7x7: 게임 보드 + 배치 보드. 드래프트 미리보기는 항상 5x5.
   const is7x7 = S.isTeamMode && (containerId === 'game-board' || containerId === 'placement-board');
   const totalSize = is7x7 ? 7 : 5;
-  const cellPx = is7x7 ? 44 : 56;
+  let cellPx = is7x7 ? 44 : 56;
+  // ★ 가로(데스크탑) 화면: 안 쓰이는 양옆 여백을 활용해 게임 보드를 가용폭에 맞춰 확대.
+  //   (모바일 세로는 CSS 가 .cell width/height 를 !important 로 덮으므로 이 인라인 px 는 무시됨 → 영향 없음)
+  if (containerId === 'game-board' && window.innerWidth >= 1000) {
+    const gap = 4, padding = 8, border = 2;
+    const sidePanels = 2 * 260;        // 좌우 프로필 패널 + 여유
+    const chrome = 24 + 40 + 36;       // game-layout gap + padding + 버퍼
+    const availBoard = window.innerWidth - sidePanels - chrome;
+    const fitCell = Math.floor((availBoard - (totalSize - 1) * gap - padding * 2 - border * 2) / totalSize);
+    const capCell = is7x7 ? 96 : 132;  // 과확대 방지 상한
+    cellPx = Math.max(cellPx, Math.min(fitCell, capCell));
+  }
   board.innerHTML = '';
   board.style.gridTemplateColumns = `repeat(${totalSize}, ${cellPx}px)`;
   board.style.gridTemplateRows = `repeat(${totalSize}, ${cellPx}px)`;
@@ -17014,6 +17025,8 @@ function buildBoard(containerId, clickHandler) {
     const boardWidth = totalSize * cellPx + (totalSize - 1) * gap + padding * 2 + border * 2;
     const center = document.querySelector('#screen-game .center-panel');
     if (center) center.style.setProperty('--board-w', boardWidth + 'px');
+    // 셀 크기를 CSS 변수로 노출 → 말(p-gif)·좌표 라벨이 셀에 비례해 함께 확대
+    board.style.setProperty('--cell-px', cellPx + 'px');
   }
   // 팀모드 플래그를 body에도 반영 — 모바일 CSS가 7x7을 인식하도록
   if (S.isTeamMode) document.body.classList.add('team-mode');
