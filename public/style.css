@@ -2124,7 +2124,10 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   margin-right: auto;
 }
 .reveal-side { min-width: 200px; align-self: stretch; display: flex; flex-direction: column; }
-.reveal-side h3 { font-size: 1.1rem; margin-bottom: 14px; color: var(--accent); text-align: center; }
+/* 양측 헤더 높이 고정 — 한쪽만 덱명(.reveal-deck-name)이 붙어 카드가 아래로 밀리던 좌우 비대칭 해소.
+   이름/덱명을 헤더 박스 하단에 정렬해 양측 카드가 정확히 같은 선에서 시작. */
+.reveal-side h3 { font-size: 1.1rem; margin-bottom: 14px; color: var(--accent); text-align: center;
+  min-height: 3rem; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
 .reveal-vs {
   font-size: 2rem; font-weight: 800; color: var(--danger);
   padding: 0 10px; align-self: stretch; justify-self: center;

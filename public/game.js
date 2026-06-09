@@ -3284,6 +3284,7 @@ function renderTeamProfiles() {
   //   애니메이션 클래스를 새 카드에 즉시 복원. 빠르게 연속 도착하는 이벤트 (attack_result →
   //   team_ally_hit → team_game_update 등) 가 매번 wipe 해도 애니가 끊기지 않음.
   if (typeof reapplyActiveProfileAnims === 'function') reapplyActiveProfileAnims();
+  if (typeof fitLandscapePanels === 'function') fitLandscapePanels();
 
   // 내 pieces 카드에 클릭 리스너 연결 — 내 팀이 left든 right든 무관하게 my-piece-idx 가 박힌 카드만
   document.querySelectorAll('#my-pieces-info [data-my-piece-idx], #opp-pieces-info [data-my-piece-idx]').forEach(card => {
@@ -15232,6 +15233,7 @@ function renderMyPieces() {
   }
   // ★ innerHTML wipe 후 진행 중 애니메이션 클래스 복원
   if (typeof reapplyActiveProfileAnims === 'function') reapplyActiveProfileAnims();
+  if (typeof fitLandscapePanels === 'function') fitLandscapePanels();
 }
 
 // 이름 길이별 폰트 축소 클래스 — 한글 7+자면 살짝, 8+자면 더 줄임 (사이드 240px 한계 안에서 태그 잘림 방지)
@@ -17007,6 +17009,41 @@ function handleGameCellClick(col, row) {
 // ── 보드 생성 헬퍼 ─────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+// ── 가로(데스크탑) 화면 채우기 ──
+//   내 카드/보드/상대 카드 세 패널을 같은 배율로 zoom → 카드·보드·액션버튼·애니메이션이
+//   모두 동일 비율로 확대(비율 유지) + 세로 높이에 맞춰 스케일 → 가로 무스크롤·여백 최소.
+//   SP 섹션(전체폭)·오버레이는 zoom 대상에서 제외(전체폭 zoom 시 overflow 방지). 모바일(<1000px) 미적용.
+let _fitPanelsRaf = 0;
+function fitLandscapePanels() {
+  if (_fitPanelsRaf) cancelAnimationFrame(_fitPanelsRaf);
+  _fitPanelsRaf = requestAnimationFrame(function () {
+    _fitPanelsRaf = 0;
+    try {
+      const screen = document.getElementById('screen-game');
+      if (!screen || getComputedStyle(screen).display === 'none') return;
+      const gl = screen.querySelector('.game-layout');
+      if (!gl) return;
+      const panels = ['.left-panel', '.center-panel', '.right-panel']
+        .map(s => gl.querySelector(s)).filter(Boolean);
+      if (!panels.length) return;
+      panels.forEach(p => { p.style.zoom = ''; });
+      if (window.innerWidth < 1000) return;  // 모바일은 그리드 레이아웃 — zoom 미사용
+      let maxH = 0, sumW = 0, panelTop = 1e9;
+      panels.forEach(p => { const r = p.getBoundingClientRect(); maxH = Math.max(maxH, r.height); sumW += r.width; panelTop = Math.min(panelTop, r.top); });
+      if (maxH <= 0) return;
+      // 패널 시작 y(자연 상태) 아래로 남은 높이 - 하단 여백(패딩 등) 버퍼 → 세로 무스크롤 보장
+      const availH = window.innerHeight - panelTop - 30;
+      const availW = window.innerWidth - 36;
+      let z = Math.min(availH / maxH, availW / (sumW + 24 * (panels.length - 1)));
+      z = Math.max(1, Math.min(z, 1.9));
+      panels.forEach(p => { p.style.zoom = (z > 1.005 ? z : ''); });
+    } catch (e) {}
+  });
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', function () { if (typeof fitLandscapePanels === 'function') fitLandscapePanels(); });
+}
+
 function buildBoard(containerId, clickHandler) {
   const board = document.getElementById(containerId);
   if (!board) return;
@@ -17023,21 +17060,9 @@ function buildBoard(containerId, clickHandler) {
     const gap = 4, padding = 8, border = 2;
     const boardWidth = totalSize * cellPx + (totalSize - 1) * gap + padding * 2 + border * 2;
     const center = document.querySelector('#screen-game .center-panel');
-    if (center) {
-      center.style.setProperty('--board-w', boardWidth + 'px');
-      // ★ 가로(데스크탑): 중앙열 전체(보드+턴배너+액션바+로그)를 통째로 zoom →
-      //   보드·말·유해·사망모션·설치물·생성 애니메이션·액션버튼이 모두 동일 비율로 확대(비율 유지).
-      //   세로 높이에 맞춰 스케일하므로 가로에서도 세로 스크롤 없음. (모바일 <1000px 은 zoom 미적용)
-      let z = 1;
-      if (window.innerWidth >= 1000) {
-        const spH = 92, padH = 44;            // SP 섹션(zoom 밖) + 상하 여백
-        const centerExtra = 40 + 58 + 184;    // 턴배너 + 액션바 + 전투로그(대략) — 보드와 함께 zoom됨
-        const zH = (window.innerHeight - spH - padH) / (boardWidth + centerExtra);
-        const zW = (window.innerWidth - 2 * 260 - 100) / boardWidth;
-        z = Math.max(1, Math.min(zH, zW, is7x7 ? 1.9 : 2.3));
-      }
-      center.style.zoom = (z > 1.005 ? z : '');
-    }
+    if (center) { center.style.setProperty('--board-w', boardWidth + 'px'); center.style.zoom = ''; }
+    // 가로 확대(카드·보드·버튼 동일 비율)는 fitLandscapePanels 가 세 패널에 일괄 zoom 적용.
+    if (typeof fitLandscapePanels === 'function') fitLandscapePanels();
   }
   // 팀모드 플래그를 body에도 반영 — 모바일 CSS가 7x7을 인식하도록
   if (S.isTeamMode) document.body.classList.add('team-mode');
