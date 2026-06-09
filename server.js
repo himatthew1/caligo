@@ -3959,7 +3959,10 @@ function flushPhase(room, onComplete) {
   // ★ 사용자 요청: 데미지 도장이 화면에 모두 출력된 후 사망 기폭 시작.
   //   트리거 액션 (공격·스킬) 의 hit 애니 + addBodyDamage 도장 표시 + profile-hit 흔들림이
   //   완전히 화면에 노출되려면 약 2초 필요 (도장 stamp 가 1.8s 동안 fade-in/visible).
-  const RECOGNITION_DELAY = 2000;  // 사망 인지 + 도장 완전 표시 텀
+  // ★ 사망 기폭은 항상 "유해 생성 이후"에 시작 — 트리거 스킬의 사망 애니가 길면 그만큼 지연(겹침 방지).
+  //   기본 2000ms(공격/도장 텀). 악몽/유황 등은 사망 애니 시작이 늦어(클라 game.js _lavaDeathDelay) 유해가
+  //   더 늦게 생기므로 phase.detonationDelay 로 더 길게 설정(executeSkill 에서 지정).
+  const RECOGNITION_DELAY = (phase && phase.detonationDelay) || 2000;
   const CAST_DURATION = 780;       // "사망 기폭" 말풍선 + spotlight
   const BOMB_DURATION = 1930;      // detonation_intro + bomb_detonated
   const POST_SETTLE = 500;         // wave 간 마진
@@ -6165,6 +6168,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.oppMsg = `유황범람: 보드 외곽 전체 2 피해`;
       result.data.hits = hits;
       result.data.borderCells = borderCells;
+      // ★ 화약상이 유황범람으로 죽으면 — 사망 애니가 라바 후(클라 +1600ms)라 유해가 늦게 생김.
+      //   사망 기폭은 항상 유해 생성 이후 → detonationDelay 를 그만큼 늘림(겹침 방지).
+      if (room._currentPhase && room._currentPhase.pendingDeathDetonations.length > 0) {
+        room._currentPhase.detonationDelay = Math.max(room._currentPhase.detonationDelay || 0, 3700);
+      }
       // ★ 유황범람으로 파괴된 쥐 — 클라가 사망 모션 재생하도록 좌표/소유자 전달.
       result.data.destroyedRats = room._destroyedRatCellsThisAttack || [];
       break;
@@ -6210,6 +6218,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.data.hits = hits;
       // ★ 클라이언트 애니메이션용: 표식 상태 적 셀 좌표 (보라 펄스 + scale 타깃).
       result.data.nightmareCells = hits.map(h => ({ col: h.col, row: h.row }));
+      // ★ 화약상이 악몽으로 죽으면 — 사망 애니가 악몽 임팩트 후(클라 +500ms) 시작 → 사망 GIF → 유해.
+      //   사망 기폭은 항상 "유해 생성 이후" 에 시작(악몽 먼저, 그 다음 기폭 — 겹침 금지) → detonationDelay 상향.
+      if (room._currentPhase && room._currentPhase.pendingDeathDetonations.length > 0) {
+        room._currentPhase.detonationDelay = Math.max(room._currentPhase.detonationDelay || 0, 2600);
+      }
       break;
     }
 
