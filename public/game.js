@@ -13552,8 +13552,15 @@ function renderGameBoard() {
           if (!_tmDragonSkip) arr.push({ p: _tp, owner: 'teammate' });
         }
       }
-      for (const op of (S.oppPieces || []).filter(p => p.marked && _aliveOrPending(p) && p.col === col && p.row === row))
-        arr.push({ p: op, owner: 'opp' });
+      // ★ 표식 적 — oppPieces 에는 *표식된* 말만 있음. 같은 칸에 표식된 쌍둥이 둘(elder+younger)이면
+      //   = "둘 다 표식" 이므로 합류체로 표시(상대에게 합류 상태까지 공개). 한쪽만 표식이면 그 한쪽만
+      //   oppPieces 에 있어 단일로 표시됨(합류 상태는 비공개 — 사용자 규칙).
+      const _oppHere = (S.oppPieces || []).filter(p => p.marked && _aliveOrPending(p) && p.col === col && p.row === row);
+      const _oppTwinMerge = _oppHere.length === 2 &&
+        _oppHere.every(p => p.subUnit === 'elder' || p.subUnit === 'younger') &&
+        _oppHere[0].subUnit !== _oppHere[1].subUnit;
+      if (_oppTwinMerge) arr.push({ p: _oppHere[0], owner: 'opp', joined: true, twinOther: _oppHere[1] });
+      else for (const op of _oppHere) arr.push({ p: op, owner: 'opp' });
       // ★ #6 유해 위에 내/팀원/표식적 유닛이 있으면 캐러셀에 유해 슬롯 추가 — 가려진 유해를 순환해 볼 수 있게.
       if (arr.length >= 1) {
         const _remHere = (S.remains || []).find(r => r.col === col && r.row === row);
@@ -13710,17 +13717,29 @@ function renderGameBoard() {
         const oppTeamId = S.teamId === 0 ? 1 : 0;
         oppColorCls = oppTeamId === 0 ? 'piece-team-blue' : 'piece-team-red';
       }
+      // ★ 합류 쌍둥이(둘 다 표식) — 같은 칸에 표식된 다른 쪽 쌍둥이가 있으면 합류체로 표시(합산 HP).
+      //   한쪽만 표식이면 oppPieces 에 그 한쪽만 있어 _oppTwin=null → 단일(합류 비공개) — 사용자 규칙.
+      const _oppTwin = (markedOpp.subUnit === 'elder' || markedOpp.subUnit === 'younger')
+        ? (S.oppPieces || []).find(p => p !== markedOpp && p.marked && _aliveOrPending(p) && p.col === col && p.row === row
+            && (p.subUnit === 'elder' || p.subUnit === 'younger') && p.subUnit !== markedOpp.subUnit)
+        : null;
+      const _oppJoined = !!_oppTwin;
       const _oppGifHtml = typeof getPieceGifHtml === 'function'
-        ? getPieceGifHtml(markedOpp.type, markedOpp.subUnit, false) : null;
+        ? getPieceGifHtml(markedOpp.type, markedOpp.subUnit, _oppJoined) : null;
+      const _oppHpTxt = _oppJoined
+        ? `${markedOpp.hp + _oppTwin.hp}/${markedOpp.maxHp + _oppTwin.maxHp}`
+        : `${markedOpp.hp}/${markedOpp.maxHp}`;
       cell.innerHTML += `
         <div class="piece-marker opp-marked ${oppColorCls}">
           <span class="p-icon">${_oppGifHtml || pieceIconHtml(markedOpp.icon, {size:'1.3em'})}</span>
-          <span class="p-hp">${markedOpp.hp}/${markedOpp.maxHp}</span>
+          <span class="p-hp">${_oppHpTxt}</span>
         </div>`;
       // (표식 🎯 이모지 제거 — 정수리 위 표식 레이어(아래 markBoardLayerHtml)가 대신 표현)
-      // ★ 저주 보드 레이어 — 표식돼 공개된 적 말이 저주 상태면 뒤에 망령 idle
-      if (_isCursed(markedOpp)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(markedOpp); cell.classList.add('has-curse'); }
-      if (_isMarked(markedOpp)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(markedOpp); cell.classList.add('has-mark'); }
+      // ★ 저주/표식 보드 레이어 — 합류면 둘 중 하나라도 해당 상태면 표시(피격은 그 유닛, 표시는 합류체).
+      const _moCurse = _isCursed(markedOpp) ? markedOpp : (_oppTwin && _isCursed(_oppTwin) ? _oppTwin : null);
+      const _moMark  = _isMarked(markedOpp) ? markedOpp : (_oppTwin && _isMarked(_oppTwin) ? _oppTwin : null);
+      if (_moCurse) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(_moCurse); cell.classList.add('has-curse'); }
+      if (_moMark)  { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(_moMark); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
     }
 
@@ -14216,7 +14235,8 @@ function _renderCellCarousel(cell, col, row, units) {
     const hpText = (u.joined && u.twinOther)
       ? `${pc.hp + u.twinOther.hp}/${pc.maxHp + u.twinOther.maxHp}`
       : `${pc.hp}/${pc.maxHp}`;
-    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc };
+    // ★ 합류 쌍둥이 — twinRef(다른 한쪽)도 함께 보관. 상태레이어/슬롯매칭이 두 쌍둥이 모두를 본다.
+    return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc, twinRef: (u.joined && u.twinOther) ? u.twinOther : null };
   });
 
   // 유닛 구성이 바뀌면(사망·추가) 대표 페이지로 초기화, HP/상태만 바뀌면 idx 유지
@@ -14242,12 +14262,15 @@ function _renderCellCarousel(cell, col, row, units) {
     // ★ 슬롯별 상태 레이어 — 현재 페이지가 아닌 유닛도 표식/저주가 보이게(블리드).
     //   표식=정수리 idle 레이어(cc-inner 안, bottom:100%), 저주=망령 idle(cc-main 직속, 뒤).
     //   소환 모션이 이 셀에서 진행 중이면 idle 억제(인두/망령 소환과 겹침 방지).
-    const _pc = pc.pcRef;
+    const _pc = pc.pcRef, _tw = pc.twinRef;
+    // 합류 쌍둥이는 둘 중 하나라도 표식/저주면 그 상태를 표시 (피격은 그 유닛에만, 표시는 합류체에).
+    const _markPc  = (_pc && _isMarked(_pc)) ? _pc : ((_tw && _isMarked(_tw)) ? _tw : null);
+    const _cursePc = (_pc && _isCursed(_pc)) ? _pc : ((_tw && _isCursed(_tw)) ? _tw : null);
     let _markL = '', _curseL = '';
-    if (_pc && _isMarked(_pc) && !(window._markSummoningActive && window._markSummoningActive(col, row)))
-      _markL = markBoardLayerHtml(_pc);
-    if (_pc && _isCursed(_pc) && !(typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)))
-      _curseL = curseBoardLayerHtml(_pc);
+    if (_markPc && !(window._markSummoningActive && window._markSummoningActive(col, row)))
+      _markL = markBoardLayerHtml(_markPc);
+    if (_cursePc && !(typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)))
+      _curseL = curseBoardLayerHtml(_cursePc);
     return `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
         _curseL +
         `<div class="cc-inner">` +
@@ -14394,7 +14417,8 @@ window._crForceCell = function(col, row, piece) {
 // 캐러셀 상태에서 특정 piece 의 슬롯 인덱스 찾기 (참조 동일성)
 function _crSlotOfPiece(st, piece) {
   if (!st || !st.pieces || !piece) return -1;
-  return st.pieces.findIndex(p => p.pcRef === piece);
+  // 합류 쌍둥이 슬롯은 pcRef(한쪽)+twinRef(다른쪽) 둘 다 매칭 — 어느 쌍둥이로 강제이동해도 합류 슬롯을 찾음.
+  return st.pieces.findIndex(p => p.pcRef === piece || p.twinRef === piece);
 }
 function _crApplyForced() {
   const f = window._crForce; if (!f) return;
