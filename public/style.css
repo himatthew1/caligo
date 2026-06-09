@@ -5063,12 +5063,8 @@ body.dim-morale-zone .piece-marker.morale-buffed {
   padding: 20px;
 }
 .side-panel { width: 240px; flex-shrink: 0; }     /* 프로필 줄바꿈 방지 — 카드 내용물 fit하는 최소 폭 */
-/* ★ 가로(데스크탑) 화면에서 게임 보드 말 크기를 셀(--cell-px)에 비례 확대.
-   모바일(≤999px)에는 미적용 → 기존 모바일 말 크기(26/30px) 규칙 그대로 유지. */
-@media (min-width: 1000px) {
-  #game-board img.p-gif { width: calc(var(--cell-px, 56px) * 0.68); height: calc(var(--cell-px, 56px) * 0.68); }
-  body.team-mode #game-board img.p-gif { width: calc(var(--cell-px, 44px) * 0.77); height: calc(var(--cell-px, 44px) * 0.77); }
-}
+/* ★ 가로 보드 확대는 buildBoard 가 #game-board 에 zoom 을 적용(모든 요소 동일 비율).
+   별도 요소별 px 확대는 비율깨짐을 유발하므로 사용하지 않음. */
 .log-panel { width: 220px; flex-shrink: 0; position: sticky; top: 60px; }
 .side-panel h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 12px; }
 /* 보드 가운데, 사이드 프로필이 보드에 가까이 붙도록 — center-panel은 보드 폭만큼만 차지 */
