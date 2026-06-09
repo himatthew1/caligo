@@ -14241,9 +14241,19 @@ function _renderCellCarousel(cell, col, row, units) {
 
   // 유닛 구성이 바뀌면(사망·추가) 대표 페이지로 초기화, HP/상태만 바뀌면 idx 유지
   const fp = units.map(u => `${u.owner}:${u.p.type || 'rem'}:${u.p.subUnit||''}${u.joined?'J':''}`).join('|');
+  const _prevFp = (cs[csKey] && cs[csKey].fp) || '';
   const _repIdx = _crPickRepIdx(units);   // 대표 = 내유닛>팀원>표식적>유해, 그룹내 고티어/많이부숴진 우선
   if (!cs[csKey] || cs[csKey].fp !== fp) {
-    cs[csKey] = { idx: _repIdx, busy: false, fp, pieces, repIdx: _repIdx };
+    // ★ 캐러셀 칸 안에서 합류(분신/이동/조작/상대 표식쌍둥이 합류)가 *새로* 형성됐으면 그 합류 슬롯을 보여줌.
+    //   prevFp 에 같은 합류 엔트리(…J)가 없었으면 = 이번에 새로 합쳐진 것 → 그 슬롯 표시. (없으면 대표 페이지)
+    let _initIdx = _repIdx;
+    const _joinedIdx = pieces.findIndex(p => p.twinRef);
+    if (_joinedIdx >= 0) {
+      const _jp = pieces[_joinedIdx];
+      const _jKey = `${_jp.owner}:${(_jp.pcRef && _jp.pcRef.type) || ''}:${(_jp.pcRef && _jp.pcRef.subUnit) || ''}J`;
+      if (!_prevFp.includes(_jKey)) _initIdx = _joinedIdx;
+    }
+    cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx };
   } else {
     cs[csKey].pieces = pieces;
     cs[csKey].repIdx = _repIdx;
