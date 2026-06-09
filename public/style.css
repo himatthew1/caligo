@@ -2492,7 +2492,8 @@ body.team-teammate-turn #game-board .piece-marker:not(.teammate-piece):not(.opp-
 /* 비활성 슬롯 — GIF 애니메이션은 계속 돌리되 (opacity:0), 클릭·렌더는 막음 */
 .cc-main.cc-hidden { opacity: 0; pointer-events: none; }
 /* 슬롯 내부 래퍼 — 피격 흔들림을 여기에 걸어 .cc-main 의 중앙정렬 transform 과 충돌 방지 */
-.cc-inner { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+/*   position:relative — 슬롯별 표식 정수리 레이어(.mark-board-layer, bottom:100%) 앵커용 */
+.cc-inner { display: flex; flex-direction: column; align-items: center; gap: 1px; position: relative; }
 .cc-main .p-icon        { font-size: 1.3rem; line-height: 1; }
 .cc-main .p-icon:has(> img.p-gif) { line-height: 0; font-size: 0; }
 .cc-main .p-hp          { font-size: 0.6rem; font-weight: 700; visibility: hidden; }   /* 캐러셀 HP 숨김 — 일반 셀/프리뷰와 통일 */

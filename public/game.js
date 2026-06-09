@@ -14225,14 +14225,25 @@ function _renderCellCarousel(cell, col, row, units) {
   // 모든 유닛을 DOM에 미리 렌더(슬롯 방식) — 이미지 플래시 방지.
   //   비활성 슬롯은 .cc-hidden(opacity:0) 으로 숨기되 GIF 애니메이션은 계속 돌아감.
   //   화살표 클릭 시 innerHTML 교체 없이 클래스만 토글 → 디코딩 지연 없음.
-  const slotsHtml = pieces.map((pc, i) =>
-    `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
-      `<div class="cc-inner">` +
-        `<span class="p-icon">${pc.iconHtml}</span>` +
-        `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
-      `</div>` +
-    `</div>`
-  ).join('');
+  const slotsHtml = pieces.map((pc, i) => {
+    // ★ 슬롯별 상태 레이어 — 현재 페이지가 아닌 유닛도 표식/저주가 보이게(블리드).
+    //   표식=정수리 idle 레이어(cc-inner 안, bottom:100%), 저주=망령 idle(cc-main 직속, 뒤).
+    //   소환 모션이 이 셀에서 진행 중이면 idle 억제(인두/망령 소환과 겹침 방지).
+    const _pc = pc.pcRef;
+    let _markL = '', _curseL = '';
+    if (_pc && _isMarked(_pc) && !(window._markSummoningActive && window._markSummoningActive(col, row)))
+      _markL = markBoardLayerHtml(_pc);
+    if (_pc && _isCursed(_pc) && !(typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)))
+      _curseL = curseBoardLayerHtml(_pc);
+    return `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
+        _curseL +
+        `<div class="cc-inner">` +
+          `<span class="p-icon">${pc.iconHtml}</span>` +
+          `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
+          _markL +
+        `</div>` +
+      `</div>`;
+  }).join('');
 
   cell.innerHTML += `
     <div class="cc-wrapper" id="${csId}-wrap">
@@ -14308,6 +14319,19 @@ function _crPickRepIdx(units) {
     if (!bk || k[0] < bk[0] || (k[0] === bk[0] && k[1] < bk[1])) { bk = k; best = i; }
   });
   return best;
+}
+// 한 칸에서 여러 유닛이 동시 피격될 때 화면에 보여줄 "대표 피격자" 선정 (piece 배열 입력).
+//   규칙: 고티어 → (동률)저체력 → (동률)상태이상 多 → 아무나(첫번째).
+function _crPickVictimRep(pieces) {
+  if (!pieces || !pieces.length) return null;
+  return pieces.slice().sort((a, b) => {
+    const ta = a.tier || 0, tb = b.tier || 0; if (tb !== ta) return tb - ta;            // 고티어
+    const ha = (typeof a.hp === 'number') ? a.hp : 99, hb = (typeof b.hp === 'number') ? b.hp : 99;
+    if (ha !== hb) return ha - hb;                                                        // 저체력
+    const sa = (a.statusEffects || []).length, sb = (b.statusEffects || []).length;
+    if (sb !== sa) return sb - sa;                                                        // 상태이상 多
+    return 0;                                                                            // 아무나
+  })[0];
 }
 // 지정 슬롯으로 슬라이드(애니) — _crNav 의 단일 슬라이드를 임의 타깃으로 일반화. 회귀 없이 그 자리 고정.
 window._crSlideTo = function(csKey, targetSlot) {
@@ -18515,20 +18539,27 @@ function animateAttackCellEffect(cells) {
 function animateBoardIconHit(cells, isDefending) {
   const board = document.getElementById('game-board');
   if (!board) return;
+  // ★ 같은 칸이 여러 번(다중 피격) 들어오면 1회만 처리 — 대표 피격자 1명에게만 모션.
+  const _seenCells = new Set();
   requestAnimationFrame(() => {
     for (const c of cells) {
+      const _ck = `${c.col},${c.row}`;
+      if (_seenCells.has(_ck)) continue;
+      _seenCells.add(_ck);
       const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
       if (!cell) continue;
-      // ── 피격 당사자(victim) 식별 — 캐러셀이면 이 유닛 슬롯으로 강제 이동 + 그 슬롯에 모션 ──
-      //   isDefending=true → 내 말(또는 팀원) / false → 표식 적
+      // ── 피격 당사자(victim) 식별 — 다중 피격 시 "대표 1명"만 화면에 표시 ──
+      //   대표 = 고티어 → (동률)저체력 → (동률)상태이상 多 → 아무나. isDefending=true 면 내/팀 말, false 면 표식 적.
       let _victim = null;
       if (isDefending) {
-        _victim = (S.myPieces || []).find(p => p.col === c.col && p.row === c.row && p.alive);
-        if (!_victim && S.isTeamMode) _victim = (S.teammatePieces || []).find(p => p.col === c.col && p.row === c.row && p.alive);
+        let _pool = (S.myPieces || []).filter(p => p.col === c.col && p.row === c.row && p.alive);
+        if (S.isTeamMode) _pool = _pool.concat((S.teammatePieces || []).filter(p => p.col === c.col && p.row === c.row && p.alive));
+        _victim = _crPickVictimRep(_pool);
       } else {
-        _victim = (S.oppPieces || []).find(p => p.marked && p.col === c.col && p.row === c.row && p.alive);
+        const _pool = (S.oppPieces || []).filter(p => p.marked && p.col === c.col && p.row === c.row && p.alive);
+        _victim = _crPickVictimRep(_pool);
       }
-      // ★ 캐러셀이면 피격당한 *그 유닛* 슬롯으로 자동 이동(대표=내유닛 으로 새던 버그 수정)
+      // ★ 캐러셀이면 피격당한 *대표 유닛* 슬롯으로 자동 이동(대표=내유닛 으로 새던 버그 수정)
       if (window._crForceCell) window._crForceCell(c.col, c.row, _victim);
 
       // isDefending=true  → 내 말 피격: opp-marked 가 아닌 piece-marker
