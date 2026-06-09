@@ -9240,7 +9240,23 @@ socket.on('remains_update', ({ remains, hits }) => {
   const _run = () => {
     for (const h of hits) {
       const facingLeft = !!(S._remainsFacing && S._remainsFacing[`${h.col},${h.row}`]);
-      animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
+      const _doHit = () => animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
+      // ★ 캐러셀에서 유해가 숨은 슬롯이면 animateRemainsHit 가 그냥 bail(피격 모션 미재생) → 먼저 그 유해
+      //   슬롯으로 슬라이드해 보이게 한 뒤 피격 모션 재생. (유해 피격 시 캐러셀이 유해로 안 넘어가던 문제)
+      let _slid = false;
+      try {
+        const _ck = `${h.col},${h.row}`;
+        const _st = window._cellCarouselState && window._cellCarouselState[_ck];
+        if (_st && _st.pieces && _st.pieces.length > 1) {
+          const _ri = _st.pieces.findIndex(p => p.owner === 'remains');
+          if (_ri >= 0 && _ri !== _st.idx && !_st.busy) {
+            window._crSlideTo(_ck, _ri);     // 200ms 슬라이드
+            setTimeout(_doHit, 230);          // 슬라이드 완료 후 피격 모션
+            _slid = true;
+          }
+        }
+      } catch (e) {}
+      if (!_slid) _doHit();
     }
   };
   if (_delay > 0) setTimeout(_run, _delay); else _run();
