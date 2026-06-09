@@ -3085,6 +3085,7 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
         } catch (e) {}
       }
       animateRingTeleport(ringTeleport, isVictimTeam ? 'victim' : 'observer');
+      if (window._crForceRingVictim) window._crForceRingVictim(ringTeleport);
     }
     if (hasMsg) {
       showSkillToast(msg, !myTeam, casterIdx, 'skill');
@@ -7374,6 +7375,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           if (typeof updateDeductionBadgesInPlace === 'function') updateDeductionBadgesInPlace();
         } catch (e) {}
         animateRingTeleport(data.ringTeleport, 'caster');
+        if (window._crForceRingVictim) window._crForceRingVictim(data.ringTeleport);
       }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
@@ -7620,6 +7622,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       // ★ 절대복종 반지 — 1v1 상대(피해자) 시점: 자기 piece 가 vanish 후 재등장.
       if (ringTeleport && typeof animateRingTeleport === 'function') {
         animateRingTeleport(ringTeleport, 'victim');
+        if (window._crForceRingVictim) window._crForceRingVictim(ringTeleport);
       }
       // ★ 저주 부여 turn-bright — 1v1 상대 시점 (누락 수정).
       if (typeof cursedPieceIdx === 'number') {
@@ -14478,6 +14481,25 @@ function _crApplyForced() {
     }
   }
 }
+// ── 절대복종반지(순간이동) 강제소환/이동 → 도착 셀이 캐러셀이면 그 유닛 슬롯으로 전환 ──
+//   반지는 animateMove 를 안 타고 animateRingTeleport(별도 모듈)만 호출 → 별도 훅 필요.
+//   반지 연출(~2.9s) 동안 캐러셀을 숨기므로, 연출 종료 후(도착 시점) 그 유닛으로 넘긴다.
+window._crForceRingVictim = function(rt) {
+  if (!rt || rt.toCol == null || rt.toRow == null) return;
+  setTimeout(() => {
+    try {
+      if (!window._crForceCell) return;
+      const _at = (p) => p && p.col === rt.toCol && p.row === rt.toRow && p.alive !== false
+        && (rt.victimType ? p.type === rt.victimType : true);
+      let pc = (S.myPieces || []).find(_at);
+      if (!pc && S.isTeamMode) pc = (S.teammatePieces || []).find(_at);
+      if (!pc) pc = (S.oppPieces || []).find(p => p && p.marked && _at(p));
+      if (!pc) return;                                  // 못 찾으면(숨은 적 등) 강제 안 함
+      window._crForceCell(rt.toCol, rt.toRow, pc);
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+    } catch (e) {}
+  }, 2950);
+};
 
 // ── 추리 토큰 배지만 in-place 갱신 (프로필 전체 재렌더 없이) ──
 // 적 프로필 카드의 deduction-badge 만 추가/갱신/제거 — 카드 자체는 재생성하지 않음
