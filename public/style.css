@@ -6801,7 +6801,13 @@ body.team-mode .placement-opp-panel {
 @media (max-width: 900px) {
   .draft-layout { flex-direction: column; align-items: center; }
   .draft-cards { grid-template-columns: 1fr; max-width: 100%; }
-  .sp-bar-container { flex-direction: column; gap: 4px; }
+  /* ★ 좁은(세로) 화면에서도 SP 바는 가로 유지 — 세로로 길게 서던 것 수정.
+     공간이 부족하면 바·숫자·여백을 줄여 가로로 압축(사용자 요청). */
+  .sp-bar-container { flex-direction: row; flex-wrap: nowrap; gap: 8px; }
+  .sp-bar-container .sp-side { min-width: 0; }
+  .sp-bar-container .sp-side-title { white-space: nowrap; }
+  .sp-bar-container .sp-num { font-size: 1.5rem; }
+  .sp-bar-container .sp-bar { flex: 1 1 90px; min-width: 56px; max-width: 220px; }
   .sp-label { text-align: center !important; }
 }
 @media (max-width: 700px) {
