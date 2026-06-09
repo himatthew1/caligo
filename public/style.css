@@ -7348,6 +7348,18 @@ body[data-my-team="red"] #chat-scope-team.active {
   .center-panel { align-items: center; }
   #game-board { margin-left: auto; margin-right: auto; }
 
+  /* ── 좌우 대칭 ── 오른쪽 패널(상대/레드팀) 카드는 왼쪽 패널의 거울상으로:
+     아이콘 오른쪽, 내용 우측 정렬 → 좌/우가 가운데를 기준으로 대칭. */
+  .left-panel .my-piece-card, .left-panel .opp-piece-card,
+  .right-panel .my-piece-card, .right-panel .opp-piece-card { width: 100%; box-sizing: border-box; }
+  .left-panel h3 { text-align: left; }
+  .right-panel h3 { text-align: right; }
+  .right-panel .my-piece-card, .right-panel .opp-piece-card { text-align: right; }
+  .right-panel .my-piece-card .my-piece-header,
+  .right-panel .opp-piece-card .my-piece-header { flex-direction: row-reverse; }
+  .right-panel .my-piece-card .status-badges,
+  .right-panel .opp-piece-card .status-badges { justify-content: flex-end; }
+
   /* 타이머 */
   .timer-clock { width: 48px; height: 48px; top: 8px; right: 8px; }
   .timer-clock-text { font-size: 0.78rem; }
