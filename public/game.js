@@ -17018,23 +17018,26 @@ function buildBoard(containerId, clickHandler) {
   board.style.gridTemplateColumns = `repeat(${totalSize}, ${cellPx}px)`;
   board.style.gridTemplateRows = `repeat(${totalSize}, ${cellPx}px)`;
   // 게임 보드의 실제 폭 (cell + gap + padding + border)을 CSS 변수로 노출 — 턴 배너·전투 로그가 이를 따라 폭 맞춤
+  board.style.zoom = '';
   if (containerId === 'game-board') {
     const gap = 4, padding = 8, border = 2;
     const boardWidth = totalSize * cellPx + (totalSize - 1) * gap + padding * 2 + border * 2;
-    // ★ 가로(데스크탑): 양옆 여백을 활용해 보드를 통째로 zoom 확대.
-    //   zoom 은 모든 자식(말·유해·사망모션·좌표·상태레이어)을 동일 비율로 스케일 → 일부만 커지던 비율깨짐 방지.
-    //   (모바일 <1000px 은 zoom 미적용 → 기존 fluid 보드/사이즈 그대로)
-    let z = 1;
-    if (window.innerWidth >= 1000) {
-      const sidePanels = 2 * 260, chrome = 24 + 40 + 36;
-      const availBoard = window.innerWidth - sidePanels - chrome;
-      z = Math.max(1, Math.min(availBoard / boardWidth, is7x7 ? 1.9 : 2.3));
-    }
-    board.style.zoom = (z > 1.001 ? z : '');
     const center = document.querySelector('#screen-game .center-panel');
-    if (center) center.style.setProperty('--board-w', Math.round(boardWidth * z) + 'px');
-  } else {
-    board.style.zoom = '';
+    if (center) {
+      center.style.setProperty('--board-w', boardWidth + 'px');
+      // ★ 가로(데스크탑): 중앙열 전체(보드+턴배너+액션바+로그)를 통째로 zoom →
+      //   보드·말·유해·사망모션·설치물·생성 애니메이션·액션버튼이 모두 동일 비율로 확대(비율 유지).
+      //   세로 높이에 맞춰 스케일하므로 가로에서도 세로 스크롤 없음. (모바일 <1000px 은 zoom 미적용)
+      let z = 1;
+      if (window.innerWidth >= 1000) {
+        const spH = 92, padH = 44;            // SP 섹션(zoom 밖) + 상하 여백
+        const centerExtra = 40 + 58 + 184;    // 턴배너 + 액션바 + 전투로그(대략) — 보드와 함께 zoom됨
+        const zH = (window.innerHeight - spH - padH) / (boardWidth + centerExtra);
+        const zW = (window.innerWidth - 2 * 260 - 100) / boardWidth;
+        z = Math.max(1, Math.min(zH, zW, is7x7 ? 1.9 : 2.3));
+      }
+      center.style.zoom = (z > 1.005 ? z : '');
+    }
   }
   // 팀모드 플래그를 body에도 반영 — 모바일 CSS가 7x7을 인식하도록
   if (S.isTeamMode) document.body.classList.add('team-mode');

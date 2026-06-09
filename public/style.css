@@ -7345,8 +7345,12 @@ body[data-my-team="red"] #chat-scope-team.active {
 
   /* 모바일: 추리 토큰 안내문 숨김(공간 절약) + 보드 중앙정렬 깔끔하게 */
   .deduction-hint { display: none !important; }
-  .center-panel { align-items: center; }
+  /* center-panel 폭이 var(--board-w)로 고정돼 그리드 영역 왼쪽에 몰리던 것 → 전체폭으로 펴서 보드 중앙정렬 */
+  .center-panel { align-items: center; width: 100%; }
   #game-board { margin-left: auto; margin-right: auto; }
+  /* 외곽 파괴 경고문: 전체폭 배너로 쓸데없이 길던 것 → 내용폭으로 줄여 중앙 배치 */
+  .shrink-warning-container { align-items: center; }
+  .shrink-warning { width: auto; max-width: 100%; align-self: center; margin: 0 auto; }
 
   /* ── 좌우 대칭 ── 오른쪽 패널(상대/레드팀) 카드는 왼쪽 패널의 거울상으로:
      아이콘 오른쪽, 내용 우측 정렬 → 좌/우가 가운데를 기준으로 대칭. */
