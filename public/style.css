@@ -2447,7 +2447,8 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .piece-marker.opp-marked .p-icon { filter: drop-shadow(0 0 2px #e05252); }
 .cell.has-piece:has(.opp-marked) { background: rgba(224,82,82,0.12); border-color: rgba(224,82,82,0.5); }
 /* ★ 캐러셀 칸 — 말-있음 박스 강조(파란/마젠타 테두리·배경) 제거. 기본 셀처럼 + 유닛 + 화살표만 보이게 */
-#game-board .cell.has-piece:has(.cc-wrapper) { background: var(--cell); border-color: var(--border); }
+/*   overflow:visible + z-index → 작은 셀(특히 2v2)에서 캐릭터가 셀 밖(위)으로 튀어나와도 잘리지 않음 */
+#game-board .cell.has-piece:has(.cc-wrapper) { background: var(--cell); border-color: var(--border); overflow: visible; z-index: 4; }
 /* 팀원 말 — 은은하게 딤 + 팀 절대 컬러 (블루/레드) */
 .piece-marker.teammate-piece {
   opacity: 0.65;
@@ -2476,7 +2477,9 @@ body.team-teammate-turn #game-board .piece-marker:not(.teammate-piece):not(.opp-
 
 /* ── 멀티유닛 캐러셀 (같은 셀에 2개 이상 유닛) ── */
 .cc-wrapper {
-  position: absolute; inset: 0; z-index: 2; overflow: hidden;
+  /* overflow:visible — 캐릭터/유해가 작은 셀 밖(위)으로 튀어나와도 잘리지 않게.
+     좌우 슬라이드 슬롯은 opacity:0 이라 셀 밖에서도 안 보임 → 클리핑 불필요. */
+  position: absolute; inset: 0; z-index: 2; overflow: visible;
 }
 .cc-main {
   position: absolute; z-index: 3;
