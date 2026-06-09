@@ -3837,6 +3837,21 @@ body.team-mode img.p-gif {
   border-color: #fed7aa;
   color: #fff;
 }
+/* ★ 모바일 세로: 시전자 카드 위 오버레이 변형 — 꼬리 없음, 카드 정중앙, 화면밖/겹침 방지 */
+.skill-cast-bubble.bubble-overlay {
+  white-space: normal;
+  text-align: center;
+  max-width: 76vw;
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  line-height: 1.15;
+  transform: translate(-50%, -50%) scale(0.4);
+}
+.skill-cast-bubble.bubble-overlay.bubble-show { transform: translate(-50%, -50%) scale(1); }
+.skill-cast-bubble.bubble-overlay.bubble-fade { transform: translate(-50%, -50%) scale(0.95); }
+.skill-cast-bubble.bubble-overlay::after,
+.skill-cast-bubble.bubble-overlay::before { display: none; }
+
 /* 꼬리 — 카드 쪽으로 향함. ::after 로 삼각형 + ::before 로 테두리 매칭 */
 .skill-cast-bubble::after,
 .skill-cast-bubble::before {

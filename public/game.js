@@ -5933,16 +5933,25 @@ function showSkillCastBubble(casterCard, skillName, skillType) {
   const boardIsRight = boardCx > cardCx;
   const type = ['action', 'once', 'free', 'passive'].includes(skillType) ? skillType : 'free';
 
+  // ★ 모바일 세로: 카드가 상단(좌/우), 보드는 아래라 '카드 옆 가로 배치'가 어긋남(상대 패널 겹침·화면밖).
+  //   → 시전자 카드 정중앙에 오버레이로 덮어 표시(꼬리 없음, 화면밖/겹침 방지).
+  const isMobilePortrait = !!(window.matchMedia && window.matchMedia('(max-width: 480px)').matches);
   const bubble = document.createElement('div');
-  bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;
   bubble.textContent = skillName;
-  // 카드 가장자리(보드 쪽) 에 붙이고, 살짝 보드 쪽으로 띄움
-  if (boardIsRight) {
-    bubble.style.left = (cardRect.right + 14) + 'px';
+  if (isMobilePortrait) {
+    bubble.className = `skill-cast-bubble bubble-${type} bubble-overlay`;
+    bubble.style.left = (cardRect.left + cardRect.width / 2) + 'px';
+    bubble.style.top  = (cardRect.top + cardRect.height / 2) + 'px';
   } else {
-    bubble.style.right = (window.innerWidth - cardRect.left + 14) + 'px';
+    bubble.className = `skill-cast-bubble bubble-${type} bubble-tail-${boardIsRight ? 'left' : 'right'}`;
+    // 카드 가장자리(보드 쪽) 에 붙이고, 살짝 보드 쪽으로 띄움
+    if (boardIsRight) {
+      bubble.style.left = (cardRect.right + 14) + 'px';
+    } else {
+      bubble.style.right = (window.innerWidth - cardRect.left + 14) + 'px';
+    }
+    bubble.style.top = (cardRect.top + cardRect.height / 2) + 'px';
   }
-  bubble.style.top = (cardRect.top + cardRect.height / 2) + 'px';
   document.body.appendChild(bubble);
   // 다음 프레임에 visible 클래스 → CSS 로 pop-in
   requestAnimationFrame(() => { bubble.classList.add('bubble-show'); });
