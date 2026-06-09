@@ -7230,22 +7230,33 @@ body[data-my-team="red"] #chat-scope-team.active {
   .placement-opp-panel { padding: 10px; min-width: 0; max-width: 100%; }
   .placement-opp-card { padding: 8px; }
 
-  /* ── 게임 화면 ── */
+  /* ── 게임 화면 (세로 무스크롤 재배치) ──
+     상단: SP 바(전폭) → 내 팀(좌)·상대 팀(우) 가로 2열 스택 → 보드 전폭.
+     세로로 길게 쌓아 스크롤 시키던 구조를 그리드로 압축. (가로 레이아웃은 영향 없음) */
   .game-layout {
-    flex-direction: column;
-    align-items: center;
-    padding: 10px 8px;
-    gap: 10px;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "sp    sp"
+      "mine  opp"
+      "board board";
+    align-items: start;
+    justify-content: stretch;
+    padding: 6px 6px 10px;
+    gap: 6px;
+    max-width: 100%;
   }
+  .game-layout > .sp-section   { grid-area: sp; width: 100%; }
+  .game-layout > .left-panel   { grid-area: mine; }
+  .game-layout > .right-panel  { grid-area: opp; }
+  .game-layout > .center-panel { grid-area: board; }
   .side-panel, .log-panel {
-    width: 100%; max-width: 100%;
+    width: 100%; max-width: 100%; min-width: 0;
     flex-shrink: 1;
   }
-  /* 패널 순서: 턴배너+보드+액션 먼저, 내말, 상대, 로그 */
-  .center-panel { order: 1; }
-  .left-panel   { order: 2; }
-  .right-panel  { order: 3; }
-  .log-panel    { order: 4; }
+  /* 팀 패널 헤더 — 작게, 상대는 우측 정렬 */
+  .side-panel h3 { font-size: 0.6rem; margin-bottom: 3px; letter-spacing: 0.4px; }
+  .right-panel h3 { text-align: right; }
 
   .center-panel { gap: 8px; }
   .turn-banner { font-size: 0.82rem; padding: 8px 12px; }
@@ -7290,15 +7301,24 @@ body[data-my-team="red"] #chat-scope-team.active {
   .sp-bar { height: 16px; }
   .sp-countdown { font-size: 0.65rem; }
 
-  /* 내 말 패널 - 컴팩트 */
-  .my-piece-card { padding: 8px; margin-bottom: 6px; }
-  .my-piece-header .p-icon { font-size: 1.1rem; }
-  .my-piece-header strong { font-size: 0.8rem; }
-  .my-piece-header .tier-badge { font-size: 0.58rem; }
-  .my-piece-pos { font-size: 0.65rem; }
+  /* 내·상대 말 카드 — 세로에서 강하게 컴팩트 (아이콘+이름+티어+팩션+HP만, 나머지 숨김) */
+  .my-piece-card, .opp-piece-card { padding: 3px 5px; margin-bottom: 3px; }
+  .my-piece-header, .opp-piece-header { gap: 3px; }
+  .my-piece-header .p-icon, .opp-piece-header .p-icon { font-size: 1rem; }
+  .my-piece-header strong, .opp-piece-header strong { font-size: 0.72rem; }
+  .my-piece-header .tier-badge, .opp-piece-header .tier-badge { font-size: 0.5rem; padding: 0 3px; }
+  .my-piece-card .tag-badge, .opp-piece-card .tag-badge { width: 16px; height: 16px; margin-left: 3px; }
+  .my-piece-card .hp-bar-bg, .opp-piece-card .hp-bar-bg { height: 11px; }
+  .my-piece-card .hp-bar-text, .opp-piece-card .hp-bar-text { font-size: 0.56rem; }
+  .my-piece-card .status-badge, .opp-piece-card .status-badge { font-size: 0.52rem; padding: 0 3px; }
+  /* 좁은 세로에선 ATK/좌표 행·스킬패시브 미니헤더·호버 툴팁 생략(보드/딕셔너리로 확인) */
+  .game-layout .piece-stat-row,
+  .game-layout .piece-mini-headers,
+  .game-layout .my-piece-card .piece-tooltip,
+  .game-layout .opp-piece-card .piece-tooltip { display: none !important; }
 
-  /* 상대 말 + 로그 */
-  .opp-piece-card { padding: 8px; margin-bottom: 6px; }
+  /* 무스크롤 위해 인라인 전투 로그는 세로에서 숨김 (토스트·보드로 상황 파악) */
+  .center-log-wrap { display: none; }
   .game-log { max-height: 150px; }
   .log-entry { font-size: 0.68rem; }
 
