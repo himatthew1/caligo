@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CALIGO — 표식 최종 튜너 (인게임 코드 그대로)</title>
 <!-- ★ 실제 인게임 style.css + mark-anim.js 를 그대로 띄움. 여기서 조절한 값이 곧 인게임값. -->
-<link rel="stylesheet" href="style.css?v=20260609u">
+<link rel="stylesheet" href="style.css?v=20260609v">
 <style>
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
@@ -76,7 +76,7 @@
       <div class="row"><label>캐릭블러</label><input type="range" id="cgB" min="0" max="12" step="0.5" value="2"><span class="val" id="cgBV"></span></div>
       <div class="row"><label>표식α</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="1"><span class="val" id="mgAV"></span></div>
       <div class="row"><label>표식블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="1.5"><span class="val" id="mgBV"></span></div>
-      <div class="row"><label>아웃라인</label><input type="range" id="olB" min="0" max="4" step="0.25" value="0.5"><span class="val" id="olBV"></span></div>
+      <div class="row"><label>아웃라인블러</label><input type="range" id="olB" min="0" max="4" step="0.25" value="1"><span class="val" id="olBV"></span></div>
     </div>
     <div class="panel" style="grid-column:span 2;display:flex;flex-direction:column">
       <h2>적용 값 (복사해서 주세요)</h2>
@@ -86,9 +86,9 @@
   </div>
 </main>
 
-<script src="piece-gifs.js?v=20260609u"></script>
-<script src="mark-anim.js?v=20260609u"></script>
-<script src="nightmare-anim.js?v=20260609u"></script>
+<script src="piece-gifs.js?v=20260609v"></script>
+<script src="mark-anim.js?v=20260609v"></script>
+<script src="nightmare-anim.js?v=20260609v"></script>
 <script>
 const num=id=>parseFloat(document.getElementById(id).value);
 const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
@@ -120,10 +120,9 @@ function applyAll(){
   syncTune();
   var size=num('size'), my=num('markOffY'), bob=num('bobdur'), cgA=num('cgA'), cgB=num('cgB'), mgA=num('mgA'), mgB=num('mgB'), olB=num('olB');
   var ty=11+my, ty2=9+my;
-  // 크리스프 솔리드 외곽선 — 블러 0 + 상하좌우(+대각) 오프셋. (블러 방식은 글로우에 묻혀 안 보임)
+  // 캐릭터와 동일한 0-오프셋 블러 외곽선(센터 대칭, ×3). 오프셋 방식은 소수점 반올림으로 센터가 틀어짐.
   var o=olB;
-  var markOUT='drop-shadow('+o+'px 0 0 #000) drop-shadow(-'+o+'px 0 0 #000) drop-shadow(0 '+o+'px 0 #000) drop-shadow(0 -'+o+'px 0 #000)'+
-    ' drop-shadow('+o+'px '+o+'px 0 #000) drop-shadow(-'+o+'px '+o+'px 0 #000) drop-shadow('+o+'px -'+o+'px 0 #000) drop-shadow(-'+o+'px -'+o+'px 0 #000)';
+  var markOUT='drop-shadow(0 0 '+o+'px #000) drop-shadow(0 0 '+o+'px #000) drop-shadow(0 0 '+o+'px #000)';
   var charP=OUT+' drop-shadow(0 0 '+cgB+'px rgba(168,116,231,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(168,116,231,'+cgA+'))';
   var charR=OUT+' drop-shadow(0 0 '+cgB+'px rgba(224,82,82,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(224,82,82,'+cgA+'))';
   var mkP=markOUT+' drop-shadow(0 0 '+mgB+'px rgba(168,116,231,'+mgA+'))';
@@ -141,7 +140,7 @@ function applyAll(){
   document.getElementById('out').textContent=
 'mark-anim.js  _MARK_SIZE='+size+'  ironScale='+num('ironScale').toFixed(2)+'  ironDur='+num('ironDur')+'  ironH='+num('ironH')+
 '\n              impactMs='+num('impactMs')+'  summonDelay='+num('summonDelay')+'  ironOffX='+num('ironOffX')+'  ironOffY='+num('ironOffY')+'  markOffY='+my+
-'\nstyle.css     .mark-board-layer  '+size+'px · translate(-50%,'+ty+'px) · bob '+bob+'s · 아웃라인 '+olB+'px×2'+
+'\nstyle.css     .mark-board-layer  '+size+'px · translate(-50%,'+ty+'px) · bob '+bob+'s · 아웃라인 블러 '+olB+'px×3(0-오프셋)'+
 '\n  char(보라/적빨강): '+charP+
 '\n  mark(보라/적빨강): '+mkP;
 }
@@ -153,7 +152,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',fu
   else if(a==='nightmare'){ syncTune(); renderGameBoard(); if(window.animateNightmareCast) animateNightmareCast([{col:0,row:0,damage:1},{col:1,row:0,damage:1}]); }
   else if(a==='release'){ syncTune(); renderGameBoard(); if(window.animateMarkRelease) setTimeout(function(){ animateMarkRelease([{col:0,row:0},{col:1,row:0}]); }, 30); }
   else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(function(){b.textContent='값 복사';},1100); }
-  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:50,ironOffX:0,ironOffY:-6,impactMs:480,summonDelay:510,bobdur:2.4,cgA:0.6,cgB:2,mgA:1,mgB:1.5,olB:0.5};
+  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:50,ironOffX:0,ironOffY:-6,impactMs:480,summonDelay:510,bobdur:2.4,cgA:0.6,cgB:2,mgA:1,mgB:1.5,olB:1};
     Object.keys(d).forEach(function(k){var e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); renderGameBoard(); }
 }));
 document.getElementById('unitPick').addEventListener('change',function(e){curType=e.target.value; renderGameBoard();});
