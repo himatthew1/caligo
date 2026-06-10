@@ -37,6 +37,14 @@
     -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;
     -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
     filter:drop-shadow(0 0 1px #000);transition:opacity .22s}
+  /* 회전 중 궤도 요소(모든 유닛이 타원을 돈다 → 끝나면 실제 구조로 안착) */
+  #ttorbit{position:absolute;inset:0;overflow:visible;z-index:1;pointer-events:none}
+  .tt-orbit{position:absolute}
+  .tt-orbit .real{position:absolute;left:0;top:0;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .tt-orbit .silh{position:absolute;left:0;top:0;
+    background:linear-gradient(to bottom, var(--stop,#c79cf5) 0%, var(--smid,#8a5be0) 46%, var(--sbot,#2a1340) 100%);
+    -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+    filter:drop-shadow(0 0 1px #000)}
   .cellcap{display:flex;flex-direction:column;align-items:center;gap:4px}
   .cellcap .cl{font-size:8.5px;color:#6f6885;text-align:center}
   .scaleinfo{font-size:10px;color:#8a8298}
@@ -127,6 +135,7 @@ const SCN={
   s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R('spearman'), R('archer') ],
 };
 let units=[], frontIdx=0, busy=false, team=false;
+let unitYReal=null, unitXReal=null;   // 실제 셀 유닛 p-gif 중심(px, 셀 top 기준) — 타원 front 가 여기에 안착
 const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),
       REM=()=>window.REMAINS_IMG||'/art/remains.png';
 const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
@@ -166,10 +175,22 @@ function render(){
   document.getElementById('scaleinfo').textContent=
     `셀 ${cellPx()}px · 겹침 ${units.length} · 대표(앞면): ${u.isRemains?'유해':u.type+(u.tier?` T${u.tier}`:'')} — 실제 인게임 구조`;
 }
+// 실제 셀 유닛 위치 측정(줌 무관) → 타원 front(=+RY)가 거기에 안착
+function measureUnitPos(){
+  const nc=document.querySelector('#board .cell.has-piece'); const pg=nc&&nc.querySelector('.p-gif'); if(!pg) return;
+  const ncr=nc.getBoundingClientRect(), pr=pg.getBoundingClientRect(); const cs=cellPx();
+  if(ncr.height>0){ unitYReal=((pr.top+pr.height/2)-ncr.top)/ncr.height*cs; unitXReal=((pr.left+pr.width/2)-ncr.left)/ncr.width*cs; }
+}
+// 타원 기하: 중심을 (실측 유닛 위치 − 1px 테두리) 기준으로, front(d=1)이 유닛 위치에 오게 CY=중심−RY
+function ellipseGeom(){
+  const T=tuning(), cs=cellPx(), cc=(cs-2)/2;
+  const RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const ux=(unitXReal!=null?unitXReal-1:cc), uy=(unitYReal!=null?unitYReal-1:cc);
+  return { CX:ux, CY:uy-RY, RX, RY, T, cs };
+}
 function renderSilhouettes(){
   const silh=document.getElementById('ttsilh'); if(!silh) return;
-  const T=tuning(), cs=cellPx(), N=units.length, cc=(cs-2)/2;
-  const RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const {CX,CY,RX,RY,T}=ellipseGeom(); const N=units.length;
   const dd=T.botDark, bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
   silh.style.setProperty('--sbot',bot);
   units.forEach((u,i)=>{
@@ -181,18 +202,60 @@ function renderSilhouettes(){
     const sz=Math.round((u.isRemains?remPx():pfPx())*scale);
     const sprite=u.isRemains?REM():IDLE(u.type);
     const el=document.createElement('div'); el.className='tt-silh'; el.dataset.i=i;
-    el.style.cssText=`width:${sz}px;height:${sz}px;left:${(cc+RX*s).toFixed(1)}px;top:${(cc+RY*d).toFixed(1)}px;`+
+    el.style.cssText=`width:${sz}px;height:${sz}px;left:${(CX+RX*s).toFixed(1)}px;top:${(CY+RY*d).toFixed(1)}px;`+
       `transform:translate(-50%,-50%);z-index:${Math.round((d+1)*40)};`+
       `opacity:${(T.op*(1-back*0.22)).toFixed(2)};`+
       `-webkit-mask-image:url(${sprite});mask-image:url(${sprite})`;
-    el.addEventListener('click',()=>{ if(!busy){ frontIdx=i; render(); } });
+    el.addEventListener('click',()=>{ if(!busy) goTo(i); });
     silh.appendChild(el);
   });
 }
 
-/* ───── 회전 / 대표 스냅 ───── */
+/* ───── 회전(궤도 애니) — 회전 중엔 모든 유닛이 타원을 돌고, 끝나면 실제 구조로 안착 ───── */
 function snapToRep(){ frontIdx=repIndex(); render(); }
-function nav(dir){ if(busy)return; frontIdx=(frontIdx+dir+units.length)%units.length; render(); }
+function buildOrbit(){
+  const cell=document.getElementById('ttcell'); cell.className='cell';
+  cell.innerHTML=`<div class="tt-silh-layer" id="ttsilh"><div class="tt-disc"></div></div><div id="ttorbit"></div>`;
+  const orbit=document.getElementById('ttorbit');
+  units.forEach((u,i)=>{
+    const sprite=u.isRemains?REM():IDLE(u.type), base=u.isRemains?remPx():pfPx();
+    const el=document.createElement('div'); el.className='tt-orbit'; el.dataset.i=i; el.dataset.base=base;
+    el.innerHTML=`<img class="real" src="${sprite}"><div class="silh" style="-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`;
+    orbit.appendChild(el);
+  });
+}
+function positionOrbit(rot){
+  const orbit=document.getElementById('ttorbit'); if(!orbit) return;
+  const {CX,CY,RX,RY,T}=ellipseGeom(); const N=units.length;
+  const dd=T.botDark, bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
+  orbit.style.setProperty('--sbot',bot);
+  let fb=-2, fbi=0;
+  for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>fb){fb=d;fbi=i;} }
+  [...orbit.children].forEach(el=>{
+    const i=+el.dataset.i, base=+el.dataset.base;
+    const a=((i-frontIdx)*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);
+    const backf=(1-(d+1)/2), scale=T.depthMin+(1-T.depthMin)*((d+1)/2), sz=Math.round(base*scale);
+    el.style.cssText=`position:absolute;width:${sz}px;height:${sz}px;left:${(CX+RX*s).toFixed(1)}px;top:${(CY+RY*d).toFixed(1)}px;transform:translate(-50%,-50%);z-index:${Math.round((d+1)*40)}`;
+    const real=el.querySelector('.real'), silh=el.querySelector('.silh');
+    real.style.width=silh.style.width=sz+'px'; real.style.height=silh.style.height=sz+'px';
+    if(i===fbi){ real.style.opacity='1'; silh.style.opacity='0'; }
+    else { real.style.opacity='0'; silh.style.opacity=(T.op*(1-backf*0.22)).toFixed(2); }
+  });
+}
+function shortestSteps(target){ const N=units.length; const fwd=((target-frontIdx)%N+N)%N; return fwd<=N-fwd?fwd:fwd-N; }
+function _rotate(delta){ return new Promise(res=>{
+  const N=units.length; if(!delta||N<=1){ render(); res(); return; }
+  const step=360/N, total=-delta*step, t0=performance.now(), dur=Math.min(640,260+Math.abs(delta)*150);
+  buildOrbit();
+  let done=false; const finish=()=>{ if(done)return; done=true; frontIdx=((frontIdx+delta)%N+N)%N; render(); res(); };
+  requestAnimationFrame(function frame(now){ if(done)return; const k=Math.min(1,(now-t0)/dur); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    positionOrbit(total*e);
+    if(k<1) requestAnimationFrame(frame); else finish(); });
+  setTimeout(finish, dur+280);   // 안전망 — 백그라운드 rAF 스로틀 시에도 안착 보장
+}); }
+function rotateSteps(delta){ if(busy||!delta)return Promise.resolve(); busy=true; return _rotate(delta).then(()=>{ busy=false; }); }
+function nav(dir){ rotateSteps(dir); }
+function goTo(target){ rotateSteps(shortestSteps(target)); }
 
 /* ───── 대표 피격 (앞면 실제 .piece-marker 에 hit GIF + 흔들림 + 도장) ───── */
 function dmgStamp(text,kind){ const cell=document.getElementById('ttcell'); const r=cell.getBoundingClientRect();
@@ -207,7 +270,7 @@ async function playAttack(){
     if((a.u.hp||0)!==(b.u.hp||0))return (a.u.hp||0)-(b.u.hp||0); return ((b.u.status||[]).length)-((a.u.status||[]).length); })[0];
   const why=victims.length===1?'단일':`${victims.length}명 중 고티어(T${rep.u.tier})`+(victims.filter(x=>x.u.tier===rep.u.tier).length>1?` → 저체력(${rep.u.hp})`:'');
   log.innerHTML=`① 대표 피격자 <b>${rep.u.type}</b> 앞면 회전 <span style="color:#8a8298">(${why})</span>`;
-  frontIdx=rep.i; render(); await wait(140);
+  await _rotate(shortestSteps(rep.i)); await wait(80);
   const cell=document.getElementById('ttcell'); const pm=cell.querySelector('.piece-marker'); const im=pm&&pm.querySelector('.p-gif'); const base=im&&im.src;
   log.innerHTML=`① 대표 <b>${rep.u.type}</b> 앞면 → ② 피격 + 도장 −2 <span style="color:#8a8298">(${why})</span>`+
     (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(x=>x!==rep).map(x=>x.u.type).join(', ')})는 뒤 실루엣 — 화면 안정.</span>`:'');
@@ -242,6 +305,7 @@ function buildBoard(){
   b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
   const c=document.createElement('div'); c.className='cell'; c.id='ttcell'; b.appendChild(c);
   b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
+  measureUnitPos();
 }
 
 /* ───── 컨트롤 ───── */
