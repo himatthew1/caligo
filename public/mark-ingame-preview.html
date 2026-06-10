@@ -77,11 +77,11 @@
     <div class="row"><label>셀 크기</label><input type="range" id="cs" min="56" max="150" step="2" value="96"><span class="val" id="csV">96</span></div>
 
     <h2>표식 타이밍·크기 (_MARK_TUNE)</h2>
-    <div class="row"><label>표식 크기</label><input type="range" id="size" min="18" max="52" step="1" value="28"><span class="val" id="sizeV">28</span></div>
-    <div class="row"><label>인두 배율</label><input type="range" id="ironScale" min="1" max="2.2" step="0.05" value="1.35"><span class="val" id="ironScaleV">1.35</span></div>
-    <div class="row"><label>인두 속도(ms)</label><input type="range" id="ironDur" min="350" max="1600" step="10" value="650"><span class="val" id="ironDurV">650</span></div>
-    <div class="row"><label>임팩트(ms)</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="325"><span class="val" id="impactMsV">325</span></div>
-    <div class="row"><label>생성 시작(ms)</label><input type="range" id="summonDelay" min="0" max="1400" step="10" value="355"><span class="val" id="summonDelayV">355</span></div>
+    <div class="row"><label>표식 크기</label><input type="range" id="size" min="18" max="52" step="1" value="33"><span class="val" id="sizeV">33</span></div>
+    <div class="row"><label>인두 배율</label><input type="range" id="ironScale" min="1" max="2.2" step="0.05" value="1.45"><span class="val" id="ironScaleV">1.45</span></div>
+    <div class="row"><label>인두 속도(ms)</label><input type="range" id="ironDur" min="350" max="1600" step="10" value="950"><span class="val" id="ironDurV">950</span></div>
+    <div class="row"><label>임팩트(ms)</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="475"><span class="val" id="impactMsV">475</span></div>
+    <div class="row"><label>생성 시작(ms)</label><input type="range" id="summonDelay" min="0" max="1400" step="10" value="505"><span class="val" id="summonDelayV">505</span></div>
     <div class="note">※ 인두를 느리게(인두 속도↑) 하고 생성 시작을 인두 착지 뒤로 미루면 “등장 전 미리 보임(스포일)”이 사라집니다. 표식 크기↑ = 가시성↑.</div>
 
     <h2>글로우</h2>
@@ -179,7 +179,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()
   else if(a==='cs'){ playCurse(); }
   else if(a==='both'){ syncTune(); renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0}]); playCurse(); }
   else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='값 복사',1100); }
-  else if(a==='reset'){ const d={cs:96,size:28,ironScale:1.35,ironDur:650,impactMs:325,summonDelay:355,cgA:0.6,cgB2:2,mgA:0.75,mgB:3};
+  else if(a==='reset'){ const d={cs:96,size:33,ironScale:1.45,ironDur:950,impactMs:475,summonDelay:505,cgA:0.6,cgB2:2,mgA:0.75,mgB:3};
     Object.keys(d).forEach(k=>{const e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); }
 }));
 document.getElementById('unitPick').addEventListener('change',e=>{ curType=e.target.value; renderGameBoard(); renderCurseBoard(true); });
