@@ -37,7 +37,13 @@
   .tt-unit{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;pointer-events:auto;cursor:pointer;
     will-change:transform,left,top;transition:opacity .28s ease, filter .28s ease}
   .tt-unit .pwrap{position:relative;display:flex;align-items:flex-end;justify-content:center}
-  .tt-unit img{image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .tt-unit .real{image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  /* 뒤 실루엣 = 스프라이트 알파를 마스크로 → 보라 단색 + 아래로 어두워지는 그라데이션 채움 */
+  .tt-unit .silh{position:absolute;left:0;top:0;
+    background:linear-gradient(to bottom, var(--stop,#c79cf5) 0%, var(--smid,#8a5be0) 46%, var(--sbot,#2a1340) 100%);
+    -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;
+    -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+    filter:drop-shadow(0 0 1px #000)}
   .tt-unit .hp{font-size:9px;font-weight:800;margin-top:1px;text-shadow:0 1px 2px #000,0 0 3px #000;white-space:nowrap}
   .tt-unit .badge{position:absolute;top:-5px;right:-7px;font-size:7px;font-weight:800;padding:0 3px;border-radius:5px;line-height:1.4}
   .tt-unit .badge.mark{background:#3a2f12;color:#ffd479;border:1px solid #6b5413}
@@ -113,12 +119,11 @@
       <div class="note">대표 = 고티어→저체력→상태이상多. 대표만 앞에서 반응, 실루엣은 정지.</div>
     </div>
     <div class="panel">
-      <h2>실루엣 튜닝</h2>
-      <div class="row"><label>뒤 어둡기</label><input type="range" id="silDark" min="0" max="1" step="0.05" value="0.85"><span class="val" id="silDarkV"></span></div>
-      <div class="row"><label>뒤 투명</label><input type="range" id="silOp" min="0.15" max="0.9" step="0.05" value="0.5"><span class="val" id="silOpV"></span></div>
-      <div class="row"><label>뒤 블러</label><input type="range" id="silBlur" min="0" max="2" step="0.25" value="0.5"><span class="val" id="silBlurV"></span></div>
+      <h2>실루엣 튜닝 (보라 + 아래 어둡기)</h2>
+      <div class="row"><label>뒤 투명</label><input type="range" id="silOp" min="0.4" max="1" step="0.05" value="0.95"><span class="val" id="silOpV"></span></div>
+      <div class="row"><label>아래 어둡기</label><input type="range" id="botDark" min="0" max="1" step="0.05" value="0.7"><span class="val" id="botDarkV"></span></div>
       <div class="row"><label>퍼짐(반경)</label><input type="range" id="spread" min="0.2" max="0.6" step="0.02" value="0.34"><span class="val" id="spreadV"></span></div>
-      <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.62"><span class="val" id="depthV"></span></div>
+      <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.7"><span class="val" id="depthV"></span></div>
     </div>
   </aside>
 </main>
@@ -166,15 +171,17 @@ function buildUnits(){
   units.forEach((u,i)=>{
     const el=document.createElement('div'); el.className='tt-unit'; el.dataset.i=i;
     el.style.width=pf+'px';
-    let inner;
-    if(u.isRemains){ inner=`<div class="pwrap"><img src="${REM()}" style="width:${Math.round(pf*0.86)}px;height:${Math.round(pf*0.86)}px"></div><span class="hp"></span>`; }
-    else {
-      const g=IDLE(u.type);
-      const badge=(u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':'');
-      const col=u.owner==='opp'?'#f87171':'#86efac';
-      inner=`<div class="pwrap">${g?`<img src="${g}" style="width:${pf}px;height:${pf}px">`:'❔'}${badge}</div><span class="hp" style="color:${col}">${u.hp}/${u.maxHp}</span>`;
-    }
-    el.innerHTML=inner;
+    const sprite=u.isRemains?REM():IDLE(u.type);
+    const badge=u.isRemains?'':((u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':''));
+    const col=u.owner==='opp'?'#f87171':(u.owner==='remains'?'#e2c878':'#86efac');
+    const hpText=u.isRemains?'':`${u.hp}/${u.maxHp}`;
+    el.innerHTML=
+      `<div class="pwrap" style="width:${pf}px;height:${pf}px">`+
+        `<img class="real" src="${sprite}" style="width:${pf}px;height:${pf}px">`+
+        `<div class="silh" style="width:${pf}px;height:${pf}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
+        badge+
+      `</div>`+
+      `<span class="hp" style="color:${col}">${hpText}</span>`;
     el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
     layer.appendChild(el);
   });
@@ -182,7 +189,7 @@ function buildUnits(){
 }
 
 function tuning(){ return {
-  dark:+v('silDark'), op:+v('silOp'), blur:+v('silBlur'),
+  op:+v('silOp'), botDark:+v('botDark'),
   spread:+v('spread'), depthMin:+v('depth') }; }
 function v(id){ return document.getElementById(id).value; }
 
@@ -192,6 +199,11 @@ function frontIndex(){ let best=0,bd=-2; const N=units.length;
 function layout(){
   const N=units.length, T=tuning(), cs=cellPx(), front=frontIndex();
   const CX=cs/2, CY=cs*0.5, RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const layer=document.getElementById('ttlayer');
+  if(layer){ // 그라데이션 하단 어둡기 변수 (보라 → 어둡게)
+    const dd=T.botDark; const bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
+    layer.style.setProperty('--sbot',bot);
+  }
   units.forEach((u,i)=>{
     const el=document.querySelector(`.tt-unit[data-i="${i}"]`); if(!el)return;
     const a=(i*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);  // d:+1 앞 .. -1 뒤
@@ -200,11 +212,15 @@ function layout(){
     el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
     el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
     el.style.zIndex=Math.round((d+1)*100);
-    const img=el.querySelector('img'), hp=el.querySelector('.hp');
-    if(i===front){ el.style.opacity='1'; if(img)img.style.filter='drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)'; if(hp)hp.style.visibility='visible'; el.classList.add('isfront'); }
-    else { el.style.opacity=(T.op*(1-back*0.4)).toFixed(2);
-      if(img)img.style.filter=`brightness(${(1-T.dark).toFixed(2)}) blur(${(T.blur*(0.5+back*0.5)).toFixed(2)}px) drop-shadow(0 0 1px #000)`;
-      if(hp)hp.style.visibility='hidden'; el.classList.remove('isfront'); }
+    const real=el.querySelector('.real'), silh=el.querySelector('.silh'), hp=el.querySelector('.hp');
+    if(i===front){ // 대표 = 실제 스프라이트
+      el.style.opacity='1'; if(real)real.style.opacity='1'; if(silh)silh.style.opacity='0';
+      if(hp)hp.style.visibility='visible'; el.classList.add('isfront');
+    } else {        // 뒤 = 보라 단색 실루엣(아래 어둡기 그라데이션)
+      el.style.opacity=(T.op*(1-back*0.22)).toFixed(2);
+      if(real)real.style.opacity='0'; if(silh)silh.style.opacity='1';
+      if(hp)hp.style.visibility='hidden'; el.classList.remove('isfront');
+    }
   });
   const rep=units[front];
   document.getElementById('scaleinfo').textContent =
@@ -249,7 +265,7 @@ async function playAttack(){
 function applyZoom(){ const z=+v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
 function loadScn(id){ units=SCN[id](); rot=0; busy=false; buildBoard(); rotateTo(repIndex(),1);
   document.getElementById('seqlog').innerHTML='◀▶ 회전, 뒤 실루엣 클릭으로 앞면 전환, “대표 피격”으로 시퀀스 확인.'; }
-['silDark','silOp','silBlur','spread','depth'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
+['silOp','botDark','spread','depth'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
   const upd=()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); layout(); }; e.addEventListener('input',upd); });
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
@@ -262,7 +278,7 @@ document.getElementById('btnAttack').addEventListener('click',playAttack);
 const _kf=document.createElement('style');
 _kf.textContent='@keyframes ttShake{0%,100%{transform:translate(-50%,-50%) translateX(0)}25%{transform:translate(-50%,-50%) translateX(-3px)}50%{transform:translate(-50%,-50%) translateX(3px)}75%{transform:translate(-50%,-50%) translateX(-2px)}}';
 document.head.appendChild(_kf);
-['silDark','silOp','silBlur','spread','depth'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
+['silOp','botDark','spread','depth'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
 function init(){ if(window.PIECE_GIFS){ applyZoom(); loadScn('s1'); } else setTimeout(init,80); }
 init();
 </script>
