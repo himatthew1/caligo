@@ -65,13 +65,13 @@ function _markBrandOne(board, col, row, opts) {
   const _T = window._MARK_TUNE || {};
   const _size   = _T.size   || _MARK_SIZE;                              // 표식 크기(가시성) — 기본 33
   const _ironSz = _T.ironSize || Math.round(_size * (_T.ironScale || 1.45)); // 인두 ×1.45
-  const _ironDur     = (_T.ironDur     != null) ? _T.ironDur     : 950; // 인두 낙하 시간(튜너 확정 0.95s, 느리게)
-  const _ironH       = (_T.ironH       != null) ? _T.ironH       : 22;  // 인두 강하 높이(튜너 확정 22)
-  const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : Math.round(_ironDur * 0.5); // 임팩트=강하 중간(인두 착지쯤) → 스포일 방지
+  const _ironDur     = (_T.ironDur     != null) ? _T.ironDur     : 950; // 인두 낙하 시간(튜너 확정 0.95s)
+  const _ironH       = (_T.ironH       != null) ? _T.ironH       : 50;  // 인두 강하 높이(튜너 확정 50)
+  const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : 480; // 임팩트(튜너 확정 480) → 착지 뒤 생성
   const _summonDelay = (_T.summonDelay != null) ? _T.summonDelay : (_impactMs + 30); // 생성 GIF 시작(착지 뒤)
   const _summonDur   = (_T.summonDur   != null) ? _T.summonDur   : 1170; // 생성 GIF 총 길이
   const _ironOffX    = (_T.ironOffX    != null) ? _T.ironOffX    : 0;   // 인두 X 위치 보정
-  const _ironOffY    = (_T.ironOffY    != null) ? _T.ironOffY    : 0;   // 인두 Y 위치 보정(+아래/−위)
+  const _ironOffY    = (_T.ironOffY    != null) ? _T.ironOffY    : -6;  // 인두 Y 위치 보정(튜너 확정 −6, 살짝 위)
   const _markOffY    = (_T.markOffY    != null) ? _T.markOffY    : 0;   // 표식(생성/정수리) Y 보정
   const key = col + ',' + row;
   const _summonBlobP = _markOnceHoldBlob(M.summon);  // ★ 시작과 동시에 생성 GIF blob 준비 → impact 시점 즉시 표시(인두와 거의 동시)

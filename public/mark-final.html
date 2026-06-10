@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CALIGO — 표식 최종 튜너 (인게임 코드 그대로)</title>
 <!-- ★ 실제 인게임 style.css + mark-anim.js 를 그대로 띄움. 여기서 조절한 값이 곧 인게임값. -->
-<link rel="stylesheet" href="style.css?v=20260609q">
+<link rel="stylesheet" href="style.css?v=20260609r">
 <style>
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
@@ -58,13 +58,13 @@
       <h2>인두</h2>
       <div class="row"><label>배율</label><input type="range" id="ironScale" min="1" max="2.2" step="0.05" value="1.45"><span class="val" id="ironScaleV"></span></div>
       <div class="row"><label>속도ms</label><input type="range" id="ironDur" min="350" max="1600" step="10" value="950"><span class="val" id="ironDurV"></span></div>
-      <div class="row"><label>높이</label><input type="range" id="ironH" min="10" max="50" step="1" value="22"><span class="val" id="ironHV"></span></div>
+      <div class="row"><label>높이</label><input type="range" id="ironH" min="10" max="60" step="1" value="50"><span class="val" id="ironHV"></span></div>
       <div class="row"><label>X 위치</label><input type="range" id="ironOffX" min="-24" max="24" step="1" value="0"><span class="val" id="ironOffXV"></span></div>
-      <div class="row"><label>Y 위치</label><input type="range" id="ironOffY" min="-34" max="24" step="1" value="0"><span class="val" id="ironOffYV"></span></div>
+      <div class="row"><label>Y 위치</label><input type="range" id="ironOffY" min="-34" max="24" step="1" value="-6"><span class="val" id="ironOffYV"></span></div>
     </div>
     <div class="panel">
       <h2>타이밍</h2>
-      <div class="row"><label>임팩트</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="475"><span class="val" id="impactMsV"></span></div>
+      <div class="row"><label>임팩트</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="480"><span class="val" id="impactMsV"></span></div>
       <div class="row"><label>생성시작</label><input type="range" id="summonDelay" min="0" max="1400" step="10" value="505"><span class="val" id="summonDelayV"></span></div>
       <div class="row"><label>bob속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.4"><span class="val" id="bobdurV"></span></div>
     </div>
@@ -72,8 +72,8 @@
       <h2>글로우</h2>
       <div class="row"><label>캐릭α</label><input type="range" id="cgA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="cgAV"></span></div>
       <div class="row"><label>캐릭블러</label><input type="range" id="cgB" min="0" max="12" step="0.5" value="2"><span class="val" id="cgBV"></span></div>
-      <div class="row"><label>표식α</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="0.75"><span class="val" id="mgAV"></span></div>
-      <div class="row"><label>표식블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="3"><span class="val" id="mgBV"></span></div>
+      <div class="row"><label>표식α</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="1"><span class="val" id="mgAV"></span></div>
+      <div class="row"><label>표식블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="1.5"><span class="val" id="mgBV"></span></div>
     </div>
     <div class="panel" style="grid-column:span 2;display:flex;flex-direction:column">
       <h2>적용 값 (복사해서 주세요)</h2>
@@ -83,8 +83,8 @@
   </div>
 </main>
 
-<script src="piece-gifs.js?v=20260609q"></script>
-<script src="mark-anim.js?v=20260609q"></script>
+<script src="piece-gifs.js?v=20260609r"></script>
+<script src="mark-anim.js?v=20260609r"></script>
 <script>
 const num=id=>parseFloat(document.getElementById(id).value);
 const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
@@ -118,8 +118,8 @@ function applyAll(){
   var ty=11+my, ty2=9+my;
   var charP=OUT+' drop-shadow(0 0 '+cgB+'px rgba(168,116,231,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(168,116,231,'+cgA+'))';
   var charR=OUT+' drop-shadow(0 0 '+cgB+'px rgba(224,82,82,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(224,82,82,'+cgA+'))';
-  var mkP='drop-shadow(0 0 1px #000) drop-shadow(0 0 '+mgB+'px rgba(168,116,231,'+mgA+'))';
-  var mkR='drop-shadow(0 0 1px #000) drop-shadow(0 0 '+mgB+'px rgba(224,82,82,'+mgA+'))';
+  var mkP=OUT+' drop-shadow(0 0 '+mgB+'px rgba(168,116,231,'+mgA+'))';
+  var mkR=OUT+' drop-shadow(0 0 '+mgB+'px rgba(224,82,82,'+mgA+'))';
   ov.textContent=
    '#game-board .mark-board-layer{width:'+size+'px;height:'+size+'px;animation-duration:'+bob+'s;transform:translate(-50%,'+ty+'px);}\n'+
    '@keyframes markBoardBob{0%,100%{transform:translate(-50%,'+ty+'px);}50%{transform:translate(-50%,'+ty2+'px);}}\n'+
@@ -143,7 +143,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',fu
   if(a==='idle'){ renderGameBoard(); }
   else if(a==='summon'){ syncTune(); renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0},{col:1,row:0}]); }
   else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(function(){b.textContent='값 복사';},1100); }
-  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:22,ironOffX:0,ironOffY:0,impactMs:475,summonDelay:505,bobdur:2.4,cgA:0.6,cgB:2,mgA:0.75,mgB:3};
+  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:50,ironOffX:0,ironOffY:-6,impactMs:480,summonDelay:510,bobdur:2.4,cgA:0.6,cgB:2,mgA:1,mgB:1.5};
     Object.keys(d).forEach(function(k){var e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); renderGameBoard(); }
 }));
 document.getElementById('unitPick').addEventListener('change',function(e){curType=e.target.value; renderGameBoard();});

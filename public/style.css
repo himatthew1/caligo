@@ -2953,7 +2953,8 @@ img.curse-aura {
   width: 35px; height: 35px;                 /* ★ 튜너 확정값: 35 */
   z-index: 5; pointer-events: none; image-rendering: pixelated; object-fit: contain;
   animation: markBoardBob 2.4s ease-in-out infinite;
-  filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));   /* 표식에도 보라 글로우 */
+  /* ★ 유닛처럼 검정 아웃라인(2겹) 먼저 → 그 위를 보라 글로우로 감쌈 */
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(168,116,231,1));
 }
 @keyframes markBoardBob { 0%,100% { transform: translate(-50%, 11px); } 50% { transform: translate(-50%, 9px); } }
 /* 표식 캐릭터 글로우 — 저주 오라와 평행(보라 #a874e7, alpha .6). --ma=알파(페이드용), --madur=페이드 시간 */
@@ -2962,8 +2963,8 @@ img.curse-aura {
 .cell.has-mark .death-anim-overlay .death-gif,
 img.mark-aura {
   filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
-          drop-shadow(0 0 1px rgba(168,116,231,var(--ma,0.6)))
-          drop-shadow(0 0 2px rgba(168,116,231,var(--ma,0.6)));
+          drop-shadow(0 0 2px rgba(168,116,231,var(--ma,0.6)))
+          drop-shadow(0 0 3px rgba(168,116,231,var(--ma,0.6)));
   transition: filter var(--madur,0s) linear;
 }
 /* ★ 표식: 적/아군을 글로우 색으로 구분 — 내 유닛=보라(위 규칙), 적 유닛=붉은빛(#e05252).
@@ -2972,11 +2973,12 @@ img.mark-aura {
 .cell.has-mark .piece-marker.opp-marked .p-icon { filter: none; }
 .cell.has-mark .piece-marker.opp-marked img.p-gif {
   filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
-          drop-shadow(0 0 1px rgba(224,82,82,var(--ma,0.6)))
-          drop-shadow(0 0 2px rgba(224,82,82,var(--ma,0.6)));
+          drop-shadow(0 0 2px rgba(224,82,82,var(--ma,0.6)))
+          drop-shadow(0 0 3px rgba(224,82,82,var(--ma,0.6)));
 }
 .cell.has-mark .piece-marker.opp-marked .mark-board-layer {
-  filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(224,82,82,0.75));
+  /* 적: 아웃라인 2겹 → 빨강 글로우로 감쌈 */
+  filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(224,82,82,1));
 }
 @keyframes curseAuraIn {
   from { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 0 rgba(163,113,247,0)) drop-shadow(0 0 0 rgba(163,113,247,0)); }
