@@ -15,7 +15,7 @@ if (!window._markSummoning) window._markSummoning = new Set();
 window._markSummoningActive = function (col, row) { return window._markSummoning.has(col + ',' + row); };
 
 // 정수리 위 표식 배치 (style.css .mark-board-layer 와 동일) — 인게임 튜닝 시 함께 조정.
-const _MARK_SIZE = 33;        // ★ 튜너 확정(가시성 ↑): 28→33
+const _MARK_SIZE = 35;        // ★ 튜너 확정값(mark-preview): 35
 const _MARK_OFFY = -32;
 const _MARK_IRONSZ = Math.round(_MARK_SIZE * 1.45);   // 인두 ×1.45
 
@@ -92,7 +92,10 @@ function _markBrandOne(board, col, row, opts) {
   const iron = document.createElement('img');
   iron.src = M.iron || '/art/mark/mark_iron.png';
   iron.className = 'mark-iron-anim'; iron.alt = '';
-  iron.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_ironSz}px;height:${_ironSz}px;` +
+  // ★ 인두는 '바닥 기준' — 인두 바닥이 표식(정수리) 바닥에 닿도록(머리 위로 들려 찍힘). mark-preview 와 동일.
+  //   (이전엔 인두 중심을 표식 중심에 둬서 큰 인두가 유닛 위로 겹쳐 내려왔음)
+  const _markBottomY = markCy + _size / 2;                 // 표식(정수리) 바닥 y
+  iron.style.cssText = `position:absolute;left:${markCx}px;top:${_markBottomY - _ironSz / 2}px;width:${_ironSz}px;height:${_ironSz}px;` +
     `margin-left:${-_ironSz / 2}px;margin-top:${-_ironSz / 2}px;z-index:30;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));`;
   cell.appendChild(iron);

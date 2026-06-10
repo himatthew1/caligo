@@ -2949,13 +2949,13 @@ img.curse-aura {
 /* 표식 레이어 — 유닛(piece-marker/spec-piece) 자식으로 옮겨 정수리 위에 앵커(셀 크기 무관) */
 .mark-board-layer {
   position: absolute; left: 50%; bottom: 100%;
-  transform: translate(-50%, 7px);          /* 정수리 위 — 살짝(7px) 겹침. 튜닝 가능 */
-  width: 33px; height: 33px;                 /* ★ 튜너 확정(가시성 ↑): 28→33 */
+  transform: translate(-50%, 8px);          /* ★ 정수리 위 y=8 (튜너 확정) */
+  width: 35px; height: 35px;                 /* ★ 튜너 확정값: 35 */
   z-index: 5; pointer-events: none; image-rendering: pixelated; object-fit: contain;
   animation: markBoardBob 2.4s ease-in-out infinite;
   filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));   /* 표식에도 보라 글로우 */
 }
-@keyframes markBoardBob { 0%,100% { transform: translate(-50%, 7px); } 50% { transform: translate(-50%, 5px); } }
+@keyframes markBoardBob { 0%,100% { transform: translate(-50%, 11px); } 50% { transform: translate(-50%, 9px); } }
 /* 표식 캐릭터 글로우 — 저주 오라와 평행(보라 #a874e7, alpha .6). --ma=알파(페이드용), --madur=페이드 시간 */
 .cell.has-mark .piece-marker img.p-gif,
 .cell.has-mark .spec-piece .p-icon img,
