@@ -15,9 +15,9 @@ if (!window._markSummoning) window._markSummoning = new Set();
 window._markSummoningActive = function (col, row) { return window._markSummoning.has(col + ',' + row); };
 
 // 정수리 위 표식 배치 (style.css .mark-board-layer 와 동일) — 인게임 튜닝 시 함께 조정.
-const _MARK_SIZE = 28;
+const _MARK_SIZE = 33;        // ★ 튜너 확정(가시성 ↑): 28→33
 const _MARK_OFFY = -32;
-const _MARK_IRONSZ = Math.round(_MARK_SIZE * 1.35);   // 인두 ×1.35
+const _MARK_IRONSZ = Math.round(_MARK_SIZE * 1.45);   // 인두 ×1.45
 
 // 1회재생 + 마지막 프레임 hold blob (NETSCAPE 제거 + 마지막 GCE disposal=1)
 function _markOnceHoldBlob(url) {
@@ -63,11 +63,12 @@ function _markBrandOne(board, col, row, opts) {
   const M = window.MARK_GIFS || {};
   // ★ 튜닝값 — window._MARK_TUNE 로 오버라이드(프리뷰 슬라이더). 미설정 시 현재 인게임 기본값.
   const _T = window._MARK_TUNE || {};
-  const _size   = _T.size   || _MARK_SIZE;                              // 표식 크기(가시성)
-  const _ironSz = _T.ironSize || Math.round(_size * (_T.ironScale || 1.35));
-  const _ironDur     = (_T.ironDur     != null) ? _T.ironDur     : 650; // 인두 낙하 시간(느리게=키움)
-  const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : 325; // 임팩트(불꽃·글로우) 시점
-  const _summonDelay = (_T.summonDelay != null) ? _T.summonDelay : (_impactMs + 30); // 생성 GIF 시작(스포일 방지=늦춤)
+  const _size   = _T.size   || _MARK_SIZE;                              // 표식 크기(가시성) — 기본 33
+  const _ironSz = _T.ironSize || Math.round(_size * (_T.ironScale || 1.45)); // 인두 ×1.45
+  const _ironDur     = (_T.ironDur     != null) ? _T.ironDur     : 950; // 인두 낙하 시간(튜너 확정 0.95s, 느리게)
+  const _ironH       = (_T.ironH       != null) ? _T.ironH       : 22;  // 인두 강하 높이(튜너 확정 22)
+  const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : Math.round(_ironDur * 0.5); // 임팩트=강하 중간(인두 착지쯤) → 스포일 방지
+  const _summonDelay = (_T.summonDelay != null) ? _T.summonDelay : (_impactMs + 30); // 생성 GIF 시작(착지 뒤)
   const _summonDur   = (_T.summonDur   != null) ? _T.summonDur   : 1170; // 생성 GIF 총 길이
   const key = col + ',' + row;
   const _summonBlobP = _markOnceHoldBlob(M.summon);  // ★ 시작과 동시에 생성 GIF blob 준비 → impact 시점 즉시 표시(인두와 거의 동시)
@@ -96,11 +97,11 @@ function _markBrandOne(board, col, row, opts) {
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));`;
   cell.appendChild(iron);
   iron.animate([
-    { opacity: 0, transform: 'translateY(-18px) scale(.92)' },
+    { opacity: 0, transform: `translateY(${-_ironH}px) scale(.92)` },
     { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.4 },
     { opacity: 1, transform: 'translateY(3px) scale(1.04)', offset: 0.62 },
     { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.78 },
-    { opacity: 0, transform: 'translateY(-13px) scale(.94)' },
+    { opacity: 0, transform: `translateY(${-Math.round(_ironH * 0.72)}px) scale(.94)` },
   ], { duration: _ironDur, easing: 'ease', fill: 'forwards' });
 
   const impactMs = _impactMs;
@@ -161,9 +162,9 @@ function _markBrandCleanup(cell, key) {
 // 픽셀 네모 불꽃 — 표식 중심에서 팍 튐 (프리뷰와 동일). cx/cy = 뷰포트 좌표.
 function _markSparks(cx, cy) {
   const colors = ['#ffd84d', '#ff9a3d', '#ffefb0', '#ff5a2d', '#ffffff'];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 18; i++) {                  // ★ 튜너 확정: 12→18개
     const p = document.createElement('div');
-    const s = 2 + Math.floor(Math.random() * 2);
+    const s = 3;                                  // ★ 튜너 확정: 3px 고정
     p.style.cssText = `position:fixed;left:${cx}px;top:${cy}px;width:${s}px;height:${s}px;background:${colors[i % colors.length]};` +
       `z-index:60;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 0 3px rgba(255,170,60,.9);` +
       `transition:transform .55s cubic-bezier(.2,.7,.3,1),opacity .55s;opacity:1`;

@@ -2949,7 +2949,7 @@ img.curse-aura {
 .mark-board-layer {
   position: absolute; left: 50%; bottom: 100%;
   transform: translate(-50%, 7px);          /* 정수리 위 — 살짝(7px) 겹침. 튜닝 가능 */
-  width: 28px; height: 28px;
+  width: 33px; height: 33px;                 /* ★ 튜너 확정(가시성 ↑): 28→33 */
   z-index: 5; pointer-events: none; image-rendering: pixelated; object-fit: contain;
   animation: markBoardBob 2.4s ease-in-out infinite;
   filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));   /* 표식에도 보라 글로우 */
