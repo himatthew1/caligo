@@ -83,7 +83,7 @@
     <div class="zoomarea">
       <div id="zoomwrap">
         <div style="display:flex;gap:18px;align-items:flex-end">
-          <div class="cellcap"><div id="board"></div><div class="cl">↑ 가운데 = 겹친 칸(테이블) · 양옆 = 일반 셀</div></div>
+          <div class="cellcap"><div id="board"></div><div class="cl">↑ 가운데 = 겹친 칸(테이블) · 좌 = 일반 유닛 · 우 = 일반 셀 유해(비교)</div></div>
         </div>
       </div>
     </div>
@@ -116,7 +116,8 @@
         <button id="rotR">다음 ▶</button>
       </div>
       <button class="atk" id="btnAttack">⚔ 공격 → 대표 피격 + 도장</button>
-      <div class="note">대표 = 고티어→저체력→상태이상多. 대표만 앞에서 반응, 실루엣은 정지.</div>
+      <button id="btnDeath" style="width:100%;margin-top:6px;background:#3a2230;border-color:#6b3a4a">💀 사망 모션 (앞면 유닛 → 유해)</button>
+      <div class="note">대표 = 고티어→저체력→상태이상多. 대표만 앞에서 반응, 실루엣은 정지. 사망GIF·유해 = 74/60px(일반 셀과 동일).</div>
     </div>
     <div class="panel">
       <h2>실루엣 튜닝 (보라 + 아래 어둡기)</h2>
@@ -143,6 +144,8 @@ const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HI
       REM=()=>window.REMAINS_IMG||'/art/remains.png';
 function cellPx(){ return team?44:56; }
 function pfPx(){ return team?30:38; }
+function remPx(){ return team?60:74; }   // ★ 인게임 .remains-marker / .death-gif 사이즈(1v1 74 / 2v2 60)
+const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
 
 /* 대표 = (유닛 우선) 고티어 → 저체력 → 상태이상多, 유해 후순위 */
 function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
@@ -160,8 +163,8 @@ function buildBoard(){
   const c=document.createElement('div'); c.className='cell'; c.id='ttcell';
   c.innerHTML='<div class="tt-layer" id="ttlayer"><div class="tt-disc"></div></div>';
   b.appendChild(c);
-  // 우 일반셀
-  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('general')}"></span></div>`);
+  // 우 = 일반 셀 유해(비교용, 실제 인게임 .remains-marker 74/60px)
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
   buildUnits();
 }
 function buildUnits(){
@@ -170,13 +173,14 @@ function buildUnits(){
   const pf=pfPx();
   units.forEach((u,i)=>{
     const el=document.createElement('div'); el.className='tt-unit'; el.dataset.i=i;
-    el.style.width=pf+'px';
+    const sz=u.isRemains?remPx():pf;          // ★ 유해는 인게임과 동일한 풀사이즈(74/60)
+    el.style.width=sz+'px';
     const sprite=u.isRemains?REM():IDLE(u.type);
     const badge=u.isRemains?'':((u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':''));
     el.innerHTML=
-      `<div class="pwrap" style="width:${pf}px;height:${pf}px">`+
-        `<img class="real" src="${sprite}" style="width:${pf}px;height:${pf}px">`+
-        `<div class="silh" style="width:${pf}px;height:${pf}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
+      `<div class="pwrap" style="width:${sz}px;height:${sz}px">`+
+        `<img class="real" src="${sprite}" style="width:${sz}px;height:${sz}px">`+
+        `<div class="silh" style="width:${sz}px;height:${sz}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
         badge+
       `</div>`;
     el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
@@ -258,6 +262,31 @@ async function playAttack(){
   rep.u.hp=Math.max(0,(rep.u.hp||2)-2); layout(); busy=false;
 }
 
+/* ───── 사망 모션 (앞면 유닛 → 사망GIF 74/60 → 유해 전환) ───── */
+async function playDeath(){
+  if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const front=frontIndex(); const u=units[front];
+  if(u.isRemains){ log.innerHTML='이미 유해입니다. 다른 유닛을 앞으로 돌리세요.'; busy=false; return; }
+  const el=document.querySelector(`.tt-unit[data-i="${front}"]`);
+  const layer=document.getElementById('ttlayer');
+  const ds=remPx();                                   // ★ 사망GIF = 유해와 동일(74/60)
+  const left=parseFloat(el.style.left), top=parseFloat(el.style.top);
+  log.innerHTML=`💀 <b>${u.type}</b> 사망 모션 (사망GIF ${ds}px = 유해와 동일 크기) → 유해 전환`;
+  el.style.opacity='0';                               // 살아있던 유닛 숨김
+  const ov=document.createElement('img'); ov.className='tt-death'; ov.alt='';
+  ov.src=DEATHURL(u.type);
+  ov.style.cssText=`position:absolute;left:${left}px;top:${(top-6)}px;width:${ds}px;height:${ds}px;`+
+    `margin-left:${-ds/2}px;margin-top:${-ds/2}px;z-index:30;pointer-events:none;image-rendering:pixelated;object-fit:contain;`+
+    `filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)`;
+  layer.appendChild(ov);
+  await wait(950);
+  ov.remove();
+  units[front]={type:u.type,owner:'remains',isRemains:true,hits:0};  // 유해로 전환
+  buildUnits();
+  log.innerHTML=`💀 <b>${u.type}</b> 사망 → 유해(${ds}px) 생성 완료. 우측 일반 셀 유해와 같은 크기인지 비교해보세요.`;
+  busy=false;
+}
+
 /* ───── 컨트롤 ───── */
 function applyZoom(){ const z=+v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
 function loadScn(id){ units=SCN[id](); rot=0; busy=false; buildBoard(); rotateTo(repIndex(),1);
@@ -271,6 +300,7 @@ document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',(
 document.getElementById('rotL').addEventListener('click',()=>nav(-1));
 document.getElementById('rotR').addEventListener('click',()=>nav(1));
 document.getElementById('btnAttack').addEventListener('click',playAttack);
+document.getElementById('btnDeath').addEventListener('click',playDeath);
 
 const _kf=document.createElement('style');
 _kf.textContent='@keyframes ttShake{0%,100%{transform:translate(-50%,-50%) translateX(0)}25%{transform:translate(-50%,-50%) translateX(-3px)}50%{transform:translate(-50%,-50%) translateX(3px)}75%{transform:translate(-50%,-50%) translateX(-2px)}}';
