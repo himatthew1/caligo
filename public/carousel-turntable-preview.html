@@ -24,11 +24,8 @@
   #board{display:flex;gap:0;background:#0f0d18;padding:0;border-radius:6px}
   #board .cell{width:var(--cs,56px);height:var(--cs,56px);border:1px solid #ffffff16;background:#16131f;
     position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
-  body.team #board .cell{--cs:44px}
-  #board .cell .p-gif{width:var(--pf,38px);height:var(--pf,38px);image-rendering:pixelated;object-fit:contain;
-    filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
-  body.team #board .cell .p-gif{--pf:30px}
-  #board .cell .p-hp{position:absolute;bottom:1px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;color:#86efac;text-shadow:0 1px 2px #000}
+  body.team-mode #board .cell{--cs:44px}
+  /* 비교 셀은 실제 .piece-marker / img.p-gif / .p-hp(visibility:hidden) 를 그대로 사용 → 인게임과 동일한 유닛 수직 위치 */
   /* 회전 테이블 레이어 */
   .tt-layer{position:absolute;inset:0;overflow:visible;pointer-events:none}
   .tt-disc{position:absolute;left:50%;top:62%;width:96%;height:36%;transform:translate(-50%,-50%);
@@ -71,8 +68,6 @@
   .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
   /* 유닛은 저주(z:0) 위 · 표식(z:5) 아래 사이에 오도록 */
   .tt-unit .real,.tt-unit .silh{position:relative;z-index:1}
-  /* 일반 비교 셀 — inline 베이스라인 갭 제거해 이미지 정중앙(턴테이블 앞면과 같은 선상) */
-  #board .cell .p-icon{line-height:0;display:flex;align-items:center;justify-content:center}
 </style>
 </head>
 <body>
@@ -147,7 +142,8 @@ let units=[], rot=0, busy=false, team=false;
 const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),
       REM=()=>window.REMAINS_IMG||'/art/remains.png';
 function cellPx(){ return team?44:56; }
-function pfPx(){ return team?30:38; }
+function pfPx(){ return team?34:38; }       // 실제 img.p-gif (1v1 38 / 2v2 34)
+let unitYReal=null, unitXReal=null;          // 실제 셀에서 측정한 유닛 p-gif 중심 위치(px, 셀 top 기준)
 function remPx(){ return team?60:74; }   // ★ 인게임 .remains-marker / .death-gif 사이즈(1v1 74 / 2v2 60)
 const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
 const MARK_IDLE=()=>(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
@@ -162,9 +158,8 @@ function repIndex(){ let best=-1,bk=null;
 /* ───── 보드(일반셀 + 테이블셀) ───── */
 function buildBoard(){
   const b=document.getElementById('board'); b.innerHTML='';
-  const pf=pfPx();
-  // 좌 일반셀
-  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span></div>`);
+  // 좌 = 일반 유닛 (실제 .piece-marker — HP는 visibility:hidden 으로 공간만 차지 → 인게임과 동일한 수직 위치)
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
   // 가운데 = 테이블
   const c=document.createElement('div'); c.className='cell'; c.id='ttcell';
   c.innerHTML='<div class="tt-layer" id="ttlayer"><div class="tt-disc"></div></div>';
@@ -172,6 +167,15 @@ function buildBoard(){
   // 우 = 일반 셀 유해(비교용, 실제 인게임 .remains-marker 74/60px)
   b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
   buildUnits();
+  measureUnitPos();
+}
+// 실제 셀의 유닛 p-gif 중심 위치를 측정(줌 무관 비율) → 테이블 앞면을 거기에 맞춤
+function measureUnitPos(){
+  const nc=document.querySelector('#board .cell.has-piece');
+  const pg=nc&&nc.querySelector('.p-gif'); if(!pg) return;
+  const ncr=nc.getBoundingClientRect(), pr=pg.getBoundingClientRect(); const cs=cellPx();
+  if(ncr.height>0){ unitYReal=((pr.top+pr.height/2)-ncr.top)/ncr.height*cs;
+                    unitXReal=((pr.left+pr.width/2)-ncr.left)/ncr.width*cs; layout(); }
 }
 function buildUnits(){
   const layer=document.getElementById('ttlayer');
@@ -211,8 +215,11 @@ function frontIndex(){ let best=0,bd=-2; const N=units.length;
 function layout(){
   const N=units.length, T=tuning(), cs=cellPx(), front=frontIndex();
   const RX=cs*T.spread, RY=cs*T.spread*0.42;
-  // ★ 레이어가 content box(테두리 1px 안)이므로 중심은 (cs-2)/2. 앞면(+RY)이 셀 중앙에 오도록 CY=중심-RY.
-  const cc=(cs-2)/2, CX=cc, CY=cc - RY;
+  // ★ 앞면(대표)을 실제 셀 유닛 위치에 정확히 맞춤. 레이어가 content box(테두리 1px 안)이므로 −1 보정.
+  //   (측정 전엔 (cs-2)/2 폴백) front 는 +RY 위치이므로 CY = 목표y − RY.
+  const cc=(cs-2)/2;
+  const tx=(unitXReal!=null?unitXReal-1:cc), ty=(unitYReal!=null?unitYReal-1:cc);
+  const CX=tx, CY=ty - RY;
   const layer=document.getElementById('ttlayer');
   if(layer){ // 그라데이션 하단 어둡기 변수 (보라 → 어둡게)
     const dd=T.botDark; const bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
@@ -313,7 +320,7 @@ function loadScn(id){ units=SCN[id](); busy=false; buildBoard(); snapToRep();
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team',team); buildBoard(); snapToRep(); }));
+  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team-mode',team); buildBoard(); snapToRep(); }));
 document.getElementById('rotL').addEventListener('click',()=>nav(-1));
 document.getElementById('rotR').addEventListener('click',()=>nav(1));
 document.getElementById('btnAttack').addEventListener('click',playAttack);
