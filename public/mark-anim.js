@@ -127,8 +127,8 @@ function _markBrandOne(board, col, row, opts) {
   summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
     `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:` +
-    `drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000) ` +
-    `drop-shadow(1px 1px 0 #000) drop-shadow(-1px 1px 0 #000) drop-shadow(1px -1px 0 #000) drop-shadow(-1px -1px 0 #000) ` +
+    `drop-shadow(0.25px 0 0 #000) drop-shadow(-0.25px 0 0 #000) drop-shadow(0 0.25px 0 #000) drop-shadow(0 -0.25px 0 #000) ` +
+    `drop-shadow(0.25px 0.25px 0 #000) drop-shadow(-0.25px 0.25px 0 #000) drop-shadow(0.25px -0.25px 0 #000) drop-shadow(-0.25px -0.25px 0 #000) ` +
     `drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
   let blobUrl = null;
   setTimeout(() => {
