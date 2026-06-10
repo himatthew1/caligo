@@ -155,13 +155,13 @@ function buildBoard(){
   const b=document.getElementById('board'); b.innerHTML='';
   const pf=pfPx();
   // 좌 일반셀
-  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div>`);
+  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span></div>`);
   // 가운데 = 테이블
   const c=document.createElement('div'); c.className='cell'; c.id='ttcell';
   c.innerHTML='<div class="tt-layer" id="ttlayer"><div class="tt-disc"></div></div>';
   b.appendChild(c);
   // 우 일반셀
-  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('general')}"></span><span class="p-hp">3/3</span></div>`);
+  b.insertAdjacentHTML('beforeend',`<div class="cell"><span class="p-icon"><img class="p-gif" src="${IDLE('general')}"></span></div>`);
   buildUnits();
 }
 function buildUnits(){
@@ -173,15 +173,12 @@ function buildUnits(){
     el.style.width=pf+'px';
     const sprite=u.isRemains?REM():IDLE(u.type);
     const badge=u.isRemains?'':((u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':''));
-    const col=u.owner==='opp'?'#f87171':(u.owner==='remains'?'#e2c878':'#86efac');
-    const hpText=u.isRemains?'':`${u.hp}/${u.maxHp}`;
     el.innerHTML=
       `<div class="pwrap" style="width:${pf}px;height:${pf}px">`+
         `<img class="real" src="${sprite}" style="width:${pf}px;height:${pf}px">`+
         `<div class="silh" style="width:${pf}px;height:${pf}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
         badge+
-      `</div>`+
-      `<span class="hp" style="color:${col}">${hpText}</span>`;
+      `</div>`;
     el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
     layer.appendChild(el);
   });
@@ -212,14 +209,14 @@ function layout(){
     el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
     el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
     el.style.zIndex=Math.round((d+1)*100);
-    const real=el.querySelector('.real'), silh=el.querySelector('.silh'), hp=el.querySelector('.hp');
+    const real=el.querySelector('.real'), silh=el.querySelector('.silh');
     if(i===front){ // 대표 = 실제 스프라이트
       el.style.opacity='1'; if(real)real.style.opacity='1'; if(silh)silh.style.opacity='0';
-      if(hp)hp.style.visibility='visible'; el.classList.add('isfront');
+      el.classList.add('isfront');
     } else {        // 뒤 = 보라 단색 실루엣(아래 어둡기 그라데이션)
       el.style.opacity=(T.op*(1-back*0.22)).toFixed(2);
       if(real)real.style.opacity='0'; if(silh)silh.style.opacity='1';
-      if(hp)hp.style.visibility='hidden'; el.classList.remove('isfront');
+      el.classList.remove('isfront');
     }
   });
   const rep=units[front];
