@@ -76,7 +76,7 @@
       <div class="row"><label>캐릭블러</label><input type="range" id="cgB" min="0" max="12" step="0.5" value="2"><span class="val" id="cgBV"></span></div>
       <div class="row"><label>표식α</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="1"><span class="val" id="mgAV"></span></div>
       <div class="row"><label>표식블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="1.5"><span class="val" id="mgBV"></span></div>
-      <div class="row"><label>아웃라인굵기</label><input type="range" id="olB" min="0" max="4" step="0.25" value="1"><span class="val" id="olBV"></span></div>
+      <div class="row"><label>아웃라인굵기</label><input type="range" id="olB" min="0" max="4" step="0.25" value="0.5"><span class="val" id="olBV"></span></div>
     </div>
     <div class="panel" style="grid-column:span 2;display:flex;flex-direction:column">
       <h2>적용 값 (복사해서 주세요)</h2>
@@ -153,7 +153,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',fu
   else if(a==='nightmare'){ syncTune(); renderGameBoard(); if(window.animateNightmareCast) animateNightmareCast([{col:0,row:0,damage:1},{col:1,row:0,damage:1}]); }
   else if(a==='release'){ syncTune(); renderGameBoard(); if(window.animateMarkRelease) setTimeout(function(){ animateMarkRelease([{col:0,row:0},{col:1,row:0}]); }, 30); }
   else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(function(){b.textContent='값 복사';},1100); }
-  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:50,ironOffX:0,ironOffY:-6,impactMs:480,summonDelay:510,bobdur:2.4,cgA:0.6,cgB:2,mgA:1,mgB:1.5,olB:1};
+  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:50,ironOffX:0,ironOffY:-6,impactMs:480,summonDelay:510,bobdur:2.4,cgA:0.6,cgB:2,mgA:1,mgB:1.5,olB:0.5};
     Object.keys(d).forEach(function(k){var e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); renderGameBoard(); }
 }));
 document.getElementById('unitPick').addEventListener('change',function(e){curType=e.target.value; renderGameBoard();});
