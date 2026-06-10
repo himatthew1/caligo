@@ -10,9 +10,9 @@
     --iron-dur:0.65s; --iron-h:18px; --iron-offx:0px; --iron-offy:-1px; }
   *{box-sizing:border-box}
   html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:12px 16px;line-height:1.45;overflow:hidden}
-  header h1{font-size:17px;color:var(--accent);margin:0 0 2px}
-  header .sub{color:var(--mut);font-size:11px;margin-bottom:10px;max-width:1100px}
+  body{margin:0;background:var(--bg);color:var(--light);font-family:"맑은 고딕",system-ui,sans-serif;padding:7px 14px 0;line-height:1.4;overflow:hidden}
+  header h1{font-size:15.5px;color:var(--accent);margin:0 0 2px}
+  header .sub{color:var(--mut);font-size:10.5px;margin-bottom:6px;max-width:1100px;margin-left:auto;margin-right:auto}
   .main{display:flex;gap:16px;align-items:flex-start}
 
   /* 좌측: 무대 */
@@ -33,6 +33,14 @@
   .cell .iron-ghost{position:absolute;z-index:5;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy))}
   .cell .iron-ghost.show{opacity:var(--ghost-op,0.3)}
+  /* 저주 견본 망령(인게임 .curse-board-layer 재현: 보라 글로우 #a371f7 + bob) */
+  .cell .curseov{position:absolute;z-index:2;left:50%;bottom:6px;width:calc(var(--unit) * 1.16);height:calc(var(--unit) * 1.16);
+    image-rendering:pixelated;object-fit:contain;pointer-events:none;
+    transform:translate(-50%,0) translate(0,-8%);
+    filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px #a371f7)}
+  .cell .curseov.bobc{animation:curseBobP var(--bobdur,2.6s) ease-in-out infinite}
+  @keyframes curseBobP{0%,100%{margin-bottom:0}50%{margin-bottom:3px}}
+  .cursecell .unit{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(163,113,247,.5)) !important}
   @keyframes ironDrop{
     0%{opacity:0;transform:translate(calc(-50% + var(--iron-offx)),calc(var(--iron-offy) - var(--iron-h))) scale(.92)}
     40%{opacity:1;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy)) scale(1)}
@@ -49,21 +57,21 @@
   .phaseNote{color:var(--mut);font-size:10.5px}
 
   /* 우측: 컨트롤 그리드 (스크롤 없음) */
-  .right{flex:1;display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:11px;align-content:start}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 11px}
+  .right{flex:1;display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:8px;align-content:start}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:7px 10px}
   .panel.wide{grid-column:span 2}
-  .panel h2{font-size:11.5px;color:var(--accent);margin:0 0 7px;text-transform:uppercase;letter-spacing:.3px}
+  .panel h2{font-size:11px;color:var(--accent);margin:0 0 4px;text-transform:uppercase;letter-spacing:.3px}
   .btns{display:flex;gap:6px;flex-wrap:wrap}
   button{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:7px;padding:7px 9px;cursor:pointer;font-size:11.5px}
   button:hover{border-color:var(--accent);color:#fff}
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
   button.danger{background:linear-gradient(135deg,#7a2531,#b23a48);border-color:transparent;font-weight:600}
-  .row{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .row{display:flex;align-items:center;gap:8px;margin:2.5px 0}
   .row label{flex:0 0 78px;color:var(--mut);font-size:11px}
   .row input[type=range]{flex:1;accent-color:var(--accent);min-width:60px}
   .row .val{flex:0 0 42px;text-align:right;font-variant-numeric:tabular-nums;font-size:11px}
   .row input[type=color]{width:30px;height:22px;border:1px solid var(--line);background:none;border-radius:5px;padding:0}
-  .toggle{display:flex;align-items:center;gap:7px;margin:5px 0;font-size:11px;color:var(--mut)}
+  .toggle{display:flex;align-items:center;gap:7px;margin:2.5px 0;font-size:11px;color:var(--mut)}
   .toggle input{width:15px;height:15px;accent-color:var(--accent)}
   .note{color:var(--mut);font-size:10px;line-height:1.45;margin-top:6px}
   select{background:var(--panel2);color:var(--light);border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:11px}
@@ -71,9 +79,9 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>🎯 표식 / 악몽 모션 프리뷰</h1>
-  <div class="sub">CSS·🎯 이모지 탈출 — 새 어셋만. 표식은 <b>유닛 정수리 위</b>(idle·이동 공통, 피격/공격 모션 영향 X). 생성=인두 내려찍힘+불꽃→표식 생성(1회)→idle. 이동=표식 PNG(도착 후 등장). 악몽=표식 위치·크기, 4프레임에 데미지.</div>
+<header style="text-align:center">
+  <h1>🎯 표식 리튜닝 — 견본: ☠ 저주</h1>
+  <div class="sub">왼쪽 <b>표식</b>을 슬라이더(인두 위치·강하·크기·불꽃·글로우 등)로 조절하고, 오른쪽 <b>저주 견본(고정)</b>의 느낌에 맞추세요. “설정값 복사” 한 값을 주시면 인게임 표식에 그대로 반영합니다.</div>
 </header>
 
 <div class="main">
@@ -88,6 +96,13 @@
             <img class="unit" id="unit" src="/art/general_idle.gif" alt="">
           </div>
           <div class="label">메인 유닛 (표식 대상)</div>
+        </div>
+        <div>
+          <div class="cell cursecell" id="cursecell">
+            <img class="unit" src="/art/general_idle.gif" alt="">
+            <img class="curseov" id="curseov" alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+          </div>
+          <div class="label">견본 ☠ 저주 (이 느낌을 목표로)</div>
         </div>
       </div>
     </div>
@@ -109,6 +124,9 @@
       <div class="btns" style="margin-top:6px">
         <button class="danger" data-act="nightmare">④ 악몽(4프레임 피격)</button>
         <button data-act="hit">유닛만 피격</button>
+      </div>
+      <div class="btns" style="margin-top:6px">
+        <button data-act="curse" style="background:linear-gradient(135deg,#4f46e5,#7c5cff);border-color:transparent;font-weight:600">☠ 저주 견본 재생</button>
       </div>
       <div class="note">생성/파괴/악몽 = 1회 재생, 겹침 없음.</div>
     </div>
@@ -194,6 +212,15 @@ async function onceGif(url){ let b=new Uint8Array(await (await fetch(url,{cache:
 async function frameDelays(url){ const b=new Uint8Array(await (await fetch(url,{cache:'no-cache'})).arrayBuffer()); let t=0,out=[];
   for(let i=0;i<b.length-5;i++){ if(b[i]===0x21&&b[i+1]===0xF9&&b[i+2]===0x04){ t+=((b[i+4]|(b[i+5]<<8))*10); out.push(t);} } return out; }
 const cell=document.getElementById('cell'),mark=document.getElementById('mark'),unit=document.getElementById('unit'),iron=document.getElementById('iron');
+// ── 저주 견본(고정 참조) — curse_summon 1회 → curse_idle 루프 ──
+const CURSE={idle:'/art/curse/curse_idle.gif',summon:'/art/curse/curse_summon.gif'};
+async function playCurse(){
+  const co=document.getElementById('curseov'); if(!co) return;
+  co.classList.remove('bobc'); co.src=await onceGif(CURSE.summon);
+  let total=1200; try{ const fd=await frameDelays(CURSE.summon); if(fd.length) total=fd[fd.length-1]; }catch(e){}
+  setTimeout(()=>{ co.src=CURSE.idle+'?t='+Date.now(); co.classList.add('bobc'); }, total+80);
+}
+function curseIdle(){ const co=document.getElementById('curseov'); if(!co) return; co.src=CURSE.idle+'?t='+Date.now(); co.classList.add('bobc'); }
 let face=1;
 const num=id=>parseFloat(document.getElementById(id).value);
 const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
@@ -349,6 +376,7 @@ document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',as
   else if(a==='release'){ setPhase('release','표식 파괴 — 1회 후 소멸'); setMarkGlow(false); /* ★ 파괴에 맞춰 페이드아웃 */ await playOnce(mark,'release'); setTimeout(()=>hideMark(mark),1100); }
   else if(a==='nightmare'){ setPhase('nightmare','악몽 — 표식 위치·크기, 4프레임에 피격+데미지'); nightmare(cell,mark); }
   else if(a==='hit'){ setPhase('idle','유닛만 피격 — 표식 불변'); hitUnit(unit); }
+  else if(a==='curse'){ setPhase('idle','저주 견본 — curse_summon 1회 → 망령 idle'); playCurse(); }
   else if(a==='sparkTest'){ sparks(cell, mark); }
   else if(a==='multiApply'){ buildMulti(num('multiN')); }
   else if(a==='multiNightmare'){ setPhase('nightmare','다중 악몽 동시'); document.querySelectorAll('.cell').forEach(c=>nightmare(c,c.querySelector('.mark'))); }
@@ -359,6 +387,7 @@ setPhase('idle','표식 기본 — 루프'); apply();
 setMarkGlow(true, true);  // 기본: 표식 있는 상태 → 캐릭터 글로우 켜짐
 // idle 디플리커 블롭 준비 후 표시(준비 전엔 원본 폴백)
 _prepIdle().then(()=>setIdle(mark)); setIdle(mark);
+curseIdle();  // 저주 견본 초기 표시
 </script>
 </body>
 </html>
