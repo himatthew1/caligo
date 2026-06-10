@@ -43,12 +43,12 @@
 </head>
 <body>
 <header class="hd">
-  <h1>🎯 표식 · ☠ 저주 튜너 — 인게임 소스 그대로</h1>
-  <div class="sub">실제 <b>style.css + mark-anim.js</b> 를 로드해 인게임과 동일하게 재생합니다. 슬라이더로 <b>크기(가시성)·인두 속도·임팩트·생성 시점</b>을 조절하고, 저주와 나란히 비교하세요. 맘에 들면 “값 복사”로 알려주시면 그대로 반영합니다.</div>
+  <h1>🎯 표식 리튜닝 — 견본: ☠ 저주</h1>
+  <div class="sub">실제 <b>style.css + mark-anim.js</b> 로드(인게임 동일). <b>오른쪽 저주는 “견본(고정)”</b>, <b>왼쪽 표식만</b> 슬라이더로 조절해 저주만큼 보이게 맞추세요. 맘에 들면 “값 복사”로 알려주시면 표식 기본값에 반영합니다.</div>
   <div class="topbtns">
-    <button class="primary" data-act="mk">🎯 표식 재생</button>
-    <button class="cs" data-act="cs">☠ 저주 재생</button>
-    <button data-act="both">동시 재생(비교)</button>
+    <button class="primary" data-act="mk">🎯 표식 재생(조절 대상)</button>
+    <button class="cs" data-act="cs">☠ 저주 견본 재생</button>
+    <button data-act="both">표식+견본 동시 재생</button>
     <button data-act="idle">아이들로</button>
   </div>
 </header>
@@ -56,14 +56,14 @@
 <main>
   <div class="stages">
     <div class="stagebox mk">
-      <div class="tt">🎯 표식</div>
+      <div class="tt">🎯 표식 — 조절 대상</div>
       <div id="game-board" class="miniboard"></div>
-      <div class="label">인게임 셀 (정수리 위 표식)</div>
+      <div class="label">슬라이더로 이걸 조절</div>
     </div>
     <div class="stagebox cs">
-      <div class="tt">☠ 저주</div>
+      <div class="tt">☠ 저주 — 견본(고정)</div>
       <div id="curse-board" class="miniboard"></div>
-      <div class="label">인게임 셀 (망령 레이어)</div>
+      <div class="label">이 느낌을 목표로</div>
     </div>
   </div>
 
