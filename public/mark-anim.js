@@ -128,7 +128,8 @@ function _markBrandOne(board, col, row, opts) {
   summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
     `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:` +
-    `drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) ` +
+    `drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000) ` +
+    `drop-shadow(1px 1px 0 #000) drop-shadow(-1px 1px 0 #000) drop-shadow(1px -1px 0 #000) drop-shadow(-1px -1px 0 #000) ` +
     `drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
   let blobUrl = null;
   setTimeout(() => {
@@ -190,9 +191,10 @@ function _markSparks(cx, cy) {
 
 // ─── 표식 파괴/해제 모션 ───────────────────────────────────────────────────────
 //   기존 표식 idle 레이어를 페이드아웃하며 정수리 위에 release GIF(1회) 재생.
-//   생성/idle 과 동일한 외곽선(0-오프셋 블러 ×3, 캐릭터 방식) + 글로우.
+//   생성/idle 과 동일한 외곽선(정수 오프셋 8방향 1px, 센터 대칭) + 글로우.
 //   animateMarkRelease(positions, opts): positions [{col,row}], opts: boardId, stagger
-const _MARK_OUTLINE = 'drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)';
+const _MARK_OUTLINE = 'drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000)' +
+  ' drop-shadow(1px 1px 0 #000) drop-shadow(-1px 1px 0 #000) drop-shadow(1px -1px 0 #000) drop-shadow(-1px -1px 0 #000)';
 function animateMarkRelease(positions, opts) {
   opts = opts || {};
   const board = document.getElementById(opts.boardId || 'game-board');
