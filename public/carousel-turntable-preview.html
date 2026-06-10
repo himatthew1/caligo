@@ -3,50 +3,42 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CALIGO — 캐러셀 개선안: 회전 테이블(셀 크기)</title>
-<link rel="stylesheet" href="style.css?v=20260609y">
+<title>CALIGO — 캐러셀 개선안: 회전 테이블(인게임 구조)</title>
+<link rel="stylesheet" href="style.css?v=20260609z">
 <style>
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
     padding:10px 14px 0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
   header.hdr{text-align:center;flex:0 0 auto}
   header.hdr h1{font-size:16px;color:#e2b714;margin:0 0 4px}
-  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:880px;line-height:1.5}
+  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:900px;line-height:1.5}
   header.hdr .sub b{color:#cbb6ee}
   main.layout{flex:1 1 auto;display:flex;gap:16px;align-items:stretch;justify-content:center;min-height:0}
   .stage{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:10px;
     background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:16px 22px;min-width:440px}
   .stage h3{margin:0;font-size:12px;color:#5eead4;letter-spacing:.3px}
-  /* 확대 보기 래퍼 — 셀 기하는 실제 크기, 화면만 배율 */
   .zoomarea{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;min-height:0;overflow:hidden}
   #zoomwrap{transform-origin:center center}
-  /* 실제 보드 컨텍스트 — 옆 일반 셀과 나란히 */
-  #board{display:flex;gap:0;background:#0f0d18;padding:0;border-radius:6px}
-  #board .cell{width:var(--cs,56px);height:var(--cs,56px);border:1px solid #ffffff16;background:#16131f;
+  /* ★ 실제 인게임과 동일한 보드 셀 — style.css 의 .cell/.piece-marker/.remains-marker/.death 그대로 사용 */
+  #board{display:flex;gap:0;background:#0f0d18;border-radius:6px}
+  #board .cell{width:var(--cs,56px);height:var(--cs,56px);border:1px solid #ffffff16;
     position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
   body.team-mode #board .cell{--cs:44px}
-  /* 비교 셀은 실제 .piece-marker / img.p-gif / .p-hp(visibility:hidden) 를 그대로 사용 → 인게임과 동일한 유닛 수직 위치 */
-  /* 회전 테이블 레이어 */
-  .tt-layer{position:absolute;inset:0;overflow:visible;pointer-events:none}
-  .tt-disc{position:absolute;left:50%;top:62%;width:96%;height:36%;transform:translate(-50%,-50%);
+  /* 앞면(대표)은 실제 .piece-marker/.remains-marker — 인게임 CSS 가 위치를 결정. 그 뒤에 실루엣 레이어 */
+  #ttcell .piece-marker{position:relative;z-index:2}
+  #ttcell .remains-marker{z-index:2}
+  .tt-silh-layer{position:absolute;inset:0;overflow:visible;z-index:0;pointer-events:none}
+  .tt-disc{position:absolute;left:50%;top:58%;width:98%;height:34%;transform:translate(-50%,-50%);
     border-radius:50%;background:radial-gradient(ellipse at 50% 42%,#2c2542cc 0%,#1b1728aa 60%,transparent 100%);
     border:1px solid #ffffff10;box-shadow:0 3px 8px #0009}
-  .tt-unit{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;pointer-events:auto;cursor:pointer;
-    will-change:transform,left,top;transition:opacity .28s ease, filter .28s ease}
-  .tt-unit .pwrap{position:relative;display:flex;align-items:flex-end;justify-content:center}
-  .tt-unit .real{image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
-  /* 뒤 실루엣 = 스프라이트 알파를 마스크로 → 보라 단색 + 아래로 어두워지는 그라데이션 채움 */
-  .tt-unit .silh{position:absolute;left:0;top:0;
+  /* 뒤 실루엣 = 스프라이트 알파 마스크 → 보라 단색 + 아래로 어두워지는 그라데이션 */
+  .tt-silh{position:absolute;pointer-events:auto;cursor:pointer;image-rendering:pixelated;
     background:linear-gradient(to bottom, var(--stop,#c79cf5) 0%, var(--smid,#8a5be0) 46%, var(--sbot,#2a1340) 100%);
     -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;
     -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
-    filter:drop-shadow(0 0 1px #000)}
-  .tt-unit .hp{font-size:9px;font-weight:800;margin-top:1px;text-shadow:0 1px 2px #000,0 0 3px #000;white-space:nowrap}
-  .tt-unit .badge{position:absolute;top:-5px;right:-7px;font-size:7px;font-weight:800;padding:0 3px;border-radius:5px;line-height:1.4}
-  .tt-unit .badge.mark{background:#3a2f12;color:#ffd479;border:1px solid #6b5413}
-  .tt-unit .badge.curse{background:#2a1d44;color:#c9a9ff;border:1px solid #5a3aa0}
+    filter:drop-shadow(0 0 1px #000);transition:opacity .22s}
   .cellcap{display:flex;flex-direction:column;align-items:center;gap:4px}
-  .cellcap .cl{font-size:8.5px;color:#6f6885}
+  .cellcap .cl{font-size:8.5px;color:#6f6885;text-align:center}
   .scaleinfo{font-size:10px;color:#8a8298}
   .seqlog{width:100%;min-height:38px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;
     padding:7px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
@@ -66,14 +58,12 @@
   .row .val{flex:0 0 34px;text-align:right;font-size:10px;color:#cbb6ee}
   .note{color:#8a8298;font-size:10px;margin-top:6px;line-height:1.5}
   .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
-  /* 유닛은 저주(z:0) 위 · 표식(z:5) 아래 사이에 오도록 */
-  .tt-unit .real,.tt-unit .silh{position:relative;z-index:1}
 </style>
 </head>
 <body>
 <header class="hdr">
-  <h1>🎠 캐러셀 개선안 — 회전 테이블(셀 크기) <span style="font-size:11px;color:#8a8298">※ 검토용, 인게임 미적용</span></h1>
-  <div class="sub">실제 <b>보드 셀 크기</b> 그대로 — 한 칸에 겹친 유닛/유해를 회전 테이블로. <b>대표는 앞면 풀컬러</b>, 나머지는 <b>뒤쪽 실루엣</b>으로 살짝 둘러섭니다(셀 밖으로 약간만 비침). 옆은 비교용 일반 셀.</div>
+  <h1>🎠 캐러셀 개선안 — 회전 테이블 (앞면=실제 인게임 구조) <span style="font-size:11px;color:#8a8298">※ 검토용, 미적용</span></h1>
+  <div class="sub"><b>앞면(대표)은 실제 인게임 셀 그대로</b> 렌더 — <b>.piece-marker / .remains-marker / .death-anim-overlay</b> 와 그 CSS 를 그대로 써서 위치·크기가 인게임과 100% 동일. 나머지는 <b>뒤쪽 보라 실루엣</b>으로 둘러섭니다. 좌=일반 유닛, 우=일반 유해(둘 다 실제 구조 → 비교).</div>
 </header>
 
 <main class="layout">
@@ -81,13 +71,11 @@
     <h3>실제 셀 안 — 회전 테이블</h3>
     <div class="zoomarea">
       <div id="zoomwrap">
-        <div style="display:flex;gap:18px;align-items:flex-end">
-          <div class="cellcap"><div id="board"></div><div class="cl">↑ 가운데 = 겹친 칸(테이블) · 좌 = 일반 유닛 · 우 = 일반 셀 유해(비교)</div></div>
-        </div>
+        <div class="cellcap"><div id="board"></div><div class="cl">가운데 = 겹친 칸(테이블 · 앞면=실제 구조) · 좌 = 일반 유닛 · 우 = 일반 셀 유해</div></div>
       </div>
     </div>
     <div class="scaleinfo" id="scaleinfo"></div>
-    <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, “대표 피격”을 눌러보세요.</div>
+    <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, “대표 피격 / 사망 모션”을 눌러보세요.</div>
   </div>
 
   <aside class="controls">
@@ -98,7 +86,7 @@
         <button data-mode="2v2">2v2 (44px)</button>
       </div>
       <div class="row"><label>확대</label><input type="range" id="zoom" min="1" max="6" step="0.5" value="3.5"><span class="val" id="zoomV"></span></div>
-      <div class="note">기하(테이블 크기)는 실제 셀 기준 고정 — 확대는 화면만 키웁니다.</div>
+      <div class="note">기하는 실제 셀 기준 고정 — 확대는 화면만.</div>
     </div>
     <div class="panel">
       <h2>시나리오 (겹친 구성)</h2>
@@ -109,14 +97,14 @@
       </div>
     </div>
     <div class="panel">
-      <h2>회전 / 피격</h2>
+      <h2>회전 / 피격 / 사망</h2>
       <div class="seg" style="margin-bottom:6px">
         <button id="rotL">◀ 이전</button>
         <button id="rotR">다음 ▶</button>
       </div>
       <button class="atk" id="btnAttack">⚔ 공격 → 대표 피격 + 도장</button>
-      <button id="btnDeath" style="width:100%;margin-top:6px;background:#3a2230;border-color:#6b3a4a">💀 사망 모션 (앞면 유닛 → 유해)</button>
-      <div class="note">대표 = 고티어→저체력→상태이상多. 대표만 앞에서 반응, 실루엣은 정지. 사망GIF·유해 = 74/60px(일반 셀과 동일).</div>
+      <button id="btnDeath" style="width:100%;margin-top:6px;background:#3a2230;border-color:#6b3a4a">💀 사망 모션 (앞면 → 유해)</button>
+      <div class="note">대표 = 고티어→저체력→상태이상多. 앞면만 실제 모션, 뒤 실루엣 정지. 사망=실제 .death-anim-overlay.</div>
     </div>
     <div class="panel">
       <h2>실루엣 튜닝 (보라 + 아래 어둡기)</h2>
@@ -138,132 +126,78 @@ const SCN={
   s2:()=>[ U('general','mine',2,3,3), U('torturer','opp',3,2,2,['mark']), U('witch','opp',2,2,2,['mark']), U('spearman','opp',1,2,2,['mark']) ],
   s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R('spearman'), R('archer') ],
 };
-let units=[], rot=0, busy=false, team=false;
+let units=[], frontIdx=0, busy=false, team=false;
 const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),
       REM=()=>window.REMAINS_IMG||'/art/remains.png';
-function cellPx(){ return team?44:56; }
-function pfPx(){ return team?34:38; }       // 실제 img.p-gif (1v1 38 / 2v2 34)
-let unitYReal=null, unitXReal=null;          // 실제 셀에서 측정한 유닛 p-gif 중심 위치(px, 셀 top 기준)
-function remPx(){ return team?60:74; }   // ★ 인게임 .remains-marker / .death-gif 사이즈(1v1 74 / 2v2 60)
 const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
 const MARK_IDLE=()=>(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
 const CURSE_IDLE=()=>(window.CURSE_GIFS&&window.CURSE_GIFS.idle)||'/art/curse/curse_idle.gif';
+function cellPx(){ return team?44:56; }
+function pfPx(){ return team?34:38; }
+function remPx(){ return team?60:74; }
+const v=id=>+document.getElementById(id).value;
+function tuning(){ return { op:v('silOp'), botDark:v('botDark'), spread:v('spread'), depthMin:v('depth') }; }
 
 /* 대표 = (유닛 우선) 고티어 → 저체력 → 상태이상多, 유해 후순위 */
 function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
-function repIndex(){ let best=-1,bk=null;
+function repIndex(){ let best=0,bk=null;
   units.forEach((u,i)=>{ const k=[u.isRemains?1:0,-(u.tier||0),(u.hp!=null?u.hp:99),-((u.status||[]).length)];
     if(bk===null||cmp(k,bk)<0){bk=k;best=i;} }); return best; }
 
-/* ───── 보드(일반셀 + 테이블셀) ───── */
-function buildBoard(){
-  const b=document.getElementById('board'); b.innerHTML='';
-  // 좌 = 일반 유닛 (실제 .piece-marker — HP는 visibility:hidden 으로 공간만 차지 → 인게임과 동일한 수직 위치)
-  b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
-  // 가운데 = 테이블
-  const c=document.createElement('div'); c.className='cell'; c.id='ttcell';
-  c.innerHTML='<div class="tt-layer" id="ttlayer"><div class="tt-disc"></div></div>';
-  b.appendChild(c);
-  // 우 = 일반 셀 유해(비교용, 실제 인게임 .remains-marker 74/60px)
-  b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
-  buildUnits();
-  measureUnitPos();
-}
-// 실제 셀의 유닛 p-gif 중심 위치를 측정(줌 무관 비율) → 테이블 앞면을 거기에 맞춤
-function measureUnitPos(){
-  const nc=document.querySelector('#board .cell.has-piece');
-  const pg=nc&&nc.querySelector('.p-gif'); if(!pg) return;
-  const ncr=nc.getBoundingClientRect(), pr=pg.getBoundingClientRect(); const cs=cellPx();
-  if(ncr.height>0){ unitYReal=((pr.top+pr.height/2)-ncr.top)/ncr.height*cs;
-                    unitXReal=((pr.left+pr.width/2)-ncr.left)/ncr.width*cs; layout(); }
-}
-function buildUnits(){
-  const layer=document.getElementById('ttlayer');
-  layer.querySelectorAll('.tt-unit').forEach(e=>e.remove());
-  const pf=pfPx();
-  units.forEach((u,i)=>{
-    const el=document.createElement('div'); el.className='tt-unit'; el.dataset.i=i;
-    const sz=u.isRemains?remPx():pf;          // ★ 유해는 인게임과 동일한 풀사이즈(74/60)
-    el.style.width=sz+'px';
-    const sprite=u.isRemains?REM():IDLE(u.type);
-    // ★ 표식/저주 = 텍스트가 아니라 실제 상태 GIF 레이어 (저주=망령 z:0 뒤 / 표식=정수리 인두 z:5)
-    let status='';
-    if(!u.isRemains && u.status){
-      if(u.status.includes('curse')) status+=`<img class="curse-board-layer ttstatus" src="${CURSE_IDLE()}" alt="">`;
-      if(u.status.includes('mark'))  status+=`<img class="mark-board-layer ttstatus" src="${MARK_IDLE()}" alt="">`;
-    }
-    el.innerHTML=
-      `<div class="pwrap" style="width:${sz}px;height:${sz}px">`+
-        `<img class="real" src="${sprite}" style="width:${sz}px;height:${sz}px">`+
-        `<div class="silh" style="width:${sz}px;height:${sz}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
-        status+
-      `</div>`;
-    el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
-    layer.appendChild(el);
-  });
-  layout();
-}
-
-function tuning(){ return {
-  op:+v('silOp'), botDark:+v('botDark'),
-  spread:+v('spread'), depthMin:+v('depth') }; }
-function v(id){ return document.getElementById(id).value; }
-
-function frontIndex(){ let best=0,bd=-2; const N=units.length;
-  for(let i=0;i<N;i++){ const a=(i*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>bd){bd=d;best=i;} } return best; }
-
-function layout(){
-  const N=units.length, T=tuning(), cs=cellPx(), front=frontIndex();
-  const RX=cs*T.spread, RY=cs*T.spread*0.42;
-  // ★ 앞면(대표)을 실제 셀 유닛 위치에 정확히 맞춤. 레이어가 content box(테두리 1px 안)이므로 −1 보정.
-  //   (측정 전엔 (cs-2)/2 폴백) front 는 +RY 위치이므로 CY = 목표y − RY.
-  const cc=(cs-2)/2;
-  const tx=(unitXReal!=null?unitXReal-1:cc), ty=(unitYReal!=null?unitYReal-1:cc);
-  const CX=tx, CY=ty - RY;
-  const layer=document.getElementById('ttlayer');
-  if(layer){ // 그라데이션 하단 어둡기 변수 (보라 → 어둡게)
-    const dd=T.botDark; const bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
-    layer.style.setProperty('--sbot',bot);
+/* ───── 렌더: 앞면=실제 인게임 구조, 뒤=실루엣 ───── */
+function render(){
+  const u=units[frontIdx];
+  const cell=document.getElementById('ttcell'); if(!cell) return;
+  let cls='cell', front='';
+  if(u.isRemains){
+    cls+=' has-remains';
+    front=`<img class="remains-marker" src="${REM()}" alt="">`;
+  } else {
+    cls+=' has-piece';
+    let st='';
+    if(u.status&&u.status.includes('curse')){ cls+=' has-curse'; st+=`<img class="curse-board-layer" src="${CURSE_IDLE()}" alt="">`; }
+    if(u.status&&u.status.includes('mark')){  cls+=' has-mark';  st+=`<img class="mark-board-layer" src="${MARK_IDLE()}" alt="">`; }
+    front=`<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}" alt=""></span>`+
+          `<span class="p-hp">${u.hp}/${u.maxHp}</span>${st}</div>`;
   }
+  cell.className=cls;
+  cell.innerHTML=`<div class="tt-silh-layer" id="ttsilh"><div class="tt-disc"></div></div>`+front;
+  renderSilhouettes();
+  document.getElementById('scaleinfo').textContent=
+    `셀 ${cellPx()}px · 겹침 ${units.length} · 대표(앞면): ${u.isRemains?'유해':u.type+(u.tier?` T${u.tier}`:'')} — 실제 인게임 구조`;
+}
+function renderSilhouettes(){
+  const silh=document.getElementById('ttsilh'); if(!silh) return;
+  const T=tuning(), cs=cellPx(), N=units.length, cc=(cs-2)/2;
+  const RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const dd=T.botDark, bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
+  silh.style.setProperty('--sbot',bot);
   units.forEach((u,i)=>{
-    const el=document.querySelector(`.tt-unit[data-i="${i}"]`); if(!el)return;
-    const a=(i*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);  // d:+1 앞 .. -1 뒤
+    if(i===frontIdx) return;
+    const off=((i-frontIdx)%N+N)%N;
+    const ang=off*2*Math.PI/N, s=Math.sin(ang), d=Math.cos(ang);   // d:+1 앞 .. -1 뒤
     const back=(1-(d+1)/2);
     const scale=T.depthMin+(1-T.depthMin)*((d+1)/2);
-    el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
-    el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
-    el.style.zIndex=Math.round((d+1)*100);
-    const real=el.querySelector('.real'), silh=el.querySelector('.silh');
-    const isF=(i===front);
-    if(isF){ // 대표 = 실제 스프라이트
-      el.style.opacity='1'; if(real)real.style.opacity='1'; if(silh)silh.style.opacity='0';
-      el.classList.add('isfront');
-    } else {        // 뒤 = 보라 단색 실루엣(아래 어둡기 그라데이션)
-      el.style.opacity=(T.op*(1-back*0.22)).toFixed(2);
-      if(real)real.style.opacity='0'; if(silh)silh.style.opacity='1';
-      el.classList.remove('isfront');
-    }
-    // 상태 GIF(표식/저주)는 앞면 풀컬러일 때만 — 뒤 실루엣엔 숨김
-    el.querySelectorAll('.ttstatus').forEach(s=>{ s.style.display=isF?'':'none'; });
+    const sz=Math.round((u.isRemains?remPx():pfPx())*scale);
+    const sprite=u.isRemains?REM():IDLE(u.type);
+    const el=document.createElement('div'); el.className='tt-silh'; el.dataset.i=i;
+    el.style.cssText=`width:${sz}px;height:${sz}px;left:${(cc+RX*s).toFixed(1)}px;top:${(cc+RY*d).toFixed(1)}px;`+
+      `transform:translate(-50%,-50%);z-index:${Math.round((d+1)*40)};`+
+      `opacity:${(T.op*(1-back*0.22)).toFixed(2)};`+
+      `-webkit-mask-image:url(${sprite});mask-image:url(${sprite})`;
+    el.addEventListener('click',()=>{ if(!busy){ frontIdx=i; render(); } });
+    silh.appendChild(el);
   });
-  const rep=units[front];
-  document.getElementById('scaleinfo').textContent =
-    `셀 ${cs}px · p-gif ${pfPx()}px · 겹침 ${N} · 대표: ${rep.isRemains?'유해':rep.type+(rep.tier?` T${rep.tier}`:'')}`;
 }
 
-/* ───── 회전(아크) ───── */
-function rotateBy(delta,dur,cb){ const start=rot, t0=performance.now(); dur=dur||440;
-  function step(now){ const k=Math.min(1,(now-t0)/dur); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
-    rot=start+delta*e; layout(); if(k<1)requestAnimationFrame(step); else { rot=((start+delta)%360+360)%360; layout(); cb&&cb(); } }
-  requestAnimationFrame(step); }
-function rotateTo(idx,dur,cb){ const N=units.length, target=-(idx*360/N);
-  let delta=((target-rot)%360+540)%360-180; if(Math.abs(delta)<0.5){cb&&cb();return;} rotateBy(delta,dur,cb); }
-function nav(dir){ if(busy)return; busy=true; rotateBy(dir*360/units.length,400,()=>busy=false); }
+/* ───── 회전 / 대표 스냅 ───── */
+function snapToRep(){ frontIdx=repIndex(); render(); }
+function nav(dir){ if(busy)return; frontIdx=(frontIdx+dir+units.length)%units.length; render(); }
 
-/* ───── 대표 피격 ───── */
-function dmgStamp(text,kind){ const front=frontIndex(); const el=document.querySelector(`.tt-unit[data-i="${front}"]`); if(!el)return;
-  const r=el.getBoundingClientRect(); const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
-  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top-2)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
+/* ───── 대표 피격 (앞면 실제 .piece-marker 에 hit GIF + 흔들림 + 도장) ───── */
+function dmgStamp(text,kind){ const cell=document.getElementById('ttcell'); const r=cell.getBoundingClientRect();
+  const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
+  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top+r.height*0.12)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
 async function playAttack(){
   if(busy)return; busy=true; const log=document.getElementById('seqlog');
@@ -273,50 +207,49 @@ async function playAttack(){
     if((a.u.hp||0)!==(b.u.hp||0))return (a.u.hp||0)-(b.u.hp||0); return ((b.u.status||[]).length)-((a.u.status||[]).length); })[0];
   const why=victims.length===1?'단일':`${victims.length}명 중 고티어(T${rep.u.tier})`+(victims.filter(x=>x.u.tier===rep.u.tier).length>1?` → 저체력(${rep.u.hp})`:'');
   log.innerHTML=`① 대표 피격자 <b>${rep.u.type}</b> 앞면 회전 <span style="color:#8a8298">(${why})</span>`;
-  await new Promise(res=>rotateTo(rep.i,440,res)); await wait(70);
-  const front=frontIndex(); const el=document.querySelector(`.tt-unit[data-i="${front}"]`);
-  const im=el&&el.querySelector('img'); const base=im&&im.src;
+  frontIdx=rep.i; render(); await wait(140);
+  const cell=document.getElementById('ttcell'); const pm=cell.querySelector('.piece-marker'); const im=pm&&pm.querySelector('.p-gif'); const base=im&&im.src;
   log.innerHTML=`① 대표 <b>${rep.u.type}</b> 앞면 → ② 피격 + 도장 −2 <span style="color:#8a8298">(${why})</span>`+
-    (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(x=>x!==rep).map(x=>x.u.type).join(', ')})는 뒤 실루엣 — 데미지만, 화면 안정.</span>`:'');
-  if(el) el.style.animation='ttShake .34s ease';
+    (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(x=>x!==rep).map(x=>x.u.type).join(', ')})는 뒤 실루엣 — 화면 안정.</span>`:'');
+  if(pm) pm.style.animation='ttShake .34s ease';
   if(im&&HIT(rep.u.type)) im.src=HIT(rep.u.type);
   dmgStamp('−2'); await wait(540);
-  if(im&&base) im.src=base; if(el) el.style.animation='';
-  rep.u.hp=Math.max(0,(rep.u.hp||2)-2); layout(); busy=false;
+  if(im&&base) im.src=base; if(pm) pm.style.animation='';
+  rep.u.hp=Math.max(0,(rep.u.hp||2)-2); render(); busy=false;
 }
 
-/* ───── 사망 모션 (앞면 유닛 → 사망GIF 74/60 → 유해 전환) ───── */
+/* ───── 사망 모션 (앞면 → 실제 .death-anim-overlay → 유해) ───── */
 async function playDeath(){
   if(busy)return; busy=true; const log=document.getElementById('seqlog');
-  const front=frontIndex(); const u=units[front];
+  const u=units[frontIdx];
   if(u.isRemains){ log.innerHTML='이미 유해입니다. 다른 유닛을 앞으로 돌리세요.'; busy=false; return; }
-  const el=document.querySelector(`.tt-unit[data-i="${front}"]`);
-  const layer=document.getElementById('ttlayer');
-  const ds=remPx();                                   // ★ 사망GIF = 유해와 동일(74/60)
-  const left=parseFloat(el.style.left), top=parseFloat(el.style.top);
-  log.innerHTML=`💀 <b>${u.type}</b> 사망 모션 (사망GIF ${ds}px = 유해와 동일 크기) → 유해 전환`;
-  el.style.opacity='0';                               // 살아있던 유닛 숨김
-  const ov=document.createElement('img'); ov.className='tt-death'; ov.alt='';
-  ov.src=DEATHURL(u.type);
-  ov.style.cssText=`position:absolute;left:${left}px;top:${(top-6)}px;width:${ds}px;height:${ds}px;`+
-    `margin-left:${-ds/2}px;margin-top:${-ds/2}px;z-index:30;pointer-events:none;image-rendering:pixelated;object-fit:contain;`+
-    `filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)`;
-  layer.appendChild(ov);
-  await wait(950);
-  ov.remove();
-  units[front]={type:u.type,owner:'remains',isRemains:true,hits:0};  // 유해로 전환
-  buildUnits();
-  log.innerHTML=`💀 <b>${u.type}</b> 사망 → 유해(${ds}px) 생성 완료. 우측 일반 셀 유해와 같은 크기인지 비교해보세요.`;
+  const cell=document.getElementById('ttcell'); const pm=cell.querySelector('.piece-marker');
+  log.innerHTML=`💀 <b>${u.type}</b> 사망 — 실제 .death-anim-overlay(셀 중앙 +translateY −6) 재생 → 유해 전환`;
+  if(pm) pm.style.visibility='hidden';
+  const ov=document.createElement('div'); ov.className='death-anim-overlay';
+  ov.innerHTML=`<img class="death-gif" src="${DEATHURL(u.type)}" data-death-type="${u.type}" alt="">`;
+  cell.appendChild(ov);
+  await wait(950); ov.remove();
+  units[frontIdx]={type:u.type,owner:'remains',isRemains:true,hits:0};
+  render();
+  log.innerHTML=`💀 <b>${u.type}</b> 사망 → 유해 생성(실제 .remains-marker). 우측 일반 셀 유해와 같은 위치/크기인지 비교.`;
   busy=false;
 }
 
+/* ───── 비교용 보드(좌:일반유닛, 가운데:테이블셀, 우:일반유해) — 전부 실제 구조 ───── */
+function buildBoard(){
+  const b=document.getElementById('board'); b.innerHTML='';
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
+  const c=document.createElement('div'); c.className='cell'; c.id='ttcell'; b.appendChild(c);
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
+}
+
 /* ───── 컨트롤 ───── */
-function applyZoom(){ const z=+v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
-function snapToRep(){ rot=((-(repIndex()*360/units.length))%360+360)%360; layout(); }
+function applyZoom(){ const z=v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
 function loadScn(id){ units=SCN[id](); busy=false; buildBoard(); snapToRep();
-  document.getElementById('seqlog').innerHTML='◀▶ 회전, 뒤 실루엣 클릭으로 앞면 전환, “대표 피격”으로 시퀀스 확인.'; }
+  document.getElementById('seqlog').innerHTML='◀▶ 회전 / 뒤 실루엣 클릭으로 앞면 전환 / “대표 피격·사망 모션” 확인.'; }
 ['silOp','botDark','spread','depth'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
-  const upd=()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); layout(); }; e.addEventListener('input',upd); });
+  const upd=()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); renderSilhouettes(); }; e.addEventListener('input',upd); });
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -327,10 +260,10 @@ document.getElementById('btnAttack').addEventListener('click',playAttack);
 document.getElementById('btnDeath').addEventListener('click',playDeath);
 
 const _kf=document.createElement('style');
-_kf.textContent='@keyframes ttShake{0%,100%{transform:translate(-50%,-50%) translateX(0)}25%{transform:translate(-50%,-50%) translateX(-3px)}50%{transform:translate(-50%,-50%) translateX(3px)}75%{transform:translate(-50%,-50%) translateX(-2px)}}';
+_kf.textContent='@keyframes ttShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}}';
 document.head.appendChild(_kf);
 ['silOp','botDark','spread','depth'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
-function init(){ if(window.PIECE_GIFS){ applyZoom(); loadScn('s1'); } else setTimeout(init,80); }
+function init(){ if(window.PIECE_GIFS&&window.MARK_GIFS&&window.CURSE_GIFS){ applyZoom(); loadScn('s1'); } else setTimeout(init,80); }
 init();
 </script>
 </body>
