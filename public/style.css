@@ -2965,6 +2965,10 @@ img.mark-aura {
           drop-shadow(0 0 2px rgba(168,116,231,var(--ma,0.6)));
   transition: filter var(--madur,0s) linear;
 }
+/* ★ 표식 상태에서 적/아군 유닛 느낌 통일 — opp-marked 의 빨강 유닛 글로우·반투명을 제거하고
+   표식 보라 글로우로 일원화(위 .has-mark img.p-gif 규칙이 보라 담당). 적 구분은 셀 빨강 틴트가 유지. */
+.cell.has-mark .piece-marker.opp-marked { opacity: 1; }
+.cell.has-mark .piece-marker.opp-marked .p-icon { filter: none; }
 @keyframes curseAuraIn {
   from { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 0 rgba(163,113,247,0)) drop-shadow(0 0 0 rgba(163,113,247,0)); }
   to   { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1.5px rgba(163,113,247,.5)) drop-shadow(0 0 2.5px rgba(163,113,247,.5)); }
