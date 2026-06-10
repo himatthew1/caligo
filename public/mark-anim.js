@@ -16,6 +16,7 @@ window._markSummoningActive = function (col, row) { return window._markSummoning
 
 // 정수리 위 표식 배치 (style.css .mark-board-layer 와 동일) — 인게임 튜닝 시 함께 조정.
 const _MARK_SIZE = 35;        // ★ 튜너 확정값(mark-preview): 35
+window.MARK_IDLE_SIZE = _MARK_SIZE;   // 악몽 등 다른 모션이 표식 크기에 맞추도록 전역 노출
 const _MARK_OFFY = -32;
 const _MARK_IRONSZ = Math.round(_MARK_SIZE * 1.45);   // 인두 ×1.45
 

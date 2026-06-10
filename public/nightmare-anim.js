@@ -30,7 +30,8 @@
       return out;
     }).catch(() => [130, 260, 390, 520, 650, 780, 910, 1040, 1170]);
   }
-  // 표식(정수리 위) 위치 — mark-anim 과 동일 기준. 악몽 크기 = 표식(0.74×p-gif) × 2배.
+  // 표식(정수리 위) 위치 — mark-anim 과 동일 기준. 악몽 크기 = 실제 표식 크기 × 2배.
+  //   (표식은 35px 로 튜닝됨 → 0.74×폭 추정 대신 실제 표식 크기를 기준으로 묶어 크기 불일치 제거)
   function _nmPos(cell) {
     const cr = cell.getBoundingClientRect();
     const pgif = cell.querySelector('.piece-marker img.p-gif')
@@ -38,8 +39,8 @@
     const pr = pgif ? pgif.getBoundingClientRect() : null;
     const cx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
     const cy = pr ? (pr.top - cr.top - 9) : cr.height * 0.28;
-    const w = pr ? pr.width : 30;
-    return { cx, cy, size: Math.max(40, Math.round(w * 0.74 * 2)) };
+    const markSize = (window._MARK_TUNE && window._MARK_TUNE.size) || window.MARK_IDLE_SIZE || 35;
+    return { cx, cy, size: Math.round(markSize * 2) };
   }
 
   function animateNightmareCast(positions, opts) {
