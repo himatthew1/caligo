@@ -61,6 +61,14 @@ function _markBrandOne(board, col, row, opts) {
   const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
   if (!cell) return;
   const M = window.MARK_GIFS || {};
+  // ★ 튜닝값 — window._MARK_TUNE 로 오버라이드(프리뷰 슬라이더). 미설정 시 현재 인게임 기본값.
+  const _T = window._MARK_TUNE || {};
+  const _size   = _T.size   || _MARK_SIZE;                              // 표식 크기(가시성)
+  const _ironSz = _T.ironSize || Math.round(_size * (_T.ironScale || 1.35));
+  const _ironDur     = (_T.ironDur     != null) ? _T.ironDur     : 650; // 인두 낙하 시간(느리게=키움)
+  const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : 325; // 임팩트(불꽃·글로우) 시점
+  const _summonDelay = (_T.summonDelay != null) ? _T.summonDelay : (_impactMs + 30); // 생성 GIF 시작(스포일 방지=늦춤)
+  const _summonDur   = (_T.summonDur   != null) ? _T.summonDur   : 1170; // 생성 GIF 총 길이
   const key = col + ',' + row;
   const _summonBlobP = _markOnceHoldBlob(M.summon);  // ★ 시작과 동시에 생성 GIF blob 준비 → impact 시점 즉시 표시(인두와 거의 동시)
   window._markSummoning.add(key);
@@ -83,8 +91,8 @@ function _markBrandOne(board, col, row, opts) {
   const iron = document.createElement('img');
   iron.src = M.iron || '/art/mark/mark_iron.png';
   iron.className = 'mark-iron-anim'; iron.alt = '';
-  iron.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_IRONSZ}px;height:${_MARK_IRONSZ}px;` +
-    `margin-left:${-_MARK_IRONSZ / 2}px;margin-top:${-_MARK_IRONSZ / 2}px;z-index:30;pointer-events:none;` +
+  iron.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_ironSz}px;height:${_ironSz}px;` +
+    `margin-left:${-_ironSz / 2}px;margin-top:${-_ironSz / 2}px;z-index:30;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));`;
   cell.appendChild(iron);
   iron.animate([
@@ -93,9 +101,9 @@ function _markBrandOne(board, col, row, opts) {
     { opacity: 1, transform: 'translateY(3px) scale(1.04)', offset: 0.62 },
     { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.78 },
     { opacity: 0, transform: 'translateY(-13px) scale(.94)' },
-  ], { duration: 650, easing: 'ease', fill: 'forwards' });
+  ], { duration: _ironDur, easing: 'ease', fill: 'forwards' });
 
-  const impactMs = 325;
+  const impactMs = _impactMs;
   if (typeof opts.onSizzle === 'function') setTimeout(() => { try { opts.onSizzle(); } catch (e) {} }, impactMs);
 
   // ── 임팩트: 불꽃 + 글로우 페이드인 + (표식 적) 모습 페이드인 ──
@@ -109,8 +117,8 @@ function _markBrandOne(board, col, row, opts) {
   // ── 생성 GIF (1회) → 끝나면 idle 레이어 인계 ──
   const summonImg = document.createElement('img');
   summonImg.className = 'mark-summon-anim'; summonImg.alt = '';
-  summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_MARK_SIZE}px;height:${_MARK_SIZE}px;` +
-    `margin-left:${-_MARK_SIZE / 2}px;margin-top:${-_MARK_SIZE / 2}px;z-index:6;pointer-events:none;` +
+  summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
+    `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
   let blobUrl = null;
   setTimeout(() => {
@@ -134,11 +142,11 @@ function _markBrandOne(board, col, row, opts) {
         } catch (e) { try { summonImg.remove(); } catch (_) {} }
         if (blobUrl) URL.revokeObjectURL(blobUrl);
         // (다음 자연 renderGameBoard 가 진짜 idle 레이어로 교체 — 둘 다 같은 idle 이라 끊김 없음)
-      }, 1170 + 100);                             // 생성 GIF 총 길이(고정 1170ms) + 버퍼
+      }, _summonDur + 100);                       // 생성 GIF 총 길이 + 버퍼
     }).catch(() => { _markBrandCleanup(cell, key); });
-  }, impactMs + 30);
+  }, _summonDelay);
 
-  setTimeout(() => { try { if (iron.parentNode) iron.remove(); } catch (e) {} }, 720);
+  setTimeout(() => { try { if (iron.parentNode) iron.remove(); } catch (e) {} }, _ironDur + 70);
   // 안전망 — 3.5s 후 강제 정리
   setTimeout(() => { if (window._markSummoning.has(key)) _markBrandCleanup(cell, key); }, 3500);
 }

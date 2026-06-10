@@ -3,143 +3,188 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CALIGO — 표식 인게임 소스 프리뷰 (글로우 튜닝)</title>
-<!-- ★ 인게임 실제 CSS 그대로 -->
-<link rel="stylesheet" href="style.css?v=20260608u">
+<title>CALIGO — 표식·저주 튜너 (인게임 소스 그대로)</title>
+<!-- ★ 인게임 실제 CSS + 모듈 그대로 로드 -->
+<link rel="stylesheet" href="style.css?v=20260609k">
 <style>
-  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;padding:16px;line-height:1.5}
-  h1{font-size:17px;color:#e2b714;margin:0 0 4px}
-  .sub{color:#a89fb8;font-size:11.5px;margin-bottom:14px;max-width:760px}
-  .wrap{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
-  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:26px;display:flex;flex-direction:column;align-items:center;gap:10px}
-  /* 인게임과 동일한 보드 그리드(반응형 1fr·정사각). 폭으로 셀 크기 조절. */
-  #game-board{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;width:var(--bw,260px)}
-  #game-board .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;
-    display:flex;align-items:center;justify-content:center}
-  .label{color:#a89fb8;font-size:11px}
-  .panel{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:14px;min-width:300px;max-width:360px}
-  .panel h2{font-size:12.5px;color:#e2b714;margin:0 0 8px;text-transform:uppercase}
-  .row{display:flex;align-items:center;gap:8px;margin:6px 0}
-  .row label{flex:0 0 96px;color:#a89fb8;font-size:11.5px}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:12px 16px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+  header.hd{text-align:center;flex:0 0 auto}
+  header.hd h1{font-size:17px;color:#e2b714;margin:0 0 3px}
+  header.hd .sub{color:#a89fb8;font-size:11px;max-width:820px;margin:0 auto;line-height:1.45}
+  .topbtns{display:flex;gap:7px;justify-content:center;margin-top:6px;flex-wrap:wrap}
+  main{flex:1 1 auto;display:flex;gap:16px;align-items:flex-start;justify-content:center;min-height:0}
+  .stages{display:flex;gap:16px;flex:0 0 auto}
+  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:12px;padding:18px 22px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .stagebox .tt{font-size:12px;font-weight:700}
+  .stagebox.mk .tt{color:#a874e7}.stagebox.cs .tt{color:#7c5cff}
+  .miniboard{display:grid;grid-template-columns:1fr;width:var(--cs,96px)}
+  .miniboard .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff14;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center}
+  .label{color:#a89fb8;font-size:10px}
+  .panel{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:12px 14px;width:320px;max-height:100%;overflow:auto}
+  .panel h2{font-size:11.5px;color:#e2b714;margin:0 0 6px;text-transform:uppercase;letter-spacing:.4px}
+  .panel h2:not(:first-child){margin-top:12px}
+  .row{display:flex;align-items:center;gap:8px;margin:5px 0}
+  .row label{flex:0 0 104px;color:#a89fb8;font-size:11px}
   .row input[type=range]{flex:1;accent-color:#a874e7;min-width:60px}
-  .row input[type=color]{width:34px;height:24px;border:1px solid #453c5c;background:none;border-radius:5px;padding:0}
-  .row .val{flex:0 0 44px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums}
+  .row input[type=color]{width:32px;height:22px;border:1px solid #453c5c;background:none;border-radius:5px;padding:0}
+  .row .val{flex:0 0 50px;text-align:right;font-size:11px;font-variant-numeric:tabular-nums;color:#cbb6ee}
   .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:8px 11px;cursor:pointer;font-size:12px}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:7px 11px;cursor:pointer;font-size:12px}
   button:hover{border-color:#a874e7}
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
-  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:6px;padding:5px 7px;font-size:11.5px}
+  button.cs{background:linear-gradient(135deg,#4f46e5,#7c5cff);border-color:transparent;font-weight:600}
+  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:6px;padding:4px 7px;font-size:11px}
   .codebox{background:#0a0d12;border:1px solid #453c5c;border-radius:7px;padding:8px;font-family:Consolas,monospace;font-size:10px;color:#a8d4ff;white-space:pre-wrap;margin-top:8px}
-  .note{color:#a89fb8;font-size:10.5px;margin-top:6px;line-height:1.5}
+  .note{color:#8a809e;font-size:10px;margin-top:6px;line-height:1.5}
 </style>
 </head>
 <body>
-<h1>🎯 표식 — 인게임 소스 그대로 프리뷰 (글로우 튜닝)</h1>
-<div class="sub">이 페이지는 <b>실제 인게임 style.css + mark-anim.js</b> 를 그대로 로드합니다. 보이는 표식·인두·생성·글로우가 인게임과 동일합니다. 아래 슬라이더로 글로우를 조절하고, 마음에 들면 "값 복사"로 알려주시면 그대로 style.css 에 반영합니다.</div>
+<header class="hd">
+  <h1>🎯 표식 · ☠ 저주 튜너 — 인게임 소스 그대로</h1>
+  <div class="sub">실제 <b>style.css + mark-anim.js</b> 를 로드해 인게임과 동일하게 재생합니다. 슬라이더로 <b>크기(가시성)·인두 속도·임팩트·생성 시점</b>을 조절하고, 저주와 나란히 비교하세요. 맘에 들면 “값 복사”로 알려주시면 그대로 반영합니다.</div>
+  <div class="topbtns">
+    <button class="primary" data-act="mk">🎯 표식 재생</button>
+    <button class="cs" data-act="cs">☠ 저주 재생</button>
+    <button data-act="both">동시 재생(비교)</button>
+    <button data-act="idle">아이들로</button>
+  </div>
+</header>
 
-<div class="wrap">
-  <div class="stagebox">
-    <div id="game-board"></div>
-    <div class="label">인게임 보드 셀 (가운데 = 표식 유닛)</div>
+<main>
+  <div class="stages">
+    <div class="stagebox mk">
+      <div class="tt">🎯 표식</div>
+      <div id="game-board" class="miniboard"></div>
+      <div class="label">인게임 셀 (정수리 위 표식)</div>
+    </div>
+    <div class="stagebox cs">
+      <div class="tt">☠ 저주</div>
+      <div id="curse-board" class="miniboard"></div>
+      <div class="label">인게임 셀 (망령 레이어)</div>
+    </div>
   </div>
 
   <div class="panel">
-    <h2>표시</h2>
-    <div class="btns">
-      <button class="primary" data-act="summon">표식 생성 (인두+불꽃+생성)</button>
-      <button data-act="idle">아이들</button>
-    </div>
+    <h2>공통</h2>
     <div class="row"><label>유닛</label>
       <select id="unitPick">
         <option value="general">장군</option><option value="witch">마녀</option>
-        <option value="prince">왕자</option><option value="torturer">고문기술자</option><option value="dragon">드래곤</option>
+        <option value="prince">왕자</option><option value="torturer">고문기술자</option><option value="knight">기사</option>
       </select></div>
-    <div class="row"><label>보드 폭</label><input type="range" id="bw" min="200" max="480" step="10" value="260"><span class="val" id="bwV">260</span></div>
-    <div class="note">※ 인게임 보드는 반응형이라 보드 폭에 따라 셀·유닛 크기가 변합니다. 실제 게임 화면 폭에 맞춰 보세요.</div>
+    <div class="row"><label>셀 크기</label><input type="range" id="cs" min="56" max="150" step="2" value="96"><span class="val" id="csV">96</span></div>
+
+    <h2>표식 타이밍·크기 (_MARK_TUNE)</h2>
+    <div class="row"><label>표식 크기</label><input type="range" id="size" min="18" max="52" step="1" value="28"><span class="val" id="sizeV">28</span></div>
+    <div class="row"><label>인두 배율</label><input type="range" id="ironScale" min="1" max="2.2" step="0.05" value="1.35"><span class="val" id="ironScaleV">1.35</span></div>
+    <div class="row"><label>인두 속도(ms)</label><input type="range" id="ironDur" min="350" max="1600" step="10" value="650"><span class="val" id="ironDurV">650</span></div>
+    <div class="row"><label>임팩트(ms)</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="325"><span class="val" id="impactMsV">325</span></div>
+    <div class="row"><label>생성 시작(ms)</label><input type="range" id="summonDelay" min="0" max="1400" step="10" value="355"><span class="val" id="summonDelayV">355</span></div>
+    <div class="note">※ 인두를 느리게(인두 속도↑) 하고 생성 시작을 인두 착지 뒤로 미루면 “등장 전 미리 보임(스포일)”이 사라집니다. 표식 크기↑ = 가시성↑.</div>
+
+    <h2>글로우</h2>
+    <div class="row"><label>캐릭터 알파</label><input type="range" id="cgA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="cgAV">.60</span></div>
+    <div class="row"><label>캐릭터 블러</label><input type="range" id="cgB2" min="0" max="12" step="0.5" value="2"><span class="val" id="cgB2V">2</span></div>
+    <div class="row"><label>표식 알파</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="0.75"><span class="val" id="mgAV">.75</span></div>
+    <div class="row"><label>표식 블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="3"><span class="val" id="mgBV">3</span></div>
+
+    <div class="btns"><button data-act="copy">값 복사</button><button data-act="reset">인게임 기본값</button></div>
+    <div class="codebox" id="out"></div>
   </div>
-
-  <div class="panel">
-    <h2>캐릭터 글로우 (.has-mark p-gif)</h2>
-    <div class="row"><label>색상</label><input type="color" id="cgColor" value="#a874e7"></div>
-    <div class="row"><label>알파(--ma)</label><input type="range" id="cgA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="cgAV">.60</span></div>
-    <div class="row"><label>블러1</label><input type="range" id="cgB1" min="0" max="6" step="0.5" value="1"><span class="val" id="cgB1V">1</span></div>
-    <div class="row"><label>블러2</label><input type="range" id="cgB2" min="0" max="10" step="0.5" value="2"><span class="val" id="cgB2V">2</span></div>
-    <div class="row"><label>검정 외곽</label><input type="checkbox" id="cgOutline" checked></div>
-
-    <h2 style="margin-top:12px">표식 레이어 글로우 (.mark-board-layer)</h2>
-    <div class="row"><label>색상</label><input type="color" id="mgColor" value="#a874e7"></div>
-    <div class="row"><label>알파</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="0.75"><span class="val" id="mgAV">.75</span></div>
-    <div class="row"><label>블러</label><input type="range" id="mgB" min="0" max="8" step="0.5" value="3"><span class="val" id="mgBV">3</span></div>
-
-    <div class="btns"><button data-act="copy">값 복사</button><button data-act="reset">현재 인게임값으로</button></div>
-    <div class="codebox" id="cssOut"></div>
-  </div>
-</div>
+</main>
 
 <!-- ★ 인게임 실제 모듈 그대로 -->
-<script src="piece-gifs.js?v=20260608u"></script>
-<script src="mark-anim.js?v=20260608u"></script>
+<script src="piece-gifs.js?v=20260609k"></script>
+<script src="mark-anim.js?v=20260609k"></script>
 <script>
-const board=document.getElementById('game-board');
 const num=id=>parseFloat(document.getElementById(id).value);
-const val=id=>document.getElementById(id).value;
 const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
-const COL=2, ROW=2;   // 가운데 셀
 let curType='general';
 
-// ── 인게임 game.js 의 표식 렌더 로직(최소 복제, 동일 클래스/구조) ──
-function _isMarkSummoning(){ return window._markSummoningActive && window._markSummoningActive(COL,ROW); }
 function pGifHtml(type){ const u=(window.PIECE_GIFS&&window.PIECE_GIFS[type])||('/art/'+type+'_idle.gif'); return `<img class="p-gif" src="${u}" alt="">`; }
-function markLayerHtml(){ const u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif'; return `<img class="mark-board-layer" src="${u}" alt="">`; }
-// renderGameBoard 스텁 — 인게임과 동일하게 5×5 셀, 가운데에 표식 유닛 + (소환중 아니면) 표식 레이어 → piece-marker 자식으로 relocate.
+// ── 표식 셀 (mark-anim 이 보는 #game-board / col0,row0) ──
 window.renderGameBoard = function(){
-  board.innerHTML='';
-  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
-    const cell=document.createElement('div'); cell.className='cell'; cell.dataset.col=c; cell.dataset.row=r;
-    if(c===COL&&r===ROW){
-      cell.classList.add('has-piece','has-mark');
-      cell.innerHTML=`<div class="piece-marker"><span class="p-icon">${pGifHtml(curType)}</span><span class="p-hp">3/3</span></div>`;
-      if(!_isMarkSummoning()) cell.innerHTML += markLayerHtml();
-      // relocate (game.js _relocateMarkLayers 와 동일)
-      const layer=cell.querySelector(':scope > .mark-board-layer'); const host=cell.querySelector('.piece-marker');
-      if(layer&&host) host.appendChild(layer);
-    }
-    board.appendChild(cell);
+  const b=document.getElementById('game-board'); if(!b) return;
+  b.innerHTML='';
+  const cell=document.createElement('div'); cell.className='cell has-piece has-mark'; cell.dataset.col=0; cell.dataset.row=0;
+  cell.innerHTML=`<div class="piece-marker"><span class="p-icon">${pGifHtml(curType)}</span><span class="p-hp">3/3</span></div>`;
+  if(!(window._markSummoningActive && window._markSummoningActive(0,0))){
+    const u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
+    cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend',`<img class="mark-board-layer" src="${u}" alt="">`);
   }
+  b.appendChild(cell);
 };
-
-// ── 글로우 라이브 오버라이드 (인게임 .has-mark 규칙 위에 덮어쓰기) ──
-const ov=document.createElement('style'); document.head.appendChild(ov);
-function hex(c){ return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)]; }
-function applyGlow(){
-  document.documentElement.style.setProperty('--bw', num('bw')+'px');
-  const [cr,cg,cb]=hex(val('cgColor')); const ca=num('cgA'), cb1=num('cgB1'), cb2=num('cgB2');
-  const outline = document.getElementById('cgOutline').checked ? 'drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) ' : '';
-  const charFilter = `${outline}drop-shadow(0 0 ${cb1}px rgba(${cr},${cg},${cb},${ca})) drop-shadow(0 0 ${cb2}px rgba(${cr},${cg},${cb},${ca}))`;
-  const [mr,mg,mb]=hex(val('mgColor')); const ma=num('mgA'), mbl=num('mgB');
-  const markFilter = `drop-shadow(0 0 1px #000) drop-shadow(0 0 ${mbl}px rgba(${mr},${mg},${mb},${ma}))`;
-  ov.textContent = `#game-board .cell.has-mark .piece-marker img.p-gif{filter:${charFilter} !important;}\n`+
-                   `#game-board .mark-board-layer{filter:${markFilter} !important;}`;
-  ['cgA','mgA'].forEach(id=>setV(id,num(id).toFixed(2))); ['cgB1','cgB2','mgB','bw'].forEach(id=>setV(id,num(id)));
-  document.getElementById('cssOut').textContent =
-`/* 캐릭터 글로우 (.cell.has-mark .piece-marker img.p-gif) */
-${charFilter}
-/* 표식 레이어 글로우 (.mark-board-layer) */
-${markFilter}`;
+// ── 저주 셀 ──
+function renderCurseBoard(withIdle){
+  const b=document.getElementById('curse-board'); if(!b) return;
+  b.innerHTML='';
+  const cell=document.createElement('div'); cell.className='cell has-piece'+(withIdle?' has-curse':''); cell.dataset.col=0; cell.dataset.row=0;
+  cell.innerHTML=`<div class="piece-marker"><span class="p-icon">${pGifHtml(curType)}</span><span class="p-hp">3/3</span></div>`;
+  if(withIdle){ const u=(window.CURSE_GIFS&&window.CURSE_GIFS.idle)||'/art/curse/curse_idle.gif';
+    cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend',`<img class="curse-board-layer" src="${u}" alt="">`); }
+  b.appendChild(cell);
 }
-['cgColor','cgA','cgB1','cgB2','cgOutline','mgColor','mgA','mgB','bw'].forEach(id=>document.getElementById(id).addEventListener('input',applyGlow));
+// 저주 소환 1회(인게임 playCurseBoardAnim 의 미니 복제: 루프 제거 → 1회 → idle 인계)
+function _stripLoop(buf){
+  for(let i=0;i<buf.length-13;i++){ if(buf[i]===0x21&&buf[i+1]===0xFF&&buf[i+2]===0x0B){ let t='';for(let k=0;k<11;k++)t+=String.fromCharCode(buf[i+3+k]);
+    if(t==='NETSCAPE2.0'){ const o=new Uint8Array(buf.length-19); o.set(buf.slice(0,i),0); o.set(buf.slice(i+19),i); return o; } } }
+  return buf;
+}
+function _gifMs(buf){ let t=0; for(let i=0;i<buf.length-7;i++){ if(buf[i]===0x21&&buf[i+1]===0xF9&&buf[i+2]===0x04&&buf[i+7]===0x00) t+=((buf[i+4]|(buf[i+5]<<8))*10);} return t||1200; }
+async function playCurse(){
+  renderCurseBoard(false);
+  const cell=document.querySelector('#curse-board .cell'); if(!cell||!window.CURSE_GIFS) return;
+  const ab=await (await fetch(window.CURSE_GIFS.summon,{cache:'no-cache'})).arrayBuffer();
+  const bytes=_stripLoop(new Uint8Array(ab)); const dur=_gifMs(bytes);
+  const url=URL.createObjectURL(new Blob([bytes],{type:'image/gif'}));
+  const img=document.createElement('img'); img.className='curse-anim-overlay curse-kind-summon'; img.alt=''; img.src=url;
+  cell.appendChild(img);
+  setTimeout(()=>{ try{img.remove();URL.revokeObjectURL(url);}catch(e){} renderCurseBoard(true); }, dur+80);
+}
+
+// ── _MARK_TUNE 동기화 ──
+function syncTune(){
+  window._MARK_TUNE = {
+    size: num('size'), ironScale: num('ironScale'), ironDur: num('ironDur'),
+    impactMs: num('impactMs'), summonDelay: num('summonDelay'),
+  };
+}
+// ── 글로우 오버라이드 ──
+const ov=document.createElement('style'); document.head.appendChild(ov);
+function applyAll(){
+  document.documentElement.style.setProperty('--cs', num('cs')+'px');
+  syncTune();
+  const ca=num('cgA'), cb2=num('cgB2'), ma=num('mgA'), mb=num('mgB');
+  const charFilter=`drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 ${cb2}px rgba(168,116,231,${ca}))`;
+  const markFilter=`drop-shadow(0 0 1px #000) drop-shadow(0 0 ${mb}px rgba(168,116,231,${ma}))`;
+  ov.textContent=`#game-board .cell.has-mark .piece-marker img.p-gif{filter:${charFilter} !important;}\n#game-board .mark-board-layer{filter:${markFilter} !important;}`;
+  ['cgA','mgA'].forEach(id=>setV(id,num(id).toFixed(2)));
+  ['cs','size','ironDur','impactMs','summonDelay','cgB2','mgB'].forEach(id=>setV(id,num(id)));
+  setV('ironScale',num('ironScale').toFixed(2));
+  document.getElementById('out').textContent =
+`// mark-anim.js 기본값 후보:
+size=${num('size')}  ironScale=${num('ironScale')}  ironDur=${num('ironDur')}  impactMs=${num('impactMs')}  summonDelay=${num('summonDelay')}
+// 글로우 (style.css):
+char: ${charFilter}
+mark: ${markFilter}`;
+}
+['cs','size','ironScale','ironDur','impactMs','summonDelay','cgA','cgB2','mgA','mgB'].forEach(id=>document.getElementById(id).addEventListener('input',applyAll));
 
 document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
   const a=b.dataset.act;
-  if(a==='idle'){ renderGameBoard(); }
-  else if(a==='summon'){ renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:COL,row:ROW}]); }
-  else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('cssOut').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='값 복사',1100); }
-  else if(a==='reset'){ document.getElementById('cgColor').value='#a874e7'; document.getElementById('cgA').value='0.6'; document.getElementById('cgB1').value='1'; document.getElementById('cgB2').value='2'; document.getElementById('mgColor').value='#a874e7'; document.getElementById('mgA').value='0.75'; document.getElementById('mgB').value='3'; applyGlow(); }
+  if(a==='idle'){ renderGameBoard(); renderCurseBoard(true); }
+  else if(a==='mk'){ syncTune(); renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0}]); }
+  else if(a==='cs'){ playCurse(); }
+  else if(a==='both'){ syncTune(); renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0}]); playCurse(); }
+  else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(()=>b.textContent='값 복사',1100); }
+  else if(a==='reset'){ const d={cs:96,size:28,ironScale:1.35,ironDur:650,impactMs:325,summonDelay:355,cgA:0.6,cgB2:2,mgA:0.75,mgB:3};
+    Object.keys(d).forEach(k=>{const e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); }
 }));
-document.getElementById('unitPick').addEventListener('change',e=>{ curType=e.target.value; renderGameBoard(); });
+document.getElementById('unitPick').addEventListener('change',e=>{ curType=e.target.value; renderGameBoard(); renderCurseBoard(true); });
 
-// 초기 렌더 (모듈 로드 대기)
-function init(){ if(window.MARK_GIFS){ renderGameBoard(); applyGlow(); } else setTimeout(init,100); }
+function init(){ if(window.MARK_GIFS&&window.CURSE_GIFS&&window.PIECE_GIFS){ renderGameBoard(); renderCurseBoard(true); applyAll(); } else setTimeout(init,80); }
 init();
 </script>
 </body>
