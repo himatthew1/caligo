@@ -14954,6 +14954,22 @@ function _keyToPieceCell(key) {
 }
 // ── 보드 위 데미지 도장 — 유닛 위 오버레이(피격 시점). body 고정배치라 보드 재렌더에도 안전. ──
 function showBoardDamageStamp(col, row, type, value) {
+  // ★ 도장 타이밍 규칙 (사용자 지정):
+  //   · 같은 유닛(셀)에 도장이 여러 개 → 차등(시차)으로 순차 표시 (겹쳐서 안 읽히는 것 방지).
+  //   · 다른 유닛(여러 유닛 일괄 피격) → 셀이 다르므로 각자 즉시 = 동시(일괄 타이밍). 예: 충성+일반데미지(서로 다른 유닛).
+  //   · 폭탄은 차등 폭발이라 각 detonation 호출 시점에 자연 차등.
+  if (col == null || row == null) return;
+  const _bdsCk = col + ',' + row;
+  if (!window._bdsNextAt) window._bdsNextAt = {};
+  const _BDS_STAGGER = 300;
+  const _bdsNow = Date.now();
+  const _bdsAt = Math.max(_bdsNow, window._bdsNextAt[_bdsCk] || 0);
+  window._bdsNextAt[_bdsCk] = _bdsAt + _BDS_STAGGER;
+  const _bdsDelay = _bdsAt - _bdsNow;
+  if (_bdsDelay > 4) { setTimeout(function () { _renderBoardDamageStamp(col, row, type, value); }, _bdsDelay); return; }
+  _renderBoardDamageStamp(col, row, type, value);
+}
+function _renderBoardDamageStamp(col, row, type, value) {
   if (col == null || row == null) return;
   const board = document.getElementById('game-board');
   if (!board) return;
