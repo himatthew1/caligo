@@ -61,8 +61,7 @@
       ov.style.cssText = `position:absolute;left:${p.cx}px;top:${p.cy}px;width:${p.size}px;height:${p.size}px;` +
         `margin-left:${-p.size / 2}px;margin-top:${-p.size / 2}px;z-index:20;pointer-events:none;` +
         `image-rendering:pixelated;object-fit:contain;filter:` +
-        `drop-shadow(0.5px 0 0 #000) drop-shadow(-0.5px 0 0 #000) drop-shadow(0 0.5px 0 #000) drop-shadow(0 -0.5px 0 #000) ` +
-        `drop-shadow(0.5px 0.5px 0 #000) drop-shadow(-0.5px 0.5px 0 #000) drop-shadow(0.5px -0.5px 0 #000) drop-shadow(-0.5px -0.5px 0 #000);`;
+        `drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000);`;
       _nmOnceHoldBlob(url).then(bu => {
         ov.src = bu; cell.appendChild(ov);
         _nmFrameDelays(url).then(fd => {
