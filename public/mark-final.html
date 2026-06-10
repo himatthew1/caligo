@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 표식 최종 확인 (인게임 그대로)</title>
+<!-- ★ 실제 인게임 CSS + 모듈만 로드. 슬라이더·글로우 오버라이드 없음 = 인게임에서 보일 그대로. -->
+<link rel="stylesheet" href="style.css?v=20260609o">
+<style>
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden;align-items:center}
+  header{text-align:center;flex:0 0 auto}
+  header h1{font-size:18px;color:#e2b714;margin:0 0 4px}
+  header .sub{color:#a89fb8;font-size:11.5px;max-width:780px;margin:0 auto;line-height:1.5}
+  .ctrl{display:flex;gap:9px;justify-content:center;margin-top:10px;flex-wrap:wrap;align-items:center}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px}
+  button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:700}
+  button:hover{border-color:#a874e7}
+  .ctrl label{color:#a89fb8;font-size:12px;display:flex;align-items:center;gap:6px}
+  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:6px 9px;font-size:12px}
+  input[type=range]{accent-color:#a874e7}
+  main{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+  /* 두 셀을 #game-board 안에 — animateMarkBrand 가 .cell[data-col][data-row] 로 찾음 */
+  #game-board{display:flex;gap:70px;align-items:center}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .stage .tt{font-size:14px;font-weight:800}
+  .stage.me .tt{color:#a874e7}
+  .stage.op .tt{color:#e05252}
+  #game-board .cell{width:var(--cs,84px);height:var(--cs,84px);background:#16131f;border:1px solid #ffffff12;border-radius:9px;
+    position:relative;display:flex;align-items:center;justify-content:center}
+  .stage .lab{color:#8a809e;font-size:10.5px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎯 표식 최종 확인 — 인게임 그대로</h1>
+  <div class="sub">실제 <b>style.css + mark-anim.js</b> 만 로드(튜닝 슬라이더·오버라이드 없음). 이게 <b>인게임에서 보일 그대로</b>입니다. 왼쪽=<b style="color:#a874e7">내 유닛(보라)</b> / 오른쪽=<b style="color:#e05252">적 유닛(붉은빛)</b>. “표식 생성”으로 둘 다 재생해 비교하세요.</div>
+  <div class="ctrl">
+    <button class="primary" data-act="summon">🎯 표식 생성 (둘 다)</button>
+    <button data-act="idle">아이들로</button>
+    <label>유닛 <select id="unitPick">
+      <option value="general">장군</option><option value="witch">마녀</option>
+      <option value="prince">왕자</option><option value="knight">기사</option><option value="torturer">고문기술자</option>
+    </select></label>
+    <label>셀 크기 <input type="range" id="cs" min="56" max="140" step="2" value="84"></label>
+  </div>
+</header>
+
+<main>
+  <div id="game-board"></div>
+</main>
+
+<!-- ★ 실제 인게임 모듈 그대로 (window._MARK_TUNE 미설정 → mark-anim.js 인게임 기본값 사용) -->
+<script src="piece-gifs.js?v=20260609o"></script>
+<script src="mark-anim.js?v=20260609o"></script>
+<script>
+let curType='general';
+function pgif(t){ var u=(window.PIECE_GIFS&&window.PIECE_GIFS[t])||('/art/'+t+'_idle.gif'); return '<img class="p-gif" src="'+u+'" alt="">'; }
+function markLayer(){ var u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif'; return '<img class="mark-board-layer" src="'+u+'" alt="">'; }
+// 셀 (0,0)=내 유닛 / (1,0)=적 유닛(opp-marked). 각 셀은 .stage 래퍼 안(라벨용)이지만 #game-board 자손이라 anim 이 찾음.
+window.renderGameBoard = function(){
+  var b=document.getElementById('game-board'); if(!b) return; b.innerHTML='';
+  [
+    { col:0, side:'me', tt:'🎯 내 유닛 표식', lab:'보라 글로우', opp:'' },
+    { col:1, side:'op', tt:'🎯 적 유닛 표식', lab:'붉은빛 글로우', opp:' opp-marked' }
+  ].forEach(function(d){
+    var stage=document.createElement('div'); stage.className='stage '+d.side;
+    var cell=document.createElement('div'); cell.className='cell has-piece has-mark'; cell.dataset.col=d.col; cell.dataset.row=0;
+    cell.innerHTML='<div class="piece-marker'+d.opp+'"><span class="p-icon">'+pgif(curType)+'</span><span class="p-hp">3/3</span></div>';
+    if(!(window._markSummoningActive && window._markSummoningActive(d.col,0))){
+      cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend', markLayer());
+    }
+    stage.innerHTML='<div class="tt">'+d.tt+'</div>';
+    stage.appendChild(cell);
+    var lab=document.createElement('div'); lab.className='lab'; lab.textContent=d.lab; stage.appendChild(lab);
+    b.appendChild(stage);
+  });
+};
+document.querySelectorAll('[data-act]').forEach(function(btn){ btn.addEventListener('click',function(){
+  var a=btn.dataset.act;
+  if(a==='idle'){ renderGameBoard(); }
+  else if(a==='summon'){ renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0},{col:1,row:0}]); }
+});});
+document.getElementById('unitPick').addEventListener('change',function(e){ curType=e.target.value; renderGameBoard(); });
+document.getElementById('cs').addEventListener('input',function(e){ document.documentElement.style.setProperty('--cs', e.target.value+'px'); });
+function init(){ if(window.MARK_GIFS && window.PIECE_GIFS){ document.documentElement.style.setProperty('--cs','84px'); renderGameBoard(); } else setTimeout(init,80); }
+init();
+</script>
+</body>
+</html>
