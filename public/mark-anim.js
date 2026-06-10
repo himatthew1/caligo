@@ -127,8 +127,8 @@ function _markBrandOne(board, col, row, opts) {
   summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
     `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:` +
-    `drop-shadow(0.25px 0 0 #000) drop-shadow(-0.25px 0 0 #000) drop-shadow(0 0.25px 0 #000) drop-shadow(0 -0.25px 0 #000) ` +
-    `drop-shadow(0.25px 0.25px 0 #000) drop-shadow(-0.25px 0.25px 0 #000) drop-shadow(0.25px -0.25px 0 #000) drop-shadow(-0.25px -0.25px 0 #000) ` +
+    `drop-shadow(0.5px 0 0 #000) drop-shadow(-0.5px 0 0 #000) drop-shadow(0 0.5px 0 #000) drop-shadow(0 -0.5px 0 #000) ` +
+    `drop-shadow(0.5px 0.5px 0 #000) drop-shadow(-0.5px 0.5px 0 #000) drop-shadow(0.5px -0.5px 0 #000) drop-shadow(-0.5px -0.5px 0 #000) ` +
     `drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
   let blobUrl = null;
   setTimeout(() => {
@@ -187,3 +187,55 @@ function _markSparks(cx, cy) {
     setTimeout(() => p.remove(), 600);
   }
 }
+
+// ─── 표식 파괴/해제 모션 ───────────────────────────────────────────────────────
+//   기존 표식 idle 레이어를 페이드아웃하며 정수리 위에 release GIF(1회) 재생.
+//   생성/idle 과 동일한 외곽선(0.5px 솔리드 8방향) + 글로우.
+//   animateMarkRelease(positions, opts): positions [{col,row}], opts: boardId, stagger
+const _MARK_OUTLINE = 'drop-shadow(0.5px 0 0 #000) drop-shadow(-0.5px 0 0 #000) drop-shadow(0 0.5px 0 #000) drop-shadow(0 -0.5px 0 #000)' +
+  ' drop-shadow(0.5px 0.5px 0 #000) drop-shadow(-0.5px 0.5px 0 #000) drop-shadow(0.5px -0.5px 0 #000) drop-shadow(-0.5px -0.5px 0 #000)';
+function animateMarkRelease(positions, opts) {
+  opts = opts || {};
+  const board = document.getElementById(opts.boardId || 'game-board');
+  if (!board) return;
+  const list = Array.isArray(positions) ? positions : [positions];
+  const stagger = (typeof opts.stagger === 'number') ? opts.stagger : 130;
+  list.forEach((pos, i) => {
+    if (!pos || pos.col == null || pos.row == null) return;
+    setTimeout(() => _markReleaseOne(board, pos.col, pos.row), i * stagger);
+  });
+}
+function _markReleaseOne(board, col, row) {
+  const cell = board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const M = window.MARK_GIFS || {};
+  const _T = window._MARK_TUNE || {};
+  const _size = _T.size || _MARK_SIZE;
+  const _markOffY = (_T.markOffY != null) ? _T.markOffY : 0;
+  const _oppMk = cell.querySelector('.piece-marker.opp-marked');
+  const _glow = _oppMk ? 'rgba(224,82,82,0.7)' : 'rgba(168,116,231,0.7)';
+  cell.classList.add('mark-brand-host');
+  // 기존 idle 표식 페이드아웃
+  cell.querySelectorAll('.mark-board-layer').forEach(el => {
+    el.style.transition = 'opacity .45s ease'; el.style.opacity = '0';
+  });
+  const cr = cell.getBoundingClientRect();
+  const pgif = cell.querySelector('.piece-marker img.p-gif')
+    || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
+  const pr = pgif ? pgif.getBoundingClientRect() : null;
+  const markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
+  const markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;
+  const url = M.release || '/art/mark/mark_release.gif';
+  _markOnceHoldBlob(url).then(bu => {
+    const rel = document.createElement('img');
+    rel.className = 'mark-release-anim'; rel.alt = '';
+    rel.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
+      `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:7;pointer-events:none;` +
+      `image-rendering:pixelated;object-fit:contain;filter:${_MARK_OUTLINE} drop-shadow(0 0 2px ${_glow});`;
+    rel.src = bu; cell.appendChild(rel);
+    _markGifTotalMs(url).then(dur => {
+      setTimeout(() => { try { if (rel.parentNode) rel.remove(); } catch (e) {} URL.revokeObjectURL(bu); }, (dur || 800) + 80);
+    });
+  }).catch(() => {});
+}
+window.animateMarkRelease = animateMarkRelease;
