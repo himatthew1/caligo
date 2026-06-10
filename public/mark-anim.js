@@ -70,6 +70,9 @@ function _markBrandOne(board, col, row, opts) {
   const _impactMs    = (_T.impactMs    != null) ? _T.impactMs    : Math.round(_ironDur * 0.5); // 임팩트=강하 중간(인두 착지쯤) → 스포일 방지
   const _summonDelay = (_T.summonDelay != null) ? _T.summonDelay : (_impactMs + 30); // 생성 GIF 시작(착지 뒤)
   const _summonDur   = (_T.summonDur   != null) ? _T.summonDur   : 1170; // 생성 GIF 총 길이
+  const _ironOffX    = (_T.ironOffX    != null) ? _T.ironOffX    : 0;   // 인두 X 위치 보정
+  const _ironOffY    = (_T.ironOffY    != null) ? _T.ironOffY    : 0;   // 인두 Y 위치 보정(+아래/−위)
+  const _markOffY    = (_T.markOffY    != null) ? _T.markOffY    : 0;   // 표식(생성/정수리) Y 보정
   const key = col + ',' + row;
   const _summonBlobP = _markOnceHoldBlob(M.summon);  // ★ 시작과 동시에 생성 GIF blob 준비 → impact 시점 즉시 표시(인두와 거의 동시)
   window._markSummoning.add(key);
@@ -85,7 +88,7 @@ function _markBrandOne(board, col, row, opts) {
     || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
   const pr = pgif ? pgif.getBoundingClientRect() : null;
   const markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
-  const markCy = pr ? (pr.top - cr.top - 9) : cr.height * 0.28;   // p-gif 위 ~9px = idle 레이어 중심과 일치
+  const markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;   // p-gif 위 ~9px(+표식 Y 보정)
   const fixX = cr.left + markCx, fixY = cr.top + markCy;          // 불꽃(position:fixed)용 뷰포트 좌표
 
   // ── 인두 PNG 낙하 (정수리 위 표식 위치) ──
@@ -95,7 +98,7 @@ function _markBrandOne(board, col, row, opts) {
   // ★ 인두는 '바닥 기준' — 인두 바닥이 표식(정수리) 바닥에 닿도록(머리 위로 들려 찍힘). mark-preview 와 동일.
   //   (이전엔 인두 중심을 표식 중심에 둬서 큰 인두가 유닛 위로 겹쳐 내려왔음)
   const _markBottomY = markCy + _size / 2;                 // 표식(정수리) 바닥 y
-  iron.style.cssText = `position:absolute;left:${markCx}px;top:${_markBottomY - _ironSz / 2}px;width:${_ironSz}px;height:${_ironSz}px;` +
+  iron.style.cssText = `position:absolute;left:${markCx + _ironOffX}px;top:${_markBottomY - _ironSz / 2 + _ironOffY}px;width:${_ironSz}px;height:${_ironSz}px;` +
     `margin-left:${-_ironSz / 2}px;margin-top:${-_ironSz / 2}px;z-index:30;pointer-events:none;` +
     `image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,0.75));`;
   cell.appendChild(iron);

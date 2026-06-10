@@ -3,88 +3,151 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CALIGO — 표식 최종 확인 (인게임 그대로)</title>
-<!-- ★ 실제 인게임 CSS + 모듈만 로드. 슬라이더·글로우 오버라이드 없음 = 인게임에서 보일 그대로. -->
+<title>CALIGO — 표식 최종 튜너 (인게임 코드 그대로)</title>
+<!-- ★ 실제 인게임 style.css + mark-anim.js 를 그대로 띄움. 여기서 조절한 값이 곧 인게임값. -->
 <link rel="stylesheet" href="style.css?v=20260609q">
 <style>
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
-    padding:16px;display:flex;flex-direction:column;gap:16px;overflow:hidden;align-items:center}
+    padding:8px 14px 0;display:flex;flex-direction:column;gap:8px;overflow:hidden;align-items:center}
   header{text-align:center;flex:0 0 auto}
-  header h1{font-size:18px;color:#e2b714;margin:0 0 4px}
-  header .sub{color:#a89fb8;font-size:11.5px;max-width:780px;margin:0 auto;line-height:1.5}
-  .ctrl{display:flex;gap:9px;justify-content:center;margin-top:10px;flex-wrap:wrap;align-items:center}
-  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:8px;padding:9px 15px;cursor:pointer;font-size:13px}
+  header h1{font-size:15.5px;color:#e2b714;margin:0 0 2px}
+  header .sub{color:#a89fb8;font-size:10.5px;max-width:840px;margin:0 auto;line-height:1.4}
+  .topbtns{display:flex;gap:7px;justify-content:center;margin-top:5px;flex-wrap:wrap;align-items:center}
+  main{flex:1 1 auto;display:flex;gap:20px;align-items:center;justify-content:center;min-height:0}
+  #game-board{display:flex;gap:56px;align-items:center;flex:0 0 auto}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:9px}
+  .stage .tt{font-size:13px;font-weight:800}.stage.me .tt{color:#a874e7}.stage.op .tt{color:#e05252}
+  #game-board .cell{width:var(--cs,88px);height:var(--cs,88px);background:#16131f;border:1px solid #ffffff12;border-radius:9px;position:relative;display:flex;align-items:center;justify-content:center}
+  .stage .lab{color:#8a809e;font-size:10px}
+  .panels{display:grid;grid-template-columns:repeat(3,minmax(168px,1fr));gap:8px;align-content:start;flex:1;max-width:640px;max-height:100%;overflow:auto}
+  .panel{background:#1c1830;border:1px solid #3a3450;border-radius:10px;padding:7px 9px}
+  .panel h2{font-size:10.5px;color:#e2b714;margin:0 0 4px;text-transform:uppercase;letter-spacing:.3px}
+  .row{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .row label{flex:0 0 64px;color:#a89fb8;font-size:10.5px}
+  .row input[type=range]{flex:1;accent-color:#a874e7;min-width:40px}
+  .row .val{flex:0 0 40px;text-align:right;font-size:10px;color:#cbb6ee;font-variant-numeric:tabular-nums}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:7px 11px;cursor:pointer;font-size:12px}
   button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:700}
   button:hover{border-color:#a874e7}
-  .ctrl label{color:#a89fb8;font-size:12px;display:flex;align-items:center;gap:6px}
-  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:6px 9px;font-size:12px}
-  input[type=range]{accent-color:#a874e7}
-  main{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
-  /* 두 셀을 #game-board 안에 — animateMarkBrand 가 .cell[data-col][data-row] 로 찾음 */
-  #game-board{display:flex;gap:70px;align-items:center}
-  .stage{display:flex;flex-direction:column;align-items:center;gap:12px}
-  .stage .tt{font-size:14px;font-weight:800}
-  .stage.me .tt{color:#a874e7}
-  .stage.op .tt{color:#e05252}
-  #game-board .cell{width:var(--cs,84px);height:var(--cs,84px);background:#16131f;border:1px solid #ffffff12;border-radius:9px;
-    position:relative;display:flex;align-items:center;justify-content:center}
-  .stage .lab{color:#8a809e;font-size:10.5px}
+  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:6px;padding:4px 7px;font-size:11px}
+  .codebox{background:#0a0d12;border:1px solid #3a3450;border-radius:7px;padding:7px;font-family:Consolas,monospace;font-size:9.5px;color:#a8d4ff;white-space:pre-wrap}
 </style>
 </head>
 <body>
 <header>
-  <h1>🎯 표식 최종 확인 — 인게임 그대로</h1>
-  <div class="sub">실제 <b>style.css + mark-anim.js</b> 만 로드(튜닝 슬라이더·오버라이드 없음). 이게 <b>인게임에서 보일 그대로</b>입니다. 왼쪽=<b style="color:#a874e7">내 유닛(보라)</b> / 오른쪽=<b style="color:#e05252">적 유닛(붉은빛)</b>. “표식 생성”으로 둘 다 재생해 비교하세요.</div>
-  <div class="ctrl">
+  <h1>🎯 표식 최종 튜너 — 인게임 코드 그대로</h1>
+  <div class="sub">실제 <b>mark-anim.js + style.css</b> 위에서 조절합니다(= 인게임 그대로). 인두 위치·표식 크기/위치·글로우·타이밍을 맞춘 뒤 <b>“값 복사”</b>를 주시면 그대로 인게임 기본값에 박습니다. 왼쪽=<b style="color:#a874e7">내 유닛(보라)</b> / 오른쪽=<b style="color:#e05252">적 유닛(붉은빛)</b>.</div>
+  <div class="topbtns">
     <button class="primary" data-act="summon">🎯 표식 생성 (둘 다)</button>
-    <button data-act="idle">아이들로</button>
-    <label>유닛 <select id="unitPick">
-      <option value="general">장군</option><option value="witch">마녀</option>
-      <option value="prince">왕자</option><option value="knight">기사</option><option value="torturer">고문기술자</option>
-    </select></label>
-    <label>셀 크기 <input type="range" id="cs" min="56" max="140" step="2" value="84"></label>
+    <button data-act="idle">아이들</button>
+    <label style="color:#a89fb8;font-size:11px">유닛 <select id="unitPick"><option value="general">장군</option><option value="witch">마녀</option><option value="prince">왕자</option><option value="knight">기사</option><option value="torturer">고문기술자</option></select></label>
   </div>
 </header>
 
 <main>
   <div id="game-board"></div>
+  <div class="panels">
+    <div class="panel">
+      <h2>표식</h2>
+      <div class="row"><label>크기</label><input type="range" id="size" min="18" max="52" step="1" value="35"><span class="val" id="sizeV"></span></div>
+      <div class="row"><label>Y 위치</label><input type="range" id="markOffY" min="-14" max="14" step="1" value="0"><span class="val" id="markOffYV"></span></div>
+      <div class="row"><label>셀 크기</label><input type="range" id="cs" min="56" max="140" step="2" value="88"><span class="val" id="csV"></span></div>
+    </div>
+    <div class="panel">
+      <h2>인두</h2>
+      <div class="row"><label>배율</label><input type="range" id="ironScale" min="1" max="2.2" step="0.05" value="1.45"><span class="val" id="ironScaleV"></span></div>
+      <div class="row"><label>속도ms</label><input type="range" id="ironDur" min="350" max="1600" step="10" value="950"><span class="val" id="ironDurV"></span></div>
+      <div class="row"><label>높이</label><input type="range" id="ironH" min="10" max="50" step="1" value="22"><span class="val" id="ironHV"></span></div>
+      <div class="row"><label>X 위치</label><input type="range" id="ironOffX" min="-24" max="24" step="1" value="0"><span class="val" id="ironOffXV"></span></div>
+      <div class="row"><label>Y 위치</label><input type="range" id="ironOffY" min="-34" max="24" step="1" value="0"><span class="val" id="ironOffYV"></span></div>
+    </div>
+    <div class="panel">
+      <h2>타이밍</h2>
+      <div class="row"><label>임팩트</label><input type="range" id="impactMs" min="150" max="1100" step="10" value="475"><span class="val" id="impactMsV"></span></div>
+      <div class="row"><label>생성시작</label><input type="range" id="summonDelay" min="0" max="1400" step="10" value="505"><span class="val" id="summonDelayV"></span></div>
+      <div class="row"><label>bob속도</label><input type="range" id="bobdur" min="1" max="5" step="0.1" value="2.4"><span class="val" id="bobdurV"></span></div>
+    </div>
+    <div class="panel">
+      <h2>글로우</h2>
+      <div class="row"><label>캐릭α</label><input type="range" id="cgA" min="0" max="1" step="0.05" value="0.6"><span class="val" id="cgAV"></span></div>
+      <div class="row"><label>캐릭블러</label><input type="range" id="cgB" min="0" max="12" step="0.5" value="2"><span class="val" id="cgBV"></span></div>
+      <div class="row"><label>표식α</label><input type="range" id="mgA" min="0" max="1" step="0.05" value="0.75"><span class="val" id="mgAV"></span></div>
+      <div class="row"><label>표식블러</label><input type="range" id="mgB" min="0" max="10" step="0.5" value="3"><span class="val" id="mgBV"></span></div>
+    </div>
+    <div class="panel" style="grid-column:span 2;display:flex;flex-direction:column">
+      <h2>적용 값 (복사해서 주세요)</h2>
+      <div style="display:flex;gap:6px;margin-bottom:5px"><button data-act="copy">값 복사</button><button data-act="reset">기본값</button></div>
+      <div class="codebox" id="out"></div>
+    </div>
+  </div>
 </main>
 
-<!-- ★ 실제 인게임 모듈 그대로 (window._MARK_TUNE 미설정 → mark-anim.js 인게임 기본값 사용) -->
 <script src="piece-gifs.js?v=20260609q"></script>
 <script src="mark-anim.js?v=20260609q"></script>
 <script>
+const num=id=>parseFloat(document.getElementById(id).value);
+const setV=(id,t)=>{const e=document.getElementById(id+'V');if(e)e.textContent=t;};
 let curType='general';
-function pgif(t){ var u=(window.PIECE_GIFS&&window.PIECE_GIFS[t])||('/art/'+t+'_idle.gif'); return '<img class="p-gif" src="'+u+'" alt="">'; }
-function markLayer(){ var u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif'; return '<img class="mark-board-layer" src="'+u+'" alt="">'; }
-// 셀 (0,0)=내 유닛 / (1,0)=적 유닛(opp-marked). 각 셀은 .stage 래퍼 안(라벨용)이지만 #game-board 자손이라 anim 이 찾음.
-window.renderGameBoard = function(){
+function pgif(t){var u=(window.PIECE_GIFS&&window.PIECE_GIFS[t])||('/art/'+t+'_idle.gif');return '<img class="p-gif" src="'+u+'" alt="">';}
+function markLayer(){var u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';return '<img class="mark-board-layer" src="'+u+'" alt="">';}
+window.renderGameBoard=function(){
   var b=document.getElementById('game-board'); if(!b) return; b.innerHTML='';
-  [
-    { col:0, side:'me', tt:'🎯 내 유닛 표식', lab:'보라 글로우', opp:'' },
-    { col:1, side:'op', tt:'🎯 적 유닛 표식', lab:'붉은빛 글로우', opp:' opp-marked' }
-  ].forEach(function(d){
-    var stage=document.createElement('div'); stage.className='stage '+d.side;
+  [ {col:0,side:'me',tt:'🎯 내 유닛 표식',lab:'보라',opp:''}, {col:1,side:'op',tt:'🎯 적 유닛 표식',lab:'붉은빛',opp:' opp-marked'} ].forEach(function(d){
+    var st=document.createElement('div'); st.className='stage '+d.side;
     var cell=document.createElement('div'); cell.className='cell has-piece has-mark'; cell.dataset.col=d.col; cell.dataset.row=0;
     cell.innerHTML='<div class="piece-marker'+d.opp+'"><span class="p-icon">'+pgif(curType)+'</span><span class="p-hp">3/3</span></div>';
-    if(!(window._markSummoningActive && window._markSummoningActive(d.col,0))){
-      cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend', markLayer());
-    }
-    stage.innerHTML='<div class="tt">'+d.tt+'</div>';
-    stage.appendChild(cell);
-    var lab=document.createElement('div'); lab.className='lab'; lab.textContent=d.lab; stage.appendChild(lab);
-    b.appendChild(stage);
+    if(!(window._markSummoningActive && window._markSummoningActive(d.col,0))) cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend', markLayer());
+    st.innerHTML='<div class="tt">'+d.tt+'</div>'; st.appendChild(cell);
+    var l=document.createElement('div'); l.className='lab'; l.textContent=d.lab; st.appendChild(l);
+    b.appendChild(st);
   });
 };
-document.querySelectorAll('[data-act]').forEach(function(btn){ btn.addEventListener('click',function(){
-  var a=btn.dataset.act;
+// 인게임 mark-anim 이 읽는 _MARK_TUNE (JS 파라미터)
+function syncTune(){
+  window._MARK_TUNE={ size:num('size'), ironScale:num('ironScale'), ironDur:num('ironDur'), ironH:num('ironH'),
+    impactMs:num('impactMs'), summonDelay:num('summonDelay'), ironOffX:num('ironOffX'), ironOffY:num('ironOffY'), markOffY:num('markOffY') };
+}
+// CSS(표식 레이어 크기/위치/글로우, 캐릭터 글로우, bob) 라이브 오버라이드 — #game-board 스코프, 적/아군 분리
+const ov=document.createElement('style'); document.head.appendChild(ov);
+const OUT='drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))';
+function applyAll(){
+  document.documentElement.style.setProperty('--cs', num('cs')+'px');
+  syncTune();
+  var size=num('size'), my=num('markOffY'), bob=num('bobdur'), cgA=num('cgA'), cgB=num('cgB'), mgA=num('mgA'), mgB=num('mgB');
+  var ty=11+my, ty2=9+my;
+  var charP=OUT+' drop-shadow(0 0 '+cgB+'px rgba(168,116,231,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(168,116,231,'+cgA+'))';
+  var charR=OUT+' drop-shadow(0 0 '+cgB+'px rgba(224,82,82,'+cgA+')) drop-shadow(0 0 '+(cgB+1)+'px rgba(224,82,82,'+cgA+'))';
+  var mkP='drop-shadow(0 0 1px #000) drop-shadow(0 0 '+mgB+'px rgba(168,116,231,'+mgA+'))';
+  var mkR='drop-shadow(0 0 1px #000) drop-shadow(0 0 '+mgB+'px rgba(224,82,82,'+mgA+'))';
+  ov.textContent=
+   '#game-board .mark-board-layer{width:'+size+'px;height:'+size+'px;animation-duration:'+bob+'s;transform:translate(-50%,'+ty+'px);}\n'+
+   '@keyframes markBoardBob{0%,100%{transform:translate(-50%,'+ty+'px);}50%{transform:translate(-50%,'+ty2+'px);}}\n'+
+   '#game-board .cell.has-mark .piece-marker:not(.opp-marked) img.p-gif{filter:'+charP+';}\n'+
+   '#game-board .cell.has-mark .piece-marker.opp-marked img.p-gif{filter:'+charR+';}\n'+
+   '#game-board .cell.has-mark .piece-marker:not(.opp-marked) .mark-board-layer{filter:'+mkP+';}\n'+
+   '#game-board .cell.has-mark .piece-marker.opp-marked .mark-board-layer{filter:'+mkR+';}';
+  ['size','markOffY','cs','ironDur','ironH','ironOffX','ironOffY','impactMs','summonDelay','cgB','mgB'].forEach(id=>setV(id,num(id)));
+  setV('ironScale',num('ironScale').toFixed(2)); setV('bobdur',num('bobdur').toFixed(1));
+  ['cgA','mgA'].forEach(id=>setV(id,num(id).toFixed(2)));
+  document.getElementById('out').textContent=
+'mark-anim.js  _MARK_SIZE='+size+'  ironScale='+num('ironScale').toFixed(2)+'  ironDur='+num('ironDur')+'  ironH='+num('ironH')+
+'\n              impactMs='+num('impactMs')+'  summonDelay='+num('summonDelay')+'  ironOffX='+num('ironOffX')+'  ironOffY='+num('ironOffY')+'  markOffY='+my+
+'\nstyle.css     .mark-board-layer  '+size+'px · translate(-50%,'+ty+'px) · bob '+bob+'s'+
+'\n  char(보라/적빨강): '+charP+
+'\n  mark(보라/적빨강): '+mkP;
+}
+['size','markOffY','cs','ironScale','ironDur','ironH','ironOffX','ironOffY','impactMs','summonDelay','bobdur','cgA','cgB','mgA','mgB'].forEach(id=>document.getElementById(id).addEventListener('input',applyAll));
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',function(){
+  var a=b.dataset.act;
   if(a==='idle'){ renderGameBoard(); }
-  else if(a==='summon'){ renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0},{col:1,row:0}]); }
-});});
-document.getElementById('unitPick').addEventListener('change',function(e){ curType=e.target.value; renderGameBoard(); });
-document.getElementById('cs').addEventListener('input',function(e){ document.documentElement.style.setProperty('--cs', e.target.value+'px'); });
-function init(){ if(window.MARK_GIFS && window.PIECE_GIFS){ document.documentElement.style.setProperty('--cs','84px'); renderGameBoard(); } else setTimeout(init,80); }
+  else if(a==='summon'){ syncTune(); renderGameBoard(); if(window.animateMarkBrand) animateMarkBrand([{col:0,row:0},{col:1,row:0}]); }
+  else if(a==='copy'){ navigator.clipboard.writeText(document.getElementById('out').textContent); b.textContent='복사됨!'; setTimeout(function(){b.textContent='값 복사';},1100); }
+  else if(a==='reset'){ var d={size:35,markOffY:0,cs:88,ironScale:1.45,ironDur:950,ironH:22,ironOffX:0,ironOffY:0,impactMs:475,summonDelay:505,bobdur:2.4,cgA:0.6,cgB:2,mgA:0.75,mgB:3};
+    Object.keys(d).forEach(function(k){var e=document.getElementById(k);if(e)e.value=d[k];}); applyAll(); renderGameBoard(); }
+}));
+document.getElementById('unitPick').addEventListener('change',function(e){curType=e.target.value; renderGameBoard();});
+function init(){ if(window.MARK_GIFS&&window.PIECE_GIFS){ applyAll(); renderGameBoard(); } else setTimeout(init,80); }
 init();
 </script>
 </body>
