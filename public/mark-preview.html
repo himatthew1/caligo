@@ -33,12 +33,12 @@
   .cell .iron-ghost{position:absolute;z-index:5;left:50%;bottom:calc(6px + var(--unit));width:calc(var(--msize) * 1.35);height:calc(var(--msize) * 1.35);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;opacity:0;transform:translate(calc(-50% + var(--iron-offx)),var(--iron-offy))}
   .cell .iron-ghost.show{opacity:var(--ghost-op,0.3)}
-  /* 저주 견본 망령(인게임 .curse-board-layer 재현: 보라 글로우 #a371f7 + bob) */
-  .cell .curseov{position:absolute;z-index:2;left:50%;bottom:6px;width:calc(var(--unit) * 1.16);height:calc(var(--unit) * 1.16);
+  /* 저주 견본 망령 — 인게임 .curse-board-layer 재현: 유닛 뒤(z-index 1) + 정수리 좌상단으로 살짝 빠짐(붙지 않음) + 보라 글로우 #a371f7 + bob */
+  .cell .curseov{position:absolute;z-index:1;left:50%;bottom:calc(6px + var(--unit) * 0.42);width:calc(var(--unit) * 1.16);height:calc(var(--unit) * 1.16);
     image-rendering:pixelated;object-fit:contain;pointer-events:none;
-    transform:translate(-50%,0) translate(0,-8%);
+    transform:translate(-50%,0) translate(-30%,0);
     filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px #a371f7)}
-  .cell .curseov.bobc{animation:curseBobP var(--bobdur,2.6s) ease-in-out infinite}
+  .cell .curseov.bobc{animation:curseBobP 2.6s ease-in-out infinite}
   @keyframes curseBobP{0%,100%{margin-bottom:0}50%{margin-bottom:3px}}
   .cursecell .unit{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 4px rgba(163,113,247,.5)) !important}
   @keyframes ironDrop{
