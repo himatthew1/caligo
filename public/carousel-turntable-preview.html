@@ -69,6 +69,10 @@
   .row .val{flex:0 0 34px;text-align:right;font-size:10px;color:#cbb6ee}
   .note{color:#8a8298;font-size:10px;margin-top:6px;line-height:1.5}
   .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
+  /* 유닛은 저주(z:0) 위 · 표식(z:5) 아래 사이에 오도록 */
+  .tt-unit .real,.tt-unit .silh{position:relative;z-index:1}
+  /* 일반 비교 셀 — inline 베이스라인 갭 제거해 이미지 정중앙(턴테이블 앞면과 같은 선상) */
+  #board .cell .p-icon{line-height:0;display:flex;align-items:center;justify-content:center}
 </style>
 </head>
 <body>
@@ -146,6 +150,8 @@ function cellPx(){ return team?44:56; }
 function pfPx(){ return team?30:38; }
 function remPx(){ return team?60:74; }   // ★ 인게임 .remains-marker / .death-gif 사이즈(1v1 74 / 2v2 60)
 const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
+const MARK_IDLE=()=>(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
+const CURSE_IDLE=()=>(window.CURSE_GIFS&&window.CURSE_GIFS.idle)||'/art/curse/curse_idle.gif';
 
 /* 대표 = (유닛 우선) 고티어 → 저체력 → 상태이상多, 유해 후순위 */
 function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
@@ -176,12 +182,17 @@ function buildUnits(){
     const sz=u.isRemains?remPx():pf;          // ★ 유해는 인게임과 동일한 풀사이즈(74/60)
     el.style.width=sz+'px';
     const sprite=u.isRemains?REM():IDLE(u.type);
-    const badge=u.isRemains?'':((u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':''));
+    // ★ 표식/저주 = 텍스트가 아니라 실제 상태 GIF 레이어 (저주=망령 z:0 뒤 / 표식=정수리 인두 z:5)
+    let status='';
+    if(!u.isRemains && u.status){
+      if(u.status.includes('curse')) status+=`<img class="curse-board-layer ttstatus" src="${CURSE_IDLE()}" alt="">`;
+      if(u.status.includes('mark'))  status+=`<img class="mark-board-layer ttstatus" src="${MARK_IDLE()}" alt="">`;
+    }
     el.innerHTML=
       `<div class="pwrap" style="width:${sz}px;height:${sz}px">`+
         `<img class="real" src="${sprite}" style="width:${sz}px;height:${sz}px">`+
         `<div class="silh" style="width:${sz}px;height:${sz}px;-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`+
-        badge+
+        status+
       `</div>`;
     el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
     layer.appendChild(el);
@@ -199,7 +210,9 @@ function frontIndex(){ let best=0,bd=-2; const N=units.length;
 
 function layout(){
   const N=units.length, T=tuning(), cs=cellPx(), front=frontIndex();
-  const CX=cs/2, CY=cs*0.5, RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const RX=cs*T.spread, RY=cs*T.spread*0.42;
+  // ★ 레이어가 content box(테두리 1px 안)이므로 중심은 (cs-2)/2. 앞면(+RY)이 셀 중앙에 오도록 CY=중심-RY.
+  const cc=(cs-2)/2, CX=cc, CY=cc - RY;
   const layer=document.getElementById('ttlayer');
   if(layer){ // 그라데이션 하단 어둡기 변수 (보라 → 어둡게)
     const dd=T.botDark; const bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
@@ -214,7 +227,8 @@ function layout(){
     el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
     el.style.zIndex=Math.round((d+1)*100);
     const real=el.querySelector('.real'), silh=el.querySelector('.silh');
-    if(i===front){ // 대표 = 실제 스프라이트
+    const isF=(i===front);
+    if(isF){ // 대표 = 실제 스프라이트
       el.style.opacity='1'; if(real)real.style.opacity='1'; if(silh)silh.style.opacity='0';
       el.classList.add('isfront');
     } else {        // 뒤 = 보라 단색 실루엣(아래 어둡기 그라데이션)
@@ -222,6 +236,8 @@ function layout(){
       if(real)real.style.opacity='0'; if(silh)silh.style.opacity='1';
       el.classList.remove('isfront');
     }
+    // 상태 GIF(표식/저주)는 앞면 풀컬러일 때만 — 뒤 실루엣엔 숨김
+    el.querySelectorAll('.ttstatus').forEach(s=>{ s.style.display=isF?'':'none'; });
   });
   const rep=units[front];
   document.getElementById('scaleinfo').textContent =
@@ -289,14 +305,15 @@ async function playDeath(){
 
 /* ───── 컨트롤 ───── */
 function applyZoom(){ const z=+v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
-function loadScn(id){ units=SCN[id](); rot=0; busy=false; buildBoard(); rotateTo(repIndex(),1);
+function snapToRep(){ rot=((-(repIndex()*360/units.length))%360+360)%360; layout(); }
+function loadScn(id){ units=SCN[id](); busy=false; buildBoard(); snapToRep();
   document.getElementById('seqlog').innerHTML='◀▶ 회전, 뒤 실루엣 클릭으로 앞면 전환, “대표 피격”으로 시퀀스 확인.'; }
 ['silOp','botDark','spread','depth'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
   const upd=()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); layout(); }; e.addEventListener('input',upd); });
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team',team); buildBoard(); rotateTo(repIndex(),1); }));
+  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team',team); buildBoard(); snapToRep(); }));
 document.getElementById('rotL').addEventListener('click',()=>nav(-1));
 document.getElementById('rotR').addEventListener('click',()=>nav(1));
 document.getElementById('btnAttack').addEventListener('click',playAttack);
