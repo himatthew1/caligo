@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 캐러셀 개선안: 회전 테이블(실루엣)</title>
+<link rel="stylesheet" href="style.css?v=20260609y">
+<style>
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:10px 14px 0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+  header.hdr{text-align:center;flex:0 0 auto}
+  header.hdr h1{font-size:16px;color:#e2b714;margin:0 0 4px}
+  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:860px;line-height:1.5}
+  header.hdr .sub b{color:#cbb6ee}
+  main.layout{flex:1 1 auto;display:flex;gap:16px;align-items:stretch;justify-content:center;min-height:0}
+  .stage{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px;
+    background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:14px 18px}
+  .stage h3{margin:0;font-size:12px;color:#5eead4;letter-spacing:.3px}
+  /* ─ 회전 테이블 무대 ─ */
+  #table{position:relative;width:380px;height:300px;flex:0 0 auto}
+  .tt-disc{position:absolute;left:50%;top:198px;width:288px;height:104px;transform:translate(-50%,-50%);
+    border-radius:50%;background:radial-gradient(ellipse at 50% 42%,#2c2542 0%,#1b1728 62%,rgba(20,18,34,0) 100%);
+    border:1px solid #ffffff12;box-shadow:0 10px 26px #000a, inset 0 2px 10px #ffffff0a;}
+  .tt-ring{position:absolute;left:50%;top:198px;width:250px;height:84px;transform:translate(-50%,-50%);
+    border-radius:50%;border:1px dashed #ffffff14;}
+  .tt-unit{position:absolute;width:64px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+    will-change:transform,left,top;transition:opacity .3s ease, filter .3s ease;}
+  .tt-unit .pwrap{position:relative;width:56px;height:56px;display:flex;align-items:flex-end;justify-content:center}
+  .tt-unit img.p-gif{width:56px;height:56px;image-rendering:pixelated;object-fit:contain;
+    filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);}
+  .tt-unit img.cc-remains{width:48px;height:48px;image-rendering:pixelated;object-fit:contain}
+  .tt-unit .hp{font-size:11px;font-weight:800;margin-top:3px;text-shadow:0 1px 2px #000,0 0 3px #000}
+  .tt-unit .badge{position:absolute;top:-6px;right:-4px;font-size:9px;font-weight:800;padding:1px 5px;border-radius:7px;line-height:1.3}
+  .tt-unit .badge.mark{background:#3a2f12;color:#ffd479;border:1px solid #6b5413}
+  .tt-unit .badge.curse{background:#2a1d44;color:#c9a9ff;border:1px solid #5a3aa0}
+  /* 앞면(대표) 강조 — 발밑 스포트라이트 + 라벨 */
+  .tt-spot{position:absolute;left:50%;top:236px;width:96px;height:30px;transform:translate(-50%,-50%);
+    border-radius:50%;background:radial-gradient(ellipse,#a874e766 0%,#a874e71a 55%,transparent 75%);pointer-events:none;
+    transition:opacity .3s}
+  .tt-reptag{position:absolute;left:50%;top:262px;transform:translateX(-50%);font-size:10px;color:#cbb6ee;
+    background:#241b3a;border:1px solid #5a3aa0;border-radius:8px;padding:2px 9px;white-space:nowrap}
+  .lbl{font-size:10.5px;color:#8a8298;text-align:center;line-height:1.5}
+  .seqlog{width:380px;min-height:40px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;
+    padding:7px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
+  .seqlog b{color:#ffd479}
+  /* ─ 컨트롤 ─ */
+  .controls{display:flex;flex-direction:column;gap:9px;flex:0 0 auto;width:262px}
+  .panel{background:#221d30;border:1px solid #453c5c;border-radius:10px;padding:10px 12px}
+  .panel h2{font-size:11px;color:#e2b714;margin:0 0 7px;text-transform:uppercase;letter-spacing:.3px}
+  .btns{display:flex;flex-direction:column;gap:6px}
+  .seg{display:flex;gap:6px}.seg button{flex:1;text-align:center}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:7px 9px;cursor:pointer;font-size:11.5px}
+  button:hover{border-color:#a874e7}
+  button.on{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:700}
+  button.atk{background:linear-gradient(135deg,#b91c1c,#dc2626);border-color:transparent;font-weight:700;width:100%}
+  .row{display:flex;align-items:center;gap:8px;margin:4px 0}
+  .row label{flex:0 0 70px;color:#a89fb8;font-size:10.5px}
+  .row input[type=range]{flex:1;accent-color:#a874e7}
+  .row .val{flex:0 0 34px;text-align:right;font-size:10px;color:#cbb6ee}
+  .note{color:#8a8298;font-size:10px;margin-top:6px;line-height:1.5}
+  .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <h1>🎠 캐러셀 개선안 — 회전 테이블(실루엣) <span style="font-size:11px;color:#8a8298">※ 검토용, 인게임 미적용</span></h1>
+  <div class="sub">한 칸에 겹친 유닛/유해를 <b>실제 회전 테이블</b>처럼 배치 — <b>대표(앞면)는 풀컬러로 또렷</b>, 나머지는 <b>뒤쪽에 실루엣</b>으로 둘러섭니다. 페이지가 휙휙 넘어가던 기존 방식과 달리, 피격 시 대표만 앞에서 반응해 <b>어지럽지 않게</b> 합니다.</div>
+</header>
+
+<main class="layout">
+  <div class="stage">
+    <h3>회전 테이블</h3>
+    <div id="table">
+      <div class="tt-disc"></div>
+      <div class="tt-ring"></div>
+      <div class="tt-spot" id="spot"></div>
+      <div class="tt-reptag" id="reptag">대표</div>
+    </div>
+    <div class="seqlog" id="seqlog">시나리오를 고르고 ◀▶ 로 회전, 또는 “대표 피격”을 눌러보세요.</div>
+  </div>
+
+  <aside class="controls">
+    <div class="panel">
+      <h2>시나리오 (겹친 구성)</h2>
+      <div class="btns">
+        <button class="scn on" data-scn="s1">① 내 장군 + 표식 마녀(적) + 유해</button>
+        <button class="scn" data-scn="s2">② 표식 적 3 (고티어 대표)</button>
+        <button class="scn" data-scn="s3">③ 혼잡 — 적 2 + 유해 2 (5)</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>회전</h2>
+      <div class="seg">
+        <button id="rotL">◀ 이전</button>
+        <button id="rotR">다음 ▶</button>
+      </div>
+      <div class="note">뒤 실루엣을 클릭해도 앞으로 돌아옵니다.</div>
+    </div>
+    <div class="panel">
+      <h2>⚔ 대표 피격</h2>
+      <button class="atk" id="btnAttack">공격 → 대표 앞면 회전 + 피격 + 도장</button>
+      <div class="note">대표 = 고티어→저체력→상태이상多. 대표만 앞에서 피격모션 + 데미지, 실루엣은 가만히.</div>
+    </div>
+    <div class="panel">
+      <h2>실루엣 튜닝</h2>
+      <div class="row"><label>뒤 어둡기</label><input type="range" id="silDark" min="0" max="1" step="0.05" value="0.85"><span class="val" id="silDarkV"></span></div>
+      <div class="row"><label>뒤 투명</label><input type="range" id="silOp" min="0.15" max="0.9" step="0.05" value="0.5"><span class="val" id="silOpV"></span></div>
+      <div class="row"><label>뒤 블러</label><input type="range" id="silBlur" min="0" max="2" step="0.25" value="0.75"><span class="val" id="silBlurV"></span></div>
+      <div class="row"><label>원근 깊이</label><input type="range" id="depth" min="0.3" max="1" step="0.05" value="0.55"><span class="val" id="depthV"></span></div>
+    </div>
+  </aside>
+</main>
+
+<script src="piece-gifs.js?v=20260608u"></script>
+<script>
+/* ───── 데이터 ───── */
+function U(type,owner,tier,hp,maxHp,status){ return {type,owner,tier,hp,maxHp,status:status||[],isRemains:false}; }
+function R(type){ return {type,owner:'remains',isRemains:true,hits:1}; }
+const SCN={
+  s1:()=>[ U('general','mine',2,3,3), U('witch','opp',2,2,2,['mark']), R('spearman') ],
+  s2:()=>[ U('general','mine',2,3,3), U('torturer','opp',3,2,2,['mark']), U('witch','opp',2,2,2,['mark']), U('spearman','opp',1,2,2,['mark']) ],
+  s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R('spearman'), R('archer') ],
+};
+let units=[], rot=0, busy=false;
+const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),
+      ATK=t=>(window.PIECE_ATTACK_GIFS&&window.PIECE_ATTACK_GIFS[t]), REM=()=>window.REMAINS_IMG||'/art/remains.png';
+
+/* 대표 선정: (유닛 우선) 고티어 → 저체력 → 상태이상多. 유해는 후순위. */
+function repIndex(){
+  let best=-1,bk=null;
+  units.forEach((u,i)=>{
+    const grp=u.isRemains?1:0;
+    const k=[grp, -(u.tier||0), (u.hp!=null?u.hp:99), -((u.status||[]).length)];
+    if(bk===null||cmp(k,bk)<0){bk=k;best=i;}
+  });
+  return best;
+}
+function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
+
+/* ───── 무대 기하 ───── */
+const CX=190, CY=150, RX=118;
+function RY(){ return 46; }                         // 수직 원근 반경
+function tuning(){ return {
+  dark:+document.getElementById('silDark').value, op:+document.getElementById('silOp').value,
+  blur:+document.getElementById('silBlur').value, depthMin:+document.getElementById('depth').value }; }
+
+function buildTable(){
+  const t=document.getElementById('table');
+  t.querySelectorAll('.tt-unit').forEach(e=>e.remove());
+  units.forEach((u,i)=>{
+    const el=document.createElement('div'); el.className='tt-unit'; el.dataset.i=i;
+    let inner='';
+    if(u.isRemains){ inner=`<div class="pwrap"><img class="cc-remains" src="${REM()}" alt=""></div><span class="hp"></span>`; }
+    else {
+      const g=IDLE(u.type);
+      const badge=(u.status||[]).includes('curse')?'<span class="badge curse">저주</span>':((u.status||[]).includes('mark')?'<span class="badge mark">표식</span>':'');
+      const col=u.owner==='opp'?'#f87171':'#86efac';
+      inner=`<div class="pwrap">${g?`<img class="p-gif" src="${g}" alt="">`:'❔'}${badge}</div><span class="hp" style="color:${col}">${u.hp}/${u.maxHp}</span>`;
+    }
+    el.innerHTML=inner;
+    el.addEventListener('click',()=>{ if(!busy) rotateTo(i); });
+    t.appendChild(el);
+  });
+  layout();
+}
+
+function frontIndex(){ // 현재 가장 앞(깊이 최대)인 슬롯
+  let best=0,bd=-2; const N=units.length;
+  for(let i=0;i<N;i++){ const a=(i*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>bd){bd=d;best=i;} }
+  return best;
+}
+function layout(){
+  const N=units.length, T=tuning(), ry=RY(), front=frontIndex();
+  units.forEach((u,i)=>{
+    const el=document.querySelector(`.tt-unit[data-i="${i}"]`); if(!el)return;
+    const a=(i*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);   // d: +1 앞 .. -1 뒤
+    const x=CX+RX*s, y=CY+ry*d;
+    const back=(1-(d+1)/2);                                            // 0 앞 .. 1 뒤
+    const scale=T.depthMin+(1-T.depthMin)*((d+1)/2);
+    el.style.left=x+'px'; el.style.top=y+'px';
+    el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
+    el.style.zIndex=Math.round((d+1)*100);
+    const img=el.querySelector('img'), hp=el.querySelector('.hp');
+    if(i===front){ // 대표(앞면) — 풀컬러
+      el.style.opacity='1'; if(img)img.style.filter=''; if(hp)hp.style.visibility='visible';
+      el.classList.add('isfront');
+    } else {       // 실루엣
+      el.style.opacity=(T.op*(1-back*0.4)).toFixed(2);
+      if(img)img.style.filter=`brightness(${(1-T.dark).toFixed(2)}) blur(${(T.blur*(0.5+back*0.5)).toFixed(2)}px) drop-shadow(0 0 1px #000)`;
+      if(hp)hp.style.visibility='hidden';
+      el.classList.remove('isfront');
+    }
+  });
+  // 스포트라이트/대표 라벨
+  const rep=units[front];
+  const tag=document.getElementById('reptag');
+  tag.textContent = rep.isRemains?'유해(대표)':`대표 · ${rep.type}`+(rep.tier?` T${rep.tier}`:'');
+}
+
+/* ───── 회전 애니메이션(아크 모션) ───── */
+function rotateBy(delta,dur,cb){
+  const start=rot, t0=performance.now(); dur=dur||450;
+  function step(now){ const k=Math.min(1,(now-t0)/dur); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    rot=start+delta*e; layout();
+    if(k<1) requestAnimationFrame(step); else { rot=((start+delta)%360+360)%360; layout(); cb&&cb(); } }
+  requestAnimationFrame(step);
+}
+function rotateTo(idx,dur,cb){
+  const N=units.length, target=-(idx*360/N);
+  let delta=((target-rot)%360+540)%360-180;          // [-180,180] 최단
+  if(Math.abs(delta)<0.5){ cb&&cb(); return; }
+  rotateBy(delta,dur,cb);
+}
+function nav(dir){ if(busy)return; const N=units.length; busy=true; rotateBy(dir*360/N,420,()=>busy=false); }
+
+/* ───── 대표 피격 시퀀스 ───── */
+function dmgStamp(text,kind){
+  const front=frontIndex(); const el=document.querySelector(`.tt-unit[data-i="${front}"]`); if(!el)return;
+  const r=el.getBoundingClientRect();
+  const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
+  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top-2)+'px'; document.body.appendChild(s);
+  setTimeout(()=>s.remove(),1000);
+}
+function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function setFrontGif(url,scale){ const front=frontIndex(); const im=document.querySelector(`.tt-unit[data-i="${front}"] img.p-gif`);
+  if(im&&url){ im.src=url; im.dataset.base=im.dataset.base||''; } }
+async function playAttack(){
+  if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const victims=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp');
+  if(!victims.length){ log.innerHTML='표식 적이 없습니다. 시나리오 ②③ 으로.'; busy=false; return; }
+  // 대표 피격자 = 고티어→저체력→상태이상多
+  const rep=victims.slice().sort((a,b)=>{
+    if((b.u.tier||0)!==(a.u.tier||0))return (b.u.tier||0)-(a.u.tier||0);
+    if((a.u.hp||0)!==(b.u.hp||0))return (a.u.hp||0)-(b.u.hp||0);
+    return ((b.u.status||[]).length)-((a.u.status||[]).length);
+  })[0];
+  const why=victims.length===1?'단일':`${victims.length}명 중 고티어(T${rep.u.tier})`+
+    (victims.filter(v=>v.u.tier===rep.u.tier).length>1?` → 저체력(${rep.u.hp})`:'');
+  log.innerHTML=`① 대표 피격자 <b>${rep.u.type}</b> 앞면으로 회전 <span style="color:#8a8298">(${why})</span>`;
+  await new Promise(res=>rotateTo(rep.i,460,res)); await wait(80);
+  // ② 앞면 피격 모션 + 흔들림 + 도장 (실루엣은 그대로)
+  const front=frontIndex(); const el=document.querySelector(`.tt-unit[data-i="${front}"]`);
+  const im=el&&el.querySelector('img.p-gif'); const base=im&&im.src;
+  log.innerHTML=`① 대표 <b>${rep.u.type}</b> 앞면 → ② 피격 + 도장 −2 <span style="color:#8a8298">(${why})</span>`+
+    (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(v=>v!==rep).map(v=>v.u.type).join(', ')})는 뒤 실루엣 — 데미지만, 화면은 안정.</span>`:'');
+  if(el){ el.style.animation='ttShake .36s ease'; }
+  if(im&&HIT(rep.u.type)) im.src=HIT(rep.u.type);
+  dmgStamp('−2');
+  await wait(560);
+  if(im&&base) im.src=base; if(el) el.style.animation='';
+  rep.u.hp=Math.max(0,(rep.u.hp||2)-2); layout();
+  busy=false;
+}
+
+/* ───── 컨트롤 ───── */
+function loadScn(id){ units=SCN[id](); rot=0; busy=false;
+  buildTable(); rotateTo(repIndex(),1);
+  document.getElementById('seqlog').innerHTML='◀▶ 로 회전, 뒤 실루엣 클릭으로 앞면 전환, “대표 피격”으로 시퀀스 확인.'; }
+['silDark','silOp','silBlur','depth'].forEach(id=>{
+  const e=document.getElementById(id); const v=document.getElementById(id+'V');
+  const upd=()=>{ if(v)v.textContent=(+e.value).toFixed(2); layout(); }; e.addEventListener('input',upd);
+});
+document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
+document.getElementById('rotL').addEventListener('click',()=>nav(-1));
+document.getElementById('rotR').addEventListener('click',()=>nav(1));
+document.getElementById('btnAttack').addEventListener('click',playAttack);
+
+const _kf=document.createElement('style');
+_kf.textContent='@keyframes ttShake{0%,100%{transform:translate(-50%,-50%) translateX(0)}25%{transform:translate(-50%,-50%) translateX(-4px)}50%{transform:translate(-50%,-50%) translateX(4px)}75%{transform:translate(-50%,-50%) translateX(-2px)}}';
+document.head.appendChild(_kf);
+['silDark','silOp','silBlur','depth'].forEach(id=>{const v=document.getElementById(id+'V');if(v)v.textContent=(+document.getElementById(id).value).toFixed(2);});
+function init(){ if(window.PIECE_GIFS){ loadScn('s1'); } else setTimeout(init,80); }
+init();
+</script>
+</body>
+</html>
