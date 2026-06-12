@@ -8336,6 +8336,13 @@ socket.on('mark_cast', ({ casters, markedTargets }) => {
       }
     }
     if (typeof renderGameBoard === 'function') renderGameBoard();
+    // ★ 안전망: 브랜드(passive_alert) 가 끝내 안 오면 적이 영영 숨겨지지 않도록 2s 후 강제 노출.
+    setTimeout(() => {
+      if (!(S._revealedMarkedOpps instanceof Map)) return;
+      let _ch = false;
+      for (const info of S._revealedMarkedOpps.values()) { if (info && info.hasMarkStatus === false) { info.hasMarkStatus = true; _ch = true; } }
+      if (_ch && typeof renderGameBoard === 'function') renderGameBoard();
+    }, 2000);
   }
 
   const resolveCard = (c) => {
@@ -13760,8 +13767,17 @@ function renderGameBoard() {
       const _oppHpTxt = _oppJoined
         ? `${markedOpp.hp + _oppTwin.hp}/${markedOpp.maxHp + _oppTwin.maxHp}`
         : `${markedOpp.hp}/${markedOpp.maxHp}`;
+      // ★ 표식 부여 직후(인두 낙하 전)에는 적 모습을 숨김 — 브랜드 임팩트 때 animateMarkBrand 가 페이드인.
+      //   (mark_cast 시점 hasMarkStatus=false → 표식이 아직 안 찍혔는데 적이 먼저 보이던 버그 방지)
+      const _revealPending = (() => {
+        if (!(S._revealedMarkedOpps instanceof Map)) return false;
+        const _oi = (typeof markedOpp.ownerIdx === 'number') ? markedOpp.ownerIdx : (1 - S.playerIdx);
+        const _pi = (typeof markedOpp.index === 'number') ? markedOpp.index : (S.oppPieces ? S.oppPieces.indexOf(markedOpp) : -1);
+        const _info = S._revealedMarkedOpps.get(`${_oi}:${_pi}`);
+        return !!(_info && _info.hasMarkStatus === false);
+      })();
       cell.innerHTML += `
-        <div class="piece-marker opp-marked ${oppColorCls}">
+        <div class="piece-marker opp-marked ${oppColorCls}${_revealPending ? ' mark-reveal-pending' : ''}">
           <span class="p-icon">${_oppGifHtml || pieceIconHtml(markedOpp.icon, {size:'1.3em'})}</span>
           <span class="p-hp">${_oppHpTxt}</span>
         </div>`;

@@ -2448,6 +2448,8 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .cell.has-piece { background: #1a2040; border-color: #3a4a80; }
 .piece-marker.opp-marked { opacity: 0.85; }
 .piece-marker.opp-marked .p-icon { filter: drop-shadow(0 0 2px #e05252); }
+/* ★ 표식 부여 직후(인두 낙하 전) 적 모습 숨김 — animateMarkBrand 가 임팩트 때 inline opacity 로 페이드인 */
+.piece-marker.opp-marked.mark-reveal-pending { opacity: 0; }
 /* ★ 사용자 요청: 표식 적 셀의 빨강 틴트 제거 — 적/아군 구분은 글로우 색(적=붉은빛)으로. */
 /* .cell.has-piece:has(.opp-marked) 빨강 배경/테두리 제거됨 */
 /* ★ 캐러셀 칸 — 말-있음 박스 강조(파란/마젠타 테두리·배경) 제거. 기본 셀처럼 + 유닛 + 화살표만 보이게 */
