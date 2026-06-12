@@ -7872,6 +7872,8 @@ function animateDragonSummon(col, row, owner) {
     return;
   }
   const rect = cell.getBoundingClientRect();
+  // ★ 착지 위치 = idle GIF 중심(셀중심 −6px, HP 텍스트 때문) 의 셀비례 % — 1v1/2v2/모바일 모든 셀 크기에서 정착과 일치.
+  const _dragonTopPct = (rect.height > 0 ? ((rect.height / 2 - 6) / rect.height * 100).toFixed(2) : 40) + '%';
   const stage = document.createElement('div');
   stage.className = 'dragon-summon-stage';
   stage.style.left = rect.left + 'px';
@@ -7931,7 +7933,7 @@ function animateDragonSummon(col, row, owner) {
     const _loadTimeout = setTimeout(() => {
       if (_landingHandled) return;
       _landingHandled = true;
-      _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
+      _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner, _dragonTopPct);
     }, 300);
     blobP.then(blob => blob.arrayBuffer()).then(ab => {
       if (_landingHandled) return; // 이미 폴백 발동됨
@@ -7959,7 +7961,7 @@ function animateDragonSummon(col, row, owner) {
       landImg.className = 'dragon-landing-gif';
       landImg.style.width = '220%';
       landImg.style.height = '220%';
-      landImg.style.top = '40%'; // idle GIF 중심이 셀의 ~39% 지점 (HP 텍스트 때문)
+      landImg.style.top = _dragonTopPct; // idle GIF 중심(셀비례) — 셀 크기 무관 정착과 일치
       stage.appendChild(landImg);
 
       setTimeout(() => {
@@ -7978,7 +7980,7 @@ function animateDragonSummon(col, row, owner) {
     });
   } else {
     // 착지 GIF 미등록 — 이동 PNG 폴백
-    _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner);
+    _dragonSummonFallback(stage, _dragonMoveUrl, col, row, owner, _dragonTopPct);
   }
 
   // 7. SFX — 거대 천둥 한 방 (드래곤 강림 SFX 가 천둥 + 으르렁을 모두 포함)
@@ -7986,11 +7988,12 @@ function animateDragonSummon(col, row, owner) {
 }
 
 // 드래곤 소환 폴백 — 이동 PNG 수축 등장 (착지 GIF 미사용 시)
-function _dragonSummonFallback(stage, moveUrl, col, row, owner) {
+function _dragonSummonFallback(stage, moveUrl, col, row, owner, topPct) {
   const dragon = document.createElement('div');
   dragon.className = 'dragon-revealed';
   dragon.style.width = '150%';
   dragon.style.height = '150%';
+  if (topPct) dragon.style.top = topPct;   // idle 중심(셀비례) — 셀 크기 무관 정착과 일치
   if (moveUrl) {
     dragon.innerHTML = `<img src="${moveUrl}" alt="" style="width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));" draggable="false">`;
   }
@@ -13284,8 +13287,8 @@ function _cellStateFP(col, row, pre) {
   {
     const _rm = S.remains && S.remains.find(r => r.col === col && r.row === row);
     if (_rm) {
-      // stage(=hits) 포함 — 추후 단계별 그래픽 시 stage 변화로 재렌더 보장
-      f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '') + 's' + (_rm.hits || 0);
+      // stage(=hits)·type 포함 — 단계 변화 / 같은 칸 유해 교체(type 변경) 시에도 재렌더 보장(렌더 밀림 방지)
+      f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '') + 's' + (_rm.hits || 0) + 't' + (_rm.type || '');
     }
   }
 
@@ -18979,6 +18982,12 @@ function _addClientSideRemains(deathInfos) {
   let added = false;
   for (const d of deathInfos) {
     if (d.type === 'dragon' || d.type === 'sulfurCauldron' || d.type === 'rat') continue;
+    // ★ facing 방어적 기록 — playDeathAnimations 가 이미 세팅하지만, 그 외 경로(폭탄/덫/서버 reseed)로
+    //   추가될 때도 좌우 일관되게(미기록 시 stale facing 이 적용돼 유해가 흔들려 보이는 것 방지).
+    if (typeof d.facingLeft === 'boolean') {
+      if (!S._remainsFacing) S._remainsFacing = {};
+      S._remainsFacing[`${d.col},${d.row}`] = !!d.facingLeft;
+    }
     if (!S.remains.some(r => r.col === d.col && r.row === d.row)) {
       S.remains.push({ col: d.col, row: d.row, type: d.type || 'unknown' });
       added = true;
