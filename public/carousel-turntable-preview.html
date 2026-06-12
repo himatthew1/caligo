@@ -19,10 +19,16 @@
   .stage h3{margin:0;font-size:12px;color:#5eead4;letter-spacing:.3px}
   .zoomarea{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;min-height:0;overflow:hidden}
   #zoomwrap{transform-origin:center center}
-  #table{position:relative;width:300px;height:230px}
-  /* 멤버 = 실제 미니셀(피스마커/상태/유해 그대로) — 타원에 배치, 깊이=축소+곱하기(brightness) */
-  .tt-mem{position:absolute;will-change:transform,left,top,filter;transition:filter .25s}
-  .tt-mem > .cell{border:none;background:none;overflow:visible}
+  /* 실제 보드 셀 컨텍스트 — 가운데 겹친 칸 + 양옆 일반 셀(비교) */
+  #board{display:flex;gap:0;background:#0f0d18;border-radius:6px}
+  #board .cell{width:var(--cs,56px);height:var(--cs,56px);border:1px solid #ffffff16;
+    position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
+  body.team-mode #board .cell{--cs:44px}
+  /* 멤버 = 실제 미니셀(피스마커/상태/유해 그대로) — 셀 안 작은 타원에 배치, 깊이=축소+곱하기(brightness) */
+  .tt-mem{position:absolute;will-change:transform,left,top,filter;transition:filter .25s;pointer-events:auto;cursor:pointer}
+  .tt-mem > .cell{border:none !important;background:none !important;overflow:visible}
+  .cellcap{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .cellcap .cl{font-size:8.5px;color:#6f6885;text-align:center}
   .seqlog{width:100%;min-height:38px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;
     padding:7px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
   .seqlog b{color:#ffd479}
@@ -57,7 +63,9 @@
 <main class="layout">
   <div class="stage">
     <h3>회전 테이블 (전원 실제 모션)</h3>
-    <div class="zoomarea"><div id="zoomwrap"><div id="table"></div></div></div>
+    <div class="zoomarea"><div id="zoomwrap">
+      <div class="cellcap"><div id="board"></div><div class="cl">가운데 = 겹친 칸(전원 한 셀 안) · 좌 = 일반 유닛 · 우 = 일반 유해(비교)</div></div>
+    </div></div>
     <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, 이벤트 버튼으로 전원 애니를 확인하세요.</div>
   </div>
 
@@ -96,7 +104,7 @@
       <h2>깊이 튜닝 (곱하기 + 축소)</h2>
       <div class="row"><label>뒤 어둡기</label><input type="range" id="dark" min="0.2" max="1" step="0.05" value="0.45"><span class="val" id="darkV"></span></div>
       <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.6"><span class="val" id="depthV"></span></div>
-      <div class="row"><label>퍼짐</label><input type="range" id="spread" min="40" max="130" step="2" value="92"><span class="val" id="spreadV"></span></div>
+      <div class="row"><label>퍼짐</label><input type="range" id="spread" min="0.18" max="0.5" step="0.02" value="0.32"><span class="val" id="spreadV"></span></div>
     </div>
   </aside>
 </main>
@@ -140,18 +148,24 @@ function memHtml(u){
     `<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}"></span><span class="p-hp" style="color:${col}">${u.hp}/${u.maxHp}</span>${st}</div></div>`;
 }
 function build(){
-  const t=document.getElementById('table'); t.innerHTML='';
+  const b=document.getElementById('board'); b.innerHTML='';
+  // 좌 = 일반 유닛(실제 piece-marker), 가운데 = 겹친 칸(#ttcell), 우 = 일반 유해
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
+  const c=document.createElement('div'); c.className='cell'; c.id='ttcell'; b.appendChild(c);
+  b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REMSTAGE(1)}" style="width:${remPx()}px;height:${remPx()}px"></div>`);
   units.forEach((u,i)=>{
     const el=document.createElement('div'); el.className='tt-mem'; el.dataset.i=i;
     el.innerHTML=memHtml(u);
     el.addEventListener('click',()=>{ if(!busy) goTo(i); });
-    t.appendChild(el);
+    c.appendChild(el);
   });
   layout(0);
 }
+// 셀 안 작은 타원 — front 멤버(d=1) 중심을 셀 중심에 둠 → 멤버 내부 유닛(중심−6)이 일반셀 유닛과 정렬.
 function geom(){ const T=tuning(), cs=cellPx();
-  const CX=150, CY=150, RX=T.spread, RY=T.spread*0.42;
-  return {CX,CY,RX,RY,T,cs}; }
+  const RX=cs*T.spread, RY=cs*T.spread*0.42;
+  const cc=(cs-2)/2;                        // content box 중심(테두리 1px)
+  return {CX:cc, CY:cc-RY, RX, RY, T, cs}; }
 function frontFromRot(rot){ let b=0,bd=-2; const N=units.length;
   for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>bd){bd=d;b=i;} } return b; }
 function layout(rot){
