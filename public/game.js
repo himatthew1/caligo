@@ -14676,6 +14676,11 @@ function playCurseBoardAnim(col, row, kind){
   if (!cell) return;
   // 같은 셀의 기존 저주 오버레이 제거 — 잔상/중첩 방지 (연속 모션 시 겹침 방지)
   cell.querySelectorAll('.curse-anim-overlay').forEach(o => { try { o.remove(); } catch(e){} });
+  // ★ 저주 모션(데미지틱/해제) 동안 기존 저주 idle(망령) 숨김 → 모션만 보이게 (cleanup 에서 복구).
+  //   소환(summon)은 _curseSummoning 으로 렌더에서 이미 억제됨.
+  if (kind === 'damage' || kind === 'release') {
+    cell.querySelectorAll('.curse-board-layer').forEach(cl => { cl.dataset._curseHidden = '1'; cl.style.display = 'none'; });
+  }
   // 유닛 방향 상속 — 셀의 idle GIF 가 scaleX(-1) 면 좌향
   let faceLeft = false;
   const g = cell.querySelector('img.p-gif') || cell.querySelector('.curse-board-layer.face-left');
@@ -14685,7 +14690,9 @@ function playCurseBoardAnim(col, row, kind){
   img.alt = '';
   let _url = null;
   let _done = false;
-  const _cleanup = () => { if (_done) return; _done = true; if (img.parentNode) img.remove(); if (_url && _url.startsWith('blob:')) { try{URL.revokeObjectURL(_url);}catch(e){} } };
+  const _cleanup = () => { if (_done) return; _done = true; if (img.parentNode) img.remove(); if (_url && _url.startsWith('blob:')) { try{URL.revokeObjectURL(_url);}catch(e){} }
+    // ★ 숨겼던 저주 idle 복구
+    try { cell.querySelectorAll('.curse-board-layer').forEach(cl => { if (cl.dataset._curseHidden) { cl.style.display = ''; delete cl.dataset._curseHidden; } }); } catch(e){} };
   cell.appendChild(img);
   _curseOnceBlobUrl(kind).then(u => {
     if (!u) { _cleanup(); return; }

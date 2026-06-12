@@ -204,10 +204,13 @@ function stampOn(i,text,kind){ const el=memEl(i); if(!el)return; const mk=el.que
   const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
   s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top-2)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
 function shake(i){ const mk=memEl(i)&&memEl(i).querySelector('.piece-marker,.remains-marker'); if(mk){ mk.style.animation='none'; void mk.offsetWidth; mk.style.animation='ttShake .34s ease'; setTimeout(()=>{mk.style.animation='';},360);} }
-// 저주 모션 — 실제 인게임 .curse-anim-overlay 클래스(좌상단 −19,−21, 44px) 그대로
+// 저주 모션 — 실제 인게임 .curse-anim-overlay 클래스(좌상단 −19,−21, 44px) 그대로.
+//   ★ 인게임과 동일: 데미지틱/해제 동안 기존 저주 idle(망령) 숨김 → 모션만 보이게.
 function curseAnim(i,kind){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); if(!cellEl)return;
+  let hid=[];
+  if(kind==='damage'||kind==='release'){ cellEl.querySelectorAll('.curse-board-layer').forEach(cl=>{cl.style.display='none';hid.push(cl);}); }
   const im=document.createElement('img'); im.className='curse-anim-overlay curse-kind-'+kind; im.src=CURSE(kind); im.alt='';
-  cellEl.appendChild(im); setTimeout(()=>{ try{im.remove();}catch(e){} },1200); }
+  cellEl.appendChild(im); setTimeout(()=>{ try{im.remove();}catch(e){} hid.forEach(cl=>cl.style.display=''); },1200); }
 // 악몽 모션 — 실제 표식 레이어(.mark-board-layer) 중심에 2배(인게임 _nmPos 와 동일)
 function nightmareAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); if(!cellEl)return;
   const ml=el.querySelector('.mark-board-layer'); let cx,cy,sz;
@@ -216,10 +219,12 @@ function nightmareAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector(
   const cr=cellEl.getBoundingClientRect();
   if(ml){ const mr=ml.getBoundingClientRect(); cx=(mr.left+mr.width/2-cr.left)/z; cy=(mr.top+mr.height/2-cr.top)/z; sz=Math.round(mr.width/z*2); }
   else { cx=(cr.width/z)/2; cy=(cr.height/z)*0.28; sz=pfPx()*2; }
+  // ★ 인게임과 동일: 악몽 동안 표식 idle 숨김(위치 계산 후) → 모션만 보이게.
+  var hid=[]; if(ml){ ml.style.display='none'; hid.push(ml); }
   const ov=document.createElement('img'); ov.src=MARK('nightmare'); ov.alt='';
   ov.style.cssText=`position:absolute;left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;margin-left:${-sz/2}px;margin-top:${-sz/2}px;`+
     `z-index:20;pointer-events:none;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000)`;
-  cellEl.appendChild(ov); setTimeout(()=>{ try{ov.remove();}catch(e){} },1200); }
+  cellEl.appendChild(ov); setTimeout(()=>{ try{ov.remove();}catch(e){} hid.forEach(m=>m.style.display=''); },1200); }
 // 표식 생성 모션 — has-mark 부여(마커 position:relative) → 정수리 .mark-board-layer 위치에 생성 GIF
 function markSummonAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); const mk=el&&el.querySelector('.piece-marker'); if(!cellEl||!mk)return;
   cellEl.classList.add('has-mark');

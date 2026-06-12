@@ -72,7 +72,9 @@
       const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`);
       if (!cell) { overlays.push(null); return; }
       cell.classList.add('mark-brand-host');                    // overflow:visible
-      const p = _nmPos(cell);
+      const p = _nmPos(cell);                                   // ★ 위치는 표식 레이어 기준 → 숨기기 전에 계산
+      // ★ 악몽 모션 동안 기존 표식 idle 숨김 (모션만 보이게) → cleanup 에서 복구.
+      cell.querySelectorAll('.mark-board-layer').forEach(ml => { ml.dataset._nmHidden = '1'; ml.style.display = 'none'; });
       const ov = document.createElement('img');
       ov.className = 'nightmare-gif-anim'; ov.alt = '';
       ov.style.cssText = `position:absolute;left:${p.cx}px;top:${p.cy}px;width:${p.size}px;height:${p.size}px;` +
@@ -105,6 +107,9 @@
       }, impact);
       setTimeout(() => {
         overlays.forEach(ov => { if (!ov) return; try { if (ov.parentNode) ov.remove(); } catch (e) {} if (ov._blob) { try { URL.revokeObjectURL(ov._blob); } catch (e) {} } });
+        // ★ 숨겼던 표식 idle 복구
+        list.forEach(pos => { const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`); if (!cell) return;
+          cell.querySelectorAll('.mark-board-layer[data-_nm-hidden], .mark-board-layer').forEach(ml => { if (ml.dataset._nmHidden) { ml.style.display = ''; delete ml.dataset._nmHidden; } }); });
       }, total + 150);
     });
   }
