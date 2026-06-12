@@ -55,17 +55,22 @@
     return { cx, cy, size: Math.round(markSize * 2) };
   }
 
+  // opts.onImpact(positions) — 4프레임 임팩트 시점에 1회 호출(데미지/HP 일괄 처리·판정 훅)
   function animateNightmareCast(positions, opts) {
     opts = opts || {};
     const board = document.getElementById(opts.boardId || 'game-board');
     if (!board) return;
-    const list = Array.isArray(positions) ? positions : [positions];
+    const list = (Array.isArray(positions) ? positions : [positions])
+      .filter(p => p && p.col != null && p.row != null);
+    if (!list.length) return;
     const M = window.MARK_GIFS || {};
     const url = M.nightmare || '/art/mark/nightmare.gif';
+    // ★ 프레임 지연은 단 한 번만 파싱 → 모든 표식 적의 임팩트(흔들림+도장+데미지)가 같은 시점에 일괄 발동.
+    const fdP = _nmFrameDelays(url);
+    const overlays = [];
     list.forEach(pos => {
-      if (!pos || pos.col == null || pos.row == null) return;
       const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`);
-      if (!cell) return;
+      if (!cell) { overlays.push(null); return; }
       cell.classList.add('mark-brand-host');                    // overflow:visible
       const p = _nmPos(cell);
       const ov = document.createElement('img');
@@ -74,27 +79,33 @@
         `margin-left:${-p.size / 2}px;margin-top:${-p.size / 2}px;z-index:20;pointer-events:none;` +
         `image-rendering:pixelated;object-fit:contain;filter:` +
         `drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000);`;
-      _nmOnceHoldBlob(url).then(bu => {
-        ov.src = bu; cell.appendChild(ov);
-        _nmFrameDelays(url).then(fd => {
-          const impact = (fd.length > 3 ? fd[3] : (fd.length ? fd[fd.length - 1] : 520));
-          const total = fd.length ? fd[fd.length - 1] : 1170;
-          // ── 4프레임(임팩트): 피격 흔들림 + 데미지 도장 ──
-          setTimeout(() => {
-            const mk = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
-            if (mk && mk.animate) {
-              mk.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-3px)' },
-                { transform: 'translateX(3px)' }, { transform: 'translateX(-2px)' }, { transform: 'translateX(0)' }],
-                { duration: 350, easing: 'ease' });
-            }
-            const dmg = (typeof pos.damage === 'number') ? pos.damage : 1;
-            if (typeof window.showBoardDamageStamp === 'function') {
-              try { window.showBoardDamageStamp(pos.col, pos.row, 'normal', dmg); } catch (e) {}
-            }
-          }, impact);
-          setTimeout(() => { try { if (ov.parentNode) ov.remove(); } catch (e) {} URL.revokeObjectURL(bu); }, total + 150);
+      overlays.push(ov);
+      _nmOnceHoldBlob(url).then(bu => { ov._blob = bu; ov.src = bu; cell.appendChild(ov); }).catch(() => {});
+    });
+    fdP.then(fd => {
+      const impact = (fd.length > 3 ? fd[3] : (fd.length ? fd[fd.length - 1] : 520));
+      const total = fd.length ? fd[fd.length - 1] : 1170;
+      // ── 4프레임(임팩트): 모든 표식 적 동시 — 피격 흔들림 + 데미지 도장 + 데미지 처리(onImpact) ──
+      setTimeout(() => {
+        list.forEach(pos => {
+          const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`);
+          if (!cell) return;
+          const mk = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+          if (mk && mk.animate) {
+            mk.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-3px)' },
+              { transform: 'translateX(3px)' }, { transform: 'translateX(-2px)' }, { transform: 'translateX(0)' }],
+              { duration: 350, easing: 'ease' });
+          }
+          const dmg = (typeof pos.damage === 'number') ? pos.damage : 1;
+          if (typeof window.showBoardDamageStamp === 'function') {
+            try { window.showBoardDamageStamp(pos.col, pos.row, 'normal', dmg); } catch (e) {}
+          }
         });
-      }).catch(() => {});
+        if (typeof opts.onImpact === 'function') { try { opts.onImpact(list); } catch (e) {} }
+      }, impact);
+      setTimeout(() => {
+        overlays.forEach(ov => { if (!ov) return; try { if (ov.parentNode) ov.remove(); } catch (e) {} if (ov._blob) { try { URL.revokeObjectURL(ov._blob); } catch (e) {} } });
+      }, total + 150);
     });
   }
 
