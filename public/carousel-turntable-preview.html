@@ -204,14 +204,27 @@ function stampOn(i,text,kind){ const el=memEl(i); if(!el)return; const mk=el.que
   const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
   s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top-2)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
 function shake(i){ const mk=memEl(i)&&memEl(i).querySelector('.piece-marker,.remains-marker'); if(mk){ mk.style.animation='none'; void mk.offsetWidth; mk.style.animation='ttShake .34s ease'; setTimeout(()=>{mk.style.animation='';},360);} }
-function overlay(i,url,sizeFactor,behind){ const el=memEl(i); if(!el)return; const host=el.querySelector('.piece-marker')||el.querySelector('.cell'); if(!host)return;
-  const pg=el.querySelector('.p-gif')||el.querySelector('.remains-marker'); const base=pg?parseFloat(getComputedStyle(pg).width):pfPx();
-  const sz=Math.round(base*(sizeFactor||1.6));
-  const ov=document.createElement('img'); ov.src=url; ov.alt='';
-  ov.style.cssText=`position:absolute;left:50%;top:42%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%);`+
-    `z-index:${behind?0:30};pointer-events:none;image-rendering:pixelated;object-fit:contain;`+
-    `filter:drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000)`;
-  host.appendChild(ov); setTimeout(()=>{ try{ov.remove();}catch(e){} },1200); return ov; }
+// 저주 모션 — 실제 인게임 .curse-anim-overlay 클래스(좌상단 −19,−21, 44px) 그대로
+function curseAnim(i,kind){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); if(!cellEl)return;
+  const im=document.createElement('img'); im.className='curse-anim-overlay curse-kind-'+kind; im.src=CURSE(kind); im.alt='';
+  cellEl.appendChild(im); setTimeout(()=>{ try{im.remove();}catch(e){} },1200); }
+// 악몽 모션 — 실제 표식 레이어(.mark-board-layer) 중심에 2배(인게임 _nmPos 와 동일)
+function nightmareAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); if(!cellEl)return;
+  const ml=el.querySelector('.mark-board-layer'); let cx,cy,sz;
+  // getBoundingClientRect 는 zoomwrap scale 이 곱해진 좌표 → 줌으로 나눠 줌-안된 인라인 px 로(이중적용 방지)
+  const z=(+document.getElementById('zoom').value)||1;
+  const cr=cellEl.getBoundingClientRect();
+  if(ml){ const mr=ml.getBoundingClientRect(); cx=(mr.left+mr.width/2-cr.left)/z; cy=(mr.top+mr.height/2-cr.top)/z; sz=Math.round(mr.width/z*2); }
+  else { cx=(cr.width/z)/2; cy=(cr.height/z)*0.28; sz=pfPx()*2; }
+  const ov=document.createElement('img'); ov.src=MARK('nightmare'); ov.alt='';
+  ov.style.cssText=`position:absolute;left:${cx}px;top:${cy}px;width:${sz}px;height:${sz}px;margin-left:${-sz/2}px;margin-top:${-sz/2}px;`+
+    `z-index:20;pointer-events:none;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000)`;
+  cellEl.appendChild(ov); setTimeout(()=>{ try{ov.remove();}catch(e){} },1200); }
+// 표식 생성 모션 — has-mark 부여(마커 position:relative) → 정수리 .mark-board-layer 위치에 생성 GIF
+function markSummonAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); const mk=el&&el.querySelector('.piece-marker'); if(!cellEl||!mk)return;
+  cellEl.classList.add('has-mark');
+  const im=document.createElement('img'); im.className='mark-board-layer'; im.src=MARK('summon'); im.alt='';
+  mk.appendChild(im); setTimeout(()=>{ try{im.remove();}catch(e){} },1000); }
 
 /* 일괄 피격 — 모든(또는 적) 유닛 동시 hit GIF + 흔들림 + 도장 */
 async function evHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
@@ -225,28 +238,28 @@ async function evCurseTick(){ if(busy)return; busy=true; const log=document.getE
   const cursed=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains&&(x.u.status||[]).includes('curse'));
   if(!cursed.length){ log.innerHTML='저주 상태 멤버가 없습니다. ②③ 시나리오 또는 저주 부여.'; busy=false; return; }
   log.innerHTML='💥 저주 틱 — 저주 멤버 <b>전원 동시</b> 망령 데미지 + 도장.';
-  cursed.forEach(({i})=>{ overlay(i,CURSE('damage'),1.5,false); shake(i); setTimeout(()=>stampOn(i,'−1','curse'),300); });
+  cursed.forEach(({i})=>{ curseAnim(i,'damage'); shake(i); setTimeout(()=>stampOn(i,'−1','curse'),300); });
   await wait(900); busy=false; }
 /* 악몽 — 표식 멤버 전원 동시 악몽 GIF(표식 위치 2배) + 도장 */
 async function evNightmare(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
   const marked=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains&&(x.u.status||[]).includes('mark'));
   if(!marked.length){ log.innerHTML='표식 상태 멤버가 없습니다.'; busy=false; return; }
   log.innerHTML='😱 악몽 — 표식 멤버 <b>전원 동시</b> 악몽 모션 + 도장(4프레임 일괄).';
-  marked.forEach(({i})=>{ const ml=memEl(i)&&memEl(i).querySelector('.mark-board-layer'); const f=2; overlay(i,MARK('nightmare'),(ml?2:1.9),false); });
+  marked.forEach(({i})=>{ nightmareAnim(i); });
   await wait(520); marked.forEach(({i})=>{ shake(i); stampOn(i,'−1'); }); await wait(700); busy=false; }
 /* 표식 부여 — 대표(앞) 적에게 표식 생성 모션 → idle 추가 */
 async function evMark(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
   const t=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp'&&!(x.u.status||[]).includes('mark'))[0];
   if(!t){ log.innerHTML='표식 줄 적이 없습니다.'; busy=false; return; }
   log.innerHTML=`🔨 표식 부여 — ${t.u.type} 정수리에 생성 모션 → idle.`;
-  overlay(t.i,MARK('summon'),1.0,false); await wait(900);
+  markSummonAnim(t.i); await wait(900);
   t.u.status=t.u.status||[]; if(!t.u.status.includes('mark'))t.u.status.push('mark'); build(); snapRep(); busy=false; }
 /* 저주 부여 — 대표(앞) 적에게 망령 소환 → idle 추가 */
 async function evCurse(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
   const t=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp'&&!(x.u.status||[]).includes('curse'))[0];
   if(!t){ log.innerHTML='저주 줄 적이 없습니다.'; busy=false; return; }
   log.innerHTML=`👻 저주 부여 — ${t.u.type} 뒤 망령 소환 → idle.`;
-  overlay(t.i,CURSE('summon'),1.5,true); await wait(1000);
+  curseAnim(t.i,'summon'); await wait(1000);
   t.u.status=t.u.status||[]; if(!t.u.status.includes('curse'))t.u.status.push('curse'); build(); snapRep(); busy=false; }
 /* 유해 피격 — 유해 멤버 전원 단계진행(1→2→3) + 피격 GIF + 도장 */
 async function evRemHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
