@@ -30,10 +30,22 @@
       return out;
     }).catch(() => [130, 260, 390, 520, 650, 780, 910, 1040, 1170]);
   }
-  // 표식(정수리 위) 위치 — mark-anim 과 동일 기준. 악몽 크기 = 실제 표식 크기 × 2배.
-  //   (표식은 35px 로 튜닝됨 → 0.74×폭 추정 대신 실제 표식 크기를 기준으로 묶어 크기 불일치 제거)
+  // 악몽 = 실제 렌더된 표식 레이어(.mark-board-layer) 의 중심·크기에 정확히 정렬(2배).
+  //   ★ 기존엔 p-gif 기준(다른 앵커)이라 표식 idle 과 따로 놀았음 → 실제 표식 레이어 rect 를 1순위로.
   function _nmPos(cell) {
     const cr = cell.getBoundingClientRect();
+    const ml = cell.querySelector('.mark-board-layer');   // 표식 idle(정수리) — 인게임/모드 무관 실제 위치·크기
+    if (ml) {
+      const mr = ml.getBoundingClientRect();
+      if (mr.width > 0) {
+        return {
+          cx: mr.left + mr.width / 2 - cr.left,
+          cy: mr.top + mr.height / 2 - cr.top,
+          size: Math.round(mr.width * 2),
+        };
+      }
+    }
+    // 폴백 — 표식 레이어가 아직 없으면 p-gif 정수리 추정
     const pgif = cell.querySelector('.piece-marker img.p-gif')
       || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
     const pr = pgif ? pgif.getBoundingClientRect() : null;
