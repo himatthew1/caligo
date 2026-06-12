@@ -34,14 +34,16 @@
   //   ★ 기존엔 p-gif 기준(다른 앵커)이라 표식 idle 과 따로 놀았음 → 실제 표식 레이어 rect 를 1순위로.
   function _nmPos(cell) {
     const cr = cell.getBoundingClientRect();
+    // ★ 셀의 총 렌더 배율(부모 transform scale 포함) — 일반 셀=1(무영향), 스케일된 캐러셀 멤버에선 보정.
+    const sc = (cell.offsetWidth > 0) ? (cr.width / cell.offsetWidth) : 1;
     const ml = cell.querySelector('.mark-board-layer');   // 표식 idle(정수리) — 인게임/모드 무관 실제 위치·크기
     if (ml) {
       const mr = ml.getBoundingClientRect();
       if (mr.width > 0) {
         return {
-          cx: mr.left + mr.width / 2 - cr.left,
-          cy: mr.top + mr.height / 2 - cr.top,
-          size: Math.round(mr.width * 2),
+          cx: (mr.left + mr.width / 2 - cr.left) / sc,
+          cy: (mr.top + mr.height / 2 - cr.top) / sc,
+          size: Math.round(mr.width / sc * 2),
         };
       }
     }
@@ -49,8 +51,8 @@
     const pgif = cell.querySelector('.piece-marker img.p-gif')
       || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
     const pr = pgif ? pgif.getBoundingClientRect() : null;
-    const cx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
-    const cy = pr ? (pr.top - cr.top - 9) : cr.height * 0.28;
+    const cx = pr ? (pr.left + pr.width / 2 - cr.left) / sc : (cr.width / sc) / 2;
+    const cy = pr ? ((pr.top - cr.top) / sc - 9) : (cr.height / sc) * 0.28;
     const markSize = (window._MARK_TUNE && window._MARK_TUNE.size) || window.MARK_IDLE_SIZE || 35;
     return { cx, cy, size: Math.round(markSize * 2) };
   }

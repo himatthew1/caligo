@@ -214,11 +214,12 @@ function curseAnim(i,kind){ const el=memEl(i); const cellEl=el&&el.querySelector
 // 악몽 모션 — 실제 표식 레이어(.mark-board-layer) 중심에 2배(인게임 _nmPos 와 동일)
 function nightmareAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector('.cell'); if(!cellEl)return;
   const ml=el.querySelector('.mark-board-layer'); let cx,cy,sz;
-  // getBoundingClientRect 는 zoomwrap scale 이 곱해진 좌표 → 줌으로 나눠 줌-안된 인라인 px 로(이중적용 방지)
-  const z=(+document.getElementById('zoom').value)||1;
+  // getBoundingClientRect 는 (줌 × 멤버 깊이스케일) 총배율이 곱해진 좌표 → 셀의 총배율로 나눠 셀-로컬 px 로.
+  //   (대표=스케일1 이라 정상, 뒤 멤버는 깊이스케일만큼 어긋나던 것 보정)
   const cr=cellEl.getBoundingClientRect();
-  if(ml){ const mr=ml.getBoundingClientRect(); cx=(mr.left+mr.width/2-cr.left)/z; cy=(mr.top+mr.height/2-cr.top)/z; sz=Math.round(mr.width/z*2); }
-  else { cx=(cr.width/z)/2; cy=(cr.height/z)*0.28; sz=pfPx()*2; }
+  const sc=(cellEl.offsetWidth>0)?(cr.width/cellEl.offsetWidth):1;
+  if(ml){ const mr=ml.getBoundingClientRect(); cx=(mr.left+mr.width/2-cr.left)/sc; cy=(mr.top+mr.height/2-cr.top)/sc; sz=Math.round(mr.width/sc*2); }
+  else { cx=(cr.width/sc)/2; cy=(cr.height/sc)*0.28; sz=pfPx()*2; }
   // ★ 인게임과 동일: 악몽 동안 표식 idle 숨김(위치 계산 후) → 모션만 보이게.
   var hid=[]; if(ml){ ml.style.display='none'; hid.push(ml); }
   const ov=document.createElement('img'); ov.src=MARK('nightmare'); ov.alt='';
