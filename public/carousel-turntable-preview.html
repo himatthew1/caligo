@@ -3,330 +3,266 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CALIGO — 캐러셀 개선안: 회전 테이블(인게임 구조)</title>
-<link rel="stylesheet" href="style.css?v=20260609z">
+<title>CALIGO — 캐러셀 개선안 v2 (실제 모션·곱하기 깊이·전원 애니)</title>
+<link rel="stylesheet" href="style.css?v=20260610a">
 <style>
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
     padding:10px 14px 0;display:flex;flex-direction:column;gap:10px;overflow:hidden}
   header.hdr{text-align:center;flex:0 0 auto}
-  header.hdr h1{font-size:16px;color:#e2b714;margin:0 0 4px}
-  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:900px;line-height:1.5}
+  header.hdr h1{font-size:15.5px;color:#e2b714;margin:0 0 4px}
+  header.hdr .sub{color:#a89fb8;font-size:11px;margin:0 auto;max-width:920px;line-height:1.5}
   header.hdr .sub b{color:#cbb6ee}
   main.layout{flex:1 1 auto;display:flex;gap:16px;align-items:stretch;justify-content:center;min-height:0}
-  .stage{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:10px;
-    background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:16px 22px;min-width:440px}
+  .stage{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px;
+    background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:14px 22px;min-width:440px}
   .stage h3{margin:0;font-size:12px;color:#5eead4;letter-spacing:.3px}
   .zoomarea{flex:1 1 auto;display:flex;align-items:center;justify-content:center;width:100%;min-height:0;overflow:hidden}
   #zoomwrap{transform-origin:center center}
-  /* ★ 실제 인게임과 동일한 보드 셀 — style.css 의 .cell/.piece-marker/.remains-marker/.death 그대로 사용 */
-  #board{display:flex;gap:0;background:#0f0d18;border-radius:6px}
-  #board .cell{width:var(--cs,56px);height:var(--cs,56px);border:1px solid #ffffff16;
-    position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
-  body.team-mode #board .cell{--cs:44px}
-  /* 앞면(대표)은 실제 .piece-marker/.remains-marker — 인게임 CSS 가 위치를 결정. 그 뒤에 실루엣 레이어 */
-  #ttcell .piece-marker{position:relative;z-index:2}
-  #ttcell .remains-marker{z-index:2}
-  .tt-silh-layer{position:absolute;inset:0;overflow:visible;z-index:0;pointer-events:none}
-  .tt-disc{position:absolute;left:50%;top:58%;width:98%;height:34%;transform:translate(-50%,-50%);
-    border-radius:50%;background:radial-gradient(ellipse at 50% 42%,#2c2542cc 0%,#1b1728aa 60%,transparent 100%);
-    border:1px solid #ffffff10;box-shadow:0 3px 8px #0009}
-  /* 뒤 실루엣 = 스프라이트 알파 마스크 → 보라 단색 + 아래로 어두워지는 그라데이션 */
-  .tt-silh{position:absolute;pointer-events:auto;cursor:pointer;image-rendering:pixelated;
-    background:linear-gradient(to bottom, var(--stop,#c79cf5) 0%, var(--smid,#8a5be0) 46%, var(--sbot,#2a1340) 100%);
-    -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;
-    -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
-    filter:drop-shadow(0 0 1px #000);transition:opacity .22s}
-  /* 회전 중 궤도 요소(모든 유닛이 타원을 돈다 → 끝나면 실제 구조로 안착) */
-  #ttorbit{position:absolute;inset:0;overflow:visible;z-index:1;pointer-events:none}
-  .tt-orbit{position:absolute}
-  .tt-orbit .real{position:absolute;left:0;top:0;image-rendering:pixelated;object-fit:contain;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
-  .tt-orbit .silh{position:absolute;left:0;top:0;
-    background:linear-gradient(to bottom, var(--stop,#c79cf5) 0%, var(--smid,#8a5be0) 46%, var(--sbot,#2a1340) 100%);
-    -webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
-    filter:drop-shadow(0 0 1px #000)}
-  .cellcap{display:flex;flex-direction:column;align-items:center;gap:4px}
-  .cellcap .cl{font-size:8.5px;color:#6f6885;text-align:center}
-  .scaleinfo{font-size:10px;color:#8a8298}
+  #table{position:relative;width:300px;height:230px}
+  /* 멤버 = 실제 미니셀(피스마커/상태/유해 그대로) — 타원에 배치, 깊이=축소+곱하기(brightness) */
+  .tt-mem{position:absolute;will-change:transform,left,top,filter;transition:filter .25s}
+  .tt-mem > .cell{border:none;background:none;overflow:visible}
   .seqlog{width:100%;min-height:38px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;
     padding:7px 10px;font-size:10.5px;color:#a8d4ff;line-height:1.5}
   .seqlog b{color:#ffd479}
-  .controls{display:flex;flex-direction:column;gap:9px;flex:0 0 auto;width:262px;overflow:auto}
-  .panel{background:#221d30;border:1px solid #453c5c;border-radius:10px;padding:10px 12px}
-  .panel h2{font-size:11px;color:#e2b714;margin:0 0 7px;text-transform:uppercase;letter-spacing:.3px}
-  .btns{display:flex;flex-direction:column;gap:6px}
+  .controls{display:flex;flex-direction:column;gap:8px;flex:0 0 auto;width:266px;overflow:auto}
+  .panel{background:#221d30;border:1px solid #453c5c;border-radius:10px;padding:9px 11px}
+  .panel h2{font-size:10.5px;color:#e2b714;margin:0 0 6px;text-transform:uppercase;letter-spacing:.3px}
+  .btns{display:flex;flex-direction:column;gap:5px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px}
   .seg{display:flex;gap:6px}.seg button{flex:1;text-align:center}
-  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:7px 9px;cursor:pointer;font-size:11.5px}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:7px;padding:6px 8px;cursor:pointer;font-size:11px}
   button:hover{border-color:#a874e7}
   button.on{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:700}
-  button.atk{background:linear-gradient(135deg,#b91c1c,#dc2626);border-color:transparent;font-weight:700;width:100%}
+  button.atk{background:linear-gradient(135deg,#b91c1c,#dc2626);border-color:transparent;font-weight:700}
+  button.mk{background:#3a2f12;border-color:#6b5413;color:#ffd479}
+  button.cs{background:#2a1d44;border-color:#5a3aa0;color:#c9a9ff}
+  button.rm{background:#3a2230;border-color:#6b3a4a}
   .row{display:flex;align-items:center;gap:8px;margin:4px 0}
-  .row label{flex:0 0 66px;color:#a89fb8;font-size:10.5px}
+  .row label{flex:0 0 64px;color:#a89fb8;font-size:10.5px}
   .row input[type=range]{flex:1;accent-color:#a874e7}
-  .row .val{flex:0 0 34px;text-align:right;font-size:10px;color:#cbb6ee}
-  .note{color:#8a8298;font-size:10px;margin-top:6px;line-height:1.5}
+  .row .val{flex:0 0 32px;text-align:right;font-size:10px;color:#cbb6ee}
+  .note{color:#8a8298;font-size:9.5px;margin-top:5px;line-height:1.5}
   .board-dmg-stamp.curse{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:#c9a9ff}
+  @keyframes ttShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}50%{transform:translateX(2px)}75%{transform:translateX(-1px)}}
 </style>
 </head>
 <body>
 <header class="hdr">
-  <h1>🎠 캐러셀 개선안 — 회전 테이블 (앞면=실제 인게임 구조) <span style="font-size:11px;color:#8a8298">※ 검토용, 미적용</span></h1>
-  <div class="sub"><b>앞면(대표)은 실제 인게임 셀 그대로</b> 렌더 — <b>.piece-marker / .remains-marker / .death-anim-overlay</b> 와 그 CSS 를 그대로 써서 위치·크기가 인게임과 100% 동일. 나머지는 <b>뒤쪽 보라 실루엣</b>으로 둘러섭니다. 좌=일반 유닛, 우=일반 유해(둘 다 실제 구조 → 비교).</div>
+  <h1>🎠 캐러셀 개선안 v2 — 실제 모션 · 곱하기 깊이 · 전원 애니 <span style="font-size:11px;color:#8a8298">※ 검토용</span></h1>
+  <div class="sub">뒤 대기열도 <b>단색 실루엣이 아니라 실제 캐릭터 모션</b> — 멀수록 <b>곱하기로 어둡게 + 축소</b>. 표식/저주 상태도 전 멤버에 표시. <b>일괄 피격·저주틱·악몽·표식/저주 부여</b> 시 뒤 멤버도 일반셀처럼 애니 + <b>데미지 도장 전원</b>. 유해도 단계진행·피격. (원형 테이블 삭제)</div>
 </header>
 
 <main class="layout">
   <div class="stage">
-    <h3>실제 셀 안 — 회전 테이블</h3>
-    <div class="zoomarea">
-      <div id="zoomwrap">
-        <div class="cellcap"><div id="board"></div><div class="cl">가운데 = 겹친 칸(테이블 · 앞면=실제 구조) · 좌 = 일반 유닛 · 우 = 일반 셀 유해</div></div>
-      </div>
-    </div>
-    <div class="scaleinfo" id="scaleinfo"></div>
-    <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, “대표 피격 / 사망 모션”을 눌러보세요.</div>
+    <h3>회전 테이블 (전원 실제 모션)</h3>
+    <div class="zoomarea"><div id="zoomwrap"><div id="table"></div></div></div>
+    <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, 이벤트 버튼으로 전원 애니를 확인하세요.</div>
   </div>
 
   <aside class="controls">
     <div class="panel">
       <h2>모드 / 보기 배율</h2>
-      <div class="seg">
-        <button id="m-1v1" class="on" data-mode="1v1">1v1 (56px)</button>
-        <button data-mode="2v2">2v2 (44px)</button>
-      </div>
-      <div class="row"><label>확대</label><input type="range" id="zoom" min="1" max="6" step="0.5" value="3.5"><span class="val" id="zoomV"></span></div>
-      <div class="note">기하는 실제 셀 기준 고정 — 확대는 화면만.</div>
+      <div class="seg"><button id="m-1v1" class="on" data-mode="1v1">1v1</button><button data-mode="2v2">2v2</button></div>
+      <div class="row"><label>확대</label><input type="range" id="zoom" min="1" max="4" step="0.25" value="2.25"><span class="val" id="zoomV"></span></div>
     </div>
     <div class="panel">
-      <h2>시나리오 (겹친 구성)</h2>
+      <h2>시나리오</h2>
       <div class="btns">
-        <button class="scn on" data-scn="s1">① 내 장군 + 표식 마녀(적) + 유해</button>
-        <button class="scn" data-scn="s2">② 표식 적 3 (고티어 대표)</button>
+        <button class="scn on" data-scn="s1">① 장군 + 표식 마녀 + 유해</button>
+        <button class="scn" data-scn="s2">② 적 3 (표식·저주 섞임)</button>
         <button class="scn" data-scn="s3">③ 혼잡 — 적 2 + 유해 2 (5)</button>
       </div>
     </div>
     <div class="panel">
-      <h2>회전 / 피격 / 사망</h2>
-      <div class="seg" style="margin-bottom:6px">
-        <button id="rotL">◀ 이전</button>
-        <button id="rotR">다음 ▶</button>
-      </div>
-      <button class="atk" id="btnAttack">⚔ 공격 → 대표 피격 + 도장</button>
-      <button id="btnDeath" style="width:100%;margin-top:6px;background:#3a2230;border-color:#6b3a4a">💀 사망 모션 (앞면 → 유해)</button>
-      <div class="note">대표 = 고티어→저체력→상태이상多. 앞면만 실제 모션, 뒤 실루엣 정지. 사망=실제 .death-anim-overlay.</div>
+      <h2>회전</h2>
+      <div class="seg"><button id="rotL">◀ 이전</button><button id="rotR">다음 ▶</button></div>
+      <div class="note">뒤 멤버 클릭해도 앞으로.</div>
     </div>
     <div class="panel">
-      <h2>실루엣 튜닝 (보라 + 아래 어둡기)</h2>
-      <div class="row"><label>뒤 투명</label><input type="range" id="silOp" min="0.4" max="1" step="0.05" value="0.95"><span class="val" id="silOpV"></span></div>
-      <div class="row"><label>아래 어둡기</label><input type="range" id="botDark" min="0" max="1" step="0.05" value="0.7"><span class="val" id="botDarkV"></span></div>
-      <div class="row"><label>퍼짐(반경)</label><input type="range" id="spread" min="0.2" max="0.6" step="0.02" value="0.34"><span class="val" id="spreadV"></span></div>
-      <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.7"><span class="val" id="depthV"></span></div>
+      <h2>이벤트 (전원 애니 + 도장)</h2>
+      <div class="grid2">
+        <button class="atk" id="evHit">⚔ 일괄 피격</button>
+        <button class="cs" id="evCurseTick">💥 저주 틱</button>
+        <button class="mk" id="evNightmare">😱 악몽</button>
+        <button class="mk" id="evMark">🔨 표식 부여</button>
+        <button class="cs" id="evCurse">👻 저주 부여</button>
+        <button class="rm" id="evRemHit">💀 유해 피격</button>
+      </div>
+      <div class="note">표식/저주 대상 + 일괄 피격은 <b>뒤 멤버도</b> 동시에 모션·도장. 유해는 단계진행(1→2→3) + 피격 GIF.</div>
+    </div>
+    <div class="panel">
+      <h2>깊이 튜닝 (곱하기 + 축소)</h2>
+      <div class="row"><label>뒤 어둡기</label><input type="range" id="dark" min="0.2" max="1" step="0.05" value="0.45"><span class="val" id="darkV"></span></div>
+      <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.6"><span class="val" id="depthV"></span></div>
+      <div class="row"><label>퍼짐</label><input type="range" id="spread" min="40" max="130" step="2" value="92"><span class="val" id="spreadV"></span></div>
     </div>
   </aside>
 </main>
 
-<script src="piece-gifs.js?v=20260608u"></script>
+<script src="piece-gifs.js?v=20260610a"></script>
 <script>
 /* ───── 데이터 ───── */
 function U(type,owner,tier,hp,maxHp,status){ return {type,owner,tier,hp,maxHp,status:status||[],isRemains:false}; }
-function R(type){ return {type,owner:'remains',isRemains:true,hits:1}; }
+function R(){ return {owner:'remains',isRemains:true,stage:1}; }   // stage: 1=공통,2=1타,3=2타
 const SCN={
-  s1:()=>[ U('general','mine',2,3,3), U('witch','opp',2,2,2,['mark']), R('spearman') ],
-  s2:()=>[ U('general','mine',2,3,3), U('torturer','opp',3,2,2,['mark']), U('witch','opp',2,2,2,['mark']), U('spearman','opp',1,2,2,['mark']) ],
-  s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R('spearman'), R('archer') ],
+  s1:()=>[ U('general','mine',2,3,3), U('witch','opp',2,2,2,['mark']), R() ],
+  s2:()=>[ U('general','mine',2,3,3), U('torturer','opp',3,2,2,['mark']), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['curse']) ],
+  s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R(), R() ],
 };
 let units=[], frontIdx=0, busy=false, team=false;
-let unitYReal=null, unitXReal=null;   // 실제 셀 유닛 p-gif 중심(px, 셀 top 기준) — 타원 front 가 여기에 안착
-const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]),
-      REM=()=>window.REMAINS_IMG||'/art/remains.png';
-const DEATHURL=t=>(window.getPieceDeathGifUrl?window.getPieceDeathGifUrl(t):'/art/death_common.gif');
-const MARK_IDLE=()=>(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
-const CURSE_IDLE=()=>(window.CURSE_GIFS&&window.CURSE_GIFS.idle)||'/art/curse/curse_idle.gif';
+const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]);
+const MARK=k=>(window.MARK_GIFS&&window.MARK_GIFS[k]), CURSE=k=>(window.CURSE_GIFS&&window.CURSE_GIFS[k]);
+const REMSTAGE=s=>(window.REMAINS_STAGE_IMGS&&window.REMAINS_STAGE_IMGS[s])||'/art/remains.png';
+const REMHIT=n=>(window.REMAINS_HIT_GIFS&&window.REMAINS_HIT_GIFS[n]);
 function cellPx(){ return team?44:56; }
 function pfPx(){ return team?34:38; }
 function remPx(){ return team?60:74; }
 const v=id=>+document.getElementById(id).value;
-function tuning(){ return { op:v('silOp'), botDark:v('botDark'), spread:v('spread'), depthMin:v('depth') }; }
-
-/* 대표 = (유닛 우선) 고티어 → 저체력 → 상태이상多, 유해 후순위 */
+function tuning(){ return { dark:v('dark'), depthMin:v('depth'), spread:v('spread') }; }
 function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
-function repIndex(){ let best=0,bk=null;
-  units.forEach((u,i)=>{ const k=[u.isRemains?1:0,-(u.tier||0),(u.hp!=null?u.hp:99),-((u.status||[]).length)];
-    if(bk===null||cmp(k,bk)<0){bk=k;best=i;} }); return best; }
+function repIndex(){ let best=0,bk=null; units.forEach((u,i)=>{ const k=[u.isRemains?1:0,-(u.tier||0),(u.hp!=null?u.hp:99),-((u.status||[]).length)];
+  if(bk===null||cmp(k,bk)<0){bk=k;best=i;} }); return best; }
 
-/* ───── 렌더: 앞면=실제 인게임 구조, 뒤=실루엣 ───── */
-function render(){
-  const u=units[frontIdx];
-  const cell=document.getElementById('ttcell'); if(!cell) return;
-  let cls='cell', front='';
+/* ───── 멤버 = 실제 미니셀 ───── */
+function memHtml(u){
   if(u.isRemains){
-    cls+=' has-remains';
-    front=`<img class="remains-marker" src="${REM()}" alt="">`;
-  } else {
-    cls+=' has-piece';
-    let st='';
-    if(u.status&&u.status.includes('curse')){ cls+=' has-curse'; st+=`<img class="curse-board-layer" src="${CURSE_IDLE()}" alt="">`; }
-    if(u.status&&u.status.includes('mark')){  cls+=' has-mark';  st+=`<img class="mark-board-layer" src="${MARK_IDLE()}" alt="">`; }
-    front=`<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}" alt=""></span>`+
-          `<span class="p-hp">${u.hp}/${u.maxHp}</span>${st}</div>`;
+    const sz=remPx();
+    return `<div class="cell has-remains" style="width:${cellPx()}px;height:${cellPx()}px;position:relative;display:flex;align-items:center;justify-content:center">`+
+      `<img class="remains-marker rem-img" src="${REMSTAGE(u.stage||1)}" style="width:${sz}px;height:${sz}px"></div>`;
   }
-  cell.className=cls;
-  cell.innerHTML=`<div class="tt-silh-layer" id="ttsilh"><div class="tt-disc"></div></div>`+front;
-  renderSilhouettes();
-  document.getElementById('scaleinfo').textContent=
-    `셀 ${cellPx()}px · 겹침 ${units.length} · 대표(앞면): ${u.isRemains?'유해':u.type+(u.tier?` T${u.tier}`:'')} — 실제 인게임 구조`;
+  let cls='cell has-piece', st='';
+  if((u.status||[]).includes('curse')){ cls+=' has-curse'; st+=`<img class="curse-board-layer" src="${CURSE('idle')}">`; }
+  if((u.status||[]).includes('mark')){  cls+=' has-mark';  st+=`<img class="mark-board-layer" src="${MARK('idle')}">`; }
+  const col=u.owner==='opp'?'#f87171':'#86efac';
+  return `<div class="${cls}" style="width:${cellPx()}px;height:${cellPx()}px;position:relative;display:flex;align-items:center;justify-content:center">`+
+    `<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}"></span><span class="p-hp" style="color:${col}">${u.hp}/${u.maxHp}</span>${st}</div></div>`;
 }
-// 실제 셀 유닛 위치 측정(줌 무관) → 타원 front(=+RY)가 거기에 안착
-function measureUnitPos(){
-  const nc=document.querySelector('#board .cell.has-piece'); const pg=nc&&nc.querySelector('.p-gif'); if(!pg) return;
-  const ncr=nc.getBoundingClientRect(), pr=pg.getBoundingClientRect(); const cs=cellPx();
-  if(ncr.height>0){ unitYReal=((pr.top+pr.height/2)-ncr.top)/ncr.height*cs; unitXReal=((pr.left+pr.width/2)-ncr.left)/ncr.width*cs; }
-}
-// 타원 기하: 중심을 (실측 유닛 위치 − 1px 테두리) 기준으로, front(d=1)이 유닛 위치에 오게 CY=중심−RY
-function ellipseGeom(){
-  const T=tuning(), cs=cellPx(), cc=(cs-2)/2;
-  const RX=cs*T.spread, RY=cs*T.spread*0.42;
-  const ux=(unitXReal!=null?unitXReal-1:cc), uy=(unitYReal!=null?unitYReal-1:cc);
-  return { CX:ux, CY:uy-RY, RX, RY, T, cs };
-}
-function renderSilhouettes(){
-  const silh=document.getElementById('ttsilh'); if(!silh) return;
-  const {CX,CY,RX,RY,T}=ellipseGeom(); const N=units.length;
-  const dd=T.botDark, bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
-  silh.style.setProperty('--sbot',bot);
+function build(){
+  const t=document.getElementById('table'); t.innerHTML='';
   units.forEach((u,i)=>{
-    if(i===frontIdx) return;
-    const off=((i-frontIdx)%N+N)%N;
-    const ang=off*2*Math.PI/N, s=Math.sin(ang), d=Math.cos(ang);   // d:+1 앞 .. -1 뒤
+    const el=document.createElement('div'); el.className='tt-mem'; el.dataset.i=i;
+    el.innerHTML=memHtml(u);
+    el.addEventListener('click',()=>{ if(!busy) goTo(i); });
+    t.appendChild(el);
+  });
+  layout(0);
+}
+function geom(){ const T=tuning(), cs=cellPx();
+  const CX=150, CY=150, RX=T.spread, RY=T.spread*0.42;
+  return {CX,CY,RX,RY,T,cs}; }
+function frontFromRot(rot){ let b=0,bd=-2; const N=units.length;
+  for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>bd){bd=d;b=i;} } return b; }
+function layout(rot){
+  const {CX,CY,RX,RY,T}=geom(); const N=units.length; const front=frontFromRot(rot);
+  units.forEach((u,i)=>{
+    const el=document.querySelector(`.tt-mem[data-i="${i}"]`); if(!el)return;
+    const a=((i-frontIdx)*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);  // d:+1 앞 .. -1 뒤
     const back=(1-(d+1)/2);
     const scale=T.depthMin+(1-T.depthMin)*((d+1)/2);
-    const sz=Math.round((u.isRemains?remPx():pfPx())*scale);
-    const sprite=u.isRemains?REM():IDLE(u.type);
-    const el=document.createElement('div'); el.className='tt-silh'; el.dataset.i=i;
-    el.style.cssText=`width:${sz}px;height:${sz}px;left:${(CX+RX*s).toFixed(1)}px;top:${(CY+RY*d).toFixed(1)}px;`+
-      `transform:translate(-50%,-50%);z-index:${Math.round((d+1)*40)};`+
-      `opacity:${(T.op*(1-back*0.22)).toFixed(2)};`+
-      `-webkit-mask-image:url(${sprite});mask-image:url(${sprite})`;
-    el.addEventListener('click',()=>{ if(!busy) goTo(i); });
-    silh.appendChild(el);
+    const bright=T.dark+(1-T.dark)*((d+1)/2);            // ★ 곱하기(밝기) — 멀수록 어둡게
+    el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
+    el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
+    el.style.filter=`brightness(${bright.toFixed(2)})`;
+    el.style.zIndex=Math.round((d+1)*100);
+    el.classList.toggle('isfront', i===front);
   });
 }
 
-/* ───── 회전(궤도 애니) — 회전 중엔 모든 유닛이 타원을 돌고, 끝나면 실제 구조로 안착 ───── */
-function snapToRep(){ frontIdx=repIndex(); render(); }
-function buildOrbit(){
-  const cell=document.getElementById('ttcell'); cell.className='cell';
-  cell.innerHTML=`<div class="tt-silh-layer" id="ttsilh"><div class="tt-disc"></div></div><div id="ttorbit"></div>`;
-  const orbit=document.getElementById('ttorbit');
-  units.forEach((u,i)=>{
-    const sprite=u.isRemains?REM():IDLE(u.type), base=u.isRemains?remPx():pfPx();
-    const el=document.createElement('div'); el.className='tt-orbit'; el.dataset.i=i; el.dataset.base=base;
-    el.innerHTML=`<img class="real" src="${sprite}"><div class="silh" style="-webkit-mask-image:url(${sprite});mask-image:url(${sprite})"></div>`;
-    orbit.appendChild(el);
-  });
-}
-function positionOrbit(rot){
-  const orbit=document.getElementById('ttorbit'); if(!orbit) return;
-  const {CX,CY,RX,RY,T}=ellipseGeom(); const N=units.length;
-  const dd=T.botDark, bot=`rgb(${Math.round(42*(1-dd))},${Math.round(19*(1-dd))},${Math.round(64*(1-dd))})`;
-  orbit.style.setProperty('--sbot',bot);
-  let fb=-2, fbi=0;
-  for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>fb){fb=d;fbi=i;} }
-  [...orbit.children].forEach(el=>{
-    const i=+el.dataset.i, base=+el.dataset.base;
-    const a=((i-frontIdx)*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);
-    const backf=(1-(d+1)/2), scale=T.depthMin+(1-T.depthMin)*((d+1)/2), sz=Math.round(base*scale);
-    el.style.cssText=`position:absolute;width:${sz}px;height:${sz}px;left:${(CX+RX*s).toFixed(1)}px;top:${(CY+RY*d).toFixed(1)}px;transform:translate(-50%,-50%);z-index:${Math.round((d+1)*40)}`;
-    const real=el.querySelector('.real'), silh=el.querySelector('.silh');
-    real.style.width=silh.style.width=sz+'px'; real.style.height=silh.style.height=sz+'px';
-    if(i===fbi){ real.style.opacity='1'; silh.style.opacity='0'; }
-    else { real.style.opacity='0'; silh.style.opacity=(T.op*(1-backf*0.22)).toFixed(2); }
-  });
-}
-function shortestSteps(target){ const N=units.length; const fwd=((target-frontIdx)%N+N)%N; return fwd<=N-fwd?fwd:fwd-N; }
-function _rotate(delta){ return new Promise(res=>{
-  const N=units.length; if(!delta||N<=1){ render(); res(); return; }
-  const step=360/N, total=-delta*step, t0=performance.now(), dur=Math.min(640,260+Math.abs(delta)*150);
-  buildOrbit();
-  let done=false; const finish=()=>{ if(done)return; done=true; frontIdx=((frontIdx+delta)%N+N)%N; render(); res(); };
-  requestAnimationFrame(function frame(now){ if(done)return; const k=Math.min(1,(now-t0)/dur); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
-    positionOrbit(total*e);
-    if(k<1) requestAnimationFrame(frame); else finish(); });
-  setTimeout(finish, dur+280);   // 안전망 — 백그라운드 rAF 스로틀 시에도 안착 보장
-}); }
-function rotateSteps(delta){ if(busy||!delta)return Promise.resolve(); busy=true; return _rotate(delta).then(()=>{ busy=false; }); }
+/* ───── 회전 ───── */
+function shortest(target){ const N=units.length; const fwd=((target-frontIdx)%N+N)%N; return fwd<=N-fwd?fwd:fwd-N; }
+function _rotate(delta){ return new Promise(res=>{ const N=units.length; if(!delta||N<=1){layout(0);res();return;}
+  const step=360/N, total=-delta*step, t0=performance.now(), dur=Math.min(600,240+Math.abs(delta)*140);
+  let done=false; const fin=()=>{ if(done)return; done=true; frontIdx=((frontIdx+delta)%N+N)%N; layout(0); res(); };
+  requestAnimationFrame(function f(now){ if(done)return; const k=Math.min(1,(now-t0)/dur); const e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+    layout(total*e); if(k<1)requestAnimationFrame(f); else fin(); });
+  setTimeout(fin,dur+280); }); }
+function rotateSteps(delta){ if(busy||!delta)return Promise.resolve(); busy=true; return _rotate(delta).then(()=>busy=false); }
 function nav(dir){ rotateSteps(dir); }
-function goTo(target){ rotateSteps(shortestSteps(target)); }
+function goTo(t){ rotateSteps(shortest(t)); }
+function snapRep(){ frontIdx=repIndex(); layout(0); }
 
-/* ───── 대표 피격 (앞면 실제 .piece-marker 에 hit GIF + 흔들림 + 도장) ───── */
-function dmgStamp(text,kind){ const cell=document.getElementById('ttcell'); const r=cell.getBoundingClientRect();
-  const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
-  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top+r.height*0.12)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
+/* ───── 이벤트 헬퍼 (전 멤버 대상) ───── */
+function memEl(i){ return document.querySelector(`.tt-mem[data-i="${i}"]`); }
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
-async function playAttack(){
-  if(busy)return; busy=true; const log=document.getElementById('seqlog');
-  const victims=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp');
-  if(!victims.length){ log.innerHTML='표식 적이 없습니다. 시나리오 ②③ 으로.'; busy=false; return; }
-  const rep=victims.slice().sort((a,b)=>{ if((b.u.tier||0)!==(a.u.tier||0))return (b.u.tier||0)-(a.u.tier||0);
-    if((a.u.hp||0)!==(b.u.hp||0))return (a.u.hp||0)-(b.u.hp||0); return ((b.u.status||[]).length)-((a.u.status||[]).length); })[0];
-  const why=victims.length===1?'단일':`${victims.length}명 중 고티어(T${rep.u.tier})`+(victims.filter(x=>x.u.tier===rep.u.tier).length>1?` → 저체력(${rep.u.hp})`:'');
-  log.innerHTML=`① 대표 피격자 <b>${rep.u.type}</b> 앞면 회전 <span style="color:#8a8298">(${why})</span>`;
-  await _rotate(shortestSteps(rep.i)); await wait(80);
-  const cell=document.getElementById('ttcell'); const pm=cell.querySelector('.piece-marker'); const im=pm&&pm.querySelector('.p-gif'); const base=im&&im.src;
-  log.innerHTML=`① 대표 <b>${rep.u.type}</b> 앞면 → ② 피격 + 도장 −2 <span style="color:#8a8298">(${why})</span>`+
-    (victims.length>1?`<br><span style="color:#8a8298">나머지(${victims.filter(x=>x!==rep).map(x=>x.u.type).join(', ')})는 뒤 실루엣 — 화면 안정.</span>`:'');
-  if(pm) pm.style.animation='ttShake .34s ease';
-  if(im&&HIT(rep.u.type)) im.src=HIT(rep.u.type);
-  dmgStamp('−2'); await wait(540);
-  if(im&&base) im.src=base; if(pm) pm.style.animation='';
-  rep.u.hp=Math.max(0,(rep.u.hp||2)-2); render(); busy=false;
-}
+function stampOn(i,text,kind){ const el=memEl(i); if(!el)return; const mk=el.querySelector('.piece-marker,.remains-marker'); const r=(mk||el).getBoundingClientRect();
+  const s=document.createElement('span'); s.className='board-dmg-stamp '+(kind||'normal'); s.textContent=text;
+  s.style.left=(r.left+r.width/2)+'px'; s.style.top=(r.top-2)+'px'; document.body.appendChild(s); setTimeout(()=>s.remove(),1000); }
+function shake(i){ const mk=memEl(i)&&memEl(i).querySelector('.piece-marker,.remains-marker'); if(mk){ mk.style.animation='none'; void mk.offsetWidth; mk.style.animation='ttShake .34s ease'; setTimeout(()=>{mk.style.animation='';},360);} }
+function overlay(i,url,sizeFactor,behind){ const el=memEl(i); if(!el)return; const host=el.querySelector('.piece-marker')||el.querySelector('.cell'); if(!host)return;
+  const pg=el.querySelector('.p-gif')||el.querySelector('.remains-marker'); const base=pg?parseFloat(getComputedStyle(pg).width):pfPx();
+  const sz=Math.round(base*(sizeFactor||1.6));
+  const ov=document.createElement('img'); ov.src=url; ov.alt='';
+  ov.style.cssText=`position:absolute;left:50%;top:42%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%);`+
+    `z-index:${behind?0:30};pointer-events:none;image-rendering:pixelated;object-fit:contain;`+
+    `filter:drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000)`;
+  host.appendChild(ov); setTimeout(()=>{ try{ov.remove();}catch(e){} },1200); return ov; }
 
-/* ───── 사망 모션 (앞면 → 실제 .death-anim-overlay → 유해) ───── */
-async function playDeath(){
-  if(busy)return; busy=true; const log=document.getElementById('seqlog');
-  const u=units[frontIdx];
-  if(u.isRemains){ log.innerHTML='이미 유해입니다. 다른 유닛을 앞으로 돌리세요.'; busy=false; return; }
-  const cell=document.getElementById('ttcell'); const pm=cell.querySelector('.piece-marker');
-  log.innerHTML=`💀 <b>${u.type}</b> 사망 — 실제 .death-anim-overlay(셀 중앙 +translateY −6) 재생 → 유해 전환`;
-  if(pm) pm.style.visibility='hidden';
-  const ov=document.createElement('div'); ov.className='death-anim-overlay';
-  ov.innerHTML=`<img class="death-gif" src="${DEATHURL(u.type)}" data-death-type="${u.type}" alt="">`;
-  cell.appendChild(ov);
-  await wait(950); ov.remove();
-  units[frontIdx]={type:u.type,owner:'remains',isRemains:true,hits:0};
-  render();
-  log.innerHTML=`💀 <b>${u.type}</b> 사망 → 유해 생성(실제 .remains-marker). 우측 일반 셀 유해와 같은 위치/크기인지 비교.`;
-  busy=false;
-}
-
-/* ───── 비교용 보드(좌:일반유닛, 가운데:테이블셀, 우:일반유해) — 전부 실제 구조 ───── */
-function buildBoard(){
-  const b=document.getElementById('board'); b.innerHTML='';
-  b.insertAdjacentHTML('beforeend',`<div class="cell has-piece"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('spearman')}"></span><span class="p-hp">2/2</span></div></div>`);
-  const c=document.createElement('div'); c.className='cell'; c.id='ttcell'; b.appendChild(c);
-  b.insertAdjacentHTML('beforeend',`<div class="cell has-remains"><img class="remains-marker" src="${REM()}"></div>`);
-  measureUnitPos();
-}
+/* 일괄 피격 — 모든(또는 적) 유닛 동시 hit GIF + 흔들림 + 도장 */
+async function evHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const targets=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains);
+  log.innerHTML='⚔ 일괄 피격 — 앞·뒤 멤버 <b>동시</b> 피격모션 + 데미지 도장(전원).';
+  targets.forEach(({u,i})=>{ const im=memEl(i)&&memEl(i).querySelector('.p-gif'); const baseSrc=im&&im.src;
+    if(im&&HIT(u.type)) im.src=HIT(u.type); shake(i); stampOn(i,'−2'); setTimeout(()=>{ if(im&&baseSrc)im.src=baseSrc; },560); });
+  await wait(700); busy=false; }
+/* 저주 틱 — 저주 멤버 전원 동시 망령 데미지 + 도장(보라) */
+async function evCurseTick(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const cursed=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains&&(x.u.status||[]).includes('curse'));
+  if(!cursed.length){ log.innerHTML='저주 상태 멤버가 없습니다. ②③ 시나리오 또는 저주 부여.'; busy=false; return; }
+  log.innerHTML='💥 저주 틱 — 저주 멤버 <b>전원 동시</b> 망령 데미지 + 도장.';
+  cursed.forEach(({i})=>{ overlay(i,CURSE('damage'),1.5,false); shake(i); setTimeout(()=>stampOn(i,'−1','curse'),300); });
+  await wait(900); busy=false; }
+/* 악몽 — 표식 멤버 전원 동시 악몽 GIF(표식 위치 2배) + 도장 */
+async function evNightmare(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const marked=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains&&(x.u.status||[]).includes('mark'));
+  if(!marked.length){ log.innerHTML='표식 상태 멤버가 없습니다.'; busy=false; return; }
+  log.innerHTML='😱 악몽 — 표식 멤버 <b>전원 동시</b> 악몽 모션 + 도장(4프레임 일괄).';
+  marked.forEach(({i})=>{ const ml=memEl(i)&&memEl(i).querySelector('.mark-board-layer'); const f=2; overlay(i,MARK('nightmare'),(ml?2:1.9),false); });
+  await wait(520); marked.forEach(({i})=>{ shake(i); stampOn(i,'−1'); }); await wait(700); busy=false; }
+/* 표식 부여 — 대표(앞) 적에게 표식 생성 모션 → idle 추가 */
+async function evMark(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const t=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp'&&!(x.u.status||[]).includes('mark'))[0];
+  if(!t){ log.innerHTML='표식 줄 적이 없습니다.'; busy=false; return; }
+  log.innerHTML=`🔨 표식 부여 — ${t.u.type} 정수리에 생성 모션 → idle.`;
+  overlay(t.i,MARK('summon'),1.0,false); await wait(900);
+  t.u.status=t.u.status||[]; if(!t.u.status.includes('mark'))t.u.status.push('mark'); build(); snapRep(); busy=false; }
+/* 저주 부여 — 대표(앞) 적에게 망령 소환 → idle 추가 */
+async function evCurse(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const t=units.map((u,i)=>({u,i})).filter(x=>x.u.owner==='opp'&&!(x.u.status||[]).includes('curse'))[0];
+  if(!t){ log.innerHTML='저주 줄 적이 없습니다.'; busy=false; return; }
+  log.innerHTML=`👻 저주 부여 — ${t.u.type} 뒤 망령 소환 → idle.`;
+  overlay(t.i,CURSE('summon'),1.5,true); await wait(1000);
+  t.u.status=t.u.status||[]; if(!t.u.status.includes('curse'))t.u.status.push('curse'); build(); snapRep(); busy=false; }
+/* 유해 피격 — 유해 멤버 전원 단계진행(1→2→3) + 피격 GIF + 도장 */
+async function evRemHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
+  const rems=units.map((u,i)=>({u,i})).filter(x=>x.u.isRemains&&(x.u.stage||1)<3);
+  if(!rems.length){ log.innerHTML='더 피격할 유해가 없습니다(3단계 도달).'; busy=false; return; }
+  log.innerHTML='💀 유해 피격 — 유해 단계진행 + 피격 GIF + 도장(전원).';
+  rems.forEach(({u,i})=>{ const n=(u.stage||1); const g=REMHIT(n); if(g){ const im=memEl(i)&&memEl(i).querySelector('.rem-img'); if(im)im.src=g; } shake(i); stampOn(i,'−1'); });
+  await wait(700);
+  rems.forEach(({u,i})=>{ u.stage=(u.stage||1)+1; const im=memEl(i)&&memEl(i).querySelector('.rem-img'); if(im)im.src=REMSTAGE(u.stage); });
+  busy=false; }
 
 /* ───── 컨트롤 ───── */
-function applyZoom(){ const z=v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(1)+'×'; }
-function loadScn(id){ units=SCN[id](); busy=false; buildBoard(); snapToRep();
-  document.getElementById('seqlog').innerHTML='◀▶ 회전 / 뒤 실루엣 클릭으로 앞면 전환 / “대표 피격·사망 모션” 확인.'; }
-['silOp','botDark','spread','depth'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
-  const upd=()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); renderSilhouettes(); }; e.addEventListener('input',upd); });
+function applyZoom(){ const z=v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(2)+'×'; }
+function loadScn(id){ units=SCN[id](); busy=false; build(); snapRep();
+  document.getElementById('seqlog').innerHTML='◀▶ 회전, 이벤트 버튼으로 전원 애니 확인.'; }
+['dark','depth','spread'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
+  e.addEventListener('input',()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); layout(0); }); });
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team-mode',team); buildBoard(); snapToRep(); }));
+  team=b.dataset.mode==='2v2'; document.body.classList.toggle('team-mode',team); build(); snapRep(); }));
 document.getElementById('rotL').addEventListener('click',()=>nav(-1));
 document.getElementById('rotR').addEventListener('click',()=>nav(1));
-document.getElementById('btnAttack').addEventListener('click',playAttack);
-document.getElementById('btnDeath').addEventListener('click',playDeath);
-
-const _kf=document.createElement('style');
-_kf.textContent='@keyframes ttShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}50%{transform:translateX(3px)}75%{transform:translateX(-2px)}}';
-document.head.appendChild(_kf);
-['silOp','botDark','spread','depth'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
+document.getElementById('evHit').addEventListener('click',evHit);
+document.getElementById('evCurseTick').addEventListener('click',evCurseTick);
+document.getElementById('evNightmare').addEventListener('click',evNightmare);
+document.getElementById('evMark').addEventListener('click',evMark);
+document.getElementById('evCurse').addEventListener('click',evCurse);
+document.getElementById('evRemHit').addEventListener('click',evRemHit);
+['dark','depth','spread','zoom'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
 function init(){ if(window.PIECE_GIFS&&window.MARK_GIFS&&window.CURSE_GIFS){ applyZoom(); loadScn('s1'); } else setTimeout(init,80); }
 init();
 </script>
