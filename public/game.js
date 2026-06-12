@@ -19108,9 +19108,9 @@ function playDeathAnimations(deaths, callback) {
             setTimeout(() => {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
-              // ★ 딤 해제 + 사망 마커 복원 (renderGameBoard 가 재구축하므로 안전)
+              // ★ 딤 해제만. 죽은 유닛 idle 마커는 복원하지 않음 — done()→renderGameBoard 가
+              //   셀을 유해로 재구축할 때까지 숨김 유지(다중 사망 시 콜백 지연 동안 idle 잔상 방지).
               if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
-              if (dyingMarker) { dyingMarker.style.display = ''; }
               done();
             }, totalMs);
           }).catch(() => {
@@ -19118,14 +19118,12 @@ function playDeathAnimations(deaths, callback) {
               URL.revokeObjectURL(blobUrl);
               if (overlay.parentNode) overlay.remove();
               if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
-              if (dyingMarker) { dyingMarker.style.display = ''; }
               done();
             }, 900);
           });
         });
       }).catch(() => {
         if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
-        if (dyingMarker) { dyingMarker.style.display = ''; }
         if (overlay.parentNode) overlay.remove();
         done();
       });
