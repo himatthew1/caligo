@@ -103,11 +103,16 @@ function autoFitLeftCol(leftCol) {
   });
 }
 
-// 왕실/악인 도장 SVG 뱃지 (단일 이미지, 크기/모양 고정)
+// 팩션 도장 뱃지 — PNG 도장 + 팩션 대표색 글로우(1.5px). 5팩션 지원: royal/villain/spirit/pagan/none.
+//   현재 royal/villain 만 캐릭터에 배정됨. spirit/pagan/none 은 예약(데이터/렌더만 준비 — 배정 시 자동 표시).
+const _FACTION_LABELS = { royal: '왕실', villain: '악인', spirit: '정령', pagan: '이교도', none: '무소속' };
 function tagBadgeHtml(tag) {
   if (!tag) return '';
-  const id = tag === 'royal' ? 'stamp-royal' : 'stamp-villain';
-  return `<span class="tag-badge ${tag}" title="${tag === 'royal' ? '왕실' : '악인'}"><svg><use href="#${id}"/></svg></span>`;
+  const t = _FACTION_LABELS[tag] ? tag : 'none';
+  const stamps = window.FACTION_STAMPS || {};
+  const src = stamps[t] || '';
+  const label = _FACTION_LABELS[t];
+  return `<span class="tag-badge ${t}" title="${label}"><img class="tag-stamp" src="${src}" alt="${label}"></span>`;
 }
 
 // ── 캐릭터 아이콘 <img> 생성 헬퍼 ──────────────────────────────────────

@@ -2015,31 +2015,29 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .char-skill { font-size: 0.7rem; color: #a78bfa; margin-top: 2px; }
 .char-card-info { flex: 1; }
 
-/* 태그 뱃지 */
-/* 왕실/악인 — SVG 단일 이미지 도장 (크기/모양 완전 고정, 글자 깨짐 방지) */
+/* 팩션 도장 뱃지 — PNG 도장 + 팩션 대표색 글로우(currentColor 기반, 1.5px) */
 .tag-badge {
   display: inline-block;
   width: 24px; height: 24px;
   margin-left: 6px;
   vertical-align: middle;
   flex-shrink: 0;
-  font-size: 0 !important;
   line-height: 0;
   overflow: visible;
-  background: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  box-shadow: none !important;
-  color: transparent !important;
 }
-.tag-badge svg {
+.tag-badge .tag-stamp {
   width: 100%; height: 100%;
   display: block;
-  filter: drop-shadow(0 0 2px currentColor);
+  object-fit: contain;
+  image-rendering: pixelated;
+  /* 글로우 = drop-shadow currentColor 2겹 (1.5px + 0.7px) — 위젯에서 확정한 1.5 세기 */
+  filter: drop-shadow(0 0 1.5px currentColor) drop-shadow(0 0 0.7px currentColor);
 }
-.tag-badge.royal   { color: var(--royal); }
-.tag-badge.villain { color: var(--villain); }
+.tag-badge.royal   { color: #f0c040; }
+.tag-badge.villain { color: #a855f4; }
+.tag-badge.spirit  { color: #7ec850; }
+.tag-badge.pagan   { color: #e0564f; }
+.tag-badge.none    { color: #b9b9d4; }
 
 /* ── HP 분배 ── */
 .hp-container { max-width: 540px; width: 100%; padding: 32px; text-align: center; }

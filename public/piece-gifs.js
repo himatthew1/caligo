@@ -397,11 +397,30 @@
     return c;
   }
 
+  // ── 팩션 도장 (왕실/악인/정령/이교도/무소속) ─────────────────────────────
+  // 캐릭터 tag → 도장 PNG. 현재 royal/villain 만 캐릭터에 배정, spirit/pagan/none 은 예약(데이터만).
+  window.FACTION_STAMPS = {
+    royal:   '/assets/factions/royal.png',
+    villain: '/assets/factions/villain.png',
+    spirit:  '/assets/factions/spirit.png',
+    pagan:   '/assets/factions/pagan.png',
+    none:    '/assets/factions/none.png',
+  };
+  // 팩션 대표색 (도장 글로우 = drop-shadow currentColor 용)
+  window.FACTION_COLORS = {
+    royal:   '#f0c040',
+    villain: '#a855f4',
+    spirit:  '#7ec850',
+    pagan:   '#e0564f',
+    none:    '#b9b9d4',
+  };
+
   // ── 빠른 브라우저 캐시 주입 (DOMContentLoaded 직후용 — 동기) ───────────
   // HTTP fetch 를 병렬로 시작하는 것만으로도 다운로드를 앞당길 수 있음.
   // 실제 디코드 완료(decode cache 채움)는 preloadAllAsync 가 담당한다.
   window.preloadGameImages = function () {
     const knownUrls = new Set([
+      ...Object.values(window.FACTION_STAMPS    || {}),  // ★ 팩션 도장
       ...Object.values(window.PIECE_GIFS        || {}),
       ...Object.values(window.PIECE_HIT_GIFS    || {}),
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),
@@ -497,6 +516,7 @@
     // ── 전체 URL 목록 ────────────────────────────────────────────────
     // 공격/피격 GIF 우선 (가장 먼저 디코드 캐시에 올려야 할 것들)
     const allUrls = new Set([
+      ...Object.values(window.FACTION_STAMPS    || {}),  // ★ 팩션 도장
       ...Object.values(window.PIECE_ATTACK_GIFS || {}),  // 공격 GIF
       ...Object.values(window.PIECE_HIT_GIFS    || {}),  // 피격 GIF
       ...Object.values(window.PIECE_DEATH_GIFS  || {}),  // 사망 GIF
