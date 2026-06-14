@@ -25,7 +25,7 @@
     position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
   body.team-mode #board .cell{--cs:44px}
   /* 멤버 = 실제 미니셀(피스마커/상태/유해 그대로) — 셀 안 작은 타원에 배치, 깊이=축소+곱하기(brightness) */
-  .tt-mem{position:absolute;will-change:transform,left,top;pointer-events:auto;cursor:pointer}
+  .tt-mem{position:absolute;will-change:transform,left,top,opacity;pointer-events:auto;cursor:pointer;transition:opacity .3s ease}
   #ttcell.two .tt-mem{transition:left .4s ease, top .4s ease, transform .4s ease}  /* 2인 전용 자리바꿈 부드럽게 */
   .tt-mem > .cell{border:none !important;background:none !important;overflow:visible}
   /* ★ 멀수록 어두워지되 검정이 아니라 보라빛 — 스프라이트 알파에 보라 그라데이션 곱하기(multiply), opacity=깊이 */
@@ -207,7 +207,6 @@ function layout(rot){
   const shownSet=new Set(depths.slice().sort((p,q)=>q.d-p.d).slice(0,Math.max(1,Math.min(N,T.maxShown))).map(x=>x.i));
   units.forEach((u,i)=>{
     const el=document.querySelector(`.tt-mem[data-i="${i}"]`); if(!el)return;
-    if(!shownSet.has(i)){ el.style.display='none'; return; }
     el.style.display='';
     const a=((i-frontIdx)*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);  // d:+1 앞 .. -1 뒤
     const back=(1-(d+1)/2);
@@ -215,6 +214,10 @@ function layout(rot){
     el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
     el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
     el.style.zIndex=Math.round((d+1)*100);
+    // ★ 수용 초과로 안 보이는 멤버는 opacity 페이드아웃(띡 사라짐 방지). 위치는 그대로(타원 뒤에서 흐려짐).
+    const shown=shownSet.has(i);
+    el.style.opacity=shown?'1':'0';
+    el.style.pointerEvents=shown?'':'none';
     // ★ 보라 곱하기 틴트 — 멀수록 진하게(opacity). 검정 대신 보라빛으로 어두워짐.
     const tintOp=(back*T.tint).toFixed(2);
     el.querySelectorAll('.mem-tint,.rem-tint').forEach(t=>{ t.style.opacity=tintOp; });
