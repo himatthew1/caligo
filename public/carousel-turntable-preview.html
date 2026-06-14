@@ -25,8 +25,17 @@
     position:relative;display:flex;align-items:center;justify-content:center;overflow:visible}
   body.team-mode #board .cell{--cs:44px}
   /* 멤버 = 실제 미니셀(피스마커/상태/유해 그대로) — 셀 안 작은 타원에 배치, 깊이=축소+곱하기(brightness) */
-  .tt-mem{position:absolute;will-change:transform,left,top,filter;transition:filter .25s;pointer-events:auto;cursor:pointer}
+  .tt-mem{position:absolute;will-change:transform,left,top;pointer-events:auto;cursor:pointer}
   .tt-mem > .cell{border:none !important;background:none !important;overflow:visible}
+  /* ★ 멀수록 어두워지되 검정이 아니라 보라빛 — 스프라이트 알파에 보라 그라데이션 곱하기(multiply), opacity=깊이 */
+  .mem-tint{position:absolute;inset:0;background:linear-gradient(to bottom,#9a6ff2 0%,#43257e 58%,#190d33 100%);
+    mix-blend-mode:multiply;-webkit-mask-size:contain;mask-size:contain;-webkit-mask-position:center;mask-position:center;
+    -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;pointer-events:none;opacity:0;transition:opacity .25s;z-index:4}
+  .tt-mem .piece-marker .p-icon{position:relative}
+  .rem-tint{position:absolute;top:50%;left:50%;transform:translate(-50%,calc(-50% - 6px));
+    background:linear-gradient(to bottom,#9a6ff2 0%,#43257e 58%,#190d33 100%);mix-blend-mode:multiply;
+    -webkit-mask-size:contain;mask-size:contain;-webkit-mask-position:center;mask-position:center;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;
+    pointer-events:none;opacity:0;transition:opacity .25s;z-index:3}
   .cellcap{display:flex;flex-direction:column;align-items:center;gap:4px}
   .cellcap .cl{font-size:8.5px;color:#6f6885;text-align:center}
   .seqlog{width:100%;min-height:38px;background:#0a0d12;border:1px solid #2e2842;border-radius:8px;
@@ -66,6 +75,7 @@
     <div class="zoomarea"><div id="zoomwrap">
       <div class="cellcap"><div id="board"></div><div class="cl">가운데 = 겹친 칸(전원 한 셀 안) · 좌 = 일반 유닛 · 우 = 일반 유해(비교)</div></div>
     </div></div>
+    <div class="scaleinfo" id="memInfo" style="font-size:10px;color:#8a8298"></div>
     <div class="seqlog" id="seqlog">시나리오·모드를 고르고 ◀▶ 회전, 이벤트 버튼으로 전원 애니를 확인하세요.</div>
   </div>
 
@@ -81,6 +91,7 @@
         <button class="scn on" data-scn="s1">① 장군 + 표식 마녀 + 유해</button>
         <button class="scn" data-scn="s2">② 적 3 (표식·저주 섞임)</button>
         <button class="scn" data-scn="s3">③ 혼잡 — 적 2 + 유해 2 (5)</button>
+        <button class="scn" data-scn="s4">④ 풀 — 10마리 (인게임 최대급)</button>
       </div>
     </div>
     <div class="panel">
@@ -101,10 +112,12 @@
       <div class="note">표식/저주 대상 + 일괄 피격은 <b>뒤 멤버도</b> 동시에 모션·도장. 유해는 단계진행(1→2→3) + 피격 GIF.</div>
     </div>
     <div class="panel">
-      <h2>깊이 튜닝 (곱하기 + 축소)</h2>
-      <div class="row"><label>뒤 어둡기</label><input type="range" id="dark" min="0.2" max="1" step="0.05" value="0.45"><span class="val" id="darkV"></span></div>
+      <h2>깊이 / 표시 인원</h2>
+      <div class="row"><label>보라 진하기</label><input type="range" id="tint" min="0" max="1" step="0.05" value="0.7"><span class="val" id="tintV"></span></div>
       <div class="row"><label>뒤 작게</label><input type="range" id="depth" min="0.4" max="1" step="0.05" value="0.6"><span class="val" id="depthV"></span></div>
       <div class="row"><label>퍼짐</label><input type="range" id="spread" min="0.18" max="0.5" step="0.02" value="0.32"><span class="val" id="spreadV"></span></div>
+      <div class="row"><label>표시 인원</label><input type="range" id="maxShown" min="3" max="10" step="1" value="6"><span class="val" id="maxShownV"></span></div>
+      <div class="note">수용은 무제한, 화면엔 깊이 상위 N명만 표시(나머지는 회전으로). 5명만 돼도 붐비므로 제한 필수.</div>
     </div>
   </aside>
 </main>
@@ -118,6 +131,9 @@ const SCN={
   s1:()=>[ U('general','mine',2,3,3), U('witch','opp',2,2,2,['mark']), R() ],
   s2:()=>[ U('general','mine',2,3,3), U('torturer','opp',3,2,2,['mark']), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['curse']) ],
   s3:()=>[ U('general','mine',2,3,3), U('knight','opp',2,1,2,['mark','curse']), U('witch','opp',2,2,2,['mark']), R(), R() ],
+  s4:()=>[ U('general','mine',2,3,3), U('knight','mine',2,2,2), U('spearman','mine',1,2,2),
+    U('torturer','opp',3,2,2,['mark']), U('witch','opp',2,1,2,['mark','curse']), U('prince','opp',3,2,2),
+    U('archer','opp',1,2,2,['curse']), U('cavalry','opp',1,2,2,['mark']), R(), R() ],   // 10마리(인게임 최대급)
 };
 let units=[], frontIdx=0, busy=false, team=false;
 const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]);
@@ -128,7 +144,7 @@ function cellPx(){ return team?44:56; }
 function pfPx(){ return team?34:38; }
 function remPx(){ return team?60:74; }
 const v=id=>+document.getElementById(id).value;
-function tuning(){ return { dark:v('dark'), depthMin:v('depth'), spread:v('spread') }; }
+function tuning(){ return { tint:v('tint'), depthMin:v('depth'), spread:v('spread'), maxShown:v('maxShown') }; }
 function cmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i])return a[i]<b[i]?-1:1; } return 0; }
 function repIndex(){ let best=0,bk=null; units.forEach((u,i)=>{ const k=[u.isRemains?1:0,-(u.tier||0),(u.hp!=null?u.hp:99),-((u.status||[]).length)];
   if(bk===null||cmp(k,bk)<0){bk=k;best=i;} }); return best; }
@@ -136,16 +152,18 @@ function repIndex(){ let best=0,bk=null; units.forEach((u,i)=>{ const k=[u.isRem
 /* ───── 멤버 = 실제 미니셀 ───── */
 function memHtml(u){
   if(u.isRemains){
-    const sz=remPx();
+    const sz=remPx(), rsrc=REMSTAGE(u.stage||1);
     return `<div class="cell has-remains" style="width:${cellPx()}px;height:${cellPx()}px;position:relative;display:flex;align-items:center;justify-content:center">`+
-      `<img class="remains-marker rem-img" src="${REMSTAGE(u.stage||1)}" style="width:${sz}px;height:${sz}px"></div>`;
+      `<img class="remains-marker rem-img" src="${rsrc}" style="width:${sz}px;height:${sz}px">`+
+      `<div class="rem-tint" style="width:${sz}px;height:${sz}px;-webkit-mask-image:url(${rsrc});mask-image:url(${rsrc})"></div></div>`;
   }
   let cls='cell has-piece', st='';
   if((u.status||[]).includes('curse')){ cls+=' has-curse'; st+=`<img class="curse-board-layer" src="${CURSE('idle')}">`; }
   if((u.status||[]).includes('mark')){  cls+=' has-mark';  st+=`<img class="mark-board-layer" src="${MARK('idle')}">`; }
-  const col=u.owner==='opp'?'#f87171':'#86efac';
+  const col=u.owner==='opp'?'#f87171':'#86efac', g=IDLE(u.type);
   return `<div class="${cls}" style="width:${cellPx()}px;height:${cellPx()}px;position:relative;display:flex;align-items:center;justify-content:center">`+
-    `<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}"></span><span class="p-hp" style="color:${col}">${u.hp}/${u.maxHp}</span>${st}</div></div>`;
+    `<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${g}"><div class="mem-tint" style="-webkit-mask-image:url(${g});mask-image:url(${g})"></div></span>`+
+    `<span class="p-hp" style="color:${col}">${u.hp}/${u.maxHp}</span>${st}</div></div>`;
 }
 function build(){
   const b=document.getElementById('board'); b.innerHTML='';
@@ -170,18 +188,25 @@ function frontFromRot(rot){ let b=0,bd=-2; const N=units.length;
   for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; const d=Math.cos(a); if(d>bd){bd=d;b=i;} } return b; }
 function layout(rot){
   const {CX,CY,RX,RY,T}=geom(); const N=units.length; const front=frontFromRot(rot);
+  // 표시 인원 제한 — 깊이 상위 maxShown 명만 보이게(셀이 너무 붐비지 않게). 나머지는 숨김.
+  const depths=[]; for(let i=0;i<N;i++){ const a=((i-frontIdx)*360/N+rot)*Math.PI/180; depths.push({i,d:Math.cos(a)}); }
+  const shownSet=new Set(depths.slice().sort((p,q)=>q.d-p.d).slice(0,Math.max(1,Math.min(N,T.maxShown))).map(x=>x.i));
   units.forEach((u,i)=>{
     const el=document.querySelector(`.tt-mem[data-i="${i}"]`); if(!el)return;
+    if(!shownSet.has(i)){ el.style.display='none'; return; }
+    el.style.display='';
     const a=((i-frontIdx)*360/N+rot)*Math.PI/180, s=Math.sin(a), d=Math.cos(a);  // d:+1 앞 .. -1 뒤
     const back=(1-(d+1)/2);
     const scale=T.depthMin+(1-T.depthMin)*((d+1)/2);
-    const bright=T.dark+(1-T.dark)*((d+1)/2);            // ★ 곱하기(밝기) — 멀수록 어둡게
     el.style.left=(CX+RX*s)+'px'; el.style.top=(CY+RY*d)+'px';
     el.style.transform=`translate(-50%,-50%) scale(${scale.toFixed(3)})`;
-    el.style.filter=`brightness(${bright.toFixed(2)})`;
     el.style.zIndex=Math.round((d+1)*100);
+    // ★ 보라 곱하기 틴트 — 멀수록 진하게(opacity). 검정 대신 보라빛으로 어두워짐.
+    const tintOp=(back*T.tint).toFixed(2);
+    el.querySelectorAll('.mem-tint,.rem-tint').forEach(t=>{ t.style.opacity=tintOp; });
     el.classList.toggle('isfront', i===front);
   });
+  var info=document.getElementById('memInfo'); if(info) info.textContent=`총 ${N}마리 · 표시 ${Math.min(N,T.maxShown)} (대표 1 + 뒤 ${Math.min(N,T.maxShown)-1})`;
 }
 
 /* ───── 회전 ───── */
@@ -232,12 +257,19 @@ function markSummonAnim(i){ const el=memEl(i); const cellEl=el&&el.querySelector
   const im=document.createElement('img'); im.className='mark-board-layer'; im.src=MARK('summon'); im.alt='';
   mk.appendChild(im); setTimeout(()=>{ try{im.remove();}catch(e){} },1000); }
 
-/* 일괄 피격 — 모든(또는 적) 유닛 동시 hit GIF + 흔들림 + 도장 */
+// 유해 1체 피격 — 인게임 animateRemainsHit 처럼 단계진행 + 피격 GIF + 도장(흔들림은 GIF 내장).
+function remHitMember(u,i){ const n=(u.stage||1); if(n>=3)return; const g=REMHIT(n);
+  const im=memEl(i)&&memEl(i).querySelector('.rem-img'); if(im&&g)im.src=g; stampOn(i,'−1');
+  setTimeout(()=>{ u.stage=(u.stage||1)+1; const im2=memEl(i)&&memEl(i).querySelector('.rem-img'); const ns=REMSTAGE(u.stage);
+    if(im2)im2.src=ns; const tt=memEl(i)&&memEl(i).querySelector('.rem-tint'); if(tt){ tt.style.webkitMaskImage='url('+ns+')'; tt.style.maskImage='url('+ns+')'; } }, 700); }
+/* 일괄 피격 — 한 셀의 전원(유닛+유해) 동시 피격. (인게임: hits 의 모든 셀에 동시 발동, 유해도 함께) */
 async function evHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
-  const targets=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains);
-  log.innerHTML='⚔ 일괄 피격 — 앞·뒤 멤버 <b>동시</b> 피격모션 + 데미지 도장(전원).';
-  targets.forEach(({u,i})=>{ const im=memEl(i)&&memEl(i).querySelector('.p-gif'); const baseSrc=im&&im.src;
-    if(im&&HIT(u.type)) im.src=HIT(u.type); shake(i); stampOn(i,'−2'); setTimeout(()=>{ if(im&&baseSrc)im.src=baseSrc; },560); });
+  log.innerHTML='⚔ 일괄 피격 — 한 셀의 <b>전원(유닛+유해)</b> 동시 피격모션 + 도장. (인게임도 유해 함께 피격)';
+  units.forEach((u,i)=>{
+    if(u.isRemains){ remHitMember(u,i); return; }
+    const im=memEl(i)&&memEl(i).querySelector('.p-gif'); const baseSrc=im&&im.src;
+    if(im&&HIT(u.type)) im.src=HIT(u.type); shake(i); stampOn(i,'−2'); setTimeout(()=>{ if(im&&baseSrc)im.src=baseSrc; },560);
+  });
   await wait(700); busy=false; }
 /* 저주 틱 — 저주 멤버 전원 동시 망령 데미지 + 도장(보라) */
 async function evCurseTick(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
@@ -271,19 +303,16 @@ async function evCurse(){ if(busy)return; busy=true; const log=document.getEleme
 async function evRemHit(){ if(busy)return; busy=true; const log=document.getElementById('seqlog');
   const rems=units.map((u,i)=>({u,i})).filter(x=>x.u.isRemains&&(x.u.stage||1)<3);
   if(!rems.length){ log.innerHTML='더 피격할 유해가 없습니다(3단계 도달).'; busy=false; return; }
-  log.innerHTML='💀 유해 피격 — 유해 단계진행 + 피격 GIF + 도장(전원).';
-  // ★ 인게임처럼 흔들림은 피격 GIF 에 내장 → 별도 shake 금지(유해 마커는 translate 중앙정렬이라 ttShake 가 정렬을 덮어 튐).
-  rems.forEach(({u,i})=>{ const n=(u.stage||1); const g=REMHIT(n); if(g){ const im=memEl(i)&&memEl(i).querySelector('.rem-img'); if(im)im.src=g; } stampOn(i,'−1'); });
-  await wait(700);
-  rems.forEach(({u,i})=>{ u.stage=(u.stage||1)+1; const im=memEl(i)&&memEl(i).querySelector('.rem-img'); if(im)im.src=REMSTAGE(u.stage); });
-  busy=false; }
+  log.innerHTML='💀 유해 피격 — 유해 단계진행(1→2→3) + 피격 GIF + 도장(전원).';
+  rems.forEach(({u,i})=>remHitMember(u,i));
+  await wait(800); busy=false; }
 
 /* ───── 컨트롤 ───── */
 function applyZoom(){ const z=v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(2)+'×'; }
 function loadScn(id){ units=SCN[id](); busy=false; build(); snapRep();
   document.getElementById('seqlog').innerHTML='◀▶ 회전, 이벤트 버튼으로 전원 애니 확인.'; }
-['dark','depth','spread'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
-  e.addEventListener('input',()=>{ if(vv)vv.textContent=(+e.value).toFixed(2); layout(0); }); });
+['tint','depth','spread','maxShown'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
+  e.addEventListener('input',()=>{ if(vv)vv.textContent=(id==='maxShown')?e.value:(+e.value).toFixed(2); layout(0); }); });
 document.getElementById('zoom').addEventListener('input',applyZoom);
 document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn); }));
 document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -296,7 +325,8 @@ document.getElementById('evNightmare').addEventListener('click',evNightmare);
 document.getElementById('evMark').addEventListener('click',evMark);
 document.getElementById('evCurse').addEventListener('click',evCurse);
 document.getElementById('evRemHit').addEventListener('click',evRemHit);
-['dark','depth','spread','zoom'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
+['tint','depth','spread','zoom'].forEach(id=>{const vv=document.getElementById(id+'V');if(vv)vv.textContent=(+document.getElementById(id).value).toFixed(2);});
+(function(){var vv=document.getElementById('maxShownV');if(vv)vv.textContent=document.getElementById('maxShown').value;})();
 function init(){ if(window.PIECE_GIFS&&window.MARK_GIFS&&window.CURSE_GIFS){ applyZoom(); loadScn('s1'); } else setTimeout(init,80); }
 init();
 </script>
