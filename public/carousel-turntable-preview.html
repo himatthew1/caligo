@@ -194,17 +194,7 @@ function frontFromRot(rot){ let b=0,bd=-2; const N=units.length;
 function setTint(el,op){ el.querySelectorAll('.mem-tint,.rem-tint').forEach(t=>{ t.style.opacity=op; }); }
 function layout(rot){
   const {CX,CY,RX,RY,T}=geom(); const N=units.length; const front=frontFromRot(rot);
-  // ── 2명 전용 배치 ── (180°면 정확히 뒤에 겹쳐 안 보임 → 대표=중앙, 나머지=어깨 너머 우상단 뒤)
-  if(N===2){
-    units.forEach((u,i)=>{ const el=document.querySelector(`.tt-mem[data-i="${i}"]`); if(!el)return; el.style.display='';
-      if(i===front){ el.style.left=CX+'px'; el.style.top=(CY+RY)+'px'; el.style.transform='translate(-50%,-50%) scale(1)'; el.style.zIndex=200; setTint(el,0); el.classList.add('isfront'); }
-      else { // 뒤 멤버 = 한쪽 옆(어깨 뒤, 가깝게). twoSide 로 좌/우. 전환 시 좌우가 뒤바뀌며 왔다갔다.
-        el.style.left=(CX+RX*0.8*twoSide)+'px'; el.style.top=(CY+RY-RY*0.5)+'px'; el.style.transform=`translate(-50%,-50%) scale(${T.depthMin.toFixed(3)})`; el.style.zIndex=60; setTint(el,(T.tint).toFixed(2)); el.classList.remove('isfront'); }
-    });
-    var i2=document.getElementById('memInfo'); if(i2) i2.textContent=`총 2마리 · 대표(중앙) + 어깨 ${twoSide>0?'우':'좌'} 1 — ◀▶ 로 좌우 왔다갔다`;
-    return;
-  }
-  // ★ 4인 기준 고정 포메이션 — 인원수와 무관하게 [앞(중앙) + 양옆(±90°)] 동일 간격·위치·크기.
+  // ★ 4인 기준 고정 포메이션 (2인 포함 — 모든 인원수 동일 슬롯) — 인원수와 무관하게 [앞(중앙) + 양옆(±90°)] 동일 간격·위치·크기.
   //   각 멤버는 대표 기준 부호 오프셋(0,±1,±2..)에 STEP(90°)을 곱한 고정 슬롯에 배치(360/N 분배 폐지).
   //   표시(maxShown)는 |오프셋| 가 작은 앞쪽 N명 → 항상 [대표 + 좌우]. 뒤(|오프셋|≥2)는 페이드아웃.
   const STEP=90;
@@ -242,12 +232,11 @@ function _rotate(delta){ return new Promise(res=>{ const N=units.length; if(!del
   setTimeout(fin,dur+280); }); }
 function rotateSteps(delta){ if(busy||!delta)return Promise.resolve();
   const N=units.length;
-  if(N===2){ frontIdx=(frontIdx+1)%2; twoSide*=-1; layout(0); return Promise.resolve(); }  // 2인 = 좌우 뒤바뀌며 왔다갔다(CSS 전환)
   if(N<=1) return Promise.resolve();
   // ★ 고정 슬롯 셔플 — 멤버가 4인 포메이션 슬롯(대표↔좌우) 사이를 CSS 전환으로 미끄러져 이동. 들고남은 페이드.
   busy=true; const c=document.getElementById('ttcell'); c.classList.add('reflow');
-  frontIdx=((frontIdx+delta)%N+N)%N;
-  requestAnimationFrame(()=>requestAnimationFrame(()=>layout(0)));
+  void c.offsetWidth;                                   // 현재 위치를 전환 기준선으로 확정
+  frontIdx=((frontIdx+delta)%N+N)%N; layout(0);         // 새 슬롯으로 — .reflow 전환이 미끄러뜨림
   return new Promise(res=>setTimeout(()=>{ c.classList.remove('reflow'); busy=false; res(); }, 500)); }
 function nav(dir){ rotateSteps(dir); }
 function goTo(t){ rotateSteps(shortest(t)); }
