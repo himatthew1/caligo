@@ -14254,6 +14254,15 @@ function renderGameBoard() {
 // 같은 셀에 2개 이상의 유닛이 있을 때 호출. cell DOM 에 캐러셀 위젯을 주입.
 if (!window._cellCarouselState) window._cellCarouselState = {};
 
+// 캐러셀 깊이 틴트(보라 곱하기)용 스프라이트 URL — idle GIF(또는 유해 PNG) 경로.
+function _ccGifUrl(pc, joined) {
+  const map = window.PIECE_GIFS || {};
+  if (joined) return map.twins_joined || null;
+  if (pc && pc.subUnit === 'elder')   return map.twins_red || null;
+  if (pc && pc.subUnit === 'younger') return map.twins_blue || null;
+  return (pc && map[pc.type]) || null;
+}
+
 function _renderCellCarousel(cell, col, row, units) {
   const cs = window._cellCarouselState;
   const csKey = `${col},${row}`;
@@ -14318,7 +14327,7 @@ function _renderCellCarousel(cell, col, row, units) {
         try { if (window._crForce && _rpc) window._crForce[csKey] = _rpc; } catch (e) {}
       }
     }
-    cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx };
+    cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx, twoSide: (cs[csKey] && cs[csKey].twoSide) || 1 };
   } else {
     cs[csKey].pieces = pieces;
     cs[csKey].repIdx = _repIdx;
@@ -14346,10 +14355,13 @@ function _renderCellCarousel(cell, col, row, units) {
       _markL = markBoardLayerHtml(_markPc);
     if (_cursePc && !(typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)))
       _curseL = curseBoardLayerHtml(_cursePc);
+    // ★ 턴테이블 깊이 틴트 — 뒤로 갈수록 보라빛(곱하기). _crLayout 이 opacity 로 깊이 반영.
+    const _gurl = (pc.owner === 'remains') ? (window.REMAINS_IMG || '/art/remains.png') : _ccGifUrl(_pc, !!pc.twinRef);
+    const _tint = _gurl ? `<div class="cc-tint" style="-webkit-mask-image:url(${_gurl});mask-image:url(${_gurl})"></div>` : '';
     return `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
         _curseL +
         `<div class="cc-inner">` +
-          `<span class="p-icon">${pc.iconHtml}</span>` +
+          `<span class="p-icon">${pc.iconHtml}${_tint}</span>` +
           `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
           _markL +
         `</div>` +
@@ -14365,55 +14377,60 @@ function _renderCellCarousel(cell, col, row, units) {
     </div>`;
 
   cell.classList.add('has-piece');
+  // ★ 턴테이블 포메이션 배치(대표 중앙 + 좌우 사이드 + 뒤 페이드). 셀은 이미 DOM 에 있어 offsetWidth 유효.
+  try { window._crLayout && window._crLayout(csKey); } catch (e) {}
 }
 
-// ── 멀티유닛 캐러셀: 화살표 클릭 네비게이션 ──────────────────────────
+// ── 멀티유닛 캐러셀: 턴테이블 포메이션 배치 + 회전 ──────────────────────────
+//   대표=중앙(scale 1) · 좌우 사이드=±90°(scale 0.8, 보라 깊이 틴트) · 뒤=페이드아웃.
+//   앵커링(:not(.cc-hidden))이 대표 슬롯만 잡도록, 사이드는 cc-hidden 유지 + cc-side(CSS 로 보이게).
+window._crLayout = function(csKey) {
+  const cs = window._cellCarouselState; const st = cs && cs[csKey];
+  if (!st || !st.pieces) return;
+  const [col, row] = csKey.split(',');
+  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
+  const cell = wrap.closest ? wrap.closest('.cell') : null;
+  const cw = (cell && cell.offsetWidth) || 56;
+  const N = st.pieces.length;
+  const RX = cw * 0.46, RY = RX * 0.42;                 // 프리뷰와 동일 타원(셀 상대)
+  const ts = (st.twoSide == null ? 1 : st.twoSide);
+  const off = i => { let o = ((i - st.idx) % N + N) % N; if (o > N / 2) o -= N; return o; };
+  wrap.querySelectorAll('.cc-main').forEach(el => {
+    const i = parseInt(el.dataset.slot);
+    const isFront = (i === st.idx);
+    // 2인 = 4인 슬롯 그대로 좌우 스윙(대표 중앙 + 나머지 ±90° 사이드, twoSide 로 좌↔우), 3인+ = 90° 고정 슬롯
+    const ang = (N === 2) ? (isFront ? 0 : ts * 90) : (off(i) * 90);
+    const a = ang * Math.PI / 180, s = Math.sin(a), d = Math.cos(a);   // d:+1 앞 .. -1 뒤
+    const scale = 0.6 + 0.4 * ((d + 1) / 2);
+    const dx = RX * s, dy = RY * (d - 1);                 // 셀 중앙 기준 오프셋(앞=0,0)
+    const back = 1 - (d + 1) / 2;
+    const shown = (N === 2) ? true : (Math.abs(off(i)) <= 1);   // 대표 + 좌우만 표시(나머지 페이드)
+    el.style.transform = `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px)) scale(${scale.toFixed(3)})`;
+    el.style.zIndex = Math.round((d + 1) * 100) + 3;
+    el.classList.toggle('cc-front', isFront);
+    if (isFront)      { el.classList.remove('cc-hidden', 'cc-side'); }
+    else if (shown)   { el.classList.add('cc-hidden', 'cc-side'); }   // 보이는 사이드(앵커링 제외)
+    else              { el.classList.add('cc-hidden'); el.classList.remove('cc-side'); }   // 뒤 = 페이드아웃
+    const tintOp = isFront ? 0 : (shown ? back : 0);
+    el.querySelectorAll('.cc-tint').forEach(t => { t.style.opacity = tintOp.toFixed(2); });
+  });
+};
+
 window._crNav = function(colRow, dir) {
   const cs = window._cellCarouselState;
   if (!cs) return;
   const st = cs[colRow];
   if (!st || st.busy || st.pieces.length <= 1) return;
-
+  const N = st.pieces.length;
   st.busy = true;
+  if (N === 2) { st.idx = 1 - st.idx; st.twoSide = (st.twoSide == null ? 1 : st.twoSide) * -1; }   // 좌우 왔다갔다
+  else { st.idx = ((st.idx + dir) % N + N) % N; }                                                  // 슬롯 셔플
+  window._crLayout(colRow);   // CSS transform/opacity 전환이 미끄러뜨림(0.34s)
   const [col, row] = colRow.split(',');
-  const csId = `cc-${col}-${row}`;
-  const wrap = document.getElementById(`${csId}-wrap`);
-  if (!wrap) { st.busy = false; return; }
-
-  const nextIdx = (st.idx + dir + st.pieces.length) % st.pieces.length;
-  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
-  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${nextIdx}"]`);
-  if (!curSlot || !nextSlot) { st.busy = false; return; }
-
-  // dir > 0 = 다음 (현재는 왼쪽으로 퇴장, 다음은 오른쪽에서 등장)
-  // dir < 0 = 이전 (현재는 오른쪽으로 퇴장, 다음은 왼쪽에서 등장)
-  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
-  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
-
-  curSlot.classList.add(outCls);
-
-  setTimeout(() => {
-    st.idx = nextIdx;
-    const cur = st.pieces[st.idx];
-
-    // 현재 슬롯 퇴장 완료 → 숨김
-    curSlot.classList.remove(outCls);
-    curSlot.classList.add('cc-hidden');
-
-    // 다음 슬롯: 반대쪽에서 등장 (이미 DOM에 존재, GIF 이미 디코딩됨 → 플래시 없음)
-    nextSlot.style.transition = 'none';
-    nextSlot.classList.add(inCls);
-    nextSlot.classList.remove('cc-hidden');
-    void nextSlot.offsetWidth;       // 강제 리플로우
-    nextSlot.style.transition = '';
-    nextSlot.classList.remove(inCls);
-
-    // 상태이상 아이콘 업데이트
-    const markEl = document.getElementById(`${csId}-mark`);
-    if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
-
-    st.busy = false;
-  }, 200);
+  const markEl = document.getElementById(`cc-${col}-${row}-mark`);
+  const cur = st.pieces[st.idx];
+  if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
+  setTimeout(() => { st.busy = false; }, 360);
 };
 
 // ── 캐러셀 대표(우선순위) 선정 + 액션 시 대표로 자동 슬라이드 ────────────
@@ -14449,27 +14466,15 @@ window._crSlideTo = function(csKey, targetSlot) {
   const cs = window._cellCarouselState; const st = cs && cs[csKey];
   if (!st || st.busy || !st.pieces || st.pieces.length <= 1) return;
   if (targetSlot == null || targetSlot === st.idx || targetSlot >= st.pieces.length) return;
-  const [col, row] = csKey.split(',');
-  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
-  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
-  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`);
-  if (!curSlot || !nextSlot) return;
+  const N = st.pieces.length;
   st.busy = true;
-  const n = st.pieces.length;
-  const fwd = ((targetSlot - st.idx) + n) % n, bwd = ((st.idx - targetSlot) + n) % n;
-  const dir = fwd <= bwd ? 1 : -1;
-  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
-  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
-  curSlot.classList.add(outCls);
-  setTimeout(() => {
-    st.idx = targetSlot;
-    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
-    nextSlot.style.transition = 'none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
-    void nextSlot.offsetWidth; nextSlot.style.transition = ''; nextSlot.classList.remove(inCls);
-    const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
-    if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
-    st.busy = false;
-  }, 200);
+  if (N === 2) { st.twoSide = (st.twoSide == null ? 1 : st.twoSide) * -1; }   // 2인 = 좌우 스윙으로 대표 교대
+  st.idx = targetSlot;                                                         // 타깃(피격자 등)을 대표(중앙)로
+  window._crLayout(csKey);
+  const [col, row] = csKey.split(',');
+  const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
+  if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
+  setTimeout(() => { st.busy = false; }, 360);
 };
 // 액션이 닿은 셀 표시 — 렌더 종료 시 _crApplyForced 가 "액션 당사자" 슬롯으로 슬라이드(회귀 없음).
 //   ★ piece 인자(피격자/공격자/이동말)를 주면 그 유닛 슬롯으로, 없으면 셀 대표(repIdx)로.

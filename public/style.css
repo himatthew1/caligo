@@ -2491,16 +2491,26 @@ body.team-teammate-turn #game-board .piece-marker:not(.teammate-piece):not(.opp-
   position: absolute; z-index: 3;
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px;
-  transition: transform 0.2s cubic-bezier(.4,0,.2,1), opacity 0.2s;
+  transition: transform 0.34s cubic-bezier(.3,.7,.3,1), opacity 0.34s ease;
 }
-.cc-main.cc-slide-left  { transform: translate(calc(-50% - 28px), -50%); opacity: 0; }
-.cc-main.cc-slide-right { transform: translate(calc(-50% + 28px), -50%); opacity: 0; }
-/* 비활성 슬롯 — GIF 애니메이션은 계속 돌리되 (opacity:0), 클릭·렌더는 막음 */
+/* 뒤(back) 슬롯 — 페이드아웃(턴테이블 깊이). 앵커링 :not(.cc-hidden) 은 대표 슬롯만 잡음 */
 .cc-main.cc-hidden { opacity: 0; pointer-events: none; }
+/* 사이드 슬롯 — cc-hidden 이어도 보이게(턴테이블 좌우). 앵커링 제외 위해 cc-hidden 은 유지 */
+.cc-main.cc-side { opacity: 1; }
+/* 턴테이블 깊이 틴트 — 멀수록 보라빛(곱하기), 스프라이트 알파에 마스킹 */
+.cc-tint {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  mix-blend-mode: multiply;
+  background: linear-gradient(to bottom, #9a6ff2 0%, #43257e 58%, #190d33 100%);
+  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  transition: opacity 0.34s ease;
+}
 /* 슬롯 내부 래퍼 — 피격 흔들림을 여기에 걸어 .cc-main 의 중앙정렬 transform 과 충돌 방지 */
 /*   position:relative — 슬롯별 표식 정수리 레이어(.mark-board-layer, bottom:100%) 앵커용 */
 .cc-inner { display: flex; flex-direction: column; align-items: center; gap: 1px; position: relative; }
-.cc-main .p-icon        { font-size: 1.3rem; line-height: 1; }
+.cc-main .p-icon        { font-size: 1.3rem; line-height: 1; position: relative; }
 .cc-main .p-icon:has(> img.p-gif) { line-height: 0; font-size: 0; }
 .cc-main .p-hp          { font-size: 0.6rem; font-weight: 700; visibility: hidden; }   /* 캐러셀 HP 숨김 — 일반 셀/프리뷰와 통일 */
 /* 유해 슬롯 — 일반 셀 유해(.remains-marker)와 같은 풀사이즈(74px, 팀전 58/51px) */
@@ -2512,7 +2522,7 @@ body.team-mode .cc-main .cc-remains { width: 58px; height: 58px; }
 .cc-arrow {
   position: absolute; top: 50%; transform: translateY(-50%);
   background: none; border: none; padding: 3px 1px; cursor: pointer;
-  z-index: 6; opacity: 0.45; transition: opacity 0.15s; pointer-events: auto;
+  z-index: 250; opacity: 0.45; transition: opacity 0.15s; pointer-events: auto;
 }
 .cc-arrow:hover { opacity: 0.9; }
 .cc-arrow.cc-left  { left: 0; }
