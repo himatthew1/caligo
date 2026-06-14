@@ -138,7 +138,7 @@ const SCN={
     U('torturer','opp',3,2,2,['mark']), U('witch','opp',2,1,2,['mark','curse']), U('prince','opp',3,2,2),
     U('archer','opp',1,2,2,['curse']), U('cavalry','opp',1,2,2,['mark']), R(), R() ],   // 10마리(인게임 최대급)
 };
-let units=[], frontIdx=0, busy=false, team=false;
+let units=[], frontIdx=0, busy=false, team=false, twoSide=1;   // twoSide: 2인 배치 시 뒤 멤버 좌(-1)/우(+1)
 const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t]), HIT=t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t]);
 const MARK=k=>(window.MARK_GIFS&&window.MARK_GIFS[k]), CURSE=k=>(window.CURSE_GIFS&&window.CURSE_GIFS[k]);
 const REMSTAGE=s=>(window.REMAINS_STAGE_IMGS&&window.REMAINS_STAGE_IMGS[s])||'/art/remains.png';
@@ -196,9 +196,10 @@ function layout(rot){
   if(N===2){
     units.forEach((u,i)=>{ const el=document.querySelector(`.tt-mem[data-i="${i}"]`); if(!el)return; el.style.display='';
       if(i===front){ el.style.left=CX+'px'; el.style.top=(CY+RY)+'px'; el.style.transform='translate(-50%,-50%) scale(1)'; el.style.zIndex=200; setTint(el,0); el.classList.add('isfront'); }
-      else { el.style.left=(CX+RX*1.05)+'px'; el.style.top=(CY+RY-RY*2.3)+'px'; el.style.transform=`translate(-50%,-50%) scale(${T.depthMin.toFixed(3)})`; el.style.zIndex=60; setTint(el,(T.tint).toFixed(2)); el.classList.remove('isfront'); }
+      else { // 뒤 멤버 = 한쪽 옆(어깨 뒤). twoSide 로 좌/우. 전환 시 좌우가 뒤바뀌며 왔다갔다.
+        el.style.left=(CX+RX*1.35*twoSide)+'px'; el.style.top=(CY+RY-RY*0.9)+'px'; el.style.transform=`translate(-50%,-50%) scale(${T.depthMin.toFixed(3)})`; el.style.zIndex=60; setTint(el,(T.tint).toFixed(2)); el.classList.remove('isfront'); }
     });
-    var i2=document.getElementById('memInfo'); if(i2) i2.textContent='총 2마리 · 대표 + 어깨 뒤 1 (2인 전용 배치)';
+    var i2=document.getElementById('memInfo'); if(i2) i2.textContent=`총 2마리 · 대표(중앙) + 어깨 ${twoSide>0?'우':'좌'} 1 — ◀▶ 로 좌우 왔다갔다`;
     return;
   }
   // 표시 인원 제한 — 깊이 상위 maxShown 명만 보이게(셀이 너무 붐비지 않게). 나머지는 숨김.
@@ -231,7 +232,7 @@ function _rotate(delta){ return new Promise(res=>{ const N=units.length; if(!del
     layout(total*e); if(k<1)requestAnimationFrame(f); else fin(); });
   setTimeout(fin,dur+280); }); }
 function rotateSteps(delta){ if(busy||!delta)return Promise.resolve();
-  if(units.length===2){ frontIdx=(frontIdx+1)%2; layout(0); return Promise.resolve(); }  // 2인 = CSS 전환으로 자리바꿈
+  if(units.length===2){ frontIdx=(frontIdx+1)%2; twoSide*=-1; layout(0); return Promise.resolve(); }  // 2인 = 좌우 뒤바뀌며 왔다갔다(CSS 전환)
   busy=true; return _rotate(delta).then(()=>busy=false); }
 function nav(dir){ rotateSteps(dir); }
 function goTo(t){ rotateSteps(shortest(t)); }
@@ -324,7 +325,7 @@ async function evRemHit(){ if(busy)return; busy=true; const log=document.getElem
 
 /* ───── 컨트롤 ───── */
 function applyZoom(){ const z=v('zoom'); document.getElementById('zoomwrap').style.transform='scale('+z+')'; document.getElementById('zoomV').textContent=z.toFixed(2)+'×'; }
-function loadScn(id){ units=SCN[id](); busy=false; build(); snapRep();
+function loadScn(id){ units=SCN[id](); busy=false; twoSide=1; build(); snapRep();
   document.getElementById('seqlog').innerHTML='◀▶ 회전, 이벤트 버튼으로 전원 애니 확인.'; }
 ['tint','depth','spread','maxShown'].forEach(id=>{ const e=document.getElementById(id),vv=document.getElementById(id+'V');
   e.addEventListener('input',()=>{ if(vv)vv.textContent=(id==='maxShown')?e.value:(+e.value).toFixed(2); layout(0); }); });
