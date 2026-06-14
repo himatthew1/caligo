@@ -107,7 +107,7 @@ function autoFitLeftCol(leftCol) {
 //   현재 royal/villain 만 캐릭터에 배정됨. spirit/pagan/none 은 예약(데이터/렌더만 준비 — 배정 시 자동 표시).
 const _FACTION_LABELS = { royal: '왕실', villain: '악인', spirit: '정령', pagan: '이교도', none: '무소속' };
 function tagBadgeHtml(tag) {
-  if (!tag) return '';
+  // ★ 소속(tag) 이 없으면(null/미지정/미상) 무소속(none) — 모든 캐릭터는 항상 팩션 도장을 단다.
   const t = _FACTION_LABELS[tag] ? tag : 'none';
   const stamps = window.FACTION_STAMPS || {};
   const src = stamps[t] || '';
@@ -1834,7 +1834,7 @@ function renderTeamDraftSlots() {
     el.classList.remove('empty', 'filled');
     if (c) {
       el.classList.add('filled');
-      const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+      const tagHtml = tagBadgeHtml(c.tag);
       el.innerHTML = `
         <span class="slot-tier">${label}</span>
         <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
@@ -1879,7 +1879,7 @@ function renderTeamDraftSlots() {
     const renderTmSlot = (type, label) => {
       const c = type ? findChar(type) : null;
       if (c) {
-        const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+        const tagHtml = tagBadgeHtml(c.tag);
         return `<div class="draft-slot filled teammate-slot" data-tm-jump="${c.type}">
           <span class="slot-tier">${label}</span>
           <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
@@ -2103,7 +2103,7 @@ function buildTeamHpUIOnSharedScreen() {
     if (!charData) continue;
     const row = document.createElement('div');
     row.className = 'hp-piece-row';
-    const tagHtml = charData.tag ? tagBadgeHtml(charData.tag) : '';
+    const tagHtml = tagBadgeHtml(charData.tag);
     row.innerHTML = `
       <span class="char-icon">${pieceIconHtml(charData.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
@@ -2183,7 +2183,7 @@ function updateTeammateHpPanel() {
   const rows = types.map((t, i) => {
     const c = findChar(t);
     if (!c) return '';
-    const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+    const tagHtml = tagBadgeHtml(c.tag);
     return `<div class="hp-piece-row hp-piece-row-readonly">
       <span class="char-icon">${pieceIconHtml(c.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
@@ -3377,7 +3377,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const tagHtml = tagBadgeHtml(pc.tag);
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const myPieceAttr = (isAlly && isMe) ? `data-my-piece-idx="${i}"` : '';
     const selectedClass = (isAlly && isMe && S.selectedPiece === i) ? 'active-piece' : '';
@@ -10011,7 +10011,7 @@ function populateSlideContent(c, prefix) {
   // 아이콘 / 이름 + 태그 / ATK / 미니 헤더
   const iconEl = document.getElementById(`${prefix}-icon`);
   if (iconEl) iconEl.innerHTML = pieceIconHtml(c.icon, {size:'1.4em'});
-  const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+  const tagHtml = tagBadgeHtml(c.tag);
   const nameEl = document.getElementById(`${prefix}-name`);
   if (nameEl) nameEl.innerHTML = `<span>${c.name}</span>${tagHtml}`;
   const atkEl = document.getElementById(`${prefix}-atk`);
@@ -10626,7 +10626,7 @@ function renderDraftSlots() {
 
     if (c) {
       slot.className = 'draft-slot filled';
-      const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+      const tagHtml = tagBadgeHtml(c.tag);
       slot.innerHTML = `
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
@@ -10916,9 +10916,7 @@ function buildHpUI() {
     const charData = findChar(types[i]) || { type: types[i], name: types[i], icon: `/assets/icons/${types[i]}.png`, tag: null };
     const row = document.createElement('div');
     row.className = 'hp-piece-row';
-    const tagHtml = charData.tag
-      ? tagBadgeHtml(charData.tag)
-      : '';
+    const tagHtml = tagBadgeHtml(charData.tag);
     row.innerHTML = `
       <span class="char-icon">${pieceIconHtml(charData.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
@@ -11105,7 +11103,7 @@ function createRevealCard(pc, tooltipSide) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
-  const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+  const tagHtml = tagBadgeHtml(pc.tag);
   const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
@@ -11588,7 +11586,7 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
   // 교체 공개 애니메이션이 어느 카드를 교체할지 비교에 사용 — 캐릭터 type 과 tier 를 dataset 으로 보관
   card.dataset.charType = ch.type || '';
   card.dataset.tier = String(tier);
-  const tagHtml = ch.tag ? tagBadgeHtml(ch.tag) : '';
+  const tagHtml = tagBadgeHtml(ch.tag);
   const labelHtml = extraLabel ? `<span class="reveal-extra-label">${extraLabel}</span>` : '';
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(ch.icon, {size:'1.6em'})}</span>
@@ -11667,7 +11665,7 @@ function buildExchangeDraftUI(myDraft, available, oppDraft) {
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${pieceIconHtml(ch.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
-          <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
+          <span class="slot-name">${ch.name} ${tagBadgeHtml(ch.tag)}</span>
           <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       card.addEventListener('click', () => {
@@ -11774,7 +11772,7 @@ function exRenderSlide() {
   if (typeof exSlidePreviewMode !== 'undefined') exSlidePreviewMode = 'attack';
 
   document.getElementById('ex-slide-icon').innerHTML = pieceIconHtml(c.icon, {size:'1.4em'});
-  const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+  const tagHtml = tagBadgeHtml(c.tag);
   document.getElementById('ex-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
   // 이름 아래 공격력
   document.getElementById('ex-slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
@@ -12027,7 +12025,7 @@ function exUpdateSlots() {
         <span class="slot-tier">${tier}티어</span>
         <span class="slot-icon">${pieceIconHtml(ch.icon, {size:'1.3em'})}</span>
         <div class="slot-info">
-          <span class="slot-name">${ch.name} ${ch.tag ? tagBadgeHtml(ch.tag) : ''}</span>
+          <span class="slot-name">${ch.name} ${tagBadgeHtml(ch.tag)}</span>
           <div>${buildMiniHeaders(ch)}</div>
         </div>`;
       // 교체된 슬롯에만 X 버튼 (원래대로 되돌리기)
@@ -12330,7 +12328,7 @@ function buildPlacementOppPanel() {
       block.className = `placement-enemy-block placement-team-block placement-team-${myTeamColor}`;
       block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">${escapeHtmlGlobal(tm.name)}</h5>`;
       for (const pc of (tm.pieces || [])) {
-        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+        const tagHtml = tagBadgeHtml(pc.tag);
         const card = document.createElement('div');
         card.className = `placement-opp-card placement-team-card placement-team-card-${myTeamColor}`;
         card.style.position = 'relative';
@@ -12358,7 +12356,7 @@ function buildPlacementOppPanel() {
       block.className = `placement-enemy-block placement-team-block placement-team-${oppTeamColor}`;
       block.innerHTML = `<h5 class="enemy-block-header team-color-${oppTeamColor}">${escapeHtmlGlobal(en.name)}</h5>`;
       for (const pc of (en.pieces || [])) {
-        const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+        const tagHtml = tagBadgeHtml(pc.tag);
         const card = document.createElement('div');
         card.className = `placement-opp-card placement-team-card placement-team-card-${oppTeamColor}`;
         card.style.position = 'relative';
@@ -12383,7 +12381,7 @@ function buildPlacementOppPanel() {
   for (const pc of S.oppPieces) {
     const card = document.createElement('div');
     card.className = 'placement-opp-card';
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const tagHtml = tagBadgeHtml(pc.tag);
     const skillDesc = getSkillDescForPiece(pc);
     const skillHtml = pc.hasSkill
       ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP) — ${skillDesc}</span>`
@@ -12438,7 +12436,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
     const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon);
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const tagHtml = tagBadgeHtml(pc.tag);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
     //   별도 "(N SP)" 괄호 텍스트나 "스킬:" prefix 사용 안 함 — 색상·박스가 정보를 전달.
@@ -15209,7 +15207,7 @@ function renderMyPieces() {
     // 이번 턴 데미지 도장 + HP 바 빨간 오버레이
     const dmgOv = buildDamageOverlay(`my:${i}`, pc.alive ? pc.hp : 0, pc.maxHp);
 
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const tagHtml = tagBadgeHtml(pc.tag);
     const statusHtml = renderStatusBadges(pc);
     // 스킬·패시브 텍스트 라인은 제거됨 — 미니 헤더(mini-header)가 이미 표시
     const skillHtml = '';
@@ -15368,7 +15366,7 @@ function renderOppPieces() {
     }
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     const dmgOv = buildDamageOverlay(`opp:${pi}`, pc.alive ? pc.hp : 0, pc.maxHp);
-    const tagHtml = pc.tag ? tagBadgeHtml(pc.tag) : '';
+    const tagHtml = tagBadgeHtml(pc.tag);
     const statusHtml = renderStatusBadges(pc);
     // 스킬·패시브 텍스트 라인은 제거됨 — 미니 헤더(mini-header)가 이미 표시
     const skillHtml = '';
@@ -17583,7 +17581,7 @@ function renderSpectatorDraft() {
       const c = typeKey ? charList.find(ch => ch.type === typeKey) : null;
       if (c) {
         slot.className = `draft-slot filled ${isDone ? 'confirmed' : 'browsing'}`;
-        const tagHtml = c.tag ? tagBadgeHtml(c.tag) : '';
+        const tagHtml = tagBadgeHtml(c.tag);
         slot.innerHTML = `<span class="slot-tier">${tier}티어</span>
           <span class="slot-icon">${pieceIconHtml(c.icon, {size:'1.3em'})}</span>
           <div class="slot-info"><span class="slot-name">${c.name} ${tagHtml}</span>
