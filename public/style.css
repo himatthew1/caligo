@@ -2489,22 +2489,41 @@ body.team-teammate-turn #game-board .piece-marker:not(.teammate-piece):not(.opp-
   position: absolute; z-index: 3;
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px;
-  transition: transform 0.34s cubic-bezier(.3,.7,.3,1), opacity 0.34s ease;
+  transition: transform 0.22s cubic-bezier(.4,0,.2,1), opacity 0.22s;
 }
-/* 뒤(back) 슬롯 — 페이드아웃(턴테이블 깊이). 앵커링 :not(.cc-hidden) 은 대표 슬롯만 잡음 */
+/* 슬라이드형 — 보이는 슬롯 1개(st.idx), 나머지 cc-hidden. 앵커링 :not(.cc-hidden) = 현재 페이지 */
+.cc-main.cc-slide-left  { transform: translate(calc(-50% - 26px), -50%); opacity: 0; }
+.cc-main.cc-slide-right { transform: translate(calc(-50% + 26px), -50%); opacity: 0; }
 .cc-main.cc-hidden { opacity: 0; pointer-events: none; }
-/* 사이드 슬롯 — cc-hidden 이어도 보이게(턴테이블 좌우). 앵커링 제외 위해 cc-hidden 은 유지 */
-.cc-main.cc-side { opacity: 1; }
-/* 턴테이블 깊이 틴트 — 멀수록 보라빛(곱하기), 스프라이트 알파에 마스킹 */
-.cc-tint {
-  position: absolute; inset: 0; pointer-events: none; opacity: 0;
-  mix-blend-mode: multiply;
-  background: linear-gradient(to bottom, #9a6ff2 0%, #43257e 58%, #190d33 100%);
-  -webkit-mask-size: contain; mask-size: contain;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-  transition: opacity 0.34s ease;
+/* ── 셀 하단 원형 인덱스 (멀티유닛 미니맵 · diff 생애주기) — carousel-bottom-index-preview 그대로 ── */
+.cc-index {
+  position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%);
+  display: flex; gap: 1px; z-index: 9;
+  background: rgba(8,8,16,.42); border: 1px solid rgba(70,70,110,.32); border-radius: 6px; padding: 1px;
+  pointer-events: auto;
 }
+.cc-dot {
+  position: relative; width: 10px; height: 10px; border-radius: 50%;
+  border: 1px solid #3a3a55; background: #0e0e18;
+  display: flex; align-items: center; justify-content: center; overflow: visible; cursor: pointer;
+}
+.cc-dot .cc-dot-ic { width: 9px; height: 9px; object-fit: contain; image-rendering: pixelated;
+  filter: drop-shadow(0 0 .8px rgba(255,255,255,.55)); }
+.cc-dot .cc-dot-sk { font-size: 8px; line-height: 1; filter: drop-shadow(0 0 .8px rgba(255,255,255,.5)); }
+body.team-mode .cc-dot { width: 9px; height: 9px; }
+body.team-mode .cc-dot .cc-dot-ic { width: 8px; height: 8px; }
+/* 피격: GIF(5×130ms=650ms) 임팩트(2프레임≈26~38%)에 흰 번쩍 + 흔들림 */
+@keyframes ccDotHit{0%{transform:translateX(0);filter:none}18%{transform:translateX(-1.2px)}26%{transform:translateX(2px);filter:brightness(0) invert(1)}38%{transform:translateX(-2px);filter:none}56%{transform:translateX(1.4px)}76%{transform:translateX(-.8px)}100%{transform:translateX(0)}}
+.cc-dot .cc-dot-ic.hit,.cc-dot .cc-dot-sk.hit{animation:ccDotHit .65s ease}
+/* 생애주기: 입장(팝인) / 퇴장(입장 역재생) / 사망→유해(번쩍+해골 모핑) / 유해소멸(번쩍+축소) */
+@keyframes ccDotEnter{0%{transform:scale(.12);opacity:0}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+@keyframes ccDotLeave{0%{transform:scale(1);opacity:1;width:10px;margin-left:0}40%{transform:scale(1.2);opacity:1;width:10px;margin-left:0}100%{transform:scale(.12);opacity:0;width:0;margin-left:-1px;border-width:0}}
+@keyframes ccDotDeath{0%{transform:scale(1);filter:none}24%{transform:scale(1.3) rotate(8deg);filter:brightness(0) invert(1)}40%{transform:scale(.85) rotate(-6deg);filter:none}68%{transform:scale(1.08) rotate(2deg)}100%{transform:scale(1) rotate(0)}}
+@keyframes ccDotRemGone{0%{transform:scale(1);opacity:1;filter:none;width:10px;margin-left:0}22%{transform:scale(1.18);filter:brightness(0) invert(1);width:10px;margin-left:0}100%{transform:scale(.12);opacity:0;filter:none;width:0;margin-left:-1px;border-width:0}}
+.cc-dot.enter{animation:ccDotEnter .34s cubic-bezier(.3,1.4,.5,1)}
+.cc-dot.leave{animation:ccDotLeave .34s cubic-bezier(.34,1.4,.5,1) forwards;pointer-events:none}
+.cc-dot.death{animation:ccDotDeath .5s ease}
+.cc-dot.remgone{animation:ccDotRemGone .36s ease forwards;pointer-events:none}
 /* 슬롯 내부 래퍼 — 피격 흔들림을 여기에 걸어 .cc-main 의 중앙정렬 transform 과 충돌 방지 */
 /*   position:relative — 슬롯별 표식 정수리 레이어(.mark-board-layer, bottom:100%) 앵커용 */
 .cc-inner { display: flex; flex-direction: column; align-items: center; gap: 1px; position: relative; }

@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 셀 내부 하단 원형 인덱스 (쥐·폭탄 겹침 검토)</title>
+<link rel="stylesheet" href="style.css?v=20260614b">
+<style>
+  html,body{margin:0;background:#0b0b14;color:#e8e8f0;font-family:system-ui,'Segoe UI',sans-serif}
+  .hd{text-align:center;padding:14px 12px 6px}
+  .hd h1{margin:0;font-size:1.1rem}
+  .hd p{margin:6px auto 0;max-width:780px;font-size:.76rem;line-height:1.45;color:#9a9ab5}
+  .hd b{color:#e2a84b}
+  .wrap{display:flex;gap:30px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:10px 16px 20px}
+  .stagebox{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .stagebox .cap{font-size:.66rem;color:#8a8aa8}
+  /* 실제 인게임 보드 (셀 56px) — zoom 으로 확대만, 크기·배치는 인게임 그대로 */
+  #board{display:flex;gap:4px;background:#15152a;padding:8px;border-radius:8px;zoom:2.7}
+  #board .cell{width:56px;height:56px;position:relative;background:#1e1e35;border:1px solid #2a2a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:visible}
+  #ccell{z-index:5}
+  #ccell .stage{position:absolute;inset:0}
+  .uni{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:transform .3s cubic-bezier(.3,.7,.3,1),opacity .3s ease}
+  .uni .piece-marker .p-hp{visibility:hidden}
+  .cc-arrow{position:absolute;top:42%;transform:translateY(-50%);width:11px;height:20px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;opacity:.6;z-index:30}
+  .cc-arrow:hover{opacity:1}.cc-arrow.l{left:-2px}.cc-arrow.r{right:-2px}
+  .tri{width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent}
+  .tri.l{border-right:6px solid #cfcfe6}.tri.r{border-left:6px solid #cfcfe6}
+  /* ── 셀 내부 하단 원형 인덱스 (작게, 셀 바닥에) ── */
+  /* 셀 사이 빈칸(아래 갭)에 작게 — 얇은 링 + 큰 아이콘 + 글로우 */
+  .cell-index{position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);display:flex;gap:1px;z-index:9;
+              background:rgba(8,8,16,.42);border:1px solid rgba(70,70,110,.32);border-radius:6px;padding:1px;pointer-events:auto}
+  .ci{position:relative;width:10px;height:10px;border-radius:50%;border:1px solid #3a3a55;background:#0e0e18;display:flex;align-items:center;justify-content:center;overflow:visible;cursor:pointer}
+  .ci .ci-ic{width:9px;height:9px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 .8px rgba(255,255,255,.55))}
+  .ci .ci-sk{width:auto;height:auto;font-size:8px;line-height:1;filter:drop-shadow(0 0 .8px rgba(255,255,255,.5))}
+  @keyframes nbHit{0%{transform:translateX(0)}15%{transform:translateX(-2px)}30%{transform:translateX(2px)}50%{transform:translateX(-1.5px)}70%{transform:translateX(1px)}100%{transform:translateX(0)}}
+  /* 피격 GIF(5프레임×130ms=650ms)와 길이·번쩍 정렬 — 흰 번쩍 = 2프레임(130~260ms ≈ 26~38%) */
+  @keyframes ciHit{0%{transform:translateX(0);filter:none}18%{transform:translateX(-1.2px)}26%{transform:translateX(2px);filter:brightness(0) invert(1)}38%{transform:translateX(-2px);filter:none}56%{transform:translateX(1.4px)}76%{transform:translateX(-.8px)}100%{transform:translateX(0)}}
+  .ci .ci-ic.hit,.ci .ci-sk.hit{animation:ciHit .65s ease}
+  /* ── 생애주기 애니 (diff 기반 — 실제 전이에만 1회) ── */
+  @keyframes ciEnter{0%{transform:scale(.12);opacity:0}60%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+  /* 입장(ciEnter: .12→1.2→1)의 거울 — 1→1.2→.12 + 페이드. scale 은 .ci 에 → 내부 아이콘도 함께 축소·페이드 */
+  @keyframes ciLeave{0%{transform:scale(1);opacity:1;width:10px;margin-left:0}40%{transform:scale(1.2);opacity:1;width:10px;margin-left:0}100%{transform:scale(.12);opacity:0;width:0;margin-left:-1px;border-width:0}}
+  @keyframes ciDeath{0%{transform:scale(1);filter:none}24%{transform:scale(1.3) rotate(8deg);filter:brightness(0) invert(1)}40%{transform:scale(.85) rotate(-6deg);filter:none}68%{transform:scale(1.08) rotate(2deg)}100%{transform:scale(1) rotate(0)}}
+  @keyframes ciRemGone{0%{transform:scale(1);opacity:1;filter:none;width:10px;margin-left:0}22%{transform:scale(1.18);filter:brightness(0) invert(1);width:10px;margin-left:0}100%{transform:scale(.12);opacity:0;filter:none;width:0;margin-left:-1px;border-width:0}}
+  .ci.enter{animation:ciEnter .34s cubic-bezier(.3,1.4,.5,1)}
+  .ci.leave{animation:ciLeave .34s cubic-bezier(.34,1.4,.5,1) forwards;pointer-events:none}
+  .ci.death{animation:ciDeath .5s ease}
+  .ci.remgone{animation:ciRemGone .36s ease forwards;pointer-events:none}
+  /* 컨트롤 */
+  .panel{background:#131324;border:1px solid #262642;border-radius:9px;padding:11px 12px;min-width:236px}
+  .panel h2{margin:0 0 7px;font-size:.7rem;color:#bdbde0;letter-spacing:.4px;text-transform:uppercase}
+  .seg{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+  button.b{background:#20203a;color:#dcdcf0;border:1px solid #34345a;border-radius:6px;padding:6px 9px;font-size:.73rem;cursor:pointer}
+  button.b:hover{background:#2c2c50}button.b.on{background:#e2a84b;color:#1a1208;border-color:#e2a84b;font-weight:700}
+  button.ev{background:#241c33;border-color:#4a3a6a}button.ev:hover{background:#33274a}
+  button.tg.on{background:#2f6f53;border-color:#3fa873;color:#eafff4}
+  .legend{display:flex;gap:9px;flex-wrap:wrap;font-size:.61rem;color:#9a9ab5;margin:2px 0 5px}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;border:2px solid;margin-right:3px;vertical-align:-1px}
+  .note{font-size:.61rem;color:#7a7a9a;margin-top:3px;line-height:1.4}
+  #log{margin-top:8px;font-size:.65rem;color:#9fd5c0;min-height:26px;line-height:1.4}
+</style>
+</head>
+<body>
+  <div class="hd">
+    <h1>셀 내부 하단 원형 인덱스 — 쥐·폭탄 겹침 검토</h1>
+    <p>인게임 셀(56px) 그대로. 셀 위엔 <b>한 유닛만</b>, 셀 <b>바닥에 작은 원형 인덱스</b>(소속색 구분). 같은 셀에 <b>쥐·폭탄</b>을 얹어 인덱스와 겹치는지 확인.
+       상태부여=그 페이지로 전환. 데미지=셀 유지, 인덱스 아이콘만 흔들림+2프레임 하양 번쩍.</p>
+  </div>
+  <div class="wrap">
+    <div class="stagebox">
+      <div class="cap">실제 보드 (가운데 = 멀티유닛 셀)</div>
+      <div id="board"></div>
+    </div>
+    <div class="panel">
+      <h2>인원</h2>
+      <div class="seg">
+        <button class="b scn on" data-scn="s2">2</button>
+        <button class="b scn" data-scn="s3">3</button>
+        <button class="b scn" data-scn="s5">5(+유해)</button>
+        <button class="b scn" data-scn="s8">8</button>
+      </div>
+      <div class="legend"><span>인덱스 = 셀 안 유닛/유해 아이콘 (💀 = 유해, 단계무관)</span></div>
+      <h2 style="margin-top:8px">셀 위 오브젝트 (겹침 확인)</h2>
+      <div class="seg">
+        <button class="b tg" id="tgRatA">아군 쥐</button>
+        <button class="b tg" id="tgRatE">적군 쥐</button>
+        <button class="b tg" id="tgBomb">폭탄</button>
+      </div>
+      <h2 style="margin-top:8px">슬라이드</h2>
+      <div class="seg"><button class="b" id="prev">◀</button><button class="b" id="next">▶</button></div>
+      <h2 style="margin-top:8px">이벤트</h2>
+      <div class="seg"><button class="b ev" id="evCurse">저주 부여</button><button class="b ev" id="evMark">표식 부여</button></div>
+      <div class="seg"><button class="b ev" id="evDmg">데미지(피격)</button><button class="b ev" id="evRemHit">유해 피격</button></div>
+      <h2 style="margin-top:8px">생애주기 (인덱스 애니, 전이당 1회)</h2>
+      <div class="seg"><button class="b ev" id="lcAdd">유닛 입장</button><button class="b ev" id="lcLeave">유닛 퇴장</button></div>
+      <div class="seg"><button class="b ev" id="lcDie">사망→유해</button><button class="b ev" id="lcRemGone">유해 소멸</button></div>
+      <div class="seg"><button class="b" id="lcRerender" style="width:100%;border-color:#5a7a5a">무관한 재렌더 (애니 X 확인)</button></div>
+      <div class="note">생애주기 애니는 실제 전이에만 1회. "무관한 재렌더"는 스킬·이동·타 유닛 액션 등 관계없는 renderGameBoard 호출을 흉내 — 인덱스가 다시 안 튐.</div>
+      <div id="log">◀▶ 또는 인덱스로 전환.</div>
+    </div>
+  </div>
+
+  <script src="piece-gifs.js?v=20260614b"></script>
+  <script>
+  const IDLE=t=>(window.PIECE_GIFS&&window.PIECE_GIFS[t])||'';
+  const HIT =t=>(window.PIECE_HIT_GIFS&&window.PIECE_HIT_GIFS[t])||'';
+  const PIC =t=>(window.PIECE_ICONS&&window.PIECE_ICONS[t])||IDLE(t);
+  const MARK=k=>(window.MARK_GIFS&&window.MARK_GIFS[k])||'';
+  const CURSE=k=>(window.CURSE_GIFS&&window.CURSE_GIFS[k])||'';
+  const REM=s=>(window.REMAINS_STAGE_IMGS&&window.REMAINS_STAGE_IMGS[s])||window.REMAINS_IMG||'/art/remains.png';
+  const OWN={mine:'o-ally',team:'o-ally',opp:'o-opp'};   // 아군 = 나+팀원(파랑)
+  const HPCOL={mine:'#93c5fd',team:'#93c5fd',opp:'#f87171'};
+  const BORDER={mine:'#5b9bf0',team:'#5b9bf0',opp:'#f0606e'};
+
+  function ratHtml(isMine){
+    const rc={x:37,y:30,w:50,h:50}, color=isMine?'black':'white';
+    const url=(window.RAT_GIFS&&window.RAT_GIFS[color]&&window.RAT_GIFS[color].idle)||'';
+    const rx=isMine?rc.x:-rc.x, flip=isMine?'':' scaleX(-1)';
+    return `<img class="rat-board-gif _obj" data-obj="rat${isMine?'A':'E'}" src="${url}" style="width:${rc.w}%;height:${rc.h}%;left:${50+rx}%;top:${50+rc.y}%;transform:translate(-50%,-50%)${flip};z-index:4" alt="">`;
+  }
+  function bombHtml(){ return `<img class="bomb-marker-gif _obj" data-obj="bomb" src="${window.BOMB_IDLE_GIF||'/assets/bomb_idle.gif'}" alt="">`; }
+
+  let units=[], cur=0, busy=false, obj={ratA:false,ratE:false,bomb:false}, uidc=0;
+  function U(type,owner,hp,mhp,status){return{uid:++uidc,type,owner,hp,maxHp:mhp,status:status?status.slice():[],isRemains:false};}
+  function R(stage){return{uid:++uidc,isRemains:true,stage:stage||1,status:[],owner:'rem'};}
+  const SCN={
+    s2:()=>[U('spearman','mine',2,2),U('archer','opp',1,2,['mark'])],
+    s3:()=>[U('general','mine',3,3),U('witch','opp',1,2,['curse']),R(1)],
+    s5:()=>[U('spearman','mine',2,2),U('knight','team',2,2),U('torturer','opp',1,3,['mark']),R(2),R(1)],
+    s8:()=>[U('spearman','mine',2,2),U('cavalry','mine',1,2),U('general','team',3,3),U('prince','mine',3,3),
+            U('archer','opp',1,2),U('witch','opp',1,2,['curse']),U('torturer','opp',2,3,['mark']),R(1)],
+  };
+
+  function buildUni(u){
+    const el=document.createElement('div'); el.className='uni';
+    if(u.isRemains){ el.innerHTML=`<img class="remains-marker" src="${REM(u.stage||1)}">`; }
+    else{
+      let st='';
+      if(u.status.includes('curse')) st+=`<img class="curse-board-layer" src="${CURSE('idle')}">`;
+      if(u.status.includes('mark'))  st+=`<img class="mark-board-layer" src="${MARK('idle')}">`;
+      el.innerHTML=`<div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE(u.type)}"></span>`+
+                   `<span class="p-hp" style="color:${HPCOL[u.owner]||'#ccc'}">${u.hp}/${u.maxHp}</span>${st}</div>`;
+    }
+    return el;
+  }
+  function applyObjs(){
+    const cell=document.getElementById('ccell');
+    cell.querySelectorAll('._obj').forEach(e=>e.remove());
+    if(obj.ratA) cell.insertAdjacentHTML('beforeend',ratHtml(true));
+    if(obj.ratE) cell.insertAdjacentHTML('beforeend',ratHtml(false));
+    if(obj.bomb) cell.insertAdjacentHTML('beforeend',bombHtml());
+  }
+  function setCell(u){
+    const cell=document.getElementById('ccell');
+    cell.classList.toggle('has-remains',!!u.isRemains);
+    cell.classList.toggle('has-piece',!u.isRemains);
+    cell.style.borderColor=u.isRemains?'#6a6a86':(BORDER[u.owner]||'#2a2a4a');
+  }
+  function ownClass(u){ return u.isRemains?'o-rem':(OWN[u.owner]||'o-rem'); }
+  // ★ 유해는 단계 무관 해골 이모지. 유닛은 캐릭터 아이콘.
+  function ciContent(u){ return u.isRemains?'<span class="ci-ic ci-sk">💀</span>':`<img class="ci-ic" src="${PIC(u.type)}" alt="">`; }
+  function setOwn(el,u){ el.classList.remove('o-ally','o-opp','o-rem'); el.classList.add(ownClass(u)); }
+  function renderCellUnit(){
+    const stage=document.querySelector('#ccell .stage'); stage.innerHTML='';
+    stage.appendChild(buildUni(units[cur])); setCell(units[cur]); applyObjs();
+  }
+  // ★ diff 기반 인덱스 — uid 로 추적. 추가(enter)·퇴장(leave)·사망→유해(death)·유해소멸(remgone) 전이에만 1회 애니.
+  //   동일 상태로 다시 호출되면(무관한 재렌더: 스킬·이동·타 유닛 액션 등) 어떤 생애주기 애니도 재생 안 함.
+  function syncIndex(){
+    const cell=document.getElementById('ccell');
+    let bar=cell.querySelector('.cell-index');
+    if(!bar){ bar=document.createElement('div'); bar.className='cell-index'; cell.appendChild(bar); }
+    const want=new Set(units.map(u=>String(u.uid)));
+    [...bar.querySelectorAll('.ci')].forEach(el=>{           // 사라진 노드 → 퇴장/유해소멸
+      if(!want.has(el.dataset.uid) && !el.dataset.gone){
+        el.dataset.gone='1'; el.classList.remove('active');
+        el.classList.add(el.dataset.rem==='1'?'remgone':'leave');
+        setTimeout(()=>{ el.parentNode&&el.remove(); }, 470);
+      }
+    });
+    units.forEach((u,idx)=>{
+      let el=bar.querySelector(`.ci[data-uid="${u.uid}"]:not([data-gone])`);
+      if(!el){                                                // 신규 → enter
+        el=document.createElement('div'); el.dataset.uid=String(u.uid); el.dataset.rem=u.isRemains?'1':'0';
+        el.className='ci'; el.innerHTML=ciContent(u);
+        el.classList.add('enter');
+        el.addEventListener('animationend',function h(){ el.classList.remove('enter'); el.removeEventListener('animationend',h); });
+        bar.appendChild(el);
+      } else if(el.dataset.rem==='0' && u.isRemains){          // 사망 → 유해 (제자리 해골 모핑)
+        el.dataset.rem='1'; el.innerHTML=ciContent(u);
+        el.classList.add('death');
+        el.addEventListener('animationend',function h(){ el.classList.remove('death'); el.removeEventListener('animationend',h); });
+      }
+      el.onclick=(e)=>{ e.stopPropagation(); goTo(idx); };
+    });
+  }
+  function build(){
+    const b=document.getElementById('board'); b.innerHTML='';
+    b.insertAdjacentHTML('beforeend',`<div class="cell has-piece nbcell" data-type="cavalry"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('cavalry')}"></span><span class="p-hp" style="visibility:hidden">2/2</span></div></div>`);
+    const c=document.createElement('div'); c.className='cell'; c.id='ccell';
+    c.innerHTML='<div class="stage"></div><button class="cc-arrow l" id="aL"><span class="tri l"></span></button><button class="cc-arrow r" id="aR"><span class="tri r"></span></button><div class="cell-index"></div>';
+    b.appendChild(c);
+    b.insertAdjacentHTML('beforeend',`<div class="cell has-piece nbcell" data-type="archer"><div class="piece-marker"><span class="p-icon"><img class="p-gif" src="${IDLE('archer')}"></span><span class="p-hp" style="visibility:hidden">2/2</span></div></div>`);
+    document.getElementById('aL').onclick=()=>nav(-1);
+    document.getElementById('aR').onclick=()=>nav(1);
+    cur=0; renderCellUnit(); syncIndex();
+  }
+  function showUnit(i,dir){
+    if(busy||i===cur)return; busy=true;
+    const stage=document.querySelector('#ccell .stage'), old=stage.querySelector('.uni');
+    const u=units[i], neo=buildUni(u);
+    neo.style.transform=`translateX(${dir>0?20:-20}px)`; neo.style.opacity='0';
+    stage.appendChild(neo); setCell(u);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      if(old){ old.style.transform=`translateX(${dir>0?-20:20}px)`; old.style.opacity='0'; }
+      neo.style.transform='translateX(0)'; neo.style.opacity='1';
+    }));
+    cur=i; syncIndex();
+    setTimeout(()=>{ if(old&&old.parentNode)old.remove(); busy=false; },340);
+  }
+  function nav(dir){ if(units.length)showUnit((cur+dir+units.length)%units.length,dir); }
+  function goTo(i){ if(i!==cur)showUnit(i,i>cur?1:-1); }
+
+  function hitCi(i){
+    const u=units[i]; if(!u)return;
+    const d=document.querySelector(`#ccell .cell-index .ci[data-uid="${u.uid}"]:not([data-gone])`); if(!d)return;
+    const ic=d.querySelector('.ci-ic'); if(!ic)return;
+    ic.classList.remove('hit'); void ic.offsetWidth; ic.classList.add('hit');
+    setTimeout(()=>ic.classList.remove('hit'),700);
+  }
+  function log(m){ document.getElementById('log').textContent=m; }
+
+  function grant(kind){
+    if(!units.length)return; let t=(cur+1)%units.length,g=0;
+    while(units[t].isRemains&&g<units.length){ t=(t+1)%units.length; g++; }
+    if(units[t].isRemains){ log('부여할 유닛이 없습니다.'); return; }
+    if(!units[t].status.includes(kind)) units[t].status.push(kind);
+    showUnit(t,t>cur?1:-1);
+    log((kind==='curse'?'저주':'표식')+' 부여 → 그 유닛 페이지로 전환 + 셀에 상태 idle 표시.');
+  }
+  // 일반 셀(다른 칸) 유닛 피격 — 인게임처럼 idle→hit GIF 스왑 + 흔들림, 잠시 후 복원.
+  function hitNeighbor(cell){
+    if(!cell)return; const img=cell.querySelector('img.p-gif'), mk=cell.querySelector('.piece-marker'), type=cell.dataset.type;
+    if(!img||!type)return;
+    const idleUrl=IDLE(type), hitUrl=HIT(type)||idleUrl;
+    img.src=hitUrl;
+    if(mk){ mk.style.animation='none'; void mk.offsetWidth; mk.style.animation='nbHit .65s ease'; }
+    setTimeout(()=>{ img.src=idleUrl; if(mk)mk.style.animation=''; }, 690);
+  }
+  function damage(){
+    // ★ 파도타기 X — 피격당한 유닛들만 "동시에". 멀티유닛 셀=인덱스 피격, 다른 칸 일반 유닛=피격 GIF.
+    const v=units.map((u,i)=>({u,i})).filter(x=>!x.u.isRemains);
+    const victims=v.filter((_,k)=>k%2===0);
+    victims.forEach(x=>hitCi(x.i));                                   // 멀티유닛 셀 = 인덱스 피격
+    document.querySelectorAll('#board .nbcell').forEach(c=>hitNeighbor(c));  // 다른 칸 = 피격 GIF (동시)
+    log('데미지 → 멀티유닛 셀은 인덱스 피격, 다른 칸 유닛은 피격 GIF. 동시 발동 — 타이밍 비교.');
+  }
+  function remHit(){
+    const r=units.map((u,i)=>({u,i})).filter(x=>x.u.isRemains);
+    if(!r.length){ log('유해 없음'); return; }
+    r.forEach(x=>hitCi(x.i));     // 동시
+    log('유해 피격 → 해골 아이콘 동시에 흔들림+번쩍.');
+  }
+
+  /* ── 생애주기(시스템적 인덱스 애니) ── */
+  const ADDPOOL=['scout','knight','prince','cavalry','witch','torturer','manhunter'];
+  function addUnit(){
+    const n=units.filter(u=>!u.isRemains).length, t=ADDPOOL[n%ADDPOOL.length];
+    const owner=(n%3===2)?'opp':(n%3===1?'team':'mine');
+    units.push(U(t,owner,2,2)); syncIndex();
+    log('유닛 입장 → 인덱스에 생성(enter) 애니 1회.');
+  }
+  function leaveUnit(){
+    const cand=units.map((u,i)=>i).filter(i=>!units[i].isRemains && i!==cur);
+    if(!cand.length){ log('퇴장할 유닛 없음'); return; }
+    units.splice(cand[cand.length-1],1); if(cur>=units.length)cur=units.length-1;
+    renderCellUnit(); syncIndex();
+    log('유닛 퇴장(이동으로 빠져나감) → 인덱스 leave 애니(축소·페이드)+슬롯 수축.');
+  }
+  function dieToRemains(){
+    let idx=units.map((u,i)=>i).filter(i=>!units[i].isRemains && i!==cur)[0];
+    if(idx==null) idx=units.findIndex(u=>!u.isRemains);
+    if(idx<0){ log('사망시킬 유닛 없음'); return; }
+    const u=units[idx]; u.isRemains=true; u.owner='rem'; u.stage=1;   // uid 유지 → 제자리 해골 모핑
+    syncIndex();
+    log('유닛 사망 → 인덱스 death 애니(번쩍·스핀 후 해골로 모핑).');
+  }
+  function removeRemains(){
+    const idx=units.findIndex(u=>u.isRemains);
+    if(idx<0){ log('소멸할 유해 없음'); return; }
+    units.splice(idx,1); if(cur>=units.length)cur=units.length-1;
+    renderCellUnit(); syncIndex();
+    log('유해 소멸 → 인덱스 remgone 애니(번쩍 후 스핀 축소).');
+  }
+  function rerender(){   // 무관한 호출(스킬·이동·타 유닛 액션 → renderGameBoard) 시뮬
+    renderCellUnit(); syncIndex();
+    log('무관한 재렌더 → 셀 유닛을 다시 그려도 인덱스 생애주기 애니는 재생 안 됨(diff 일치).');
+  }
+
+  function loadScn(id){ units=SCN[id](); cur=0; busy=false; build(); log('◀▶ 또는 인덱스로 전환.'); }
+  document.querySelectorAll('.scn').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.scn').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadScn(b.dataset.scn);
+  }));
+  function tg(key,btn){ obj[key]=!obj[key]; btn.classList.toggle('on',obj[key]); applyObjs(); }
+  document.getElementById('tgRatA').addEventListener('click',e=>tg('ratA',e.currentTarget));
+  document.getElementById('tgRatE').addEventListener('click',e=>tg('ratE',e.currentTarget));
+  document.getElementById('tgBomb').addEventListener('click',e=>tg('bomb',e.currentTarget));
+  document.getElementById('prev').addEventListener('click',()=>nav(-1));
+  document.getElementById('next').addEventListener('click',()=>nav(1));
+  document.getElementById('evCurse').addEventListener('click',()=>grant('curse'));
+  document.getElementById('evMark').addEventListener('click',()=>grant('mark'));
+  document.getElementById('evDmg').addEventListener('click',damage);
+  document.getElementById('evRemHit').addEventListener('click',remHit);
+  document.getElementById('lcAdd').addEventListener('click',addUnit);
+  document.getElementById('lcLeave').addEventListener('click',leaveUnit);
+  document.getElementById('lcDie').addEventListener('click',dieToRemains);
+  document.getElementById('lcRemGone').addEventListener('click',removeRemains);
+  document.getElementById('lcRerender').addEventListener('click',rerender);
+
+  function init(){ if(window.PIECE_GIFS&&window.MARK_GIFS&&window.CURSE_GIFS&&window.RAT_GIFS){ loadScn('s3'); } else setTimeout(init,80); }
+  init();
+  </script>
+</body>
+</html>

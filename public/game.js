@@ -9230,7 +9230,7 @@ socket.on('remains_update', ({ remains, hits }) => {
   //   _crApplyForced 는 renderGameBoard 끝에서 돌므로, 각 renderGameBoard 직전에 플래그를 세팅.
   const _oldRemKeys = new Set((S.remains || []).map(r => `${r.col},${r.row}`));
   const _newRemains = (remains || []).filter(r => r && !_oldRemKeys.has(`${r.col},${r.row}`));
-  const _forceNewRemains = () => { if (window._crForceCell) for (const r of _newRemains) window._crForceCell(r.col, r.row, r); };
+  const _forceNewRemains = () => {};   // 사망→유해는 인덱스 해골 모핑으로 표현 — 셀 페이지 전환 안 함
   // 폴백 — 애니 모듈/보드 없거나 hits 정보 없으면 상태만 즉시 반영.
   if (!board || !Array.isArray(hits) || hits.length === 0 || typeof animateRemainsHit !== 'function') {
     S.remains = remains || [];
@@ -9265,30 +9265,21 @@ socket.on('remains_update', ({ remains, hits }) => {
     //   (이전엔 다음 렌더(턴 종료)까지 옛 단계가 남는 레이스가 있었음)
     if (typeof renderGameBoard === 'function') renderGameBoard();
   };
-  // ★ 캐러셀: 유해 슬롯이 숨어있으면 임팩트 대기 전에 "미리" 그 슬롯으로 슬라이드해 둔다.
-  //   → 임팩트 시점에 모든 유해(캐러셀/일반)가 동시에 피격됨(일괄·동기). 슬라이드(200ms)는 임팩트 대기 중 완료.
-  let _slideNeeded = false;
-  for (const h of hits) {
-    try {
+  // ★ 멀티유닛 셀의 유해 = 셀 슬라이드/GIF 없이 하단 인덱스 해골 아이콘만 피격(흔들림+번쩍). 일반 셀은 단계 GIF.
+  const _run = () => {
+    for (const h of hits) {
       const _ck = `${h.col},${h.row}`;
       const _st = window._cellCarouselState && window._cellCarouselState[_ck];
       if (_st && _st.pieces && _st.pieces.length > 1) {
-        const _ri = _st.pieces.findIndex(p => p.owner === 'remains');
-        if (_ri >= 0 && _ri !== _st.idx && !_st.busy && typeof window._crSlideTo === 'function') {
-          window._crSlideTo(_ck, _ri);
-          _slideNeeded = true;
-        }
+        try { const _remP = _st.pieces.find(p => p.owner === 'remains'); if (_remP) window._crHitIndex(_ck, _remP.pcRef); } catch (e) {}
+        finalize();   // 단계 데이터 진행(셀 GIF 없으므로 즉시 정착)
+      } else {
+        const facingLeft = !!(S._remainsFacing && S._remainsFacing[_ck]);
+        animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
       }
-    } catch (e) {}
-  }
-  // 모든 유해를 한 번에(동기) 발동 — 공격자 임팩트 순간(_delay)에 맞춤. 슬라이드가 필요하면 최소 그 시간만큼 대기.
-  const _run = () => {
-    for (const h of hits) {
-      const facingLeft = !!(S._remainsFacing && S._remainsFacing[`${h.col},${h.row}`]);
-      animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
     }
   };
-  const _runDelay = Math.max(_delay, _slideNeeded ? 230 : 0);
+  const _runDelay = _delay;
   if (_runDelay > 0) setTimeout(_run, _runDelay); else _run();
 });
 socket.on('spectator_remains_update', ({ remains, hits }) => {
@@ -14315,22 +14306,9 @@ function _renderCellCarousel(cell, col, row, units) {
       const _jKey = `${_jp.owner}:${(_jp.pcRef && _jp.pcRef.type) || ''}:${(_jp.pcRef && _jp.pcRef.subUnit) || ''}J`;
       if (!_prevFp.includes(_jKey)) _initIdx = _joinedIdx;
     }
-    // ★ 사망 → 유해가 *방금* 생긴 칸이면 그 유해 슬롯을 보여줌 (사용자 결정: "유해로 페이지 넘기기").
-    //   살아있는 내 말이 같은 칸이라도 유해로 전환. _crForce 에도 그 유해 piece 를 박아 _crApplyForced 가
-    //   사망경로(piece 없는 force → repIdx=내 말) 로 되돌리지 못하게 함.
-    //   "방금 생성" 판정: 이번 턴 생성(turnCreated===현재 턴) — 기존 유해 칸으로 이동 진입 시 오발 방지.
-    const _remIdx = pieces.findIndex(p => p.owner === 'remains');
-    if (_remIdx >= 0) {
-      const _rp = pieces[_remIdx], _rpc = _rp.pcRef;
-      const _rEntry = `remains:${(_rpc && _rpc.type) || 'rem'}:`;
-      const _freshByTurn = _rpc && typeof _rpc.turnCreated === 'number' && _rpc.turnCreated === S.turnNumber;
-      const _newInCell = !_prevFp.includes(_rEntry);
-      if (_newInCell && (_freshByTurn || _rpc.turnCreated == null)) {
-        _initIdx = _remIdx;
-        try { if (window._crForce && _rpc) window._crForce[csKey] = _rpc; } catch (e) {}
-      }
-    }
-    cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx, twoSide: (cs[csKey] && cs[csKey].twoSide) || 1 };
+    // ★ 사망 → 유해: 셀 페이지를 유해로 전환하지 않음(설계 변경). 인덱스의 유닛 아이콘이 해골로 모핑되는 것으로 표현.
+    //   따라서 _initIdx 는 대표(또는 새 합류)로 유지.
+    cs[csKey] = { idx: _initIdx, busy: false, fp, pieces, repIdx: _repIdx, _indexEl: (cs[csKey] && cs[csKey]._indexEl) || null };
   } else {
     cs[csKey].pieces = pieces;
     cs[csKey].repIdx = _repIdx;
@@ -14358,13 +14336,10 @@ function _renderCellCarousel(cell, col, row, units) {
       _markL = markBoardLayerHtml(_markPc);
     if (_cursePc && !(typeof _curseSummoningActive === 'function' && _curseSummoningActive(col, row)))
       _curseL = curseBoardLayerHtml(_cursePc);
-    // ★ 턴테이블 깊이 틴트 — 뒤로 갈수록 보라빛(곱하기). _crLayout 이 opacity 로 깊이 반영.
-    const _gurl = (pc.owner === 'remains') ? (window.REMAINS_IMG || '/art/remains.png') : _ccGifUrl(_pc, !!pc.twinRef);
-    const _tint = _gurl ? `<div class="cc-tint" style="-webkit-mask-image:url(${_gurl});mask-image:url(${_gurl})"></div>` : '';
     return `<div class="cc-main${i === st.idx ? '' : ' cc-hidden'}" data-slot="${i}" data-owner="${pc.owner}">` +
         _curseL +
         `<div class="cc-inner">` +
-          `<span class="p-icon">${pc.iconHtml}${_tint}</span>` +
+          `<span class="p-icon">${pc.iconHtml}</span>` +
           `<span class="p-hp" style="color:${pc.hpColor}">${pc.hpText}</span>` +
           _markL +
         `</div>` +
@@ -14380,60 +14355,102 @@ function _renderCellCarousel(cell, col, row, units) {
     </div>`;
 
   cell.classList.add('has-piece');
-  // ★ 턴테이블 포메이션 배치(대표 중앙 + 좌우 사이드 + 뒤 페이드). 셀은 이미 DOM 에 있어 offsetWidth 유효.
-  try { window._crLayout && window._crLayout(csKey); } catch (e) {}
+  // ★ 셀 하단 원형 인덱스 — 영속 DOM 을 재부착 후 diff(추가/퇴장/사망→유해/소멸 전이에만 1회 애니).
+  //   인덱스 엘리먼트를 cs 에 보존해 매 렌더(셀 재빌드)마다 재생성하지 않음 → 무관한 재렌더에 애니 미재생.
+  try {
+    const _wrap = document.getElementById(`${csId}-wrap`);
+    if (_wrap) {
+      let _ix = st._indexEl;
+      if (_ix && _ix.classList) { _wrap.appendChild(_ix); }     // 보존된 인덱스 재부착
+      else { _ix = document.createElement('div'); _ix.className = 'cc-index'; st._indexEl = _ix; _wrap.appendChild(_ix); }
+      window._crSyncIndex(csKey);
+    }
+  } catch (e) {}
 }
 
-// ── 멀티유닛 캐러셀: 턴테이블 포메이션 배치 + 회전 ──────────────────────────
-//   대표=중앙(scale 1) · 좌우 사이드=±90°(scale 0.8, 보라 깊이 틴트) · 뒤=페이드아웃.
-//   앵커링(:not(.cc-hidden))이 대표 슬롯만 잡도록, 사이드는 cc-hidden 유지 + cc-side(CSS 로 보이게).
-window._crLayout = function(csKey) {
+// ── 셀 하단 원형 인덱스 (멀티유닛 미니맵) — diff 기반 생애주기 (carousel-bottom-index-preview 이식) ──
+//   인덱스는 cs[csKey]._indexEl 로 영속. 매 렌더 _crSyncIndex 가 추가/퇴장/사망→유해/소멸 "전이"만 1회 애니.
+window._crDotIcon = function(pc) {
+  const _pc = pc && pc.pcRef;
+  return (_pc && _pc.icon) || (window.getPieceIconUrl && _pc && window.getPieceIconUrl(_pc.type)) || '';
+};
+window._crIndexKeys = function(pieces) {
+  const keyOf = pc => pc.owner + ':' + ((pc.pcRef && pc.pcRef.type) || 'rem') + ':' + ((pc.pcRef && pc.pcRef.subUnit) || '');
+  const seen = {};
+  return pieces.map(pc => { let k = keyOf(pc); const n = (seen[k] = (seen[k] || 0) + 1); return n > 1 ? k + '#' + n : k; });
+};
+window._crSyncIndex = function(csKey) {
   const cs = window._cellCarouselState; const st = cs && cs[csKey];
-  if (!st || !st.pieces) return;
-  const [col, row] = csKey.split(',');
-  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
-  const cell = wrap.closest ? wrap.closest('.cell') : null;
-  const cw = (cell && cell.offsetWidth) || 56;
-  const N = st.pieces.length;
-  const RX = cw * 0.46, RY = RX * 0.42;                 // 프리뷰와 동일 타원(셀 상대)
-  const ts = (st.twoSide == null ? 1 : st.twoSide);
-  const off = i => { let o = ((i - st.idx) % N + N) % N; if (o > N / 2) o -= N; return o; };
-  wrap.querySelectorAll('.cc-main').forEach(el => {
-    const i = parseInt(el.dataset.slot);
-    const isFront = (i === st.idx);
-    // 2인 = 4인 슬롯 그대로 좌우 스윙(대표 중앙 + 나머지 ±90° 사이드, twoSide 로 좌↔우), 3인+ = 90° 고정 슬롯
-    const ang = (N === 2) ? (isFront ? 0 : ts * 90) : (off(i) * 90);
-    const a = ang * Math.PI / 180, s = Math.sin(a), d = Math.cos(a);   // d:+1 앞 .. -1 뒤
-    const scale = 0.6 + 0.4 * ((d + 1) / 2);
-    const dx = RX * s, dy = RY * (d - 1);                 // 셀 중앙 기준 오프셋(앞=0,0)
-    const back = 1 - (d + 1) / 2;
-    const shown = (N === 2) ? true : (Math.abs(off(i)) <= 1);   // 대표 + 좌우만 표시(나머지 페이드)
-    el.style.transform = `translate(calc(-50% + ${dx.toFixed(1)}px), calc(-50% + ${dy.toFixed(1)}px)) scale(${scale.toFixed(3)})`;
-    el.style.zIndex = Math.round((d + 1) * 100) + 3;
-    el.classList.toggle('cc-front', isFront);
-    if (isFront)      { el.classList.remove('cc-hidden', 'cc-side'); }
-    else if (shown)   { el.classList.add('cc-hidden', 'cc-side'); }   // 보이는 사이드(앵커링 제외)
-    else              { el.classList.add('cc-hidden'); el.classList.remove('cc-side'); }   // 뒤 = 페이드아웃
-    const tintOp = isFront ? 0 : (shown ? back : 0);
-    el.querySelectorAll('.cc-tint').forEach(t => { t.style.opacity = tintOp.toFixed(2); });
+  if (!st || !st._indexEl || !st.pieces) return;
+  const bar = st._indexEl;
+  const want = window._crIndexKeys(st.pieces);
+  const wantSet = new Set(want);
+  const dotByKey = k => bar.querySelector(`.cc-dot[data-k="${k}"]:not([data-gone])`);
+  const skull = '<span class="cc-dot-ic cc-dot-sk">💀</span>';
+  // 0) 사망→유해 모핑 — 사라지는 유닛 dot 을, 같은 type 의 새 유해 dot 으로 제자리 재활용(번쩍+해골)
+  const goneUnit = [...bar.querySelectorAll('.cc-dot[data-rem="0"]')].filter(el => !wantSet.has(el.dataset.k) && !el.dataset.gone);
+  st.pieces.forEach((pc, i) => {
+    if (pc.owner !== 'remains') return;
+    const k = want[i]; if (dotByKey(k)) return;
+    const rtype = (pc.pcRef && pc.pcRef.type) || '';
+    const cand = goneUnit.find(el => el.dataset.type === rtype) || (rtype ? null : goneUnit[0]);
+    if (cand) {
+      goneUnit.splice(goneUnit.indexOf(cand), 1);
+      cand.dataset.k = k; cand.dataset.rem = '1'; cand.removeAttribute('data-type'); cand.innerHTML = skull;
+      cand.classList.add('death');
+      cand.addEventListener('animationend', function h(){ cand.classList.remove('death'); cand.removeEventListener('animationend', h); });
+    }
+  });
+  // 1) 사라진 dot → 퇴장(leave) / 유해소멸(remgone)
+  [...bar.querySelectorAll('.cc-dot')].forEach(el => {
+    if (!wantSet.has(el.dataset.k) && !el.dataset.gone) {
+      el.dataset.gone = '1';
+      el.classList.add(el.dataset.rem === '1' ? 'remgone' : 'leave');
+      setTimeout(() => { el.parentNode && el.remove(); }, 470);
+    }
+  });
+  // 2) 추가/갱신
+  st.pieces.forEach((pc, i) => {
+    const k = want[i], isRem = (pc.owner === 'remains');
+    let el = dotByKey(k);
+    if (!el) {
+      el = document.createElement('div'); el.dataset.k = k; el.dataset.rem = isRem ? '1' : '0';
+      if (!isRem) el.dataset.type = (pc.pcRef && pc.pcRef.type) || '';
+      el.className = 'cc-dot';
+      el.innerHTML = isRem ? skull : `<img class="cc-dot-ic" src="${window._crDotIcon(pc)}" alt="">`;
+      el.classList.add('enter');
+      el.addEventListener('animationend', function h(){ el.classList.remove('enter'); el.removeEventListener('animationend', h); });
+      bar.appendChild(el);
+    } else if (el.dataset.rem === '0' && isRem) {   // 모핑 폴백(0단계서 안 잡힌 경우)
+      el.dataset.rem = '1'; el.removeAttribute('data-type'); el.innerHTML = skull;
+      el.classList.add('death');
+      el.addEventListener('animationend', function h(){ el.classList.remove('death'); el.removeEventListener('animationend', h); });
+    }
+    el.onclick = (e) => { e.stopPropagation(); try { window._crSlideTo(csKey, i); } catch (_) {} };
   });
 };
+// 멀티유닛 셀 데미지 — 셀 페이지 전환 없이 하단 인덱스의 피격 유닛 아이콘만 흔들림+번쩍(피격 GIF와 동기).
+window._crHitIndex = function(csKey, victimPc) {
+  const cs = window._cellCarouselState; const st = cs && cs[csKey];
+  if (!st || !st._indexEl || !st.pieces) return false;
+  const i = victimPc ? st.pieces.findIndex(p => p.pcRef === victimPc || (p.twinRef && p.twinRef === victimPc)) : -1;
+  if (i < 0) return false;
+  const keys = window._crIndexKeys(st.pieces);
+  const el = st._indexEl.querySelector(`.cc-dot[data-k="${keys[i]}"]:not([data-gone])`); if (!el) return false;
+  const ic = el.querySelector('.cc-dot-ic'); if (!ic) return false;
+  if (ic.classList.contains('hit')) return true;   // 이미 피격 진행 중이면 재시작 안 함(여러 경로 중복 방지)
+  void ic.offsetWidth; ic.classList.add('hit');
+  setTimeout(() => ic.classList.remove('hit'), 700);
+  return true;
+};
 
+// ── 멀티유닛 캐러셀: 슬라이드형 네비게이션 (셀엔 항상 1유닛, ◀▶/인덱스로 전환) ──
 window._crNav = function(colRow, dir) {
-  const cs = window._cellCarouselState;
-  if (!cs) return;
+  const cs = window._cellCarouselState; if (!cs) return;
   const st = cs[colRow];
-  if (!st || st.busy || st.pieces.length <= 1) return;
-  const N = st.pieces.length;
-  st.busy = true;
-  if (N === 2) { st.idx = 1 - st.idx; st.twoSide = (st.twoSide == null ? 1 : st.twoSide) * -1; }   // 좌우 왔다갔다
-  else { st.idx = ((st.idx + dir) % N + N) % N; }                                                  // 슬롯 셔플
-  window._crLayout(colRow);   // CSS transform/opacity 전환이 미끄러뜨림(0.34s)
-  const [col, row] = colRow.split(',');
-  const markEl = document.getElementById(`cc-${col}-${row}-mark`);
-  const cur = st.pieces[st.idx];
-  if (markEl) { markEl.textContent = cur.statusIcons || ''; markEl.style.display = cur.statusIcons ? '' : 'none'; }
-  setTimeout(() => { st.busy = false; }, 360);
+  if (!st || st.busy || !st.pieces || st.pieces.length <= 1) return;
+  const nextIdx = (st.idx + dir + st.pieces.length) % st.pieces.length;
+  window._crSlideTo(colRow, nextIdx, dir);
 };
 
 // ── 캐러셀 대표(우선순위) 선정 + 액션 시 대표로 자동 슬라이드 ────────────
@@ -14465,19 +14482,31 @@ function _crPickVictimRep(pieces) {
   })[0];
 }
 // 지정 슬롯으로 슬라이드(애니) — _crNav 의 단일 슬라이드를 임의 타깃으로 일반화. 회귀 없이 그 자리 고정.
-window._crSlideTo = function(csKey, targetSlot) {
+window._crSlideTo = function(csKey, targetSlot, dirHint) {
   const cs = window._cellCarouselState; const st = cs && cs[csKey];
   if (!st || st.busy || !st.pieces || st.pieces.length <= 1) return;
   if (targetSlot == null || targetSlot === st.idx || targetSlot >= st.pieces.length) return;
-  const N = st.pieces.length;
-  st.busy = true;
-  if (N === 2) { st.twoSide = (st.twoSide == null ? 1 : st.twoSide) * -1; }   // 2인 = 좌우 스윙으로 대표 교대
-  st.idx = targetSlot;                                                         // 타깃(피격자 등)을 대표(중앙)로
-  window._crLayout(csKey);
   const [col, row] = csKey.split(',');
-  const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
-  if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
-  setTimeout(() => { st.busy = false; }, 360);
+  const wrap = document.getElementById(`cc-${col}-${row}-wrap`); if (!wrap) return;
+  const curSlot  = wrap.querySelector(`.cc-main[data-slot="${st.idx}"]`);
+  const nextSlot = wrap.querySelector(`.cc-main[data-slot="${targetSlot}"]`);
+  if (!curSlot || !nextSlot) return;
+  st.busy = true;
+  const n = st.pieces.length;
+  let dir = dirHint;
+  if (dir == null) { const fwd = ((targetSlot - st.idx) + n) % n, bwd = ((st.idx - targetSlot) + n) % n; dir = fwd <= bwd ? 1 : -1; }
+  const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
+  const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+  curSlot.classList.add(outCls);
+  setTimeout(() => {
+    st.idx = targetSlot;
+    curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
+    nextSlot.style.transition = 'none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
+    void nextSlot.offsetWidth; nextSlot.style.transition = ''; nextSlot.classList.remove(inCls);
+    const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
+    if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
+    st.busy = false;
+  }, 220);
 };
 // 액션이 닿은 셀 표시 — 렌더 종료 시 _crApplyForced 가 "액션 당사자" 슬롯으로 슬라이드(회귀 없음).
 //   ★ piece 인자(피격자/공격자/이동말)를 주면 그 유닛 슬롯으로, 없으면 셀 대표(repIdx)로.
@@ -15054,9 +15083,17 @@ function _keyToPiece(key) {
 function _boardStampFromKey(key, type, dmg) {
   if (!(dmg > 0)) return;
   try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, type, dmg); } catch (e) {}
-  // ★ 데미지(악몽/저주틱/유황범람/폭탄/덫/공격 등 전부 이 경로) → 캐러셀이면 피격 당사자 슬롯으로 자동 이동.
-  //   다중 피격이면 _crForceCell 의 대표 유지 로직(고티어→상태이상多)이 한 명만 선택. 다음 renderGameBoard 에서 반영.
-  try { const _pc = _keyToPiece(key); if (_pc && _pc.col != null && _pc.col >= 0 && window._crForceCell) window._crForceCell(_pc.col, _pc.row, _pc); } catch (e) {}
+  // ★ 데미지(악몽/저주틱/유황범람/폭탄/덫/공격 등 전부 이 경로) → 멀티유닛 셀이면 셀 전환 없이 하단 인덱스 피격,
+  //   일반 셀이면 피격 당사자 슬롯으로 자동 이동(셀 피격 GIF 대상).
+  try {
+    const _pc = _keyToPiece(key);
+    if (_pc && _pc.col != null && _pc.col >= 0) {
+      const _ck = `${_pc.col},${_pc.row}`;
+      const _cst = window._cellCarouselState && window._cellCarouselState[_ck];
+      if (_cst && _cst.pieces && _cst.pieces.length > 1) { try { window._crHitIndex && window._crHitIndex(_ck, _pc); } catch (e) {} }
+      else if (window._crForceCell) window._crForceCell(_pc.col, _pc.row, _pc);
+    }
+  } catch (e) {}
 }
 
 function addLoyaltyDamage(key, dmg) {
@@ -18796,45 +18833,25 @@ function animateBoardIconHit(cells, isDefending) {
         const _pool = (S.oppPieces || []).filter(p => p.marked && p.col === c.col && p.row === c.row && p.alive);
         _victim = _crPickVictimRep(_pool);
       }
-      // ★ 캐러셀이면 피격당한 *대표 유닛* 슬롯으로 자동 이동(대표=내유닛 으로 새던 버그 수정)
-      if (window._crForceCell) window._crForceCell(c.col, c.row, _victim);
+      // ★ 멀티유닛 셀 = 데미지는 셀 페이지를 전환하지 않음(인덱스 피격으로 처리). 일반 셀만 대표 슬라이드.
+      if (window._crForceCell && !cell.querySelector('.cc-wrapper')) window._crForceCell(c.col, c.row, _victim);
 
       // isDefending=true  → 내 말 피격: opp-marked 가 아닌 piece-marker
       // isDefending=false → 상대 말 피격: opp-marked 만 (내 말이 점령한 경우 오발사 방지)
       const markerSel = isDefending
         ? '.piece-marker:not(.opp-marked)'
         : '.piece-marker.opp-marked';
-      // ── 마커 해소: 일반 셀=.piece-marker, 캐러셀=피격 유닛 슬롯(.cc-main). 흔들림은 .cc-inner 에. ──
+      // ── 마커 해소: 멀티유닛 셀 = 셀 페이지·GIF 없이 하단 인덱스의 피격 유닛 아이콘만 흔들림+번쩍. ──
       let marker, shakeTarget, icon;
       const _ccWrap = cell.querySelector('.cc-wrapper');
       if (_ccWrap) {
-        const _csKey = `${c.col},${c.row}`;
-        const _st = window._cellCarouselState && window._cellCarouselState[_csKey];
-        // 1) victim 의 슬롯 인덱스 — 참조 매칭, 없으면 owner 매칭으로 폴백
-        let _slotIdx = (_st && _victim) ? _st.pieces.findIndex(p => p.pcRef === _victim) : -1;
-        let _slotEl = _slotIdx >= 0 ? _ccWrap.querySelector(`.cc-main[data-slot="${_slotIdx}"]`) : null;
-        if (!_slotEl) {
-          // owner 폴백 — isDefending 이면 mine/teammate, 아니면 opp 슬롯
-          _slotEl = [..._ccWrap.querySelectorAll('.cc-main')].find(m => {
-            const o = m.dataset.owner, mine = (o === 'mine' || o === 'teammate');
-            return isDefending ? mine : (o === 'opp');
-          }) || null;
-          if (_slotEl) _slotIdx = parseInt(_slotEl.dataset.slot);
-        }
-        if (!_slotEl) continue;
-        // 2) 현재 보이는 슬롯이 아니면 그 슬롯으로 슬라이드(이 프레임에서 직접 구동 — 강제플래그는 다음 렌더라 늦음)
-        if (_st && _slotIdx >= 0 && _slotIdx !== _st.idx && !_st.busy) {
-          try { window._crSlideTo(_csKey, _slotIdx); } catch (e) {}
-        }
-        marker = _slotEl;
-        shakeTarget = _slotEl.querySelector('.cc-inner') || _slotEl;
-        icon = _slotEl.querySelector('.p-icon');
-      } else {
-        marker = cell.querySelector(markerSel);
-        if (!marker) continue;
-        shakeTarget = marker;
-        icon = marker.querySelector('.p-icon');
+        try { window._crHitIndex && window._crHitIndex(`${c.col},${c.row}`, _victim); } catch (e) {}
+        continue;
       }
+      marker = cell.querySelector(markerSel);
+      if (!marker) continue;
+      shakeTarget = marker;
+      icon = marker.querySelector('.p-icon');
       if (!icon) continue;
 
       // ── 바라보는 방향 기준 피격 흔들림 적용 ──
@@ -19050,8 +19067,8 @@ function playDeathAnimations(deaths, callback) {
   for (const d of deaths) {
     const cell = board.querySelector(`.cell[data-col="${d.col}"][data-row="${d.row}"]`);
     if (!cell) { done(); continue; }
-    // ★ 사망 후 같은 칸에 캐러셀이 남으면 대표 슬롯으로 자동 이동 표시
-    if (window._crForceCell) window._crForceCell(d.col, d.row);
+    // ★ 사망 → 멀티유닛 셀은 페이지 전환 안 함(인덱스 해골 모핑으로 표현). 일반/단일 셀만 대표 슬롯 표시.
+    if (window._crForceCell && !cell.querySelector('.cc-wrapper')) window._crForceCell(d.col, d.row);
 
     const deathUrl = window.getPieceDeathGifUrl ? window.getPieceDeathGifUrl(d.type) : '/art/death_common.gif';
     const noRemains = (d.type === 'dragon' || d.type === 'sulfurCauldron' || d.type === 'rat');
