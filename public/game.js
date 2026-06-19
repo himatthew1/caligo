@@ -9265,21 +9265,33 @@ socket.on('remains_update', ({ remains, hits }) => {
     //   (이전엔 다음 렌더(턴 종료)까지 옛 단계가 남는 레이스가 있었음)
     if (typeof renderGameBoard === 'function') renderGameBoard();
   };
-  // ★ 멀티유닛 셀의 유해 = 셀 슬라이드/GIF 없이 하단 인덱스 해골 아이콘만 피격(흔들림+번쩍). 일반 셀은 단계 GIF.
+  // ★ 멀티유닛 셀: 유해 슬롯이 숨어있으면 임팩트 전에 미리 그 슬롯으로 슬라이드 → 임팩트 시 셀에서 단계 GIF(파괴 애니) 재생
+  //   = 단계 진행이 보이게. (유해는 단계 메커닉이 핵심이라 인덱스 해골만으론 단계를 못 보여줌 → 셀 GIF 유지.) 인덱스 해골도 함께 피격.
+  let _slideNeeded = false;
+  for (const h of hits) {
+    try {
+      const _ck = `${h.col},${h.row}`;
+      const _st = window._cellCarouselState && window._cellCarouselState[_ck];
+      if (_st && _st.pieces && _st.pieces.length > 1) {
+        const _ri = _st.pieces.findIndex(p => p.owner === 'remains');
+        if (_ri >= 0 && _ri !== _st.idx && !_st.busy && typeof window._crSlideTo === 'function') {
+          window._crSlideTo(_ck, _ri); _slideNeeded = true;
+        }
+      }
+    } catch (e) {}
+  }
   const _run = () => {
     for (const h of hits) {
       const _ck = `${h.col},${h.row}`;
       const _st = window._cellCarouselState && window._cellCarouselState[_ck];
       if (_st && _st.pieces && _st.pieces.length > 1) {
-        try { const _remP = _st.pieces.find(p => p.owner === 'remains'); if (_remP) window._crHitIndex(_ck, _remP.pcRef); } catch (e) {}
-        finalize();   // 단계 데이터 진행(셀 GIF 없으므로 즉시 정착)
-      } else {
-        const facingLeft = !!(S._remainsFacing && S._remainsFacing[_ck]);
-        animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });
+        try { const _remP = _st.pieces.find(p => p.owner === 'remains'); if (_remP) window._crHitIndex(_ck, _remP.pcRef); } catch (e) {}   // 인덱스 해골도 흔들림+번쩍
       }
+      const facingLeft = !!(S._remainsFacing && S._remainsFacing[_ck]);
+      animateRemainsHit(board, h.col, h.row, { hitNumber: (h.stage || 2) - 1, facingLeft, onSettle: finalize });   // 셀에서 단계 GIF + 단계 진행
     }
   };
-  const _runDelay = _delay;
+  const _runDelay = Math.max(_delay, _slideNeeded ? 230 : 0);
   if (_runDelay > 0) setTimeout(_run, _runDelay); else _run();
 });
 socket.on('spectator_remains_update', ({ remains, hits }) => {
@@ -14266,8 +14278,9 @@ function _renderCellCarousel(cell, col, row, units) {
     const pc = u.p;
     // ★ #6 유해 슬롯 — 아이콘 자리에 유해 이미지, HP 없음.
     if (u.owner === 'remains') {
-      const _remUrl = window.REMAINS_IMG || '/art/remains.png';
-      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains', pcRef: pc };
+      const _stg = (pc.hits || 0) + 1;   // 단계 = hits+1 (1·2·3) — 일반 셀과 동일하게 단계 이미지 사용
+      const _remUrl = (window.REMAINS_STAGE_IMGS && window.REMAINS_STAGE_IMGS[_stg]) || window.REMAINS_IMG || '/art/remains.png';
+      return { iconHtml: `<img class="cc-remains" src="${_remUrl}" alt="" data-stage="${_stg}">`, hpText: '', hpColor: '', statusIcons: '', owner: 'remains', pcRef: pc };
     }
     // ★ #4 합류 쌍둥이 — 합류 아이콘(isJoined=true) + 합산 HP.
     const gifHtml = typeof getPieceGifHtml === 'function'
