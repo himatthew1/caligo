@@ -14411,7 +14411,7 @@ window._crSyncIndex = function(csKey) {
       goneUnit.splice(goneUnit.indexOf(cand), 1);
       cand.dataset.k = k; cand.dataset.rem = '1'; cand.removeAttribute('data-type'); cand.innerHTML = skull;
       cand.classList.add('death');
-      cand.addEventListener('animationend', function h(){ cand.classList.remove('death'); cand.removeEventListener('animationend', h); });
+      setTimeout(() => cand.classList.remove('death'), 520);   // 타이머 클린업(떼임 무관) — 재부착 시 애니 재시작 방지
     }
   });
   // 1) 사라진 dot → 퇴장(leave) / 유해소멸(remgone)
@@ -14432,12 +14432,12 @@ window._crSyncIndex = function(csKey) {
       el.className = 'cc-dot';
       el.innerHTML = isRem ? skull : `<img class="cc-dot-ic" src="${window._crDotIcon(pc)}" alt="">`;
       el.classList.add('enter');
-      el.addEventListener('animationend', function h(){ el.classList.remove('enter'); el.removeEventListener('animationend', h); });
+      setTimeout(() => el.classList.remove('enter'), 360);   // 타이머 클린업(떼임 무관)
       bar.appendChild(el);
     } else if (el.dataset.rem === '0' && isRem) {   // 모핑 폴백(0단계서 안 잡힌 경우)
       el.dataset.rem = '1'; el.removeAttribute('data-type'); el.innerHTML = skull;
       el.classList.add('death');
-      el.addEventListener('animationend', function h(){ el.classList.remove('death'); el.removeEventListener('animationend', h); });
+      setTimeout(() => el.classList.remove('death'), 520);
     }
     el.onclick = (e) => { e.stopPropagation(); try { window._crSlideTo(csKey, i); } catch (_) {} };
   });
