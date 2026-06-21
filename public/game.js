@@ -15069,7 +15069,7 @@ function _renderBoardDamageStamp(col, row, type, value) {
     span.textContent = '0';
   } else {
     const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
-    span.textContent = '−' + v;
+    span.textContent = (type === 'heal' ? '+' : '−') + v;   // 회복은 +N(녹색), 그 외 −N
   }
   span._lift = 0;
   span.style.left = baseLeft + 'px';
@@ -15148,6 +15148,8 @@ function addHeal(key, amount) {
   if (!S.healThisTurn) S.healThisTurn = {};
   _clearOtherStampTypes(key, 'heal');
   S.healThisTurn[key] = (S.healThisTurn[key] || 0) + amount;
+  // ★ 보드 유닛 위 회복 도장(녹색 +N) — 데미지 도장(_boardStampFromKey)과 동일 패턴으로 셀에 띄움.
+  if (amount > 0) { try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, 'heal', amount); } catch (e) {} }
 }
 // 데미지(이번 턴 기준): 시작 HP − 현재 HP. 음수면 0(회복 등).
 function getTurnDamage(key, currentHp) {
