@@ -1,3 +1,6 @@
+// .env 는 cwd 가 아니라 server.js 위치 기준으로 로드 (프리뷰/배포 환경 cwd 무관)
+try { require('dotenv').config({ path: require('path').join(__dirname, '.env') }); }
+catch (e) { /* dotenv 없으면 무시 */ }
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -57,6 +60,14 @@ app.use(express.static(path.join(__dirname, 'public'), {
   },
 }));
 app.use(express.json({ limit: '8mb' }));
+
+// ── Supabase(로그인/계정) ──
+//   키 미설정 시 supa.enabled()=false → 클라가 게스트 모드로 동작.
+const supa = require('./supabase-admin');
+const accountData = require('./supabase-data');
+app.get('/api/config', (req, res) => {
+  res.json({ supabase: supa.publicConfig() });  // 비활성 시 null
+});
 
 // ── 진단용: 현재 서버 프로세스/방 상태를 외부에서 확인 ──
 // 같은 방 코드인데 다른 방으로 접속되는 문제를 진단하기 위함.
@@ -8085,6 +8096,39 @@ io.on('connection', (socket) => {
       catch (err) { console.error(`[Socket Error] ${event}:`, err.message, err.stack); }
     });
   };
+
+  // ── 로그인 인증 (구글/Supabase) ──
+  //   클라가 access_token(JWT)을 보내면 검증해 socket.data.user 에 계정을 바인딩.
+  //   service_role 미설정 시 verifyJwt→null → 게스트로 남음(안전, 게임은 정상).
+  socket.on('auth_login', async ({ token } = {}) => {
+    const user = await supa.verifyJwt(token);
+    if (user) {
+      const m = user.user_metadata || {};
+      socket.data.user = {
+        id: user.id,
+        email: user.email || '',
+        name: m.name || m.full_name || (user.email ? user.email.split('@')[0] : ''),
+      };
+      console.log('[auth] 로그인:', socket.data.user.name || socket.data.user.email, '·', user.id);
+      socket.emit('auth_ok', { userId: user.id, name: socket.data.user.name });
+    } else {
+      socket.data.user = null;
+      socket.emit('auth_guest', { reason: supa.enabled() ? 'invalid_token' : 'server_no_keys' });
+    }
+  });
+  socket.on('auth_logout', () => { socket.data.user = null; });
+
+  // ── 계정 데이터 로드 (로그인 직후) ──
+  socket.on('account_load', async () => {
+    if (!socket.data.user) { socket.emit('account_data', { ok: false }); return; }
+    const account = await accountData.loadAccount(socket.data.user.id);
+    socket.emit('account_data', { ok: true, account });
+  });
+  // ── 계정 데이터 저장 (덱/닉네임/설정 변경, 게스트 흡수) ──
+  socket.on('account_save', async (payload) => {
+    if (!socket.data.user || !payload) return;
+    await accountData.saveAccount(socket.data.user.id, payload);
+  });
 
   // ── 캐릭터 데이터 요청 (덱빌더용) ──
   socket.on('request_characters', () => {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CALIGO - 칼리고</title>
-  <link rel="stylesheet" href="style.css?v=20260615b">
+  <link rel="stylesheet" href="style.css?v=20260622a">
   <style>
     /* ── 로딩 오버레이 ── */
     #loading-overlay {
@@ -214,6 +214,7 @@
 <!-- ── 로비 ── -->
 <div id="screen-lobby" class="screen active">
   <div class="lobby-box">
+    <div id="auth-bar" class="auth-bar" style="display:none"></div>
     <h1 class="game-title">
       <img class="title-text-gif" src="/art/title_text.gif" alt="CALIGO" draggable="false">
       <img class="title-deco-gif" src="/art/title_deco.gif" alt="" draggable="false">
@@ -1069,6 +1070,8 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="vendor/supabase.js?v=20260622a"></script>
+<script src="auth.js?v=20260622d"></script>
 <script src="ring-anim.js?v=20260608u"></script>
 <script src="rat-anim.js?v=20260608u"></script>
 <script src="remains-anim.js?v=20260608u"></script>
@@ -1076,7 +1079,7 @@
 <script src="mark-anim.js?v=20260609z"></script>
 <script src="nightmare-anim.js?v=20260610d"></script>
 <script src="piece-gifs.js?v=20260614b"></script>
-<script src="game.js?v=20260615c"></script>
+<script src="game.js?v=20260622a"></script>
 <script src="tutorial-interactive.js?v=20260514m"></script>
 
 <!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->

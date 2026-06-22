@@ -123,6 +123,45 @@ body {
   text-align: center;
   box-shadow: 0 8px 40px rgba(0,0,0,0.5);
 }
+/* ── 로그인 바 (로비 상단) ── */
+.auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 12px;
+}
+.btn-auth-google {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #fff; color: #3c4043;
+  border: 1px solid #dadce0; border-radius: 8px;
+  padding: 7px 13px; font-size: 0.82rem; font-weight: 600;
+  cursor: pointer; transition: background .15s, box-shadow .15s;
+}
+.btn-auth-google:hover { background: #f4f5f6; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.btn-auth-google svg { display: block; }
+.auth-user { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.auth-avatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  object-fit: cover; border: 1px solid var(--border, #333);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.auth-avatar-blank {
+  background: var(--accent, #6c5ce7); color: #fff;
+  font-size: 0.72rem; font-weight: 700;
+}
+.auth-name {
+  font-size: 0.82rem; color: var(--text, #e8e8f0); font-weight: 600;
+  max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.btn-auth-out {
+  background: transparent; color: var(--text-dim, #9a9ab0);
+  border: 1px solid var(--border, #333); border-radius: 7px;
+  padding: 5px 10px; font-size: 0.74rem; cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.btn-auth-out:hover { color: var(--text, #fff); border-color: var(--text-dim, #888); }
 .game-title {
   position: relative;
   display: inline-block;
