@@ -14,9 +14,11 @@ let createClient = null;
 try { ({ createClient } = require('@supabase/supabase-js')); }
 catch (e) { /* 패키지 미설치 시 graceful */ }
 
-const URL          = process.env.SUPABASE_URL || '';
-const ANON         = process.env.SUPABASE_ANON_KEY || '';
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || '';
+// .trim(): Render 등 환경변수 칸에 붙여넣을 때 끝에 섞이는 줄바꿈/공백 제거
+// (트레일링 \n 이 있으면 HTTP 헤더로 못 들어가 로그인이 깨짐)
+const URL          = (process.env.SUPABASE_URL || '').trim();
+const ANON         = (process.env.SUPABASE_ANON_KEY || '').trim();
+const SERVICE_ROLE = (process.env.SUPABASE_SERVICE_ROLE || '').trim();
 
 let admin = null;
 if (createClient && URL && SERVICE_ROLE) {
