@@ -9903,6 +9903,11 @@ io.on('connection', (socket) => {
         const bounds = room.boardBounds;
         const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds);
         const hitResults = processAttack(room, idx, piece, atkCells);
+        // ★ AI 학습 — 인간(0)이 AI(1)를 공격하면 AI 브레인이 피격을 관측:
+        //   ① 피격 말 hitMemory 기록 → 도주/재배치 로직 무장(맞고도 안 도망가던 버그), ② 공격 원점으로 인간 위치 추론(블라인드 완화).
+        if (room.isAI && room.aiBrain && idx === 0) {
+          try { aiObserveEnemyAttack(room.aiBrain, room, room.players[1].pieces, room.players[0].pieces, atkCells, hitResults); } catch (e) {}
+        }
         const cellResults = atkCells.map(cell => {
           const hit = hitResults.find(h => h.col === cell.col && h.row === cell.row);
           return {
