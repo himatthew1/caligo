@@ -5219,6 +5219,9 @@ function endTurn(room, opts) {
     return;
   }
 
+  // ★ 대국 로깅 — 인간 턴 시작 보드 스냅샷 (PvP/vs-AI 공통). AI 턴은 aiTakeTurn/aiTeamTakeTurn 훅이 belief 포함해 기록.
+  try { if (cur && cur.socketId !== 'AI') aiLogTurnStart(room, curIdx); } catch (e) {}
+
   // ★ 헤드리스(셀프플레이): 상태 전이만 끝내고 emit/타이머/AI 스케줄은 스킵. 다음 턴은 드라이버가 구동.
   if (room._headless) return;
 
@@ -5451,6 +5454,7 @@ function getTeamSpectatorGameState(room) {
 // 팀전 게임 종료
 function endTeamGame(room, winnerTeamId, reason) {
   if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (동시 이중 호출로 game_over 2회 emit 차단)
+  try { aiLogFlush(room, winnerTeamId, reason); } catch (e) {}  // 대국 로깅 flush (팀 — winnerTeamId 기준)
   clearTimer(room);
   clearAiThinkState(room);
   room.phase = 'ended';
@@ -5561,7 +5565,10 @@ function _aiIsVsAi(room) {
 }
 function _aiResolveBrain(room, idx) {
   try {
-    if (room.mode === 'team') return getTeamBrain(room, getTeamOf(room, idx));
+    if (room.mode === 'team') {
+      const tid = getTeamOf(room, idx);
+      return (room.aiTeamBrains && room.aiTeamBrains[tid]) || null;  // PvP 면 없음 → 생성하지 않음(belief=null)
+    }
     return room.aiBrain || null;
   } catch (e) { return null; }
 }
@@ -5592,7 +5599,7 @@ function _aiBelief(brain) {
     mode: brain.mode, enemiesAlive: brain.enemiesAlive, hitMemory: brain.hitMemory || null };
 }
 function _aiTurnRec(room, idx) {
-  if (!_aiIsVsAi(room)) return null;
+  if (!room || room.phase !== 'game') return null;   // vs-AI + PvP 모두 기록 (게임 진행 중 실대국만)
   if (!room._aiLog) room._aiLog = { turns: [] };
   const log = room._aiLog;
   if (log._cur && log._cur.t === room.turnNumber && log._cur.idx === idx) return log._cur;
@@ -5606,28 +5613,39 @@ function aiLogTurnStart(room, idx) { try { _aiTurnRec(room, idx); } catch (e) {}
 function aiLogAction(room, idx, action) {
   try { const rec = _aiTurnRec(room, idx); if (rec) rec.actions.push(action); } catch (e) {}
 }
-function aiLogFlush(room, winnerIdx, reason) {
+// winner = 1v1: 플레이어 인덱스(0/1) · 팀: 승리 팀 id(0/1)
+function aiLogFlush(room, winner, reason) {
   try {
     if (!room || !room._aiLog || !room._aiLog.turns || !room._aiLog.turns.length) return;
     if (!aiLog.enabled()) { room._aiLog = null; return; }
+    const isTeam = room.mode === 'team';
     const drawish = /draw/.test(String(reason || ''));
     const aiIdxs = (room.players || []).map((p, i) => (p && p.socketId === 'AI') ? i : -1).filter(i => i >= 0);
-    let result = 'draw';
-    if (!drawish && typeof winnerIdx === 'number' && winnerIdx >= 0) {
-      result = aiIdxs.includes(winnerIdx) ? 'ai_win' : 'ai_loss';
-    }
-    let playerId = null;
-    (room.players || []).forEach(p => {
+    const isVsAi = aiIdxs.length > 0;
+    // 플레이어 신원 (사람은 소켓→계정 id 역추적)
+    const players = (room.players || []).map((p, i) => {
+      let uid = null;
       if (p && p.socketId && p.socketId !== 'AI') {
         const sock = io.sockets.sockets.get(p.socketId);
-        const uid = sock && sock.data && sock.data.user && sock.data.user.id;
-        if (uid) playerId = uid;
+        uid = (sock && sock.data && sock.data.user && sock.data.user.id) || null;
       }
+      return { idx: i, ai: !!(p && p.socketId === 'AI'), userId: uid, name: p && p.name };
     });
+    let result;
+    if (drawish || typeof winner !== 'number' || winner < 0) {
+      result = 'draw';
+    } else if (isTeam) {
+      const winIdxs = (room.teams && room.teams[winner]) || [];
+      const aiOnWin = winIdxs.some(i => room.players[i] && room.players[i].socketId === 'AI');
+      result = isVsAi ? (aiOnWin ? 'ai_win' : 'ai_loss') : `team${winner}_win`;
+    } else {
+      result = isVsAi ? (aiIdxs.includes(winner) ? 'ai_win' : 'ai_loss') : `p${winner}_win`;
+    }
+    const playerId = (players.find(p => !p.ai && p.userId) || {}).userId || null;
     aiLog.saveMatchLog({
-      mode: (room.mode === 'team') ? 'team' : '1v1',
+      mode: (isVsAi ? '' : 'pvp_') + (isTeam ? 'team' : '1v1'),   // 1v1 | team | pvp_1v1 | pvp_team
       player_id: playerId, result, turns: room._aiLog.turns.length,
-      replay: { winnerIdx, reason, aiIdxs, turns: room._aiLog.turns },
+      replay: { winner, reason, aiIdxs, players, turns: room._aiLog.turns },
     });
     room._aiLog = null;  // 중복 flush 방지
   } catch (e) { console.error('[aiLog] flush', e.message); }
