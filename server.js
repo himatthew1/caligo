@@ -1340,7 +1340,9 @@ function getTeamBrain(room, teamId) {
 //   피격당한 적 팀이 AI → 공격자(상대 팀) 위치를 역추론(aiObserveEnemyAttack).
 //   → 정보가 끝없이 누적·정제됨 (사용자 요청: "끝없이 플레이 정보를 스택킹해서 발전").
 function aiTeamLearnFromAttack(room, attackerIdx, atkCells, hitResults) {
-  if (room.mode !== 'team') return;
+  // 팀전 외에도 헤드리스 자가대국(pvp)에선 추론을 돌려 self-play 가 deduction 을 학습/측정하게 함.
+  //   (실제 1v1 은 aiTakeTurn→aiExecuteAttack 경로라 이 함수를 안 타므로 무영향.)
+  if (room.mode !== 'team' && !room._headless) return;
   const playersOfTeam = (tid) => room.players.filter(pl => pl && pl.teamId === tid);
   const teamHasAI = (tid) => playersOfTeam(tid).some(pl => pl.socketId === 'AI');
   const teamPieces = (tid) => playersOfTeam(tid).flatMap(pl => pl.pieces || []);
@@ -5634,6 +5636,7 @@ function aiLogAction(room, idx, action) {
 // winner = 1v1: 플레이어 인덱스(0/1) · 팀: 승리 팀 id(0/1)
 function aiLogFlush(room, winner, reason) {
   try {
+    if (room && room._headless) { room._aiLog = null; return; }   // 자가대국은 DB 적재 안 함(오염 방지)
     if (!room || !room._aiLog || !room._aiLog.turns || !room._aiLog.turns.length) return;
     if (!aiLog.enabled()) { room._aiLog = null; return; }
     const isTeam = room.mode === 'team';
@@ -6422,6 +6425,14 @@ function aiSpreadProbability(brain) {
     }
   }
   normalizeProbMap(brain);
+  // ★ 명중 확정칸 지속 (명세 #2) — 번짐+정규화가 확신을 희석하던 것 방지. 적이 떠나기 전(재공격 빗나감)
+  //   까지 그 칸을 최고 확신(10)으로 고정 → AI 가 같은 칸을 계속 노림. 3턴 경과 시 안전 해제.
+  const ch = brain._confirmedHit;
+  if (ch && (brain.turnCount - ch.turn) <= 3 && brain.probMap[ch.row]) {
+    brain.probMap[ch.row][ch.col] = 10;
+  } else if (ch && (brain.turnCount - ch.turn) > 3) {
+    brain._confirmedHit = null;
+  }
 }
 
 function normalizeProbMap(brain) {
@@ -6608,12 +6619,17 @@ function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
       if (hit.destroyed) {
         brain.enemiesAlive--;
         brain.probMap[cell.row][cell.col] = 0;
+        if (brain._confirmedHit && brain._confirmedHit.col === cell.col && brain._confirmedHit.row === cell.row) brain._confirmedHit = null;
         if (brain.enemiesAlive <= 1) brain.mode = 'finish';
       } else {
         boostHuntArea(brain, cell.col, cell.row);
+        // ★ 명중 확정칸 — 적이 이동(재공격 빗나감)하기 전까지 100% 거기 있음(이동행동 없으면 위치불변). 지속 추적.
+        brain._confirmedHit = { col: cell.col, row: cell.row, turn: brain.turnCount };
       }
     } else {
       brain.probMap[cell.row][cell.col] *= 0.1;
+      // ★ 확정칸 재공격이 빗나감 = 적이 그 칸을 떠남 → 확신 해제(다시 추리 모드).
+      if (brain._confirmedHit && brain._confirmedHit.col === cell.col && brain._confirmedHit.row === cell.row) brain._confirmedHit = null;
     }
   }
   // ★ 반격 실패 → 도주 충동: 피격당해 위치를 기억 중인 말이 반격했는데 전부 빗나갔다면
@@ -6668,21 +6684,25 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
         }
       }
     } else {
-      // 각 hit 별 후보 셀 — 그 타입이 어딘가에서 hit 셀을 공격범위에 포함하는 위치
+      // 후보 셀 — 그 타입이 hit 셀을 공격범위에 포함하는 위치.
+      //   ★ #1 개선판: 한 공격=한 공격자 → hit 셀들을 '전부'(교집합) 때릴 수 있는 위치만 후보
+      //     → 다중피격 시 후보가 거의 1칸으로 확정. 현재판: 칸별 합집합(넓음).
       const newCandidates = new Set();
-      for (const h of hitResults) {
-        for (const et of aliveEnemyTypes) {
-          for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
-            // 내 말이 있는 칸엔 적이 있을 수 없음
-            if (ownPieces.some(p => p.alive && p.col === c && p.row === r)) continue;
-            const extra = et.toggleState ? { toggleState: et.toggleState } : {};
-            let cells;
-            try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
-            if (cells.some(cc => cc.col === h.col && cc.row === h.row)) {
-              newCandidates.add(`${c},${r}`);
-            }
-          }
+      for (const et of aliveEnemyTypes) {
+        const extra = et.toggleState ? { toggleState: et.toggleState } : {};
+        for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+          if (ownPieces.some(p => p.alive && p.col === c && p.row === r)) continue;  // 내 말 칸엔 적 없음
+          let cells;
+          try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
+          const cset = new Set(cells.map(cc => `${cc.col},${cc.row}`));
+          // ★ #1 교집합 — 한 공격=한 공격자 → hit 셀들을 '전부' 때릴 위치만(단일피격엔 합집합과 동일).
+          if (hitResults.every(h => cset.has(`${h.col},${h.row}`))) newCandidates.add(`${c},${r}`);
         }
+      }
+      // 단일 후보 = 위치 확정 → 최고 확신
+      if (newCandidates.size === 1) {
+        const [c, r] = [...newCandidates][0].split(',').map(Number);
+        if (brain.probMap[r]) brain.probMap[r][c] = 10;
       }
       const candList = [...newCandidates];
       const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
