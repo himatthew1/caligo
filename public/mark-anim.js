@@ -163,7 +163,12 @@ function _markBrandOne(board, col, row, opts) {
           if (host) {
             cell.querySelectorAll('.mark-board-layer').forEach(el => { if (el !== summonImg) el.remove(); });  // 기존/숨김 잔재 제거 — 중복 방지
             host.style.position = 'relative'; host.appendChild(summonImg);
-          } else summonImg.remove();
+          } else {
+            // ★ 캐러셀 셀 — .piece-marker 호스트가 없어 idle 인계 불가. 소환 종료(+_markSummoning 해제) 후
+            //   재렌더해 캐러셀 슬롯이 표식 idle 레이어를 '그 턴에 바로' 그리게 함 (이전엔 다음 턴까지 표식 미표시).
+            summonImg.remove();
+            try { if (typeof window.renderGameBoard === 'function') window.renderGameBoard(); } catch (e) {}
+          }
         } catch (e) { try { summonImg.remove(); } catch (_) {} }
         if (blobUrl) URL.revokeObjectURL(blobUrl);
         // (다음 자연 renderGameBoard 가 진짜 idle 레이어로 교체 — 둘 다 같은 idle 이라 끊김 없음)

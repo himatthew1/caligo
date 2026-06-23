@@ -14442,6 +14442,23 @@ window._crSyncIndex = function(csKey) {
     }
     el.onclick = (e) => { e.stopPropagation(); try { window._crSlideTo(csKey, i); } catch (_) {} };
   });
+  // 3) 정합성 안전망 — 정상 diff 후에도 살아있는 dot 수가 유닛 수와 어긋나면(인덱스가 비거나 굳음)
+  //   하드 리빌드. "한번 비면 아예 아이콘 업데이트 안 되는" 버그 자가 치유.
+  try {
+    if (bar.querySelectorAll('.cc-dot:not([data-gone])').length !== want.length) {
+      bar.innerHTML = '';
+      st.pieces.forEach((pc, i) => {
+        const k = want[i], isRem = (pc.owner === 'remains');
+        const el = document.createElement('div');
+        el.dataset.k = k; el.dataset.rem = isRem ? '1' : '0';
+        if (!isRem) el.dataset.type = (pc.pcRef && pc.pcRef.type) || '';
+        el.className = 'cc-dot';
+        el.innerHTML = isRem ? skull : `<img class="cc-dot-ic" src="${window._crDotIcon(pc)}" alt="">`;
+        el.onclick = (e) => { e.stopPropagation(); try { window._crSlideTo(csKey, i); } catch (_) {} };
+        bar.appendChild(el);
+      });
+    }
+  } catch (e) {}
 };
 // 멀티유닛 셀 데미지 — 셀 페이지 전환 없이 하단 인덱스의 피격 유닛 아이콘만 흔들림+번쩍(피격 GIF와 동기).
 window._crHitIndex = function(csKey, victimPc) {
