@@ -3620,7 +3620,25 @@ function boardObjectsSummary(room, playerIdx) {
 // ── Damage Resolution Pipeline ──────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 
+// ── 분석용 데미지 이벤트 로깅 (플레이어 화면·전투로그엔 무영향 — 서버 _aiLog 에만 기록) ──
+//   src: 'status'(저주 등 지속피해) | 공격 유닛 type | 'env'. 출처를 알아야 AI 대응(도주/해제/회피)을 정확히 처방.
+function aiLogDmg(room, victim, defIdx, dmg, isStatus, attacker, attackerIdx) {
+  if (!room || !room._aiLog || !room._aiLog._cur || !(dmg > 0)) return;
+  const rec = room._aiLog._cur; if (!rec.events) rec.events = [];
+  const dIdx = (defIdx != null) ? defIdx : (1 - attackerIdx);
+  rec.events.push({
+    v: victim && victim.type, vi: dIdx, vc: victim && victim.col, vr: victim && victim.row,
+    dmg: Math.round(dmg * 100) / 100,
+    src: isStatus ? 'status' : (attacker ? attacker.type : 'env'), ai: attackerIdx,
+  });
+}
+// resolveDamage 래퍼 — 최종 피해를 분석 로그에 출처와 함께 기록 후 그대로 반환(동작 무변).
 function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
+  const dmg = _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx);
+  try { aiLogDmg(room, defenderPiece, defIdx, dmg, isStatusDmg, attackerPiece, attackerIdx); } catch (e) {}
+  return dmg;
+}
+function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
   // 팀전: 실제 방어자 인덱스를 인자로 받음 / 1v1: 1-attackerIdx
   const defenderIdx = (defIdx !== undefined && defIdx !== null) ? defIdx : (1 - attackerIdx);
   const defender = room.players[defenderIdx];
