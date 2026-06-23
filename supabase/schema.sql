@@ -48,6 +48,20 @@ create table if not exists public.active_match (
   updated_at  timestamptz not null default now()
 );
 
+-- ── AI 학습용 대국 기록 (vs-AI 한 판 = 1행) ──────────────────────
+-- replay: 턴별 AI belief(probMap) + 보드 truth + 결과. 분석은 service_role 로만.
+create table if not exists public.match_log (
+  id          uuid primary key default gen_random_uuid(),
+  mode        text        not null,                 -- '1v1' | 'team'
+  player_id   uuid        references auth.users(id) on delete set null,
+  result      text        not null,                 -- 'ai_win' | 'ai_loss' | 'draw'
+  turns       int         not null default 0,
+  replay      jsonb,
+  created_at  timestamptz not null default now()
+);
+create index if not exists match_log_created_idx on public.match_log (created_at desc);
+alter table public.match_log enable row level security;  -- 정책 없음 = service_role 만 접근
+
 -- ── 가입 시 profiles/stats 행 자동 생성 ─────────────────────────
 create or replace function public.handle_new_user()
 returns trigger

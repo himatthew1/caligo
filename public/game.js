@@ -14511,14 +14511,16 @@ window._crSlideTo = function(csKey, targetSlot, dirHint) {
   if (dir == null) { const fwd = ((targetSlot - st.idx) + n) % n, bwd = ((st.idx - targetSlot) + n) % n; dir = fwd <= bwd ? 1 : -1; }
   const outCls = dir > 0 ? 'cc-slide-left'  : 'cc-slide-right';
   const inCls  = dir > 0 ? 'cc-slide-right' : 'cc-slide-left';
+  // ★ 상태 배지(.cell-mark)는 슬롯 밖 공유 요소 → 슬라이드 '시작과 동시에' 타깃 유닛 것으로 갱신.
+  //   (이전엔 220ms 뒤 setTimeout 안에서 갱신해 캐릭터는 슬라이드됐는데 상태 표시가 따로 늦게 떴음.)
+  const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cdNext = st.pieces[targetSlot];
+  if (markEl) { markEl.textContent = (cdNext && cdNext.statusIcons) || ''; markEl.style.display = (cdNext && cdNext.statusIcons) ? '' : 'none'; }
   curSlot.classList.add(outCls);
   setTimeout(() => {
     st.idx = targetSlot;
     curSlot.classList.remove(outCls); curSlot.classList.add('cc-hidden');
     nextSlot.style.transition = 'none'; nextSlot.classList.add(inCls); nextSlot.classList.remove('cc-hidden');
     void nextSlot.offsetWidth; nextSlot.style.transition = ''; nextSlot.classList.remove(inCls);
-    const markEl = document.getElementById(`cc-${col}-${row}-mark`); const cd = st.pieces[st.idx];
-    if (markEl) { markEl.textContent = cd.statusIcons || ''; markEl.style.display = cd.statusIcons ? '' : 'none'; }
     st.busy = false;
   }, 220);
 };

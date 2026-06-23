@@ -65,6 +65,7 @@ app.use(express.json({ limit: '8mb' }));
 //   키 미설정 시 supa.enabled()=false → 클라가 게스트 모드로 동작.
 const supa = require('./supabase-admin');
 const accountData = require('./supabase-data');
+const aiLog = require('./supabase-log');
 app.get('/api/config', (req, res) => {
   res.json({ supabase: supa.publicConfig() });  // 비활성 시 null
 });
@@ -1874,6 +1875,7 @@ function aiTeamTakeTurn(room, idx) {
         if (ep && ep.pieces) alive += ep.pieces.filter(pc => pc.alive).length;
       }
       brain.enemiesAlive = alive;
+      aiLogTurnStart(room, idx);  // AI 학습 로깅 — 턴 시작 belief+보드 스냅샷
       // ★ 확률맵 정화 + 위협맵 — 1v1 과 동일. 내 팀 말 칸은 적 없음(공정), 위험 칸 회피용.
       aiClearOwnCells(brain, room, idx);
       brain._dangerMap = aiBuildDangerMap(room, idx, brain);
@@ -5548,8 +5550,92 @@ function forfeitTeamPlayerByDisconnect(room, idx, name) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// ── AI 학습용 대국 로깅 (belief + 보드 truth + 결과 → Supabase) ──
+//   vs-AI 게임에서만 동작. 모든 호출은 방어적(throw 시 게임 무영향).
+// ══════════════════════════════════════════════════════════════════
+function _aiIsVsAi(room) {
+  if (!room) return false;
+  if (room.isAI) return true;
+  return (room.players || []).some(p => p && p.socketId === 'AI');
+}
+function _aiResolveBrain(room, idx) {
+  try {
+    if (room.mode === 'team') return getTeamBrain(room, getTeamOf(room, idx));
+    return room.aiBrain || null;
+  } catch (e) { return null; }
+}
+function _aiRound2Map(m) {
+  if (!Array.isArray(m)) return null;
+  return m.map(r => Array.isArray(r) ? r.map(v => Math.round((v || 0) * 100) / 100) : r);
+}
+function _aiPieceSt(pc) {
+  const s = [];
+  if (pc.cursed || pc.curse) s.push('curse');
+  if (pc.marked || pc.mark) s.push('mark');
+  if (pc.shadow || pc.shadowed) s.push('shadow');
+  return s;
+}
+function _aiBoardSnap(room) {
+  const pieces = [];
+  (room.players || []).forEach((pl, idx) => {
+    (pl.pieces || []).forEach((pc, pi) => {
+      pieces.push({ idx, pi, type: pc.type, c: pc.col, r: pc.row,
+        hp: pc.hp, mhp: pc.maxHp, alive: !!pc.alive, st: _aiPieceSt(pc) });
+    });
+  });
+  return { pieces, bounds: room.boardBounds, turn: room.turnNumber };
+}
+function _aiBelief(brain) {
+  if (!brain) return null;
+  return { probMap: _aiRound2Map(brain.probMap), danger: _aiRound2Map(brain._dangerMap),
+    mode: brain.mode, enemiesAlive: brain.enemiesAlive, hitMemory: brain.hitMemory || null };
+}
+function _aiTurnRec(room, idx) {
+  if (!_aiIsVsAi(room)) return null;
+  if (!room._aiLog) room._aiLog = { turns: [] };
+  const log = room._aiLog;
+  if (log._cur && log._cur.t === room.turnNumber && log._cur.idx === idx) return log._cur;
+  const rec = { t: room.turnNumber, idx, belief: _aiBelief(_aiResolveBrain(room, idx)),
+    board: _aiBoardSnap(room), sp: (room.players[idx] && room.players[idx].sp) || 0, actions: [] };
+  log.turns.push(rec);
+  log._cur = rec;
+  return rec;
+}
+function aiLogTurnStart(room, idx) { try { _aiTurnRec(room, idx); } catch (e) {} }
+function aiLogAction(room, idx, action) {
+  try { const rec = _aiTurnRec(room, idx); if (rec) rec.actions.push(action); } catch (e) {}
+}
+function aiLogFlush(room, winnerIdx, reason) {
+  try {
+    if (!room || !room._aiLog || !room._aiLog.turns || !room._aiLog.turns.length) return;
+    if (!aiLog.enabled()) { room._aiLog = null; return; }
+    const drawish = /draw/.test(String(reason || ''));
+    const aiIdxs = (room.players || []).map((p, i) => (p && p.socketId === 'AI') ? i : -1).filter(i => i >= 0);
+    let result = 'draw';
+    if (!drawish && typeof winnerIdx === 'number' && winnerIdx >= 0) {
+      result = aiIdxs.includes(winnerIdx) ? 'ai_win' : 'ai_loss';
+    }
+    let playerId = null;
+    (room.players || []).forEach(p => {
+      if (p && p.socketId && p.socketId !== 'AI') {
+        const sock = io.sockets.sockets.get(p.socketId);
+        const uid = sock && sock.data && sock.data.user && sock.data.user.id;
+        if (uid) playerId = uid;
+      }
+    });
+    aiLog.saveMatchLog({
+      mode: (room.mode === 'team') ? 'team' : '1v1',
+      player_id: playerId, result, turns: room._aiLog.turns.length,
+      replay: { winnerIdx, reason, aiIdxs, turns: room._aiLog.turns },
+    });
+    room._aiLog = null;  // 중복 flush 방지
+  } catch (e) { console.error('[aiLog] flush', e.message); }
+}
+
 function endGame(room, winnerIdx, reason) {
   if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (이중 game_over emit 차단)
+  try { aiLogFlush(room, winnerIdx, reason); } catch (e) {}  // AI 학습 로깅 (방어적)
   clearTimer(room);
   clearAiThinkState(room);
   room.phase = 'ended';
@@ -7599,6 +7685,7 @@ function aiTakeTurn(room) {
   // ★ enemiesAlive 동적화 — 이전엔 3 하드코딩이라 실제 적 말 수와 어긋나 finish 모드 전환이 틀어짐.
   //   매 턴 실제 살아있는 적 말 수로 갱신 → aiProcessAttackResult 의 finish(≤1) 판정이 정확.
   brain.enemiesAlive = humanPlayer.pieces.filter(p => p.alive).length;
+  aiLogTurnStart(room, 1);  // AI 학습 로깅 — 턴 시작 belief+보드 스냅샷
   // ★ 확률맵 정화 + 위협맵 — 내 말 칸은 적 없음(공정), 위험 칸 회피용 dangerMap 1회 구축.
   aiClearOwnCells(brain, room, 1);
   brain._dangerMap = aiBuildDangerMap(room, 1, brain);

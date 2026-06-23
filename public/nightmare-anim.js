@@ -67,8 +67,11 @@
     if (!list.length) return;
     const M = window.MARK_GIFS || {};
     const url = M.nightmare || '/art/mark/nightmare.gif';
-    // ★ 프레임 지연은 단 한 번만 파싱 → 모든 표식 적의 임팩트(흔들림+도장+데미지)가 같은 시점에 일괄 발동.
+    // ★ 프레임 지연 + GIF blob 을 '둘 다' 미리 준비 → 같은 t0 에 재생 시작 + 임팩트 타이머 출발.
+    //   (이전엔 blob 준비 시점에 append, 임팩트는 프레임지연 파싱 시점 기준 → 두 비동기가 어긋나
+    //    "프레임 공백 + 데미지가 번쩍 구간과 안 맞음"이 났음. 단일 t0 로 통일해 동기화.)
     const fdP = _nmFrameDelays(url);
+    const blobP = _nmOnceHoldBlob(url);   // 단일 공유 blob — 모든 표식 적 GIF 가 동시에 같은 프레임으로 재생
     const overlays = [];
     list.forEach(pos => {
       const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`);
@@ -83,10 +86,14 @@
         `margin-left:${-p.size / 2}px;margin-top:${-p.size / 2}px;z-index:20;pointer-events:none;` +
         `image-rendering:pixelated;object-fit:contain;filter:` +
         `drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000);`;
+      ov._cell = cell;
       overlays.push(ov);
-      _nmOnceHoldBlob(url).then(bu => { ov._blob = bu; ov.src = bu; cell.appendChild(ov); }).catch(() => {});
     });
-    fdP.then(fd => {
+    let _nmBlob = null;
+    Promise.all([fdP, blobP]).then(([fd, bu]) => {
+      _nmBlob = bu;
+      // ★ 단일 t0 — 모든 오버레이를 동시에 src+append (= GIF 재생 시작). 임팩트 타이머도 여기서 출발.
+      overlays.forEach(ov => { if (ov && ov._cell) { ov.src = bu; ov._cell.appendChild(ov); } });
       const impact = (fd.length > 3 ? fd[3] : (fd.length ? fd[fd.length - 1] : 520));
       const total = fd.length ? fd[fd.length - 1] : 1170;
       // ── 4프레임(임팩트): 모든 표식 적 동시 — 피격 흔들림 + 데미지 도장 + 데미지 처리(onImpact) ──
@@ -108,12 +115,13 @@
         if (typeof opts.onImpact === 'function') { try { opts.onImpact(list); } catch (e) {} }
       }, impact);
       setTimeout(() => {
-        overlays.forEach(ov => { if (!ov) return; try { if (ov.parentNode) ov.remove(); } catch (e) {} if (ov._blob) { try { URL.revokeObjectURL(ov._blob); } catch (e) {} } });
+        overlays.forEach(ov => { if (!ov) return; try { if (ov.parentNode) ov.remove(); } catch (e) {} });
+        if (_nmBlob) { try { URL.revokeObjectURL(_nmBlob); } catch (e) {} _nmBlob = null; }  // 공유 blob 1회 해제
         // ★ 숨겼던 표식 idle 복구
         list.forEach(pos => { const cell = board.querySelector(`.cell[data-col="${pos.col}"][data-row="${pos.row}"]`); if (!cell) return;
           cell.querySelectorAll('.mark-board-layer[data-_nm-hidden], .mark-board-layer').forEach(ml => { if (ml.dataset._nmHidden) { ml.style.display = ''; delete ml.dataset._nmHidden; } }); });
       }, total + 150);
-    });
+    }).catch(() => {});
   }
 
   window.animateNightmareCast = animateNightmareCast;

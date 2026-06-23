@@ -83,13 +83,28 @@ function _markBrandOne(board, col, row, opts) {
   const _oppMk = cell.querySelector('.piece-marker.opp-marked');
   if (_oppMk) { _oppMk.style.transition = 'none'; _oppMk.style.opacity = '0'; void _oppMk.offsetWidth; }
 
-  // ── 표식 중심(정수리 위) — 실제 p-gif 위치 기준(셀 크기·정렬 무관) ──
+  // ── 표식 중심 — idle .mark-board-layer 의 '실제 정착 위치'에 정렬 ──
+  //   (생성 GIF·인두·불꽃을 모두 idle 과 동일 지점에 두어 인계 시 위치 점프 0.
+  //    idle 은 .piece-marker 기준 left:50%/bottom:100%/translateY(11) 이라 p-gif bbox 와 어긋났었음.)
   const cr = cell.getBoundingClientRect();
-  const pgif = cell.querySelector('.piece-marker img.p-gif')
-    || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
-  const pr = pgif ? pgif.getBoundingClientRect() : null;
-  const markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
-  const markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;   // p-gif 위 ~9px(+표식 Y 보정)
+  const _host0 = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+  let markCx, markCy;
+  if (_host0) {
+    _host0.style.position = 'relative';
+    const probe = document.createElement('img');
+    probe.className = 'mark-board-layer';
+    probe.style.cssText = `visibility:hidden;animation:none;width:${_size}px;height:${_size}px;transform:translate(-50%,11px);`;
+    _host0.appendChild(probe);
+    const prb = probe.getBoundingClientRect();
+    markCx = prb.left + prb.width / 2 - cr.left;
+    markCy = prb.top + prb.height / 2 - cr.top + _markOffY;
+    probe.remove();
+  } else {
+    const pgif = cell.querySelector('img.p-gif');
+    const pr = pgif ? pgif.getBoundingClientRect() : null;
+    markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
+    markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;
+  }
   const fixX = cr.left + markCx, fixY = cr.top + markCy;          // 불꽃(position:fixed)용 뷰포트 좌표
 
   // ── 인두 PNG 낙하 (정수리 위 표식 위치) ──
