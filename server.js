@@ -6690,6 +6690,7 @@ function aiClearOwnCells(brain, room, ownerIdx) {
 //   고가치(지휘관=펌프·수도승=저주해제원·왕 등) 일수록 더 높여 우선 추격. 매 턴 현재 좌표로 재주입.
 //   ★ 반드시 dangerMap 구축 *이후* 호출 — 표식 칸을 미표식 적의 추정 위치로 오인한 유령 위협 방지.
 function aiInjectMarkedEnemies(brain, room, ownerIdx) {
+  if (brain._ablate && brain._ablate.noMark) return;   // _ablate: A/B 검증용(프로덕션 미설정)
   const size = brain.probMap.length;
   for (const e of aiKnownEnemies(room, ownerIdx)) {
     if (!e.marked || e.col == null || e.row == null) continue;
@@ -6845,7 +6846,7 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
   if (hitResults.length > 0) {
     const aliveEnemies = (attackerPieces || []).filter(p => p.alive);
     const hasCommander = aliveEnemies.some(p => p.type === 'commander');
-    if (hasCommander) {
+    if (hasCommander && !(brain._ablate && brain._ablate.noCmd)) {   // _ablate: A/B 검증용(프로덕션 미설정)
       const maxBase = aliveEnemies.reduce((m, p) => Math.max(m, p.atk || 0), 0);
       const hasMonk = aliveEnemies.some(p => p.type === 'monk');
       // 사기증진 확정 피격칸 — 피해가 모든 적 기본공격력 초과 (가호 수도승→악인=3 혼동 제외).
