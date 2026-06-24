@@ -5713,10 +5713,13 @@ function _aiRound2Map(m) {
   return m.map(r => Array.isArray(r) ? r.map(v => Math.round((v || 0) * 100) / 100) : r);
 }
 function _aiPieceSt(pc) {
+  // ★ 표식/저주/그림자는 statusEffects 배열에 저장됨 (pc.marked 등 평면 필드는 없음) → 로그 분석용 정확 감지.
+  const se = pc.statusEffects || [];
+  const has = (t) => !!(pc[t] || se.some(e => e && e.type === t));
   const s = [];
-  if (pc.cursed || pc.curse) s.push('curse');
-  if (pc.marked || pc.mark) s.push('mark');
-  if (pc.shadow || pc.shadowed) s.push('shadow');
+  if (has('curse')) s.push('curse');
+  if (has('mark')) s.push('mark');
+  if (has('shadow')) s.push('shadow');
   return s;
 }
 function _aiBoardSnap(room) {
@@ -6672,14 +6675,18 @@ function aiUnitValue(piece) {
   v += (STRONG[piece.type] || 0);
   return v;
 }
-// 저주 타겟 가치 — 저주는 '스킬 봉인' + 0.5/턴. 수도승은 저주 해제원이라 최우선.
-//   ★ 스킬 없는 유닛(호위무사 충성·지휘관 wrath 등 패시브)은 저주로 못 막음 → 봉인 가치 0,
-//     지속뎀(0.5/턴)만의 낮은 가치. (aiUnitValue 의 전투 가치가 저주 타겟을 오도하지 않게.)
+// 저주 타겟 가치 — 저주 = 스킬 봉인 + 지속뎀(0.5/턴). 수도승은 저주 해제원이라 최우선.
+//   ★ 사용자 정정: 봉인만이 메인이 아님. 지속뎀은 status dmg 라 아이언스킨/폭정/충성 *경감을 무시* →
+//     고HP·피해경감으로 버티는 유닛(오래 살수록 이득)을 저주로 불구화하는 게 핵심. 일반딜 안 통하는
+//     탱크엔 저주가 유일한 해법. + 스킬 봉인 가치(스킬 보유 시). (저주는 위치 몰라도 정체로 타겟 — 공개정보.)
 function aiCurseValue(piece) {
   if (!piece) return 0;
-  if (piece.type === 'monk') return 100;  // 신성=아군 저주 해제 → 봉인이 최우선
-  if (!piece.hasSkill) return 2 + (piece.tier || 1);   // 봉인 무의미 — 지속뎀만
-  return aiUnitValue(piece) + 3;
+  if (piece.type === 'monk') return 100;   // 신성=아군 저주 해제원 → 봉인 최우선
+  let v = Math.max(piece.hp || 0, piece.maxHp || 0) * 0.7;            // 고HP = 오래 삶 = 저주 누적 이득
+  const TANK = { armoredWarrior: 7, bodyguard: 6, count: 4, king: 3 };  // 피해경감/흡수형 — 일반딜 안 통함
+  v += TANK[piece.type] || 0;
+  if (piece.hasSkill) v += aiUnitValue(piece) * 0.5 + 3;             // 스킬 봉인 가치
+  return v;
 }
 // ── 공격 타겟 보너스 — 표식된 적(실위치 공개)이 공격칸에 들어올 때 처치/고가치 가중. ──
 //   공개 정보(HP·타입)만 사용 → 치팅 아님. 비표식 적은 확률맵 점수로만 평가(위치 모름).
@@ -6691,12 +6698,14 @@ function aiAttackTargetBonus(room, ownerIdx, cells, effAtk) {
   for (const c of cells) {
     const tgt = enemies.find(e => e.col === c.col && e.row === c.row);
     if (!tgt) continue;
+    const hp = tgt.piece.hp || 1, val = aiUnitValue(tgt.piece);
     // 처치 가능 — 최우선 (패시브 경감은 무시한 근사). 고가치일수록 처치 가치 ↑.
-    if ((effAtk || 0) >= (tgt.piece.hp || 1)) {
-      bonus += 12 + aiUnitValue(tgt.piece) * 1.5;
+    if ((effAtk || 0) >= hp) {
+      bonus += 16 + val * 1.5;
     } else {
-      // 처치 불가라도 고가치 적을 깎는 건 가치 있음.
-      bonus += aiUnitValue(tgt.piece) * 0.4;
+      // ★ 사용자 보고: 표식 적을 집중사격해 마무리 안 함 → 못 죽여도 계속 때릴 강한 동기 부여.
+      bonus += 5 + val * 0.8;                       // 표식 적 타격 기본 가치 ↑ (위치 확정 = 확실한 한 방)
+      if ((effAtk || 0) >= hp - 1) bonus += 8;      // 한 번 더면 죽음 → 치사권 진입 가산(다음 턴 마무리)
     }
   }
   return bonus;
