@@ -3601,15 +3601,14 @@ function startGameFromRoom(room) {
   // 관전자에게 게임 시작 알림
   emitToSpectators(room, 'spectator_log', { msg: '전투 개시. 선공은 ' + room.players[room.currentPlayerIdx].name, type: 'event' });
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-  // 첫 턴 타이머 시작
-  startTimer(room, 'game', () => turnTimeout(room));
-
-  // AI가 선공인 경우 AI 턴 실행
-  if (room.isAI && firstPlayer === 1) {
-    setTimeout(() => {
-      if (room.phase === 'game') aiTakeTurn(room);
-    }, 3000);
-  }
+  // ★ 첫 턴은 인트로+후공 SP 지급 연출이 끝난 뒤 시작 — 그 동안은 양측 모두 행동 불가(애니 페이즈).
+  //   클라: 인트로 1.8s + 후공 SP 합류 ~2s. 타이머·AI 선공 모두 그 이후로 지연.
+  const INTRO_PHASE_MS = 4500;
+  setTimeout(() => {
+    if (room.phase !== 'game') return;
+    startTimer(room, 'game', () => turnTimeout(room));
+    if (room.isAI && firstPlayer === 1) aiTakeTurn(room);
+  }, INTRO_PHASE_MS);
 }
 
 function createPiece(type, tier, hp, extra) {

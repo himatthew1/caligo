@@ -4538,14 +4538,19 @@ socket.on('game_start', (data) => {
   } else {
     addLog(`${S.isMyTurn ? '선공' : '후공'}`, 'system');
     playGameStartAnimation(S.isMyTurn);
-    // ★ 후공 인스턴트 SP 지급 연출 — 시작 안내(1800ms) 직후 안내 메시지 + 오브 합류.
+    // ★ 후공 인스턴트 SP 지급 연출 — 인트로~SP 합류까지 "애니 페이즈"로 양측 행동 잠금.
     if (S._pendingSpGrant) {
       const g = S._pendingSpGrant; S._pendingSpGrant = null;
+      setIntroPhaseLock(true);                       // 인트로 시작부터 입력 잠금
+      const _safety = setTimeout(() => setIntroPhaseLock(false), 6500);  // 안전망(콜백 누락 대비)
       setTimeout(() => {
         try {
           showSecondPlayerSpAnnounce();
-          playSecondPlayerSpGrant(g.side, () => { S.instantSp = g.real; try { updateSPBar(); } catch (e) {} });
-        } catch (e) {}
+          playSecondPlayerSpGrant(g.side, () => {
+            S.instantSp = g.real; try { updateSPBar(); } catch (e) {}
+            clearTimeout(_safety); setIntroPhaseLock(false);   // 합류 완료 → 잠금 해제
+          });
+        } catch (e) { clearTimeout(_safety); setIntroPhaseLock(false); }
       }, 2000);
     }
   }
@@ -5910,11 +5915,23 @@ function showSecondPlayerSpAnnounce() {
     el = document.createElement('div');
     el.id = 'sp-grant-announce';
     el.className = 'sp-grant-announce';
-    el.innerHTML = `<div class="spga-k">GAME START</div><div class="spga-m">후공은 <b>인스턴트 SP</b>를 하나 지급받습니다</div><div class="spga-s">인스턴트 SP는 상대에게 이관되지 않고, 한 번 사용하면 소멸합니다.</div>`;
+    el.innerHTML = `<div class="spga-k">GAME START</div><div class="spga-m">후공은 <b>인스턴트 SP</b>를 하나 지급받습니다</div>`;
     document.body.appendChild(el);
   }
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 3200);
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+// ── 초반 연출 페이즈 입력 잠금 (인트로+후공 SP 지급 동안 양측 행동 불가) ──
+function setIntroPhaseLock(on) {
+  let el = document.getElementById('intro-phase-lock');
+  if (on) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'intro-phase-lock';
+      el.style.cssText = 'position:fixed;inset:0;z-index:9200;background:transparent;cursor:wait';
+      document.body.appendChild(el);
+    }
+  } else if (el) { el.remove(); }
 }
 
 // ── 후공 인스턴트 SP 오브 합류 연출 (화면 정중앙 5회전 → 해당 SP 숫자로 직선 합류) ──
