@@ -6664,17 +6664,22 @@ function aiKnownEnemies(room, ownerIdx) {
 function aiUnitValue(piece) {
   if (!piece) return 0;
   let v = (piece.tier || 1) * 2 + (piece.atk || 0);
-  const STRONG = { monk: 6, commander: 6, king: 5, witch: 5, count: 5,
+  // ★ 실대국 로그 분석(승률 14%, 패배 71%가 0처치): 호위무사(충성=왕실 대신 피격으로 공격 흡수)와
+  //   힐러(약초/신성)를 우선 처치 못 해 철통보안·힐탱 포메이션을 못 뚫음. 이 "엔진" 유닛을 최우선 가치로.
+  const STRONG = { bodyguard: 9, monk: 6, commander: 6, herbalist: 5, king: 5, witch: 5, count: 5,
     sulfurCauldron: 5, dragonKnight: 5, slaughterHero: 4, shadowAssassin: 4,
     torturer: 3, manhunter: 2, ratMerchant: 2 };
   v += (STRONG[piece.type] || 0);
   return v;
 }
-// 저주 타겟 가치 — 저주는 '스킬 봉인'이므로 스킬 가치 = 저주 가치. 수도승은 저주 해제원이라 최우선.
+// 저주 타겟 가치 — 저주는 '스킬 봉인' + 0.5/턴. 수도승은 저주 해제원이라 최우선.
+//   ★ 스킬 없는 유닛(호위무사 충성·지휘관 wrath 등 패시브)은 저주로 못 막음 → 봉인 가치 0,
+//     지속뎀(0.5/턴)만의 낮은 가치. (aiUnitValue 의 전투 가치가 저주 타겟을 오도하지 않게.)
 function aiCurseValue(piece) {
   if (!piece) return 0;
   if (piece.type === 'monk') return 100;  // 신성=아군 저주 해제 → 봉인이 최우선
-  return aiUnitValue(piece) + (piece.hasSkill ? 3 : 0);
+  if (!piece.hasSkill) return 2 + (piece.tier || 1);   // 봉인 무의미 — 지속뎀만
+  return aiUnitValue(piece) + 3;
 }
 // ── 공격 타겟 보너스 — 표식된 적(실위치 공개)이 공격칸에 들어올 때 처치/고가치 가중. ──
 //   공개 정보(HP·타입)만 사용 → 치팅 아님. 비표식 적은 확률맵 점수로만 평가(위치 모름).
