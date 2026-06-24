@@ -6692,17 +6692,21 @@ function aiInfoGain(brain, type, newCol, newRow, bounds, toggleState) {
 }
 // ── 확률맵 정화 — 내 말이 있는 칸엔 적이 없다(내 위치는 내가 안다=공정). 적 존재 가능성 0. ──
 function aiClearOwnCells(brain, room, ownerIdx) {
+  // ★ 사용자 지적: 0(=확실히 비었음)은 너무 강함. 가능성은 *낮을* 뿐 닫혀선 안 됨.
+  //   → 하드 0 대신 강하게 감쇠(곱). 확산이 도로 채우는 헛공격은 막되, 강한 증거가 쌓이면
+  //     여전히 살아나 공격할 수 있게 가능성을 열어둠.
+  const SUP = 0.06;
   const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
   for (const ai of allyIdxs) {
     for (const pc of (room.players[ai]?.pieces || [])) {
-      if (pc.alive && pc.col != null && brain.probMap[pc.row]) brain.probMap[pc.row][pc.col] = 0;
+      if (pc.alive && pc.col != null && brain.probMap[pc.row]) brain.probMap[pc.row][pc.col] *= SUP;
     }
   }
-  // ★ 유해(remains) 칸도 적 존재 가능성 0 — 살아있는 적은 유해 칸에 못 들어감(이동 차단=공유 정보).
-  //   사용자 보고: AI가 유해를 일부러 때림. 원인 = 확산/추론 belief가 유해 칸에 쌓여 "적 있나" 하고 침.
-  //   유해는 의미 있을 때(보드축소 경로 차단 등)만 부수면 되고, 평소 belief 타깃이 되면 안 됨.
+  // ★ 유해(remains) 칸 — 살아있는 적이 들어가기 어려움(이동 차단)이라 가능성 낮음. 단 0은 아님.
+  //   사용자 보고: AI가 유해를 헛공격(확산 belief 누적). 강하게 누르되 닫지는 않음 → 정황상 그쪽이
+  //   확실하면(증거 누적) 여전히 공격 가능. 평소엔 절대 belief 피크가 되지 않음.
   for (const rem of (room.remains || [])) {
-    if (rem.col != null && brain.probMap[rem.row]) brain.probMap[rem.row][rem.col] = 0;
+    if (rem.col != null && brain.probMap[rem.row]) brain.probMap[rem.row][rem.col] *= SUP;
   }
 }
 
@@ -6825,22 +6829,42 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
       }
       const candList = [...newCandidates];
       const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
-      // 회피 후 재피격 추론 — 직전 후보군과 교집합이 작으면 거의 확정
+      // ★ 교차턴 정보 합산 / 역산 (사용자 명세 #3): P1에서 맞고 회피→P2에서 또 맞았다면, 두 위치를
+      //   *모두* 때릴 수 있는 공격자 위치 = 직전 후보군 ∩ 이번 후보군. 연속 피격일수록 좁혀진다.
+      //   교집합이 있으면 그쪽에 belief 집중(공격자 실위치) + 교집합 밖 후보는 결합 증거와 모순이라
+      //   감쇠 → 위협맵이 선명해져 "그 공격자 사거리 밖"으로 정확히 대피 가능. 교집합을 다음 턴으로
+      //   누적(lastHitCandidates=교집합)해 다층적으로 계속 좁힌다. (예전엔 매턴 후보를 통째로 덮어써
+      //   누적이 안 되고, 교집합도 ≤4 일 때만 반영 → 광범위 파수꾼은 못 좁혀 정처없이 맞고 다님.)
       const prevCands = brain.lastHitCandidates;
-      if (prevCands && prevCands.size > 0) {
-        const intersect = candList.filter(k => prevCands.has(k));
-        if (intersect.length > 0 && intersect.length <= 4) {
-          for (const key of intersect) {
-            const [c, r] = key.split(',').map(Number);
-            brain.probMap[r][c] = 9;
-          }
+      const recent = brain._lastObserveTurn != null && (brain.turnCount - brain._lastObserveTurn) <= 2;
+      let refined = null;
+      if (recent && prevCands && prevCands.size > 0) {
+        const inter = candList.filter(k => prevCands.has(k));
+        if (inter.length > 0) refined = new Set(inter);
+      }
+      if (refined) {
+        const conf = refined.size === 1 ? 10 : (refined.size <= 3 ? 9 : 8);
+        // 직전 belief(prevCands) 중 교집합 밖은 결합 증거와 모순 → 감쇠 (지난 턴 잔상 제거).
+        for (const key of prevCands) {
+          if (refined.has(key)) continue;
+          const ci = key.indexOf(','); const c = +key.slice(0, ci), r = +key.slice(ci + 1);
+          if (brain.probMap[r]) brain.probMap[r][c] = Math.min(brain.probMap[r][c], baseConf) * 0.4;
         }
+        for (const key of candList) {
+          const ci = key.indexOf(','); const c = +key.slice(0, ci), r = +key.slice(ci + 1);
+          if (!brain.probMap[r]) continue;
+          if (refined.has(key)) { brain.probMap[r][c] = conf; if (brain._missMemory) delete brain._missMemory[key]; }
+          else brain.probMap[r][c] = Math.min(brain.probMap[r][c], baseConf) * 0.4;  // 이번 모순 후보 감쇠
+        }
+        brain.lastHitCandidates = refined;
+      } else {
+        for (const key of candList) {
+          const [c, r] = key.split(',').map(Number);
+          brain.probMap[r][c] = Math.max(brain.probMap[r][c], baseConf);
+        }
+        brain.lastHitCandidates = newCandidates;
       }
-      for (const key of candList) {
-        const [c, r] = key.split(',').map(Number);
-        brain.probMap[r][c] = Math.max(brain.probMap[r][c], baseConf);
-      }
-      brain.lastHitCandidates = newCandidates;
+      brain._lastObserveTurn = brain.turnCount;
       brain.lastHitTurn = brain.turnCount;
     }
   } else {
