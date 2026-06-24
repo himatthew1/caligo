@@ -1100,6 +1100,50 @@ function aiIsSupportPiece(pc) { return ['herbalist','monk','watchman','scout','c
 function aiIsFragilePiece(pc) { return pc.maxHp <= 2 || ['watchman','messenger','sulfurCauldron','herbalist','monk'].includes(pc.type); }
 function aiIsHealerPiece(pc) { return pc.type === 'herbalist' || pc.type === 'monk'; }
 
+// ── 상대 위협 프로파일 (배치 분산/밀집 결정용) ──
+//   사용자 요청: "배치시 상대 유닛의 공격범위와 능력을 충분히 고려해, 뭉칠지 퍼트릴지 결정".
+//   1v1 배치 시점엔 적 좌표는 안개지만 *타입*은 공개(공개/교체 페이즈)되어 있음 → 적 말의 실제
+//   공격 footprint(getAttackCells)를 보드 중앙에 샘플해 광역/라인 위협을 정량화.
+//   반환: { aoeMul(밀집 회피 배율 0.5~2.0), hLine(행 정렬 위협), vLine(열 정렬 위협),
+//          borderThreat(가장자리 광역 — 유황가마 등) }
+function aiEnemyThreatProfile(room, enemyIdxs, bounds) {
+  const prof = { aoeMul: 1, hLine: false, vLine: false, borderThreat: false };
+  if (!room || !Array.isArray(enemyIdxs)) return prof;
+  const cc = Math.floor((bounds.min + bounds.max) / 2);
+  const seenTypes = new Set();
+  let aoeCount = 0;
+  for (const ei of enemyIdxs) {
+    const ep = room.players[ei]; if (!ep) continue;
+    for (const epc of (ep.pieces || [])) {
+      if (!epc || !epc.type || seenTypes.has(epc.type)) continue;
+      seenTypes.add(epc.type);
+      let cells;
+      try { cells = getAttackCells(epc.type, cc, cc, bounds, { toggleState: epc.toggleState }); }
+      catch (e) { continue; }
+      if (!cells || cells.length < 2) continue;       // 단일칸 공격 = 밀집 위협 아님
+      const cset = new Set(cells.map(x => `${x.col},${x.row}`));
+      // (a) 광역 판정: footprint 안에 직교인접 칸쌍이 있으면 = 인접 아군 동시피격 가능
+      let adjPair = false;
+      for (const x of cells) {
+        if (cset.has(`${x.col + 1},${x.row}`) || cset.has(`${x.col},${x.row + 1}`)) { adjPair = true; break; }
+      }
+      if (adjPair) aoeCount++;
+      // (b) 라인 판정: 같은 행/열에 3칸 이상 → 그 축으로 정렬 금지 (창병=열, 기병=행 등)
+      const perRow = {}, perCol = {};
+      for (const x of cells) { perRow[x.row] = (perRow[x.row] || 0) + 1; perCol[x.col] = (perCol[x.col] || 0) + 1; }
+      if (Object.values(perRow).some(n => n >= 3)) prof.hLine = true;
+      if (Object.values(perCol).some(n => n >= 3)) prof.vLine = true;
+      // (c) 가장자리 광역: footprint 가 보드 테두리를 광범위하게 덮음 (유황가마류)
+      let edge = 0;
+      for (const x of cells) if (x.col === bounds.min || x.col === bounds.max || x.row === bounds.min || x.row === bounds.max) edge++;
+      if (edge >= 4) prof.borderThreat = true;
+    }
+  }
+  // 광역 유닛이 많을수록 분산 강하게. 광역 전무면 0.5(아군 시너지 밀집 허용).
+  prof.aoeMul = Math.max(0.5, Math.min(2.0, 0.6 + 0.45 * aoeCount));
+  return prof;
+}
+
 // 배치 후보 셀 점수. ctx: { room, bounds, occupied(Set), enemyAttackCells(Set),
 //   futureShrinkBounds(array), teamId, friendlyIdxs(시너지 대상=자기+팀원),
 //   teammateIdxs(밀집 회피 대상) }
@@ -1130,14 +1174,27 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   const centerR = (bounds.min + bounds.max) / 2;
   score -= (Math.abs(c - centerC) + Math.abs(r - centerR)) * 0.8;
   // 4. 밀집 회피 (AoE/덫에 휘말리지 않게) — 호위무사 예외
+  //   ★ 상대 위협 프로파일에 따라 분산 강도 동적 조절: 광역 부대가 많을수록 더 퍼뜨리고,
+  //     광역이 전무하면(aoeMul 0.5) 아군 시너지 위해 밀집 허용. (사용자: 뭉칠지/퍼트릴지 결정)
+  const et = ctx.enemyThreat || { aoeMul: 1, hLine: false, vLine: false, borderThreat: false };
   if (piece.type !== 'bodyguard') {
     for (const tIdx of teammateIdxs) {
       const tp = room.players[tIdx]; if (!tp) continue;
       for (const tpc of (tp.pieces || [])) {
         if (!tpc.alive || tpc.col < 0 || tpc === piece) continue;
-        if (Math.abs(tpc.col - c) + Math.abs(tpc.row - r) === 1) score -= 6;
+        const md = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
+        if (md === 1) score -= 6 * et.aoeMul;
+        // 4b. 라인 공격수(창병=열, 기병=행 등) 대비 — 같은 행/열 정렬 회피 (인접 아니어도)
+        if (md >= 2) {
+          if (et.vLine && tpc.col === c) score -= 5;   // 같은 열 정렬 = 열 광역에 일렬피격
+          if (et.hLine && tpc.row === r) score -= 5;   // 같은 행 정렬 = 행 광역에 일렬피격
+        }
       }
     }
+  }
+  // 4c. 가장자리 광역(유황가마류) 대비 — 테두리 칸 추가 회피 (약한 유닛 특히)
+  if (et.borderThreat && (c === bounds.min || c === bounds.max || r === bounds.min || r === bounds.max)) {
+    score -= aiIsFragilePiece(piece) ? 10 : 6;
   }
   // 5. commander 사기증진 시너지
   if (piece.type !== 'commander') {
@@ -1272,6 +1329,7 @@ function aiTeamPlace(room, idx) {
     room, bounds, occupied, enemyAttackCells, futureShrinkBounds, teamId,
     friendlyIdxs: [...teammates, idx],   // 시너지 대상 = 자기 + 팀원
     teammateIdxs: teammates,             // 밀집 회피 대상 = 팀원
+    enemyThreat: aiEnemyThreatProfile(room, enemyIdxs, bounds),  // 상대 타입 기반 분산/밀집 결정
   };
   const scoreCell = (piece, c, r) => aiPlacementCellScore(piece, c, r, placeCtx);
 
@@ -7043,6 +7101,7 @@ function aiPlacePieces(room) {
     teamId: 1,                       // 행 선호 그라디언트용 (하단 진영처럼 처리)
     friendlyIdxs: [ownerIdx],        // 시너지 대상 = 자기 말 전체
     teammateIdxs: [ownerIdx],        // 밀집 회피 대상 = 자기 말 (AoE 회피)
+    enemyThreat: aiEnemyThreatProfile(room, enemyIdxs, bounds),  // 상대 타입 기반 분산/밀집 결정
   };
 
   // 처리 순서: 공격형 먼저(전방 선점), 지원/약한 유닛 나중(남은 안전 자리)
@@ -11124,6 +11183,7 @@ module.exports = {
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
+  aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
