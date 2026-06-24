@@ -6803,7 +6803,10 @@ function aiInjectMarkedEnemies(brain, room, ownerIdx) {
 }
 
 function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
+  const _sz = brain.probMap.length;
   for (const cell of atkCells) {
+    // OOB 방어 — 실게임 atkCells 는 항상 보드 내(getAttackCells 클리핑)지만 안전망.
+    if (cell.row < 0 || cell.row >= _sz || cell.col < 0 || cell.col >= _sz) continue;
     const hit = hitResults.find(h => h.col === cell.col && h.row === cell.row);
     if (hit) {
       brain.hits.push({ col: cell.col, row: cell.row, turn: brain.turnCount, destroyed: hit.destroyed });
