@@ -1940,6 +1940,7 @@ function aiTeamTakeTurn(room, idx) {
       aiClearOwnCells(brain, room, idx);
       brain._dangerMap = aiBuildDangerMap(room, idx, brain);
       brain._dangerTurn = brain.turnCount;
+      aiInjectMarkedEnemies(brain, room, idx);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
     }
   }
 
@@ -2237,6 +2238,7 @@ function aiDecideAction(room, idx) {
     brain.enemiesAlive = alive;
     aiClearOwnCells(brain, room, idx);
     brain._dangerMap = aiBuildDangerMap(room, idx, brain); brain._dangerTurn = brain.turnCount;
+    aiInjectMarkedEnemies(brain, room, idx);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
   }
   // STEP 0: 보드축소 대피
   const evac = aiTeamFindEvacuation(room, idx);
@@ -6682,6 +6684,21 @@ function aiClearOwnCells(brain, room, ownerIdx) {
   }
 }
 
+// ── ★ 표식 적 맹렬 추격 (명세 #4) ───────────────────────────────────
+//   표식된 적은 위치가 확정(공개 정보) → 확률맵에 최고 확신으로 주입해 능동 추격·마무리를 유도.
+//   기존엔 표식 적 위치가 확률맵에 안 들어가 사거리 밖 표식 적을 쫓지 않았음(approach 가 확률맵 기반).
+//   고가치(지휘관=펌프·수도승=저주해제원·왕 등) 일수록 더 높여 우선 추격. 매 턴 현재 좌표로 재주입.
+//   ★ 반드시 dangerMap 구축 *이후* 호출 — 표식 칸을 미표식 적의 추정 위치로 오인한 유령 위협 방지.
+function aiInjectMarkedEnemies(brain, room, ownerIdx) {
+  const size = brain.probMap.length;
+  for (const e of aiKnownEnemies(room, ownerIdx)) {
+    if (!e.marked || e.col == null || e.row == null) continue;
+    if (e.row < 0 || e.row >= size || e.col < 0 || e.col >= size) continue;
+    const pri = 9 + Math.min(3, aiUnitValue(e.piece) * 0.18);   // 확정(9) + 가치 가중(최대 +3)
+    if (brain.probMap[e.row]) brain.probMap[e.row][e.col] = Math.max(brain.probMap[e.row][e.col], pri);
+  }
+}
+
 function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
   for (const cell of atkCells) {
     const hit = hitResults.find(h => h.col === cell.col && h.row === cell.row);
@@ -7871,6 +7888,7 @@ function aiTakeTurn(room) {
   aiClearOwnCells(brain, room, 1);
   brain._dangerMap = aiBuildDangerMap(room, 1, brain);
   brain._dangerTurn = brain.turnCount;
+  aiInjectMarkedEnemies(brain, room, 1);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
 
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
   if (alivePieces.length === 0) return;
@@ -11234,7 +11252,7 @@ module.exports = {
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
-  aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore,
+  aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
