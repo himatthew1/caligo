@@ -1797,16 +1797,16 @@ function aiTeamUsePreSkills(room, idx) {
       const brain = getTeamBrain(room, getTeamOf(room, idx));
       const myBombs = (room.boardObjects[idx] || []).filter(o => o.type === 'bomb');
       const marked = aiKnownEnemies(room, idx).filter(e => e.marked);
-      let markedInBlast = 0, probInBlast = 0;
+      let markedInBlast = 0;
+      const blastCells = [];
       for (const b of myBombs) {
         for (const e of marked) {
           if (Math.abs(e.col - b.col) <= 1 && Math.abs(e.row - b.row) <= 1) markedInBlast++;
         }
-        for (let dr = -1; dr <= 1; dr++)
-          for (let dc = -1; dc <= 1; dc++)
-            probInBlast += brain.probMap[b.row + dr]?.[b.col + dc] || 0;
+        blastCells.push(..._cells3x3(b.col, b.row));
       }
-      if (markedInBlast >= 1 || probInBlast >= 16) { aiTeamExecSkill(room, idx, pi, 'detonate'); return true; }
+      // ★ 확률 합이 아니라 *집중된 추론*일 때만 기폭 (사용자 지적). 1v1 과 동일 정책.
+      if (markedInBlast >= 1 || _aiConcentratedDeduction(brain, blastCells)) { aiTeamExecSkill(room, idx, pi, 'detonate'); return true; }
     }
     // divine (수도승 신성) — 부상 아군에게
     if (piece.skillId === 'divine') {
@@ -6586,6 +6586,28 @@ function aiMaxProb(brain) {
   return max;
 }
 
+// ── 집중된 추론 판정 (사용자 지적: 스킬은 확률 누적이 아니라 추론으로 시전) ──
+//   probMap 은 매 턴 max=10 으로 정규화되므로 절대값·합(sum)만으론 "확신"을 알 수 없다
+//   (확산 노이즈도 합이 쌓이면 임계 초과). 대신 area 안 peak 가 보드 평균 대비 충분히 높은가
+//   (=belief 가 그 칸에 *집중*되었는가)로 "실제 추론된 적"을 판별. 확산 분포면 평균이 높아
+//   문턱(mean×배수)도 높아져 발동 안 함. 마법구 타깃·덫·기폭·유황 등 스킬 시전 게이트에 사용.
+function _aiConcentratedDeduction(brain, cells, mult) {
+  const size = brain.probMap.length;
+  let sum = 0, n = 0;
+  for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) { sum += brain.probMap[r][c]; n++; }
+  const mean = n ? sum / n : 0;
+  const bar = Math.max(6, mean * (mult || 2.2));   // 확산이면 mean↑ → bar↑ → 발동 안 함
+  for (const cl of cells) {
+    if ((brain.probMap[cl.row]?.[cl.col] || 0) >= bar) return true;
+  }
+  return false;
+}
+function _cells3x3(col, row) {
+  const out = [];
+  for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) out.push({ col: col + dc, row: row + dr });
+  return out;
+}
+
 // ── 추격(접근) 포텐셜 — 적 확률질량으로 능동 접근하도록 이동 점수에 가산 ──
 //   사용자 요청: "공격 사거리에 적이 올 때까지 멍청하게 기다리지 말고 추리·추산해 다가가라."
 //   포텐셜필드: 각 셀의 확률값을 거리로 나눠 합산 → 새 위치가 확률질량에 더 가까우면 +.
@@ -7812,17 +7834,15 @@ function aiUsePreSkills(room) {
           // 그 외에는 확률맵으로 폭탄 주변 적 존재 가능성 추산 (치팅 금지).
           const marked = aiKnownEnemies(room, 1).filter(e => e.marked);
           let markedInBlast = 0;
-          let probInBlast = 0;
+          const blastCells = [];
           for (const b of myBombs) {
             for (const e of marked) {
               if (Math.abs(e.col - b.col) <= 1 && Math.abs(e.row - b.row) <= 1) markedInBlast++;
             }
-            for (let dr = -1; dr <= 1; dr++)
-              for (let dc = -1; dc <= 1; dc++)
-                probInBlast += brain.probMap[b.row + dr]?.[b.col + dc] || 0;
+            blastCells.push(..._cells3x3(b.col, b.row));
           }
-          // 표식으로 확인된 적이 있으면 즉시 기폭, 아니면 확률맵상 매우 높을 때만 기폭
-          if (markedInBlast >= 1 || probInBlast >= 16) {
+          // ★ 확률 합이 아니라 *집중된 추론*(폭발권에 실제 추론된 적)일 때만 기폭 — 사용자 지적.
+          if (markedInBlast >= 1 || _aiConcentratedDeduction(brain, blastCells)) {
             _tryExec(pidx, 'detonate');
             break;
           }
@@ -8157,13 +8177,10 @@ function aiTakeTurn(room) {
         const markedDists = aiKnownEnemies(room, 1).filter(e => e.marked)
           .map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row));
         const nearestMarked = markedDists.length ? Math.min(...markedDists) : 99;
-        let probAround = 0;
-        for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-          probAround += brain.probMap[piece.row + dr]?.[piece.col + dc] || 0;
-        }
         // 같은 자리에 이미 덫이 있으면 X
         const hasTrap = (room.boardObjects[1] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
-        if (!hasTrap && (nearestMarked <= 2 || probAround >= 14)) {
+        // ★ 확률 합이 아니라 *집중된 추론*(주변에 실제 추론된 적)일 때만 — 사용자 지적.
+        if (!hasTrap && (nearestMarked <= 2 || _aiConcentratedDeduction(brain, _cells3x3(piece.col, piece.row)))) {
           aiExecSkill(room, pidx, 'trap');
           aiPlayer.actionDone = true;
           aiEndTurn(room);
@@ -8195,13 +8212,12 @@ function aiTakeTurn(room) {
       if (piece.type === 'sulfurCauldron' && (room.sp[1] + room.instantSp[1]) >= piece.skillCost) {
         // 보드 외곽에 적 있을 확률 높거나, 외곽이 좁아져 적이 외곽으로 몰릴 때
         const borderCells = getBorderCells(bounds);
-        let borderScore = 0;
-        for (const c of borderCells) borderScore += brain.probMap[c.row]?.[c.col] || 0;
         // ★ 치팅 제거 — 비표식 적의 실위치를 보지 않는다. 표식된(공개) 적만 외곽 카운트.
         const markedBorderEnemies = aiKnownEnemies(room, 1).filter(e => e.marked &&
           (e.col === bounds.min || e.col === bounds.max || e.row === bounds.min || e.row === bounds.max)
         ).length;
-        if (markedBorderEnemies >= 1 || borderScore >= 12) {
+        // ★ 외곽 확률 합이 아니라 *집중된 추론*(외곽 특정칸에 실제 추론된 적)일 때만 — 사용자 지적.
+        if (markedBorderEnemies >= 1 || _aiConcentratedDeduction(brain, borderCells)) {
           aiExecSkill(room, pidx, 'sulfurRiver');
           aiPlayer.actionDone = true;
           aiEndTurn(room);
@@ -11381,6 +11397,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
+  _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
