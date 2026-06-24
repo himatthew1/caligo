@@ -1382,7 +1382,7 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
   let score = 0;
-  for (const c of cells) score += brain.probMap[c.row]?.[c.col] || 0;
+  for (const c of cells) { const v = brain.probMap[c.row]?.[c.col] || 0; score += v >= 6 ? v * 3 : v; }  // ★ 교전 우선(#4) — 확신 적 사거리에 넣기 ×3
   // ── 보드 축소 회피 + 외곽 탈출 (사용자 요청: 축소에서 절대 도망쳐라) ──
   const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
   let curIsOutside = false, newIsOutside = false, mostUrgentTurns = 99;
@@ -6882,7 +6882,10 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
   let score = 0;
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
-      score += brain.probMap[cell.row][cell.col];
+      const v = brain.probMap[cell.row][cell.col];
+      // ★ 교전 우선(명세 #4) — 확신 적(belief≥6)을 사거리에 넣는 이동을 강하게 우대(×3) →
+      //   위협회피/도주보다 "알면 친다". cavalry 가 적 줄 쓸기 등 다대미지 기회를 도주가 막던 것 수정.
+      score += v >= 6 ? v * 3 : v;
     }
   }
   // ★ commander 인접 보너스 — 새 위치에서 사기증진 받으면 점수 증폭.
