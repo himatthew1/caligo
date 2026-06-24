@@ -1742,7 +1742,8 @@ function aiTeamUsePreSkills(room, idx) {
       const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
       // ★ SP 수읽기 — 정규 SP 이관 문턱까지 넘는 확실한 이득일 때만 (1v1 과 동일 정책).
-      if (altScore > curScore + 8 + _aiSpTransferBar(room, getTeamOf(room, idx), piece.skillCost)) {
+      //   인스턴트 충당(공짜)이면 기본 문턱 절반 — 견제 불필요·소멸성이라 더 적극 사용.
+      if (altScore > curScore + _aiSpBaseBar(room, getTeamOf(room, idx), piece.skillCost, 8) + _aiSpTransferBar(room, getTeamOf(room, idx), piece.skillCost)) {
         aiTeamExecSkill(room, idx, pi, 'reform'); return true;
       }
     }
@@ -7108,6 +7109,15 @@ function _aiSpTransferBar(room, slot, cost) {
   const oppThreat = _aiOppSpThreat(room, slot, regSp); // 0~4, 결과 SP·해금 스킬 반영
   return regSp * (3 + oppThreat * 2);                  // 정규 SP 1당 +3~11 문턱
 }
+// 스킬 비용이 instant SP 로 전액 충당되는가(= 상대 이관 0). 사용자 지적: 인스턴트는 안 쓰면
+//   소멸하고 상대에게 안 넘어가니 "견제" 없이 더 적극 써도 됨 → 한계가치 스킬의 기본 문턱을 낮춤.
+function _aiSpAllInstant(room, slot, cost) {
+  return _aiRegularSpCost(room, slot, cost) <= 0;
+}
+// 한계가치 스킬 기본 문턱 — 인스턴트 충당(공짜)이면 낮게, 정규 SP 소모면 보수적으로.
+function _aiSpBaseBar(room, slot, cost, regularBar) {
+  return _aiSpAllInstant(room, slot, cost) ? Math.max(1, Math.round(regularBar * 0.5)) : regularBar;
+}
 
 function aiScoreAttack(brain, piece, room, extra) {
   const bounds = room.boardBounds;
@@ -7656,8 +7666,8 @@ function aiUsePreSkills(room) {
         const altCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: altState });
         let altScore = 0;
         for (const c of altCells) altScore += brain.probMap[c.row]?.[c.col] || 0;
-        // ★ SP 수읽기 — 토글로 얻는 이득이 정규 SP 이관 문턱까지 넘을 때만.
-        if (altScore > curScore * 1.3 && altScore >= 4 + _aiSpTransferBar(room, 1, piece.skillCost)) {
+        // ★ SP 수읽기 — 토글 이득이 문턱 초과 시만. 인스턴트 충당이면 기본 문턱 절반(공짜·소멸성).
+        if (altScore > curScore * 1.3 && altScore >= _aiSpBaseBar(room, 1, piece.skillCost, 4) + _aiSpTransferBar(room, 1, piece.skillCost)) {
           _tryExec(pidx, 'reform');
         }
         break;
@@ -7732,7 +7742,7 @@ function aiUsePreSkills(room) {
         }
         // ★ 의미없는 쌍검무 금지 — 집중된 실제 표적(한 칸 ≥6)이 있고, 정규 SP 이관 문턱을 넘는
         //   확실한 이득이 있을 때만. 분산된 확률질량(diffuse)만으로는 시전 안 함.
-        const dbBar = 4 + _aiSpTransferBar(room, 1, piece.skillCost);
+        const dbBar = _aiSpBaseBar(room, 1, piece.skillCost, 4) + _aiSpTransferBar(room, 1, piece.skillCost);
         if (dbBest >= 6 && dbScore >= dbBar) {
           _tryExec(pidx, 'dualStrike');
         }
@@ -11370,7 +11380,7 @@ module.exports = {
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
-  aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad,
+  aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
