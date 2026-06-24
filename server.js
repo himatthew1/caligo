@@ -6682,6 +6682,12 @@ function aiClearOwnCells(brain, room, ownerIdx) {
       if (pc.alive && pc.col != null && brain.probMap[pc.row]) brain.probMap[pc.row][pc.col] = 0;
     }
   }
+  // ★ 유해(remains) 칸도 적 존재 가능성 0 — 살아있는 적은 유해 칸에 못 들어감(이동 차단=공유 정보).
+  //   사용자 보고: AI가 유해를 일부러 때림. 원인 = 확산/추론 belief가 유해 칸에 쌓여 "적 있나" 하고 침.
+  //   유해는 의미 있을 때(보드축소 경로 차단 등)만 부수면 되고, 평소 belief 타깃이 되면 안 됨.
+  for (const rem of (room.remains || [])) {
+    if (rem.col != null && brain.probMap[rem.row]) brain.probMap[rem.row][rem.col] = 0;
+  }
 }
 
 // ── ★ 표식 적 맹렬 추격 (명세 #4) ───────────────────────────────────
@@ -11254,6 +11260,7 @@ module.exports = {
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
+  aiClearOwnCells, aiSpreadProbability,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
