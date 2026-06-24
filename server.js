@@ -6792,12 +6792,25 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
     const hitPiece = ownPieces.find(p => p.col === h.col && p.row === h.row && p.alive);
     if (hitPiece) aiRecordHit(brain, hitPiece);
   }
-  if (hitResults.length > 0) {
+  // ★ 단서 합산 (명세 #1) — 한 공격=한 공격자. 내 말 피격칸 + 같은 공격범위(atkCells) 안의
+  //   유해·쥐도 그 공격자에게 맞은 것 → 모두 "공격자가 때릴 수 있어야 하는 칸"(교집합 제약).
+  //   대상이 많을수록 공격자 위치가 한 점으로 좁혀짐(사용자: 여러 면 피격·유해·쥐로 단서 누적 시 쉬움).
+  //   유해/쥐는 양 진영 공유(공정). 살아있는 적은 못 들어가는 칸이라 후보에선 자동 배제됨.
+  const constraint = [];
+  const _seenK = new Set();
+  const _addC = (c, r) => { const k = `${c},${r}`; if (!_seenK.has(k)) { _seenK.add(k); constraint.push({ col: c, row: r }); } };
+  for (const h of hitResults) _addC(h.col, h.row);
+  if (atkCells && atkCells.length) {
+    const _atkSet = new Set(atkCells.map(c => `${c.col},${c.row}`));
+    for (const rem of (room.remains || [])) if (_atkSet.has(`${rem.col},${rem.row}`)) _addC(rem.col, rem.row);
+    for (const arr of (room.rats || [])) for (const rt of (arr || [])) if (_atkSet.has(`${rt.col},${rt.row}`)) _addC(rt.col, rt.row);
+  }
+  if (constraint.length > 0) {
     const aliveEnemyTypes = (attackerPieces || []).filter(p => p.alive)
       .map(p => ({ type: p.type, atk: p.atk, toggleState: p.toggleState }));
     if (aliveEnemyTypes.length === 0) {
-      // 폴백 — 타입 정보 없으면 hit 셀 주변 8칸 가산
-      for (const h of hitResults) {
+      // 폴백 — 타입 정보 없으면 단서 셀 주변 8칸 가산
+      for (const h of constraint) {
         for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
           if (dr === 0 && dc === 0) continue;
           const nc = h.col + dc, nr = h.row + dr;
@@ -6817,8 +6830,9 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
           let cells;
           try { cells = getAttackCells(et.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
           const cset = new Set(cells.map(cc => `${cc.col},${cc.row}`));
-          // ★ #1 교집합 — 한 공격=한 공격자 → hit 셀들을 '전부' 때릴 위치만(단일피격엔 합집합과 동일).
-          if (hitResults.every(h => cset.has(`${h.col},${h.row}`))) newCandidates.add(`${c},${r}`);
+          // ★ #1 교집합 — 한 공격=한 공격자 → 단서 셀(내 말+유해+쥐)을 '전부' 때릴 위치만.
+          //   단서가 많을수록(여러 면 피격·유해·쥐) 후보가 한 점으로 좁혀짐.
+          if (constraint.every(h => cset.has(`${h.col},${h.row}`))) newCandidates.add(`${c},${r}`);
         }
       }
       // 단일 후보 = 위치 확정 → 최고 확신. 새 증거이므로 그 칸의 stale 미스 단서는 무효화.
