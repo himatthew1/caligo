@@ -6470,6 +6470,9 @@ function initAiBrain(boardSize) {
   return {
     probMap: prob,
     confirmedEmpty: new Set(),
+    // ★ 빗나감 단서 누적 (명세 #7) — { "c,r": turn } 마지막으로 빈 것이 확인된 턴.
+    //   확산이 미스 칸을 도로 채우는 걸 매 턴 억제해 "다층적 추리"가 쌓이게 함.
+    _missMemory: {},
     hits: [],
     mode: 'scan',
     huntTargets: [],
@@ -6507,6 +6510,19 @@ function aiSpreadProbability(brain) {
     brain.probMap[ch.row][ch.col] = 10;
   } else if (ch && (brain.turnCount - ch.turn) > 3) {
     brain._confirmedHit = null;
+  }
+  // ★ 빗나감 단서 지속 (명세 #7) — 확산/정규화가 미스 칸을 도로 채운 걸 다시 억제.
+  //   최근 미스일수록 강하게 누르고 ~4턴에 걸쳐 서서히 복원(적이 그 칸으로 이동했을 수 있으므로).
+  //   이게 다층적 추리의 핵심: 매 턴 리셋이 아니라 "어디가 비었나"를 누적 보존.
+  if (brain._missMemory) {
+    for (const key in brain._missMemory) {
+      const age = brain.turnCount - brain._missMemory[key];
+      const factor = 0.2 + (age - 1) * 0.3;   // age1=0.2(강한 억제) age2=0.5 age3=0.8 age4≥1(해제)
+      if (age < 1 || factor >= 1) { delete brain._missMemory[key]; continue; }
+      const ci = key.indexOf(',');
+      const c = +key.slice(0, ci), r = +key.slice(ci + 1);
+      if (brain.probMap[r]) brain.probMap[r][c] *= factor;
+    }
   }
 }
 
@@ -6713,6 +6729,7 @@ function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
       brain.hits.push({ col: cell.col, row: cell.row, turn: brain.turnCount, destroyed: hit.destroyed });
       brain.lastHitTurn = brain.turnCount;
       brain.mode = 'hunt';
+      if (brain._missMemory) delete brain._missMemory[`${cell.col},${cell.row}`];  // 명중=거기 적 있음, 미스단서 무효
       if (hit.destroyed) {
         brain.enemiesAlive--;
         brain.probMap[cell.row][cell.col] = 0;
@@ -6725,6 +6742,10 @@ function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
       }
     } else {
       brain.probMap[cell.row][cell.col] *= 0.1;
+      // ★ 빗나감 단서 누적 (명세 #7) — 그 순간 그 칸이 비었음을 기억. aiSpreadProbability 가
+      //   확산 후에도 이 칸을 억제 → 미스를 한 턴 만에 까먹고 같은 칸 또 치는 문제 해소.
+      if (!brain._missMemory) brain._missMemory = {};
+      brain._missMemory[`${cell.col},${cell.row}`] = brain.turnCount;
       // ★ 확정칸 재공격이 빗나감 = 적이 그 칸을 떠남 → 확신 해제(다시 추리 모드).
       if (brain._confirmedHit && brain._confirmedHit.col === cell.col && brain._confirmedHit.row === cell.row) brain._confirmedHit = null;
     }
@@ -6796,10 +6817,11 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
           if (hitResults.every(h => cset.has(`${h.col},${h.row}`))) newCandidates.add(`${c},${r}`);
         }
       }
-      // 단일 후보 = 위치 확정 → 최고 확신
+      // 단일 후보 = 위치 확정 → 최고 확신. 새 증거이므로 그 칸의 stale 미스 단서는 무효화.
       if (newCandidates.size === 1) {
         const [c, r] = [...newCandidates][0].split(',').map(Number);
         if (brain.probMap[r]) brain.probMap[r][c] = 10;
+        if (brain._missMemory) delete brain._missMemory[`${c},${r}`];
       }
       const candList = [...newCandidates];
       const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
@@ -11260,7 +11282,7 @@ module.exports = {
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
-  aiClearOwnCells, aiSpreadProbability,
+  aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
