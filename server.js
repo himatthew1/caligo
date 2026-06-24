@@ -6820,6 +6820,57 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
       brain.probMap[cr][cc] = Math.max(brain.probMap[cr][cc], 7);
     }
   }
+  // ── ★ 사기증진 역추론 (명세 #6) ──────────────────────────────────────
+  //   관측 가능 단서: 내가 받은 피해(hit.damage)가 *살아있는 모든 적 타입의 기본 공격력보다 크면*
+  //   = 사기증진(+1) 외엔 설명 불가 → 그 공격자는 적 지휘관과 직교인접 상태였다.
+  //   공격자가 그 칸을 때릴 수 있는 후보 위치를 구하고, 그 4방 이웃 = 지휘관 후보 → 확률맵 가산.
+  //   (공개 정보만 사용: 적 타입·기본공격력은 항상 공개, 피해량은 내 말 HP 변화로 관측 = 치팅 아님.)
+  if (hitResults.length > 0) {
+    const aliveEnemies = (attackerPieces || []).filter(p => p.alive);
+    const hasCommander = aliveEnemies.some(p => p.type === 'commander');
+    if (hasCommander) {
+      const maxBase = aliveEnemies.reduce((m, p) => Math.max(m, p.atk || 0), 0);
+      const hasMonk = aliveEnemies.some(p => p.type === 'monk');
+      // 사기증진 확정 피격칸 — 피해가 모든 적 기본공격력 초과 (가호 수도승→악인=3 혼동 제외).
+      const overageHits = hitResults.filter(h => {
+        if (typeof h.damage !== 'number' || h.damage <= maxBase) return false;
+        const hp = ownPieces.find(p => p.alive && p.col === h.col && p.row === h.row);
+        if (hasMonk && hp && hp.tag === 'villain') return false;
+        return true;
+      });
+      const cmdCands = new Set();
+      if (overageHits.length) {
+        // 한 공격=한 공격자 → 이 칸들은 동일 버프 공격자 소행. 그 기본공격력 = 최대 초과피해-1.
+        const buffedBase = Math.max(...overageHits.map(h => h.damage)) - 1;
+        const buffedTypes = aliveEnemies.filter(p => p.type !== 'commander' && (p.atk || 0) === buffedBase)
+          .map(p => ({ type: p.type, toggleState: p.toggleState }));
+        for (const bt of buffedTypes) {
+          const extra = bt.toggleState ? { toggleState: bt.toggleState } : {};
+          for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
+            if (ownPieces.some(p => p.alive && p.col === c && p.row === r)) continue;
+            let cells; try { cells = getAttackCells(bt.type, c, r, room.boardBounds, extra); } catch (e) { continue; }
+            const cset = new Set(cells.map(x => `${x.col},${x.row}`));
+            // 교집합 — 모든 초과피격칸을 때릴 수 있는 위치만 = 공격자 후보 (다중피격이면 거의 1칸).
+            if (!overageHits.every(h => cset.has(`${h.col},${h.row}`))) continue;
+            for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {                    // 그 4방 이웃 = 지휘관
+              const nc = c + dc, nr = r + dr;
+              if (nc >= 0 && nc < size && nr >= 0 && nr < size &&
+                  !ownPieces.some(p => p.alive && p.col === nc && p.row === nr)) cmdCands.add(`${nc},${nr}`);
+            }
+          }
+        }
+      }
+      // 후보가 과하게 넓으면(단일피격 라인공격 등) 정보량이 낮아 확률맵 오염 → 좁을 때만 가산.
+      if (cmdCands.size > 0 && cmdCands.size <= 10) {
+        const conf = cmdCands.size <= 3 ? 8 : (cmdCands.size <= 6 ? 7 : 5);  // 좁을수록 강한 확신
+        for (const key of cmdCands) {
+          const [c, r] = key.split(',').map(Number);
+          if (brain.probMap[r]) brain.probMap[r][c] = Math.max(brain.probMap[r][c], conf);
+        }
+        brain._commanderClue = { cells: [...cmdCands], turn: brain.turnCount };
+      }
+    }
+  }
 }
 
 // ★ 사용자 요청: AI 가 사기증진(commander 버프) 을 활용해야 함.
