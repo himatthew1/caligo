@@ -3109,6 +3109,25 @@ function findCharData(type, tier) {
   return { type: ch.type, name: ch.name, icon: ch.icon, desc: ch.desc, tag: ch.tag, atk: ch.atk, range: ch.range, skills: ch.skills || [], passives: ch.passives || [] };
 }
 
+// ── 캐릭터 정의 조회 헬퍼 (드래프트 시너지 판정용) ──
+function _charDefByType(type) {
+  for (const tier of [1, 2, 3]) {
+    const d = (CHARACTERS[tier] || []).find(c => c.type === type);
+    if (d) return d;
+  }
+  return null;
+}
+function _typeIsRoyal(type) { const d = _charDefByType(type); return !!(d && d.tag === 'royal'); }
+function _typeHasSkill(type) { const d = _charDefByType(type); return !!(d && d.skills && d.skills.length > 0); }
+// ── 자기 덱 시너지 결함 (사용자 지적) ──
+//   호위무사: 지킬 *다른* 왕실이 없으면 고립(충성 발동 대상 無).
+//   마법사: SP 펌프인데 스킬 쓸 *다른* 아군이 없으면 무의미(정규 SP 상대 이관만 유발).
+function _aiDraftSynergyBad(types) {
+  if (types.includes('bodyguard') && !types.some(t => t !== 'bodyguard' && _typeIsRoyal(t))) return true;
+  if (types.includes('wizard') && !types.some(t => t !== 'wizard' && _typeHasSkill(t))) return true;
+  return false;
+}
+
 // ── AI 교환 드래프트 카운터픽 결정 ──
 // 상대 조합 분석 → 가장 가치 높은 카운터 1티어 결정. 없으면 null (교환 안 함)
 function aiDecideExchange(myDraft, oppDraft) {
@@ -3138,9 +3157,23 @@ function aiDecideExchange(myDraft, oppDraft) {
   const addCounter = (tier, newType, basePriority) => {
     if (myAlready(newType)) return;
     if (my[tier] === newType) return;  // 안전망: 이미 같은 자리에 있는 캐릭터면 제외
+    // ★ 자기 시너지 파괴 방지 — 이 교체로 호위무사/마법사가 고립되면 스킵.
+    const post = [tier === 1 ? newType : my[1], tier === 2 ? newType : my[2], tier === 3 ? newType : my[3]];
+    if (_aiDraftSynergyBad(post)) return;
     const variety = Math.random() * 8;  // 0~8 랜덤 가산
     counters.push({ tier, newType, priority: basePriority + variety, _base: basePriority });
   };
+  // ── ★ 자기 덱 시너지 교정 (사용자 지적) — 고립된 호위무사/마법사는 최우선 교체 ──
+  const myTypes = [my[1], my[2], my[3]];
+  const myStranded = _aiDraftSynergyBad(myTypes);   // 이미 고립이면 반드시 교정(교체 패스 금지)
+  if (myTypes.includes('bodyguard') && !myTypes.some(t => t !== 'bodyguard' && _typeIsRoyal(t))) {
+    addCounter(2, 'armoredWarrior', 92);  // 지킬 왕실 없는 호위무사 → 범용 탱커
+    addCounter(2, 'general',        88);
+  }
+  if (myTypes.includes('wizard') && !myTypes.some(t => t !== 'wizard' && _typeHasSkill(t))) {
+    addCounter(2, 'armoredWarrior', 90);  // 스킬 쓸 아군 없는 마법사 → 전투형
+    addCounter(2, 'shadowAssassin', 86);
+  }
 
   // ── 왕실 다수 → 저주/악몽 콤보 ──
   if (oppRoyal >= 2) {
@@ -3227,8 +3260,9 @@ function aiDecideExchange(myDraft, oppDraft) {
   let r = Math.random() * totalWeight;
   let pick = topN[0];
   for (const c of topN) { r -= c.priority; if (r <= 0) { pick = c; break; } }
-  // 베이스 우선순위 50 미만 카운터는 35% 확률로 패스 (확실하지 않으면 안 바꿈)
-  if (pick._base < 50 && Math.random() < 0.35) return null;
+  // 베이스 우선순위 50 미만 카운터는 35% 확률로 패스 (확실하지 않으면 안 바꿈).
+  //   단 내 덱이 이미 고립(호위무사/마법사) 상태면 반드시 교정 — 패스 금지.
+  if (!myStranded && pick._base < 50 && Math.random() < 0.35) return null;
   // priority(_base) 노출 — confirm_initial_reveal 핸들러에서 YES/NO 결정에 활용.
   return { tier: pick.tier, newType: pick.newType, priority: pick._base };
 }
@@ -7039,29 +7073,40 @@ function _aiRegularSpCost(room, slot, cost) {
   const inst = (room.instantSp && room.instantSp[slot]) || 0;
   return Math.max(0, (cost || 0) - inst);
 }
-// 상대에게 SP 를 넘겨주는 위험도(0~3). 적이 스킬 보유 말을 많이 살려둘수록 큼(공개 정보만 사용).
-function _aiOppSpThreat(room, mySlot) {
+// 상대에게 정규 SP regSp 를 넘겼을 때의 위험도(0~4). 수읽기:
+//   "내가 넘긴 SP 로 상대 총 SP 가 얼마가 되고 → 어떤 스킬을 시전 가능해지는가"(사용자 명세).
+//   공개 정보만 사용(적 스킬·코스트·현재 SP 풀). 내가 *새로 풀어준* 스킬(이번 이관으로 비로소 시전
+//   가능해진 것)은 더 위험하게 가중. 고위협 스킬(용·반지·폭탄·저주·신성 등)은 추가 가중.
+function _aiOppSpThreat(room, mySlot, regSp) {
   const oppSlot = 1 - mySlot;
-  let danger = 0;
+  const before = (room.sp ? (room.sp[oppSlot] || 0) : 0) + (room.instantSp ? (room.instantSp[oppSlot] || 0) : 0);
+  const after = Math.min(10, before + (regSp || 0));
+  const HIGH = new Set(['dragon', 'ring', 'bomb', 'detonate', 'curse', 'divine', 'sulfur', 'dualStrike', 'mark']);
+  let threat = 0;
   for (let pi = 0; pi < room.players.length; pi++) {
     const pl = room.players[pi];
     if (!pl) continue;
     const plSlot = (room.mode === 'team') ? getTeamOf(room, pi) : pi;
     if (plSlot !== oppSlot) continue;
     for (const p of (pl.pieces || [])) {
-      if (p.alive && p.hasSkill) danger += 0.5;
+      if (!p.alive || !p.hasSkill) continue;
+      const c = p.skillCost || 0;
+      if (c > after) continue;                       // 결과 SP 로도 못 씀 → 이번 이관과 무관
+      let w = HIGH.has(p.skillId) ? 1.2 : 0.6;       // 스킬 위협도
+      if (c > before) w *= 1.8;                       // 내가 넘긴 SP 가 *새로* 시전 가능하게 만든 스킬
+      threat += w;
     }
   }
-  return Math.min(3, danger);
+  return Math.min(4, threat);
 }
 // 한계가치 스킬(쌍검무·전령질주·토글 등)의 시전 문턱 가산치.
-//   정규 SP 를 상대에게 넘기면서까지 쓸 가치가 있는지 — 수읽기(상대가 받은 SP 로 스킬 시전 가능).
+//   정규 SP 를 상대에게 넘기면서까지 쓸 가치가 있는지 — 수읽기(상대가 받은 SP 로 어떤 스킬을 풀 수 있나).
 //   instant SP 로 충당되면 이관이 없어 문턱 0.
 function _aiSpTransferBar(room, slot, cost) {
   const regSp = _aiRegularSpCost(room, slot, cost);
   if (regSp <= 0) return 0;
-  const oppThreat = _aiOppSpThreat(room, slot); // 0~3
-  return regSp * (3 + oppThreat * 2);           // 정규 SP 1당 +3~9 문턱
+  const oppThreat = _aiOppSpThreat(room, slot, regSp); // 0~4, 결과 SP·해금 스킬 반영
+  return regSp * (3 + oppThreat * 2);                  // 정규 SP 1당 +3~11 문턱
 }
 
 function aiScoreAttack(brain, piece, room, extra) {
@@ -7173,11 +7218,15 @@ function aiSelectPieces() {
   const t1 = CHARACTERS[1];
   const t2 = CHARACTERS[2];
   const t3 = CHARACTERS[3];
-  return {
+  const pick = () => ({
     t1: randomPick(t1.filter(c => c.type !== 'twins')).type,
     t2: randomPick(t2).type,
     t3: randomPick(t3).type,
-  };
+  });
+  // ★ 시너지 결함(고립 호위무사/마법사) 회피 — 결함이면 재추첨(최대 12회). 사용자 지적.
+  let draft = pick();
+  for (let i = 0; i < 12 && _aiDraftSynergyBad([draft.t1, draft.t2, draft.t3]); i++) draft = pick();
+  return draft;
 }
 
 function aiDistributeHp(hasTwins) {
@@ -11321,6 +11370,7 @@ module.exports = {
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
+  aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
