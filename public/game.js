@@ -4489,6 +4489,18 @@ socket.on('game_start', (data) => {
   S.lastActionType = data.lastActionType || null;
   S.sp = data.sp || [1, 1];
   S.instantSp = data.instantSp || [0, 0];
+  // ★ 후공 인스턴트 SP 지급 — 합류 연출 전까지 그 pip 을 숨김(시작 안내 직후 오브가 합류하며 등장).
+  S._pendingSpGrant = null;
+  {
+    const _isRecon = !!data.reconnected || (data.turnNumber && data.turnNumber > 1);
+    if (typeof data.secondPlayerIdx === 'number' && !_isRecon) {
+      const gs = data.secondPlayerIdx;
+      const real = (S.instantSp || []).slice();
+      S.instantSp = real.slice();
+      S.instantSp[gs] = Math.max(0, (S.instantSp[gs] || 0) - 1);   // 지급분 1 숨김
+      S._pendingSpGrant = { real, side: data.youAreSecond ? 'mine' : 'opp' };
+    }
+  }
   S.boardBounds = data.boardBounds || { min: 0, max: 4 };
   S._cellFP = null; // ★ 새 게임 — 핑거프린트 캐시 무효화
   S.boardObjects = data.boardObjects || [];
@@ -4526,6 +4538,16 @@ socket.on('game_start', (data) => {
   } else {
     addLog(`${S.isMyTurn ? '선공' : '후공'}`, 'system');
     playGameStartAnimation(S.isMyTurn);
+    // ★ 후공 인스턴트 SP 지급 연출 — 시작 안내(1800ms) 직후 안내 메시지 + 오브 합류.
+    if (S._pendingSpGrant) {
+      const g = S._pendingSpGrant; S._pendingSpGrant = null;
+      setTimeout(() => {
+        try {
+          showSecondPlayerSpAnnounce();
+          playSecondPlayerSpGrant(g.side, () => { S.instantSp = g.real; try { updateSPBar(); } catch (e) {} });
+        } catch (e) {}
+      }, 2000);
+    }
   }
 });
 
@@ -5879,6 +5901,68 @@ function spawnInstantGainOrb(targetSlot) {
     }
   }
   requestAnimationFrame(step);
+}
+
+// ── 후공 인스턴트 SP 지급 안내 메시지 ──
+function showSecondPlayerSpAnnounce() {
+  let el = document.getElementById('sp-grant-announce');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'sp-grant-announce';
+    el.className = 'sp-grant-announce';
+    el.innerHTML = `<div class="spga-k">GAME START</div><div class="spga-m">후공은 <b>인스턴트 SP</b>를 하나 지급받습니다</div><div class="spga-s">인스턴트 SP는 상대에게 이관되지 않고, 한 번 사용하면 소멸합니다.</div>`;
+    document.body.appendChild(el);
+  }
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ── 후공 인스턴트 SP 오브 합류 연출 (화면 정중앙 5회전 → 해당 SP 숫자로 직선 합류) ──
+//   pip 은 onArrive(합류 순간)에만 등장. CSS @keyframes 구동(탭 스로틀 무관). 코멧 트레일 + 도착 버스트.
+//   내 쪽 합류면 역방향 회전, 상대 쪽이면 정방향. 막판 비틀기 없이 타겟 정면에서 직선 진입.
+function playSecondPlayerSpGrant(targetSide, onArrive) {
+  const isMine = (targetSide === 'mine');
+  const numEl = document.getElementById(isMine ? 'sp-my-num' : 'sp-opp-num');
+  if (!numEl) { if (typeof onArrive === 'function') onArrive(); return; }
+  const nr = numEl.getBoundingClientRect();
+  const target = { x: nr.left + nr.width / 2, y: nr.top + nr.height / 2 };
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+  const _ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const orbitR = 90, TURNS = 5, DUR = 1750, orbitFrac = 1150 / DUR;
+  const startAng = -Math.PI / 2;
+  const dir = isMine ? -1 : 1;
+  const targetAng = Math.atan2(target.y - cy, target.x - cx);
+  let rel = (dir > 0 ? targetAng - startAng : startAng - targetAng);
+  rel = ((rel % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const sweep = dir * (TURNS * 2 * Math.PI + rel);
+  const endAng = startAng + sweep;
+  const orbit = (a) => ({ x: cx + Math.cos(a) * orbitR, y: cy + Math.sin(a) * orbitR });
+  const HS = 9, N = 84; let frames = '';
+  for (let i = 0; i <= N; i++) {
+    const t = i / N; let pos;
+    if (t <= orbitFrac) { const op = t / orbitFrac; const a = startAng + op * sweep; pos = orbit(a); }
+    else { const fp = (t - orbitFrac) / (1 - orbitFrac); const e = _ease(fp); const o = orbit(endAng); pos = { x: o.x + (target.x - o.x) * e, y: o.y + (target.y - o.y) * e }; }
+    frames += `${(t * 100).toFixed(3)}%{transform:translate(${(pos.x - HS).toFixed(1)}px,${(pos.y - HS).toFixed(1)}px)}`;
+  }
+  const name = 'spgrant' + Math.floor(performance.now());
+  const styleEl = document.createElement('style'); styleEl.textContent = `@keyframes ${name}{${frames}}`; document.head.appendChild(styleEl);
+  const made = [];
+  function mkOrb(delay, op) { const o = document.createElement('div'); o.className = 'sp-orb sp-orb-instant'; o.style.left = '0'; o.style.top = '0'; o.style.opacity = String(op); o.style.animation = `${name} ${DUR}ms linear ${delay}ms both`; document.body.appendChild(o); made.push(o); return o; }
+  mkOrb(150, 0.12); mkOrb(112, 0.2); mkOrb(74, 0.34); mkOrb(38, 0.55);
+  const main = mkOrb(0, 1);
+  const trailIv = setInterval(() => { const r = main.getBoundingClientRect(); if (!r.width) return; const d = document.createElement('div'); d.className = 'sp-dust sp-dust-instant'; d.style.left = (r.left + r.width / 2) + 'px'; d.style.top = (r.top + r.height / 2) + 'px'; document.body.appendChild(d); setTimeout(() => d.remove(), 700); }, 28);
+  let done = false;
+  function arrive() {
+    if (done) return; done = true;
+    clearInterval(trailIv);
+    try { if (typeof playSfxInstantGain === 'function') playSfxInstantGain(); } catch (e) {}
+    if (typeof onArrive === 'function') onArrive();   // 실제 instantSp 반영 → updateSPBar 가 pip 등장(sp-pip-spawn)
+    numEl.classList.remove('sp-num-tick-up'); void numEl.offsetWidth; numEl.classList.add('sp-num-tick-up');
+    for (let i = 0; i < 12; i++) { const d = document.createElement('div'); d.className = 'sp-dust sp-dust-instant'; d.style.left = (target.x + (Math.random() - 0.5) * 14) + 'px'; d.style.top = (target.y + (Math.random() - 0.5) * 14) + 'px'; document.body.appendChild(d); setTimeout(() => d.remove(), 700); }
+    made.forEach(o => o.remove()); styleEl.remove();
+  }
+  main.addEventListener('animationend', arrive, { once: true });
+  setTimeout(arrive, DUR + 180);
 }
 
 // ── 폭탄 폭발 파편 애니메이션 ──

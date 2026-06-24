@@ -3567,8 +3567,12 @@ function startGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
   const firstPlayer = Math.random() < 0.5 ? 0 : 1;
+  const secondPlayer = 1 - firstPlayer;
   room.currentPlayerIdx = firstPlayer;
   room.turnNumber = 1;
+
+  // ★ 게임 규칙: 후공(2번째)은 인스턴트 SP 1 지급 (선공 이점 보정). 인스턴트 = 상대 이관 X·소멸성.
+  room.instantSp[secondPlayer] = Math.min(10, (room.instantSp[secondPlayer] || 0) + 1);
 
   room.players[firstPlayer].actionDone = false;
   room.players[firstPlayer].actionUsedSkillReplace = false;
@@ -3583,6 +3587,8 @@ function startGameFromRoom(room) {
         currentPlayerIdx: firstPlayer,
         turnNumber: 1,
         isYourTurn: i === firstPlayer,
+        secondPlayerIdx: secondPlayer,      // 후공 인스턴트 SP 지급 연출용 (절대 슬롯)
+        youAreSecond: i === secondPlayer,   // 이 수신자가 후공인가
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,

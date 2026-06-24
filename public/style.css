@@ -4187,6 +4187,22 @@ body.team-mode img.p-gif {
   width: 100%; height: 100%;
 }
 /* 텍스트 프레임 — 화면 중앙. 처음엔 숨김(0 opacity), 마법구가 자리 잡으면 페어리 더스트와 함께 등장 */
+/* 후공 인스턴트 SP 지급 안내 배너 (게임 시작 직후) */
+.sp-grant-announce {
+  position: fixed; left: 50%; top: 16%; z-index: 9400;
+  transform: translateX(-50%) translateY(10px) scale(.96);
+  text-align: center; padding: 14px 28px; border-radius: 14px; opacity: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(40,34,72,.94), rgba(22,18,42,.96));
+  border: 1px solid rgba(255,216,107,.55);
+  box-shadow: 0 10px 40px rgba(0,0,0,.55), inset 0 0 20px rgba(255,216,107,.08);
+  transition: opacity .45s ease, transform .45s cubic-bezier(.2,.9,.3,1.2);
+}
+.sp-grant-announce.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+.sp-grant-announce .spga-k { font-size: .66rem; letter-spacing: 3px; color: #8fd5ff; margin-bottom: 5px; }
+.sp-grant-announce .spga-m { font-size: 1.04rem; font-weight: 800; color: #fff3d6; }
+.sp-grant-announce .spga-m b { color: #ffd86b; }
+.sp-grant-announce .spga-s { font-size: .72rem; color: #b9b2d8; margin-top: 5px; }
+
 .sp-grant-text {
   position: absolute;
   left: 50%; top: 50%;
