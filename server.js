@@ -3150,6 +3150,8 @@ function aiDecideExchange(myDraft, oppDraft) {
     addCounter(3, 'sulfurCauldron', 76 + boost);  // 테두리 광역 — 밀집 포메이션 직격
     addCounter(1, 'gunpowder',      70 + boost);  // 폭탄 광역
     addCounter(3, 'slaughterHero',  66 + boost);  // 3×3 광역
+    addCounter(2, 'shadowAssassin', 72 + boost);  // 은신(면역)으로 위협 사거리 통과 → 파수꾼/지휘관 직격
+    addCounter(2, 'witch',          69 + boost);   // 저주로 중추 유닛(지휘관 등) 불구화 — 상황따라
     addCounter(1, 'scout',          62 + boost);  // 정찰 — 지휘관 위치 확보 후 집중 타격
   }
   // ── 일반적 강력 픽 (베이스라인 다양성) ──
