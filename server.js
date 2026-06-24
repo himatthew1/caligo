@@ -7865,13 +7865,16 @@ function aiTakeTurn(room) {
     );
 
     if (shouldCounterAttack) {
+      try { aiLogAction(room, 1, { decide: 'counter', pi: flee.pieceIdx, score: Math.round(counterAttackScore * 10) / 10, sureHit, canHitProbTarget }); } catch (e) {}
       aiExecuteAttack(room, { piece, pieceIdx: flee.pieceIdx, score: counterAttackScore, extra: counterExtra });
       return;
     }
     if (bestMove) {
+      try { aiLogAction(room, 1, { decide: 'flee', pi: flee.pieceIdx, to: [bestMove.col, bestMove.row], sureHit, canHitProbTarget }); } catch (e) {}
       aiExecuteMove(room, { piece, pieceIdx: flee.pieceIdx, col: bestMove.col, row: bestMove.row });
       return;
     }
+    try { aiLogAction(room, 1, { decide: 'flee_stuck', pi: flee.pieceIdx, sureHit, canHitProbTarget }); } catch (e) {}
   }
 
   // ★ STEP 3: 행동 대체 스킬 사용 (manhunter 덫, witch 저주, sulfurCauldron 유황범람)
@@ -8002,6 +8005,21 @@ function aiTakeTurn(room) {
       }
     }
   }
+
+  // 분석용 — AI 결정 박제(왜 무행동/이동/공격인지). 사거리내 최고 공격점수(topAtk)도 같이 기록.
+  try {
+    let topAtk = -1;
+    for (const p of alivePieces) {
+      const s = aiScoreAttack(brain, p, room, p.toggleState ? { toggleState: p.toggleState } : {});
+      if (s > topAtk) topAtk = s;
+    }
+    aiLogAction(room, 1, {
+      decide: bestAction ? bestAction.type : 'end',
+      pi: bestAction ? bestAction.pieceIdx : null,
+      score: bestAction ? Math.round(bestAction.score * 10) / 10 : null,
+      topAtk: Math.round(topAtk * 10) / 10,
+    });
+  } catch (e) {}
 
   if (!bestAction) {
     aiPlayer.actionDone = true;
