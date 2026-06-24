@@ -3139,6 +3139,19 @@ function aiDecideExchange(myDraft, oppDraft) {
   if (oppHeal >= 1) {
     addCounter(3, 'slaughterHero', 55);
   }
+  // ── ★ 지휘관(사기증진 펌프) 감지 → 클러스터 견제 (사용자 메타: 지휘관+광역+호위무사 = 철통보안) ──
+  //   지휘관은 인접 아군 공격 +1 펌프. 파수꾼/학살 같은 광역이 붙으면 준딜러급 = 최고 위협.
+  //   대응: 반지(지휘관을 광역유닛에서 떼어내 펌프 해제) · 광역(밀집 포메이션 직격) · 정찰(지휘관 위치 확보).
+  const oppHasCommander = opp.includes('commander');
+  const oppHasWideAtk = opp.some(t => ['watchman','slaughterHero'].includes(t));
+  if (oppHasCommander) {
+    const boost = (oppHasWideAtk ? 14 : 0) + (oppHasTank ? 8 : 0);  // 광역·탱커 겹치면 위협 ↑ = 견제 우선 ↑
+    addCounter(3, 'king',           80 + boost);  // 절대복종반지 → 지휘관 강제이동으로 펌프 인접 해제
+    addCounter(3, 'sulfurCauldron', 76 + boost);  // 테두리 광역 — 밀집 포메이션 직격
+    addCounter(1, 'gunpowder',      70 + boost);  // 폭탄 광역
+    addCounter(3, 'slaughterHero',  66 + boost);  // 3×3 광역
+    addCounter(1, 'scout',          62 + boost);  // 정찰 — 지휘관 위치 확보 후 집중 타격
+  }
   // ── 일반적 강력 픽 (베이스라인 다양성) ──
   addCounter(3, 'king',           35);  // 안정적 3티어
   addCounter(2, 'armoredWarrior', 30);
@@ -11108,7 +11121,7 @@ module.exports = {
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
-  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction,
+  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
