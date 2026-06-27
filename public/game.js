@@ -13391,12 +13391,14 @@ function _cellStateFP(col, row, pre) {
     }
   }
 
-  // ── 유해 ──
-  {
-    const _rm = S.remains && S.remains.find(r => r.col === col && r.row === row);
-    if (_rm) {
-      // stage(=hits)·type 포함 — 단계 변화 / 같은 칸 유해 교체(type 변경) 시에도 재렌더 보장(렌더 밀림 방지)
-      f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '') + 's' + (_rm.hits || 0) + 't' + (_rm.type || '');
+  // ── 유해 (한 칸 다중 유해 = #1 캐러셀 지원) ──
+  //   stage(=hits)·type 포함 — 단계 변화 / 같은 칸 유해 교체·증감 시에도 재렌더 보장(렌더 밀림 방지).
+  //   한 칸의 *모든* 유해를 FP 에 반영 → 1↔2개 전이(캐러셀 형성/해제)도 재렌더 트리거.
+  if (S.remains) {
+    for (const _rm of S.remains) {
+      if (_rm.col === col && _rm.row === row) {
+        f += '|R' + (S._remainsFacing && S._remainsFacing[k] ? 'F' : '') + 's' + (_rm.hits || 0) + 't' + (_rm.type || '');
+      }
     }
   }
 
@@ -13710,10 +13712,13 @@ function renderGameBoard() {
         _oppHere[0].subUnit !== _oppHere[1].subUnit;
       if (_oppTwinMerge) arr.push({ p: _oppHere[0], owner: 'opp', joined: true, twinOther: _oppHere[1] });
       else for (const op of _oppHere) arr.push({ p: op, owner: 'opp' });
-      // ★ #6 유해 위에 내/팀원/표식적 유닛이 있으면 캐러셀에 유해 슬롯 추가 — 가려진 유해를 순환해 볼 수 있게.
-      if (arr.length >= 1) {
-        const _remHere = (S.remains || []).find(r => r.col === col && r.row === row);
-        if (_remHere) arr.push({ p: _remHere, owner: 'remains' });
+      // ★ #6/#1 유해 슬롯 — 한 칸의 *모든* 유해를 각각 캐러셀 슬롯으로.
+      //   (유닛이 위에 있어 가려지거나, 유해가 2개+ 쌓인 경우 모두 순환해 볼 수 있게.
+      //    서버는 한 칸에 유해를 여러 개 쌓는데(remains.push) 이전엔 .find 로 1개만 그려
+      //    "하나 부수면 다른 게 재출현"처럼 보였음. filter 로 전부 슬롯화. 유해 1개뿐이면
+      //    아래 length<2 라 캐러셀 미발동 → 단일 유해 렌더 경로가 처리.)
+      for (const _rm of (S.remains || [])) {
+        if (_rm.col === col && _rm.row === row) arr.push({ p: _rm, owner: 'remains' });
       }
       return arr;
     })();
