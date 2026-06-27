@@ -13507,6 +13507,7 @@ function renderGameBoard() {
   //   소환 모션 동안 억제(_curseSummoning). 이렇게 해야 첫 렌더부터 idle 없이 소환만 재생되고,
   //   소환 종료 후에 idle 이 등장한다. (감지 결과는 flush 에서 모션 재생.)
   try { _curseTransitionPreScan(); } catch (e) {}
+  try { _markTransitionPreScan(); } catch (e) {}   // ★ #14 표식 제거 감지(렌더 시작)
   const bounds = S.boardBounds;
 
   // ★ iPad 최적화: boardBounds 변경 감지 → 핑거프린트 캐시 자동 무효화
@@ -14363,6 +14364,7 @@ function renderGameBoard() {
   //   감지(신규/소멸)는 렌더 *시작* 의 _curseTransitionPreScan 에서 끝났고, 여기선 셀이 렌더된 뒤
   //   소환/해제 모션을 재생(소환은 idle 억제 후 재생 → 모션 종료 후 idle 등장).
   try { _curseTransitionFlush(); } catch (e) {}
+  try { _markTransitionFlush(); } catch (e) {}   // ★ #14 표식 제거 시 파괴 GIF 재생(렌더 끝)
 
   // ── 공격 GIF 재생 중인 셀 — 재렌더 후에도 idle img 숨김 유지 ──
   if (typeof _attackPlayingCells !== 'undefined' && _attackPlayingCells.size > 0) {
@@ -15030,6 +15032,44 @@ function _curseTransitionFlush(){
     else _play();
   }
 }
+// ── 표식 상태 전이 — 저주와 평행. 표식 *제거* 시 animateMarkRelease(파괴 GIF) 자동 재생(#14). ──
+//   표식 부여는 animateMarkBrand(서버 passive_alert)가 처리하므로 여기선 release 만 감지.
+//   PreScan(렌더 시작): 직전 대비 표식이 빠진 말 수집. Flush(렌더 끝): release GIF 재생(임팩트/사망 후 보류).
+//   ※ animateMarkRelease 함수는 이미 mark-anim.js 에 구현돼 있었으나 호출되는 곳이 없어 표식이 "뿅" 사라졌음.
+function _markTransitionPreScan(){
+  if (!(S._markedSeen instanceof Map)) S._markedSeen = new Map();
+  const nowMarked = new Map();
+  // ★ alive !== false — 죽은 말은 표식집합에서 빠짐 → 사망 임팩트 타이밍에 release(저주와 동일).
+  const collect = (pc, key, owner) => {
+    if (_isMarked(pc) && pc && pc.alive !== false && pc.col != null && pc.col >= 0)
+      nowMarked.set(key, { col: pc.col, row: pc.row, name: pc.name, owner });
+  };
+  (S.myPieces || []).forEach((pc, i) => collect(pc, `${S.playerIdx}:${i}`, S.playerIdx));
+  if (S.isTeamMode) {
+    (S.teamGamePlayers || []).forEach(pl => {
+      if (pl.idx === S.playerIdx) return;
+      (pl.pieces || []).forEach((pc, i) => collect(pc, `${pl.idx}:${i}`, pl.idx));
+    });
+  } else {
+    (S.oppPieces || []).forEach((pc, i) => { if (pc && pc.marked) collect(pc, `opp:${i}`, 1 - S.playerIdx); });
+  }
+  const release = [];
+  for (const [k, info] of S._markedSeen) { if (!nowMarked.has(k)) release.push(info); }
+  S._pendingMarkRelease = release;
+  S._markedSeen = nowMarked;
+}
+function _markTransitionFlush(){
+  const release = S._pendingMarkRelease || [];
+  S._pendingMarkRelease = null;
+  for (const info of release) {
+    // 부여 모션(animateMarkBrand) 진행 중인 셀은 release 억제(부여 직후 깜빡 오판 방지).
+    if (window._markSummoningActive && window._markSummoningActive(info.col, info.row)) continue;
+    const wait = (typeof _curseRemovalWaitMs === 'function') ? _curseRemovalWaitMs(`${info.owner}:${info.name}`) : 0;
+    const _play = () => { try { if (typeof window.animateMarkRelease === 'function') window.animateMarkRelease([{ col: info.col, row: info.row }]); } catch (e) {} };
+    if (wait > 0) setTimeout(_play, wait + 40); else _play();
+  }
+}
+
 // ── 1v1 관전자용 저주 전이 — 플레이어와 동일 구조(PreScan: 렌더 시작 / Flush: 렌더 끝) ──
 //   p0/p1 모두 공개되므로 양측 추적. 소환 동안 idle 억제 → 모션 후 등장. 해제는 데미지 임팩트 후 보류.
 function _specCurseSummoningActive(col, row){
