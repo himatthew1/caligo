@@ -6538,6 +6538,9 @@ body.team-mode .placement-opp-panel {
 .status-badge.poison  { color: #86efac; background: rgba(134,239,172,0.15); }
 .status-badge.stun    { color: var(--accent); background: rgba(226,168,75,0.15); }
 .status-badge.morale  { color: #22c55e; background: rgba(34,197,94,0.15); }
+/* #9 상태배지 이모지(마커)/라벨 분리 — 데스크탑은 둘 다, 모바일은 이모지만 */
+.status-badge .sb-ic { font-style: normal; }
+.status-badge .sb-label { margin-left: 3px; }
 
 /* 상대 말 정보 */
 .opp-piece-card {
@@ -7451,7 +7454,10 @@ body[data-my-team="red"] #chat-scope-team.active {
   .my-piece-card .tag-badge, .opp-piece-card .tag-badge { width: 16px; height: 16px; margin-left: 3px; }
   .my-piece-card .hp-bar-bg, .opp-piece-card .hp-bar-bg { height: 11px; }
   .my-piece-card .hp-bar-text, .opp-piece-card .hp-bar-text { font-size: 0.56rem; }
-  .my-piece-card .status-badge, .opp-piece-card .status-badge { font-size: 0.52rem; padding: 0 3px; }
+  /* ★ #9 모바일 — 라벨 숨기고 이모지 마커만 표시(좁은 카드에서도 가로 우선 유지, 부족시 둘째 줄) */
+  .my-piece-card .status-badge .sb-label, .opp-piece-card .status-badge .sb-label { display: none; }
+  .my-piece-card .status-badge, .opp-piece-card .status-badge { font-size: 0.72rem; padding: 0 2px; line-height: 1.25; }
+  .my-piece-card .status-badges, .opp-piece-card .status-badges { gap: 2px; }
   /* 좁은 세로에선 ATK/좌표 행·스킬패시브 미니헤더·호버 툴팁 생략(보드/딕셔너리로 확인) */
   .game-layout .piece-stat-row,
   .game-layout .piece-mini-headers,
