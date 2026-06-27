@@ -15139,8 +15139,13 @@ function _clearOtherStampTypes(key, exceptType, alsoKeep) {
 //   값은 boolean (true 만 있으면 stamp 출력).
 function addProtectedHit(key) {
   if (!S.protectedHitsThisTurn) S.protectedHitsThisTurn = {};
+  // ★ #2 멱등 — 같은 hit 이 여러 경로(being_attacked per-hit 루프 + protectedIndices 후처리)에서
+  //   addProtectedHit 을 2번 호출 → showBoardDamageStamp 가 2번 찍혀 "도장 2회"(갑주무사 데미지0 등).
+  //   이번 턴 이미 보호 도장이 찍힌 key 면 보드 도장 재출력만 생략(상태 플래그는 그대로 유지).
+  const _already = !!S.protectedHitsThisTurn[key];
   _clearOtherStampTypes(key, 'protected');
   S.protectedHitsThisTurn[key] = true;
+  if (_already) return;
   // 보드 도장(파랑 '0') — 0데미지 피격도 항상 보드에 표시 (보이는 말일 때만)
   try { const c = _keyToPieceCell(key); if (c) showBoardDamageStamp(c.col, c.row, 'protected', 0); } catch (e) {}
 }
