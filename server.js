@@ -7572,7 +7572,8 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
   const nextShrink = schedule.find(ev => room.boardShrinkStage < (ev.stage || 0) && room.turnNumber < ev.shrinkTurn);
   if (nextShrink) {
     const turnsLeft = nextShrink.shrinkTurn - room.turnNumber;
-    if (turnsLeft <= 5) {
+    // ★ 사용자 정정: 축소 도움 콤보는 *3턴 이하*일 때만. 4턴+ 면 적이 이동으로 쉽게 빠져나옴.
+    if (turnsLeft <= 3) {
       const baseSize = room.mode === 'team' ? 7 : 5;
       const nextLevel = Math.max(1, (room.boardShrinkLevel || (room.mode === 'team' ? 4 : 3)) - 1);
       const newBounds = nextShrink.newBounds || _levelToBounds(nextLevel, baseSize);
@@ -7607,10 +7608,13 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
         let score = 0;
         const reasons = [];
 
-        // [1] 보드 축소 도착지 — 곧 파괴될 외곽으로 끌어내 확정 처치
+        // [1] 보드 축소 도착지 — 곧 파괴될 외곽으로 끌어내 확정 처치.
+        //   ★ 모서리(corner): 인접 안쪽 칸도 doomed(두 변의 교차)라 탈출에 2이동 필요 → 훨씬 강력.
+        //     중간 외곽칸: 1이동에 안쪽 안전지대로 탈출 → 약함(축소 임박 1턴 아니면 의미 적음).
         if (shrinkDoomCells && shrinkDoomCells.has(cellKey)) {
-          score += 80 + tgtVal * 2;
-          reasons.push('shrink');
+          const isCorner = (c === bounds.min || c === bounds.max) && (r === bounds.min || r === bounds.max);
+          score += (isCorner ? 95 : 28) + tgtVal * 2;
+          reasons.push(isCorner ? 'shrink-corner' : 'shrink-edge');
         }
 
         // [2] AI 공격범위로 끌어와 즉사/다대미지 — 이동 목적지는 AI 가 정하므로
