@@ -2067,12 +2067,9 @@ function aiTeamTakeTurn(room, idx) {
       const markedDists = aiKnownEnemies(room, idx).filter(e => e.marked)
         .map(e => Math.abs(e.col - piece.col) + Math.abs(e.row - piece.row));
       const nearestMarked = markedDists.length ? Math.min(...markedDists) : 99;
-      let probAround = 0;
-      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
-        probAround += brain.probMap[piece.row + dr]?.[piece.col + dc] || 0;
-      }
       const hasTrap = (room.boardObjects[idx] || []).some(o => o.type === 'trap' && o.col === piece.col && o.row === piece.row);
-      if (!hasTrap && (nearestMarked <= 2 || probAround >= 14)) {
+      // ★ 확률 합이 아니라 집중된 추론일 때만 (1v1 과 동일 — 사용자 지적).
+      if (!hasTrap && (nearestMarked <= 2 || _aiConcentratedDeduction(brain, _cells3x3(piece.col, piece.row)))) {
         aiTeamExecSkill(room, idx, pi, 'trap');
         scheduleAITurnEnd(room, idx, 3000);
         return;
@@ -2125,10 +2122,9 @@ function aiTeamTakeTurn(room, idx) {
       const brain = getTeamBrain(room, getTeamOf(room, idx));
       const markedBorder = aiKnownEnemies(room, idx).filter(e => e.marked &&
         (e.col === bounds.min || e.col === bounds.max || e.row === bounds.min || e.row === bounds.max)).length;
-      let borderScore = 0;
       const borderCells = (typeof getBorderCells === 'function') ? getBorderCells(bounds) : [];
-      for (const c of borderCells) borderScore += brain.probMap[c.row]?.[c.col] || 0;
-      if (markedBorder >= 2 || (markedBorder >= 1 && borderScore >= 10) || borderScore >= 16) {
+      // ★ 외곽 확률 합이 아니라 집중된 추론일 때만 (1v1 과 동일 — 사용자 지적).
+      if (markedBorder >= 1 || _aiConcentratedDeduction(brain, borderCells)) {
         aiTeamExecSkill(room, idx, pi, 'sulfurRiver');
         scheduleAITurnEnd(room, idx, 3000);
         return;
