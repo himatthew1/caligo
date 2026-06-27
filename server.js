@@ -3225,9 +3225,12 @@ function aiDecideExchange(myDraft, oppDraft) {
     addCounter(2, 'shadowAssassin', 55);
     addCounter(1, 'messenger',    48);
   }
-  // ── 적 회복 다수 → 학살영웅/유황 ──
+  // ── 적 회복(힐탱) → 3×3 광역으로 힐러 동시 버스트(힐 능가) + 저주(정화 봉인·아이언스킨 우회) ──
+  //   실대국 데이터: [갑주+약초+수도승] 0승8패 — 단일딜은 힐+아이언스킨에 막힘. 광역 버스트/저주가 해법.
   if (oppHeal >= 1) {
-    addCounter(3, 'slaughterHero', 55);
+    addCounter(3, 'slaughterHero', 72);  // 3×3 — 뭉친 힐러 동시 타격으로 힐 능가
+    addCounter(2, 'witch',         70);  // 저주 — 수도승 정화 봉인(100) / 갑주 아이언스킨 우회 불구화
+    addCounter(2, 'shadowAssassin', 60); // 은신으로 후방 힐러 직격
   }
   // ── ★ 지휘관(사기증진 펌프) 감지 → 클러스터 견제 (사용자 메타: 지휘관+광역+호위무사 = 철통보안) ──
   //   지휘관은 인접 아군 공격 +1 펌프. 파수꾼/학살 같은 광역이 붙으면 준딜러급 = 최고 위협.
@@ -3236,13 +3239,16 @@ function aiDecideExchange(myDraft, oppDraft) {
   const oppHasWideAtk = opp.some(t => ['watchman','slaughterHero'].includes(t));
   if (oppHasCommander) {
     const boost = (oppHasWideAtk ? 14 : 0) + (oppHasTank ? 8 : 0);  // 광역·탱커 겹치면 위협 ↑ = 견제 우선 ↑
-    addCounter(3, 'king',           80 + boost);  // 절대복종반지 → 지휘관 강제이동으로 펌프 인접 해제
-    addCounter(3, 'sulfurCauldron', 76 + boost);  // 테두리 광역 — 밀집 포메이션 직격
-    addCounter(1, 'gunpowder',      70 + boost);  // 폭탄 광역
-    addCounter(3, 'slaughterHero',  66 + boost);  // 3×3 광역
-    addCounter(2, 'shadowAssassin', 72 + boost);  // 은신(면역)으로 위협 사거리 통과 → 파수꾼/지휘관 직격
-    addCounter(2, 'witch',          69 + boost);   // 저주로 중추 유닛(지휘관 등) 불구화 — 상황따라
-    addCounter(1, 'scout',          62 + boost);  // 정찰 — 지휘관 위치 확보 후 집중 타격
+    // ★ 실대국 데이터(철통보안전 승리 4판): 학살영웅(3×3 중앙 광역)·그림자암살자 = 승리,
+    //   유황(테두리 광역)·반지·폭탄 단독 = 패배 다수. 철통보안은 중앙에 뭉쳐 테두리 광역은 빗나가고
+    //   3×3 중앙 광역이 클러스터를 직격(호위무사 충성도 다중피격은 다 못 막음). 우선순위 재정렬.
+    addCounter(3, 'slaughterHero',  84 + boost);  // 3×3 중앙 광역 — 클러스터 직격 (데이터상 최고 승률)
+    addCounter(2, 'shadowAssassin', 80 + boost);  // 은신(면역)으로 위협 사거리 통과 → 직격 (데이터상 승)
+    addCounter(3, 'king',           70 + boost);  // 반지 → 지휘관 강제이동(펌프 해제). 단 블라인드 위치 의존
+    addCounter(2, 'witch',          68 + boost);  // 저주 — 위치 몰라도 정체로 watchman/탱크 불구화
+    addCounter(1, 'gunpowder',      62 + boost);  // 폭탄 — 클러스터 직격 가능하나 위치 의존
+    addCounter(3, 'sulfurCauldron', 60 + boost);  // 테두리 광역 — 중앙 클러스터엔 빗나감(데이터상 약)
+    addCounter(1, 'scout',          62 + boost);  // 정찰 — 클러스터 위치 확보 후 광역 직격
   }
   // ── 일반적 강력 픽 (베이스라인 다양성) ──
   addCounter(3, 'king',           35);  // 안정적 3티어
