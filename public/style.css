@@ -6957,6 +6957,9 @@ body.team-mode .placement-opp-panel {
   img.p-gif { width: 30px; height: 30px; }
   /* 유해·사망 모션은 유닛 대비 ~1.95배(데스크탑 74/38) 유지 — 모바일에서 유난히 작아 보이던 것 보정 (46→58) */
   .remains-marker, .death-anim-overlay .death-gif, .cc-main .cc-remains { width: 58px; height: 58px; }
+  /* ★ #6 드래곤/유황솥 사망 GIF — 일반 사망(74→58)과 같은 비율로 모바일 축소(40→31). 누락 시 작은 모바일 셀 대비 과대. */
+  .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
+  .death-anim-overlay .death-gif[data-death-type="dragon"] { width: 31px; height: 31px; }
   .reveal-layout { flex-direction: column; }
   .reveal-vs { align-self: center; }
 }
@@ -7356,6 +7359,9 @@ body[data-my-team="red"] #chat-scope-team.active {
   img.p-gif { width: 26px; height: 26px; }
   /* 유해·사망 모션 유닛 대비 ~1.95배 유지 (40→51) — 모바일 축소 보정 */
   .remains-marker, .death-anim-overlay .death-gif, .cc-main .cc-remains { width: 51px; height: 51px; }
+  /* ★ #6 드래곤/유황솥 사망 GIF — 일반 사망(74→51)과 같은 비율로 모바일 축소(40→28). */
+  .death-anim-overlay .death-gif[data-death-type="sulfurCauldron"],
+  .death-anim-overlay .death-gif[data-death-type="dragon"] { width: 28px; height: 28px; }
   body.team-mode .cell {
     width: auto !important; height: auto !important;
     aspect-ratio: 1; font-size: 0.55rem;
