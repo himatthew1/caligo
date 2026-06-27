@@ -21679,7 +21679,10 @@ document.addEventListener('click', function _bgmFirstClick() {
     const ov = document.createElement('div');
     ov.id = 'tap-to-start-overlay';
     ov.innerHTML =
-      '<div class="tts-logo">CALIGO</div>' +
+      '<div class="tts-logo-wrap">' +
+        '<img class="tts-logo-gif" src="/art/title_text.gif" alt="CALIGO" draggable="false">' +
+        '<img class="tts-deco-gif" src="/art/title_deco.gif" alt="" draggable="false">' +
+      '</div>' +
       '<div class="tts-prompt">탭하여 시작</div>';
     const start = () => {
       ov.removeEventListener('click', start);
