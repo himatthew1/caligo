@@ -13318,6 +13318,10 @@ function _cellStateFP(col, row, pre) {
   const pdc = S._pendingDeathCells ? (S._pendingDeathCells.has(k) ? 1 : 0) : 0;
   const alv = (p) => p.alive || (pdc && p.col === col && p.row === row);
   let f = '';
+  // ★ #7 — 사망 대기(pdc) 상태를 FP 에 포함. 누락 시: 유해가 이미 S.remains 에 있는 상태로 대기에 들어가면
+  //   FP 에 |R 이 캐시되는데 렌더는 대기 중이라 유해를 억제 → 대기 해제 후 FP 가 그대로(|R)라 재렌더가
+  //   skip 되어 유해가 다음 행동(턴종료 등)까지 안 보임. pdc 를 FP 에 넣어 대기↔해제 전이가 재렌더되게.
+  if (pdc) f += '|PD';
 
   // #12/#13: 사전 구축된 posMap 으로 이 셀의 말 목록 조회 (.find 의 col/row 필터 불필요).
   const _pmEntry = pre.posMap ? pre.posMap.get(k) : null;
