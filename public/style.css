@@ -3552,6 +3552,13 @@ body.team-mode img.p-gif {
   60%  { opacity: 0.85; transform: translateY(-6px) scale(1); }
   100% { opacity: 0; transform: translateY(-12px) scale(0.85); }
 }
+/* ★ #12 모바일/터치 — mix-blend-mode:screen 이 일부 모바일 GPU 에서 라바 ::before 를 통째로
+   렌더하지 못해 유황범람 애니가 증발하던 문제. 터치 디바이스에선 normal 블렌드로 폴백하고
+   가시성 확보를 위해 불투명도를 약간 키운다(데스크탑은 screen 유지 — 룩 변화 없음). */
+@media (hover: none) and (pointer: coarse) {
+  .cell.lava-bubbling::before { mix-blend-mode: normal; opacity: 0.9; }
+  .cell.lava-bubbling::after  { mix-blend-mode: normal; }
+}
 
 /* ── 쥐 소환 셀 — 보라 highlight + 3s 서서히 페이드 (사용자 요청) ── */
 .cell.rat-spawn-mark {
