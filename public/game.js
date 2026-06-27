@@ -21599,25 +21599,53 @@ function bgmGetCtx() {
   return BGM.ctx;
 }
 
-// 첫 사용자 인터랙션 시 현재 화면에 맞는 BGM 자동 재생.
-//   재접속 시 페이지 리로드 → 게임 진행 중인 화면(screen-game / 세팅 페이즈)에서도 BGM 이 자동 시작되도록 분기 추가.
+// 현재 활성 화면에 맞는 BGM 시작 (이미 재생 중/뮤트면 무시).
+function _bgmStartForActiveScreen() {
+  if (BGM.currentTrack || bgmMuted) return;
+  const active = document.querySelector('.screen.active');
+  if (!active) return;
+  const id = active.id;
+  const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
+  if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
+  else if (setupScreens.includes(id)) bgmPlay('setup');
+  else if (id === 'screen-game') bgmPlay('game');
+  else if (id === 'screen-tutorial-interactive') bgmPlay('tutorial');
+  // screen-gameover 트랙은 game_over 핸들러가 별도 호출 — 여기선 무시
+}
+
+// 첫 사용자 인터랙션 시 현재 화면에 맞는 BGM 자동 재생 (탭-투-스타트 외 다른 클릭 경로 안전망).
+//   재접속 시 페이지 리로드 → 게임 진행 중인 화면에서도 BGM 이 자동 시작되도록.
 document.addEventListener('click', function _bgmFirstClick() {
   document.removeEventListener('click', _bgmFirstClick);
-  if (!BGM.currentTrack && !bgmMuted) {
-    const active = document.querySelector('.screen.active');
-    if (active) {
-      const id = active.id;
-      const setupScreens = ['screen-initial-reveal','screen-exchange','screen-final-reveal','screen-hp','screen-placement','screen-draft','screen-reveal'];
-      if (id === 'screen-lobby' || (id === 'screen-draft' && S.deckBuilderMode)) bgmPlay('lobby');
-      else if (setupScreens.includes(id)) bgmPlay('setup');
-      else if (id === 'screen-game') bgmPlay('game');
-      else if (id === 'screen-tutorial-interactive') bgmPlay('tutorial');
-      else if (id === 'screen-gameover') {
-        // 게임오버 트랙은 game_over 핸들러가 별도 호출 — 여기선 무시
-      }
-    }
-  }
+  _bgmStartForActiveScreen();
 }, { once: true });
+
+// ── #4 Tap-to-start 게이트 ──────────────────────────────────────────────
+//   브라우저 자동재생 정책상 오디오는 사용자 제스처가 있어야 unlock 됨. 최초 로드시 "탭하여 시작"
+//   오버레이를 띄워 탭을 유도 → 탭하면 AudioContext resume + 현재 화면 BGM 시작 후 사라짐.
+(function _setupTapToStart() {
+  const _build = () => {
+    if (document.getElementById('tap-to-start-overlay')) return;
+    const ov = document.createElement('div');
+    ov.id = 'tap-to-start-overlay';
+    ov.innerHTML =
+      '<div class="tts-logo">CALIGO</div>' +
+      '<div class="tts-prompt">탭하여 시작</div>';
+    const start = () => {
+      ov.removeEventListener('click', start);
+      ov.removeEventListener('touchstart', start);
+      try { bgmGetCtx(); } catch (e) {}        // 오디오 컨텍스트 생성/resume (unlock)
+      try { _bgmStartForActiveScreen(); } catch (e) {}
+      ov.classList.add('tts-fade');
+      setTimeout(() => { if (ov.parentNode) ov.remove(); }, 450);
+    };
+    ov.addEventListener('click', start, { once: true });
+    ov.addEventListener('touchstart', start, { once: true, passive: true });
+    (document.body || document.documentElement).appendChild(ov);
+  };
+  if (document.body) _build();
+  else document.addEventListener('DOMContentLoaded', _build, { once: true });
+})();
 
 function bgmStop() {
   for (const t of BGM.timers) clearTimeout(t);
