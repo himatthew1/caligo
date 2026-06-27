@@ -1595,7 +1595,20 @@ function escapeHtmlGlobal(str) {
 
 // ★ FIX: 재접속(새로고침) 시 캐릭터 DB 복원 — 서버 reconnect_game 이 phase 이벤트보다 먼저 전송.
 //   이게 없으면 S.characters=null → findLocalChar 가 전부 '?' → 초기공개 등 세팅 화면이 깨짐.
-socket.on('characters_data', (characters) => { if (characters) S.characters = characters; });
+socket.on('characters_data', (characters) => {
+  if (!characters) return;
+  const _wasNull = !S.characters;
+  S.characters = characters;
+  // ★ #3 최초접속 — 캐릭터 데이터가 덱리스트 렌더보다 늦게 도착하면 아이콘이 '?'/빈칸으로 굳음.
+  //   도착 시 현재 보이는 덱리스트/로비 덱버튼을 재렌더해 즉시 채운다.
+  if (_wasNull) {
+    try {
+      const _dl = document.getElementById('deck-list');
+      if (_dl && !_dl.classList.contains('hidden') && typeof renderDeckList === 'function') renderDeckList();
+      if (typeof updateLobbyDeckButton === 'function') updateLobbyDeckButton();
+    } catch (e) {}
+  }
+});
 
 socket.on('joined', ({ idx, roomId, characters, sessionToken, reconnected }) => {
   S.playerIdx = idx;
