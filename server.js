@@ -4111,9 +4111,11 @@ function flushPhase(room, onComplete) {
   //   트리거 액션 (공격·스킬) 의 hit 애니 + addBodyDamage 도장 표시 + profile-hit 흔들림이
   //   완전히 화면에 노출되려면 약 2초 필요 (도장 stamp 가 1.8s 동안 fade-in/visible).
   // ★ 사망 기폭은 항상 "유해 생성 이후"에 시작 — 트리거 스킬의 사망 애니가 길면 그만큼 지연(겹침 방지).
-  //   기본 2000ms(공격/도장 텀). 악몽/유황 등은 사망 애니 시작이 늦어(클라 game.js _lavaDeathDelay) 유해가
-  //   더 늦게 생기므로 phase.detonationDelay 로 더 길게 설정(executeSkill 에서 지정).
-  const RECOGNITION_DELAY = (phase && phase.detonationDelay) || 2000;
+  //   #11: 일반 공격 사망 시 클라 유해 생성 ≈ 임팩트(500)+scheduleDeathGif(400)+사망GIF(~900~1200)+여유(100)
+  //        ≈ 1900~2200ms. 기존 기본 2000ms 는 마진이 ~100ms 뿐이라 사망GIF 가 조금만 길어도(화약상 등)
+  //        유해 생성과 사망기폭이 겹쳐 유해가 밀렸음 → 기본값을 2600 으로 상향(스킬 경로 2600 과 통일).
+  //   악몽/유황 등 사망 애니가 더 늦은 경로는 phase.detonationDelay 로 추가 상향(executeSkill 에서 지정).
+  const RECOGNITION_DELAY = (phase && phase.detonationDelay) || 2600;
   const CAST_DURATION = 780;       // "사망 기폭" 말풍선 + spotlight
   const BOMB_DURATION = 1930;      // detonation_intro + bomb_detonated
   const POST_SETTLE = 500;         // wave 간 마진
