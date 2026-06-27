@@ -1747,10 +1747,11 @@ function aiTeamUsePreSkills(room, idx) {
         aiTeamExecSkill(room, idx, pi, 'reform'); return true;
       }
     }
-    // sprint — 위급(HP≤1) + 도망 필요시에만. 1v1 AI 와 동일한 정책.
+    // sprint — 2칸 도주가 실제 필요할 때만(위급 HP≤1 + 위험칸). 1v1 과 동일 정책(추가이동 낭비 방지).
     if (piece.skillId === 'sprint') {
-      const critical = piece.hp <= 1;
-      if (critical) { aiTeamExecSkill(room, idx, pi, 'sprint'); return true; }
+      const tb = getTeamBrain(room, getTeamOf(room, idx));
+      const danger = tb && tb._dangerMap ? (tb._dangerMap[piece.row]?.[piece.col] || 0) : 1;
+      if (piece.hp <= 1 && danger >= 1) { aiTeamExecSkill(room, idx, pi, 'sprint'); return true; }
     }
     // herb — 인접 아군 부상 시
     if (piece.skillId === 'herb') {
@@ -7725,19 +7726,14 @@ function aiUsePreSkills(room) {
       //     (2) 적과 멀리 떨어져 있는데 attack score 가 0 이라 "다가가기" 위해 추가 이동이 필요한 경우 — 정찰/접근용
       //   그 외엔 보류.
       case 'messenger': {
+        // ★ 질주 = "이번 턴 이동 2회". 2칸 도주가 *실제로 필요할 때만* 시전(사용자 보고: 추가 이동을
+        //   안 쓸거면서 질주 남발). 위급(HP≤1) + 최근 피격 + 현재 칸이 위험(머물면 또 맞음) → 멀리
+        //   도망쳐야 하므로 2이동을 확실히 사용. 그 외(단순 재배치 등)는 1이동으로 충분 → 질주 안 함.
         const mem = brain.hitMemory[piece.type];
         const recentlyHit = mem && brain.turnCount - mem.turn <= 1;
-        // (1) 위급 도주
         const critical = piece.hp <= 1;
-        // (2) 공격 가치 없을 때 — 현재 위치 공격범위 내 적 점수가 0 이고 적 가까이 갈 필요가 있는 경우
-        const curAtkCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds);
-        let curThreatScore = 0;
-        for (const c of curAtkCells) curThreatScore += brain.probMap[c.row]?.[c.col] || 0;
-        // ★ SP 수읽기 — 위급 도주(critical)는 항상 가치 있음. 단순 재배치는 정규 SP 를 상대에게
-        //   넘기면서까지 할 가치가 없으므로, 이관 없이(instant SP 충당) 가능할 때만 시전.
-        const reposNoTransfer = _aiSpTransferBar(room, 1, piece.skillCost) <= 1;
-        const needsRepositioning = curThreatScore < 0.5 && recentlyHit && reposNoTransfer;
-        if ((critical && recentlyHit) || needsRepositioning) {
+        const danger = brain._dangerMap?.[piece.row]?.[piece.col] || 0;
+        if (critical && recentlyHit && danger >= 1) {
           _tryExec(pidx, 'sprint');
         }
         break;
@@ -7780,16 +7776,24 @@ function aiUsePreSkills(room) {
       // 양손검객: 쌍검무(2회 공격) — 사용자 요청(random 금지). "때릴 표적이 있을 때만" 의도적 시전.
       //   현재 위치 공격범위의 확률질량(probMap 합)이 충분(≥4)하면 두 번 때릴 가치가 있다.
       case 'dualBlade': {
+        // ★ 쌍검무 = 이번 턴 공격 2회. 사용자 보고: 확신·계산 없이 남발. → "2타로 *확실히 잡을* 표적"이
+        //   있을 때만 시전. (1타론 못 잡지만 2타면 죽는 표적 = 쌍검무가 의미. 1타로 죽거나 2타로도 못
+        //   죽이면 무의미.) 우선 표식 적으로 정확 계산, 없으면 확정칸(≥9) belief + 저이관일 때만 보수적.
         const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
-        let dbScore = 0, dbBest = 0;
+        const effAtk = _effectiveAtkForAi(piece, room, 1);
+        const marked = aiKnownEnemies(room, 1).filter(e => e.marked);
+        let dbBest = 0, confirmKill = false;
         for (const c of dbCells) {
-          const v = brain.probMap[c.row]?.[c.col] || 0;
-          dbScore += v; if (v > dbBest) dbBest = v;
+          dbBest = Math.max(dbBest, brain.probMap[c.row]?.[c.col] || 0);
+          const tgt = marked.find(e => e.col === c.col && e.row === c.row);
+          if (tgt) {
+            const hp = tgt.piece.hp || 1;
+            if (effAtk < hp && 2 * effAtk >= hp) confirmKill = true;   // 1타 X, 2타 O = 쌍검무가 잡는다
+          }
         }
-        // ★ 의미없는 쌍검무 금지 — 집중된 실제 표적(한 칸 ≥6)이 있고, 정규 SP 이관 문턱을 넘는
-        //   확실한 이득이 있을 때만. 분산된 확률질량(diffuse)만으로는 시전 안 함.
         const dbBar = _aiSpBaseBar(room, 1, piece.skillCost, 4) + _aiSpTransferBar(room, 1, piece.skillCost);
-        if (dbBest >= 6 && dbScore >= dbBar) {
+        // 표식 적 확정처치면 즉시. 표식 없으면 확정칸(≥9 = 확정타격/표식주입)일 때만(분산 belief 금지).
+        if (confirmKill || (dbBest >= 9 && (dbBest * 2) >= dbBar)) {
           _tryExec(pidx, 'dualStrike');
         }
         break;
@@ -8155,19 +8159,29 @@ function aiTakeTurn(room) {
     // 상대 위치 추론: probMap에서 가장 높은 셀이 공격 범위 내인지
     let canHitProbTarget = false;
     let probTargetScore = 0;
-    let sureHit = false;  // 9점 셀 (확정에 가까운 적 위치) 공격 가능 여부
+    let sureHit = false;  // 확정에 가까운 적 위치 공격 가능 여부
+    // ★ 확정 처치 — 표식 적이 사정권 + 치사면 HP·도주충동 다 무시하고 잡는다(사용자: 거의 죽을 말로
+    //   사기증진 파수꾼 같은 준딜러를 잡는 건 압도적 이득 트레이드). 사기증진 버프(+1)도 effAtk 에 반영.
+    let confirmKill = false, killVal = 0;
+    const effAtk = _effectiveAtkForAi(piece, room, 1);
+    const markedEn = aiKnownEnemies(room, 1).filter(e => e.marked);
     const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
     for (const c of atkCells) {
       const v = brain.probMap[c.row]?.[c.col] || 0;
       if (v >= 9) sureHit = true;
       if (v >= 6) { canHitProbTarget = true; probTargetScore += v; }
+      // 직전 명중칸(확정 위치)이 사정권 = 확정 적 — probMap 출렁임과 무관하게 sureHit.
+      if (brain._confirmedHit && brain._confirmedHit.col === c.col && brain._confirmedHit.row === c.row) sureHit = true;
+      // 표식 적(위치 확정)이 사정권 → sureHit. 치사면 확정 처치.
+      const tgt = markedEn.find(e => e.col === c.col && e.row === c.row);
+      if (tgt) { sureHit = true; if (effAtk >= (tgt.piece.hp || 1)) { confirmKill = true; killVal = Math.max(killVal, aiUnitValue(tgt.piece)); } }
     }
     // ★ 직전 턴 반격이 빗나갔다면(추론 실패) 같은 자리에서 또 때리지 말고 도주 — 사용자 보고.
-    //   단, 지금 확정 타겟(probMap=9, 표식 등)이 보이면 도주 충동보다 격파를 우선.
+    //   단, 지금 확정 타겟(확정칸/표식)이 보이면 도주 충동보다 격파를 우선.
     const fu = brain.fleeUrge && brain.fleeUrge[piece.type];
     const justMissedCounter = (typeof fu === 'number') && (brain.turnCount - fu <= 1);
-    // 확정 격파 가능 (probMap=9 셀 공격 가능)이면 HP 위험 무시하고 공격 — 적의 사망이 더 가치 있음
-    const shouldCounterAttack = sureHit || (
+    // 확정 처치(표식 적 치사)·확정 위치 격파는 HP 위험·도주충동 무시하고 공격 — 적의 사망이 더 가치.
+    const shouldCounterAttack = confirmKill || sureHit || (
       !justMissedCounter && !criticalHp && (
         canHitProbTarget ||
         (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
