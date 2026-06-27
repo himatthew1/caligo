@@ -9540,7 +9540,10 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
   if (!wrap || !board) return;
   wrap.classList.remove('hidden');
   const total = (bounds.max - bounds.min + 1);
-  const cellPx = 56;  // 인게임 .cell 과 동일 사이즈
+  // ★ #10 — 셀 크기를 뷰포트에 맞게 산정(모바일 7x7 이 넘쳐 포메이션 깨지던 문제). 데스크탑은 56px 유지.
+  const _gap = 4, _pad = 12;
+  const _avail = Math.min((window.innerWidth || 360) - 36, 380);
+  const cellPx = Math.max(26, Math.min(56, Math.floor((_avail - _pad - _gap * (total - 1)) / total)));
   board.innerHTML = '';
   board.style.gridTemplateColumns = `repeat(${total}, ${cellPx}px)`;
   board.style.gridTemplateRows = `repeat(${total}, ${cellPx}px)`;

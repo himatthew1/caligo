@@ -7397,13 +7397,15 @@ body[data-my-team="red"] #chat-scope-team.active {
   .turn-banner { font-size: 0.82rem; padding: 8px 12px; }
 
   /* 보드 fluid — 1v1은 5x5, 팀전은 7x7 (body.team-mode 플래그) */
-  body:not(.team-mode) .board {
+  /* ★ #10 — 게임오버 패배 결과창 보드(#gameover-replay-board)도 class="board" 라 이 !important 규칙이
+     인라인 repeat(total,56px) 을 덮어 7x7 이 5열로 줄바꿈 → 포메이션 붕괴. :not() 으로 제외(자체 그리드 유지). */
+  body:not(.team-mode) .board:not(#gameover-replay-board) {
     grid-template-columns: repeat(5, 1fr) !important;
     grid-template-rows: repeat(5, 1fr) !important;
     width: calc(100vw - 32px) !important;
     max-width: 300px;
   }
-  body.team-mode .board {
+  body.team-mode .board:not(#gameover-replay-board) {
     grid-template-columns: repeat(7, 1fr) !important;
     grid-template-rows: repeat(7, 1fr) !important;
     width: calc(100vw - 16px) !important;
