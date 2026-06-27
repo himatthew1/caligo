@@ -14058,7 +14058,10 @@ function renderGameBoard() {
         // 청록 글로우 — 셀 안의 piece-marker(단일) 또는 cc-wrapper(캐러셀) 에 morale-buffed
         const marker = cell.querySelector('.piece-marker') || cell.querySelector('.cc-wrapper');
         if (marker) marker.classList.add('morale-buffed');
-        // 랜덤 위치/타이밍 파티클 5개
+        // 랜덤 위치/타이밍 파티클 5개 — ★ #8 전용 레이어(overflow:hidden)에 담아 파티클만 셀 안에 가둔다.
+        //   (셀 자체는 overflow:visible 라 표식/저주 등 데코는 셀 밖으로 자연스럽게 튀어나옴.)
+        const _pLayer = document.createElement('div');
+        _pLayer.className = 'morale-particle-layer';
         const sparkleChars = ['✦', '✧', '✦', '✨', '✧'];
         for (let i = 0; i < 5; i++) {
           const p = document.createElement('span');
@@ -14076,8 +14079,9 @@ function renderGameBoard() {
           const dur = 1.4 + Math.random() * 1.0;
           p.style.setProperty('--dur', dur + 's');
           p.style.setProperty('--delay', (-Math.random() * dur) + 's');
-          cell.appendChild(p);
+          _pLayer.appendChild(p);
         }
+        cell.appendChild(_pLayer);
       }
     }
     // ★ 쥐 소환 마크 재적용 — renderGameBoard 가 className 을 wipe 해도 3s 동안 유지되도록.

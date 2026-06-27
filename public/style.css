@@ -4435,7 +4435,18 @@ body.sp-granting .game-layout > *:not(.sp-section) {
 /*    사용자 요청: 지휘관 위치한 쪽이 제일 밝고 멀어질수록 연해짐. */
 .cell.morale-zone {
   position: relative;
+  /* ★ #8 — overflow:hidden 이면 사기증진 존 안의 유닛 표식/저주 등 셀 밖으로 나가는 데코가 잘림.
+     visible 로 풀어 모든 데코가 셀 밖으로 튀어나오게. 파티클은 .morale-particle-layer(아래)가 가둠. */
+  overflow: visible;
+}
+/* 사기증진 파티클 전용 클리핑 레이어 — 파티클만 셀 안에 가두고, 셀의 데코는 자유롭게. */
+.cell.morale-zone .morale-particle-layer {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
 }
 /* 지휘관 본인 셀 — 가장 밝은 청록 (인접 셀의 commander-side 와 같은 강도) */
 .cell.morale-zone-center {
