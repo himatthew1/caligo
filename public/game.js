@@ -7733,13 +7733,23 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
         }
       }
 
-      renderGameBoard();
-      renderMyPieces();
-      renderOppPieces();
-
-      if (!S.isTeamMode) {
-        applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+      // ★ #14 악몽 순서 — 악몽 연출을 *먼저* 시작하고, 피격 노출(HP 렌더 + 프로필 흔들림)은
+      //   보라 펄스 피크(~480ms)로 지연 → "악몽 애니 → 4프레임쯤 피격" 순서.
+      //   (기존엔 HP 렌더/프로필 흔들림이 즉시 → 그 뒤에 악몽 캐스트라 "피격 → 악몽" 역순이었음.
+      //    사망 GIF 는 아래에서 이미 500ms 지연되어 펄스 피크와 정렬됨.)
+      const _isNightmareV = Array.isArray(nightmareCells) && nightmareCells.length > 0;
+      if (_isNightmareV && typeof animateNightmareCast === 'function') {
+        animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
       }
+      const _revealNmHit = () => {
+        renderGameBoard();
+        renderMyPieces();
+        renderOppPieces();
+        if (!S.isTeamMode) {
+          applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+        }
+      };
+      if (_isNightmareV) setTimeout(_revealNmHit, 480); else _revealNmHit();
       if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
         setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
       }
@@ -7774,11 +7784,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
           }
         });
       }
-      // ★ 악몽 시전 (1v1 상대 시점) — 표식 적 셀 보라 펄스.
-      if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
-          typeof animateNightmareCast === 'function') {
-        animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
-      }
+      // ★ 악몽 시전(1v1 상대 시점)은 위에서 *먼저* 재생하도록 이동(#14 순서) — 여기선 중복 호출 안 함.
       // ★ 스킬 사망 애니메이션 (1v1 피해자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
       //   ★ FIX (유황범람 피격 모션 누락): 라바면 사망을 피격 모션(+1100ms) 이후(1600ms)로 지연.
       if (_nightmareDeathInfosVictim.length > 0) {
