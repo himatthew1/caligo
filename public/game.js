@@ -13723,7 +13723,17 @@ function renderGameBoard() {
     if (_isCarousel) _renderCellCarousel(cell, col, row, _crUnits);
 
     // 내 말 (★ 사망 GIF 대기 중이면 alive=false 도 포함)
-    const pc = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
+    // ★ #13 — pending 사망 셀은 '죽는 그 말'을 권위 인덱스로 우선 지목(좌표 find 는 같은 칸 옛 사망자 선택 → idle 잔상).
+    const pc = (() => {
+      if (_pdcHas && S._pendingDeathPick) {
+        const _pick = S._pendingDeathPick.get(`${col},${row}`);
+        if (_pick && _pick.owner === 'my') {
+          const _cand = S.myPieces[_pick.idx];
+          if (_cand && _cand.col === col && _cand.row === row) return _cand;
+        }
+      }
+      return S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
+    })();
     // ★ 드래곤 강림 애니 진행 중이면 piece 렌더링만 스킵 (유해/모라일/img 복원 등은 계속 실행)
     //   이전의 early return 은 _savedImgs 를 복원하지 않아 유해 등 모든 이미지가 유실되었음.
     const _dragonSkipPiece = pc && pc.isDragon && S._dragonIncoming &&
@@ -19334,14 +19344,37 @@ function _detectDeaths(destroyedList, isDefending) {
   const board = document.getElementById('game-board');
   for (const d of destroyedList) {
     if (d.col == null || d.row == null) continue;
+    // ★ #13 근본수정 — 같은 칸에 *이전 사망자*(alive=false)가 잔류하면 좌표 기반 .find/findIndex 가
+    //   그 옛 말을 집어 '이전 사망자 재호출'(잘못된 사망 GIF·방향)이 발생한다. (유닛 이동은 유해칸으로
+    //   막히지만, 유해가 3타로 파괴돼 칸이 풀린 뒤 새 유닛이 그 자리에서 죽으면 옛 사망자가 배열에 남아 충돌.)
+    //   서버가 보낸 defPieceIdx(권위 인덱스)로 죽는 말을 정확히 지목 → 타입·방향 모두 그 말 기준.
+    let _authPiece = null, _authFkey = null, _authOwner = null;
+    if (isDefending && typeof d.defPieceIdx === 'number') {
+      let _arr = null;
+      if (!S.isTeamMode || d.defOwnerIdx == null || d.defOwnerIdx === S.playerIdx) {
+        _arr = S.myPieces; _authOwner = 'my';
+        if (_arr && _arr[d.defPieceIdx]) _authFkey = `${S.playerIdx}:${d.defPieceIdx}`;
+      } else if (Array.isArray(S.teammatePieces)) {
+        _arr = S.teammatePieces; _authOwner = 'ally';
+      }
+      if (_arr && _arr[d.defPieceIdx]) {
+        _authPiece = _arr[d.defPieceIdx];
+        if (!_authFkey) _authFkey = 'ally:' + _authPiece.type + (_authPiece.subUnit ? ':' + _authPiece.subUnit : '');
+        // ★ #13 2차충돌 — 사망 GIF 대기(_pendingDeathCells) 동안 렌더가 '죽는 그 말'을 정확히 지목하도록
+        //   셀→(소유,권위인덱스) 기록. (좌표 find 는 같은 칸의 옛 사망자를 집어 그 idle 이 ~400ms 비침.)
+        //   render 의 내 말 선택부에서 사용. 비-pending 셀 항목은 render 가 _pdcHas 로 무시하므로 청소 불필요.
+        if (!S._pendingDeathPick) S._pendingDeathPick = new Map();
+        S._pendingDeathPick.set(`${d.col},${d.row}`, { owner: _authOwner, idx: d.defPieceIdx });
+      }
+    }
     let facingLeft = false;
     // #10: 방향은 상태(_pieceFacingDir)에서 우선 조회.
     //   DOM transform 은 재렌더/마커 제거로 사라질 수 있어 폴백으로만 사용.
     //   키 형식이 소유자별로 다름: 내 말 'playerIdx:idx', 팀원 'ally:type[:subUnit]', 적 'opp:type[:subUnit]'.
     let _dirResolved = false;
     if (typeof _pieceFacingDir !== 'undefined') {
-      let _fkey = null;
-      if (isDefending) {
+      let _fkey = _authFkey;   // ★ #13 권위 인덱스(defPieceIdx) 우선 — 좌표 findIndex 충돌 회피
+      if (!_fkey && isDefending) {
         const _mi = (S.myPieces || []).findIndex(pp => pp.col === d.col && pp.row === d.row);
         if (_mi >= 0) {
           _fkey = `${S.playerIdx}:${_mi}`;
@@ -19349,7 +19382,7 @@ function _detectDeaths(destroyedList, isDefending) {
           const _tp = S.teammatePieces.find(pp => pp.col === d.col && pp.row === d.row);
           if (_tp) _fkey = 'ally:' + _tp.type + (_tp.subUnit ? ':' + _tp.subUnit : '');
         }
-      } else {
+      } else if (!_fkey) {
         const _op = (S.oppPieces || []).find(pp => pp.col === d.col && pp.row === d.row);
         if (_op) _fkey = 'opp:' + _op.type + (_op.subUnit ? ':' + _op.subUnit : '');
       }
@@ -19379,7 +19412,7 @@ function _detectDeaths(destroyedList, isDefending) {
     //   ★ #8 결정성: 한 칸에 아군 말과 표식 적 말이 겹칠 수 있어, 좌표만으로 전 배열을 뒤지면
     //     엉뚱한 소유자의 type(→잘못된 사망 GIF)을 집을 수 있음. isDefending 으로 검색 대상 배열을
     //     소유권에 맞게 제한한다. (isDefending=true → 아군 / false → 적)
-    let _deathType = d.type || d.revealedType || null;
+    let _deathType = d.type || d.revealedType || (_authPiece && _authPiece.type) || null;
     if (!_deathType) {
       const _lookupType = (arr) => {
         if (!Array.isArray(arr)) return null;
