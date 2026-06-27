@@ -5263,6 +5263,10 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
   //   피격자도 ATTACK_IMPACT_DELAY 후에 피격 표시·상태 업데이트·로그/토스트를 실행.
   //   'attack' SFX (공격 휘두름) 는 위에서 즉시 재생 → 임팩트는 딜레이 후.
   const hitCells = hitPieces.map(h => ({ col: h.col, row: h.row }));
+  // ★ #5 충성(호위무사 가로채기)으로 보호받은 유닛은 피격 애니(흔들림/플래시/아이콘히트) 출력 안 함.
+  //   서버가 redirectedToBodyguard=true 로 표시(데미지 0, 도장도 제외). attack_result/팀원 경로는
+  //   이미 제외하나 1v1 being_attacked 만 누락이었음. (전용 '보호됨' 애니는 추후 추가 예정.)
+  const _animCells = hitPieces.filter(h => !h.redirectedToBodyguard).map(h => ({ col: h.col, row: h.row }));
   const _capturedTurn = S.turnNumber;
   const _mySeq = ++_beingAttackedSeq;
   // ★ 유해 피격 애니 동기화 기준 — 일반 유닛 피격과 같은 임팩트 순간.
@@ -5278,7 +5282,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     const _destroyedHits = hitPieces.filter(h => h.destroyed);
     const _deathInfos = _detectDeaths(_destroyedHits, true); // 피격자 시점 → 내 말(non-opp-marked)
 
-    animateAttack([], hitCells, true); // isDefending=true — 내 말이 피격됨
+    animateAttack([], _animCells, true); // isDefending=true — 내 말이 피격됨 (★ #5 보호된 유닛 제외)
     // attackLog 에는 명중 셀만 기록
     for (const hc of hitCells) {
       S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
