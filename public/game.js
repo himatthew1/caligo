@@ -8003,7 +8003,12 @@ function animateDragonSummon(col, row, owner) {
   }
   const rect = cell.getBoundingClientRect();
   // ★ 착지 위치 = idle GIF 중심(셀중심 −6px, HP 텍스트 때문) 의 셀비례 % — 1v1/2v2/모바일 모든 셀 크기에서 정착과 일치.
-  const _dragonTopPct = (rect.height > 0 ? ((rect.height / 2 - 6) / rect.height * 100).toFixed(2) : 40) + '%';
+  // ★ #6 라이브 튜너 — window._DRAGON_LAND_TUNE = { topOffsetPct, sizePct, scale } 로 착지 GIF 위치/크기 조정.
+  //   (모바일에서 드래곤이 1~2칸 위에 떠 보이는 문제: 착지 GIF 앵커를 실기기에서 직접 맞추기 위함. 기본값=현재.)
+  //   예: window._DRAGON_LAND_TUNE = { topOffsetPct: 30 }  → 착지 위치를 셀 높이의 30% 아래로.
+  const _DLT = window._DRAGON_LAND_TUNE || {};
+  const _baseTopPct = (rect.height > 0 ? ((rect.height / 2 - 6) / rect.height * 100) : 40);
+  const _dragonTopPct = (_baseTopPct + (+_DLT.topOffsetPct || 0)).toFixed(2) + '%';
   const stage = document.createElement('div');
   stage.className = 'dragon-summon-stage';
   stage.style.left = rect.left + 'px';
@@ -8089,9 +8094,11 @@ function animateDragonSummon(col, row, owner) {
       landImg.src = blobUrl;
       landImg.draggable = false;
       landImg.className = 'dragon-landing-gif';
-      landImg.style.width = '220%';
-      landImg.style.height = '220%';
+      const _dlSize = (+_DLT.sizePct || 220) + '%';
+      landImg.style.width = _dlSize;
+      landImg.style.height = _dlSize;
       landImg.style.top = _dragonTopPct; // idle GIF 중심(셀비례) — 셀 크기 무관 정착과 일치
+      if (_DLT.scale) landImg.style.transform = `translate(-50%, -50%) scale(${+_DLT.scale})`;
       stage.appendChild(landImg);
 
       setTimeout(() => {
