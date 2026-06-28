@@ -2,9 +2,11 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- ★ 고정 레이아웃 게임 — 핀치/더블탭 줌 잠금. 줌하면 visual≠layout viewport 가 되어
+       position:fixed 이펙트(드래곤 소환·SP 오브 등) 위치가 깨지므로 줌 자체를 막는다. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CALIGO - 칼리고</title>
-  <link rel="stylesheet" href="style.css?v=20260627g">
+  <link rel="stylesheet" href="style.css?v=20260627h">
   <style>
     /* ── 로딩 오버레이 ── */
     #loading-overlay {
@@ -1079,7 +1081,7 @@
 <script src="mark-anim.js?v=20260623b"></script>
 <script src="nightmare-anim.js?v=20260623a"></script>
 <script src="piece-gifs.js?v=20260614b"></script>
-<script src="game.js?v=20260627l"></script>
+<script src="game.js?v=20260627m"></script>
 <script src="tutorial-interactive.js?v=20260514m"></script>
 
 <!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->

@@ -21686,9 +21686,20 @@ document.addEventListener('click', function _bgmFirstClick() {
 // ── #4 Tap-to-start 게이트 ──────────────────────────────────────────────
 //   브라우저 자동재생 정책상 오디오는 사용자 제스처가 있어야 unlock 됨. 최초 로드시 "탭하여 시작"
 //   오버레이를 띄워 탭을 유도 → 탭하면 AudioContext resume + 현재 화면 BGM 시작 후 사라짐.
+// ★ 확대 잠금 — iOS Safari 는 user-scalable=no 를 무시하므로 핀치(gesturestart) 를 직접 막는다.
+//   (줌 시 visual≠layout viewport 로 position:fixed 이펙트 위치가 깨지는 것 방지. 단일 터치 게임 조작엔 무영향.)
+(function _lockZoom() {
+  const _stop = (e) => { try { e.preventDefault(); } catch (_) {} };
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev =>
+    document.addEventListener(ev, _stop, { passive: false }));
+})();
+
 (function _setupTapToStart() {
   const _build = () => {
     if (document.getElementById('tap-to-start-overlay')) return;
+    // ★ 세션 최초 1회만 — 홈 복귀(리로드)마다 반복 표시하지 않음. 오디오 unlock 유도가 목적이라 1회면 충분.
+    //   (이후 리로드에선 _bgmFirstClick 핸들러가 첫 클릭에 BGM 시작.)
+    try { if (sessionStorage.getItem('_ttsShown')) return; } catch (e) {}
     const ov = document.createElement('div');
     ov.id = 'tap-to-start-overlay';
     ov.innerHTML =
@@ -21700,6 +21711,7 @@ document.addEventListener('click', function _bgmFirstClick() {
     const start = () => {
       ov.removeEventListener('click', start);
       ov.removeEventListener('touchstart', start);
+      try { sessionStorage.setItem('_ttsShown', '1'); } catch (e) {}   // 이 세션엔 다시 안 띄움
       try { bgmGetCtx(); } catch (e) {}        // 오디오 컨텍스트 생성/resume (unlock)
       try { _bgmStartForActiveScreen(); } catch (e) {}
       ov.classList.add('tts-fade');

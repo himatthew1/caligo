@@ -9316,6 +9316,9 @@ body.opp-turn #screen-tutorial-interactive #tut-btn-end-turn {
 }
 /* 현재 활성 슬롯 강조 (이미 있던 것 유지 — alias) */
 
+/* ★ 더블탭 줌 차단(+ 300ms 탭 지연 제거) — 스크롤/단일탭은 유지. 핀치는 viewport 메타+gesturestart 가 차단. */
+html, body { touch-action: manipulation; }
+
 /* ── #4 Tap-to-start 게이트 (오디오 unlock 유도) ── */
 #tap-to-start-overlay {
   position: fixed; inset: 0; z-index: 100000;
