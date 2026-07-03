@@ -19311,6 +19311,7 @@ function playDeathAnimations(deaths, callback) {
     if (window._crForceCell && !cell.querySelector('.cc-wrapper')) window._crForceCell(d.col, d.row);
 
     const deathUrl = window.getPieceDeathGifUrl ? window.getPieceDeathGifUrl(d.type) : '/art/death_common.gif';
+    if (window._DEATH_DEBUG) { try { console.warn('[death-play] cell ' + d.col + ',' + d.row + ' type=' + d.type + ' isEnemy=' + d.isEnemy + ' gif=' + deathUrl); } catch (e) {} }
     const noRemains = (d.type === 'dragon' || d.type === 'sulfurCauldron' || d.type === 'rat');
 
     // 유해 방향 기록 — renderGameBoard 에서 remains PNG 방향에 사용
@@ -19522,6 +19523,22 @@ function _detectDeaths(destroyedList, isDefending) {
         ? (_lookupType(S.myPieces) || (S.isTeamMode ? _lookupType(S.teammatePieces) : null))
         : _lookupType(S.oppPieces);
       _deathType = _deathType || null;
+    }
+    // ★ 진단 로그 — window._DEATH_DEBUG=true 일 때만. "이전 사망자 재호출" 재현 시 실제 해소 경로 확인용.
+    if (window._DEATH_DEBUG) {
+      try {
+        const _atCell = (arr) => (arr || [])
+          .map((p, i) => ({ i, type: p.type, alive: p.alive, name: p.name }))
+          .filter((_, i) => (arr[i].col === d.col && arr[i].row === d.row));
+        console.warn('[death-detect] ' + JSON.stringify({
+          cell: d.col + ',' + d.row, isDefending,
+          in: { defPieceIdx: d.defPieceIdx, type: d.type, revealedType: d.revealedType, name: d.name, defOwnerIdx: d.defOwnerIdx },
+          authPieceType: _authPiece ? _authPiece.type : null,
+          resolvedType: _deathType, facingLeft,
+          myAtCell: _atCell(S.myPieces), oppAtCell: _atCell(S.oppPieces),
+          tmAtCell: S.isTeamMode ? _atCell(S.teammatePieces) : undefined,
+        }));
+      } catch (e) {}
     }
     deaths.push({
       col: d.col,
