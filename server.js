@@ -6674,8 +6674,10 @@ function aiUnitValue(piece) {
   let v = (piece.tier || 1) * 2 + (piece.atk || 0);
   // ★ 실대국 로그 분석(승률 14%, 패배 71%가 0처치): 호위무사(충성=왕실 대신 피격으로 공격 흡수)와
   //   힐러(약초/신성)를 우선 처치 못 해 철통보안·힐탱 포메이션을 못 뚫음. 이 "엔진" 유닛을 최우선 가치로.
-  const STRONG = { bodyguard: 9, monk: 6, commander: 6, herbalist: 5, king: 5, witch: 5, count: 5,
-    sulfurCauldron: 5, dragonKnight: 5, slaughterHero: 4, shadowAssassin: 4,
+  //   ★ sulfurCauldron 5→8: 0.5 광역(주변8칸) + 유황범람(테두리 전체 2피해) = 매턴 축적("가랑비") 어트리션
+  //     엔진. 당장 안 죽여도 방치하면 전멸 → 최우선급 처치 대상(사용자 지적, 데이터상 유황덱 다수 패배).
+  const STRONG = { bodyguard: 9, sulfurCauldron: 8, monk: 6, commander: 6, herbalist: 5, king: 5, witch: 5, count: 5,
+    dragonKnight: 5, slaughterHero: 4, shadowAssassin: 4,
     torturer: 3, manhunter: 2, ratMerchant: 2 };
   v += (STRONG[piece.type] || 0);
   return v;
@@ -6751,6 +6753,24 @@ function aiBuildDangerMap(room, ownerIdx, brain) {
       }
     }
   }
+  // ★ 유황범람(테두리 전체 2피해) 위협 모델링 — 적 유황솥이 살아있으면 보드 테두리 전체를 위험 지대로.
+  //   (사용자: AI가 0.5/축적 데미지를 과소평가해 유황 "가랑비"에 갈려죽음. 반복 광역을 위협으로 인식시켜
+  //    테두리 회피 + 중앙 이동 유도. 위협맵은 getAttackCells(패시브 사거리)만 봤어서 유황범람이 통째 누락됐음.)
+  //   적 SP≥3 = 유황범람 즉시 가능(임박) → 가중 ↑. 부족해도 낮게 반영(다음 지급턴 대비 회피 유인).
+  try {
+    const _enIdxs = (typeof getEnemyIndices === 'function') ? getEnemyIndices(room, ownerIdx) : [];
+    let _sulfurAlive = false, _enSp = 0;
+    for (const _ei of _enIdxs) {
+      if ((room.players[_ei] && room.players[_ei].pieces || []).some(p => p.alive && p.type === 'sulfurCauldron')) _sulfurAlive = true;
+      _enSp = Math.max(_enSp, ((room.sp && room.sp[_ei]) || 0) + ((room.instantSp && room.instantSp[_ei]) || 0));
+    }
+    if (_sulfurAlive) {
+      const _imm = _enSp >= 3 ? 1.5 : 0.6;
+      for (const c of getBorderCells(bounds)) {
+        if (c.row >= 0 && c.row < size && c.col >= 0 && c.col < size) danger[c.row][c.col] += 2 * _imm;
+      }
+    }
+  } catch (e) {}
   return danger;
 }
 // 위협 페널티 — 부상·고가치 유닛일수록 위험 칸을 더 강하게 회피.
