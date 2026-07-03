@@ -4396,10 +4396,11 @@ function processRemainsHits(room, atkCells, opts) {
     //   방금 생성된 유해(=같은 칸)는 제외 → "유닛 사망 시점 = 유해 생성(1단계)"이지 피격이 아님.
     const preExisting = !opts.onlyExisting || opts.onlyExisting.has(`${rem.col},${rem.row}`);
     // ★ alreadyHit — 한 공격 액션(합류 쌍둥이 본체+겹침 등)에서 같은 유해를 2번 카운트하지 않도록 dedupe.
-    const _rkey = `${rem.col},${rem.row}`;
-    const _already = opts.alreadyHit && opts.alreadyHit.has(_rkey);
+    //   ★ 반드시 *유해 개별 객체* 기준으로 dedupe. (이전엔 셀 좌표 기준이라 한 칸에 유해가 2개+ 면
+    //     둘째 유해가 "이미 이 칸 처리됨"으로 스킵 → 하나씩 순차 진행되던 버그. 한 칸의 유해는 모두 동시 피격돼야 함.)
+    const _already = opts.alreadyHit && opts.alreadyHit.has(rem);
     if (!inRange || !preExisting || _already) { survivors.push(rem); continue; }
-    if (opts.alreadyHit) opts.alreadyHit.add(_rkey);
+    if (opts.alreadyHit) opts.alreadyHit.add(rem);
     rem.hits = (rem.hits || 0) + 1;
     if (rem.hits >= 3) {
       touched.push({ col: rem.col, row: rem.row, stage: 4, destroyed: true });
