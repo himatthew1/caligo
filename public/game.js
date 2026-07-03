@@ -19389,7 +19389,22 @@ function playDeathAnimations(deaths, callback) {
           } else {
             patched = src;
           }
-          const patchedBlob = new Blob([patched], { type: 'image/gif' });
+          // ★ 고유 GIF Comment Extension 삽입 — Chrome 은 동일 바이너리 GIF 의 애니메이션 타이머를
+          //   *공유*한다. 그래서 같은 사망 GIF 를 두 번째부터 재생하면 첫 재생이 진행된 프레임부터
+          //   시작 → "끊김"으로 보였음(첫 번째는 멀쩡, 둘째+ 끊김). GCT 뒤에 고유 uid 코멘트를 넣어
+          //   바이트를 유일하게 만들면 Chrome 이 각각 독립 타이머로 처음부터 재생. (쥐 GIF 와 동일 기법.)
+          if (!window._deathGifUid) window._deathGifUid = 0;
+          const _duid = ++window._deathGifUid;
+          const _dcb = new Uint8Array([0x21, 0xFE, 4,
+            (_duid >>> 24) & 0xFF, (_duid >>> 16) & 0xFF, (_duid >>> 8) & 0xFF, _duid & 0xFF, 0x00]);
+          const _dpk = patched[10];
+          const _dgb = ((_dpk >> 7) & 1) ? 3 * (1 << ((_dpk & 7) + 1)) : 0;
+          const _dia = 13 + _dgb;   // 헤더(6)+LSD(7)+GCT 뒤 = 첫 이미지 앞
+          const _dfn = new Uint8Array(patched.length + _dcb.length);
+          _dfn.set(patched.subarray(0, _dia), 0);
+          _dfn.set(_dcb, _dia);
+          _dfn.set(patched.subarray(_dia), _dia + _dcb.length);
+          const patchedBlob = new Blob([_dfn], { type: 'image/gif' });
           const blobUrl = URL.createObjectURL(patchedBlob);
           // ★ GIF 첫 프레임 로드 완료 후 공존 아군 마커만 딤 (사망 마커는 이미 display:none)
           img.onload = () => { if (aliveMarker) { aliveMarker.style.opacity = '0.3'; aliveMarker.style.transition = 'opacity 0.15s'; } };
