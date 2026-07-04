@@ -1482,6 +1482,8 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   }
   // ★ 추격 — 적 확률질량으로 능동 접근 (사거리 밖 적에게 다가감)
   score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * W.approachMul;
+  // ★ 표식 적 전용 맹렬 추격 — 위치 확정이라 확산 approach 보다 강한 유인(1v1 과 동일).
+  score += aiMarkedChaseBonus(room, idx, piece, newCol, newRow);
   // ★ 위협 회피 + 정보 획득 — 1v1 aiScoreMove 와 동일. 치팅 X (표식+확률맵만).
   score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
   score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * W.infoGainMul;
@@ -6642,6 +6644,28 @@ function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
   return potTo - potFrom;
 }
 
+// ── ★ 표식 적 전용 맹렬 추격 유인 ──────────────────────────────────
+//   표식 = 위치 확정(공개 정보) → 확산질량 기반 aiApproachScore(약함)로는 미표식 확산에 묻혀
+//   AI 가 "표식 적을 전혀 의식 안 하는" 것처럼 보였음(사용자 지적). 표식 적은 확정·고가치·즉시
+//   행동 가능한 최우선 타겟이므로, 가장 가까운 표식 적으로 맨해튼 거리를 좁히는 이동에 강하게
+//   가산 → 사거리 안으로 파고들어 확실히 타격. 고가치일수록 ↑. (aiScoreMove 1v1 + 팀 이동점수 공용)
+function aiMarkedChaseBonus(room, ownerIdx, piece, newCol, newRow) {
+  const marked = aiKnownEnemies(room, ownerIdx).filter(e => e.marked && e.col != null && e.row != null);
+  if (!marked.length) return 0;
+  let bestTo = 999, bestFrom = 999, bestVal = 0;
+  for (const e of marked) {
+    const dTo = Math.abs(newCol - e.col) + Math.abs(newRow - e.row);
+    if (dTo < bestTo) {
+      bestTo = dTo;
+      bestFrom = Math.abs(piece.col - e.col) + Math.abs(piece.row - e.row);
+      bestVal = aiUnitValue(e.piece);
+    }
+  }
+  if (bestTo < bestFrom) return 4 + bestVal * 0.2;   // 가까워지는 이동 = 강한 전용 추격
+  if (bestTo > bestFrom) return -1.5;                // 멀어짐 = 소액 감점(도주 상황은 fleeBonus 가 압도)
+  return 0;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // ── 공정 정보 헬퍼 (치팅 금지) ─────────────────────────────────────
 //   CALIGO fog-of-war: 적의 정체/HP/타입/스킬/패시브는 항상 공개(oppPieceSummary),
@@ -7274,6 +7298,8 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
   //   강한 즉시공격(원점수 6~10) 은 이 약한 보너스를 압도하므로 공격 기회는 그대로 우선.
   //   HP 낮은 도망 상황에서는 위 도주 보너스(25↑) 가 압도 → 추격이 도주를 방해하지 않음.
   score += aiApproachScore(brain, piece.col, piece.row, newCol, newRow, bounds) * W.approachMul;
+  // ★ 표식 적 전용 맹렬 추격 — 위치 확정이라 확산 approach 보다 강한 유인(사용자: 표식 정보 과소사용 수정).
+  score += aiMarkedChaseBonus(room, 1, piece, newCol, newRow);
 
   // ★ 위협 회피 — 새 위치에서 받을 예상 피격량만큼 감점 (사람처럼 사거리 회피). 치팅 X.
   score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
