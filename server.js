@@ -6737,18 +6737,29 @@ function aiAttackTargetBonus(room, ownerIdx, cells, effAtk) {
       if ((room.players[_ai] && room.players[_ai].pieces || []).some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse'))) { _myCursed = true; break; }
     }
   }
+  // ★ 약점#3 힐탱 파훼 — 적 팀에 힐러(herbalist/monk)가 살아있으면 비치사 chip 은 힐로 상쇄되므로
+  //   분산딜이 무의미(로그: armoredWarrior+herbalist+monk 상대 0승 9패). chip 가치를 낮춰 처치/치사권을
+  //   상대적으로 더 우선(집중처치 유도) + 힐 엔진 자체 처치를 가산해 힐부터 끊게. (적 정체=공개, 치팅 아님.)
+  let _enemyHasHealer = false;
+  {
+    const _enIdxs = (typeof getEnemyIndices === 'function') ? getEnemyIndices(room, ownerIdx) : [];
+    for (const _ei of _enIdxs) if ((room.players[_ei] && room.players[_ei].pieces || []).some(p => p.alive && (p.type === 'herbalist' || p.type === 'monk'))) { _enemyHasHealer = true; break; }
+  }
   let bonus = 0;
   for (const c of cells) {
     const tgt = enemies.find(e => e.col === c.col && e.row === c.row);
     if (!tgt) continue;
     const hp = tgt.piece.hp || 1, val = aiUnitValue(tgt.piece);
     if (_myCursed && tgt.piece.type === 'witch') bonus += 10;  // 저주원 처치 = 아군 저주 전체 해제(축적뎀 중단)
+    // 힐 엔진(herbalist/monk) 처치 우선 — 힐탱 파훼의 linchpin. 힐러 살아있을 때 특히.
+    if (_enemyHasHealer && (tgt.piece.type === 'herbalist' || tgt.piece.type === 'monk')) bonus += 7;
     // 처치 가능 — 최우선 (패시브 경감은 무시한 근사). 고가치일수록 처치 가치 ↑.
     if ((effAtk || 0) >= hp) {
       bonus += 16 + val * 1.5;
     } else {
       // ★ 사용자 보고: 표식 적을 집중사격해 마무리 안 함 → 못 죽여도 계속 때릴 강한 동기 부여.
-      bonus += 5 + val * 0.8;                       // 표식 적 타격 기본 가치 ↑ (위치 확정 = 확실한 한 방)
+      //   단, 적 힐러 생존 시 비치사 chip 은 힐로 상쇄 → chip 기본가치 하향(처치/치사권 상대 우선).
+      bonus += (_enemyHasHealer ? 2 : 5) + val * 0.8;
       if ((effAtk || 0) >= hp - 1) bonus += 8;      // 한 번 더면 죽음 → 치사권 진입 가산(다음 턴 마무리)
     }
   }
