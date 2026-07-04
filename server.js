@@ -6701,11 +6701,21 @@ function aiCurseValue(piece) {
 function aiAttackTargetBonus(room, ownerIdx, cells, effAtk) {
   const enemies = aiKnownEnemies(room, ownerIdx).filter(e => e.marked);
   if (enemies.length === 0) return 0;
+  // ★ 내 아군이 저주(지속뎀 0.5/턴 · 축적 어트리션)에 걸려있으면 — 저주원(마녀) 처치 = 전체 저주 즉시
+  //   해제 → 누적뎀 중단. 마녀 처치를 강하게 가산(사용자: 유황과 같은 "축적 데미지 견제" 일반화).
+  let _myCursed = false;
+  {
+    const _allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+    for (const _ai of _allyIdxs) {
+      if ((room.players[_ai] && room.players[_ai].pieces || []).some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse'))) { _myCursed = true; break; }
+    }
+  }
   let bonus = 0;
   for (const c of cells) {
     const tgt = enemies.find(e => e.col === c.col && e.row === c.row);
     if (!tgt) continue;
     const hp = tgt.piece.hp || 1, val = aiUnitValue(tgt.piece);
+    if (_myCursed && tgt.piece.type === 'witch') bonus += 10;  // 저주원 처치 = 아군 저주 전체 해제(축적뎀 중단)
     // 처치 가능 — 최우선 (패시브 경감은 무시한 근사). 고가치일수록 처치 가치 ↑.
     if ((effAtk || 0) >= hp) {
       bonus += 16 + val * 1.5;
