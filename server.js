@@ -2052,7 +2052,8 @@ function aiTeamTakeTurn(room, idx) {
         if (v >= 9) sureHit = true;
         if (v >= 6) canHitProb = true;
       }
-      const shouldCounter = sureHit || (!criticalHp && (canHitProb || (counterScore > bestFleeScore * 1.05 && counterScore > 4)));
+      // ★ 약점#2 (1v1 과 동일): 죽어가는 말이라도 유력 타겟이면 트레이드, 반격 문턱 완화(과도한 도주 억제).
+      const shouldCounter = sureHit || canHitProb || (!criticalHp && counterScore > bestFleeScore * 0.8 && counterScore > 3.5);
       if (shouldCounter) { aiTeamExecuteAttack(room, idx, fleeIdx, counterExtra); return; }
       if (bestMove) { aiTeamExecuteMove(room, idx, fleeIdx, bestMove.col, bestMove.row); return; }
     }
@@ -8252,10 +8253,15 @@ function aiTakeTurn(room) {
     const fu = brain.fleeUrge && brain.fleeUrge[piece.type];
     const justMissedCounter = (typeof fu === 'number') && (brain.turnCount - fu <= 1);
     // 확정 처치(표식 적 치사)·확정 위치 격파는 HP 위험·도주충동 무시하고 공격 — 적의 사망이 더 가치.
+    // ★ 약점#2 (로그: 패배판 도주율 18.5%% vs 승리판 9.5%% — 과도한 도주). "도망만 치지 말고 트레이드":
+    //   ① 죽어가는 말(critical HP)이라도 *유력 타겟*(canHitProbTarget)이 사정권이면 도주 대신 공격
+    //      — 어차피 죽을 말이면 확실한 딜/처치가 헛도주보다 이득(사용자: 0.5HP 암살자로 버프파수꾼 잡기).
+    //   ② 반격이 도주보다 확실히 나쁘지 않으면(문턱 1.05→0.8, 4→3.5) 반격 — flee 점수(dist*15)가 과대해
+    //      counter 가 거의 못 이기던 편향 완화.
     const shouldCounterAttack = confirmKill || sureHit || (
-      !justMissedCounter && !criticalHp && (
+      !justMissedCounter && (
         canHitProbTarget ||
-        (counterAttackScore > bestFleeScore * 1.05 && counterAttackScore > 4)
+        (!criticalHp && counterAttackScore > bestFleeScore * 0.8 && counterAttackScore > 3.5)
       )
     );
 
