@@ -1420,8 +1420,10 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   const brain = getTeamBrain(room, getTeamOf(room, idx));
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
-  let score = 0;
-  for (const c of cells) score += brain.probMap[c.row]?.[c.col] || 0;
+  // ★ 블라인드 헛방 감소 — 1v1 aiScoreAttack 과 동일: best 칸 주가중 + 나머지 소액(넓지만 얕은 공격 억제).
+  let sum = 0, best = 0;
+  for (const c of cells) { const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p; }
+  let score = best + 0.35 * (sum - best);
   // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK
   const effAtk = _effectiveAtkForAi(piece, room, idx);
   score *= (1 + effAtk * 0.1);
@@ -7226,12 +7228,18 @@ function _aiSpBaseBar(room, slot, cost, regularBar) {
 function aiScoreAttack(brain, piece, room, extra) {
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
-  let score = 0;
+  // ★ 블라인드 헛방 감소 (로그 분석: AI 공격 44.9% 가 빈 칸). 공격은 *실제로 한 칸*만 맞으므로
+  //   "범위 전 칸 확률 합"은 넓은 범위(창병 세로열 등)를 과대평가 → 각 칸이 저확신이어도 합이 커져
+  //   헛방. best 칸(실제 타깃)을 주가중 + 나머지는 소액(멀티히트/유니온 잠재)만 → 넓지만 얕은(전부
+  //   저확신) 공격은 점수↓ = 접근이 이겨 확신을 올린 뒤 타격. 확신 높은 칸이 있으면 그대로 강타.
+  let sum = 0, best = 0;
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
-      score += brain.probMap[cell.row][cell.col];
+      const p = brain.probMap[cell.row][cell.col];
+      sum += p; if (p > best) best = p;
     }
   }
+  let score = best + 0.35 * (sum - best);
   // ★ commander 버프 반영 — 인접 시 +1 ATK 로 점수 증폭.
   const effAtk = _effectiveAtkForAi(piece, room, 1);
   score *= (1 + effAtk * 0.1);
