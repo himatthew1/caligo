@@ -13329,7 +13329,16 @@ function _cellStateFP(col, row, pre) {
   if (col < b.min || col > b.max || row < b.min || row > b.max) return 'X';
   const k = col + ',' + row;
   const pdc = S._pendingDeathCells ? (S._pendingDeathCells.has(k) ? 1 : 0) : 0;
-  const alv = (p) => p.alive || (pdc && p.col === col && p.row === row);
+  // ★ #13 — 사망 대기 중엔 '죽는 그 말'만 신원(type+name)으로 부활. 옛 사망자(같은 칸 잔류) 배제.
+  const _fpPick = (pdc && S._pendingDeathPick) ? S._pendingDeathPick.get(k) : null;
+  const alv = (p) => {
+    if (p.alive) return true;
+    if (!pdc || p.col !== col || p.row !== row) return false;
+    if (!_fpPick) return true;
+    if (_fpPick.type && p.type !== _fpPick.type) return false;
+    if (_fpPick.name && p.name && p.name !== _fpPick.name) return false;
+    return true;
+  };
   let f = '';
   // ★ #7 — 사망 대기(pdc) 상태를 FP 에 포함. 누락 시: 유해가 이미 S.remains 에 있는 상태로 대기에 들어가면
   //   FP 에 |R 이 캐시되는데 렌더는 대기 중이라 유해를 억제 → 대기 해제 후 FP 가 그대로(|R)라 재렌더가
@@ -13710,7 +13719,17 @@ function renderGameBoard() {
     // ★ _pendingDeathCells: 사망 GIF 대기 중인 셀 — alive=false 여도 piece-marker 유지 (빈 프레임 방지)
     const _pdc = S._pendingDeathCells;
     const _pdcHas = _pdc && _pdc.has(`${col},${row}`);
-    const _aliveOrPending = (p) => p.alive || (_pdcHas && p.col === col && p.row === row);
+    // ★ #13 — 사망 대기 중엔 '죽는 그 말'만 신원(type+name)으로 부활. 옛 사망자(같은 칸 잔류)를 배제해
+    //   "이전 사망자 재호출"(idle 잔상) 제거. 내 말/팀원/적 모든 소유주 공통.
+    const _rPick = (_pdcHas && S._pendingDeathPick) ? S._pendingDeathPick.get(`${col},${row}`) : null;
+    const _aliveOrPending = (p) => {
+      if (p.alive) return true;
+      if (!_pdcHas || p.col !== col || p.row !== row) return false;
+      if (!_rPick) return true;
+      if (_rPick.type && p.type !== _rPick.type) return false;
+      if (_rPick.name && p.name && p.name !== _rPick.name) return false;
+      return true;
+    };
 
     // ── 멀티유닛 캐러셀 체크 ──
     // 내 말 + 팀원 + 표식 적이 2개 이상 같은 셀에 있으면 캐러셀로 표시.
@@ -13766,17 +13785,8 @@ function renderGameBoard() {
     if (_isCarousel) _renderCellCarousel(cell, col, row, _crUnits);
 
     // 내 말 (★ 사망 GIF 대기 중이면 alive=false 도 포함)
-    // ★ #13 — pending 사망 셀은 '죽는 그 말'을 권위 인덱스로 우선 지목(좌표 find 는 같은 칸 옛 사망자 선택 → idle 잔상).
-    const pc = (() => {
-      if (_pdcHas && S._pendingDeathPick) {
-        const _pick = S._pendingDeathPick.get(`${col},${row}`);
-        if (_pick && _pick.owner === 'my') {
-          const _cand = S.myPieces[_pick.idx];
-          if (_cand && _cand.col === col && _cand.row === row) return _cand;
-        }
-      }
-      return S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
-    })();
+    // ★ #13 — _aliveOrPending 이 신원(type+name)으로 '죽는 그 말'만 부활시키므로 find 가 옛 사망자를 안 집음.
+    const pc = S.myPieces.find(p => p.col === col && p.row === row && _aliveOrPending(p));
     // ★ 드래곤 강림 애니 진행 중이면 piece 렌더링만 스킵 (유해/모라일/img 복원 등은 계속 실행)
     //   이전의 early return 은 _savedImgs 를 복원하지 않아 유해 등 모든 이미지가 유실되었음.
     const _dragonSkipPiece = pc && pc.isDragon && S._dragonIncoming &&
@@ -19470,11 +19480,6 @@ function _detectDeaths(destroyedList, isDefending) {
       if (_arr && _arr[d.defPieceIdx]) {
         _authPiece = _arr[d.defPieceIdx];
         if (!_authFkey) _authFkey = 'ally:' + _authPiece.type + (_authPiece.subUnit ? ':' + _authPiece.subUnit : '');
-        // ★ #13 2차충돌 — 사망 GIF 대기(_pendingDeathCells) 동안 렌더가 '죽는 그 말'을 정확히 지목하도록
-        //   셀→(소유,권위인덱스) 기록. (좌표 find 는 같은 칸의 옛 사망자를 집어 그 idle 이 ~400ms 비침.)
-        //   render 의 내 말 선택부에서 사용. 비-pending 셀 항목은 render 가 _pdcHas 로 무시하므로 청소 불필요.
-        if (!S._pendingDeathPick) S._pendingDeathPick = new Map();
-        S._pendingDeathPick.set(`${d.col},${d.row}`, { owner: _authOwner, idx: d.defPieceIdx });
       }
     }
     let facingLeft = false;
@@ -19538,6 +19543,17 @@ function _detectDeaths(destroyedList, isDefending) {
         ? (_lookupType(S.myPieces) || (S.isTeamMode ? _lookupType(S.teammatePieces) : null))
         : _lookupType(S.oppPieces);
       _deathType = _deathType || null;
+    }
+    // ★ #13 근본수정(전 소유주 공통) — 사망 GIF 대기(_pendingDeathCells) 동안 렌더가 '죽는 그 말'을
+    //   신원(type+name)으로 정확히 부활시키도록 셀→{type,name} 기록. (좌표 find/alv 는 같은 칸의
+    //   *이전 사망자*를 집어 그 idle 이 ~400ms 비치는 게 "이전 사망자 재호출"의 정체. 내 말/팀원/적 모두.)
+    //   비-pending 셀 항목은 render 가 _pdcHas 로 무시하므로 청소 불필요.
+    {
+      const _pdName = (_authPiece && _authPiece.name) || d.revealedName || d.name || null;
+      if (_deathType || _pdName) {
+        if (!S._pendingDeathPick) S._pendingDeathPick = new Map();
+        S._pendingDeathPick.set(`${d.col},${d.row}`, { type: _deathType, name: _pdName });
+      }
     }
     // ★ 진단 로그 — window._DEATH_DEBUG=true 일 때만. "이전 사망자 재호출" 재현 시 실제 해소 경로 확인용.
     if (window._DEATH_DEBUG) {
