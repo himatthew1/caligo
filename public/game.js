@@ -14600,7 +14600,15 @@ function _renderCellCarousel(cell, col, row, units) {
 //   인덱스는 cs[csKey]._indexEl 로 영속. 매 렌더 _crSyncIndex 가 추가/퇴장/사망→유해/소멸 "전이"만 1회 애니.
 window._crDotIcon = function(pc) {
   const _pc = pc && pc.pcRef;
-  return (_pc && _pc.icon) || (window.getPieceIconUrl && _pc && window.getPieceIconUrl(_pc.type)) || '';
+  if (!_pc) return '';
+  // ★ type 기반 PNG 를 우선 — 항상 존재하고 캐러셀 메인 슬롯(getPieceGifHtml(type))과 동일 경로.
+  //   piece 런타임 객체의 .icon 은 이모지/HTML/미보유일 수 있어 <img src> 로 쓰면 내 유닛이 전부 공란이 됨.
+  //   따라서 type→PNG 를 먼저 쓰고, .icon 은 실제 이미지 경로일 때만 폴백.
+  const byType = (window.getPieceIconUrl && _pc.type) ? window.getPieceIconUrl(_pc.type) : '';
+  if (byType) return byType;
+  const ic = _pc.icon;
+  if (typeof ic === 'string' && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(ic)) return ic;
+  return '';
 };
 window._crIndexKeys = function(pieces) {
   const keyOf = pc => pc.owner + ':' + ((pc.pcRef && pc.pcRef.type) || 'rem') + ':' + ((pc.pcRef && pc.pcRef.subUnit) || '');

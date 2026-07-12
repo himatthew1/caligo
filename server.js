@@ -1442,8 +1442,11 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
-  let score = 0;
-  for (const c of cells) score += brain.probMap[c.row]?.[c.col] || 0;
+  // ★ 1v1 aiScoreMove 와 동일 — 이동 위협항도 best-가중(정규화 믿음맵). raw sum 은 확산 믿음을
+  //   과대평가해 팀 AI 도 공격 대신 재배치(수동성). 탐색/도주/추격은 아래 명시 보너스가 담당.
+  let mSum = 0, mBest = 0;
+  for (const c of cells) { const p = brain.probMap[c.row]?.[c.col] || 0; mSum += p; if (p > mBest) mBest = p; }
+  let score = mBest + 0.35 * (mSum - mBest);
   // ── 보드 축소 회피 + 외곽 탈출 (사용자 요청: 축소에서 절대 도망쳐라) ──
   const schedule = (typeof getBoardShrinkSchedule === 'function') ? getBoardShrinkSchedule(room) : [];
   let curIsOutside = false, newIsOutside = false, mostUrgentTurns = 99;
@@ -7269,12 +7272,19 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
   const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, newCol, newRow, bounds);
-  let score = 0;
+  // ★ 이동의 '위협 가치'도 aiScoreAttack 과 동일하게 best-가중으로 계산(정규화 믿음맵).
+  //   예전엔 raw sum 이라 확산된(애매한) 믿음까지 크게 평가 → 애매한 상황에서 이동점수 > 공격점수 →
+  //   AI 가 공격/반격 대신 계속 재배치(수동성). 사용자 보고: 'AI가 이동만 함'. 이제 확신 피크가 있을 때만
+  //   이동 위협이 커지고, 그렇지 않으면 '지금 공격'이 이김. 탐색·추격·도주·축소회피는 아래 명시 보너스가
+  //   담당하므로 raw sum 없이도 포지셔닝은 유지됨. (공격 공식은 규칙상 그대로 두고 이동만 스케일 정합.)
+  let mSum = 0, mBest = 0;
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
-      score += brain.probMap[cell.row][cell.col];
+      const p = brain.probMap[cell.row][cell.col];
+      mSum += p; if (p > mBest) mBest = p;
     }
   }
+  let score = mBest + 0.35 * (mSum - mBest);
   // ★ commander 인접 보너스 — 새 위치에서 사기증진 받으면 점수 증폭.
   const effAtkAtNew = _effectiveAtkAtCellForAi(piece, room, 1, newCol, newRow);
   if (effAtkAtNew > (piece.atk || 0)) {
@@ -7687,6 +7697,8 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
       for (let c = bounds.min; c <= bounds.max; c++) {
         const cellKey = `${c},${r}`;
         if (blocked.has(cellKey)) continue;       // 자기 말/유해 위로는 이동 안 함
+        // ★ 사용자 지적: marked(현재 위치 앎) 적을 '이미 있는 그 칸'으로 부르는 무의미 이동 배제.
+        if (marked && target.col === c && target.row === r) continue;
         let score = 0;
         const reasons = [];
 
@@ -7704,11 +7716,14 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
         const atkEntry = aiAttackMap.get(cellKey);
         if (atkEntry && atkEntry.maxAtk > 0) {
           if (atkEntry.maxAtk >= target.hp) {
-            score += 100 + tgtVal * 2;               // 즉사 가능 — 최고 점수
+            score += 100 + tgtVal * 2;               // 즉사 가능 — 최고 점수(반지로 위치 확정 → 후속 확정타)
             reasons.push('oneShot');
-          } else {
-            score += 25 + atkEntry.maxAtk * 8;       // 다대미지 (HP 손실)
-            reasons.push('attackCombo');
+          } else if (marked) {
+            // ★ 비치명 다대미지 콤보는 marked(현재 위치 앎) 적에만 허용 — 위치 모르는 적을 사거리 칸으로
+            //   '끌어오면' 실은 제자리 소환(무의미)일 수 있어 배제(사용자 지적). 또 이미 사거리 안이면
+            //   굳이 반지 안 쓰고 그냥 공격하면 되므로 relocate 이득 있을 때만 점수.
+            const alreadyInRange = target.col != null && aiAttackMap.has(`${target.col},${target.row}`);
+            if (!alreadyInRange) { score += 25 + atkEntry.maxAtk * 8; reasons.push('attackCombo'); }
           }
         }
 
