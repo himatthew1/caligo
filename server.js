@@ -6279,10 +6279,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '대상과 목적지를 지정하세요.' };
       }
       if (!inBounds(destCol, destRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
-      // 유해 차단 — 유해가 있는 칸으로 강제 이동 불가
-      if (room.remains && room.remains.some(r => r.col === destCol && r.row === destRow)) {
-        return { ok: false, msg: '유해가 있는 위치로는 이동할 수 없습니다.' };
-      }
+      // ★ 사용자 정정(2026-07): 절대복종 반지는 유해 칸으로도 강제 이동 가능.
+      //   (유닛과 유해는 한 칸 공존 가능 — has-remains 렌더/캐러셀 지원. 자발 이동만 유해가 막고,
+      //    강제 이동은 막지 않는다. 이전의 유해 차단은 의도치 않은 제약이라 제거.)
       // 팀모드: 양 적팀 멤버 모두 검색, 1v1: 단일 상대
       const kingTargetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
       const kingTargetOwner = room.players[kingTargetOwnerIdx];
@@ -8497,6 +8496,8 @@ function aiExecuteMove(room, action) {
         emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: 1 });
       }
       const willDie3 = aiPiece.hp <= 0;
+      // ★ 화약상 사망 기폭 체인 순차화 (플레이어 경로와 동일) — startPhase 로 열어야 사망 기폭이 큐잉.
+      startPhase(room);
       if (willDie3) {
         handleDeath(room, aiPiece, 1);
         setKillInfo(room, 'trap', null, [{ name: aiPiece.name }]);
@@ -8511,7 +8512,11 @@ function aiExecuteMove(room, action) {
         trapOwnerIdx: 0,  // 1v1 AI 가 인간(0)의 덫을 밟음
       });
       emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-      aiEndTurn(room);
+      flushPhase(room, () => {
+        if (!rooms[room.id] || room.phase !== 'game') return;
+        if (checkGameEndAfterPhase(room)) return;
+        aiEndTurn(room);
+      });
     }, 700);
   } else {
     aiEndTurn(room);
@@ -10305,6 +10310,10 @@ io.on('connection', (socket) => {
           emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: tp.idx });
         }
         const willDie = piece2.hp <= 0;
+        // ★ 화약상 사망 기폭 체인 순차화 (사용자 보고) — startPhase 로 열어야 handleDeath 의
+        //   queueDeathDetonation 이 페이즈 큐에 쌓여 "덫 발동 → 화약상 사망 → 사망 기폭 → 폭탄 피해
+        //   (마법사 인스턴트매직)" 가 순서대로 재생됨. 없으면 즉시 폭발(레거시)로 빠져 시퀀스가 뭉개짐.
+        startPhase(room);
         if (willDie) {
           handleDeath(room, piece2, tp.idx);
           setKillInfo(room, 'trap', null, [{ name: piece2.name }]);
@@ -10320,16 +10329,11 @@ io.on('connection', (socket) => {
         });
         if (room.mode === 'team') broadcastTeamGameState(room);
         emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-        // 트랩 후 승리 검사
-        if (room.mode === 'team') {
-          if (isTeamEliminated(room, 0)) { endTeamGame(room, 1); return; }
-          if (isTeamEliminated(room, 1)) { endTeamGame(room, 0); return; }
-        } else {
-          if (checkWin(room, tp.idx)) {
-            endGame(room, 1 - tp.idx);
-            return;
-          }
-        }
+        // 트랩 후 승리 검사 — 사망 기폭 페이즈 flush 후(폭발/사망 애니 완료 뒤) game_over.
+        flushPhase(room, () => {
+          if (!rooms[room.id] || room.phase !== 'game') return;
+          checkGameEndAfterPhase(room);
+        });
       }, 700);
     }
 
