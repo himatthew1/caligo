@@ -5324,17 +5324,29 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
         else if (!h.destroyed) addProtectedHit(_selfStampKey(pieceIdx));
       }
     }
-    // ★ #6 적 학살영웅(배반자) 오사로 피해받은 '적 유닛'도 실시간 표시 (프로필 도장/HP/피격).
-    //   defender 시점 → ff 대상은 공격자(상대)의 말 = opp. 보이는(표식) 말만 보드 도장, 카드는 항상.
+    // ★ #6 적 학살영웅(배반자) 오사 — 실시간 공유(사용자 설계). 도장 + 상대(공격자) 유닛의 HP·위치·사망을
+    //   방어자 화면에도 즉시 반영. 오사는 이미 공개된 공격 셀(atkCells) 내부이므로 위치 노출이 규칙상 정상.
+    //   (이전엔 도장만 찍고 S.oppPieces·피격 애니를 안 건드려 "내 차례가 와야 갱신"됐음.)
+    const _ffAnimCells = [];
     if (Array.isArray(friendlyFireHits)) {
       for (const ff of friendlyFireHits) {
         const _ffDmg = (typeof ff.damage === 'number') ? ff.damage : 0;
+        if (ff.defPieceIdx == null) continue;
         const _ffKey = S.isTeamMode
           ? `${(ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx)}:${ff.defPieceIdx}`
           : `opp:${ff.defPieceIdx}`;
-        if (ff.defPieceIdx == null) continue;
         if (_ffDmg > 0) addBodyDamage(_ffKey, _ffDmg);
         else if (!ff.destroyed) addProtectedHit(_ffKey);
+        // 1v1: 오사 대상(상대 유닛)을 공개 + HP/사망 반영 → 보드/HP바 실시간 갱신 + 피격 애니.
+        if (!S.isTeamMode && ff.col != null) {
+          const _op = (S.oppPieces || [])[ff.defPieceIdx];
+          if (_op) {
+            _op.col = ff.col; _op.row = ff.row; _op.marked = true;
+            if (typeof ff.newHp === 'number') _op.hp = ff.newHp;
+            if (ff.destroyed) _op.alive = false;
+            else _ffAnimCells.push({ col: ff.col, row: ff.row });
+          }
+        }
       }
     }
     const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
@@ -5401,7 +5413,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
       S._pendingDeathCells = new Set(_deathInfos.map(d => `${d.col},${d.row}`));
       renderGameBoard();
       renderMyPieces();
+      renderOppPieces();   // ★ 오사 상대 HP바 실시간 갱신
       _doPostRenderDef();
+      if (_ffAnimCells.length) animateAttack([], _ffAnimCells, false);  // ★ 오사 상대 유닛 피격 애니
 
       scheduleDeathGif(_deathInfos, _deathInfos, () => {
         renderGameBoard();
@@ -5411,7 +5425,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     } else {
       renderGameBoard();
       renderMyPieces();
+      renderOppPieces();   // ★ 오사 상대 HP바 실시간 갱신
       _doPostRenderDef();
+      if (_ffAnimCells.length) animateAttack([], _ffAnimCells, false);  // ★ 오사 상대 유닛 피격 애니
       _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
     }
 
