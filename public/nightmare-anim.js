@@ -44,6 +44,7 @@
           cx: (mr.left + mr.width / 2 - cr.left) / sc,
           cy: (mr.top + mr.height / 2 - cr.top) / sc,
           size: Math.round(mr.width / sc * 2),
+          sc,
         };
       }
     }
@@ -54,7 +55,7 @@
     const cx = pr ? (pr.left + pr.width / 2 - cr.left) / sc : (cr.width / sc) / 2;
     const cy = pr ? ((pr.top - cr.top) / sc - 9) : (cr.height / sc) * 0.28;
     const markSize = (window._MARK_TUNE && window._MARK_TUNE.size) || window.MARK_IDLE_SIZE || 35;
-    return { cx, cy, size: Math.round(markSize * 2) };
+    return { cx, cy, size: Math.round(markSize * 2), sc };
   }
 
   // opts.onImpact(positions) — 4프레임 임팩트 시점에 1회 호출(데미지/HP 일괄 처리·판정 훅)
@@ -82,18 +83,32 @@
       cell.querySelectorAll('.mark-board-layer').forEach(ml => { ml.dataset._nmHidden = '1'; ml.style.display = 'none'; });
       const ov = document.createElement('img');
       ov.className = 'nightmare-gif-anim'; ov.alt = '';
-      ov.style.cssText = `position:absolute;left:${p.cx}px;top:${p.cy}px;width:${p.size}px;height:${p.size}px;` +
-        `margin-left:${-p.size / 2}px;margin-top:${-p.size / 2}px;z-index:20;pointer-events:none;` +
+      // ★ body 에 position:fixed 로 배치 → renderGameBoard(피격/HP 리빌 렌더)가 셀을 재구축해도
+      //   GIF 가 파괴되지 않고 끝까지 재생. (쥐 공격 GIF 중간잘림과 동일 부류 — body-fixed 로 해결.)
+      //   left/top/size 는 append 시점의 셀 rect 기준으로 계산. z<도장(2600) 이라 도장이 위.
+      ov.style.cssText = `position:fixed;z-index:2000;pointer-events:none;` +
         `image-rendering:pixelated;object-fit:contain;filter:` +
         `drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000);`;
       ov._cell = cell;
+      ov._p = p;
       overlays.push(ov);
     });
     let _nmBlob = null;
     Promise.all([fdP, blobP]).then(([fd, bu]) => {
       _nmBlob = bu;
       // ★ 단일 t0 — 모든 오버레이를 동시에 src+append (= GIF 재생 시작). 임팩트 타이머도 여기서 출발.
-      overlays.forEach(ov => { if (ov && ov._cell) { ov.src = bu; ov._cell.appendChild(ov); } });
+      //   body 에 fixed 로 배치(리빌 렌더 생존). 위치=append 시점 셀 rect × 스케일.
+      overlays.forEach(ov => {
+        if (!(ov && ov._cell)) return;
+        const cr2 = ov._cell.getBoundingClientRect();
+        const p = ov._p, sc = p.sc || 1;
+        const fsize = p.size * sc;
+        ov.style.left = (cr2.left + p.cx * sc) + 'px';
+        ov.style.top = (cr2.top + p.cy * sc) + 'px';
+        ov.style.width = fsize + 'px'; ov.style.height = fsize + 'px';
+        ov.style.marginLeft = (-fsize / 2) + 'px'; ov.style.marginTop = (-fsize / 2) + 'px';
+        ov.src = bu; document.body.appendChild(ov);
+      });
       const impact = (fd.length > 3 ? fd[3] : (fd.length ? fd[fd.length - 1] : 520));
       const total = fd.length ? fd[fd.length - 1] : 1170;
       // ── 4프레임(임팩트): 모든 표식 적 동시 — 피격 흔들림 + 데미지 도장 + 데미지 처리(onImpact) ──

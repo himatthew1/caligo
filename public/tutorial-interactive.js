@@ -334,6 +334,9 @@
   // [28] dialog: 공격 제안
   SCENARIO.push({ kind: 'dialog', text: '<p>근처에 접근했을 수도 있으니 공격으로 견제해봅시다.</p>' });
 
+  // [28b] dialog: 공격 = 사거리 전체 동시 타격 (한 칸 선택이 아님을 명확히)
+  SCENARIO.push({ kind: 'dialog', text: '<p>공격은 사거리 안의 <strong>모든 칸을 동시에</strong> 타격합니다. 한 칸만 고르는 게 아니라, 사거리에 걸친 적은 모두 맞습니다. (빈 칸엔 맞을 대상이 없을 뿐이죠.)</p>' });
+
   // [29] animate: setHint
   SCENARIO.push({
     kind: 'animate', run: async () => {
@@ -1938,7 +1941,7 @@
     clearMoveHighlights();
     freePlayHighlightAttackTargets(_freePlaySelectedPiece);
     _freePlayPhase = 'attack-targets';
-    setHint('공격할 칸을 선택하세요');
+    setHint('공격할 사거리 칸을 누르세요 (사거리 전체가 타격됩니다)');
   }
 
   async function freePlayDoMove(toCol, toRow) {

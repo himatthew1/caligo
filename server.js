@@ -1420,7 +1420,8 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   const brain = getTeamBrain(room, getTeamOf(room, idx));
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
-  // ★ 블라인드 헛방 감소 — 1v1 aiScoreAttack 과 동일: best 칸 주가중 + 나머지 소액(넓지만 얕은 공격 억제).
+  // ★ 1v1 aiScoreAttack 과 동일 — probMap(정규화 믿음맵)에서 확신 피크(best) 주가중 + 나머지 소액(0.35).
+  //   sum 으로 바꾸면 확산 믿음을 과대평가해 AI 가 탐색 대신 블라인드 난사 → 수동화(회귀). best-가중이 정답.
   let sum = 0, best = 0;
   for (const c of cells) { const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p; }
   let score = best + 0.35 * (sum - best);
@@ -7240,10 +7241,13 @@ function _aiSpBaseBar(room, slot, cost, regularBar) {
 function aiScoreAttack(brain, piece, room, extra) {
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
-  // ★ 블라인드 헛방 감소 (로그 분석: AI 공격 44.9% 가 빈 칸). 공격은 *실제로 한 칸*만 맞으므로
-  //   "범위 전 칸 확률 합"은 넓은 범위(창병 세로열 등)를 과대평가 → 각 칸이 저확신이어도 합이 커져
-  //   헛방. best 칸(실제 타깃)을 주가중 + 나머지는 소액(멀티히트/유니온 잠재)만 → 넓지만 얕은(전부
-  //   저확신) 공격은 점수↓ = 접근이 이겨 확신을 올린 뒤 타격. 확신 높은 칸이 있으면 그대로 강타.
+  // ★ probMap 은 매 턴 max=10 으로 정규화된 '믿음'맵이라 확률(기대 데미지)이 아님 → 확산(블라인드)도
+  //   합(sum)이 커져 과대평가됨(정규화 노이즈). 그래서 공격 가치는 '사거리 내 확신 피크(best)'를 주가중
+  //   + 나머지 칸은 소액(0.35)만(hit-all 커버리지 보너스). 이래야 확신 없는 diffuse 에선 공격 점수가 낮아
+  //   → AI 가 그 자리서 블라인드 난사 대신 '이동으로 탐색·확인' 후 확신 칸이 사거리에 들면 강타(선공격 탐색).
+  //   ※ 서버 processAttack 은 전 범위 타격이 맞다(실행). 하지만 여기 스코어는 "어디에 확신 있는 적이
+  //     있는가" 판단이라 best-가중이 정답 — sum 으로 바꾸면 정규화 믿음맵을 오해해 탐색을 안 함(수동화).
+  //     (단일타깃 shadowAssassin/witch 는 호출부가 tCol 로 1칸만 넘겨 sum=best 라 동일하게 동작.)
   let sum = 0, best = 0;
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {

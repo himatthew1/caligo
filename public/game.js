@@ -3050,10 +3050,10 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     }
     // ★ 유황범람으로 죽은 쥐 사망 모션 (팀 시점)
     _animateSkillDestroyedRats(destroyedRats);
-    // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀 보라 펄스 + scale. (사망 GIF 는 아래 통합 블록에서 처리.)
+    // ★ 악몽 시전 (팀모드 시점) — 표식 적 셀에 nightmare GIF (셀 흔들림 + 데미지 도장은 모듈 임팩트).
     if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
         typeof animateNightmareCast === 'function') {
-      animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
+      animateNightmareCast(nightmareCells, {});
     }
     // ★ FIX (관전 시점 사망 GIF 통합): 악몽뿐 아니라 유황범람 등 모든 데미지 스킬의 사망 GIF 를 재생.
     //   위에서 _pendingDeathCells 로 사망 셀을 가려 둠(유해 조기노출 차단) → 피격 표시 후 사망 GIF 재생
@@ -3907,10 +3907,10 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (Array.isArray(borderCells) && borderCells.length > 0 && typeof animateLavaCells === 'function') {
       animateLavaCells(borderCells);
     }
-    // ★ 악몽 시전 (1v1 관전자 시점) — 표식 적 셀 보라 펄스. (사망 GIF 는 아래 통합 블록에서 처리.)
+    // ★ 악몽 시전 (1v1 관전자 시점) — 표식 적 셀에 nightmare GIF (셀 흔들림 + 데미지 도장은 모듈 임팩트).
     if (Array.isArray(nightmareCells) && nightmareCells.length > 0 &&
         typeof animateNightmareCast === 'function') {
-      animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
+      animateNightmareCast(nightmareCells, {});
     }
     // ★ FIX (관전자 사망 GIF — 유황범람 등 비-악몽 데미지 스킬): 이전엔 악몽 사망만 재생 → 유황범람 등은
     //   사망 모션 없이 상태만 갱신됐음. 모든 데미지 스킬의 destroyed hit 에 사망 GIF + 유해 생성.
@@ -7432,42 +7432,58 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       // ★ FIX: team_game_update 는 게이트(마법구 비행) 중 보드를 렌더하지 않으므로(이 핸들러가 임팩트
       //   시점 렌더 전담), 팀 모드에서도 여기서 반드시 렌더해야 보드/도장이 갱신됨. (이전 _skipTeamRender
       //   는 team_game_update 가 즉시 렌더한다는 가정이었으나, 1v1 통일 위해 렌더를 임팩트 시점으로 일원화.)
-      renderGameBoard();
-      renderMyPieces();
-      renderOppPieces();
-      if (S.isMyTurn) showActionBar(true);
-
-      if (!S.isTeamMode) {
-        applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
-        applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
-      } else if (data && Array.isArray(data.hits)) {
-        // ★ 사용자 보고 (유황범람 누락 — 시전자 시점): 팀모드에서 데미지 스킬 hit 시 피격 카드 밝아짐 누락.
-        requestAnimationFrame(() => {
-          for (const h of data.hits) {
-            if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
-            if (h.redirectedToBodyguard) continue;
-            const isProtected = (h.damage === 0 && !h.destroyed);
-            const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
-            if (!card) continue;
-            if (isProtected) {
-              applyProtectedAnim(card);
-              addProtectedHit(`${h.defOwnerIdx}:${h.defPieceIdx}`);
-            } else {
-              applyHitFlashWithBrighten(card);
+      // ★ 동기화(시전자 악몽): HP 노출·프로필 흔들림을 '실제 임팩트 프레임'으로 이연 → 악몽 GIF·피격 GIF·
+      //   데미지 도장·HP 하락이 판정 순간에 한꺼번에. (비-악몽 스킬은 종전대로 즉시 렌더.)
+      const _isNightmareC = data && Array.isArray(data.nightmareCells) && data.nightmareCells.length > 0;
+      const _revealC = () => {
+        renderGameBoard();
+        renderMyPieces();
+        renderOppPieces();
+        if (S.isMyTurn) showActionBar(true);
+        if (!S.isTeamMode) {
+          applyProfileHitAnim('#opp-pieces-info .opp-piece-card', oppSkillDmgIdx);
+          applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
+        } else if (data && Array.isArray(data.hits)) {
+          // ★ 사용자 보고 (유황범람 누락 — 시전자 시점): 팀모드에서 데미지 스킬 hit 시 피격 카드 밝아짐 누락.
+          requestAnimationFrame(() => {
+            for (const h of data.hits) {
+              if (h.defPieceIdx == null || h.defOwnerIdx == null) continue;
+              if (h.redirectedToBodyguard) continue;
+              const isProtected = (h.damage === 0 && !h.destroyed);
+              const card = document.querySelector(`.team-profile-block[data-player-idx="${h.defOwnerIdx}"] [data-piece-idx="${h.defPieceIdx}"]`);
+              if (!card) continue;
+              if (isProtected) {
+                applyProtectedAnim(card);
+                addProtectedHit(`${h.defOwnerIdx}:${h.defPieceIdx}`);
+              } else {
+                applyHitFlashWithBrighten(card);
+              }
             }
-          }
-        });
-      }
+          });
+        }
+      };
+      if (!_isNightmareC) _revealC();
+
       // ★ 유황범람 라바 애니 (시전자 시점)
       if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
         animateLavaCells(data.borderCells);
       }
       // ★ 유황범람으로 죽은 쥐 사망 모션 (시전자 시점)
       if (data) _animateSkillDestroyedRats(data.destroyedRats);
-      // ★ 악몽 시전 (시전자 시점) — 표식 상태 적 셀에 보라 펄스 + scale.
-      if (data && Array.isArray(data.nightmareCells) && data.nightmareCells.length > 0 &&
-          typeof animateNightmareCast === 'function') {
-        animateNightmareCast(data.nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
+      // ★ 악몽 시전 (시전자 시점) — 표식 적 셀에 nightmare GIF + 실제 임팩트 프레임에 HP 노출·피격 GIF·도장 동기.
+      //   onImpact = 모듈이 GIF 프레임을 파싱한 '진짜 타격 순간'(하드코딩 타이머 아님). 안전망(1100ms) 으로
+      //   GIF 로드 실패 시에도 HP 노출 보장. 피격 = 표식 적 → isDefending=false.
+      if (_isNightmareC && typeof animateNightmareCast === 'function') {
+        let _nmRevealedC = false;
+        const _doRevealC = () => {
+          if (_nmRevealedC) return; _nmRevealedC = true;
+          _revealC();
+          if (typeof animateBoardIconHit === 'function') {
+            try { animateBoardIconHit(data.nightmareCells.map(p => ({ col: p.col, row: p.row })), false); } catch (e) {}
+          }
+        };
+        animateNightmareCast(data.nightmareCells, { onImpact: _doRevealC });
+        setTimeout(_doRevealC, 1100);
       }
       // ★ 스킬 사망 애니메이션 (시전자 시점) — 스킬 이펙트 후 사망 GIF + 유해 생성
       //   악몽: 보라 펄스 피크(~500ms) 후 사망 GIF. 기타 스킬: 피격 효과 후 사망 GIF.
@@ -7738,9 +7754,6 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       //   (기존엔 HP 렌더/프로필 흔들림이 즉시 → 그 뒤에 악몽 캐스트라 "피격 → 악몽" 역순이었음.
       //    사망 GIF 는 아래에서 이미 500ms 지연되어 펄스 피크와 정렬됨.)
       const _isNightmareV = Array.isArray(nightmareCells) && nightmareCells.length > 0;
-      if (_isNightmareV && typeof animateNightmareCast === 'function') {
-        animateNightmareCast(nightmareCells, { spiralStyle: 'a', opacityLevel: 2 });
-      }
       const _revealNmHit = () => {
         renderGameBoard();
         renderMyPieces();
@@ -7749,7 +7762,23 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
           applyProfileHitAnim('#my-pieces-info .my-piece-card', mySkillDmgIdx);
         }
       };
-      if (_isNightmareV) setTimeout(_revealNmHit, 480); else _revealNmHit();
+      if (_isNightmareV && typeof animateNightmareCast === 'function') {
+        // ★ 동기화(#14 개선): HP 노출 + 프로필 흔들림 + 피격 GIF 를 '모듈이 파싱한 실제 임팩트 프레임'에
+        //   한꺼번에. (이전 setTimeout(480) 은 추측값 — GIF 로드가 늦으면 밀려서 따로 놀았음.)
+        //   피격 = 내 말 → isDefending=true. 안전망(1100ms) 으로 GIF 로드 실패 시에도 HP 노출 보장.
+        let _nmRevealed = false;
+        const _nmReveal = () => {
+          if (_nmRevealed) return; _nmRevealed = true;
+          _revealNmHit();
+          if (typeof animateBoardIconHit === 'function') {
+            try { animateBoardIconHit(nightmareCells.map(c => ({ col: c.col, row: c.row })), true); } catch (e) {}
+          }
+        };
+        animateNightmareCast(nightmareCells, { onImpact: _nmReveal });
+        setTimeout(_nmReveal, 1100);
+      } else {
+        _revealNmHit();
+      }
       if (Array.isArray(healedPieceIdxs) && healedPieceIdxs.length > 0) {
         setTimeout(() => flashHealPieces(healedPieceIdxs, { opp: true }), 50);
       }

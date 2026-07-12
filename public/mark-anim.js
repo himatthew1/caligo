@@ -43,6 +43,34 @@ function _markGifTotalMs(url) {
   }).catch(() => 1170);
 }
 
+// ── 표식 idle 중심 — 실제 idle .mark-board-layer 의 '정착 위치'를 프로브로 측정해
+//    생성/인두/파괴가 모두 이 단일 기준에 정렬(위치 점프 0). idle 은 .piece-marker 기준
+//    left:50%/bottom:100%/translateY(11) 이라 p-gif bbox(옛 방식)와 구조적으로 어긋남 → 프로브가 정답.
+//    (사용자 규칙: 표식 아이들 위치가 유일 기준. 파괴/인두/최초 모두 여기에 맞춘다.) ──
+function _markIdleCenter(cell, size, markOffY) {
+  const cr = cell.getBoundingClientRect();
+  const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+  let markCx, markCy;
+  if (host) {
+    host.style.position = 'relative';
+    const probe = document.createElement('img');
+    probe.className = 'mark-board-layer';
+    probe.style.cssText = `visibility:hidden;animation:none;width:${size}px;height:${size}px;transform:translate(-50%,11px);`;
+    host.appendChild(probe);
+    const prb = probe.getBoundingClientRect();
+    markCx = prb.left + prb.width / 2 - cr.left;
+    markCy = prb.top + prb.height / 2 - cr.top + (markOffY || 0);
+    probe.remove();
+  } else {
+    // 캐러셀 등 .piece-marker 호스트 없는 셀 — p-gif bbox 폴백
+    const pgif = cell.querySelector('img.p-gif');
+    const pr = pgif ? pgif.getBoundingClientRect() : null;
+    markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
+    markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + (markOffY || 0);
+  }
+  return { cr, markCx, markCy, host };
+}
+
 function animateMarkBrand(positions, opts) {
   opts = opts || {};
   const board = document.getElementById(opts.boardId || 'game-board');
@@ -83,28 +111,9 @@ function _markBrandOne(board, col, row, opts) {
   const _oppMk = cell.querySelector('.piece-marker.opp-marked');
   if (_oppMk) { _oppMk.style.transition = 'none'; _oppMk.style.opacity = '0'; void _oppMk.offsetWidth; }
 
-  // ── 표식 중심 — idle .mark-board-layer 의 '실제 정착 위치'에 정렬 ──
-  //   (생성 GIF·인두·불꽃을 모두 idle 과 동일 지점에 두어 인계 시 위치 점프 0.
-  //    idle 은 .piece-marker 기준 left:50%/bottom:100%/translateY(11) 이라 p-gif bbox 와 어긋났었음.)
-  const cr = cell.getBoundingClientRect();
-  const _host0 = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
-  let markCx, markCy;
-  if (_host0) {
-    _host0.style.position = 'relative';
-    const probe = document.createElement('img');
-    probe.className = 'mark-board-layer';
-    probe.style.cssText = `visibility:hidden;animation:none;width:${_size}px;height:${_size}px;transform:translate(-50%,11px);`;
-    _host0.appendChild(probe);
-    const prb = probe.getBoundingClientRect();
-    markCx = prb.left + prb.width / 2 - cr.left;
-    markCy = prb.top + prb.height / 2 - cr.top + _markOffY;
-    probe.remove();
-  } else {
-    const pgif = cell.querySelector('img.p-gif');
-    const pr = pgif ? pgif.getBoundingClientRect() : null;
-    markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
-    markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;
-  }
+  // ── 표식 중심 — idle .mark-board-layer 의 '실제 정착 위치'에 정렬(공유 헬퍼) ──
+  //   생성 GIF·인두·불꽃을 모두 idle 과 동일 지점에 두어 인계 시 위치 점프 0.
+  const { cr, markCx, markCy } = _markIdleCenter(cell, _size, _markOffY);
   const fixX = cr.left + markCx, fixY = cr.top + markCy;          // 불꽃(position:fixed)용 뷰포트 좌표
 
   // ── 인두 PNG 낙하 (정수리 위 표식 위치) ──
@@ -238,12 +247,8 @@ function _markReleaseOne(board, col, row) {
   cell.querySelectorAll('.mark-board-layer').forEach(el => {
     el.style.transition = 'opacity .45s ease'; el.style.opacity = '0';
   });
-  const cr = cell.getBoundingClientRect();
-  const pgif = cell.querySelector('.piece-marker img.p-gif')
-    || cell.querySelector('.spec-piece .p-icon img') || cell.querySelector('img.p-gif');
-  const pr = pgif ? pgif.getBoundingClientRect() : null;
-  const markCx = pr ? (pr.left + pr.width / 2 - cr.left) : cr.width / 2;
-  const markCy = (pr ? (pr.top - cr.top - 9) : cr.height * 0.28) + _markOffY;
+  // ★ 파괴도 생성/인두와 '동일한' idle 프로브 기준 사용 — 위치 통일(사용자: 아이들 위치가 유일 기준).
+  const { markCx, markCy } = _markIdleCenter(cell, _size, _markOffY);
   const url = M.release || '/art/mark/mark_release.gif';
   _markOnceHoldBlob(url).then(bu => {
     const rel = document.createElement('img');
