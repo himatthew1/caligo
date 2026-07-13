@@ -531,6 +531,10 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   const piece = player && player.pieces[pieceIdx];
   const bounds = room.boardBounds;
   if (!piece || !piece.alive || piece.type !== 'cavalry') return { ok: false, msg: '올바르지 않은 말입니다.' };
+  // ★ 부대공격 진행 중: 큐 앞(저티어) 유닛만 조작 가능.
+  if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx !== pieceIdx) {
+    return { ok: false, msg: '부대공격: 표시된 저티어 유닛부터 순서대로 조작하세요.' };
+  }
   if (dCol == null || dRow == null || !inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
   const ddc = dCol - piece.col, ddr = dRow - piece.row;
   const straight = (ddc === 0) !== (ddr === 0);
@@ -565,6 +569,11 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   piece.col = dCol; piece.row = dRow;
   player.actionDone = true;
   player._lastActionType = 'move';
+  // ★ 부대공격: 이 기마병이 큐 앞이면 소진.
+  if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
+    player._troopQueue.shift();
+    if (player._troopQueue.length === 0) player._troopQueue = null;
+  }
   return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits };
 }
 // ★ Phase 3: 부대공격 등 '자동 질주'용 — 적을 가장 많이 때리는 유효 질주 도착칸을 고른다(없으면 null).
@@ -5554,6 +5563,7 @@ function processTurnStart(room) {
 
   // Reset per-turn skill states for current player
   player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화
+  player._troopQueue = null;       // ★ 부대공격 큐 초기화
   for (const p of player.pieces) {
     p.dualBladeAttacksLeft = 0;
     p.messengerSprintActive = false;
@@ -7529,49 +7539,33 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       return { ok: false, msg: '알 수 없는 악령술사 스킬입니다.' };
     }
 
-    // ── GENERAL(장군): 부대공격 — 공격 가능한 모든 왕실 아군이 1회씩 강제 공격(1T→3T). 기마병은 자동 질주. ──
+    // ── GENERAL(장군): 부대공격 — 공격 가능한 내 왕실 유닛을 저티어부터 하나씩 플레이어가 직접 조작(강제). ──
+    //   자동 해결 아님. 큐(_troopQueue)를 세우고, 앞(저티어)부터 순서대로 공격/질주하게 만든다.
     case 'general': {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
       const taBounds = room.boardBounds;
-      const attackers = [];
-      for (const ai of getAllyIndices(room, playerIdx)) {
-        const ap = room.players[ai]; if (!ap) continue;
-        for (let ui = 0; ui < ap.pieces.length; ui++) {
-          const p = ap.pieces[ui];
-          if (!p.alive) continue;
-          if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) continue;
-          if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;   // 배신 조작 불가
-          // ★ 기마병: 일반 공격은 없지만 부대공격 대상에 포함 → 적을 가장 많이 때리는 방향으로 자동 질주.
-          if (p.type === 'cavalry') { attackers.push({ ownerIdx: ai, pieceIdx: ui, p, tier: p.tier || 1, dash: true }); continue; }
-          const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
-          let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0 });
-          if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
-          if (!cells || cells.length === 0) continue;               // 투석기 등 타겟 필요 유닛은 자동 제외
-          attackers.push({ ownerIdx: ai, pieceIdx: ui, p, tier: p.tier || 1, cells });
-        }
+      const queue = [];
+      for (let ui = 0; ui < player.pieces.length; ui++) {
+        const p = player.pieces[ui];
+        if (!p.alive) continue;
+        if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) continue;
+        if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;
+        // 기마병(질주)·투석기(단일)는 타겟 지정 필요 → 포함. 그 외는 고정 범위 있을 때만.
+        if (p.type === 'cavalry' || p.type === 'catapult') { queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type }); continue; }
+        const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
+        let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0 });
+        if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
+        if (!cells || cells.length === 0) continue;
+        queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type });
       }
-      attackers.sort((a, b) => a.tier - b.tier);                    // 1T→3T 순차
-      const taHits = [];
-      let taActed = 0;
-      for (const at of attackers) {
-        if (at.dash) {
-          // 기마병 자동 질주 — 적을 때릴 수 있는 방향이 있을 때만.
-          const dest = bestCavalryDash(room, at.ownerIdx, at.p);
-          if (!dest) continue;
-          const dr = doCavalryDash(room, at.ownerIdx, at.pieceIdx, dest.col, dest.row);
-          if (dr.ok) { taHits.push(...(dr.hits || [])); taActed++; }
-          continue;
-        }
-        const hits = processAttack(room, at.ownerIdx, at.p, at.cells, undefined, {}) || [];
-        taHits.push(...hits);
-        taActed++;
-        if (typeof tickActorPoison === 'function') tickActorPoison(room, at.p, at.ownerIdx);   // 공격행동 후 중독 틱
-      }
-      result.msg = `부대공격: 왕실 아군 ${taActed}명 공격`;
-      result.oppMsg = `부대공격: 상대 왕실 부대가 공격`;
-      result.data.hits = taHits;
+      queue.sort((a, b) => a.tier - b.tier);   // 저티어부터
+      if (queue.length === 0) { result.msg = '부대공격: 공격 가능한 왕실 유닛이 없습니다'; result.oppMsg = '부대공격'; break; }
+      player._troopQueue = queue;              // 이후 attack/dash 핸들러가 앞부터 소진
+      result.msg = `부대공격 개시 — 왕실 ${queue.length}명을 순서대로 조작하세요`;
+      result.oppMsg = `부대공격: 상대 왕실 부대 개시`;
+      result.data.troopQueue = queue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type }));
       break;
     }
 
@@ -11477,7 +11471,12 @@ io.on('connection', (socket) => {
       const _decreeMove = (player._decreeRoyalMoves > 0) && _pc && _pc.alive
         && (typeof isFaction === 'function' ? isFaction(_pc, 'royal') : _pc.tag === 'royal')
         && !(_pc.statusEffects || []).some(e => e.type === 'betray') && _pc._cultOf == null;
-      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove && !_decreeMove) {
+      // ★ 부대공격: 큐 앞(저티어) 유닛만 조작 가능(actionDone 무시).
+      const _troopFront = player._troopQueue && player._troopQueue.length && player._troopQueue[0];
+      if (_troopFront && _troopFront.pieceIdx !== pieceIdx) {
+        socket.emit('err', { msg: '부대공격: 표시된 저티어 유닛부터 순서대로 공격하세요.' }); return;
+      }
+      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove && !_decreeMove && !_troopFront) {
         socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
       }
     }
@@ -12173,6 +12172,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
+        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {
@@ -12274,6 +12274,11 @@ io.on('connection', (socket) => {
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
     // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
     player.actionDone = true;
+    // ★ 부대공격: 이 유닛이 큐 앞이면 소진(다음 저티어 유닛으로).
+    if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
+      player._troopQueue.shift();
+      if (player._troopQueue.length === 0) player._troopQueue = null;
+    }
     // 행동 추적
     player._lastActionType = 'attack';
     player._lastActionPieceType = atkPiece.type;
@@ -12342,6 +12347,10 @@ io.on('connection', (socket) => {
     const idx = socket.data.idx;
     if (room.players[idx] && room.players[idx]._reconnecting) { socket.emit('err', { msg: '재접속 처리 중입니다.' }); return; }
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
+    // ★ 부대공격 진행 중 end_turn 차단 — 남은 왕실 유닛을 모두 조작해야 함(강제).
+    if (room.players[idx] && room.players[idx]._troopQueue && room.players[idx]._troopQueue.length) {
+      socket.emit('err', { msg: '부대공격: 남은 왕실 유닛을 모두 조작해야 턴을 종료할 수 있습니다.' }); return;
+    }
     // ★ 폭발 체인/표식 페이즈 처리 중 end_turn 차단 — 타이머로 예약된 bomb_detonated emit 들이
     //   다음 턴에 잘못 발동되는 현상(상태 desync) 방지.
     if (room._phaseDeferredGameEndCheck) {

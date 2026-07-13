@@ -4679,6 +4679,7 @@ socket.on('your_turn', (data) => {
   S.targetSelectMode = false;
   S.actionDone = false;
   S.decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화(새 턴)
+  S.troopQueue = null;      // ★ 부대공격 큐 초기화(새 턴)
   S.moveDone = false;
   S.skillsUsedThisTurn = [];
   S.actionUsedSkillReplace = false;
@@ -4879,7 +4880,8 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue }) => {
+  if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -7359,6 +7361,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   ★ SFX 는 SP 비행 종료 시점(SP_END) 으로 이동 — 보드 효과/토스트 와 동기화.
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;
+  if (data && data.troopQueue !== undefined) S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작)
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
@@ -13150,6 +13153,11 @@ function updateSPBar() {
 //     3) 양손검객 쌍검무 활성 + 추가 공격 남음
 function pieceCanTakeBasicAction(pc) {
   if (!pc || !pc.alive) return false;
+  // ★ 부대공격 진행 중: 큐 앞(저티어) 유닛만 조작 가능(actionDone 무시).
+  if (S.troopQueue && S.troopQueue.length) {
+    const idx = S.myPieces ? S.myPieces.indexOf(pc) : -1;
+    return idx === S.troopQueue[0].pieceIdx;
+  }
   // ★ 사용자 요청: 질주 활성 시 — 메신저만 행동 가능. 다른 유닛은 일괄 불가 (기존
   //   [행동가능]/[행동불가] 플로팅 버튼 시스템에 반영됨).
   const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
@@ -17474,10 +17482,11 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   const sprintActive = (S.myPieces || []).some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   const dualBladeActive = (S.myPieces || []).some(p => p.alive && p.dualBladeAttacksLeft > 0);
   const isCatapult = pc && pc.type === 'catapult';   // ★ 투석기: 일반 이동 불가(구동 스킬로만)
+  const isTroopActive = !!(S.troopQueue && S.troopQueue.length);   // ★ 부대공격: 공격만(이동/스킬 불가)
   const isNoAttack = pc && (pc.type === 'witch' || pc.type === 'cavalry');   // ★ 마녀·기마병: 공격 불가(범위 없음)
   // ★ 마녀 채널링: 저주 유지 중(내가 건 저주가 적에게 있음)엔 이동·공격 불가(빗자루 비행/개구리 장난만).
   const isChannelingWitch = pc && pc.type === 'witch' && (S.oppPieces || []).some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse' && e.source === (S.playerIdx ?? 0)));
-  const moveDisabled = !canBasic || dualBladeActive || isCatapult || isChannelingWitch;
+  const moveDisabled = !canBasic || dualBladeActive || isCatapult || isChannelingWitch || isTroopActive;   // ★ 부대공격 중 이동 불가(공격만)
   const attackDisabled = !canBasic || sprintActive || isChannelingWitch || isNoAttack;
 
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
