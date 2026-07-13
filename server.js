@@ -174,7 +174,7 @@ const CHARACTERS = {
       passives:['charge'],
       // ★ 질주는 '특성'(trait) — 스킬 탭/버튼에 노출 안 됨. 부채꼴 전용 질주 버튼에서만 사용(내부 dash).
       skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, trait:true, desc:'이동 대체 특성 · 직선 1~2칸, 경로의 적에 고정 1피해'}] },
-    { type:'catapult', name:'투석기', tier:1, atk:2, icon:'🪨', tag:'royal', noRemains:true, desc:'원하는 칸 1곳 선택 후 공격',
+    { type:'catapult', name:'투석기', tier:1, atk:2, icon:'🪨', tag:'royal', noRemains:true, desc:'전체 보드 중 1칸 선택 공격',
       skills:[{id:'drive', name:'구동', cost:2, replacesAction:true, desc:'투석기를 인접 1칸으로 이동(오직 이 스킬로만 이동 가능)'}] },
     { type:'windSurfer', name:'윈드서퍼', tier:1, atk:1, icon:'🏄', tag:'spirit', desc:'가로 3칸과 하단',
       skills:[{id:'windPush', name:'바람몰이', cost:2, replacesAction:false, desc:'아군 또는 적 1명을 상하좌우 원하는 방향으로 1칸 강제 이동(모서리면 무효)'}] },

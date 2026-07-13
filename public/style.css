@@ -1954,7 +1954,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .slide-skill-name.mini-header-action  { color: #f87171 !important; background: rgba(224,82,82,0.2)  !important; border-color: rgba(224,82,82,0.5)  !important; }
 .slide-skill-name.mini-header-once    { color: #facc15 !important; background: rgba(234,179,8,0.2)  !important; border-color: rgba(234,179,8,0.5)  !important; }
 .slide-skill-name.mini-header-free    { color: #34d399 !important; background: rgba(52,211,153,0.2) !important; border-color: rgba(52,211,153,0.5) !important; }
-.slide-skill-name.mini-header-passive { color: #fb923c !important; background: rgba(251,146,60,0.2) !important; border-color: rgba(251,146,60,0.5) !important; }
+.slide-skill-name.mini-header-passive { color: #38bdf8 !important; background: rgba(56,189,248,0.2) !important; border-color: rgba(56,189,248,0.5) !important; }
 .slide-skill-name.mini-header-trait   { color: #9ca3af !important; background: rgba(156,163,175,0.18) !important; border-color: rgba(156,163,175,0.45) !important; }
 .slide-skill-name.slide-skill-none {
   color: #6b7280; background: rgba(107,114,128,0.15); border-color: rgba(107,114,128,0.4);
@@ -1976,7 +1976,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .skill-type-text.tag-action  { color: #f87171 !important; }
 .skill-type-text.tag-once    { color: #facc15 !important; }
 .skill-type-text.tag-free    { color: #34d399 !important; }
-.skill-type-text.tag-passive { color: #fb923c !important; }
+.skill-type-text.tag-passive { color: #38bdf8 !important; }
 .skill-type-text.tag-trait   { color: #9ca3af !important; }
 
 /* SP 소모량 박스 — 회색 배경 + 밝은 글자 (스킬 타입 바로 옆) */
@@ -6372,7 +6372,7 @@ body.team-mode .placement-opp-panel {
 .gskill-type-text.tag-action  { color: #f87171; }
 .gskill-type-text.tag-once    { color: #facc15; }
 .gskill-type-text.tag-free    { color: #34d399; }
-.gskill-type-text.tag-passive { color: #fb923c; }
+.gskill-type-text.tag-passive { color: #38bdf8; }
 .gskill-sp {
   margin-left: auto;
   font-size: 0.7rem; font-weight: 700; color: #c4b5fd;
@@ -6628,6 +6628,7 @@ body.team-mode .placement-opp-panel {
 .status-badge.luck    { color: #fbbf24; background: rgba(251,191,36,0.15); }
 .status-badge.betray  { color: #fb923c; background: rgba(251,146,60,0.15); }
 .status-badge.frog    { color: #4ade80; background: rgba(74,222,128,0.15); }
+.badge-faction-icon { width: 0.9em; height: 0.9em; vertical-align: -0.12em; object-fit: contain; image-rendering: pixelated; }
 /* #9 상태배지 이모지(마커)/라벨 분리 — 데스크탑은 둘 다, 모바일은 이모지만 */
 .status-badge .sb-ic { font-style: normal; }
 .status-badge .sb-label { margin-left: 3px; }
@@ -6822,7 +6823,7 @@ body.team-mode .placement-opp-panel {
 .mini-header-action  { color: #f87171 !important; background: rgba(224,82,82,0.2)  !important; border: 1px solid rgba(224,82,82,0.4)  !important; } /* 빨강 — 행동소비형 */
 .mini-header-once    { color: #facc15 !important; background: rgba(234,179,8,0.2)  !important; border: 1px solid rgba(234,179,8,0.4)  !important; } /* 노랑 — 자유시전·1회 */
 .mini-header-free    { color: #34d399 !important; background: rgba(52,211,153,0.2) !important; border: 1px solid rgba(52,211,153,0.4) !important; } /* 초록 — 자유시전 */
-.mini-header-passive { color: #fb923c !important; background: rgba(251,146,60,0.2) !important; border: 1px solid rgba(251,146,60,0.4) !important; } /* 주황 — 패시브 */
+.mini-header-passive { color: #38bdf8 !important; background: rgba(56,189,248,0.2) !important; border: 1px solid rgba(56,189,248,0.4) !important; } /* 스카이블루 — 패시브 */
 .mini-header-trait   { color: #9ca3af !important; background: rgba(156,163,175,0.18) !important; border: 1px solid rgba(156,163,175,0.45) !important; } /* 회색 — 특성 */
 
 /* 호버 팝업 내 스킬/패시브 이름 — 굵은 글씨 + 유형 색상 칩 */

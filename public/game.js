@@ -165,8 +165,7 @@ const SPECIAL_DESC_TYPES = new Set([
   // ── 새 팩션 특수 공격 유형 ──
   'gunpowder',      // 주변 8칸 중 랜덤 2칸
   'hookKiller',     // 가로 횡 전부
-  'catapult',       // 원하는 칸 1곳 선택
-  'wanderer',       // 부메랑 — 나이트 방향 8칸
+  'catapult',       // 전체 보드 중 1칸 선택
 ]);
 function shouldShowDesc(typeOrObj) {
   if (!typeOrObj) return false;
@@ -9900,6 +9899,10 @@ const spLabel = (sp) => {
 const STATUS_ICONS = { curse: '☠', shadow: '👻', mark: '🎯', morale: '📋',
   executed: '🪓', cult: '🕯️', poison: '☣', misfortune: '💢', luck: '🍀', betray: '🗡️', frog: '🐸' };
 const stBadge = (cls, label) => {
+  // ★ 이교단: 전용 소속 아이콘(빨간 로브) PNG 사용.
+  if (cls === 'cult') {
+    return `<span class="status-badge cult"><img src="/assets/factions/pagan.png" class="badge-faction-icon" alt=""> ${label}</span>`;
+  }
   const icon = STATUS_ICONS[cls] || '';
   return `<span class="status-badge ${cls}">${icon ? icon + ' ' : ''}${label}</span>`;
 };
@@ -10245,7 +10248,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('현혹'), color: '#f59e0b' },
     ],
-    body: `공격한 적은 소속을 잃고 ${stBadge('cult', '이교단')} 소속이 됩니다. 이교단이 된 적은 이단자에게 0 피해를 주며, 이단자가 죽으면 소속을 되찾습니다. 적이 모두 이교단이 되면 승리합니다.`,
+    body: `공격한 적은 소속을 잃고 ${stBadge('cult', '이교단')} 소속이 됩니다. 이교단 소속은 이단자에게 피해를 줄 수 없으며, 이단자가 죽으면 소속을 되찾습니다. 적이 모두 이교단이 되면 승리합니다.`,
     flavor: '금단의 교리를 속삭이는 자. 그의 말에 홀린 자들은 어느새 같은 신을 섬긴다.',
   },
   necromancer: {
@@ -10314,9 +10317,9 @@ const CHAR_DETAILS = {
   oberon: {
     blocks: [
       { ...mkPassiveHead('요정왕'), color: '#f59e0b', desc: '오베론을 포함한 정령이 피해를 받을 때마다 카운터가 1 쌓입니다. 카운터로 아래 스킬을 씁니다.' },
-      { ...mkSkillHead('축복', 'tag-free', '자유시전형'), color: '#a78bfa', desc: '카운터 2 — 모든 정령의 공격력을 다음 차례까지 1 올립니다.' },
-      { ...mkSkillHead('은혜', 'tag-once', '자유시전·1회'), color: '#a78bfa', desc: '카운터 3 — 모든 정령의 체력을 1 회복합니다.' },
-      { ...mkSkillHead('종언', 'tag-action', '행동소비형'), color: '#a78bfa', desc: '카운터 10 — 정령이 아닌 모든 유닛을 즉시 파괴합니다.' },
+      { ...mkSkillHead('축복', 'tag-free', '자유시전형'), color: '#a78bfa', counterCost: 2, desc: '모든 정령의 공격력을 다음 차례까지 1 올립니다.' },
+      { ...mkSkillHead('은혜', 'tag-once', '자유시전·1회'), color: '#a78bfa', counterCost: 3, desc: '모든 정령의 체력을 1 회복합니다.' },
+      { ...mkSkillHead('종언', 'tag-action', '행동소비형'), color: '#a78bfa', counterCost: 10, desc: '정령이 아닌 모든 유닛을 즉시 파괴합니다.' },
     ],
     flavor: '요정들의 왕. 백성이 흘린 고통을 힘으로 되받아, 마침내 세상에 종언을 고한다.',
   },
@@ -10598,7 +10601,8 @@ function populateSlideContent(c, prefix) {
         ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
         : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
       const tag = b.tag || '';
-      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
+      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>`
+        : (b.counterCost != null) ? `<span class="slide-sp-box">카운터 ${b.counterCost} 소모</span>` : '';
       return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
     };
     blocksEl.innerHTML = blocks.map((b, i) => {
@@ -12421,7 +12425,8 @@ function exRenderSlide() {
         ? `<span class="slide-skill-name ${cls}">${b.head}</span>`
         : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
       const tag = b.tag || '';
-      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
+      const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>`
+        : (b.counterCost != null) ? `<span class="slide-sp-box">카운터 ${b.counterCost} 소모</span>` : '';
       return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
     };
     blocksEl.innerHTML = blocks.map((b, i) => {
@@ -18810,7 +18815,7 @@ function getPassiveLabel(passiveId) {
     rage: '피해를 받으면 활성화 · 적 1명에게 1 피해',
     growth: '피해를 받을 때마다 공격 사거리가 1칸 늘어남',
     might: '공격력이 항상 남은 체력과 같음',
-    enthrall: '공격한 적을 이교단으로 만듦 · 이교단은 이단자에게 0 피해 · 이단자가 죽으면 풀림',
+    enthrall: '공격한 적을 이교단으로 만듦 · 이교단은 이단자에게 피해 불가 · 이단자가 죽으면 풀림',
     suppression: '왕실이 아닌 모든 유닛의 스킬 SP 비용 1 증가',
     oldHeart: '지급받은 체력보다 2 낮게 시작',
     behead: '공격한 적을 처형해 패시브를 무력화 · 언데드는 즉시 파괴',
