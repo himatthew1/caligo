@@ -17750,6 +17750,31 @@ function getAttackCells(type, col, row, extra) {
       push(col, row);
       for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
       break;
+    // ── ★ Phase 3 신규 유닛 (서버 getAttackCells 미러) ──
+    case 'wanderer': for (const [dc,dr] of [[-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2]]) push(col+dc, row+dr); break;
+    case 'fortuneTeller': case 'mercenary': push(col,row); for (const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr); break;
+    case 'thief': for (const [dc,dr] of [[-1,0],[-1,-1],[1,0],[1,-1]]) push(col+dc, row+dr); break;
+    case 'ironman': case 'mermaid': push(col,row); push(col,row-1); break;
+    case 'storyteller': for (const dc of [-1,0,1]) { push(col+dc,row); push(col+dc,row-1); } break;
+    case 'unicorn': case 'necromancer': push(col,row); push(col-1,row-1); push(col+1,row-1); break;
+    case 'hero': case 'siegeBreaker': push(col,row); push(col,row+1); break;
+    case 'homunculus': case 'undead': push(col-1,row); push(col+1,row); break;
+    case 'gladiator': push(col-1,row); push(col+1,row); push(col,row-1); break;
+    case 'fairy': push(col,row); for (const dr of [-1,0,1]) { push(col-1,row+dr); push(col+1,row+dr); } break;
+    case 'windSurfer': push(col-1,row); push(col,row); push(col+1,row); push(col,row+1); break;
+    case 'dryad': { const g = extra.growth || 0; for (let d=-(1+g); d<=(1+g); d++) push(col+d,row); break; }
+    case 'griffin': case 'heretic': push(col,row); push(col,row-1); push(col,row+1); break;
+    case 'mushkin': for (const dc of [-1,0,1]) { push(col+dc,row); push(col+dc,row+1); } break;
+    case 'oberon': case 'executioner': push(col,row); push(col-1,row+1); push(col+1,row+1); break;
+    case 'catapult': if (extra.tCol !== undefined && extra.tRow !== undefined) push(extra.tCol, extra.tRow); break;
+    case 'courtier': push(col,row); push(col-1,row); push(col+1,row); push(col-1,row-1); push(col+1,row-1); break;
+    case 'poisoner': push(col,row); for (const [dc,dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr); break;
+    case 'gravekeeper': for (const [dc,dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr); break;
+    case 'militia': push(col-1,row); push(col,row); push(col+1,row); break;
+    case 'golem': push(col,row); push(col,row-1); push(col,row+1); break;
+    case 'hookKiller': for (let c=bMin; c<=bMax; c++) push(c,row); break;
+    case 'demonKing': push(col,row); push(col-1,row-1); push(col+1,row-1); push(col-1,row); push(col+1,row); push(col,row+1); break;
+    case 'frog': push(col-1,row); push(col,row); push(col+1,row); break;
   }
   return cells;
 }
@@ -18233,6 +18258,31 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'sulfurCauldron': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
     case 'torturer': push(col-1,row);push(col+1,row);push(col,row+1); break;
     case 'count': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    // ── ★ Phase 3 신규 유닛 (서버 미러) ──
+    case 'wanderer': for(const[dc,dr]of[[-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2]])push(col+dc,row+dr); break;
+    case 'fortuneTeller': case 'mercenary': push(col,row); for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
+    case 'thief': for(const[dc,dr]of[[-1,0],[-1,-1],[1,0],[1,-1]])push(col+dc,row+dr); break;
+    case 'ironman': case 'mermaid': push(col,row);push(col,row-1); break;
+    case 'storyteller': for(const dc of[-1,0,1]){push(col+dc,row);push(col+dc,row-1);} break;
+    case 'unicorn': case 'necromancer': push(col,row);push(col-1,row-1);push(col+1,row-1); break;
+    case 'hero': case 'siegeBreaker': push(col,row);push(col,row+1); break;
+    case 'homunculus': case 'undead': push(col-1,row);push(col+1,row); break;
+    case 'gladiator': push(col-1,row);push(col+1,row);push(col,row-1); break;
+    case 'fairy': push(col,row); for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
+    case 'windSurfer': push(col-1,row);push(col,row);push(col+1,row);push(col,row+1); break;
+    case 'dryad': { const g=extra.growth||0; for(let d=-(1+g);d<=(1+g);d++)push(col+d,row); break; }
+    case 'griffin': case 'heretic': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'mushkin': for(const dc of[-1,0,1]){push(col+dc,row);push(col+dc,row+1);} break;
+    case 'oberon': case 'executioner': push(col,row);push(col-1,row+1);push(col+1,row+1); break;
+    case 'catapult': if(extra.tCol!==undefined&&extra.tRow!==undefined)push(extra.tCol,extra.tRow); break;
+    case 'courtier': push(col,row);push(col-1,row);push(col+1,row);push(col-1,row-1);push(col+1,row-1); break;
+    case 'poisoner': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'gravekeeper': for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
+    case 'militia': push(col-1,row);push(col,row);push(col+1,row); break;
+    case 'golem': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'hookKiller': for(let c=bMin;c<=bMax;c++)push(c,row); break;
+    case 'demonKing': push(col,row);push(col-1,row-1);push(col+1,row-1);push(col-1,row);push(col+1,row);push(col,row+1); break;
+    case 'frog': push(col-1,row);push(col,row);push(col+1,row); break;
   }
   return cells;
 }
