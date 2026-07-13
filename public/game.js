@@ -17354,7 +17354,7 @@ function refreshAttackConfirmBtn() {
   const pc = S.myPieces?.[S.selectedPiece];
   if (!pc || !pc.alive) { _clearAttackConfirmBtns(); return; }
   // target-pick (witch/shadow) 은 target 좌표 저장돼 있을 때만 버튼 (사용자 클릭 후)
-  const isTargetPick = (pc.type === 'witch' || pc.type === 'shadowAssassin' || pc.type === 'catapult');
+  const isTargetPick = (pc.type === 'shadowAssassin' || pc.type === 'catapult');
   if (isTargetPick) {
     if (typeof S.targetCol === 'number' && typeof S.targetRow === 'number') {
       _placeAttackConfirmBtn(pc, { tCol: S.targetCol, tRow: S.targetRow });
@@ -17474,10 +17474,11 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   const sprintActive = (S.myPieces || []).some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   const dualBladeActive = (S.myPieces || []).some(p => p.alive && p.dualBladeAttacksLeft > 0);
   const isCatapult = pc && pc.type === 'catapult';   // ★ 투석기: 일반 이동 불가(구동 스킬로만)
+  const isNoAttack = pc && (pc.type === 'witch' || pc.type === 'cavalry');   // ★ 마녀·기마병: 공격 불가(범위 없음)
   // ★ 마녀 채널링: 저주 유지 중(내가 건 저주가 적에게 있음)엔 이동·공격 불가(빗자루 비행/개구리 장난만).
   const isChannelingWitch = pc && pc.type === 'witch' && (S.oppPieces || []).some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse' && e.source === (S.playerIdx ?? 0)));
   const moveDisabled = !canBasic || dualBladeActive || isCatapult || isChannelingWitch;
-  const attackDisabled = !canBasic || sprintActive || isChannelingWitch;
+  const attackDisabled = !canBasic || sprintActive || isChannelingWitch || isNoAttack;
 
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
   //   기본 행동 소진 시 → 이동·공격 둘 다 disabled. 스킬은 별도 canSkill 로 결정.
@@ -17548,7 +17549,7 @@ function _showRadialActionMenu(col, row, pieceIdx) {
         //   그 외 공격은 머리 위 [공격 확정] 버튼 등장 (사용자 요청, 더블클릭 패턴 대체).
         if (it.key === 'attack') {
           const pc2 = S.myPieces && S.myPieces[pieceIdx];
-          if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin' || pc2.type === 'catapult')) {
+          if (pc2 && (pc2.type === 'shadowAssassin' || pc2.type === 'catapult')) {
             S.targetSelectMode = true;
             const hintEl = document.getElementById('action-hint');
             if (hintEl) hintEl.textContent = `${pc2.name} 선택. 공격할 칸을 선택하세요.`;
@@ -17815,7 +17816,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
-        if (pc.type === 'shadowAssassin' || pc.type === 'witch' || pc.type === 'catapult') {
+        if (pc.type === 'shadowAssassin' || pc.type === 'catapult') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${pc.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();
@@ -17861,7 +17862,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
-        if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch' || clickedOther.type === 'catapult') {
+        if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'catapult') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();
@@ -18038,8 +18039,7 @@ function getAttackCells(type, col, row, extra) {
     case 'armoredWarrior':
       push(col, row); push(col-1, row+1); push(col, row+1); push(col+1, row+1);
       break;
-    case 'witch':
-      if (extra.tCol !== undefined) push(extra.tCol, extra.tRow);
+    case 'witch':   // ★ 마녀 공격 불가 · 공격범위 없음
       break;
     case 'dualBlade':
       for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
@@ -18599,7 +18599,7 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'shadowAssassin': push(col,row); for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
     case 'wizard': push(col,row-2);push(col,row+2);push(col-2,row);push(col+2,row); break;
     case 'armoredWarrior': push(col,row);push(col-1,row+1);push(col,row+1);push(col+1,row+1); break;
-    case 'witch': push(col,row); break;
+    case 'witch': break;   // ★ 공격 불가
     case 'dualBlade': for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
     case 'ratMerchant': push(col,row); break;
     case 'weaponSmith':

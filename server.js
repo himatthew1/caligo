@@ -223,7 +223,7 @@ const CHARACTERS = {
       skills:[], passives:['instantMagic'] },
     { type:'armoredWarrior', name:'장갑병', tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
-    { type:'witch', name:'마녀', tier:2, atk:0, icon:'/assets/icons/witch.png', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
+    { type:'witch', name:'마녀', tier:2, atk:0, icon:'/assets/icons/witch.png', tag:'villain', noAttack:true, desc:'공격 불가 · 저주/개구리 장난/빗자루 비행',
       skills:[
         {id:'curse', name:'저주', cost:4, replacesAction:true, desc:'적 1명에게 저주(0.5/턴, 마녀는 저주 중 행동 불가, 마녀 피격 시 해제)'},
         {id:'frogPrank', name:'개구리 장난', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명을 개구리로(가로3·ATK0.5·스킬 없음, 마녀 피격 시 해제)'},
@@ -722,10 +722,7 @@ function getAttackCells(type, col, row, bounds, extra) {
       push(col, row);
       push(col - 1, row + 1); push(col, row + 1); push(col + 1, row + 1);
       break;
-    case 'witch':
-      if (extra.tCol !== undefined && extra.tRow !== undefined) {
-        push(extra.tCol, extra.tRow);
-      }
+    case 'witch':   // ★ PPT 슬라이드53: 마녀는 공격 행동 불가 · 공격 범위 없음(저주/개구리/빗자루 스킬만).
       break;
     case 'dualBlade':
       for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
@@ -2455,7 +2452,7 @@ function aiTeamTakeTurn(room, idx) {
       const piece = fleePiece, mem = fleeMem;
       // 반격 가치 (현재 자리에서 공격 점수)
       const counterExtra = {};
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'catapult') {
         const bt = aiBestTargetCell(brain, piece, room);
         counterExtra.tCol = bt.col; counterExtra.tRow = bt.row;
       }
@@ -2592,7 +2589,7 @@ function aiTeamTakeTurn(room, idx) {
       const pi = p.pieces.indexOf(piece);
       const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'catapult') {
         const bt = aiTeamBestTargetCell(room, idx, piece);
         extra.tCol = bt.col; extra.tRow = bt.row;
       }
@@ -2702,7 +2699,7 @@ function aiDecideAction(room, idx) {
     if (fleePiece) {
       const piece = fleePiece, mem = fleeMem;
       const counterExtra = {};
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') { const bt = aiBestTargetCell(brain, piece, room); counterExtra.tCol = bt.col; counterExtra.tRow = bt.row; }
+      if (piece.type === 'shadowAssassin' || piece.type === 'catapult') { const bt = aiBestTargetCell(brain, piece, room); counterExtra.tCol = bt.col; counterExtra.tRow = bt.row; }
       if (piece.toggleState) counterExtra.toggleState = piece.toggleState;
       const counterScore = aiTeamScoreAttack(room, idx, piece, counterExtra);
       let bestMove = null, bestFleeScore = -1;
@@ -2723,7 +2720,7 @@ function aiDecideAction(room, idx) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
       const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
+      if (piece.type === 'shadowAssassin' || piece.type === 'catapult') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
       const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
       if (!bestAction || atkScore > bestAction.score) bestAction = { type: 'attack', pieceIdx: pi, score: atkScore, extra };
       for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const ms = aiTeamScoreMove(room, idx, piece, nc, nr) * 0.7; if (!bestAction || ms > bestAction.score) bestAction = { type: 'move', pieceIdx: pi, score: ms, col: nc, row: nr }; }
@@ -9583,7 +9580,7 @@ function aiTakeTurn(room) {
 
     // 반격 가치: 현재 위치에서 공격 시 예상 점수 (probMap 기반)
     let counterExtra = {};
-    if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
+    if (piece.type === 'shadowAssassin' || piece.type === 'catapult') {
       const bt = aiBestTargetCell(brain, piece, room);
       counterExtra.tCol = bt.col; counterExtra.tRow = bt.row;
     }
@@ -9759,7 +9756,7 @@ function aiTakeTurn(room) {
 
       // Attack score
       let atkExtra = { ...extra };
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'catapult') {
         const bt = aiBestTargetCell(brain, piece, room);
         atkExtra.tCol = bt.col;
         atkExtra.tRow = bt.row;
@@ -11742,6 +11739,8 @@ io.on('connection', (socket) => {
 
     // ★ 이야기꾼 선동: 배신 상태 유닛은 공격도 불가.
     { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; } }
+    // ★ 마녀 공격 불가(공격범위 없음 — PPT). 저주/개구리/빗자루만.
+    { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.type === 'witch' || getChar(_ap.type)?.noAttack)) { socket.emit('err', { msg: '이 유닛은 공격할 수 없습니다.' }); return; } }
     // ★ 마녀 채널링: 저주 유지 중 공격 불가.
     { const _ap = player.pieces[pieceIdx]; if (witchIsChanneling(room, _ap)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 공격할 수 없습니다.' }); return; } }
 
