@@ -273,7 +273,7 @@ const CHARACTERS = {
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:'spirit', desc:'X대각선 4칸 · 자기 제외',
       skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
     { type:'monk', name:'사제', tier:3, atk:1, icon:'/assets/icons/monk.png', tag:'spirit', desc:'상하 각1칸 · 자기 제외',
-      skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
+      skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'아군 한명(자신 포함) 상태 이상 제거 + 체력 2 회복'}],
       passives:['grace'] },
     { type:'slaughterHero', name:'광전사', tier:3, atk:1, icon:'/assets/icons/slaughterHero.png', tag:'villain', desc:'주위 9칸 · 학살: 공격이 아군에게도 영향',
       skills:[], passives:['betrayer'] },
@@ -4139,7 +4139,7 @@ function createPiece(type, tier, hp, extra) {
   if (base.passives.includes('instantMagic')) base.passiveName = '인스턴트매직';
   if (base.passives.includes('ironSkin')) base.passiveName = '아이언스킨';
   if (base.passives.includes('grace')) base.passiveName = '가호';
-  if (base.passives.includes('betrayer')) base.passiveName = '배반자';
+  if (base.passives.includes('betrayer')) base.passiveName = '학살';
   if (base.passives.includes('wrath')) base.passiveName = '사기증진';
   if (base.passives.includes('markPassive')) base.passiveName = '표식';
   if (base.passives.includes('tyranny')) base.passiveName = '폭정';
@@ -4916,6 +4916,15 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
       }
     }
   }
+  // ★ 리워크(PPT): 고문기술자 사망 → 그가 남긴 표식 해제(같은 소유주의 다른 고문기술자 없을 때만).
+  if (deadPiece.type === 'torturer') {
+    const stillHasTorturer = (owner && owner.pieces || []).some(p => p.alive && p.type === 'torturer' && p !== deadPiece);
+    if (!stillHasTorturer) {
+      for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+        if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'mark' && e.source === ownerIdx));
+      }
+    }
+  }
   // ★ Phase 3: 이야기꾼 사망 → 그가 건 배신 해제(피해로 이미 해제됐을 수 있으나 비-데미지 사망 백업).
   if (deadPiece.type === 'storyteller') {
     for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
@@ -5260,20 +5269,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             }
           }
 
-          // ★ 리워크 (역방향 표식): 고문기술자가 *피격* 당하면 공격자에게 표식 부여 — 큐에 push.
-          //   공격 접촉만으로 적용 (0 데미지 / 사망 여부 무관). 호위무사 가로채기는 제외.
-          //   공격자 그림자 상태도 큐에 넣지 않음. ('이미 표식' 체크는 flushMarkPhase 의 final check.)
-          if (defPiece.type === 'torturer' &&
-              !redirectedToBodyguard &&
-              !atkPiece.statusEffects.some(e => e.type === 'shadow')) {
-            room._pendingMarks.push({
-              type: 'reverse',
-              sourceOwnerIdx: defIdx,
-              sourcePieceIdx: dpi,
-              target: atkPiece,
-              targetName: atkPiece.name,
-            });
-          }
+          // ★ 리워크(PPT): 표식은 고문기술자가 '공격'할 때만 부여. 피격 시 역방향 표식은 제거됨.
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
 
@@ -5575,10 +5571,9 @@ function processTurnStart(room) {
 
   // Remove shadow effects from THIS player's pieces (shadow lasts until own next turn)
   // ★ Phase 3: rally(검투사 투지 임시 사기증진 +1 ATK)도 '다음 자신의 차례'에 해제 — 동일 타이밍.
-  //   호문클루스 변이(_tagOverride)도 '다음 자신의 턴까지'라 여기서 원복.
+  //   ★ 호문클루스 변이(_tagOverride)는 사용자 지시로 '영구' 변환 → 여기서 원복하지 않음.
   for (const p of player.pieces) {
     p.statusEffects = p.statusEffects.filter(e => e.type !== 'shadow' && e.type !== 'rally');
-    if (p._tagOverride) p._tagOverride = null;
   }
 
   // ★ Pre-curse HP 스냅샷은 보드 축소 *이후* 캡처해야 함 (사용자 보고:
@@ -7663,6 +7658,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── DRAGON TAMER: 드래곤 소환 ──
     case 'dragonTamer': {
+      // ★ PPT: 드래곤 소환은 게임당 1회만.
+      if (piece.dragonSummoned) return { ok: false, msg: '드래곤 소환은 게임당 1회만 사용할 수 있습니다.' };
       // 보드 위 드래곤이 이미 1마리 있으면 소환 불가
       const existingDragon = player.pieces.find(p => p.isDragon && p.alive);
       if (existingDragon) return { ok: false, msg: '보드 위에 이미 드래곤이 있습니다.' };
@@ -7695,6 +7692,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       dragon.tier = 3;
       dragon.desc = '자신 + 십자4칸 · 총 5칸';
       player.pieces.push(dragon);
+      piece.dragonSummoned = true;   // ★ 게임당 1회 소진
       spendSP(room, playerIdx, cost);
       emitToBothAndSpectators(room, 'dragon_spawned', { dragon: { col: dc, row: dr, hp: 3 }, owner: playerIdx, spCost: cost });  // ★ 관전자도 드래곤 소환 모션(팀 관전자)
       emitToSpectators(room, 'spectator_log', { msg: `드래곤 소환: ${coord(dc,dr)}에 드래곤 소환`, type: 'skill', playerIdx });
@@ -7717,7 +7715,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const targetPlayer = room.players[targetOwnerIdx];
       const target = targetPlayer && targetPlayer.pieces[targetIdx2];
       if (!target || !target.alive) return { ok: false, msg: '대상이 없습니다.' };
-      if (target === piece) return { ok: false, msg: '자신은 치유할 수 없습니다.' };
+      // ★ 사제 리워크(PPT): 스스로 회복 가능 — 자기 제외 가드 제거.
       target.hp = Math.min(target.maxHp, target.hp + 2);
       // AI 마녀 학습 — 신성으로 저주 정화 시 시전자 마녀의 _curseHistory 카운트 증가
       const hadCurse = (target.statusEffects || []).find(e => e.type === 'curse');

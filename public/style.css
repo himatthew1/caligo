@@ -1711,13 +1711,14 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 
 /* 아이콘 인덱스 (가로 한 줄 리모콘) */
 .draft-icon-index {
-  display: flex; flex-direction: row; align-items: center; justify-content: center;
-  flex-wrap: wrap;               /* ★ 유닛 20종/티어 → 한 줄에 안 들어감. 두 줄 이상 자동 줄바꿈 */
+  display: grid;
+  grid-template-columns: repeat(10, auto);   /* ★ 한 줄에 정확히 10개 → 20종이면 10+10 두 줄 */
+  justify-content: center; align-items: center;
   gap: 4px 4px;
   padding: 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;           /* 여러 줄이 되면 알약형(28px)이 어색 → 완만한 라운드 */
+  border-radius: 16px;
   margin-bottom: 10px;
 }
 .icon-index-btn {

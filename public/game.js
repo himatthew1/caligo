@@ -10071,28 +10071,28 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('절대복종 반지', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '스킬 사용 시 적 한 명을 선택하고 위치를 지정하면, 그 적을 해당 위치로 강제 이동시킵니다.',
+    body: '아군 또는 적 1명을 원하는 위치로 강제 이동시킵니다.',
     flavor: '왕좌에 앉은 자. 그의 명령은 곧 신의 뜻처럼 거역할 수 없다.',
   },
   dragonTamer: {
     blocks: [
       { ...mkSkillHead('드래곤 소환', 'tag-once', '자유시전·1회'), sp: 5, color: '#a78bfa' },
     ],
-    body: '스킬 사용시 강력한 드래곤 유닛을 원하는 위치에 소환합니다. 보드 위 드래곤은 최대 1마리까지만 소환 가능합니다.',
+    body: '드래곤을 원하는 위치에 소환합니다. 게임당 1회만 쓸 수 있습니다.',
     flavor: '고대의 계약으로 잠든 용을 깨우는 자. 그의 부름에 하늘이 진동한다.',
   },
   monk: {
     blocks: [
       { ...mkPassiveHead('가호'), color: '#f59e0b', desc: '악인 적을 공격할 때 공격력이 3으로 증가하며, 악인에게 받는 모든 공격 피해는 0.5로 감소합니다.' },
-      { ...mkSkillHead('신성', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa', desc: '스킬 사용 시 아군 1명을 선택합니다. 해당 아군의 체력을 2 회복시키고 상태 이상을 제거합니다. 수도승은 이 스킬로 스스로 회복할 수 없습니다.' },
+      { ...mkSkillHead('신성', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa', desc: '아군 1명의 상태 이상을 없애고 체력을 2 회복합니다. 자신에게도 쓸 수 있습니다.' },
     ],
     flavor: '신의 뜻을 전하는 자. 악을 응징하고 선한 자를 치유하는 성스러운 손길.',
   },
   slaughterHero: {
     blocks: [
-      { ...mkPassiveHead('배반자'), color: '#f59e0b' },
+      { ...mkPassiveHead('학살'), color: '#f59e0b' },
     ],
-    body: '학살 영웅은 공격 시 아군에게도 피해를 입힙니다.',
+    body: '광전사의 공격은 아군에게도 영향을 줍니다.',
     flavor: '한때 영웅이라 불렸던 자. 피에 취한 그의 도끼는 적과 아군을 구분하지 못한다.',
   },
   commander: {
@@ -10111,7 +10111,7 @@ const CHAR_DETAILS = {
   },
   torturer: {
     blocks: [
-      { ...mkPassiveHead('표식'), color: '#f59e0b', desc: `고문기술자는 공격 접촉이 있었던 모든 적에게 표식을 부여합니다. ${stBadge('mark', '표식')} 상태의 적은 위치가 항상 노출됩니다.` },
+      { ...mkPassiveHead('표식'), color: '#f59e0b', desc: `공격한 적에게 표식을 남깁니다. ${stBadge('mark', '표식')} 상태의 적은 위치가 항상 공개됩니다. 고문기술자가 죽으면 표식이 풀립니다.` },
       { ...mkSkillHead('악몽', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: `${stBadge('mark', '표식')} 상태의 모든 적에게 1 피해를 줍니다.` },
     ],
     flavor: '표식을 남기는 인두와 채찍. 한 번 그의 눈에 띈 자는 끝없는 악몽에서 벗어날 수 없다.',
@@ -10120,7 +10120,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('흡혈', 'tag-once', '자유시전·1회'), sp: 3, color: '#a78bfa' },
     ],
-    body: '적 1명의 최대 체력을 1 줄이고, 자신의 최대 체력을 1 올립니다. 왕실을 대상으로 삼으면 체력 상한을 넘어 흡수합니다.',
+    body: '적 1명의 최대 체력을 1 줄이고, 자신의 체력을 1 회복합니다. 대상이 왕실이면 체력 상한을 넘어 회복합니다.',
     flavor: '피와 공포로 군림하는 영주. 그는 적의 생명을 빨아들여 스스로를 불멸에 가깝게 만든다.',
   },
   // ── ★ 새 팩션 1티어 ──
@@ -10255,15 +10255,15 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('참수'), color: '#f59e0b' },
     ],
-    body: '공격한 적을 처형해 패시브를 무력화합니다. 언데드는 즉시 파괴됩니다.',
+    body: '공격한 적을 처형해 패시브를 무력화합니다.',
     flavor: '단두대를 짊어진 집행자. 그의 도끼가 스치는 순간, 상대의 모든 재주가 봉인된다.',
   },
   // ── ★ 새 팩션 3티어 ──
   undead: {
     blocks: [
-      { ...mkPassiveHead('부패한 영혼'), color: '#f59e0b' },
+      { ...mkPassiveHead('부패한 영혼'), color: '#f59e0b', desc: '항상 사망 상태이자 유해로 간주되지만 정상적으로 움직이고 공격합니다.' },
+      { ...mkTraitHead('HP 부여 불가'), color: '#f59e0b', desc: '체력 0으로 시작하며 체력을 분배받을 수 없습니다.' },
     ],
-    body: '체력 0으로 시작하며 항상 유해로 취급되지만, 정상적으로 움직이고 공격합니다. 참수ㆍ대지 분쇄ㆍ보드 파괴로만 소멸합니다.',
     flavor: '죽었으되 쓰러지지 않는 존재. 몇 번을 베어도 그 자리에서 다시 일어선다.',
   },
   demonKing: {
@@ -10289,9 +10289,11 @@ const CHAR_DETAILS = {
   },
   oberon: {
     blocks: [
-      { ...mkPassiveHead('요정왕'), color: '#f59e0b' },
+      { ...mkPassiveHead('요정왕'), color: '#f59e0b', desc: '오베론을 포함한 정령이 피해를 받을 때마다 카운터가 1 쌓입니다. 카운터로 아래 스킬을 씁니다.' },
+      { ...mkSkillHead('축복', 'tag-free', '자유시전형'), color: '#a78bfa', desc: '카운터 2 — 모든 정령의 공격력을 다음 차례까지 1 올립니다.' },
+      { ...mkSkillHead('은혜', 'tag-once', '자유시전·1회'), color: '#a78bfa', desc: '카운터 3 — 모든 정령의 체력을 1 회복합니다.' },
+      { ...mkSkillHead('종언', 'tag-action', '행동소비형'), color: '#a78bfa', desc: '카운터 10 — 정령이 아닌 모든 유닛을 즉시 파괴합니다.' },
     ],
-    body: '아군 정령이 피해를 받을 때마다 카운터가 1 쌓입니다. 카운터로 축복ㆍ은혜ㆍ종언을 씁니다. 축복은 정령 공격력을, 은혜는 정령 체력을 올리고, 종언은 정령이 아닌 모든 유닛을 소멸시킵니다.',
     flavor: '요정들의 왕. 백성이 흘린 고통을 힘으로 되받아, 마침내 세상에 종언을 고한다.',
   },
   militia: {
@@ -10299,8 +10301,10 @@ const CHAR_DETAILS = {
     flavor: '전장에서 잔뼈가 굵은 백전노장. 화려함은 없어도 한 방의 무게만큼은 믿음직하다.',
   },
   mercenary: {
-    blocks: [ { head: '스킬 없음', color: '#6b7280' } ],
-    body: '덱을 짤 때 원하는 티어에 넣을 수 있습니다.',
+    blocks: [
+      { head: '스킬 없음', color: '#6b7280' },
+      { ...mkTraitHead('자유 배치'), color: '#f59e0b', desc: '원하는 티어에 자유롭게 배치할 수 있습니다.' },
+    ],
     flavor: '돈이면 어느 편에든 선다. 값을 치른 자리라면 어디든 그의 칼이 향한다.',
   },
   hero: {
@@ -10314,14 +10318,14 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('투지', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '스킬이 없는 아군 1명을 1 회복시키고 사기증진을 부여합니다.',
+    body: '스킬이 없는 모든 아군을 1 회복시키고 사기증진을 부여합니다.',
     flavor: '투기장에서 살아남은 자의 근성. 그의 함성은 이름 없는 병사들에게 다시 일어설 힘을 준다.',
   },
   homunculus: {
     blocks: [
       { ...mkSkillHead('변이', 'tag-free', '자유시전형'), sp: 1, color: '#a78bfa' },
     ],
-    body: '다음 턴까지 진영을 악인ㆍ왕실ㆍ정령 중 하나로 바꿉니다.',
+    body: '진영을 악인ㆍ왕실ㆍ정령 중 하나로 영구히 바꿉니다.',
     flavor: '무엇으로든 변할 수 있는 인공 생명체. 필요에 따라 그 정체성마저 자유로이 갈아입는다.',
   },
 };
@@ -17186,11 +17190,11 @@ function showMonkSkillUI(pieceIdx) {
     });
     body.appendChild(opt);
   };
-  // 본인 말 (수도승 자신 제외)
+  // 본인 말 (★ 사제 리워크: 자신도 치유 대상 포함)
   for (let i = 0; i < S.myPieces.length; i++) {
     const apc = S.myPieces[i];
-    if (!apc.alive || i === pieceIdx) continue;
-    _addOpt(apc, i, S.playerIdx, '');
+    if (!apc.alive) continue;
+    _addOpt(apc, i, S.playerIdx, i === pieceIdx ? '(자신)' : '');
   }
   // 팀전: 팀원 말도 치유 가능
   if (S.isTeamMode && Array.isArray(S.teammatePieces) && S.teammatePieces.length > 0) {
@@ -18647,9 +18651,9 @@ function getPassiveLabel(passiveId) {
     instantMagic: '피해를 받을 때마다 일회용 SP를 1 얻음',
     ironSkin: '받는 모든 공격 피해가 0.5 감소',
     grace: '악인을 공격할 때 3 피해 · 악인에게 받는 피해 0.5',
-    betrayer: '공격 범위 내 아군에게도 1 피해',
+    betrayer: '공격이 아군에게도 영향을 줌',
     wrath: '인접한 아군에게 사기 증진 부여',
-    markPassive: '공격ㆍ피격 시 대상에게 표식 부여',
+    markPassive: '공격한 적에게 표식 부여 · 고문기술자가 죽으면 해제',
     tyranny: '1ㆍ2티어에게 받는 피해가 0.5 감소',
     loyalty: '다른 왕실 아군이 공격받으면 대신 막아 하나당 1 피해만 받음 · 표식도 걸리지 않음',
     // ★ 새 팩션 패시브
@@ -18666,7 +18670,7 @@ function getPassiveLabel(passiveId) {
     behead: '공격한 적을 처형해 패시브를 무력화 · 언데드는 즉시 파괴',
     patron: '게임 시작 시 모든 왕실 아군의 최대 체력 1 증가',
     successor: '살아있는 다른 왕실 하나당 공격력 +0.5 · 적 왕실도 셈',
-    rottenSoul: '항상 유해로 취급되나 정상 활동 · 참수ㆍ대지 분쇄ㆍ보드 파괴로만 소멸',
+    rottenSoul: '항상 사망 상태이자 유해로 간주되나 정상 활동',
     darkVeil: '악인을 뺀 모든 유닛의 공격 범위가 1칸 봉인',
     sporeSpread: '피해를 받으면 보드 두 칸이 진균 지대가 됨 · 진균 지대에서 턴을 마친 유닛은 중독',
     faeKing: '아군 정령이 피해를 받을 때마다 카운터 +1 · 카운터로 축복ㆍ은혜ㆍ종언',
@@ -18679,7 +18683,7 @@ function getPassiveName(passiveId) {
     instantMagic: '인스턴트매직',
     ironSkin: '아이언스킨',
     grace: '가호',
-    betrayer: '배반자',
+    betrayer: '학살',
     wrath: '사기증진',
     markPassive: '표식',
     tyranny: '폭정',
