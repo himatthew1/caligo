@@ -265,6 +265,11 @@ const CHARACTERS = {
     { type:'demonKing', name:'마왕 칼리고', tier:3, atk:0, icon:'/assets/icons/demonKing.png', tag:'villain', desc:'제자리 중심 V(6칸)',
       skills:[{id:'corrupt', name:'타락', cost:1, replacesAction:true, desc:'보드 위 모든 악인 공격력 +0.5(누적)'}] },
     // ── ★ Phase 3 신규 ──
+    { type:'oberon', name:'오베론', tier:3, atk:1, icon:'/assets/icons/oberon.png', tag:'spirit', desc:'제자리+하단 대각2 · 요정왕 카운터(정령 피해 시 +1)로 축복/은혜/종언',
+      passives:['faeKing'],
+      skills:[{id:'bless', name:'축복', cost:2, replacesAction:false, resource:'oberonCounter', desc:'카운터2 — 아군 정령 공격력 +1(다음 차례까지)'},
+              {id:'grace', name:'은혜', cost:3, replacesAction:false, oncePerTurn:true, resource:'oberonCounter', desc:'카운터3 — 아군 정령 체력 +1'},
+              {id:'ending', name:'종언', cost:10, replacesAction:true, resource:'oberonCounter', desc:'카운터10 — 정령이 아닌 모든 유닛 즉시 소멸'}] },
     { type:'militia', name:'민병대장', tier:3, atk:3, icon:'/assets/icons/militia.png', tag:null, desc:'가로 3칸', skills:[] },
     { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
     { type:'hero', name:'영웅', tier:3, atk:3, icon:'/assets/icons/hero.png', tag:null, desc:'제자리와 하단',
@@ -3946,6 +3951,7 @@ function pieceSummary(pieces) {
     messengerSprintActive: pc.messengerSprintActive,
     messengerMovesLeft: pc.messengerMovesLeft,
     dragonSummoned: pc.dragonSummoned,
+    oberonCounter: pc._oberonCounter || 0,   // ★ 요정왕 카운터(자기 유닛만 노출)
   }));
 }
 
@@ -4041,7 +4047,11 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
-  // TODO(Phase4): 오베론 요정왕(정령 피해→카운터+1).
+  // [오베론] 요정왕 — 소유주의 정령 유닛(오베론 포함)이 피해 받을 때마다 그 소유주의 오베론 카운터 +1.
+  if (typeof isFaction === 'function' && isFaction(victim, 'spirit')) {
+    const ob = (room.players[ownerIdx] && room.players[ownerIdx].pieces || []).find(p => p.alive && p.type === 'oberon');
+    if (ob) ob._oberonCounter = (ob._oberonCounter || 0) + 1;
+  }
 }
 
 function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
@@ -6229,12 +6239,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     const matchedSkill = baseChar.skills.find(s => s.id === skillId);
     if (matchedSkill) cost = matchedSkill.cost;
   }
-  // ★ Phase 3: 궁정대신 탄압 — 보드에 살아있는 궁정대신이 있으면 비왕실 유닛 스킬 SP +1(아/적 불문).
-  if (typeof _suppressionSurcharge === 'function') cost += _suppressionSurcharge(room, piece);
+  // ★ Phase 3: 궁정대신 탄압 — 보드에 살아있는 궁정대신이 있으면 비왕실 유닛 스킬 SP +1(아/적 불문). 오베론(카운터) 제외.
+  if (typeof _suppressionSurcharge === 'function' && piece.type !== 'oberon') cost += _suppressionSurcharge(room, piece);
 
-  // Check SP (regular + instant) — 팀모드는 teamId 슬롯
+  // Check SP (regular + instant) — 팀모드는 teamId 슬롯. ★ 오베론은 SP 대신 요정왕 카운터 사용.
   const spSlot = teamSlotIdx(room, playerIdx);
-  if ((room.sp[spSlot] + room.instantSp[spSlot]) < cost) return { ok: false, msg: 'SP가 부족합니다.' };
+  if (piece.type === 'oberon') {
+    if ((piece._oberonCounter || 0) < cost) return { ok: false, msg: `요정왕 카운터가 부족합니다 (${Math.floor(piece._oberonCounter || 0)}/${cost}).` };
+  } else if ((room.sp[spSlot] + room.instantSp[spSlot]) < cost) {
+    return { ok: false, msg: 'SP가 부족합니다.' };
+  }
 
   // 턴당 1회 제한 체크 (oncePerTurn)
   const effectiveSkillId = skillId || piece.skillId;
@@ -6887,6 +6901,60 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `타락: 모든 악인 공격력 +0.5`;
       result.oppMsg = `타락: 악인 강화`;
       break;
+    }
+
+    // ── OBERON(요정왕): 카운터 자원 스킬 (SP 대신 piece._oberonCounter 차감) ──
+    //   축복(bless, 카운터2, 자유시전): 아군 정령 전원 공격력 +1(다음 차례까지 = rally 재사용).
+    //   은혜(grace, 카운터3, 자유시전 1회): 아군 정령 전원 체력 +1.
+    //   종언(ending, 카운터10, 행동소비): 정령이 아닌 모든 유닛(아/적 불문) 즉시 파괴(소멸=무유해).
+    case 'oberon': {
+      const oberonAllies = getAllyIndices(room, playerIdx);
+      const spendCounter = (n) => { piece._oberonCounter = Math.max(0, (piece._oberonCounter || 0) - n); };
+      if (skillId === 'bless') {
+        spendCounter(cost);
+        for (const ai of oberonAllies) for (const p of (room.players[ai] && room.players[ai].pieces || [])) {
+          if (p.alive && isFaction(p, 'spirit')) {
+            if (!p.statusEffects) p.statusEffects = [];
+            if (!p.statusEffects.some(e => e.type === 'rally')) p.statusEffects.push({ type: 'rally' });
+          }
+        }
+        result.msg = `축복: 정령 공격력 +1`;
+        result.oppMsg = `축복: 상대 정령 강화`;
+        break;
+      }
+      if (skillId === 'grace') {
+        spendCounter(cost);
+        for (const ai of oberonAllies) for (const p of (room.players[ai] && room.players[ai].pieces || [])) {
+          if (p.alive && isFaction(p, 'spirit')) p.hp = Math.min(p.maxHp || p.hp, p.hp + 1);
+        }
+        result.msg = `은혜: 정령 체력 +1`;
+        result.oppMsg = `은혜: 상대 정령 회복`;
+        break;
+      }
+      if (skillId === 'ending') {
+        spendCounter(cost);
+        player.actionUsedSkillReplace = true;
+        player.actionDone = true;
+        const endHits = [];
+        const prevShrinkFlag = room._boardShrinkDeaths;
+        room._boardShrinkDeaths = true;   // 종언 파괴 = 유해 없음(보드축소 사망과 동일 경로)
+        for (let pi = 0; pi < room.players.length; pi++) {
+          const pl = room.players[pi]; if (!pl) continue;
+          for (let ui = 0; ui < pl.pieces.length; ui++) {
+            const u = pl.pieces[ui];
+            if (u.alive && !isFaction(u, 'spirit')) {
+              handleDeath(room, u, pi);
+              endHits.push({ col: u.col, row: u.row, destroyed: true, defPieceIdx: ui, defOwnerIdx: pi });
+            }
+          }
+        }
+        room._boardShrinkDeaths = prevShrinkFlag;
+        result.msg = `종언: 정령 외 모든 유닛 소멸`;
+        result.oppMsg = `종언: 정령 외 전멸`;
+        result.data.hits = endHits;
+        break;
+      }
+      return { ok: false, msg: '알 수 없는 요정왕 스킬입니다.' };
     }
 
     // ── KING: 절대복종 반지 (force move enemy) ──

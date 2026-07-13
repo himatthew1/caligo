@@ -16320,7 +16320,11 @@ function openSkillModal(targetPieceIdx) {
     if (skillList) {
       // 다중 스킬: 각 스킬을 별도 옵션으로 표시
       for (const sk of skillList) {
-        const canAfford = totalSP >= sk.cost;
+        // ★ 오베론 축복/은혜/종언은 SP가 아니라 요정왕 카운터(pc.oberonCounter)로 판정.
+        const usesCounter = sk.resource === 'oberonCounter';
+        const counterVal = pc.oberonCounter || 0;
+        const canAfford = usesCounter ? (counterVal >= sk.cost) : (totalSP >= sk.cost);
+        const costLabel = usesCounter ? `카운터 ${sk.cost} (보유 ${counterVal})` : `SP 비용: ${sk.cost}`;
         const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
 
         // 행동소비형인데 이미 행동했으면 비활성화
@@ -16364,7 +16368,7 @@ function openSkillModal(targetPieceIdx) {
         const skTag = getSkillTypeTag(sk);
         opt.innerHTML = `
           <div class="skill-name">${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name} — ${sk.name} ${skTag}</div>
-          <div class="skill-cost">SP 비용: ${sk.cost}${extraNote}</div>
+          <div class="skill-cost">${costLabel}${extraNote}</div>
           <div class="skill-desc">${sk.desc}</div>`;
 
         if (canAfford && !extraDisabled) {
