@@ -4177,6 +4177,7 @@ function pieceSummary(pieces) {
     skills: pc.skills || [],
     passiveName: pc.passiveName, passives: pc.passives,
     toggleState: pc.toggleState,
+    rangeGrowth: pc._rangeGrowth || 0,
     subUnit: pc.subUnit,
     isDragon: pc.isDragon,
     wizardPassiveUsed: pc.wizardPassiveUsed,
@@ -4214,6 +4215,7 @@ function oppPieceSummary(pieces) {
       isDragon: pc.isDragon,
       range: pc.range,
       toggleState: pc.toggleState,
+      rangeGrowth: pc._rangeGrowth || 0,
       darkVeilSeed: pc._darkVeilSeed,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
@@ -5799,12 +5801,20 @@ function processTurnStart(room) {
       if (p0Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 1, 'shrink'); return; }
       if (p1Dead) { setKillInfo(room, 'shrink', null, []); endGame(room, 0, 'shrink'); return; }
     }
-    // LV1 + unreachable 무승부
-    if (room.boardShrinkLevel === 1 && checkUnreachableDraw(room)) {
-      setKillInfo(room, 'unreachable', null, []);
-      if (room.mode === 'team') endTeamGame(room, 0, 'unreachable_draw');
-      else endGame(room, -1, 'unreachable_draw');
-      return;
+    // ★ LV1(1x1) 대치 특수 규칙 — 제자리 공격 불가: 한쪽만=그쪽 패배, 양쪽=무승부. (어둠장막이 제자리 봉인 가능)
+    if (room.boardShrinkLevel === 1) {
+      const sa = checkSelfAttackStalemate(room);
+      if (sa) {
+        if (sa.draw) {
+          setKillInfo(room, 'unreachable', null, []);
+          if (room.mode === 'team') endTeamGame(room, 0, 'unreachable_draw');
+          else endGame(room, -1, 'unreachable_draw');
+        } else {
+          setKillInfo(room, 'unreachable', null, []);
+          endGame(room, sa.winnerIdx, 'shrink');   // 제자리 공격 불가한 쪽 패배
+        }
+        return;
+      }
     }
   }
 }
@@ -5815,24 +5825,38 @@ function processTurnStart(room) {
 //   ② 이 상태에서 살아있는 모든 유닛 중 누구의 공격범위에도 '자기 자신의 위치'가 포함되지 않음
 //      (1x1 에서 모두 같은 칸에 스택되므로, 자기-공격 가능한 유닛이 하나라도 있으면 누군가 칠 수 있음 → 무승부 아님)
 // ═══════════════════════════════════════════════════════════════
-function checkUnreachableDraw(room) {
+// ★ 유닛이 '제자리(자기 위치)'를 공격할 수 있는지 — 개구리(frog 범위)·생장·정비·어둠장막 봉인 모두 반영.
+function canSelfAttack(room, piece) {
+  if (!piece || !piece.alive) return false;
   const bounds = room.boardBounds;
-  // 조건 ①: 보드가 1x1 (= max-min+1 == 1)
-  const cells = (bounds.max - bounds.min + 1);
-  if (cells > 1) return false;
-  // 살아있는 모든 유닛 중 누구라도 자기 위치를 공격할 수 있으면 무승부 아님
-  for (const player of (room.players || [])) {
-    for (const piece of (player.pieces || [])) {
-      if (!piece.alive) continue;
-      if (!inBounds(piece.col, piece.row, bounds)) continue;
-      const atk = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
-      if (atk.some(c => c.col === piece.col && c.row === piece.row)) {
-        return false;  // 자기 위치 공격 가능 → 누군가 스택된 적을 칠 수 있음 → 무승부 아님
-      }
+  const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(piece) : piece.type;
+  let cells = getAttackCells(atkType || piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+  if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, piece, cells);   // ★ 어둠장막이 제자리 칸을 막을 수 있음
+  return cells.some(c => c.col === piece.col && c.row === piece.row);
+}
+// ★ 1v1 대치 특수 규칙 — 보드가 1x1이고 자기-공격 불가면: 한쪽만 불가=그쪽 패배, 양쪽 불가=무승부.
+//   반환: null(해당 없음) | { draw:true } | { winnerIdx }
+function checkSelfAttackStalemate(room) {
+  if (room.mode === 'team') return null;   // 팀전 별도(현재 1v1 규칙)
+  const bounds = room.boardBounds;
+  if ((bounds.max - bounds.min + 1) > 1) return null;   // 1x1 아니면 무관
+  const canAtk = [false, false];
+  for (let pi = 0; pi < 2; pi++) {
+    const pl = room.players[pi]; if (!pl) continue;
+    for (const piece of (pl.pieces || [])) {
+      if (!piece.alive || !inBounds(piece.col, piece.row, bounds)) continue;
+      if (canSelfAttack(room, piece)) { canAtk[pi] = true; break; }
     }
   }
-  // 조건 ②: 모두 자기-공격 불가 → 무승부
-  return true;
+  if (!canAtk[0] && !canAtk[1]) return { draw: true };
+  if (!canAtk[0]) return { winnerIdx: 1 };   // p0 제자리 공격 불가 → p0 패배
+  if (!canAtk[1]) return { winnerIdx: 0 };
+  return null;   // 둘 다 가능 → 계속(서로 공격으로 결판)
+}
+// 레거시 호환 — 양쪽 모두 자기-공격 불가일 때만 무승부.
+function checkUnreachableDraw(room) {
+  const r = checkSelfAttackStalemate(room);
+  return !!(r && r.draw);
 }
 
 // 보드 축소 스케줄 (모드별)

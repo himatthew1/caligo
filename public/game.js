@@ -11358,7 +11358,7 @@ function createRevealCard(pc, tooltipSide) {
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
   const tagHtml = tagBadgeHtml(pc.tag);
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
@@ -12689,7 +12689,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const selectedCls = (interactive && placementSelected === i) ? 'selected' : '';
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
-    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
+    const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
     const tagHtml = tagBadgeHtml(pc.tag);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
@@ -16059,7 +16059,7 @@ function getSkillTypeTagFromChar(pc) {
 }
 
 function buildPieceTooltip(pc, side) {
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
 
   // 캐릭터 도감(slide-content)과 동일 양식으로 통일:
   //   <slide-head-line>
