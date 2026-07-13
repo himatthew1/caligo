@@ -8809,6 +8809,8 @@ function aiExecuteMove(room, action) {
 
   emitToPlayer(room, 0, 'opp_moved', { msg: `${room.players[1].name}${조사(room.players[1].name, '이', '가')} 이동했습니다.`, prevCol, prevRow, col: action.col, row: action.row });
   emitToSpectators(room, 'spectator_log', { msg: `${piece.name} 이동`, type: 'move', playerIdx: 1 });
+  // ★ Phase 3: 중독 틱 — 이동한 AI 유닛이 중독이면 0.1×스택 지속뎀.
+  if (typeof tickActorPoison === 'function') tickActorPoison(room, piece, 1);
   // ★ FIX (관전자 이동 모션): 1v1 AI 이동 — spectator_update 전에 슬라이드 애니용 좌표 전송.
   emitToSpectators(room, 'spectator_move_anim', { prevCol, prevRow, col: action.col, row: action.row, pieceType: piece.type, pieceSubUnit: piece.subUnit || null, owner: 1 });
   if (!aiTrapPending) emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
@@ -8944,6 +8946,9 @@ function aiExecuteAttack(room, action) {
 
   // ★ 공격 처리 완료 — suppressed SP 업데이트 emit
   emitSPUpdate(room);
+
+  // ★ Phase 3: 중독 틱 — 공격한 AI 유닛이 중독이면 0.1×스택(페이즈 안이라 중독사 시퀀스 정상).
+  if (typeof tickActorPoison === 'function') tickActorPoison(room, piece, 1);
 
   // ★ 게임종료 검사 — 사망 기폭 페이즈가 deferred 면 callback 으로 지연.
   //   simultaneous_draw 케이스도 checkGameEndAfterPhase 가 처리.
@@ -10529,6 +10534,9 @@ io.on('connection', (socket) => {
       twinMovedSub: piece.subUnit || null,
     });
 
+    // ★ Phase 3: 중독 틱 — 이동을 완료한 유닛이 중독이면 0.1×스택 지속뎀(감경 우회). move_ok 뒤 발동.
+    if (typeof tickActorPoison === 'function') tickActorPoison(room, piece, idx);
+
     // ★ 사용자 요청: 쌍둥이 이동은 시전자가 페이즈 마무리에 단 한 번 알림을 받듯이,
     //   상대도 페이즈 마무리에 단 한 번만 opp_moved 받음.
     //   첫 쌍둥이 이동 → 알림 보류. 두번째 이동 OR end_turn 시 단일 알림 발송.
@@ -11196,6 +11204,8 @@ io.on('connection', (socket) => {
     player._lastActionType = 'attack';
     player._lastActionPieceType = atkPiece.type;
     player._lastActionSubUnit = atkPiece.subUnit || null;
+    // ★ Phase 3: 중독 틱 — 공격을 완료한 유닛이 중독이면 0.1×스택(attack_result 뒤 발동).
+    if (typeof tickActorPoison === 'function') tickActorPoison(room, atkPiece, idx);
 
     if (room.mode === 'team') {
       // 팀모드: 공격 후 전체 상태 재브로드캐스트

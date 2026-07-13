@@ -5238,6 +5238,32 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 
 // ── 피격 ──
 let _beingAttackedSeq = 0;
+// ★ Phase 3: 중독 지속뎀(틱) — 중독 유닛이 행동 후 0.1×스택 피해. HP 갱신 + 도장 + 사망 연출.
+socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, name }) => {
+  if (col == null) return;
+  const mine = (ownerIdx === S.playerIdx);
+  const teammate = !mine && S.isTeamMode && Array.isArray(S.teammatePieces) && (typeof S.teammateIdx === 'number') && ownerIdx === S.teammateIdx;
+  let arr, keyOf, isDef;
+  if (mine) { arr = S.myPieces; keyOf = (i) => S.isTeamMode ? `${S.playerIdx}:${i}` : `my:${i}`; isDef = true; }
+  else if (teammate) { arr = S.teammatePieces; keyOf = (i) => `${ownerIdx}:${i}`; isDef = true; }
+  else { arr = S.oppPieces; keyOf = (i) => `opp:${i}`; isDef = false; }
+  if (!Array.isArray(arr)) return;
+  let i = arr.findIndex(p => p && p.alive && p.col === col && p.row === row && (!type || p.type === type));
+  if (i < 0 && !mine && !teammate) i = arr.findIndex(p => p && p.alive && (!type || p.type === type) && p.col == null);
+  if (i < 0) return;
+  const pc = arr[i];
+  pc.hp = newHp;
+  if (!mine && !teammate) { pc.col = col; pc.row = row; pc.marked = true; }   // 중독 유닛 행동=위치 공개
+  if (destroyed) pc.alive = false;
+  try { if (damage > 0) addBodyDamage(keyOf(i), damage); } catch (e) {}
+  try { addLog(`☣ ${name || '유닛'} 중독 피해 ${damage}`, 'hit'); } catch (e) {}
+  const rerender = () => { try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); } catch (e) {} };
+  if (destroyed && typeof scheduleDeathGif === 'function' && typeof _detectDeaths === 'function') {
+    const deaths = _detectDeaths([{ col, row, type, defPieceIdx: i }], isDef);
+    S._pendingDeathCells = new Set([`${col},${row}`]); rerender();
+    if (deaths.length) scheduleDeathGif(deaths, deaths, rerender); else { S._pendingDeathCells = null; rerender(); }
+  } else rerender();
+});
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits }) => {
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -15647,7 +15673,7 @@ function renderStatusBadges(pc) {
   if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
   // ★ #9 이모지(마커)와 라벨을 분리 → 모바일에서 라벨만 숨겨 컴팩트 이모지 마커로 표시
   //   (좁은 프로필 카드에서도 가로 우선 유지, 자리 부족시 둘째 줄). 데스크탑은 이모지+텍스트 그대로.
-  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'] };
+  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'] };
   let html = '<div class="status-badges">';
   for (const e of pc.statusEffects) {
     const cls = e.type;
