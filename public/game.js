@@ -2306,8 +2306,8 @@ function renderTeamHp(hasTwins) {
         <span>${pieceIconHtml((window.PIECE_ICONS && window.PIECE_ICONS.twins) || '/assets/icons/twins.png', {size:'1em'})} 남매 내부 분배:</span>
       </div>
       <div class="team-hp-slot-row">
-        <span>누나:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
-        <span>동생:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinYounger"><span>HP</span>
+        <span>레드:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinElder"><span>HP</span>
+        <span>블루:</span><input type="number" min="1" value="1" class="team-hp-twin-input" data-slot="twinYounger"><span>HP</span>
       </div>
     </div>`;
   }
@@ -10538,7 +10538,7 @@ const SKILL_PREVIEW = {
   commander:     { cells: commanderBuffCells,  cat: 'heal',   label: '사기증진 부여 범위' },
 
   // ── 합류 (쌍둥이 전용 합체) ──
-  twins:         { cells: twinJoinedCells,     cat: 'attack', label: '누나와 동생의 위치 합류', joinedTwins: true },
+  twins:         { cells: twinJoinedCells,     cat: 'attack', label: '레드와 블루의 위치 합류', joinedTwins: true },
 };
 // 궁수 — 반전된 대각선(/ 방향). 기본은 \ 방향이라 / 만 표시.
 function archerReversedCells(cc, cr) {
@@ -10765,14 +10765,14 @@ function updateDraftPreview(charData, opts = {}) {
       cell.className = 'cell';
       cell.innerHTML = '';
 
-      // 누나 위치
+      // 레드 위치(elder=가로3)
       if (col === elderCol && row === elderRow) {
-        cell.innerHTML = `<span style="font-size:1rem">👧</span>`;
+        cell.innerHTML = `<span style="font-size:1rem">🔴</span>`;
         cell.classList.add('has-piece');
       }
-      // 동생 위치
+      // 블루 위치(younger=세로3)
       if (col === youngerCol && row === youngerRow) {
-        cell.innerHTML = `<span style="font-size:1rem">👦</span>`;
+        cell.innerHTML = `<span style="font-size:1rem">🔵</span>`;
         cell.classList.add('has-piece');
       }
 
@@ -11262,7 +11262,7 @@ function showTwinSplit(twinTierHp) {
   function render() {
     controls.innerHTML = `
       <div class="hp-twin-unit hp-twin-unit-compact">
-        <strong>👧 누나</strong>
+        <strong>🔴 레드</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="elder" data-delta="-1">−</button>
           <span class="hp-value">${elderHp}</span>
@@ -11270,7 +11270,7 @@ function showTwinSplit(twinTierHp) {
         </div>
       </div>
       <div class="hp-twin-unit hp-twin-unit-compact">
-        <strong>👦 동생</strong>
+        <strong>🔵 블루</strong>
         <div class="hp-input-group" style="justify-content:center">
           <button class="hp-btn twin-btn" data-who="younger" data-delta="-1">−</button>
           <span class="hp-value">${youngerHp}</span>
@@ -12236,8 +12236,8 @@ function exUpdatePreview(charData) {
     board.querySelectorAll('.cell').forEach(cell => {
       const col = parseInt(cell.dataset.col); const row = parseInt(cell.dataset.row);
       cell.className = 'cell'; cell.innerHTML = '';
-      if (col === elderCol && row === elderRow) { cell.innerHTML = `<span style="font-size:1rem">👧</span>`; cell.classList.add('has-piece'); }
-      if (col === youngerCol && row === youngerRow) { cell.innerHTML = `<span style="font-size:1rem">👦</span>`; cell.classList.add('has-piece'); }
+      if (col === elderCol && row === elderRow) { cell.innerHTML = `<span style="font-size:1rem">🔴</span>`; cell.classList.add('has-piece'); }
+      if (col === youngerCol && row === youngerRow) { cell.innerHTML = `<span style="font-size:1rem">🔵</span>`; cell.classList.add('has-piece'); }
       const inE = rangeE.some(c => c.col === col && c.row === row);
       const inY = rangeY.some(c => c.col === col && c.row === row);
       if (inE || inY) cell.classList.add(inE ? 'attack-range' : 'skill-range');

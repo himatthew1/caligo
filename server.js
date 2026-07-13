@@ -179,8 +179,8 @@ const CHARACTERS = {
     { type:'windSurfer', name:'윈드서퍼', tier:1, atk:1, icon:'🏄', tag:'spirit', desc:'가로3 + 하단 · 바람몰이: 아군/적 1명을 원하는 방향 1칸 밀기',
       skills:[{id:'windPush', name:'바람몰이', cost:2, replacesAction:false, desc:'아군 또는 적 1명을 상하좌우 원하는 방향으로 1칸 강제 이동(모서리면 무효)'}] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'/assets/icons/watchman.png', tag:null, desc:'주변 8칸 · 자기 제외', skills:[] },
-    { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'/assets/icons/twins.png', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
-      skills:[{id:'brothers', name:'분신', cost:1, replacesAction:false, oncePerTurn:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
+    { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'/assets/icons/twins.png', tag:'villain', desc:'레드 가로3 / 블루 세로3', isTwin:true,
+      skills:[{id:'brothers', name:'분신', cost:1, replacesAction:false, oncePerTurn:true, desc:'레드가 블루 위치로, 또는 블루가 레드 위치로 합류'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'/assets/icons/scout.png', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'/assets/icons/manhunter.png', tag:'villain', desc:'자신 포함 세로 3칸',
@@ -4059,15 +4059,15 @@ function createPiece(type, tier, hp, extra) {
   const hasSkill = skillList.length > 0;
   const firstSkill = skillList[0] || null;
 
-  // 쌍둥이: subUnit별 개별 아이콘/이름 (관계 설정은 남매 — 누나·동생)
+  // 쌍둥이: subUnit별 개별 아이콘/이름 (레드=가로3 / 블루=세로3). 내부 키는 elder/younger 유지.
   let pieceIcon = c.icon;
   let pieceName = c.name;
   if (extra?.subUnit === 'elder') {
     pieceIcon = '/assets/icons/twins.png';
-    pieceName = '쌍둥이 강도 누나';
+    pieceName = '쌍둥이 강도 레드';
   } else if (extra?.subUnit === 'younger') {
     pieceIcon = '/assets/icons/twins.png';
-    pieceName = '쌍둥이 강도 동생';
+    pieceName = '쌍둥이 강도 블루';
   }
 
   const base = {
@@ -6629,9 +6629,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      const moverSubject = mover.subUnit === 'elder' ? '누나가' : '동생이';
-      const moverObject  = mover.subUnit === 'elder' ? '누나를' : '동생을';
-      const targetLabel  = target.subUnit === 'elder' ? '누나' : '동생';
+      const moverSubject = mover.subUnit === 'elder' ? '레드가' : '블루가';
+      const moverObject  = mover.subUnit === 'elder' ? '레드를' : '블루를';
+      const targetLabel  = target.subUnit === 'elder' ? '레드' : '블루';
       result.msg = `분신: ${moverSubject} ${targetLabel} 위치로 합류`;
       result.oppMsg = `분신: ${moverSubject} ${targetLabel} 위치로 합류`;
       // 시전자/상대/관전자 모두에게 비행 애니메이션 정보 전달 (fog of war 우회용)
