@@ -236,6 +236,8 @@ const CHARACTERS = {
       skills:[], passives:['might'] },
     { type:'heretic', name:'이단자', tier:2, atk:1, icon:'/assets/icons/heretic.png', tag:'villain', desc:'세로 3칸 · 현혹: 공격 대상 이교단화(전원 이교단 시 승리)',
       skills:[], passives:['enthrall'] },
+    { type:'storyteller', name:'이야기꾼', tier:2, atk:0.5, icon:'/assets/icons/storyteller.png', tag:null, desc:'자기줄+상단 2×3 · 선동으로 배신 유발',
+      skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
       skills:[], passives:['suppression'] },
   ],
@@ -4033,6 +4035,12 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
   if (passives.includes('rage')) victim._rageActive = true;
   // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
   if (passives.includes('growth')) victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;
+  // [이야기꾼] 피해 받으면 그가 건 배신(선동) 모두 해제.
+  if (victim.type === 'storyteller' && dmg > 0) {
+    for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+      if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
+    }
+  }
   // TODO(Phase4): 오베론 요정왕(정령 피해→카운터+1).
 }
 
@@ -4615,6 +4623,12 @@ function handleDeath(room, deadPiece, ownerIdx) {
       for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
         if (p._cultOf === ownerIdx) p._cultOf = null;
       }
+    }
+  }
+  // ★ Phase 3: 이야기꾼 사망 → 그가 건 배신 해제(피해로 이미 해제됐을 수 있으나 비-데미지 사망 백업).
+  if (deadPiece.type === 'storyteller') {
+    for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+      if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
 
@@ -6200,6 +6214,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   const player = room.players[playerIdx];
   const piece = player.pieces[pieceIdx];
   if (!piece || !piece.alive) return { ok: false, msg: '올바르지 않은 말입니다.' };
+  if ((piece.statusEffects || []).some(e => e.type === 'betray')) return { ok: false, msg: '배신 상태에서는 조작할 수 없습니다.' };   // ★ 이야기꾼 선동
   if (!piece.hasSkill) return { ok: false, msg: '이 말은 스킬이 없습니다.' };
 
   // 저주 상태이면 스킬 봉인
@@ -6670,6 +6685,24 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `사이렌 송: 전체 0.5 피해`;
       result.oppMsg = `사이렌 송`;
       result.data.hits = sHits;
+      break;
+    }
+
+    // ── STORYTELLER: 선동 (적 1명 배신 · 전원 배신 시 분란 승리) ──
+    case 'storyteller': {
+      let tgt = null;
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        if (params && params.targetCol != null) tgt = ep.pieces.find(p => p.alive && p.col === params.targetCol && p.row === params.targetRow);
+        else if (params && params.targetName) tgt = ep.pieces.find(p => p.alive && p.type === params.targetName);
+        if (tgt) break;
+      }
+      if (!tgt) return { ok: false, msg: '선동 대상을 선택하세요.' };
+      if (typeof isStatusImmune === 'function' && isStatusImmune(tgt)) return { ok: false, msg: '대상이 상태이상에 면역입니다.' };
+      spendSP(room, playerIdx, cost);
+      addStatus(tgt, 'betray', { data: { source: playerIdx } });
+      result.msg = `선동: ${tgt.name} 배신 상태`;
+      result.oppMsg = `선동: 유닛이 배신함`;
       break;
     }
 
@@ -8421,7 +8454,7 @@ function aiUsePreSkills(room) {
   const aiPlayer = room.players[1];
   const human = room.players[0];
   const brain = room.aiBrain;
-  const alivePieces = aiPlayer.pieces.filter(p => p.alive);
+  const alivePieces = aiPlayer.pieces.filter(p => p.alive && !(p.statusEffects || []).some(e => e.type === 'betray'));   // ★ 배신 유닛 제외
   const bounds = room.boardBounds;
 
   // ★ 사용자 요청 — AI 는 한 번에 한 개의 스킬만 사용. 시전 후 모든 애니메이션·토스트가
@@ -8826,7 +8859,7 @@ function aiTakeTurn(room) {
   aiInjectMarkedEnemies(brain, room, 1);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
   aiWrathDeduction(room, 1, brain);        // ★ 사기증진(공개) 기반 지휘관/버프적 위치 추론
 
-  const alivePieces = aiPlayer.pieces.filter(p => p.alive);
+  const alivePieces = aiPlayer.pieces.filter(p => p.alive && !(p.statusEffects || []).some(e => e.type === 'betray'));   // ★ 배신 유닛 제외
   if (alivePieces.length === 0) return;
 
   // ★ STEP 0: 보드 축소 임박 — 외곽 말 즉시 대피 최우선
@@ -10758,6 +10791,7 @@ io.on('connection', (socket) => {
 
     const piece = player.pieces[pieceIdx];
     if (!piece || !piece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
+    if ((piece.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; }   // ★ 이야기꾼 선동
 
     // Action-replace skill used => can't move (질주는 예외 — 이동을 위한 스킬이므로)
     if (player.actionUsedSkillReplace && !piece.messengerSprintActive) {
@@ -11036,6 +11070,9 @@ io.on('connection', (socket) => {
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
     const player = room.players[idx];
+
+    // ★ 이야기꾼 선동: 배신 상태 유닛은 공격도 불가.
+    { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; } }
 
     // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
     if (player.pieces.some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0)) {
