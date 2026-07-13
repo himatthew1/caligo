@@ -194,8 +194,12 @@ const CHARACTERS = {
       skills:[], passives:['valor'] },
     { type:'fairy', name:'요정', tier:1, atk:0.5, icon:'/assets/icons/fairy.png', tag:'spirit', desc:'H자(좌우 세로3+제자리)',
       skills:[{id:'fairyDust', name:'페어리 더스트', cost:2, replacesAction:false, desc:'아군 1명에게 행운 부여(다음 피해 1회 0)'}] },
+    { type:'mermaid', name:'샘의 인어', tier:1, atk:1, icon:'/assets/icons/mermaid.png', tag:'spirit', desc:'제자리와 상단',
+      skills:[{id:'sirenSong', name:'사이렌 송', cost:2, replacesAction:true, desc:'자신 제외 보드 전체 0.5 피해(룰 데미지)'}] },
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'/assets/icons/poisoner.png', tag:'villain', desc:'제자리와 X자 대각선 · 독니: 공격 대상 중독',
       skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'공격 범위 내 모든 적 중독'}], passives:['venomFang'] },
+    { type:'thief', name:'도적', tier:1, atk:1, icon:'/assets/icons/thief.png', tag:null, desc:'좌우 세로2씩(자기줄+상단)',
+      skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'상대보다 SP가 적으면 상대 공유 SP 1 탈취'}] },
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'/assets/icons/fortuneTeller.png', tag:null, desc:'십자(제자리+상하좌우)',
       skills:[
         {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
@@ -6576,6 +6580,58 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.oppMsg = `맹독 구름: 중독`;
       result.data.poisonedCells = poisonedHits;
       result.data.atkCells = pcells;
+      break;
+    }
+
+    // ── THIEF: 강탈 (상대보다 SP 적을 때 공유풀 SP 1 탈취 · 행동소비) ──
+    case 'thief': {
+      const mySlot = teamSlotIdx(room, playerIdx);
+      const enemyIdxs = getEnemyIndices(room, playerIdx);
+      const oppSlot = teamSlotIdx(room, enemyIdxs[0]);
+      const myTotal = (room.sp[mySlot] || 0) + (room.instantSp[mySlot] || 0);
+      const oppTotal = (room.sp[oppSlot] || 0) + (room.instantSp[oppSlot] || 0);
+      if (myTotal >= oppTotal) return { ok: false, msg: '강탈: 상대보다 보유 SP가 적어야 합니다.' };
+      if ((room.sp[oppSlot] || 0) <= 0) return { ok: false, msg: '강탈: 상대의 공유 SP가 없습니다.' };  // 인스턴트는 건드리지 않음
+      spendSP(room, playerIdx, cost);   // cost 0
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      room.sp[oppSlot] -= 1;
+      room.sp[mySlot] = Math.min(10, (room.sp[mySlot] || 0) + 1);
+      emitSPUpdate(room);
+      result.msg = `강탈: 상대 공유 SP 1 탈취`;
+      result.oppMsg = `강탈: 공유 SP 1 빼앗김`;
+      break;
+    }
+
+    // ── MERMAID: 사이렌 송 (맵 전체 0.5 룰 데미지 · 자신 제외 · 행동소비) ──
+    case 'mermaid': {
+      spendSP(room, playerIdx, cost);
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      // 대상 수집 — 샘의인어 제외 · 그림자(면역) 제외. 반응형 패시브 순서: 시전자 팀 먼저, 저티어부터.
+      const targets = [];
+      for (let pi = 0; pi < room.players.length; pi++)
+        for (let ui = 0; ui < room.players[pi].pieces.length; ui++) {
+          const u = room.players[pi].pieces[ui];
+          if (u.alive && u.col != null && u.type !== 'mermaid' &&
+              !(u.statusEffects || []).some(e => e.type === 'shadow')) targets.push({ u, ownerIdx: pi, pieceIdx: ui });
+        }
+      targets.sort((a, b) => {
+        const am = (a.ownerIdx === playerIdx) ? 0 : 1, bm = (b.ownerIdx === playerIdx) ? 0 : 1;
+        return am !== bm ? am - bm : (a.u.tier || 1) - (b.u.tier || 1);
+      });
+      const sHits = [];
+      for (const { u, ownerIdx, pieceIdx } of targets) {
+        if (!u.alive) continue;
+        u.hp = Math.max(0, Math.round((u.hp - 0.5) * 100) / 100);   // 룰 데미지(감경 우회) 0.5
+        if (typeof applyDamageTriggers === 'function') applyDamageTriggers(room, u, ownerIdx, 0.5, { spUpdate: 'none' });
+        const destroyed = u.hp <= 0;
+        if (destroyed) handleDeath(room, u, ownerIdx);
+        sHits.push({ col: u.col, row: u.row, damage: 0.5, newHp: u.hp, destroyed, defPieceIdx: pieceIdx, defOwnerIdx: ownerIdx });
+      }
+      result.msg = `사이렌 송: 전체 0.5 피해`;
+      result.oppMsg = `사이렌 송`;
+      result.data.hits = sHits;
       break;
     }
 
