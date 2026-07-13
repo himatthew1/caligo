@@ -139,6 +139,18 @@ function pieceIconText(src) {
 }
 
 // 특수 공격 범위 캐릭터만 desc 표시 — 나머지는 미니 그리드로 충분
+// ★ 덱/도감 정렬 — 각 티어 내 무소속(null)→정령→왕실→악인 순 (안정 정렬).
+const FACTION_ORDER = { null: 0, neutral: 0, spirit: 1, royal: 2, villain: 3 };
+function sortCharsByFaction(characters) {
+  if (!characters) return;
+  for (const tier of [1, 2, 3]) {
+    if (!Array.isArray(characters[tier])) continue;
+    characters[tier] = characters[tier]
+      .map((c, i) => [c, i])
+      .sort((a, b) => (FACTION_ORDER[a[0].tag] ?? 0) - (FACTION_ORDER[b[0].tag] ?? 0) || a[1] - b[1])
+      .map(x => x[0]);
+  }
+}
 const SPECIAL_DESC_TYPES = new Set([
   'archer',         // 좌측 대각선 전체 (토글)
   'spearman',       // 세로줄 전체
@@ -151,8 +163,9 @@ const SPECIAL_DESC_TYPES = new Set([
 ]);
 function shouldShowDesc(typeOrObj) {
   if (!typeOrObj) return false;
-  const t = typeof typeOrObj === 'string' ? typeOrObj : typeOrObj.type;
-  return SPECIAL_DESC_TYPES.has(t);
+  // ★ 리워크: 화이트리스트 제거 — 모든 유닛이 그리드 아래에 공격범위 캡션(server desc)을 표시.
+  //   (화약상 "주변 8칸 중 랜덤 2칸", 갈고리 "가로 횡 전부", 투석기 "원하는 칸 선택" 등 특수공격 안내)
+  return true;
 }
 
 function ratDestroyMsg(rats, mine) {
@@ -1028,7 +1041,7 @@ document.getElementById('btn-deck').addEventListener('click', () => {
     socket.once('characters_data', (characters) => {
       // ★ FIX: characters_data 페이로드는 래핑 없는 CHARACTERS 그대로 (전역 핸들러 line ~1588 과 동일).
       //   이전엔 ({ characters }) 로 구조분해해 undefined 가 되어 덱빌더가 텅 비었음.
-      S.characters = characters;
+      S.characters = characters; sortCharsByFaction(S.characters);
       openDeckBuilder();
       updateLobbyDeckButton();
     });
@@ -1122,7 +1135,7 @@ socket.on('connect', () => {
 });
 socket.on('characters_data', ({ characters }) => {
   if (characters && !S.characters) {
-    S.characters = characters;
+    S.characters = characters; sortCharsByFaction(S.characters);
     try { updateLobbyDeckButton(); } catch (e) {}
   }
 });
@@ -1598,7 +1611,7 @@ function escapeHtmlGlobal(str) {
 socket.on('characters_data', (characters) => {
   if (!characters) return;
   const _wasNull = !S.characters;
-  S.characters = characters;
+  S.characters = characters; sortCharsByFaction(S.characters);
   // ★ #3 최초접속 — 캐릭터 데이터가 덱리스트 렌더보다 늦게 도착하면 아이콘이 '?'/빈칸으로 굳음.
   //   도착 시 현재 보이는 덱리스트/로비 덱버튼을 재렌더해 즉시 채운다.
   if (_wasNull) {
@@ -1612,7 +1625,7 @@ socket.on('characters_data', (characters) => {
 
 socket.on('joined', ({ idx, roomId, characters, sessionToken, reconnected }) => {
   S.playerIdx = idx;
-  S.characters = characters;
+  S.characters = characters; sortCharsByFaction(S.characters);
   // #9: 세션 토큰 저장 (재접속용)
   if (sessionToken) {
     S.sessionToken = sessionToken;
@@ -1720,7 +1733,7 @@ socket.on('team_start_ready', ({ players, teams, characters }) => {
   if (el) { el.classList.add('hidden'); el.textContent = ''; }
   S.teamPlayers = players || [];
   S.teamTeams = teams || [[], []];
-  if (characters) S.characters = characters;
+  if (characters) S.characters = characters; sortCharsByFaction(S.characters);
   const me = S.teamPlayers.find(p => p.idx === S.playerIdx);
   if (me) S.teamId = me.teamId;
   // 실제 screen 전환은 team_draft_start 수신 시
@@ -1734,7 +1747,7 @@ socket.on('team_draft_start', ({ myIdx, teamId, players, teams, characters }) =>
   S.teamId = teamId;
   S.teamPlayers = players || [];
   S.teamTeams = teams || [[], []];
-  if (characters) S.characters = characters;
+  if (characters) S.characters = characters; sortCharsByFaction(S.characters);
   S.teamDraftMode = true;
   S.deckBuilderMode = false;
   S.teamDraftConfirmed = false;
@@ -3660,7 +3673,7 @@ socket.on('team_spectator_joined', ({ roomId, phase, gameState, characters, play
   S.isTeamMode = true;
   S.playerIdx = -1;
   S.teamId = 0;
-  if (characters) S.characters = characters;
+  if (characters) S.characters = characters; sortCharsByFaction(S.characters);
   S.teamPlayers = players || [];
   S.teamTeams = teams || [[],[]];
   const chatInput = document.getElementById('chat-input');
@@ -7987,10 +8000,19 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
 });
 
 // ── 정찰 결과 ──
-socket.on('scout_result', ({ axis, value, targetName }) => {
-  const label = axis === 'row' ? `${ROW_LABELS[value] || value}열` : `${value+1}행`;
+socket.on('scout_result', ({ axis, value, targetName, full, col, row, targetType, targetIcon, targetSub }) => {
   if (typeof playSfxScout === 'function') playSfxScout(); else playSfx('skill');
-  // 인벤토리 E1 본인 셀: "정찰: 상대 [target]의 위치는 [label]"
+  if (full) {
+    // ★ 리워크: 전체 위치 공개 → deductionToken 으로 정확한 칸에 핀.
+    const pieceKey = `${targetType}${targetSub || ''}`;
+    S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === col && t.row === row));
+    S.deductionTokens.push({ pieceKey, icon: targetIcon, name: targetName, col, row });
+    if (typeof renderGameBoard === 'function') renderGameBoard();
+    addLog(`정찰: 상대 ${targetName}의 위치는 ${coord(col, row)}`, 'skill');
+    showSkillToast(`정찰: 상대 ${targetName}의 위치 공개 (${coord(col, row)})`);
+    return;
+  }
+  const label = axis === 'row' ? `${ROW_LABELS[value] || value}열` : `${value+1}행`;
   addLog(`정찰: 상대 ${targetName}의 위치는 ${label}`, 'skill');
   showSkillToast(`정찰: 상대 ${targetName}의 위치는 ${label}`);
 });
@@ -10810,6 +10832,10 @@ const SKILL_PREVIEW = {
 
   // ── 합류 (쌍둥이 전용 합체) ──
   twins:         { cells: twinJoinedCells,     cat: 'attack', label: '레드와 블루의 위치 합류', joinedTwins: true },
+  // ★ 독살꾼 맹독 구름 — 전용 십자 범위(공격범위 X대각과 다름)
+  poisoner:      { cells: (cc,cr)=>[{col:cc,row:cr},{col:cc,row:cr-1},{col:cc,row:cr+1},{col:cc-1,row:cr},{col:cc+1,row:cr}], cat: 'attack', label: '맹독 구름 범위 (전용)' },
+  // ★ 악령술사 — 소환되는 악령의 모습·공격범위(세로 3칸) 미리보기
+  necromancer:   { cells: (cc,cr)=>[{col:cc,row:cr},{col:cc,row:cr-1},{col:cc,row:cr+1}], cat: 'attack', label: '악령 소환 · 세로 3칸 · HP1 · ATK1', showSummon: true, summonIcon: '👻' },
 };
 // 궁수 — 반전된 대각선(/ 방향). 기본은 \ 방향이라 / 만 표시.
 function archerReversedCells(cc, cr) {
@@ -11002,6 +11028,7 @@ function updateDraftPreview(charData, opts = {}) {
       if (col === centerCol && row === centerRow) {
         let centerIcon = charData.icon;
         if (skill.showDragonOnly) centerIcon = (window.PIECE_ICONS && window.PIECE_ICONS.dragon) || '/assets/icons/dragon.png';
+        else if (skill.showSummon && skill.summonIcon) centerIcon = skill.summonIcon;   // ★ 악령술사 악령 등 소환물
         cell.innerHTML = `<span style="font-size:1.1rem">${pieceIconHtml(centerIcon, {size:'1.1rem'})}</span>`;
         cell.classList.add('has-piece');
       } else if (ratSet && ratSet.has(`${col},${row}`)) {
@@ -12481,6 +12508,7 @@ function exUpdatePreview(charData) {
       if (col === centerCol && row === centerRow) {
         let centerIcon = charData.icon;
         if (skill.showDragonOnly) centerIcon = (window.PIECE_ICONS && window.PIECE_ICONS.dragon) || '/assets/icons/dragon.png';
+        else if (skill.showSummon && skill.summonIcon) centerIcon = skill.summonIcon;   // ★ 악령술사 악령 등 소환물
         cell.innerHTML = `<span style="font-size:1rem">${pieceIconHtml(centerIcon, {size:'1rem'})}</span>`;
         cell.classList.add('has-piece');
       } else if (ratSet && ratSet.has(`${col},${row}`)) {
@@ -17045,6 +17073,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   }
 
   if (type === 'homunculus') { showMorphUI(pieceIdx); return; }                                  // 변이: 진영 선택
+  if (type === 'scout') { showEnemyIdentitySkillUI(pieceIdx, 'recon', '정찰 — 대상 선택', '위치 공개'); return; }   // ★ 정찰 리워크: 대상 선택
   if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
   if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
   if (type === 'storyteller') { showEnemyIdentitySkillUI(pieceIdx, 'incite', '선동 — 대상 선택', '배신 상태로 만듭니다'); return; }

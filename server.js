@@ -174,7 +174,7 @@ const CHARACTERS = {
       passives:['charge'],
       // ★ 질주는 '특성'(trait) — 스킬 탭/버튼에 노출 안 됨. 부채꼴 전용 질주 버튼에서만 사용(내부 dash).
       skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, trait:true, desc:'이동 대체 특성 · 직선 1~2칸, 경로의 적에 고정 1피해'}] },
-    { type:'catapult', name:'투석기', tier:1, atk:2, icon:'🪨', tag:'royal', noRemains:true, desc:'단일 저격 — 원하는 1칸',
+    { type:'catapult', name:'투석기', tier:1, atk:2, icon:'🪨', tag:'royal', noRemains:true, desc:'원하는 칸 1곳 선택 후 공격',
       skills:[{id:'drive', name:'구동', cost:2, replacesAction:true, desc:'투석기를 인접 1칸으로 이동(오직 이 스킬로만 이동 가능)'}] },
     { type:'windSurfer', name:'윈드서퍼', tier:1, atk:1, icon:'🏄', tag:'spirit', desc:'가로 3칸과 하단',
       skills:[{id:'windPush', name:'바람몰이', cost:2, replacesAction:false, desc:'아군 또는 적 1명을 상하좌우 원하는 방향으로 1칸 강제 이동(모서리면 무효)'}] },
@@ -187,7 +187,7 @@ const CHARACTERS = {
       skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:false, oncePerTurn:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
     { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:'royal', desc:'좌우 세로 3칸',
       skills:[{id:'decree', name:'칙명', cost:3, replacesAction:false, oncePerTurn:true, desc:'이번 차례에 행동을 마쳤다면, 왕실 유닛 이동을 1회 추가 실행'}] },
-    { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null, desc:'상하 각 2칸 중 랜덤 2칸',
+    { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null, desc:'주변 8칸 중 랜덤 2칸',
       skills:[
         {id:'bomb', name:'폭탄 설치', cost:1, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발 · 1 피해'}
@@ -6714,38 +6714,36 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── SCOUT: 정찰 (reveal random enemy's row or col) ──
+    // ── SCOUT: 정찰 (PPT 리워크 — 상대 유닛 하나를 '선택'해 '전체 위치' 공개) ──
     case 'scout': {
-      // 팀모드: 모든 상대팀 유닛 중에서 랜덤 / 1v1: 상대 1명
-      let enemyPieces;
+      // 팀모드: 모든 상대팀 유닛 / 1v1: 상대 1명
+      let enemyList;   // [{p, ownerIdx}]
       if (room.mode === 'team') {
         const enemyIndices = getEnemyIndices(room, playerIdx);
-        enemyPieces = enemyIndices.flatMap(ei => (room.players[ei]?.pieces || []).filter(p => p.alive && !p.isDragon));
+        enemyList = enemyIndices.flatMap(ei => (room.players[ei]?.pieces || []).filter(p => p.alive && !p.isDragon).map(p => ({ p, ownerIdx: ei })));
       } else {
-        enemyPieces = room.players[1 - playerIdx].pieces.filter(p => p.alive && !p.isDragon);
+        const oi = 1 - playerIdx;
+        enemyList = room.players[oi].pieces.filter(p => p.alive && !p.isDragon).map(p => ({ p, ownerIdx: oi }));
       }
-      if (enemyPieces.length === 0) return { ok: false, msg: '적이 없습니다.' };
-      const target = enemyPieces[Math.floor(Math.random() * enemyPieces.length)];
-      const axis = Math.random() < 0.5 ? 'row' : 'col';
-      const value = axis === 'row' ? target.row : target.col;
+      if (enemyList.length === 0) return { ok: false, msg: '적이 없습니다.' };
+      // 대상 선택: targetPieceIdx(+targetOwnerIdx) 우선, 없으면 targetName, 그것도 없으면 랜덤(AI 폴백).
+      let sel = null;
+      if (params && params.targetName) sel = enemyList.find(e => e.p.type === params.targetName);
+      if (!sel && params && params.targetPieceIdx != null) {
+        const oi = (params.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
+        const pc = room.players[oi] && room.players[oi].pieces[params.targetPieceIdx];
+        if (pc) sel = { p: pc, ownerIdx: oi };
+      }
+      if (!sel) sel = enemyList[Math.floor(Math.random() * enemyList.length)];
+      const target = sel.p;
       spendSP(room, playerIdx, cost);
-      // scout_result — 시전자 + 팀원에게 위치 정보 전달 (자체 addLog/toast 처리)
-      if (room.mode === 'team') {
-        const allies = getAllyIndices(room, playerIdx);
-        for (const aIdx of allies) {
-          emitToPlayer(room, aIdx, 'scout_result', { axis, value, targetName: target.name });
-        }
-      } else {
-        emitToPlayer(room, playerIdx, 'scout_result', { axis, value, targetName: target.name });
-      }
-      // 적 측 메시지는 use_skill 핸들러의 status_update / team_skill_notice 로 자동 전달.
-      // ★ 중복된 "[이름] - 정찰" 메시지 제거: scout_result 가 시전자/팀원을 커버하므로
-      //   team_skill_notice 의 폴백 텍스트가 추가되지 않도록 result.allyMsg = '' (빈 문자열) 명시.
+      // 전체 위치 공개(col+row) — 클라는 deductionToken 으로 핀 표시.
+      const payload = { full: true, col: target.col, row: target.row, targetName: target.name, targetType: target.type, targetIcon: target.icon, targetSub: target.subUnit || null };
+      const recips = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      for (const aIdx of recips) emitToPlayer(room, aIdx, 'scout_result', payload);
       result.oppMsg = `정찰: 상대가 ${target.name}의 위치를 알아냈습니다.`;
-      result.allyMsg = '';   // 빈 문자열 — 팀원 시점에 team_skill_notice 의 fallback 출력 차단
-      // 인벤토리 E1 관전자 셀: "정찰: 상대 [target]의 위치는 [label]"
-      const labelStr = axis === 'row' ? `${['A','B','C','D','E','F','G'][value] || value}열` : `${value+1}행`;
-      emitToSpectators(room, 'spectator_log', { msg: `정찰: 상대 ${target.name}의 위치는 ${labelStr}`, type: 'skill', playerIdx: playerIdx });
+      result.allyMsg = '';
+      emitToSpectators(room, 'spectator_log', { msg: `정찰: 상대 ${target.name}의 위치 공개 (${coord(target.col, target.row)})`, type: 'skill', playerIdx: playerIdx });
       result.skipLog = true;
       break;
     }
@@ -7030,26 +7028,30 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── POISONER: 맹독 구름 (공격 범위 내 모든 적 중독 · 행동소비) ──
     case 'poisoner': {
+      // ★ PPT: 맹독 구름 = 전용 십자 범위(공격범위 X대각 아님) · 범위 안의 '모든 유닛'(아군/적) 중독.
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
-      const pcells = getAttackCells(piece.type, piece.col, piece.row, bounds);
-      const pcellSet = new Set(pcells.map(c => `${c.col},${c.row}`));
+      const pc = piece.col, pr = piece.row;
+      const cloud = [[0,0],[0,-1],[0,1],[-1,0],[1,0]]
+        .map(([dc,dr]) => ({ col: pc+dc, row: pr+dr }))
+        .filter(c => inBounds(c.col, c.row, bounds));
+      const pcellSet = new Set(cloud.map(c => `${c.col},${c.row}`));
       const poisonedHits = [];
-      for (const ei of getEnemyIndices(room, playerIdx)) {
-        const ep = room.players[ei]; if (!ep) continue;
-        for (let dpi = 0; dpi < ep.pieces.length; dpi++) {
-          const t = ep.pieces[dpi];
+      for (let owi = 0; owi < room.players.length; owi++) {
+        const op = room.players[owi]; if (!op) continue;
+        for (let dpi = 0; dpi < op.pieces.length; dpi++) {
+          const t = op.pieces[dpi];
           if (!t.alive || t.col == null) continue;
           if (!pcellSet.has(`${t.col},${t.row}`)) continue;
           if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
-          if (addStatus(t, 'poison', { stacks: 1 })) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: ei });
+          if (addStatus(t, 'poison', { stacks: 1 })) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
         }
       }
-      result.msg = `맹독 구름: 범위 내 적 ${poisonedHits.length}명 중독`;
+      result.msg = `맹독 구름: 범위 내 ${poisonedHits.length}명 중독`;
       result.oppMsg = `맹독 구름: 중독`;
       result.data.poisonedCells = poisonedHits;
-      result.data.atkCells = pcells;
+      result.data.atkCells = cloud;
       break;
     }
 
