@@ -10424,7 +10424,7 @@ const CHAR_STATS = {
   undead:        { atk: 3, prs: 3, dur: 5, utl: 2, mob: 2 },
   demonKing:     { atk: 1, prs: 5, dur: 3, utl: 5, mob: 1 },
   siegeBreaker:  { atk: 3, prs: 4, dur: 3, utl: 3, mob: 2 },
-  mushkin:       { atk: 2, prs: 5, dur: 3, utl: 4, mob: 1 },
+  mushkin:       { atk: 1, prs: 5, dur: 3, utl: 4, mob: 1 },
   oberon:        { atk: 2, prs: 3, dur: 3, utl: 5, mob: 2 },
   militia:       { atk: 5, prs: 3, dur: 3, utl: 1, mob: 2 },
   mercenary:     { atk: 4, prs: 3, dur: 3, utl: 2, mob: 2 },
