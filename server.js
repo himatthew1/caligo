@@ -6893,11 +6893,11 @@ function aiInjectMarkedEnemies(brain, room, ownerIdx) {
 }
 
 // ── ★ 사기증진 공개정보 기반 위치 추론 (사용자: 버프 상태 자체가 힌트) ──────────────
-//   버프 여부(사기증진)는 항상 공개(oppPieceSummary 와 동일 규칙) → 인간처럼 AI 도
-//   "버프 = 적 지휘관과 직교 인접" 을 양방향 추론한다. 위치(col/row)는 표식일 때만 신뢰:
-//   A) 지휘관이 표식이면 → 버프된 적은 그 지휘관의 4이웃 중 하나 → 그 칸 믿음↑.
-//   B) 버프된 적이 표식이면 → 지휘관은 그 적의 4이웃 → 그 칸 믿음↑(지휘관 사냥 유도).
-//   버프 boolean 만 공개로 사용하고, 실좌표는 표식된 유닛에서만 파생하므로 치팅 아님.
+//   버프 여부(사기증진)는 표식과 무관하게 '항상' 공유되는 공개 정보 → AI 는 그걸 받아 추론한다.
+//   핵심 공식: 버프된 적은 전부 적 지휘관과 직교 인접 → 버프 유닛 수만큼 적은 지휘관 중심으로
+//   '뭉쳐' 있다. 따라서 (표식이 없어도) 이웃에 적 믿음질량이 몰린 칸(=군집 중심=지휘관 후보)과
+//   그 이웃(버프 유닛)을 강화한다. 표식이 있으면 절대 앵커로 추가 정밀 추론.
+//   버프 boolean 은 공개 사용, 실좌표는 표식 유닛에서만 파생 → 치팅 아님.
 function aiWrathDeduction(room, ownerIdx, brain) {
   if (brain._ablate && brain._ablate.noWrathDed) return;   // _ablate: A/B 검증용(프로덕션 미설정)
   const size = brain.probMap.length;
@@ -6917,16 +6917,35 @@ function aiWrathDeduction(room, ownerIdx, brain) {
     const ep = room.players[ei]?.pieces || [];
     const commanders = ep.filter(p => p.alive && p.type === 'commander' && p.col != null);
     if (!commanders.length) continue;
+    // 버프 여부(공개) — 실제 인접으로 판정하지만 결과 boolean 은 공유 정보라 사용 공정.
     const isBuffed = (p) => p.alive && p.type !== 'commander' && p.col != null && commanders.some(cm =>
       (Math.abs(cm.col - p.col) === 1 && cm.row === p.row) || (Math.abs(cm.row - p.row) === 1 && cm.col === p.col));
     const buffed = ep.filter(isBuffed);
-    if (!buffed.length) continue;   // 아무도 버프 안 됨 = 지휘관이 홀로 → 힌트 없음
-    // A) 표식된 지휘관 → 4이웃에 버프된 적
+    const nBuffed = buffed.length;
+    if (!nBuffed) continue;   // 버프 유닛 0 = 지휘관 홀로 → 뭉침 정보 없음
+
+    // (1) ★ 공유 버프 상태만으로 — 표식 불필요. "버프 N명 = 지휘관 옆에 N명 밀집" 제약.
+    //   이웃 믿음질량이 큰 칸(군집 중심 후보)을 nBuffed 비례로 강화 → 적 뭉치를 추적/광역 노림.
+    const snap = brain.probMap.map(row => row.slice());
+    const clusterW = Math.min(nBuffed, 3) * 0.6;   // 버프 많을수록 강한 뭉침 신호
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
+        if (ownCells.has(`${c},${r}`)) continue;
+        let neigh = 0;
+        for (const [dc, dr] of ortho) {
+          const nc = c + dc, nr = r + dr;
+          if (nc >= 0 && nr >= 0 && nc < size && nr < size) neigh += snap[nr][nc] || 0;
+        }
+        if (neigh <= 0 || !brain.probMap[r]) continue;
+        brain.probMap[r][c] += clusterW * (neigh / 4);   // 이웃평균 * 뭉침가중
+      }
+    }
+    // (2) 표식 있으면 절대 앵커로 정밀 추론 (강함).
+    //   A) 표식된 지휘관 → 4이웃에 버프된 적.  B) 표식된 버프적 → 4이웃에 지휘관(지휘관 사냥).
     for (const cm of commanders) {
       if (!aiIsMarked(cm)) continue;
       for (const [dc, dr] of ortho) stamp(cm.col + dc, cm.row + dr, 7);
     }
-    // B) 표식된 버프 적 → 4이웃에 지휘관 (지휘관 주변에 다른 버프 적도 근접)
     for (const be of buffed) {
       if (!aiIsMarked(be)) continue;
       for (const [dc, dr] of ortho) stamp(be.col + dc, be.row + dr, 6);
