@@ -14414,6 +14414,14 @@ function renderGameBoard() {
         const inR = src && getAttackCells(src.type, src.col, src.row, { toggleState: src.toggleState }).some(c => c.col === col && c.row === row);
         const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (inR && hasRem) inSkillRange = true;
+      } else if (std.type === 'broom_cell') {
+        // 마녀 빗자루 비행: 유닛/유해/파괴칸 없는 빈 칸(전체 보드)
+        const blocked = (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) ||
+                        (S.remains && S.remains.some(r => r.col === col && r.row === row)) ||
+                        (S.myPieces.some(p => p.alive && p.col === col && p.row === row)) ||
+                        (S.oppPieces && S.oppPieces.some(p => p.alive && p.col === col && p.row === row)) ||
+                        (S.isTeamMode && S.teammatePieces && S.teammatePieces.some(p => p.alive && p.col === col && p.row === row));
+        if (!blocked && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) inSkillRange = true;
       } else if (std.type === 'windpush_cell') {
         // 윈드서퍼 바람몰이: 진균/파괴칸 외 아무 칸(밀 대상은 서버가 판정)
         const isFungus = S.fungus && S.fungus.some(f => f.col === col && f.row === row);
@@ -16639,8 +16647,17 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   }
 
   if (type === 'witch') {
-    // 마녀: 적 캐릭터 선택 모달
-    showWitchCurseUI(pieceIdx);
+    if (skillId === 'broomFlight') {
+      // 빗자루 비행: 이동할 칸 선택(행동 아님)
+      S.action = 'skill_target';
+      S.skillTargetData = { pieceIdx, skillId: 'broomFlight', type: 'broom_cell' };
+      document.getElementById('btn-cancel').classList.remove('hidden');
+      document.getElementById('action-hint').textContent = `빗자루 비행 — 이동할 칸을 선택하세요`;
+      renderGameBoard();
+      return;
+    }
+    // 저주 / 개구리 장난: 적 캐릭터 선택 모달
+    showWitchCurseUI(pieceIdx, skillId === 'frogPrank' ? 'frogPrank' : 'curse');
     return;
   }
 
@@ -16775,25 +16792,35 @@ function showKingSkillUI(pieceIdx) {
   modal.classList.remove('hidden');
 }
 
-function showWitchCurseUI(pieceIdx) {
+function showWitchCurseUI(pieceIdx, skillId) {
+  skillId = skillId || 'curse';
+  const isFrog = skillId === 'frogPrank';
   const modal = document.getElementById('skill-modal');
   const body = document.getElementById('skill-modal-body');
-  document.getElementById('skill-modal-title').textContent = '저주 — 대상 선택';
+  document.getElementById('skill-modal-title').textContent = isFrog ? '개구리 장난 — 대상 선택' : '저주 — 대상 선택';
   body.innerHTML = '';
 
   for (let i = 0; i < S.oppPieces.length; i++) {
     const opc = S.oppPieces[i];
     if (!opc.alive) continue;
-    // 이미 저주 상태이거나 HP ≤ 1이면 비활성화
+    // 저주: 이미 저주/HP≤1 불가. 개구리: 이미 개구리/유니콘(면역) 불가.
     const alreadyCursed = opc.statusEffects && opc.statusEffects.some(e => e.type === 'curse');
+    const alreadyFrog = opc.statusEffects && opc.statusEffects.some(e => e.type === 'frog');
     const tooLowHp = opc.hp <= 1;
-    const disabled = alreadyCursed || tooLowHp;
-    const reason = alreadyCursed ? '이미 저주 상태' : tooLowHp ? 'HP 1 이하 — 저주 불가' : '';
+    const immune = opc.type === 'unicorn' || (opc.statusEffects && opc.statusEffects.some(e => e.type === 'shadow'));
+    let disabled, reason;
+    if (isFrog) {
+      disabled = alreadyFrog || immune;
+      reason = alreadyFrog ? '이미 개구리' : immune ? '상태이상 면역' : '';
+    } else {
+      disabled = alreadyCursed || tooLowHp;
+      reason = alreadyCursed ? '이미 저주 상태' : tooLowHp ? 'HP 1 이하 — 저주 불가' : '';
+    }
     const opt = document.createElement('div');
     opt.className = 'skill-option';
     opt.style.opacity = disabled ? '0.4' : '1';
     opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div>
-      <div class="skill-desc">${disabled ? reason : '턴당 0.5 피해 + 스킬 봉인'}</div>`;
+      <div class="skill-desc">${disabled ? reason : (isFrog ? '개구리로(가로3·ATK0.5·스킬없음)' : '턴당 0.5 피해 + 마녀 채널링')}</div>`;
     if (!disabled) {
       opt.addEventListener('click', () => {
         modal.classList.add('hidden');
@@ -16808,7 +16835,7 @@ function showWitchCurseUI(pieceIdx) {
             params.targetOwnerIdx = opc.ownerIdx;
           }
         }
-        socket.emit('use_skill', { pieceIdx, skillId: 'curse', params });
+        socket.emit('use_skill', { pieceIdx, skillId, params });
       });
     }
     body.appendChild(opt);
@@ -17640,6 +17667,9 @@ function handleGameCellClick(col, row) {
       // ★ 윈드서퍼: 밀 칸 선택 후 방향 모달 (emit 은 방향 선택 시) — resetAction 하지 않고 방향 UI로.
       showWindDirUI(data.pieceIdx, col, row);
       return;
+    } else if (data.type === 'broom_cell') {
+      // ★ 마녀 빗자루 비행: 빈 칸으로 이동
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: 'broomFlight', params: { col, row } });
     }
     resetAction();
     return;

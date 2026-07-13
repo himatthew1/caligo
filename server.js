@@ -223,7 +223,11 @@ const CHARACTERS = {
     { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
     { type:'witch', name:'마녀', tier:2, atk:0, icon:'/assets/icons/witch.png', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
-      skills:[{id:'curse', name:'저주', cost:4, replacesAction:true, desc:'적 1명에게 저주 부여(마녀는 저주 중 행동 불가)'}] },
+      skills:[
+        {id:'curse', name:'저주', cost:4, replacesAction:true, desc:'적 1명에게 저주(0.5/턴, 마녀는 저주 중 행동 불가, 마녀 피격 시 해제)'},
+        {id:'frogPrank', name:'개구리 장난', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명을 개구리로(가로3·ATK0.5·스킬 없음, 마녀 피격 시 해제)'},
+        {id:'broomFlight', name:'빗자루 비행', cost:1, replacesAction:false, desc:'원하는 칸으로 이동(행동 아님 — 저주 유지 가능)'}
+      ] },
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'/assets/icons/dualBlade.png', tag:null, desc:'좌우 대각선 4칸 · col±1, row±1',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'/assets/icons/ratMerchant.png', tag:'villain', desc:'제자리와 쥐가 소환된 칸 공격',
@@ -4211,12 +4215,16 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
-  // [마녀] ★ PPT 리워크: 마녀가 '피격'되면(0 데미지 피격 포함) 그가 건 저주 모두 해제(채널링 중단).
+  // [마녀] ★ PPT 리워크: 마녀가 '피격'되면(0 데미지 피격 포함) 그가 건 저주·개구리 모두 해제(채널링 중단).
   if (victim.type === 'witch') {
     for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
-      if (p.statusEffects && p.statusEffects.some(e => e.type === 'curse' && e.source === ownerIdx)) {
-        p.statusEffects = p.statusEffects.filter(e => !(e.type === 'curse' && e.source === ownerIdx));
-        emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: ownerIdx, targetName: p.name, msg: `저주: 마녀가 피격되어 ${p.name}의 저주 해제` });
+      if (!p.statusEffects) continue;
+      const hadCurse = p.statusEffects.some(e => e.type === 'curse' && e.source === ownerIdx);
+      const hadFrog = p.statusEffects.some(e => e.type === 'frog' && e.source === ownerIdx);
+      if (hadCurse || hadFrog) {
+        p.statusEffects = p.statusEffects.filter(e => !((e.type === 'curse' || e.type === 'frog') && e.source === ownerIdx));
+        if (hadCurse) emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: ownerIdx, targetName: p.name, msg: `저주: 마녀가 피격되어 ${p.name}의 저주 해제` });
+        if (hadFrog) emitToBoth(room, 'passive_alert', { type: 'frog_removed', playerIdx: ownerIdx, targetName: p.name, msg: `개구리: 마녀가 피격되어 ${p.name} 원상복구` });
       }
     }
   }
@@ -6745,8 +6753,25 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── WITCH: 저주 (직접 대상 지정 — 턴당 0.5 피해 + 스킬 봉인) ──
+    // ── WITCH: 저주 / 개구리 장난 / 빗자루 비행 (skillId 분기) ──
     case 'witch': {
+      const wSkill = skillId || 'curse';
+      // ▸ 빗자루 비행: 원하는 빈 칸으로 이동(자유시전, 행동 아님).
+      if (wSkill === 'broomFlight') {
+        const bc = params?.col, br = params?.row;
+        if (bc == null || br == null) return { ok: false, msg: '이동할 칸을 지정하세요.' };
+        if (!inBounds(bc, br, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+        if (isCellDestroyed(room, bc, br)) return { ok: false, msg: '파괴된 칸입니다.' };
+        if (room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === bc && p.row === br))) return { ok: false, msg: '다른 유닛이 있는 칸입니다.' };
+        if (room.remains && room.remains.some(r => r.col === bc && r.row === br)) return { ok: false, msg: '유해가 있는 칸입니다.' };
+        spendSP(room, playerIdx, cost);
+        const _bfFrom = { col: piece.col, row: piece.row };
+        piece.col = bc; piece.row = br;
+        result.msg = `빗자루 비행: 마녀 이동`;
+        result.oppMsg = `빗자루 비행: 상대 마녀 이동`;
+        result.data.witchFly = { fromCol: _bfFrom.col, fromRow: _bfFrom.row, toCol: bc, toRow: br, ownerIdx: playerIdx, pieceIdx };
+        break;
+      }
       const tIdx = params?.targetPieceIdx;
       // 팀모드: targetOwnerIdx로 적팀 멤버 식별, 1v1: 상대 단일
       const targetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
@@ -6759,7 +6784,22 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '같은 팀원에게는 저주를 걸 수 없습니다.' };
       }
       const target = opponent.pieces[tIdx];
-      if (!target.alive || target.hp <= 1) {
+      if (!target.alive) return { ok: false, msg: '대상이 없습니다.' };
+      // ▸ 개구리 장난: 적 1명을 개구리 상태로(가로3·ATK0.5·스킬 없음·티어/소속/체력 유지). 마녀 피격 시 해제.
+      if (wSkill === 'frogPrank') {
+        if (target.statusEffects.some(e => e.type === 'shadow')) return { ok: false, msg: '그림자 상태 대상에는 걸 수 없습니다.' };
+        if (typeof isStatusImmune === 'function' && isStatusImmune(target)) return { ok: false, msg: '상태이상 면역 대상입니다(유니콘 등).' };
+        if (hasStatus(target, 'frog')) return { ok: false, msg: '이미 개구리 상태입니다.' };
+        addStatus(target, 'frog', { data: { source: playerIdx } });
+        spendSP(room, playerIdx, cost);
+        result.msg = `개구리 장난: ${target.name}${조사(target.name, '을', '를')} 개구리로 만듦`;
+        result.oppMsg = `개구리 장난: 상대가 ${target.name}${조사(target.name, '을', '를')} 개구리로`;
+        result.data.frogPieceIdx = tIdx;
+        result.data.frogOwnerIdx = targetOwnerIdx;
+        break;
+      }
+      // ▸ 저주: HP 1 이하 대상 불가.
+      if (target.hp <= 1) {
         return { ok: false, msg: 'HP가 1 이하인 대상에게는 저주를 걸 수 없습니다.' };
       }
       if (target.statusEffects.some(e => e.type === 'curse')) {
