@@ -7293,40 +7293,43 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
   }
 }
 
-// ★ 사용자 요청: AI 가 사기증진(commander 버프) 을 활용해야 함.
-//   commander 와 인접한 아군은 +1 ATK 효과. 이 effective atk 를 점수에 반영하면
-//   AI 는 commander 옆으로 이동·공격을 선호하게 됨.
-function _effectiveAtkForAi(piece, room, ownerIdx) {
-  if (!piece || piece.type === 'commander') return piece?.atk || 0;
-  // ★ 팀전: 같은 팀 모든 플레이어의 지휘관 체크 (getAllyIndices)
+// ══ ★ Phase 1: 정규 유효 공격력 헬퍼 (동적항 프레임워크) ═══════════════════
+//   base + 사기증진(commander wrath +1). opts.col/row 지정 시 그 가상 위치 기준(이동 점수용).
+//   동적 기본공격력(철인=남은HP · 왕자 계승자=+0.5×타왕실 · 묘지기=+0.5×유해수 · 마왕 타락/
+//   오베론 축복=팩션버프)은 신규 로스터 활성 시 아래 스텁을 켠다. 현재 라이브 유닛은 리워크 전이라
+//   미적용 → 기존 _effectiveAtkForAi(base+wrath)와 100% 동일 동작(라이브 불변).
+function getEffectiveAtk(piece, room, ownerIdx, opts) {
+  if (!piece) return 0;
+  opts = opts || {};
+  const col = opts.col != null ? opts.col : piece.col;
+  const row = opts.row != null ? opts.row : piece.row;
+  let base = piece.atk || 0;
+  // ── 동적 기본공격력 (신규 로스터 활성 시 켬) ──
+  //   TODO(Phase3): if (piece.type==='ironman') base = max(0, hp);
+  //                 if (piece.type==='prince') base += 0.5 * (생존 타 왕실 수, 적 포함);
+  //                 if (piece.type==='gravekeeper') base += 0.5 * (room.remains?.length||0);
+  //                 처형(참수) 상태면 동적/패시브 무력화.
+  if (piece.type === 'commander') return base;
   const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
   for (const ai of allyIdxs) {
-    const allies = (room.players[ai]?.pieces || []).filter(p =>
-      p.alive && p !== piece && p.type === 'commander');
-    for (const cmd of allies) {
-      if ((Math.abs(cmd.col - piece.col) === 1 && cmd.row === piece.row) ||
-          (Math.abs(cmd.row - piece.row) === 1 && cmd.col === piece.col)) {
-        return (piece.atk || 0) + 1;
+    for (const cmd of (room.players[ai]?.pieces || [])) {
+      if (!cmd.alive || cmd === piece || cmd.type !== 'commander' || cmd.col == null) continue;
+      if ((Math.abs(cmd.col - col) === 1 && cmd.row === row) ||
+          (Math.abs(cmd.row - row) === 1 && cmd.col === col)) {
+        return base + 1;
       }
     }
   }
-  return piece.atk || 0;
+  // ── 팩션 ATK 버프(마왕 타락 +0.5 / 오베론 축복 +1) — Phase 4 버프자원 도입 후 ──
+  //   base += (room._factionAtkBuff && room._factionAtkBuff[pieceFaction(piece)]) || 0;
+  return base;
+}
+// AI 사기증진 활용 — 아래 둘은 정규 헬퍼에 위임(중복 제거).
+function _effectiveAtkForAi(piece, room, ownerIdx) {
+  return getEffectiveAtk(piece, room, ownerIdx);
 }
 function _effectiveAtkAtCellForAi(piece, room, ownerIdx, newCol, newRow) {
-  // 가상의 위치(newCol, newRow) 에서 commander 인접 여부 — 이동 점수용.
-  if (!piece || piece.type === 'commander') return piece?.atk || 0;
-  const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
-  for (const ai of allyIdxs) {
-    const allies = (room.players[ai]?.pieces || []).filter(p =>
-      p.alive && p !== piece && p.type === 'commander');
-    for (const cmd of allies) {
-      if ((Math.abs(cmd.col - newCol) === 1 && cmd.row === newRow) ||
-          (Math.abs(cmd.row - newRow) === 1 && cmd.col === newCol)) {
-        return (piece.atk || 0) + 1;
-      }
-    }
-  }
-  return piece.atk || 0;
+  return getEffectiveAtk(piece, room, ownerIdx, { col: newCol, row: newRow });
 }
 // ★ 지휘관 본인 이동 점수 — 새 위치에서 사기증진(+1 ATK)을 줄 수 있는 아군 수.
 //   지휘관은 자기 공격력(2)만으로 움직이면 아군 곁을 떠나 버프가 사장됨(사용자 지적).
