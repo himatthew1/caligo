@@ -214,7 +214,8 @@ const CHARACTERS = {
       ] },
   ],
   2: [
-    { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
+    { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'좌우와 하단 · 부대공격: 모든 왕실 아군이 1회씩 강제 공격',
+      skills:[{id:'troopAttack', name:'부대공격', cost:3, replacesAction:true, desc:'공격 가능한 모든 왕실 아군이 1회씩 공격(1T→3T순, 기마병 제외)'}] },
     { type:'knight', name:'기사', tier:2, atk:2, icon:'/assets/icons/knight.png', tag:'royal', desc:'자신 포함 X대각선 5칸', skills:[] },
     { type:'shadowAssassin', name:'그림자 암살자', tier:2, atk:2, icon:'/assets/icons/shadowAssassin.png', tag:'villain', desc:'주변 9칸 중 1칸 선택 공격',
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
@@ -7378,6 +7379,41 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `파괴공작: (${dCol},${dRow}) 칸 파괴 예약(다음 내 턴)`;
       result.oppMsg = `파괴공작: 상대가 칸을 파괴 예약`;
       result.data.pendingDemolishCell = { col: dCol, row: dRow };
+      break;
+    }
+
+    // ── GENERAL(장군): 부대공격 — 공격 가능한 모든 왕실 아군이 1회씩 강제 공격(1T→3T, 기마병 제외) ──
+    case 'general': {
+      spendSP(room, playerIdx, cost);
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      const taBounds = room.boardBounds;
+      const attackers = [];
+      for (const ai of getAllyIndices(room, playerIdx)) {
+        const ap = room.players[ai]; if (!ap) continue;
+        for (let ui = 0; ui < ap.pieces.length; ui++) {
+          const p = ap.pieces[ui];
+          if (!p.alive) continue;
+          if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) continue;
+          if (p.type === 'cavalry') continue;                       // 공격 없음(질주 특성)
+          if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;   // 배신 조작 불가
+          const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
+          let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0 });
+          if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
+          if (!cells || cells.length === 0) continue;               // 투석기 등 타겟 필요 유닛은 자동 제외
+          attackers.push({ ownerIdx: ai, pieceIdx: ui, p, tier: p.tier || 1, cells });
+        }
+      }
+      attackers.sort((a, b) => a.tier - b.tier);                    // 1T→3T 순차
+      const taHits = [];
+      for (const at of attackers) {
+        const hits = processAttack(room, at.ownerIdx, at.p, at.cells, undefined, {}) || [];
+        taHits.push(...hits);
+        if (typeof tickActorPoison === 'function') tickActorPoison(room, at.p, at.ownerIdx);   // 공격행동 후 중독 틱
+      }
+      result.msg = `부대공격: 왕실 아군 ${attackers.length}명 공격`;
+      result.oppMsg = `부대공격: 상대 왕실 부대가 공격`;
+      result.data.hits = taHits;
       break;
     }
 
