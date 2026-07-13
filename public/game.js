@@ -9837,6 +9837,19 @@ const TAG_TO_BLOCK_CLASS = {
   'tag-free':    'mini-header-free',     // 초록
   'tag-passive': 'mini-header-passive',  // 주황
 };
+// 공격력 표시 — 동적 공격력(패시브 보정) 유닛은 수치 대신/함께 보정식을 노출.
+//   철인(괴력): 공격력이 곧 남은 체력이라 기본값 0이 무의미 → "= 남은 체력".
+//   왕자(계승자): 생존 왕실 하나당 +0.5 → 기본값 + 보정 표기.
+function atkDisplayHtml(c) {
+  const passives = (c && c.passives) || [];
+  if (passives.includes('might')) {
+    return `⚔ 공격력 <span style="color:#f59e0b">= 남은 체력</span>`;
+  }
+  if (passives.includes('successor')) {
+    return `⚔ 공격력 ${c.atk} <span style="color:#f59e0b;font-size:0.82em">(+생존 왕실당 0.5)</span>`;
+  }
+  return `⚔ 공격력 ${c.atk}`;
+}
 const mkSkillHead = (name, tagCls, tagLabel) => ({
   head: name,
   headCls: TAG_TO_BLOCK_CLASS[tagCls] || '',
@@ -10518,7 +10531,7 @@ function populateSlideContent(c, prefix) {
   const nameEl = document.getElementById(`${prefix}-name`);
   if (nameEl) nameEl.innerHTML = `<span>${c.name}</span>${tagHtml}`;
   const atkEl = document.getElementById(`${prefix}-atk`);
-  if (atkEl) atkEl.innerHTML = `⚔ 공격력 ${c.atk}`;
+  if (atkEl) atkEl.innerHTML = atkDisplayHtml(c);
   const miniEl = document.getElementById(`${prefix}-mini-headers`);
   if (miniEl) miniEl.innerHTML = buildMiniHeaders(c);
   // 사용하지 않는 desc 영역은 항상 숨김
@@ -12278,7 +12291,7 @@ function exRenderSlide() {
   const tagHtml = tagBadgeHtml(c.tag);
   document.getElementById('ex-slide-name').innerHTML = `<span>${c.name}</span>${tagHtml}`;
   // 이름 아래 공격력
-  document.getElementById('ex-slide-atk').innerHTML = `⚔ 공격력 ${c.atk}`;
+  document.getElementById('ex-slide-atk').innerHTML = atkDisplayHtml(c);
   // 그 아래 미니 헤더
   const exMiniEl = document.getElementById('ex-slide-mini-headers');
   if (exMiniEl) exMiniEl.innerHTML = buildMiniHeaders(c);
