@@ -219,6 +219,8 @@ const CHARACTERS = {
       skills:[], passives:['silverHorn'] },
     { type:'ironman', name:'철인', tier:2, atk:0, icon:'/assets/icons/ironman.png', tag:null, desc:'제자리와 상단 · 괴력: 공격력 = 남은 체력',
       skills:[], passives:['might'] },
+    { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
+      skills:[], passives:['suppression'] },
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:3, icon:'/assets/icons/prince.png', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
@@ -6128,6 +6130,18 @@ function endGame(room, winnerIdx, reason) {
 // ── Skill Execution ─────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 
+// ★ Phase 3: 궁정대신 탄압 — 살아있는 궁정대신(처형/개구리로 무력화 안 됨)이 보드에 있으면
+//   비왕실(royal 아님) 시전자의 스킬 SP 비용 +1. 아군/적군 불문(전역 효과).
+function _suppressionSurcharge(room, caster) {
+  if (!caster) return 0;
+  if (typeof isFaction === 'function' ? isFaction(caster, 'royal') : caster.tag === 'royal') return 0;
+  for (const pl of (room.players || [])) {
+    for (const p of (pl.pieces || [])) {
+      if (p.alive && p.type === 'courtier' && (typeof isPassiveActive !== 'function' || isPassiveActive(p, 'suppression'))) return 1;
+    }
+  }
+  return 0;
+}
 function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   const player = room.players[playerIdx];
   const piece = player.pieces[pieceIdx];
@@ -6146,6 +6160,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     const matchedSkill = baseChar.skills.find(s => s.id === skillId);
     if (matchedSkill) cost = matchedSkill.cost;
   }
+  // ★ Phase 3: 궁정대신 탄압 — 보드에 살아있는 궁정대신이 있으면 비왕실 유닛 스킬 SP +1(아/적 불문).
+  if (typeof _suppressionSurcharge === 'function') cost += _suppressionSurcharge(room, piece);
 
   // Check SP (regular + instant) — 팀모드는 teamId 슬롯
   const spSlot = teamSlotIdx(room, playerIdx);
