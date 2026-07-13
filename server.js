@@ -235,6 +235,22 @@ const CHARACTERS = {
 const ALL_CHARS = Object.values(CHARACTERS).flat();
 const getChar = (type) => ALL_CHARS.find(c => c.type === type);
 
+// ══ ★ Phase 1: 팩션(4종) 태그 기반 ════════════════════════════════════
+//   무소속(null/neutral) · 정령(spirit) · 왕실(royal) · 악인(villain). 판정 #1: 무소속 = null 유지.
+//   pieceFaction() = 유닛의 '현재' 소속 — 향후 오버라이드(호문클루스 변이 _tagOverride /
+//   이단자 현혹 _cultOf / 개구리 등)를 여기 한 곳에서 반영하면 팩션 조회부가 자동으로 따라감.
+//   (Phase 1 은 헬퍼만 도입 — 오버라이드 상태이상은 Phase 2 에서 이 함수에 연결.)
+const FACTIONS = ['royal', 'villain', 'spirit', 'neutral'];
+function pieceFaction(piece) {
+  if (!piece) return 'neutral';
+  if (piece._tagOverride) return piece._tagOverride;                 // 호문클루스 변이 등(Phase 3)
+  return piece.tag || 'neutral';                                      // null = 무소속(neutral)
+}
+function isFaction(piece, faction) {
+  if (faction === 'neutral') return pieceFaction(piece) === 'neutral';
+  return pieceFaction(piece) === faction;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // ── 더미 캐릭터 (미정 — 추후 커스텀 모드 전용) ────────────────────
 // ══════════════════════════════════════════════════════════════════
@@ -459,6 +475,83 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'count':
       push(col, row);
       for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+
+    // ══ ★ Phase 1: 신규 유닛 공격범위 (additive — 기존 밸런스 불변) ══════════════════
+    //   PPT 5×5 그리드 판독값. 별도 표기 없으면 사거리 전체 동시타격.
+    //   ── 무소속(Neutral) ──
+    case 'wanderer':   // 방랑자 — 도약(체스 나이트 8칸)
+      for (const [dc, dr] of [[-1,-2],[1,-2],[-2,-1],[2,-1],[-2,1],[2,1],[-1,2],[1,2]]) push(col+dc, row+dr);
+      break;
+    case 'fortuneTeller':  // 포춘텔러 — 십자(제자리+상하좌우)
+    case 'mercenary':      // 용병 — 십자
+      push(col, row);
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+      break;
+    case 'thief':      // 도적 — 좌우 세로2씩(자기줄+상단)
+      for (const [dc, dr] of [[-1,0],[-1,-1],[1,0],[1,-1]]) push(col+dc, row+dr);
+      break;
+    case 'ironman':    // 철인 — 제자리+상단1
+    case 'mermaid':    // 샘의인어 — 제자리+상단1
+      push(col, row); push(col, row - 1);
+      break;
+    case 'storyteller':  // 이야기꾼 — 자기줄+상단 가로3씩(2×3)
+      for (const dc of [-1,0,1]) { push(col+dc, row); push(col+dc, row-1); }
+      break;
+    case 'unicorn':      // 유니콘 — 제자리+상단 대각2
+    case 'necromancer':  // 악령술사 — 제자리+위 대각2
+      push(col, row); push(col-1, row-1); push(col+1, row-1);
+      break;
+    case 'hero':         // 영웅 — 제자리+하단1
+    case 'siegeBreaker': // 공성파괴자 — 제자리+하단1
+      push(col, row); push(col, row + 1);
+      break;
+    case 'homunculus':   // 호문클루스 — 좌우 2
+    case 'undead':       // 언데드 — 양옆(좌우)
+      push(col-1, row); push(col+1, row);
+      break;
+    case 'gladiator':    // 검투사 — 좌우+상단
+      push(col-1, row); push(col+1, row); push(col, row-1);
+      break;
+    //   ── 정령(Spirit) ──
+    case 'fairy':        // 요정 — 좌우 세로3 + 제자리(H, 7칸)
+      push(col, row);
+      for (const dr of [-1,0,1]) { push(col-1, row+dr); push(col+1, row+dr); }
+      break;
+    case 'windSurfer':   // 윈드서퍼 — 가로3+하단
+      push(col-1, row); push(col, row); push(col+1, row); push(col, row+1);
+      break;
+    case 'dryad': {      // 드라이어드 — 가로3 (생장: 데미지 받을 때마다 사거리+1 → extra.growth)
+      const g = extra.growth || 0;
+      for (let d = -(1 + g); d <= (1 + g); d++) push(col + d, row);
+      break;
+    }
+    case 'griffin':      // 그리폰 — 세로3
+    case 'heretic':      // 이단자 — 제자리+상하2(세로3)
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'mushkin':      // 머쉬킨 — 자기줄+하단 가로3씩(2×3)
+      for (const dc of [-1,0,1]) { push(col+dc, row); push(col+dc, row+1); }
+      break;
+    case 'oberon':       // 오베론 — 제자리+하단 대각2
+    case 'executioner':  // 처형인 — 제자리+아래 대각2
+      push(col, row); push(col-1, row+1); push(col+1, row+1);
+      break;
+    //   ── 왕실(Royal) ──
+    case 'catapult':     // 투석기 — 원하는 칸(단일, 무제한) : witch 처럼 tCol/tRow 1칸
+      if (extra.tCol !== undefined && extra.tRow !== undefined) push(extra.tCol, extra.tRow);
+      break;
+    case 'courtier':     // 궁정대신 — 제자리+U(5칸): 자기 좌우 + 하단 좌우/중앙? PPT U = 위로 열린 U
+      // 위로 열린 U(5칸) = 좌열 위·자기, 우열 위·자기, 하단 중앙 → (−1,0),(−1,1),(1,0),(1,1),(0,1)+제자리 판독 보류
+      push(col, row); push(col-1, row); push(col+1, row); push(col-1, row+1); push(col+1, row+1);
+      break;
+    //   ── 악인(Villain) ──
+    case 'poisoner':     // 독살꾼 — 제자리+X 대각4
+      push(col, row);
+      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+      break;
+    case 'gravekeeper':  // 묘지기 — 제자리 제외 십자
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
       break;
   }
   return cells;
