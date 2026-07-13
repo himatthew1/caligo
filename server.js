@@ -192,8 +192,15 @@ const CHARACTERS = {
     { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'/assets/icons/hookKiller.png', tag:'villain', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
     { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능',
       skills:[], passives:['valor'] },
+    { type:'fairy', name:'요정', tier:1, atk:0.5, icon:'/assets/icons/fairy.png', tag:'spirit', desc:'H자(좌우 세로3+제자리)',
+      skills:[{id:'fairyDust', name:'페어리 더스트', cost:2, replacesAction:false, desc:'아군 1명에게 행운 부여(다음 피해 1회 0)'}] },
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'/assets/icons/poisoner.png', tag:'villain', desc:'제자리와 X자 대각선 · 독니: 공격 대상 중독',
       skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'공격 범위 내 모든 적 중독'}], passives:['venomFang'] },
+    { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'/assets/icons/fortuneTeller.png', tag:null, desc:'십자(제자리+상하좌우)',
+      skills:[
+        {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
+        {id:'fateShift', name:'운명변곡', cost:3, replacesAction:false, desc:'아군 1명의 모든 상태이상을 적 1명에게 이동'}
+      ] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -6564,6 +6571,57 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.oppMsg = `맹독 구름: 중독`;
       result.data.poisonedCells = poisonedHits;
       result.data.atkCells = pcells;
+      break;
+    }
+
+    // ── FORTUNE TELLER: 흉조(랜덤 불행)·운명변곡(상태이상 이동) ──
+    case 'fortuneTeller': {
+      if (skillId === 'omen') {
+        // 흉조 (SP1 행동소비) — 랜덤 유닛 1명에게 불행(받는 피해 +1 중첩). 면역 유닛 제외.
+        const pool = [];
+        for (const pl of room.players) for (const t of (pl.pieces || [])) {
+          if (t.alive && t.col != null && !isStatusImmune(t)) pool.push(t);
+        }
+        if (!pool.length) return { ok: false, msg: '대상 유닛이 없습니다.' };
+        spendSP(room, playerIdx, cost);
+        player.actionUsedSkillReplace = true;
+        player.actionDone = true;
+        const victim = pool[Math.floor(Math.random() * pool.length)];
+        addStatus(victim, 'misfortune', { stacks: 1 });
+        result.msg = `흉조: ${victim.name}에게 불행 부여`;
+        result.oppMsg = `흉조: 랜덤 유닛에게 불행`;
+        result.data.omenName = victim.name;
+        break;
+      }
+      // 운명변곡 (SP3 자유시전) — 아군 1명의 모든 상태이상을 적 1명에게 이동(면역 존중).
+      const src = (params && params.fromPieceIdx != null) ? player.pieces[params.fromPieceIdx] : null;
+      if (!src || !src.alive) return { ok: false, msg: '상태이상을 옮길 아군을 선택하세요.' };
+      let dst = null;
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        if (params && params.toName) dst = ep.pieces.find(p => p.alive && p.type === params.toName);
+        else if (params && params.toCol != null) dst = ep.pieces.find(p => p.alive && p.col === params.toCol && p.row === params.toRow);
+        if (dst) break;
+      }
+      if (!dst) return { ok: false, msg: '상태이상을 받을 적을 선택하세요.' };
+      spendSP(room, playerIdx, cost);
+      const moving = (src.statusEffects || []).filter(e => e.type !== 'trap');
+      src.statusEffects = (src.statusEffects || []).filter(e => e.type === 'trap');
+      if (!isStatusImmune(dst)) { if (!dst.statusEffects) dst.statusEffects = []; for (const e of moving) dst.statusEffects.push(e); }
+      result.msg = `운명변곡: ${src.name}의 상태이상을 ${dst.name}에게 이동`;
+      result.oppMsg = `운명변곡: 상태이상 이동`;
+      break;
+    }
+
+    // ── FAIRY: 페어리 더스트 (아군 1명 행운 — 다음 피해 1회 0) ──
+    case 'fairy': {
+      const t = (params && params.targetPieceIdx != null) ? player.pieces[params.targetPieceIdx] : null;
+      if (!t || !t.alive) return { ok: false, msg: '행운을 줄 아군을 선택하세요.' };
+      spendSP(room, playerIdx, cost);
+      addStatus(t, 'luck', { stacks: 1 });
+      result.msg = `페어리 더스트: ${t.name}에게 행운 부여`;
+      result.oppMsg = `페어리 더스트`;
+      result.data.luckPieceIdx = params.targetPieceIdx;
       break;
     }
 

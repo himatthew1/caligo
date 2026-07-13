@@ -16549,6 +16549,12 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     return;
   }
 
+  if (type === 'fairy') {
+    // 요정 페어리 더스트: 아군 선택(행운 부여)
+    showFairyDustUI(pieceIdx);
+    return;
+  }
+
   if (type === 'twins_elder' || type === 'twins_younger') {
     // 쌍둥이: 합류 방향 선택
     showTwinsSkillUI(pieceIdx, pc);
@@ -16660,6 +16666,39 @@ function showMonkSkillUI(pieceIdx) {
         if (!apc.alive) continue;
         _addOpt(apc, i, teammate.idx, ` <span style="opacity:.7">(${teammate.name})</span>`);
       }
+    }
+  }
+  modal.classList.remove('hidden');
+}
+
+// 요정 페어리 더스트 — 아군 1명 선택 → 행운 부여(다음 피해 1회 0).
+function showFairyDustUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '페어리 더스트 — 행운 대상 선택';
+  body.innerHTML = '';
+  const _addOpt = (apc, i, ownerIdx, ownerLabel) => {
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, {size:'1.2em'})} ${apc.name}${ownerLabel}</div>
+      <div class="skill-desc">HP ${apc.hp}/${apc.maxHp} — 다음 피해 1회 0</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'fairyDust', params: { targetPieceIdx: i, targetOwnerIdx: ownerIdx } });
+    });
+    body.appendChild(opt);
+  };
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const apc = S.myPieces[i];
+    if (!apc.alive) continue;
+    _addOpt(apc, i, S.playerIdx, '');
+  }
+  if (S.isTeamMode && Array.isArray(S.teammatePieces) && S.teammatePieces.length > 0) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) for (let i = 0; i < S.teammatePieces.length; i++) {
+      const apc = S.teammatePieces[i];
+      if (!apc.alive) continue;
+      _addOpt(apc, i, teammate.idx, ` <span style="opacity:.7">(${teammate.name})</span>`);
     }
   }
   modal.classList.remove('hidden');
