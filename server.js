@@ -167,7 +167,7 @@ app.post('/__save_shot', (req, res) => {
 
 const CHARACTERS = {
   1: [
-    { type:'archer', name:'궁수', tier:1, atk:1, icon:'/assets/icons/archer.png', tag:null, desc:'위치한 곳 좌측 대각선 전체 공격',
+    { type:'archer', name:'엘프', tier:1, atk:1, icon:'/assets/icons/archer.png', tag:'spirit', desc:'위치한 곳 좌측 대각선 전체 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
     { type:'spearman', name:'창병', tier:1, atk:1, icon:'/assets/icons/spearman.png', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
     { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
@@ -185,7 +185,7 @@ const CHARACTERS = {
         {id:'bomb', name:'폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발 · 1 피해'}
       ] },
-    { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'/assets/icons/herbalist.png', tag:null, desc:'좌우 각2칸 · 자기 제외',
+    { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'/assets/icons/herbalist.png', tag:'spirit', desc:'가로 3칸',
       skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
     // ── ★ Phase 3 신규(무스킬·무패시브) ──
     { type:'wanderer', name:'방랑자', tier:1, atk:1, icon:'/assets/icons/wanderer.png', tag:null, desc:'도약 — 나이트 8칸', skills:[] },
@@ -230,20 +230,20 @@ const CHARACTERS = {
       skills:[], passives:['suppression'] },
   ],
   3: [
-    { type:'prince', name:'왕자', tier:3, atk:3, icon:'/assets/icons/prince.png', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
+    { type:'prince', name:'왕자', tier:3, atk:2, icon:'/assets/icons/prince.png', tag:'royal', desc:'가로 3칸 · 계승자: 생존 왕실 하나당 +0.5(적 포함)', skills:[], passives:['successor'] },
     { type:'princess', name:'공주', tier:3, atk:3, icon:'/assets/icons/princess.png', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
     { type:'king', name:'국왕', tier:3, atk:2, icon:'/assets/icons/king.png', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:null, desc:'X대각선 4칸 · 자기 제외',
       skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
-    { type:'monk', name:'수도승', tier:3, atk:1, icon:'/assets/icons/monk.png', tag:null, desc:'상하 각1칸 · 자기 제외',
+    { type:'monk', name:'사제', tier:3, atk:1, icon:'/assets/icons/monk.png', tag:'spirit', desc:'상하 각1칸 · 자기 제외',
       skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
       passives:['grace'] },
     { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'/assets/icons/slaughterHero.png', tag:'villain', desc:'3x3 전체 9칸',
       skills:[], passives:['betrayer'] },
-    { type:'commander', name:'지휘관', tier:3, atk:2, icon:'/assets/icons/commander.png', tag:'royal', desc:'좌우 각1칸 · 자기 제외',
+    { type:'commander', name:'지휘관', tier:3, atk:1, icon:'/assets/icons/commander.png', tag:'royal', desc:'좌우 각1칸 · 자기 제외',
       skills:[], passives:['wrath'] },
-    { type:'sulfurCauldron', name:'유황이 끓는 솥', tier:3, atk:0.5, icon:'/assets/icons/sulfurCauldron.png', tag:'royal', desc:'주변 8칸 · 자기 제외',
+    { type:'sulfurCauldron', name:'매직 포트', tier:3, atk:0.5, icon:'/assets/icons/sulfurCauldron.png', tag:'spirit', desc:'주변 8칸 · 자기 제외',
       skills:[{id:'sulfurRiver', name:'유황범람', cost:3, replacesAction:true, desc:'보드 테두리 전체 공격 · 2 피해'}] },
     { type:'torturer', name:'고문 기술자', tier:3, atk:1, icon:'/assets/icons/torturer.png', tag:'villain', desc:'십자 4방향 · 자기 제외 · 총 4칸',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
@@ -493,9 +493,8 @@ function getAttackCells(type, col, row, bounds, extra) {
       push(col, row - 1); push(col, row - 2);
       push(col, row + 1); push(col, row + 2);
       break;
-    case 'herbalist':
-      push(col - 1, row); push(col - 2, row);
-      push(col + 1, row); push(col + 2, row);
+    case 'herbalist':   // ★ Phase 3 리워크: 가로±2 → 가로3(정령 편입)
+      push(col - 1, row); push(col, row); push(col + 1, row);
       break;
 
     // ── TIER 2 ──
