@@ -13169,11 +13169,23 @@ function pieceCanTakeBasicAction(pc) {
 }
 
 // piece 가 스킬을 보유하는지 (사용 가능 여부와 무관 — 보유 자체).
+// ★ 시크릿 스킬(그레이스 키스 등) 해금 판정 — 조건 충족 전엔 스킬 목록/버튼/모달에서 완전 숨김.
+function secretSkillUnlocked(sk) {
+  if (!sk || !sk.secret) return true;
+  if (sk.secret === 'allyFrog') {
+    const allies = [...(S.myPieces || []), ...((S.isTeamMode && S.teammatePieces) ? S.teammatePieces : [])];
+    return allies.some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'frog'));
+  }
+  return true;
+}
+// 스킬이 지금 UI 에 노출/사용 가능한 종류인지(특성 제외 + 시크릿 해금).
+function skillIsVisible(sk) { return sk && !sk.trait && secretSkillUnlocked(sk); }
+
 function pieceHasAnySkill(pc) {
   if (!pc) return false;
-  // ★ 특성(trait) 스킬(질주 등)은 '스킬 없음'으로 취급 — 부채꼴 스킬 버튼 미표시.
-  const realSkills = Array.isArray(pc.skills) ? pc.skills.filter(s => !s.trait) : [];
-  return realSkills.length > 0 || (!!pc.hasSkill && !(Array.isArray(pc.skills) && pc.skills.length > 0 && pc.skills.every(s => s.trait)));
+  // ★ 특성(trait)·미해금 시크릿 스킬은 '스킬 없음'으로 취급 — 부채꼴 스킬 버튼 미표시.
+  if (Array.isArray(pc.skills) && pc.skills.length > 0) return pc.skills.some(s => skillIsVisible(s));
+  return !!pc.hasSkill;
 }
 
 // 특정 piece 가 지금 시점에 사용 가능한 스킬을 하나라도 가지고 있는지.
@@ -13197,7 +13209,7 @@ function canPieceUseAnySkill(pieceIdx) {
     ? pc.skills
     : (pc.hasSkill ? [{ id: pc.skillId, cost: pc.skillCost, replacesAction: !!pc.skillReplacesAction, oncePerTurn: !!pc.skillOncePerTurn }] : []);
   for (const sk of skills) {
-    if (sk.trait) continue;   // ★ 특성(질주)은 스킬 아님
+    if (!skillIsVisible(sk)) continue;   // ★ 특성(질주)·미해금 시크릿(그레이스 키스)은 제외
     if ((sk.cost || 0) > totalSP) continue;
     if (sk.replacesAction && S.actionDone) continue;
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) continue;
@@ -16000,7 +16012,7 @@ function buildMiniHeaders(ch) {
   let html = '';
   if (ch.skills && ch.skills.length > 0) {
     for (const sk of ch.skills) {
-      if (sk.trait) continue;   // ★ 특성(질주 등)은 스킬 목록에 표시 안 함
+      if (!skillIsVisible(sk)) continue;   // ★ 특성(질주)·미해금 시크릿(그레이스 키스)은 목록에 숨김
       let cls;
       if (sk.replacesAction) cls = 'mini-header-action';
       else if (sk.oncePerTurn) cls = 'mini-header-once';
@@ -16443,6 +16455,7 @@ function openSkillModal(targetPieceIdx) {
     if (skillList) {
       // 다중 스킬: 각 스킬을 별도 옵션으로 표시
       for (const sk of skillList) {
+        if (!skillIsVisible(sk)) continue;   // ★ 특성·미해금 시크릿은 모달에도 숨김
         // ★ 오베론 축복/은혜/종언은 SP가 아니라 요정왕 카운터(pc.oberonCounter)로 판정.
         const usesCounter = sk.resource === 'oberonCounter';
         const counterVal = pc.oberonCounter || 0;

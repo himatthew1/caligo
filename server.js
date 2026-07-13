@@ -260,9 +260,10 @@ const CHARACTERS = {
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:2, icon:'/assets/icons/prince.png', tag:'royal', desc:'가로 3칸 · 계승자: 생존 왕실 하나당 +0.5(적 포함)', skills:[], passives:['successor'] },
-    { type:'princess', name:'공주', tier:3, atk:2, icon:'/assets/icons/princess.png', tag:'royal', desc:'상하 2칸 · 후원자: 게임 시작 시 모든 아군 왕실 HP+1 · 그레이스 키스로 개구리 해제',
+    { type:'princess', name:'공주', tier:3, atk:2, icon:'/assets/icons/princess.png', tag:'royal', desc:'상하 2칸 · 후원자: 게임 시작 시 모든 아군 왕실 HP+1',
       passives:['patron'],
-      skills:[{id:'graceKiss', name:'그레이스 키스', cost:1, replacesAction:false, oncePerTurn:true, desc:'개구리 상태의 아군 1명을 개구리에서 해제'}] },
+      // ★ 그레이스 키스는 '시크릿'(이스터에그) — 평소 숨김. 아군 하나라도 개구리가 되면 스킬로 해금.
+      skills:[{id:'graceKiss', name:'그레이스 키스', cost:1, replacesAction:false, oncePerTurn:true, secret:'allyFrog', desc:'개구리 상태의 아군 1명을 개구리에서 해제'}] },
     { type:'king', name:'국왕', tier:3, atk:3, icon:'/assets/icons/king.png', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'아군 또는 적 유닛 하나를 원하는 위치로 강제 이동'}] },
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:'spirit', desc:'X대각선 4칸 · 자기 제외',
