@@ -9842,9 +9842,6 @@ const TAG_TO_BLOCK_CLASS = {
 //   왕자(계승자): 생존 왕실 하나당 +0.5 → 기본값 + 보정 표기.
 function atkDisplayHtml(c) {
   const passives = (c && c.passives) || [];
-  if (passives.includes('might')) {
-    return `⚔ 공격력 <span style="color:#f59e0b">= 남은 체력</span>`;
-  }
   if (passives.includes('successor')) {
     return `⚔ 공격력 ${c.atk} <span style="color:#f59e0b;font-size:0.82em">(+생존 왕실당 0.5)</span>`;
   }
@@ -9863,8 +9860,8 @@ const mkPassiveHead = (name) => ({
 // ★ 특성(trait) — 스킬탭에서 구분선 위에 별도 표기(질주·낡은 심장 등). isTrait로 렌더 분기.
 const mkTraitHead = (name) => ({
   head: name,
-  headCls: 'mini-header-passive',
-  tag: `<span class="skill-type-text tag-passive">특성</span>`,
+  headCls: 'mini-header-trait',
+  tag: `<span class="skill-type-text tag-trait">특성</span>`,
   isTrait: true,
 });
 // SP 텍스트 — 블록 오른쪽에 붙을 작은 라벨용
@@ -9874,7 +9871,8 @@ const spLabel = (sp) => {
   return `SP ${sp} 소모`;
 };
 // 상태 태그 인라인 — 게임 중 사용되는 아이콘 포함
-const STATUS_ICONS = { curse: '☠', shadow: '👻', mark: '🎯', morale: '📋' };
+const STATUS_ICONS = { curse: '☠', shadow: '👻', mark: '🎯', morale: '📋',
+  executed: '🪓', cult: '🕯️', poison: '☣', misfortune: '💢', luck: '🍀', betray: '🗡️', frog: '🐸' };
 const stBadge = (cls, label) => {
   const icon = STATUS_ICONS[cls] || '';
   return `<span class="status-badge ${cls}">${icon ? icon + ' ' : ''}${label}</span>`;
@@ -10020,7 +10018,7 @@ const CHAR_DETAILS = {
   witch: {
     blocks: [
       { ...mkSkillHead('저주', 'tag-action', '행동소비형'), sp: 4, color: '#a78bfa', desc: `적 1명을 ${stBadge('curse', '저주')} 상태로 만듭니다. 저주 상태의 적은 차례마다 0.5 피해를 받고 스킬을 쓸 수 없습니다. 저주를 유지하는 동안 마녀는 행동할 수 없고, 마녀가 피해를 받으면 풀립니다.` },
-      { ...mkSkillHead('개구리 장난', 'tag-once', '자유시전·1회'), sp: 3, color: '#a78bfa', desc: '적 1명을 개구리로 만듭니다. 개구리가 된 적은 가로 3칸을 공격하고 공격력이 0.5가 되며 스킬을 쓸 수 없습니다.' },
+      { ...mkSkillHead('개구리 장난', 'tag-once', '자유시전·1회'), sp: 3, color: '#a78bfa', desc: `적 1명을 ${stBadge('frog', '개구리')}로 만듭니다. 개구리가 된 적은 가로 3칸을 공격하고 공격력이 0.5가 되며 스킬을 쓸 수 없습니다. 마녀가 피해를 받으면 풀립니다.` },
       { ...mkSkillHead('빗자루 비행', 'tag-free', '자유시전형'), sp: 1, color: '#a78bfa', desc: '원하는 칸으로 이동합니다.' },
     ],
     flavor: '공격을 버리고 저주의 혀를 택한 여인. 그녀가 읊조리면 적의 목숨이 서서히 저물어간다.',
@@ -10157,7 +10155,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('페어리 더스트', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa' },
     ],
-    body: '아군 1명에게 행운을 부여합니다. 행운을 가진 아군은 다음 피해를 0 피해로 받습니다.',
+    body: `아군 1명에게 ${stBadge('luck', '행운')}을 부여합니다. 행운을 가진 아군은 다음 피해를 0 피해로 받습니다.`,
     flavor: '반짝이는 가루를 흩뿌리는 작은 정령. 그 축복을 받은 이는 한 번의 죽음을 비껴간다.',
   },
   mermaid: {
@@ -10169,8 +10167,8 @@ const CHAR_DETAILS = {
   },
   poisoner: {
     blocks: [
-      { ...mkPassiveHead('독니'), color: '#f59e0b', desc: '공격한 적을 중독시킵니다. 중독된 적은 행동할 때마다 중첩만큼 피해를 받습니다.' },
-      { ...mkSkillHead('맹독 구름', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: '공격 범위 안의 모든 적을 중독시킵니다.' },
+      { ...mkPassiveHead('독니'), color: '#f59e0b', desc: `공격한 적을 ${stBadge('poison', '중독')}시킵니다. 중독된 적은 행동할 때마다 중첩당 0.1 피해를 받습니다.` },
+      { ...mkSkillHead('맹독 구름', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: `전용 범위 안의 모든 유닛을 ${stBadge('poison', '중독')}시킵니다.` },
     ],
     flavor: '소리 없이 스며드는 독의 장인. 그의 손끝이 스치기만 해도 몸속에서 죽음이 퍼진다.',
   },
@@ -10183,7 +10181,7 @@ const CHAR_DETAILS = {
   },
   fortuneTeller: {
     blocks: [
-      { ...mkSkillHead('흉조', 'tag-action', '행동소비형'), sp: 1, color: '#a78bfa', desc: '무작위 유닛 1명에게 불행을 겁니다. 불행한 유닛은 받는 피해가 1 늘고, 겹쳐 쌓입니다.' },
+      { ...mkSkillHead('흉조', 'tag-action', '행동소비형'), sp: 1, color: '#a78bfa', desc: `무작위 유닛 1명에게 ${stBadge('misfortune', '불행')}을 겁니다. 불행한 유닛은 받는 피해가 1 늘고, 겹쳐 쌓입니다.` },
       { ...mkSkillHead('운명변곡', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa', desc: '아군 1명의 모든 상태 이상을 적 1명에게 옮깁니다.' },
     ],
     flavor: '수정구 너머로 정해진 운명을 읽고, 때로는 그 실을 비틀어 재앙을 떠넘긴다.',
@@ -10200,7 +10198,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('격노', 'tag-once', '자유시전·1회'), sp: 2, color: '#a78bfa' },
     ],
-    body: '피해를 받으면 활성화됩니다. 활성화된 상태에서 적 1명에게 1 피해를 줍니다.',
+    body: '피해를 받으면 활성화됩니다. 활성화된 상태에서 적 1명에게 1 피해를 주고, 사용하면 다시 비활성화됩니다.',
     flavor: '건드리면 폭발하는 하늘의 맹수. 제 몸에 난 상처를 그대로 적에게 되갚는다.',
   },
   dryad: {
@@ -10214,14 +10212,14 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('괴력'), color: '#f59e0b' },
     ],
-    body: '공격력이 항상 남은 체력과 같습니다.',
+    body: '공격력이 남은 체력만큼 오릅니다.',
     flavor: '단련으로 다져진 강철의 육체. 목숨이 붙어 있는 한, 그 주먹은 무엇이든 부순다.',
   },
   heretic: {
     blocks: [
       { ...mkPassiveHead('현혹'), color: '#f59e0b' },
     ],
-    body: '공격한 적을 이교단으로 만듭니다. 이교단이 된 적은 이단자에게 0 피해를 주며, 이단자가 죽으면 이교단에서 풀립니다. 적이 모두 이교단이 되면 승리합니다.',
+    body: `공격한 적은 소속을 잃고 ${stBadge('cult', '이교단')} 소속이 됩니다. 이교단이 된 적은 이단자에게 0 피해를 주며, 이단자가 죽으면 소속을 되찾습니다. 적이 모두 이교단이 되면 승리합니다.`,
     flavor: '금단의 교리를 속삭이는 자. 그의 말에 홀린 자들은 어느새 같은 신을 섬긴다.',
   },
   necromancer: {
@@ -10235,7 +10233,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('선동', 'tag-once', '자유시전·1회'), sp: 3, color: '#a78bfa' },
     ],
-    body: '적 1명을 배신 상태로 만듭니다. 배신한 적은 상대가 조작할 수 없습니다. 이야기꾼이 피해를 받으면 풀립니다.',
+    body: `적 1명을 ${stBadge('betray', '배신')} 상태로 만듭니다. 배신한 적은 상대가 조작할 수 없습니다. 이야기꾼이 피해를 받으면 풀립니다.`,
     flavor: '혀끝으로 세상을 뒤흔드는 자. 그가 지어낸 이야기 한 편에 적진이 스스로 무너진다.',
   },
   courtier: {
@@ -10255,7 +10253,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('참수'), color: '#f59e0b' },
     ],
-    body: '공격한 적을 처형해 패시브를 무력화합니다.',
+    body: `공격한 적에게 ${stBadge('executed', '처형')} 상태를 부여해 패시브를 무력화합니다.`,
     flavor: '단두대를 짊어진 집행자. 그의 도끼가 스치는 순간, 상대의 모든 재주가 봉인된다.',
   },
   // ── ★ 새 팩션 3티어 ──
