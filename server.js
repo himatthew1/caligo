@@ -238,6 +238,8 @@ const CHARACTERS = {
       skills:[], passives:['enthrall'] },
     { type:'storyteller', name:'이야기꾼', tier:2, atk:0.5, icon:'/assets/icons/storyteller.png', tag:null, desc:'자기줄+상단 2×3 · 선동으로 배신 유발',
       skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
+    { type:'undead', name:'언데드', tier:2, atk:1, icon:'/assets/icons/undead.png', tag:'villain', desc:'좌우 · 불사: 피해로 죽지 않음(참수·대지분쇄·보드파괴로만 소멸)',
+      passives:['undying'], skills:[] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
       skills:[], passives:['suppression'] },
   ],
@@ -4622,7 +4624,15 @@ function bombAnimDurationMs(bombCount) {
   return 780 + (n - 1) * 350 + 1300 + 400 + 1200;
 }
 
-function handleDeath(room, deadPiece, ownerIdx) {
+function handleDeath(room, deadPiece, ownerIdx, cause) {
+  // ★ Phase 3: 언데드(undying) — 일반 피해로는 소멸하지 않음(HP0에도 alive 유지 = 살아있는 유해).
+  //   오직 '소멸' 효과에만 사망: 보드파괴/종언/공성파괴(room._boardShrinkDeaths) · 참수(cause=behead) · 대지분쇄(cause=earthquake).
+  if (deadPiece.alive && (deadPiece.passives || []).includes('undying')
+      && !room._boardShrinkDeaths && cause !== 'behead' && cause !== 'earthquake') {
+    deadPiece.hp = 0;
+    deadPiece._undeadDown = true;   // 클라: 살아있는 유해 표시용
+    return;
+  }
   deadPiece.alive = false;
   const owner = room.players[ownerIdx];
 
@@ -6795,7 +6805,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           const dmg = resolveDamage(room, piece, t, playerIdx, 1, false, ei);
           t.hp = Math.max(0, t.hp - dmg);
           const destroyed = t.hp <= 0;
-          if (destroyed) handleDeath(room, t, ei);
+          if (destroyed) handleDeath(room, t, ei, 'earthquake');   // ★ 대지분쇄는 언데드도 소멸
           qHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed, defPieceIdx: dpi, defOwnerIdx: ei });
         }
       }
