@@ -4194,6 +4194,7 @@ function pieceSummary(pieces) {
     toggleState: pc.toggleState,
     rangeGrowth: pc._rangeGrowth || 0,
     growthArms: pc._growthArms, lastGrowthDir: pc._lastGrowthDir,
+    wraithMovePending: pc._wraithMovePending || false,   // ★ 악령 조종 이동 대기
     subUnit: pc.subUnit,
     isDragon: pc.isDragon,
     wizardPassiveUsed: pc.wizardPassiveUsed,
@@ -5587,6 +5588,8 @@ function processTurnStart(room) {
   // Reset per-turn skill states for current player
   player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화
   player._troopQueue = null;       // ★ 부대공격 큐 초기화
+  player._wraithMoveQueue = null;  // ★ 악령 조종 이동 큐 초기화
+  for (const p of player.pieces) { if (p._wraithMovePending) p._wraithMovePending = false; }
   for (const p of player.pieces) {
     p.dualBladeAttacksLeft = 0;
     p.messengerSprintActive = false;
@@ -7571,16 +7574,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         // ★ 리워크: 공격 OR 이동 선택. mode='move' 면 지정 방향으로 일제 1칸 이동.
         const mode = (params && params.mode === 'move') ? 'move' : 'attack';
         if (mode === 'move') {
-          const DIRS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
-          const d = DIRS[params && params.dir] || DIRS.up;
-          let movedN = 0;
-          for (const w of wraiths) {
-            const nc = w.col + d[0], nr = w.row + d[1];
-            if (inBounds(nc, nr, bounds) && _canMoveTo(room, w, nc, nr)) { w.col = nc; w.row = nr; movedN++; }
-          }
-          result.msg = `조종: 악령 ${movedN}체 일제 이동`;
-          result.oppMsg = `조종: 상대 악령 일제 이동`;
-          result.data.wraithMove = { dir: (params && params.dir) || 'up' };
+          // ★ 리워크: 일제 이동이 아니라 각 악령을 순서대로 개별 조작(쌍둥이식). 큐를 세우고 move 핸들러가 소진.
+          const wq = [];
+          for (const w of wraiths) { w._wraithMovePending = true; wq.push(player.pieces.indexOf(w)); }
+          player._wraithMoveQueue = wq;
+          result.msg = `조종: 악령 ${wq.length}체를 순서대로 이동하세요`;
+          result.oppMsg = `조종: 상대가 악령을 조작`;
+          result.data.wraithMoveQueue = wq.slice();
           break;
         }
         const cmdHits = [];
@@ -11542,7 +11542,9 @@ io.on('connection', (socket) => {
       if (_troopFront && _troopFront.pieceIdx !== pieceIdx) {
         socket.emit('err', { msg: '부대공격: 표시된 저티어 유닛부터 순서대로 공격하세요.' }); return;
       }
-      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove && !_decreeMove && !_troopFront) {
+      // ★ 악령술사 조종(이동): 대기 중인 악령을 각자 한 번씩 이동(순서 무관, actionDone 무시).
+      const _wraithMove = !!(player._wraithMoveQueue && player._wraithMoveQueue.length && _pc && _pc._wraithMovePending);
+      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove && !_decreeMove && !_troopFront && !_wraithMove) {
         socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
       }
     }
@@ -11642,6 +11644,11 @@ io.on('connection', (socket) => {
         && (typeof isFaction === 'function' ? isFaction(piece, 'royal') : piece.tag === 'royal')) {
       // ★ 전령 칙명: 왕실 유닛 추가 이동 소진(actionDone 은 이미 true 유지).
       player._decreeRoyalMoves--;
+    } else if (piece._wraithMovePending) {
+      // ★ 악령 조종 이동: 해당 악령 소진(actionDone 은 이미 true 유지).
+      piece._wraithMovePending = false;
+      player._wraithMoveQueue = (player._wraithMoveQueue || []).filter(i => i !== pieceIdx);
+      if (player._wraithMoveQueue.length === 0) player._wraithMoveQueue = null;
     } else {
       player.actionDone = true;
     }

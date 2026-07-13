@@ -10251,7 +10251,7 @@ const CHAR_DETAILS = {
   necromancer: {
     blocks: [
       { ...mkSkillHead('강령술', 'tag-once', '자유시전·1회'), sp: 2, color: '#a78bfa', desc: '보드 위 유해 하나를 악령으로 되살립니다. 악령은 세로 3칸을 공격하고 체력과 공격력이 1입니다.' },
-      { ...mkSkillHead('조종', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: '내 모든 악령이 한 번씩 공격하거나, 같은 방향으로 일제히 이동합니다.' },
+      { ...mkSkillHead('조종', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: '내 모든 악령이 한 번씩 공격하거나, 악령을 하나씩 직접 이동시킵니다.' },
     ],
     flavor: '죽음의 문턱을 여는 자. 그의 부름에 잠들었던 시신들이 다시 일어나 칼을 든다.',
   },
@@ -13517,6 +13517,10 @@ function pieceCanTakeBasicAction(pc) {
   if (S.troopQueue && S.troopQueue.length) {
     const idx = S.myPieces ? S.myPieces.indexOf(pc) : -1;
     return idx === S.troopQueue[0].pieceIdx;
+  }
+  // ★ 악령 조종 이동: 대기 중인 악령만 조작 가능(순서 무관).
+  if ((S.myPieces || []).some(p => p.alive && p.wraithMovePending)) {
+    return !!pc.wraithMovePending;
   }
   // ★ 사용자 요청: 질주 활성 시 — 메신저만 행동 가능. 다른 유닛은 일괄 불가 (기존
   //   [행동가능]/[행동불가] 플로팅 버튼 시스템에 반영됨).
@@ -17424,30 +17428,17 @@ function showNecroCommandUI(pieceIdx) {
   const modal = document.getElementById('skill-modal');
   const body = document.getElementById('skill-modal-body');
   document.getElementById('skill-modal-title').textContent = '조종 — 방식 선택';
-  const renderRoot = () => {
-    body.innerHTML = '';
-    const atk = document.createElement('div');
-    atk.className = 'skill-option';
-    atk.innerHTML = `<div class="skill-name">⚔ 일제 공격</div><div class="skill-desc">모든 악령이 한 번씩 공격</div>`;
-    atk.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'attack' } }); });
-    body.appendChild(atk);
-    const mv = document.createElement('div');
-    mv.className = 'skill-option';
-    mv.innerHTML = `<div class="skill-name">🏃 일제 이동</div><div class="skill-desc">모든 악령이 같은 방향으로 1칸 이동</div>`;
-    mv.addEventListener('click', renderDirs);
-    body.appendChild(mv);
-  };
-  const renderDirs = () => {
-    body.innerHTML = '';
-    for (const [dir, label] of [['up','↑ 위'],['down','↓ 아래'],['left','← 왼쪽'],['right','→ 오른쪽']]) {
-      const opt = document.createElement('div');
-      opt.className = 'skill-option';
-      opt.innerHTML = `<div class="skill-name">${label}</div>`;
-      opt.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'move', dir } }); });
-      body.appendChild(opt);
-    }
-  };
-  renderRoot();
+  body.innerHTML = '';
+  const atk = document.createElement('div');
+  atk.className = 'skill-option';
+  atk.innerHTML = `<div class="skill-name">⚔ 일제 공격</div><div class="skill-desc">모든 악령이 한 번씩 공격</div>`;
+  atk.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'attack' } }); });
+  body.appendChild(atk);
+  const mv = document.createElement('div');
+  mv.className = 'skill-option';
+  mv.innerHTML = `<div class="skill-name">🏃 이동 조작</div><div class="skill-desc">각 악령을 하나씩 직접 이동</div>`;
+  mv.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'move' } }); });
+  body.appendChild(mv);
   modal.classList.remove('hidden');
 }
 // 요정 페어리 더스트 — 아군 1명 선택 → 행운 부여(다음 피해 1회 0).
