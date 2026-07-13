@@ -879,9 +879,19 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'windSurfer':   // 윈드서퍼 — 가로3+하단
       push(col-1, row); push(col, row); push(col+1, row); push(col, row+1);
       break;
-    case 'dryad': {      // 드라이어드 — 가로3 (생장: 데미지 받을 때마다 사거리+1 → extra.growth)
-      const g = extra.growth || 0;
-      for (let d = -(1 + g); d <= (1 + g); d++) push(col + d, row);
+    case 'dryad': {      // 드라이어드 — 가로3 기본, 생장은 상하좌우 arm 이 랜덤하게 한 칸씩 자람.
+      const arms = extra.growthArms;
+      if (arms) {
+        const L = 1 + (arms.l || 0), R = 1 + (arms.r || 0), U = (arms.u || 0), D = (arms.d || 0);
+        push(col, row);
+        for (let d = 1; d <= L; d++) push(col - d, row);
+        for (let d = 1; d <= R; d++) push(col + d, row);
+        for (let d = 1; d <= U; d++) push(col, row - d);
+        for (let d = 1; d <= D; d++) push(col, row + d);
+      } else {
+        const g = extra.growth || 0;                                   // 구버전 폴백(가로)
+        for (let d = -(1 + g); d <= (1 + g); d++) push(col + d, row);
+      }
       break;
     }
     case 'griffin':      // 그리폰 — 세로3
@@ -1712,7 +1722,7 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   // 8. 공격형 — 자기 공격범위가 중앙 3x3 커버
   if (aiIsAggressivePiece(piece)) {
     try {
-      const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+      const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
       let coverCenter = 0;
       for (const ac of attackCells) {
         if (!inBounds(ac.col, ac.row, bounds)) continue;
@@ -2200,7 +2210,7 @@ function aiTeamUsePreSkills(room, idx) {
     }
     // reform — 더 좋은 공격 점수 방향이면
     if (piece.skillId === 'reform') {
-      const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+      const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
       const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
       // ★ SP 수읽기 — 정규 SP 이관 문턱까지 넘는 확실한 이득일 때만 (1v1 과 동일 정책).
@@ -2505,7 +2515,7 @@ function aiTeamTakeTurn(room, idx) {
       // 반격 우선 판단 — 확정/유력 적 위치를 칠 수 있고 위급(HP≤2)하지 않으면 반격, 아니면 도주.
       const criticalHp = piece.hp <= 2;
       let sureHit = false, canHitProb = false;
-      const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+      const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
       for (const c of atkCells) {
         const v = brain.probMap[c.row]?.[c.col] || 0;
         if (v >= 9) sureHit = true;
@@ -2621,7 +2631,7 @@ function aiTeamTakeTurn(room, idx) {
     for (const piece of myAlive) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
       const pi = p.pieces.indexOf(piece);
-      const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
+      const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
       if (piece.type === 'shadowAssassin' || piece.type === 'catapult') {
         const bt = aiTeamBestTargetCell(room, idx, piece);
@@ -2739,7 +2749,7 @@ function aiDecideAction(room, idx) {
       let bestMove = null, bestFleeScore = -1;
       for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const fs = (Math.abs(nc - mem.col) + Math.abs(nr - mem.row)) * 15 + aiTeamScoreMove(room, idx, piece, nc, nr); if (fs > bestFleeScore) { bestFleeScore = fs; bestMove = { col: nc, row: nr }; } }
       const criticalHp = piece.hp <= 2; let sureHit = false, canHitProb = false;
-      for (const c of getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 })) { const v = brain.probMap[c.row] ? (brain.probMap[c.row][c.col] || 0) : 0; if (v >= 9) sureHit = true; if (v >= 6) canHitProb = true; }
+      for (const c of getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms })) { const v = brain.probMap[c.row] ? (brain.probMap[c.row][c.col] || 0) : 0; if (v >= 9) sureHit = true; if (v >= 6) canHitProb = true; }
       const shouldCounter = sureHit || (!criticalHp && (canHitProb || (counterScore > bestFleeScore * 1.05 && counterScore > 4)));
       if (shouldCounter) { const a = { type: 'attack', pieceIdx: fleeIdx }; if (typeof counterExtra.tCol === 'number') { a.tCol = counterExtra.tCol; a.tRow = counterExtra.tRow; } return a; }
       if (bestMove) return { type: 'move', pieceIdx: fleeIdx, col: bestMove.col, row: bestMove.row };
@@ -2752,7 +2762,7 @@ function aiDecideAction(room, idx) {
   else {
     for (const piece of myAlive) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
-      const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
+      const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
       if (piece.type === 'shadowAssassin' || piece.type === 'catapult') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
       const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
@@ -2900,7 +2910,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const piece = p.pieces[pieceIdx];
   if (!piece || !piece.alive) { endTurn(room); return; }
   const bounds = room.boardBounds;
-  const atkExtra = extra || { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
+  const atkExtra = extra || { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
   // ★ FIX (팀 AI 공격 페이즈 누락 — 1v1 통일): 사망 기폭/표식 페이즈 시작. 이게 없어 표식이 적용
@@ -4178,6 +4188,7 @@ function pieceSummary(pieces) {
     passiveName: pc.passiveName, passives: pc.passives,
     toggleState: pc.toggleState,
     rangeGrowth: pc._rangeGrowth || 0,
+    growthArms: pc._growthArms, lastGrowthDir: pc._lastGrowthDir,
     subUnit: pc.subUnit,
     isDragon: pc.isDragon,
     wizardPassiveUsed: pc.wizardPassiveUsed,
@@ -4216,6 +4227,7 @@ function oppPieceSummary(pieces) {
       range: pc.range,
       toggleState: pc.toggleState,
       rangeGrowth: pc._rangeGrowth || 0,
+    growthArms: pc._growthArms, lastGrowthDir: pc._lastGrowthDir,
       darkVeilSeed: pc._darkVeilSeed,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
@@ -4277,7 +4289,14 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
   // [그리폰] 격노 — 피해 받으면 스킬 활성.
   if (passives.includes('rage')) victim._rageActive = true;
   // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
-  if (passives.includes('growth')) victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;
+  if (passives.includes('growth')) {
+    // ★ 생장 리워크: 상하좌우 중 랜덤 한 방향의 arm 을 1칸 늘림(가로 고정 아님).
+    if (!victim._growthArms) victim._growthArms = { u: 0, d: 0, l: 0, r: 0 };
+    const dir = ['u', 'd', 'l', 'r'][Math.floor(Math.random() * 4)];
+    victim._growthArms[dir] = (victim._growthArms[dir] || 0) + 1;
+    victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;   // 총 성장 카운트(표시용)
+    victim._lastGrowthDir = dir;                            // 성장 애니용(주인 클라)
+  }
   // [이야기꾼] 피해 받으면 그가 건 배신(선동) 모두 해제.
   if (victim.type === 'storyteller' && dmg > 0) {
     for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
@@ -5825,7 +5844,7 @@ function canSelfAttack(room, piece) {
   if (!piece || !piece.alive) return false;
   const bounds = room.boardBounds;
   const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(piece) : piece.type;
-  let cells = getAttackCells(atkType || piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+  let cells = getAttackCells(atkType || piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
   if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, piece, cells);   // ★ 어둠장막이 제자리 칸을 막을 수 있음
   return cells.some(c => c.col === piece.col && c.row === piece.row);
 }
@@ -7575,7 +7594,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         // 기마병(질주)·투석기(단일)는 타겟 지정 필요 → 포함. 그 외는 고정 범위 있을 때만.
         if (p.type === 'cavalry' || p.type === 'catapult') { queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type }); continue; }
         const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
-        let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0 });
+        let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms });
         if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
         if (!cells || cells.length === 0) continue;
         queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type });
@@ -9200,7 +9219,7 @@ function aiUsePreSkills(room) {
       // 궁수/무기상: 대안 공격범위가 더 좋으면 토글 (SP 1 — 자유롭게)
       case 'archer':
       case 'weaponSmith': {
-        const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+        const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
         let curScore = 0;
         for (const c of curCells) curScore += brain.probMap[c.row]?.[c.col] || 0;
         const altState = piece.type === 'archer'
@@ -9275,7 +9294,7 @@ function aiUsePreSkills(room) {
         // ★ 쌍검무 = 이번 턴 공격 2회. 사용자 보고: 확신·계산 없이 남발. → "2타로 *확실히 잡을* 표적"이
         //   있을 때만 시전. (1타론 못 잡지만 2타면 죽는 표적 = 쌍검무가 의미. 1타로 죽거나 2타로도 못
         //   죽이면 무의미.) 우선 표식 적으로 정확 계산, 없으면 확정칸(≥9) belief + 저이관일 때만 보수적.
-        const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+        const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
         const effAtk = _effectiveAtkForAi(piece, room, 1);
         const marked = aiKnownEnemies(room, 1).filter(e => e.marked);
         let dbBest = 0, confirmKill = false;
@@ -9666,7 +9685,7 @@ function aiTakeTurn(room) {
     let confirmKill = false, killVal = 0;
     const effAtk = _effectiveAtkForAi(piece, room, 1);
     const markedEn = aiKnownEnemies(room, 1).filter(e => e.marked);
-    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
+    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
     for (const c of atkCells) {
       const v = brain.probMap[c.row]?.[c.col] || 0;
       if (v >= 9) sureHit = true;
@@ -11974,7 +11993,7 @@ io.on('connection', (socket) => {
       tCol, tRow,
       toggleState: atkPiece.toggleState,
       rats: room.rats[idx],
-      growth: atkPiece._rangeGrowth || 0,   // ★ 드라이어드 생장
+      growth: atkPiece._rangeGrowth || 0, growthArms: atkPiece._growthArms,   // ★ 드라이어드 생장
     };
 
     // ★ 쌍둥이 동시 공격: 형+동생 공격 범위 합산

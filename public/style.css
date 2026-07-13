@@ -1910,6 +1910,33 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   margin: 12px 0 10px;
 }
 .skill-trait-divider:first-child { display: none; }   /* 위에 스킬이 없으면 구분선 생략 */
+
+/* ── 드라이어드 생장 애니 ── */
+.growth-bubble {
+  position: absolute; left: 50%; top: -4px; transform: translate(-50%, -100%);
+  z-index: 30; white-space: nowrap;
+  background: rgba(34,197,94,0.95); color: #052e16;
+  font-size: 0.62rem; font-weight: 800; padding: 2px 7px; border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  animation: growthBubbleRise 1.4s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes growthBubbleRise {
+  0% { opacity: 0; transform: translate(-50%, -60%); }
+  20% { opacity: 1; transform: translate(-50%, -110%); }
+  80% { opacity: 1; transform: translate(-50%, -120%); }
+  100% { opacity: 0; transform: translate(-50%, -150%); }
+}
+.cell.growth-pulse::before {
+  content: ''; position: absolute; inset: 2px; border-radius: 6px;
+  border: 2px solid rgba(34,197,94,0.9); z-index: 6;
+  animation: growthPulse 1.2s ease-out forwards; pointer-events: none;
+}
+@keyframes growthPulse {
+  0% { opacity: 0; transform: scale(0.7); }
+  35% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.05); }
+}
 .slide-head-line {
   display: flex; align-items: center; flex-wrap: nowrap;
   gap: 8px; margin-bottom: 2px;

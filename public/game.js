@@ -11628,7 +11628,7 @@ function createRevealCard(pc, tooltipSide) {
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
   const tagHtml = tagBadgeHtml(pc.tag);
-  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
@@ -12960,7 +12960,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const selectedCls = (interactive && placementSelected === i) ? 'selected' : '';
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
-    const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
+    const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
     const tagHtml = tagBadgeHtml(pc.tag);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
@@ -13047,7 +13047,7 @@ function updatePlacementBoard() {
   const atkSet = new Set();
   for (const pc of S.myPieces) {
     if (pc.col >= 0) {
-      const cells = getAttackCells(pc.type, pc.col, pc.row, { toggleState: pc.toggleState });
+      const cells = getAttackCells(pc.type, pc.col, pc.row, { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms });
       for (const c of cells) atkSet.add(`${c.col},${c.row}`);
     }
   }
@@ -13932,9 +13932,39 @@ function _cellStateFP(col, row, pre) {
 }
 
 // ── 게임 보드 렌더링 ──────────────────────────────────────────
+// ★ 드라이어드 생장 애니(주인 전용) — rangeGrowth 가 늘면 말풍선 + 새 공격범위 펄스.
+//   myPieces 기반이라 자연히 주인 화면에서만 발동. 최초 관측은 애니 없이 기준값만 저장.
+function _animateDryadGrowth() {
+  if (!S._dryadGrowthPrev) S._dryadGrowthPrev = {};
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  for (const d of (S.myPieces || [])) {
+    if (!d.alive || d.type !== 'dryad' || d.col < 0) continue;
+    const key = `${S.playerIdx}:${d.index != null ? d.index : d.type}`;
+    const prev = S._dryadGrowthPrev[key];
+    const cur = d.rangeGrowth || 0;
+    S._dryadGrowthPrev[key] = cur;
+    if (prev === undefined || cur <= prev) continue;   // 최초 관측/변화 없음 → 스킵
+    const selfCell = board.querySelector(`.cell[data-col="${d.col}"][data-row="${d.row}"]`);
+    if (selfCell) {
+      const bubble = document.createElement('div');
+      bubble.className = 'growth-bubble';
+      bubble.textContent = '🌱 생장!';
+      selfCell.appendChild(bubble);
+      setTimeout(() => bubble.remove(), 1400);
+    }
+    const cells = getAttackCells('dryad', d.col, d.row, { growthArms: d.growthArms, growth: d.rangeGrowth || 0 });
+    for (const c of cells) {
+      const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+      if (cell) { cell.classList.add('growth-pulse'); setTimeout(() => cell.classList.remove('growth-pulse'), 1200); }
+    }
+  }
+}
+
 function renderGameBoard() {
   const board = document.getElementById('game-board');
   if (!board) return;
+  setTimeout(_animateDryadGrowth, 60);   // ★ 렌더 후 생장 감지·애니(중복은 prev 가드로 방지)
   // ★ 매 렌더 전에 표식 노출 정보 강제 적용 — direct mutation 이 소실된 경우 보완
   try { _reseedMarkedOppsFromMap(); } catch (e) {}
   // ★ 저주 전이 사전 감지 — 셀 루프 *전* 에 신규/소멸을 판정해, 신규 저주 셀의 idle(망령)을
@@ -14656,7 +14686,7 @@ function renderGameBoard() {
     if (S.action === 'attack' && S.selectedPiece !== null && !S.targetSelectMode) {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc) {
-        const extra = { toggleState: selPc.toggleState };
+        const extra = { toggleState: selPc.toggleState, growth: selPc.rangeGrowth || 0, growthArms: selPc.growthArms };   // ★ 드라이어드 생장 반영
         let range = applyClientDarkVeil(selPc, getAttackCells(clientEffectiveType(selPc), selPc.col, selPc.row, extra));   // ★ 개구리→frog범위 + 어둠장막 봉인칸 제거
         // ★ 쌍둥이: 다른 쪽의 공격 범위도 합산 표시
         if (selPc.subUnit) {
@@ -16334,7 +16364,7 @@ function getSkillTypeTagFromChar(pc) {
 }
 
 function buildPieceTooltip(pc, side) {
-  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0 }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
 
   // 캐릭터 도감(slide-content)과 동일 양식으로 통일:
   //   <slide-head-line>
@@ -18403,7 +18433,7 @@ function getAttackCells(type, col, row, extra) {
     case 'gladiator': push(col-1,row); push(col+1,row); push(col,row-1); break;
     case 'fairy': push(col,row); for (const dr of [-1,0,1]) { push(col-1,row+dr); push(col+1,row+dr); } break;
     case 'windSurfer': push(col-1,row); push(col,row); push(col+1,row); push(col,row+1); break;
-    case 'dryad': { const g = extra.growth || 0; for (let d=-(1+g); d<=(1+g); d++) push(col+d,row); break; }
+    case 'dryad': { const a = extra.growthArms; if (a) { const L=1+(a.l||0),R=1+(a.r||0),U=(a.u||0),D=(a.d||0); push(col,row); for(let d=1;d<=L;d++)push(col-d,row); for(let d=1;d<=R;d++)push(col+d,row); for(let d=1;d<=U;d++)push(col,row-d); for(let d=1;d<=D;d++)push(col,row+d); } else { const g = extra.growth || 0; for (let d=-(1+g); d<=(1+g); d++) push(col+d,row); } break; }
     case 'griffin': case 'heretic': push(col,row); push(col,row-1); push(col,row+1); break;
     case 'mushkin': for (const dc of [-1,0,1]) { push(col+dc,row); push(col+dc,row+1); } break;
     case 'oberon': case 'executioner': push(col,row); push(col-1,row+1); push(col+1,row+1); break;
@@ -18937,7 +18967,7 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'gladiator': push(col-1,row);push(col+1,row);push(col,row-1); break;
     case 'fairy': push(col,row); for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
     case 'windSurfer': push(col-1,row);push(col,row);push(col+1,row);push(col,row+1); break;
-    case 'dryad': { const g=extra.growth||0; for(let d=-(1+g);d<=(1+g);d++)push(col+d,row); break; }
+    case 'dryad': { const a=extra.growthArms; if(a){ const L=1+(a.l||0),R=1+(a.r||0),U=(a.u||0),D=(a.d||0); push(col,row); for(let d=1;d<=L;d++)push(col-d,row); for(let d=1;d<=R;d++)push(col+d,row); for(let d=1;d<=U;d++)push(col,row-d); for(let d=1;d<=D;d++)push(col,row+d); } else { const g=extra.growth||0; for(let d=-(1+g);d<=(1+g);d++)push(col+d,row); } break; }
     case 'griffin': case 'heretic': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'mushkin': for(const dc of[-1,0,1]){push(col+dc,row);push(col+dc,row+1);} break;
     case 'oberon': case 'executioner': push(col,row);push(col-1,row+1);push(col+1,row+1); break;
