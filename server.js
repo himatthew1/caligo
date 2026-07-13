@@ -187,6 +187,9 @@ const CHARACTERS = {
       ] },
     { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'/assets/icons/herbalist.png', tag:null, desc:'좌우 각2칸 · 자기 제외',
       skills:[{id:'herb', name:'약초학', cost:2, replacesAction:false, desc:'자신 제외 주변 모든 아군 체력 1 회복'}] },
+    // ── ★ Phase 3 신규(무스킬·무패시브) ──
+    { type:'wanderer', name:'방랑자', tier:1, atk:1, icon:'/assets/icons/wanderer.png', tag:null, desc:'도약 — 나이트 8칸', skills:[] },
+    { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'/assets/icons/hookKiller.png', tag:'villain', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -207,6 +210,9 @@ const CHARACTERS = {
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal', desc:'십자 4칸 · 자기 제외',
       skills:[], passives:['loyalty'] },
+    // ── ★ Phase 3 신규 ──
+    { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'/assets/icons/unicorn.png', tag:null, desc:'제자리와 상단 대각선', noRemains:true,
+      skills:[], passives:['silverHorn'] },
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:3, icon:'/assets/icons/prince.png', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
@@ -229,6 +235,9 @@ const CHARACTERS = {
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:2, icon:'/assets/icons/count.png', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
       skills:[], passives:['tyranny'] },
+    // ── ★ Phase 3 신규(무스킬) ──
+    { type:'militia', name:'민병대장', tier:3, atk:3, icon:'/assets/icons/militia.png', tag:null, desc:'가로 3칸', skills:[] },
+    { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
   ]
 };
 
@@ -4608,7 +4617,9 @@ function handleDeath(room, deadPiece, ownerIdx) {
   // rat, dragon, sulfurCauldron 은 유해를 남기지 않음
   // 보드 축소로 인한 사망은 handleDeath 호출 전에 room._boardShrinkDeaths = true 로 표시
   const NO_REMAINS_TYPES = ['rat', 'dragon', 'sulfurCauldron'];
-  if (!NO_REMAINS_TYPES.includes(deadPiece.type) && !room._boardShrinkDeaths) {
+  // ★ Phase 3: CHARACTERS 의 noRemains:true 플래그도 무유해 처리(유니콘·골렘·정령 다수·투석기 등).
+  const _charNoRem = (typeof getChar === 'function') && getChar(deadPiece.type) && getChar(deadPiece.type).noRemains;
+  if (!NO_REMAINS_TYPES.includes(deadPiece.type) && !_charNoRem && !room._boardShrinkDeaths) {
     if (!room.remains) room.remains = [];
     room.remains.push({
       col: deadPiece.col,
