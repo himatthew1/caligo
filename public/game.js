@@ -17656,21 +17656,19 @@ function getAttackCells(type, col, row, extra) {
     case 'manhunter':
       push(col, row); push(col, row-1); push(col, row+1);
       break;
-    case 'messenger':
-      push(col, row);
-      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+    case 'messenger':   // ★ Phase 3 리워크: 좌우 세로3(자기 제외)
+      for (const dr of [-1,0,1]) { push(col-1, row+dr); push(col+1, row+dr); }
       break;
     case 'gunpowder':
       push(col, row-1); push(col, row-2); push(col, row+1); push(col, row+2);
       break;
-    case 'herbalist':
-      push(col-1, row); push(col-2, row); push(col+1, row); push(col+2, row);
+    case 'herbalist':   // ★ Phase 3 리워크: 가로3
+      push(col-1, row); push(col, row); push(col+1, row);
       break;
 
     // ── TIER 2 ──
-    case 'general':
-      push(col, row);
-      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+    case 'general':   // ★ Phase 3 리워크: 좌우+하단
+      push(col-1, row); push(col+1, row); push(col, row+1);
       break;
     case 'knight':
       push(col, row);
@@ -17720,8 +17718,8 @@ function getAttackCells(type, col, row, extra) {
     case 'prince':
       push(col, row); push(col-1, row); push(col+1, row);
       break;
-    case 'princess':
-      push(col, row); push(col, row-1); push(col, row+1);
+    case 'princess':   // ★ Phase 3 리워크: 상하2(자기 제외)
+      push(col, row-1); push(col, row+1);
       break;
     case 'king':
       push(col, row);
@@ -17745,10 +17743,8 @@ function getAttackCells(type, col, row, extra) {
     case 'sulfurCauldron':
       for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
       break;
-    case 'torturer':
-      // ★ 자기 셀 제외 — 십자 4방향만 (총 4칸).
-      push(col, row-1); push(col, row+1);
-      push(col-1, row); push(col+1, row);
+    case 'torturer':   // ★ Phase 3 리워크: 좌우+하단
+      push(col-1, row); push(col+1, row); push(col, row+1);
       break;
     case 'count':
       push(col, row);
@@ -18212,10 +18208,10 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'twins_younger': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'scout': push(col,row);push(col-1,row);push(col+1,row); break;
     case 'manhunter': push(col,row);push(col,row-1);push(col,row+1); break;
-    case 'messenger': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
+    case 'messenger': for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
     case 'gunpowder': push(col,row-1);push(col,row-2);push(col,row+1);push(col,row+2); break;
     case 'herbalist': push(col-1,row);push(col-2,row);push(col+1,row);push(col+2,row); break;
-    case 'general': push(col,row); for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
+    case 'general': push(col-1,row);push(col+1,row);push(col,row+1); break;
     case 'knight': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
     case 'shadowAssassin': push(col,row); for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
     case 'wizard': push(col,row-2);push(col,row+2);push(col-2,row);push(col+2,row); break;
@@ -18228,14 +18224,14 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
       else{push(col,row);push(col-1,row);push(col+1,row);} break;
     case 'bodyguard': for(const[dc,dr]of[[0,-1],[0,1],[-1,0],[1,0]])push(col+dc,row+dr); break;
     case 'prince': push(col,row);push(col-1,row);push(col+1,row); break;
-    case 'princess': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'princess': push(col,row-1);push(col,row+1); break;
     case 'king': push(col,row); break;
     case 'dragonTamer': for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
     case 'monk': push(col,row-1);push(col,row+1); break;
     case 'slaughterHero': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)push(col+dc,row+dr); break;
     case 'commander': push(col-1,row);push(col+1,row); break;
     case 'sulfurCauldron': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
-    case 'torturer': push(col,row-1);push(col,row+1);push(col-1,row);push(col+1,row); break;
+    case 'torturer': push(col-1,row);push(col+1,row);push(col,row+1); break;
     case 'count': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
   }
   return cells;

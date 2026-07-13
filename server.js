@@ -497,9 +497,8 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'manhunter':
       push(col, row); push(col, row - 1); push(col, row + 1);
       break;
-    case 'messenger':
-      push(col, row);
-      for (const [dc, dr] of [[-1,-1],[1,-1],[-1,1],[1,1]]) push(col+dc, row+dr);
+    case 'messenger':   // ★ Phase 3 리워크(v2 그리드): 자기+X대각4 → 좌우 세로3(자기 제외)
+      for (const dr of [-1,0,1]) { push(col-1, row+dr); push(col+1, row+dr); }
       break;
     case 'gunpowder':
       push(col, row - 1); push(col, row - 2);
@@ -510,9 +509,8 @@ function getAttackCells(type, col, row, bounds, extra) {
       break;
 
     // ── TIER 2 ──
-    case 'general':
-      push(col, row);
-      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+    case 'general':   // ★ Phase 3 리워크(v2 그리드): 자기+십자5 → 좌우+하단
+      push(col-1, row); push(col+1, row); push(col, row+1);
       break;
     case 'knight':
       push(col, row);
@@ -568,8 +566,8 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'prince':
       push(col, row); push(col - 1, row); push(col + 1, row);
       break;
-    case 'princess':
-      push(col, row); push(col, row - 1); push(col, row + 1);
+    case 'princess':   // ★ Phase 3 리워크(v2 그리드): 세로3 → 상하2(자기 제외)
+      push(col, row - 1); push(col, row + 1);
       break;
     case 'king':
       push(col, row);
@@ -599,12 +597,8 @@ function getAttackCells(type, col, row, bounds, extra) {
         for (let dr = -1; dr <= 1; dr++)
           if (dc !== 0 || dr !== 0) push(col + dc, row + dr);
       break;
-    case 'torturer':
-      // ★ 사용자 밸런스 조정: 자기 셀 제외 — 십자 4방향만 (총 4칸).
-      push(col, row - 1);
-      push(col, row + 1);
-      push(col - 1, row);
-      push(col + 1, row);
+    case 'torturer':   // ★ Phase 3 리워크(v2 그리드): 십자4 → 좌우+하단
+      push(col - 1, row); push(col + 1, row); push(col, row + 1);
       break;
     case 'count':
       push(col, row);
