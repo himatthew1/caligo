@@ -1951,6 +1951,7 @@ function aiTeamTakeTurn(room, idx) {
       brain._dangerMap = aiBuildDangerMap(room, idx, brain);
       brain._dangerTurn = brain.turnCount;
       aiInjectMarkedEnemies(brain, room, idx);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
+      aiWrathDeduction(room, idx, brain);        // ★ 사기증진(공개) 기반 지휘관/버프적 위치 추론
     }
   }
 
@@ -2246,6 +2247,7 @@ function aiDecideAction(room, idx) {
     aiClearOwnCells(brain, room, idx);
     brain._dangerMap = aiBuildDangerMap(room, idx, brain); brain._dangerTurn = brain.turnCount;
     aiInjectMarkedEnemies(brain, room, idx);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
+    aiWrathDeduction(room, idx, brain);        // ★ 사기증진(공개) 기반 지휘관/버프적 위치 추론
   }
   // STEP 0: 보드축소 대피
   const evac = aiTeamFindEvacuation(room, idx);
@@ -3712,16 +3714,16 @@ function pieceSummary(pieces) {
 }
 
 function oppPieceSummary(pieces) {
-  // ★ 사기증진(wrath) 공유 — 사용자 원칙: 상대 유닛이 사기증진 상태인지 + 변동된 공격력까지 공개.
-  //   버프는 위치(직교 인접 지휘관) 기반이라 클라(안개)가 계산 불가 → 서버가 실제 좌표로 판정해 전달.
-  //   단, 위치가 공개된(표식) 적에 한해 공유 → 안개 존중(숨은 적의 버프/위치는 여전히 비공개).
+  // ★ 사기증진(wrath) 공유 — 사용자 원칙: 상대 유닛이 사기증진 상태인지 + 변동된 공격력을 '항상' 공개.
+  //   버프 상태 자체가 추론 힌트다: "버프 = 적 지휘관과 직교 인접" → 한 명만 찾아도 나머지 대략 위치 추정.
+  //   위치(col/row)는 여전히 표식 때만 공개하되, 버프 플래그/변동 ATK 는 숨은 적에게도 노출(안개 유지+추론 허용).
   const commanders = pieces.filter(p => p.alive && p.type === 'commander' && p.col != null);
   const wrathBuffed = (pc) => pc.type !== 'commander' && pc.col != null && commanders.some(cm =>
     (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
     (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col));
   return pieces.map((pc, idx) => {
     const hasMark = pc.statusEffects.some(e => e.type === 'mark');
-    const moraleBuff = hasMark && pc.alive && wrathBuffed(pc);   // 공개된 적만
+    const moraleBuff = pc.alive && wrathBuffed(pc);   // 공개/미공개 무관 — 힌트로 제공
     return {
       index: idx, type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
       hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, desc: pc.desc, tag: pc.tag,
@@ -6890,6 +6892,48 @@ function aiInjectMarkedEnemies(brain, room, ownerIdx) {
   }
 }
 
+// ── ★ 사기증진 공개정보 기반 위치 추론 (사용자: 버프 상태 자체가 힌트) ──────────────
+//   버프 여부(사기증진)는 항상 공개(oppPieceSummary 와 동일 규칙) → 인간처럼 AI 도
+//   "버프 = 적 지휘관과 직교 인접" 을 양방향 추론한다. 위치(col/row)는 표식일 때만 신뢰:
+//   A) 지휘관이 표식이면 → 버프된 적은 그 지휘관의 4이웃 중 하나 → 그 칸 믿음↑.
+//   B) 버프된 적이 표식이면 → 지휘관은 그 적의 4이웃 → 그 칸 믿음↑(지휘관 사냥 유도).
+//   버프 boolean 만 공개로 사용하고, 실좌표는 표식된 유닛에서만 파생하므로 치팅 아님.
+function aiWrathDeduction(room, ownerIdx, brain) {
+  if (brain._ablate && brain._ablate.noWrathDed) return;   // _ablate: A/B 검증용(프로덕션 미설정)
+  const size = brain.probMap.length;
+  const enemyIdxs = (typeof getEnemyIndices === 'function') ? getEnemyIndices(room, ownerIdx) : [1 - ownerIdx];
+  const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+  const ownCells = new Set();
+  for (const ai of allyIdxs) for (const p of (room.players[ai]?.pieces || [])) {
+    if (p.alive && p.col != null) ownCells.add(`${p.col},${p.row}`);
+  }
+  const ortho = [[0,-1],[0,1],[-1,0],[1,0]];
+  const stamp = (c, r, v) => {
+    if (c < 0 || r < 0 || c >= size || r >= size) return;
+    if (ownCells.has(`${c},${r}`)) return;
+    if (brain.probMap[r]) brain.probMap[r][c] = Math.max(brain.probMap[r][c], v);
+  };
+  for (const ei of enemyIdxs) {
+    const ep = room.players[ei]?.pieces || [];
+    const commanders = ep.filter(p => p.alive && p.type === 'commander' && p.col != null);
+    if (!commanders.length) continue;
+    const isBuffed = (p) => p.alive && p.type !== 'commander' && p.col != null && commanders.some(cm =>
+      (Math.abs(cm.col - p.col) === 1 && cm.row === p.row) || (Math.abs(cm.row - p.row) === 1 && cm.col === p.col));
+    const buffed = ep.filter(isBuffed);
+    if (!buffed.length) continue;   // 아무도 버프 안 됨 = 지휘관이 홀로 → 힌트 없음
+    // A) 표식된 지휘관 → 4이웃에 버프된 적
+    for (const cm of commanders) {
+      if (!aiIsMarked(cm)) continue;
+      for (const [dc, dr] of ortho) stamp(cm.col + dc, cm.row + dr, 7);
+    }
+    // B) 표식된 버프 적 → 4이웃에 지휘관 (지휘관 주변에 다른 버프 적도 근접)
+    for (const be of buffed) {
+      if (!aiIsMarked(be)) continue;
+      for (const [dc, dr] of ortho) stamp(be.col + dc, be.row + dr, 6);
+    }
+  }
+}
+
 function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
   const _sz = brain.probMap.length;
   for (const cell of atkCells) {
@@ -8175,6 +8219,7 @@ function aiTakeTurn(room) {
   brain._dangerMap = aiBuildDangerMap(room, 1, brain);
   brain._dangerTurn = brain.turnCount;
   aiInjectMarkedEnemies(brain, room, 1);   // 표식 적 확정위치 주입 → 능동 추격(dangerMap 이후)
+  aiWrathDeduction(room, 1, brain);        // ★ 사기증진(공개) 기반 지휘관/버프적 위치 추론
 
   const alivePieces = aiPlayer.pieces.filter(p => p.alive);
   if (alivePieces.length === 0) return;
