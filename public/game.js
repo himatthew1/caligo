@@ -7594,6 +7594,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         animateRingTeleport(data.ringTeleport, 'caster');
         if (window._crForceRingVictim) window._crForceRingVictim(data.ringTeleport);
       }
+      // ★ 윈드서퍼 바람몰이 — 국왕 반지와 다른 전용 바람 연출(가스트 스트리크).
+      if (data && data.windPush && typeof animateWindPush === 'function') {
+        animateWindPush(data.windPush);
+      }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
       const healedPieces = (data && data.healedPieces) || (effects && effects.healedPieces);
@@ -13158,7 +13162,9 @@ function pieceCanTakeBasicAction(pc) {
 // piece 가 스킬을 보유하는지 (사용 가능 여부와 무관 — 보유 자체).
 function pieceHasAnySkill(pc) {
   if (!pc) return false;
-  return !!pc.hasSkill || (Array.isArray(pc.skills) && pc.skills.length > 0);
+  // ★ 특성(trait) 스킬(질주 등)은 '스킬 없음'으로 취급 — 부채꼴 스킬 버튼 미표시.
+  const realSkills = Array.isArray(pc.skills) ? pc.skills.filter(s => !s.trait) : [];
+  return realSkills.length > 0 || (!!pc.hasSkill && !(Array.isArray(pc.skills) && pc.skills.length > 0 && pc.skills.every(s => s.trait)));
 }
 
 // 특정 piece 가 지금 시점에 사용 가능한 스킬을 하나라도 가지고 있는지.
@@ -13182,6 +13188,7 @@ function canPieceUseAnySkill(pieceIdx) {
     ? pc.skills
     : (pc.hasSkill ? [{ id: pc.skillId, cost: pc.skillCost, replacesAction: !!pc.skillReplacesAction, oncePerTurn: !!pc.skillOncePerTurn }] : []);
   for (const sk of skills) {
+    if (sk.trait) continue;   // ★ 특성(질주)은 스킬 아님
     if ((sk.cost || 0) > totalSP) continue;
     if (sk.replacesAction && S.actionDone) continue;
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) continue;
@@ -14407,6 +14414,13 @@ function renderGameBoard() {
         const inR = src && getAttackCells(src.type, src.col, src.row, { toggleState: src.toggleState }).some(c => c.col === col && c.row === row);
         const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (inR && hasRem) inSkillRange = true;
+      } else if (std.type === 'windpush_cell') {
+        // 윈드서퍼 바람몰이: 진균/파괴칸 외 아무 칸(밀 대상은 서버가 판정)
+        const isFungus = S.fungus && S.fungus.some(f => f.col === col && f.row === row);
+        const isDestroyed = S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row);
+        const src2 = S.myPieces[std.pieceIdx];
+        const isSelf = src2 && src2.col === col && src2.row === row;
+        if (!isFungus && !isDestroyed && !isSelf && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) inSkillRange = true;
       } else {
         const _exRem2 = (std.type === 'dragon_place') && S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max && !_exRem2) {
@@ -15963,6 +15977,7 @@ function buildMiniHeaders(ch) {
   let html = '';
   if (ch.skills && ch.skills.length > 0) {
     for (const sk of ch.skills) {
+      if (sk.trait) continue;   // ★ 특성(질주 등)은 스킬 목록에 표시 안 함
       let cls;
       if (sk.replacesAction) cls = 'mini-header-action';
       else if (sk.oncePerTurn) cls = 'mini-header-once';
@@ -16670,7 +16685,15 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
   if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
   if (type === 'storyteller') { showEnemyIdentitySkillUI(pieceIdx, 'incite', '선동 — 대상 선택', '배신 상태로 만듭니다'); return; }
-  if (type === 'windSurfer') { showWindPushUI(pieceIdx); return; }
+  if (type === 'windSurfer') {
+    // 바람몰이: 밀 칸 선택(유닛/유해/쥐/폭탄/덫 무엇이든) → 방향 선택
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'windPush', type: 'windpush_cell' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `바람으로 밀 칸을 선택하세요`;
+    renderGameBoard();
+    return;
+  }
   if (type === 'catapult') {
     // 구동: 인접 1칸 이동
     S.action = 'skill_target';
@@ -16854,40 +16877,49 @@ function showEnemyIdentitySkillUI(pieceIdx, skillId, title, descText) {
   }
   modal.classList.remove('hidden');
 }
-// 윈드서퍼 바람몰이 — 아군/적 1명 선택 → 방향(상하좌우) 선택 → 1칸 밀기.
-function showWindPushUI(pieceIdx) {
+// ★ 윈드서퍼 전용 바람 연출(국왕 반지 애니와 완전 분리). from→to 방향으로 청록 바람 스트리크 스윕.
+function animateWindPush(wp) {
+  try {
+    const board = document.getElementById('game-board');
+    if (!board || !wp) return;
+    const fromCell = board.querySelector(`.cell[data-col="${wp.fromCol}"][data-row="${wp.fromRow}"]`);
+    const toCell = board.querySelector(`.cell[data-col="${wp.toCol}"][data-row="${wp.toRow}"]`);
+    if (!fromCell || !toCell) return;
+    const fr = fromCell.getBoundingClientRect(), tr = toCell.getBoundingClientRect();
+    const dx = tr.left - fr.left, dy = tr.top - fr.top;
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const gust = document.createElement('div');
+    gust.className = 'windpush-gust';
+    gust.style.cssText = `position:fixed; left:${fr.left}px; top:${fr.top}px; width:${fr.width}px; height:${fr.height}px; z-index:60; pointer-events:none; transform:rotate(${angle}deg); transform-origin:center;`;
+    gust.innerHTML = `<span class="wp-streak"></span><span class="wp-streak wp-streak2"></span><span class="wp-streak wp-streak3"></span>`;
+    document.body.appendChild(gust);
+    // 대상 칸 마커도 살짝 밀리는 시늉(도착지 렌더 전 잔상)
+    requestAnimationFrame(() => {
+      gust.style.transition = 'transform 320ms cubic-bezier(.3,.7,.3,1), opacity 320ms';
+      gust.style.transform = `rotate(${angle}deg) translateX(${Math.hypot(dx, dy)}px)`;
+      gust.style.opacity = '0';
+    });
+    try { playSfx && playSfx('move'); } catch (e) {}
+    setTimeout(() => gust.remove(), 420);
+  } catch (e) {}
+}
+// 윈드서퍼 바람몰이 — 밀 칸 선택 후 방향(상하좌우) 선택 → 그 칸의 모든 것을 1칸 밀기.
+function showWindDirUI(pieceIdx, col, row) {
   const modal = document.getElementById('skill-modal');
   const body = document.getElementById('skill-modal-body');
-  document.getElementById('skill-modal-title').textContent = '바람몰이 — 대상 선택';
+  document.getElementById('skill-modal-title').textContent = `바람몰이 — (${col},${row}) 방향`;
   body.innerHTML = '';
-  const caster = S.myPieces[pieceIdx];
-  const addTarget = (tpc, ownerIdx, isAlly) => {
-    if (!tpc.alive || tpc === caster) return;
-    const opt = document.createElement('div');
-    opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(tpc.icon, {size:'1.2em'})} ${tpc.name}${isAlly ? ' <span style="opacity:.7">(아군)</span>' : ' <span style="opacity:.7">(적)</span>'}</div><div class="skill-desc">밀어낼 방향을 고릅니다</div>`;
-    opt.addEventListener('click', () => {
-      // 2단계: 방향 선택
-      document.getElementById('skill-modal-title').textContent = `바람몰이 — ${tpc.name} 방향`;
-      body.innerHTML = '';
-      for (const [dir, label] of [['up','↑ 위'],['down','↓ 아래'],['left','← 왼쪽'],['right','→ 오른쪽']]) {
-        const dopt = document.createElement('div');
-        dopt.className = 'skill-option';
-        dopt.innerHTML = `<div class="skill-name">${label}</div>`;
-        dopt.addEventListener('click', () => {
-          modal.classList.add('hidden');
-          const params = { targetName: tpc.type, dir };
-          if (ownerIdx != null) params.targetOwnerIdx = ownerIdx;
-          socket.emit('use_skill', { pieceIdx, skillId: 'windPush', params });
-        });
-        body.appendChild(dopt);
-      }
+  for (const [dir, label] of [['up','↑ 위'],['down','↓ 아래'],['left','← 왼쪽'],['right','→ 오른쪽']]) {
+    const dopt = document.createElement('div');
+    dopt.className = 'skill-option';
+    dopt.innerHTML = `<div class="skill-name">${label}</div><div class="skill-desc">그 칸의 대상을 이 방향으로 1칸</div>`;
+    dopt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'windPush', params: { col, row, dir } });
+      resetAction();
     });
-    body.appendChild(opt);
-  };
-  for (const ap of (S.myPieces || [])) addTarget(ap, S.playerIdx, true);
-  if (S.isTeamMode && S.teammatePieces) for (const tp of S.teammatePieces) addTarget(tp, tp.ownerIdx, true);
-  for (const op of (S.oppPieces || [])) addTarget(op, op.ownerIdx, false);
+    body.appendChild(dopt);
+  }
   modal.classList.remove('hidden');
 }
 // 호문클루스 변이 — 진영 3택.
@@ -17602,6 +17634,10 @@ function handleGameCellClick(col, row) {
         return;
       }
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
+    } else if (data.type === 'windpush_cell') {
+      // ★ 윈드서퍼: 밀 칸 선택 후 방향 모달 (emit 은 방향 선택 시) — resetAction 하지 않고 방향 UI로.
+      showWindDirUI(data.pieceIdx, col, row);
+      return;
     }
     resetAction();
     return;

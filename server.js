@@ -170,8 +170,10 @@ const CHARACTERS = {
     { type:'archer', name:'엘프', tier:1, atk:1, icon:'/assets/icons/archer.png', tag:'spirit', desc:'위치한 곳 좌측 대각선 전체 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
     { type:'spearman', name:'창병', tier:1, atk:1, icon:'/assets/icons/spearman.png', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
-    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'공격 불가 · 질주: 직선 1~2칸 이동, 지나온 경로의 적에 고정 1피해(보정 무시)',
-      skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, desc:'상하좌우 직선 1~2칸 이동, 경로의 적에 무조건 1피해'}] },
+    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'공격 불가 · 질주(특성): 이동 대신 직선 1~2칸 질주, 지나온 경로의 적에 고정 1피해',
+      passives:['charge'],
+      // ★ 질주는 '특성'(trait) — 스킬 탭/버튼에 노출 안 됨. 부채꼴 전용 질주 버튼에서만 사용(내부 dash).
+      skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, trait:true, desc:'이동 대체 특성 · 직선 1~2칸, 경로의 적에 고정 1피해'}] },
     { type:'catapult', name:'투석기', tier:1, atk:2, icon:'/assets/icons/catapult.png', tag:'royal', noRemains:true, desc:'단일 저격(원하는 1칸) · 일반 이동 불가, 구동으로만 이동',
       skills:[{id:'drive', name:'구동', cost:2, replacesAction:true, desc:'투석기를 인접 1칸으로 이동(오직 이 스킬로만 이동 가능)'}] },
     { type:'windSurfer', name:'윈드서퍼', tier:1, atk:1, icon:'/assets/icons/windSurfer.png', tag:'spirit', desc:'가로3 + 하단 · 바람몰이: 아군/적 1명을 원하는 방향 1칸 밀기',
@@ -506,6 +508,49 @@ function processPendingDemolish(room, forOwnerIdx) {
   }
   room._boardShrinkDeaths = prevFlag;
   return fired;
+}
+// ★ Phase 3: 기마병 질주(특성) — 스킬이 아니라 이동/공격 대체 특성. 직선 1~2칸 이동 + 지나온 경로 적에 고정 1피해.
+//   전용 소켓 이벤트(cavalry_dash)에서 호출. 반환 {ok, result?, msg?}.
+function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
+  const player = room.players[playerIdx];
+  const piece = player && player.pieces[pieceIdx];
+  const bounds = room.boardBounds;
+  if (!piece || !piece.alive || piece.type !== 'cavalry') return { ok: false, msg: '올바르지 않은 말입니다.' };
+  if (dCol == null || dRow == null || !inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+  const ddc = dCol - piece.col, ddr = dRow - piece.row;
+  const straight = (ddc === 0) !== (ddr === 0);
+  const dist = Math.abs(ddc) + Math.abs(ddr);
+  if (!straight || dist < 1 || dist > 2) return { ok: false, msg: '상하좌우 직선 1~2칸만 질주할 수 있습니다.' };
+  const stepC = ddc === 0 ? 0 : (ddc > 0 ? 1 : -1);
+  const stepR = ddr === 0 ? 0 : (ddr > 0 ? 1 : -1);
+  const pathCells = [];
+  for (let s = 0; s <= dist; s++) pathCells.push({ col: piece.col + stepC * s, row: piece.row + stepR * s });
+  if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '파괴된 칸에는 착지할 수 없습니다.' };
+  if (room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow))) return { ok: false, msg: '착지할 칸에 다른 유닛이 있습니다.' };
+  const _fromCol = piece.col, _fromRow = piece.row;
+  const dashHits = [];
+  const enemyIdxs = getEnemyIndices(room, playerIdx);
+  for (const cell of pathCells) {
+    for (const ei of enemyIdxs) {
+      const ep = room.players[ei]; if (!ep) continue;
+      for (let ui = 0; ui < ep.pieces.length; ui++) {
+        const t = ep.pieces[ui];
+        if (!t.alive || t.col !== cell.col || t.row !== cell.row) continue;
+        if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+        const dmg = resolveDamage(room, piece, t, playerIdx, 1, false, ei);   // 무조건 기본 1(보정무시), 방어 패시브는 적용
+        t.hp = Math.max(0, t.hp - dmg);
+        const dead = t.hp <= 0;
+        if (dead) handleDeath(room, t, ei);
+        dashHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed: dead, defPieceIdx: ui, defOwnerIdx: ei, revealedName: t.name });
+      }
+    }
+  }
+  const dashKilled = dashHits.filter(h => h.destroyed);
+  if (dashKilled.length > 0) setKillInfo(room, 'attack', piece.name, dashKilled.map(k => ({ name: k.revealedName })));
+  piece.col = dCol; piece.row = dRow;
+  player.actionDone = true;
+  player._lastActionType = 'move';
+  return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits };
 }
 // ★ Phase 3: 마왕 어둠장막 — 살아있는 마왕(패시브 active=참수 아님)이 있으면 발동.
 function darkVeilActive(room) {
@@ -7126,42 +7171,60 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       return { ok: false, msg: '알 수 없는 요정왕 스킬입니다.' };
     }
 
-    // ── WIND SURFER(윈드서퍼): 바람몰이 — 아군/적 1명을 지정 방향으로 1칸 강제 이동(유해/유닛 있어도 밀림=캐러셀, 모서리면 무효) ──
+    // ── WIND SURFER(윈드서퍼): 바람몰이 — 지정 칸의 모든 것(유닛·유해·쥐·폭탄·덫)을 한 방향으로 1칸 밀기.
+    //   진균지대는 밀리지 않음. 모서리/파괴칸이면 불발. 국왕 반지와 애니 공유 안 함(windPush 전용 연출).
     case 'windSurfer': {
-      const wsTargetName = params?.targetName;
-      const wsDir = params?.dir;   // 'up'|'down'|'left'|'right'
-      if (!wsTargetName || !wsDir) return { ok: false, msg: '바람몰이 대상과 방향을 선택하세요.' };
+      const wc = params?.col, wr = params?.row, wsDir = params?.dir;
+      if (wc == null || wr == null || !wsDir) return { ok: false, msg: '바람몰이 대상 칸과 방향을 선택하세요.' };
       const DIRV = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
       if (!DIRV[wsDir]) return { ok: false, msg: '방향이 올바르지 않습니다.' };
-      // 대상: 아군(자기팀) 또는 적. targetOwnerIdx 우선, 없으면 이름으로 전체 탐색.
-      let wsTgt = null, wsOwnerIdx = -1;
-      const searchOwners = (params?.targetOwnerIdx != null) ? [params.targetOwnerIdx]
-        : [...getAllyIndices(room, playerIdx), ...getEnemyIndices(room, playerIdx)];
-      for (const oi of searchOwners) {
-        const op = room.players[oi]; if (!op) continue;
-        const t = op.pieces.find(p => p.alive && p.type === wsTargetName && p.col != null && p !== piece);
-        if (t) { wsTgt = t; wsOwnerIdx = oi; break; }
-      }
-      if (!wsTgt) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
-      spendSP(room, playerIdx, cost);
       const [ddc, ddr] = DIRV[wsDir];
-      const nc = wsTgt.col + ddc, nr = wsTgt.row + ddr;
-      const _wsFromCol = wsTgt.col, _wsFromRow = wsTgt.row;
-      // 모서리(보드 밖)·파괴칸이면 아무 일도 일어나지 않음. 그 외엔 유닛/유해 있어도 밀림(캐러셀 공존).
+      const nc = wc + ddc, nr = wr + ddr;
+      // 밀 수 있는 대상 수집(진균 제외). 유닛(시전자 본인 제외)·유해·쥐·폭탄·덫.
+      const unitsHere = [];
+      for (let pi = 0; pi < room.players.length; pi++) {
+        const pl = room.players[pi]; if (!pl) continue;
+        for (let ui = 0; ui < pl.pieces.length; ui++) {
+          const p = pl.pieces[ui];
+          if (p.alive && p.col === wc && p.row === wr && p !== piece) unitsHere.push({ ownerIdx: pi, pieceIdx: ui, p });
+        }
+      }
+      const remsHere = (room.remains || []).filter(r => r.col === wc && r.row === wr);
+      const ratsHere = [];
+      for (let pi = 0; pi < (room.rats || []).length; pi++) (room.rats[pi] || []).forEach(rt => { if (rt.col === wc && rt.row === wr) ratsHere.push(rt); });
+      const objsHere = [];
+      for (let pi = 0; pi < (room.boardObjects || []).length; pi++) (room.boardObjects[pi] || []).forEach(o => { if ((o.type === 'bomb' || o.type === 'trap') && o.col === wc && o.row === wr) objsHere.push(o); });
+      if (!unitsHere.length && !remsHere.length && !ratsHere.length && !objsHere.length) return { ok: false, msg: '밀 대상이 없습니다.' };
+      spendSP(room, playerIdx, cost);
+      // 모서리(보드 밖)·파괴칸이면 아무 일도 일어나지 않음(불발).
       if (!inBounds(nc, nr, bounds) || isCellDestroyed(room, nc, nr)) {
         result.msg = `바람몰이: 밀 수 없는 방향(모서리/파괴칸)`;
         result.oppMsg = `바람몰이: 불발`;
         break;
       }
-      wsTgt.col = nc; wsTgt.row = nr;
-      result.msg = `바람몰이: ${wsTgt.name}${조사(wsTgt.name, '을', '를')} ${wsDir} 방향으로 밀어냄`;
-      result.oppMsg = `바람몰이: 상대가 ${wsTgt.name}${조사(wsTgt.name, '을', '를')} 강제 이동`;
-      result.data.ringTeleport = {
-        fromCol: _wsFromCol, fromRow: _wsFromRow,
-        toCol: nc, toRow: nr,
-        victimOwnerIdx: wsOwnerIdx,
-        victimPieceIdx: room.players[wsOwnerIdx].pieces.indexOf(wsTgt),
+      for (const u of unitsHere) { u.p.col = nc; u.p.row = nr; }
+      for (const r of remsHere) { r.col = nc; r.row = nr; }
+      for (const rt of ratsHere) { rt.col = nc; rt.row = nr; }
+      for (const o of objsHere) { o.col = nc; o.row = nr; }
+      result.msg = `바람몰이: (${wc},${wr})의 대상을 ${wsDir} 방향으로 밀어냄`;
+      result.oppMsg = `바람몰이: 상대가 강제로 밀어냄`;
+      // ★ 전용 애니(국왕 반지와 분리) — windPush.
+      result.data.windPush = {
+        fromCol: wc, fromRow: wr, toCol: nc, toRow: nr,
+        units: unitsHere.map(u => ({ ownerIdx: u.ownerIdx, pieceIdx: u.pieceIdx })),
+        pushedRemains: remsHere.length, pushedRats: ratsHere.length, pushedObjs: objsHere.length,
       };
+      break;
+    }
+
+    // ── CAVALRY(기마병): 질주(특성) — 전용 함수 위임. UI는 부채꼴 질주 버튼(스킬 탭 아님). ──
+    case 'cavalry': {
+      const dr = doCavalryDash(room, playerIdx, pieceIdx, params?.col, params?.row);
+      if (!dr.ok) return { ok: false, msg: dr.msg };
+      result.msg = `질주: 기마병 돌진`;
+      result.oppMsg = `질주: 기마병이 돌진`;
+      result.data.dash = dr.dash;
+      result.data.hits = dr.hits;
       break;
     }
 
@@ -7200,54 +7263,6 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── CAVALRY(기마병): 질주 — 직선 1~2칸 이동 + 지나온 칸(제자리·경로·도착) 전부 공격 ──
-    case 'cavalry': {
-      const dCol = params?.col, dRow = params?.row;
-      if (dCol == null || dRow == null) return { ok: false, msg: '질주할 칸을 지정하세요.' };
-      if (!inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
-      const ddc = dCol - piece.col, ddr = dRow - piece.row;
-      const straight = (ddc === 0) !== (ddr === 0);   // 정확히 한 축만 변화(직선)
-      const dist = Math.abs(ddc) + Math.abs(ddr);
-      if (!straight || dist < 1 || dist > 2) return { ok: false, msg: '상하좌우 직선 1~2칸만 질주할 수 있습니다.' };
-      const stepC = ddc === 0 ? 0 : (ddc > 0 ? 1 : -1);
-      const stepR = ddr === 0 ? 0 : (ddr > 0 ? 1 : -1);
-      // 경로 셀(제자리 포함 ~ 도착). 도착칸은 착지 가능해야 함(파괴칸/살아있는 유닛 불가).
-      const pathCells = [];
-      for (let s = 0; s <= dist; s++) pathCells.push({ col: piece.col + stepC * s, row: piece.row + stepR * s });
-      if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '파괴된 칸에는 착지할 수 없습니다.' };
-      const landBlocked = room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow));
-      if (landBlocked) return { ok: false, msg: '착지할 칸에 다른 유닛이 있습니다.' };
-      // ★ 경로 적에 '무조건 1피해'(ATK/버프 보정 무시). 이동 전에 경로 적을 판정.
-      const _dashFromCol = piece.col, _dashFromRow = piece.row;
-      const dashHits = [];
-      const enemyIdxs = getEnemyIndices(room, playerIdx);
-      for (const cell of pathCells) {
-        for (const ei of enemyIdxs) {
-          const ep = room.players[ei]; if (!ep) continue;
-          for (let ui = 0; ui < ep.pieces.length; ui++) {
-            const t = ep.pieces[ui];
-            if (!t.alive || t.col !== cell.col || t.row !== cell.row) continue;
-            if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;   // 그림자 면역
-            const dmg = resolveDamage(room, piece, t, playerIdx, 1, false, ei);   // 기본 1(보정무시), 방어 패시브는 적용
-            t.hp = Math.max(0, t.hp - dmg);
-            const dead = t.hp <= 0;
-            if (dead) handleDeath(room, t, ei);
-            dashHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed: dead, defPieceIdx: ui, defOwnerIdx: ei, revealedName: t.name });
-          }
-        }
-      }
-      const dashKilled = dashHits.filter(h => h.destroyed);
-      if (dashKilled.length > 0) setKillInfo(room, 'attack', piece.name, dashKilled.map(k => ({ name: k.revealedName })));
-      piece.col = dCol; piece.row = dRow;
-      player.actionUsedSkillReplace = true;
-      player.actionDone = true;
-      spendSP(room, playerIdx, cost);
-      result.msg = `질주: (${_dashFromCol},${_dashFromRow})→(${dCol},${dRow}) 경로 공격`;
-      result.oppMsg = `질주: 기마병이 돌진`;
-      result.data.dash = { fromCol: _dashFromCol, fromRow: _dashFromRow, toCol: dCol, toRow: dRow, pathCells };
-      result.data.hits = dashHits;
-      break;
-    }
 
     // ── MUSHKIN(머쉬킨): 확산 — 모든 진균지대의 인접 칸 중 하나씩 새 진균지대로(자유시전 SP2) ──
     case 'mushkin': {
