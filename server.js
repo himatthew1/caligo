@@ -6971,22 +6971,18 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── DUAL BLADE: 쌍검무 (양손검객 공격권 +1 — 총 최대 2회) ──
+    // ── DUAL BLADE: 쌍검무 (PPT 리워크 — 공격 범위에 고정 1 피해 · 자유시전형) ──
     case 'dualBlade': {
-      // 가드: 이동 후 사용 불가 (이번 턴 공격 2회 — 이동 후엔 의미 없음)
-      if (player._lastActionType === 'move') {
-        return { ok: false, msg: '이미 이동했으므로 쌍검무를 사용할 수 없습니다.' };
-      }
-      // 가드: 다른 유닛이 공격했다면 사용 불가 (이 양손검객 본인은 OK)
-      if (player._lastActionType === 'attack' &&
-          (player._lastActionPieceType !== 'dualBlade')) {
-        return { ok: false, msg: '다른 유닛이 행동했으므로 쌍검무를 사용할 수 없습니다.' };
-      }
-      piece.dualBladeAttacksLeft = 1;  // +1 공격권
+      const dbBounds = room.boardBounds;
+      const dbType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(piece) : piece.type;
+      let dbCells = getAttackCells(dbType || piece.type, piece.col, piece.row, dbBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
+      if (typeof applyDarkVeil === 'function') dbCells = applyDarkVeil(room, piece, dbCells);
+      const dbHits = processAttack(room, playerIdx, piece, dbCells, 1, { suppressSpUpdate: true });
       spendSP(room, playerIdx, cost);
-      // 시전자·상대팀·관전자 모두 동일한 문장 사용
-      result.msg = `쌍검무: 양손검객은 추가 공격 가능`;
-      result.oppMsg = `쌍검무: 양손검객은 추가 공격 가능`;
+      result.msg = `쌍검무: 공격 범위에 1 피해`;
+      result.oppMsg = `쌍검무: 공격 범위에 1 피해`;
+      result.data.hits = dbHits;
+      result.data.atkCells = dbCells;
       break;
     }
 
