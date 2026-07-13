@@ -205,6 +205,8 @@ const CHARACTERS = {
         {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
         {id:'fateShift', name:'운명변곡', cost:3, replacesAction:false, desc:'아군 1명의 모든 상태이상을 적 1명에게 이동'}
       ] },
+    { type:'mushkin', name:'머쉬킨', tier:1, atk:1, icon:'/assets/icons/mushkin.png', tag:null, desc:'자기줄+하단 2×3 · 포자로 진균 지대 생성(진균칸에서 턴 종료 시 중독 1)',
+      skills:[{id:'spore', name:'포자 살포', cost:2, replacesAction:false, oncePerTurn:true, desc:'제자리와 상하좌우 4칸을 진균 지대로 만듦(아/적 무관 그 칸에서 턴 마치면 중독 1)'}] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -5681,6 +5683,16 @@ function endTurn(room, opts) {
     // 자의 종료 + 행동/스킬 사용 → 토스트 없음 (정상)
   }
 
+  // ★ Phase 3: 머쉬킨 진균 — 진균 지대에서 턴을 마친 유닛(아/적 무관)은 중독 스택 1 축적.
+  //   "턴을 마친 유닛" = 방금 턴을 끝낸 플레이어의 살아있는 유닛 중 진균칸 위에 선 것.
+  if (room.fungus && room.fungus.length && prevPlayer && prevPlayer.pieces) {
+    for (const p of prevPlayer.pieces) {
+      if (p.alive && p.col != null && room.fungus.some(f => f.col === p.col && f.row === p.row)) {
+        addStatus(p, 'poison');
+      }
+    }
+  }
+
   room.currentPlayerIdx = getNextPlayerIdx(room);
   room.turnNumber++;
 
@@ -7019,6 +7031,25 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         victimOwnerIdx: wsTargetOwnerIdx,
         victimPieceIdx: wsOwner.pieces.indexOf(wsTgt),
       };
+      break;
+    }
+
+    // ── MUSHKIN(머쉬킨): 포자 살포 — 제자리+상하좌우를 진균 지대로(그 칸에서 턴 마친 유닛은 중독 1) ──
+    case 'mushkin': {
+      if (!room.fungus) room.fungus = [];
+      const spCells = [[piece.col, piece.row], [piece.col + 1, piece.row], [piece.col - 1, piece.row], [piece.col, piece.row + 1], [piece.col, piece.row - 1]];
+      let added = 0;
+      for (const [c, r] of spCells) {
+        if (!inBounds(c, r, bounds)) continue;
+        if (isCellDestroyed(room, c, r)) continue;
+        if (room.fungus.some(f => f.col === c && f.row === r)) continue;
+        room.fungus.push({ col: c, row: r });
+        added++;
+      }
+      spendSP(room, playerIdx, cost);
+      result.msg = `포자 살포: 진균 지대 ${added}칸 생성`;
+      result.oppMsg = `포자 살포: 상대가 진균 지대 생성`;
+      result.data.fungusCells = spCells.filter(([c, r]) => inBounds(c, r, bounds));
       break;
     }
 

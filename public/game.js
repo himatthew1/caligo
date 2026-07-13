@@ -14107,6 +14107,10 @@ function renderGameBoard() {
     if (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) {
       cell.classList.add('cell-destroyed');
     }
+    // ── 진균 지대 (머쉬킨) 렌더링 — 통행 가능, 턴 종료 시 중독 ──
+    if (S.fungus && S.fungus.some(f => f.col === col && f.row === row)) {
+      cell.classList.add('cell-fungus');
+    }
 
     // ── 유해 (remains) 렌더링 — 양측 모두 보임 ──
     // ★ 사망 GIF 진행 중인 셀(_pendingDeathCells)은 유해를 그리지 않음 — 사망 모션과 유해가
