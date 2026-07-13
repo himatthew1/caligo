@@ -255,6 +255,8 @@ const CHARACTERS = {
     { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
     { type:'hero', name:'영웅', tier:3, atk:3, icon:'/assets/icons/hero.png', tag:null, desc:'제자리와 하단',
       skills:[{id:'earthquake', name:'대지 분쇄', cost:3, replacesAction:false, oncePerTurn:true, desc:'주위 9칸 설치물 전파괴 + 범위 내 악인 1 피해'}] },
+    { type:'gladiator', name:'검투사', tier:3, atk:2, icon:'/assets/icons/gladiator.png', tag:null, desc:'좌우와 상단',
+      skills:[{id:'grit', name:'투지', cost:3, replacesAction:false, desc:'스킬 없는 아군 회복1 + 다음 차례까지 사기증진'}] },
   ]
 };
 
@@ -5187,8 +5189,9 @@ function processTurnStart(room) {
   }
 
   // Remove shadow effects from THIS player's pieces (shadow lasts until own next turn)
+  // ★ Phase 3: rally(검투사 투지 임시 사기증진 +1 ATK)도 '다음 자신의 차례'에 해제 — 동일 타이밍.
   for (const p of player.pieces) {
-    p.statusEffects = p.statusEffects.filter(e => e.type !== 'shadow');
+    p.statusEffects = p.statusEffects.filter(e => e.type !== 'shadow' && e.type !== 'rally');
   }
 
   // ★ Pre-curse HP 스냅샷은 보드 축소 *이후* 캡처해야 함 (사용자 보고:
@@ -6662,6 +6665,30 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
+    // ── GLADIATOR: 투지 (스킬 없는 아군 힐1 + 임시 사기증진 rally) ──
+    case 'gladiator': {
+      spendSP(room, playerIdx, cost);
+      const allyIdxs = (room.mode === 'team' && typeof getAllyIndices === 'function') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      const rallied = [];
+      for (const ai of allyIdxs) {
+        const ap = room.players[ai]; if (!ap) continue;
+        for (let i = 0; i < ap.pieces.length; i++) {
+          const a = ap.pieces[i];
+          if (!a.alive) continue;
+          const hasSk = (a.skills && a.skills.length > 0) || a.hasSkill;
+          if (hasSk) continue;   // 스킬 없는 아군만
+          a.hp = Math.min(a.maxHp, a.hp + 1);
+          if (!a.statusEffects) a.statusEffects = [];
+          if (!a.statusEffects.some(e => e.type === 'rally')) a.statusEffects.push({ type: 'rally' });
+          rallied.push({ ownerIdx: ai, pieceIdx: i });
+        }
+      }
+      result.msg = `투지: 스킬 없는 아군 ${rallied.length}명 회복+사기증진`;
+      result.oppMsg = `투지`;
+      result.data.rallied = rallied;
+      break;
+    }
+
     // ── KING: 절대복종 반지 (force move enemy) ──
     case 'king': {
       const targetName = params?.targetName;
@@ -7576,6 +7603,7 @@ function getBaseAtk(piece, room, ownerIdx) {
   if (!piece) return 0;
   if (typeof isFrog === 'function' && isFrog(piece)) return 0.5;   // 개구리 오버라이드
   let base = piece.atk || 0;
+  if (typeof hasStatus === 'function' && hasStatus(piece, 'rally')) base += 1;   // 검투사 투지 임시 사기증진
   const pas = piece.passives || [];
   const on = (id) => (typeof isPassiveActive === 'function') ? isPassiveActive(piece, id) : true;
   if (pas.includes('might') && on('might')) return Math.max(0, piece.hp || 0);        // 철인 괴력

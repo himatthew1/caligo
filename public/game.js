@@ -15673,7 +15673,7 @@ function renderStatusBadges(pc) {
   if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
   // ★ #9 이모지(마커)와 라벨을 분리 → 모바일에서 라벨만 숨겨 컴팩트 이모지 마커로 표시
   //   (좁은 프로필 카드에서도 가로 우선 유지, 자리 부족시 둘째 줄). 데스크탑은 이모지+텍스트 그대로.
-  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'] };
+  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'], rally: ['📋', '사기증진'] };
   let html = '<div class="status-badges">';
   for (const e of pc.statusEffects) {
     const cls = e.type;
