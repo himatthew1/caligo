@@ -503,8 +503,10 @@ function getAttackCells(type, col, row, bounds, extra) {
       push(col, row); push(col-1, row-1); push(col+1, row-1);
       break;
     case 'hero':         // 영웅 — 제자리+하단1
-    case 'siegeBreaker': // 공성파괴자 — 제자리+하단1
       push(col, row); push(col, row + 1);
+      break;
+    case 'siegeBreaker': // 공성파괴자 — 가로3 (PPT 그리드 판독: 중앙행 좌·자기·우)
+      push(col-1, row); push(col, row); push(col+1, row);
       break;
     case 'homunculus':   // 호문클루스 — 좌우 2
     case 'undead':       // 언데드 — 양옆(좌우)
@@ -534,8 +536,10 @@ function getAttackCells(type, col, row, bounds, extra) {
       for (const dc of [-1,0,1]) { push(col+dc, row); push(col+dc, row+1); }
       break;
     case 'oberon':       // 오베론 — 제자리+하단 대각2
-    case 'executioner':  // 처형인 — 제자리+아래 대각2
       push(col, row); push(col-1, row+1); push(col+1, row+1);
+      break;
+    case 'executioner':  // 처형인 — 아래 대각2만 (PPT 그리드: 중앙/자기 미포함)
+      push(col-1, row+1); push(col+1, row+1);
       break;
     //   ── 왕실(Royal) ──
     case 'catapult':     // 투석기 — 원하는 칸(단일, 무제한) : witch 처럼 tCol/tRow 1칸
