@@ -230,6 +230,8 @@ const CHARACTERS = {
       skills:[], passives:['silverHorn'] },
     { type:'griffin', name:'그리폰', tier:2, atk:2, icon:'/assets/icons/griffin.png', tag:'spirit', desc:'세로 3칸 · 격노: 피해 받으면 활성', noRemains:true,
       skills:[{id:'rage', name:'격노', cost:2, replacesAction:false, oncePerTurn:true, desc:'피해 받으면 활성 · 적 1명에게 1 피해'}], passives:['rage'] },
+    { type:'dryad', name:'드라이어드', tier:2, atk:2, icon:'/assets/icons/dryad.png', tag:'spirit', desc:'가로 3칸 · 생장: 피해 받을 때마다 사거리 +1', noRemains:true,
+      skills:[], passives:['growth'] },
     { type:'ironman', name:'철인', tier:2, atk:0, icon:'/assets/icons/ironman.png', tag:null, desc:'제자리와 상단 · 괴력: 공격력 = 남은 체력',
       skills:[], passives:['might'] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
@@ -1498,7 +1500,7 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   // 8. 공격형 — 자기 공격범위가 중앙 3x3 커버
   if (aiIsAggressivePiece(piece)) {
     try {
-      const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState });
+      const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
       let coverCenter = 0;
       for (const ac of attackCells) {
         if (!inBounds(ac.col, ac.row, bounds)) continue;
@@ -1986,7 +1988,7 @@ function aiTeamUsePreSkills(room, idx) {
     }
     // reform — 더 좋은 공격 점수 방향이면
     if (piece.skillId === 'reform') {
-      const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState });
+      const curScore = aiTeamScoreAttack(room, idx, piece, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
       const altState = piece.type === 'archer' ? (piece.toggleState === 'right' ? 'left' : 'right') : (piece.toggleState === 'vertical' ? 'horizontal' : 'vertical');
       const altScore = aiTeamScoreAttack(room, idx, piece, { toggleState: altState });
       // ★ SP 수읽기 — 정규 SP 이관 문턱까지 넘는 확실한 이득일 때만 (1v1 과 동일 정책).
@@ -2291,7 +2293,7 @@ function aiTeamTakeTurn(room, idx) {
       // 반격 우선 판단 — 확정/유력 적 위치를 칠 수 있고 위급(HP≤2)하지 않으면 반격, 아니면 도주.
       const criticalHp = piece.hp <= 2;
       let sureHit = false, canHitProb = false;
-      const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+      const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
       for (const c of atkCells) {
         const v = brain.probMap[c.row]?.[c.col] || 0;
         if (v >= 9) sureHit = true;
@@ -2407,7 +2409,7 @@ function aiTeamTakeTurn(room, idx) {
     for (const piece of myAlive) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
       const pi = p.pieces.indexOf(piece);
-      const extra = { toggleState: piece.toggleState };
+      const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
       if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
         const bt = aiTeamBestTargetCell(room, idx, piece);
@@ -2525,7 +2527,7 @@ function aiDecideAction(room, idx) {
       let bestMove = null, bestFleeScore = -1;
       for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const fs = (Math.abs(nc - mem.col) + Math.abs(nr - mem.row)) * 15 + aiTeamScoreMove(room, idx, piece, nc, nr); if (fs > bestFleeScore) { bestFleeScore = fs; bestMove = { col: nc, row: nr }; } }
       const criticalHp = piece.hp <= 2; let sureHit = false, canHitProb = false;
-      for (const c of getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState })) { const v = brain.probMap[c.row] ? (brain.probMap[c.row][c.col] || 0) : 0; if (v >= 9) sureHit = true; if (v >= 6) canHitProb = true; }
+      for (const c of getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 })) { const v = brain.probMap[c.row] ? (brain.probMap[c.row][c.col] || 0) : 0; if (v >= 9) sureHit = true; if (v >= 6) canHitProb = true; }
       const shouldCounter = sureHit || (!criticalHp && (canHitProb || (counterScore > bestFleeScore * 1.05 && counterScore > 4)));
       if (shouldCounter) { const a = { type: 'attack', pieceIdx: fleeIdx }; if (typeof counterExtra.tCol === 'number') { a.tCol = counterExtra.tCol; a.tRow = counterExtra.tRow; } return a; }
       if (bestMove) return { type: 'move', pieceIdx: fleeIdx, col: bestMove.col, row: bestMove.row };
@@ -2538,7 +2540,7 @@ function aiDecideAction(room, idx) {
   else {
     for (const piece of myAlive) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
-      const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState };
+      const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
       if (piece.type === 'shadowAssassin' || piece.type === 'witch') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
       const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
@@ -2686,7 +2688,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   const piece = p.pieces[pieceIdx];
   if (!piece || !piece.alive) { endTurn(room); return; }
   const bounds = room.boardBounds;
-  const atkExtra = extra || { toggleState: piece.toggleState };
+  const atkExtra = extra || { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
   if (!atkExtra.rats && piece.type === 'ratMerchant') atkExtra.rats = room.rats[idx];
   const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, atkExtra);
   // ★ FIX (팀 AI 공격 페이즈 누락 — 1v1 통일): 사망 기폭/표식 페이즈 시작. 이게 없어 표식이 적용
@@ -5449,7 +5451,7 @@ function checkUnreachableDraw(room) {
     for (const piece of (player.pieces || [])) {
       if (!piece.alive) continue;
       if (!inBounds(piece.col, piece.row, bounds)) continue;
-      const atk = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+      const atk = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
       if (atk.some(c => c.col === piece.col && c.row === piece.row)) {
         return false;  // 자기 위치 공격 가능 → 누군가 스택된 적을 칠 수 있음 → 무승부 아님
       }
@@ -8423,7 +8425,7 @@ function aiUsePreSkills(room) {
       // 궁수/무기상: 대안 공격범위가 더 좋으면 토글 (SP 1 — 자유롭게)
       case 'archer':
       case 'weaponSmith': {
-        const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
+        const curCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
         let curScore = 0;
         for (const c of curCells) curScore += brain.probMap[c.row]?.[c.col] || 0;
         const altState = piece.type === 'archer'
@@ -8498,7 +8500,7 @@ function aiUsePreSkills(room) {
         // ★ 쌍검무 = 이번 턴 공격 2회. 사용자 보고: 확신·계산 없이 남발. → "2타로 *확실히 잡을* 표적"이
         //   있을 때만 시전. (1타론 못 잡지만 2타면 죽는 표적 = 쌍검무가 의미. 1타로 죽거나 2타로도 못
         //   죽이면 무의미.) 우선 표식 적으로 정확 계산, 없으면 확정칸(≥9) belief + 저이관일 때만 보수적.
-        const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
+        const dbCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
         const effAtk = _effectiveAtkForAi(piece, room, 1);
         const marked = aiKnownEnemies(room, 1).filter(e => e.marked);
         let dbBest = 0, confirmKill = false;
@@ -8887,7 +8889,7 @@ function aiTakeTurn(room) {
     let confirmKill = false, killVal = 0;
     const effAtk = _effectiveAtkForAi(piece, room, 1);
     const markedEn = aiKnownEnemies(room, 1).filter(e => e.marked);
-    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState });
+    const atkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 });
     for (const c of atkCells) {
       const v = brain.probMap[c.row]?.[c.col] || 0;
       if (v >= 9) sureHit = true;
@@ -11170,6 +11172,7 @@ io.on('connection', (socket) => {
       tCol, tRow,
       toggleState: atkPiece.toggleState,
       rats: room.rats[idx],
+      growth: atkPiece._rangeGrowth || 0,   // ★ 드라이어드 생장
     };
 
     // ★ 쌍둥이 동시 공격: 형+동생 공격 범위 합산
