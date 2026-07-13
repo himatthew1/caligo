@@ -3712,8 +3712,16 @@ function pieceSummary(pieces) {
 }
 
 function oppPieceSummary(pieces) {
+  // ★ 사기증진(wrath) 공유 — 사용자 원칙: 상대 유닛이 사기증진 상태인지 + 변동된 공격력까지 공개.
+  //   버프는 위치(직교 인접 지휘관) 기반이라 클라(안개)가 계산 불가 → 서버가 실제 좌표로 판정해 전달.
+  //   단, 위치가 공개된(표식) 적에 한해 공유 → 안개 존중(숨은 적의 버프/위치는 여전히 비공개).
+  const commanders = pieces.filter(p => p.alive && p.type === 'commander' && p.col != null);
+  const wrathBuffed = (pc) => pc.type !== 'commander' && pc.col != null && commanders.some(cm =>
+    (Math.abs(cm.col - pc.col) === 1 && cm.row === pc.row) ||
+    (Math.abs(cm.row - pc.row) === 1 && cm.col === pc.col));
   return pieces.map((pc, idx) => {
     const hasMark = pc.statusEffects.some(e => e.type === 'mark');
+    const moraleBuff = hasMark && pc.alive && wrathBuffed(pc);   // 공개된 적만
     return {
       index: idx, type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
       hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, desc: pc.desc, tag: pc.tag,
@@ -3732,6 +3740,9 @@ function oppPieceSummary(pieces) {
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
       marked: hasMark,
+      // ★ 사기증진(공개 적 한정) + 변동 공격력(+1)
+      moraleBuff,
+      effAtk: (pc.atk || 0) + (moraleBuff ? 1 : 0),
     };
   });
 }

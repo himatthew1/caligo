@@ -5328,6 +5328,7 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
     //   방어자 화면에도 즉시 반영. 오사는 이미 공개된 공격 셀(atkCells) 내부이므로 위치 노출이 규칙상 정상.
     //   (이전엔 도장만 찍고 S.oppPieces·피격 애니를 안 건드려 "내 차례가 와야 갱신"됐음.)
     const _ffAnimCells = [];
+    const _ffDeadDefCells = [];   // ★ 오사로 격파된 상대 유닛 — 사망 GIF 대상(방어자 시점에도 재생)
     if (Array.isArray(friendlyFireHits)) {
       for (const ff of friendlyFireHits) {
         const _ffDmg = (typeof ff.damage === 'number') ? ff.damage : 0;
@@ -5343,12 +5344,19 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
           if (_op) {
             _op.col = ff.col; _op.row = ff.row; _op.marked = true;
             if (typeof ff.newHp === 'number') _op.hp = ff.newHp;
-            if (ff.destroyed) _op.alive = false;
-            else _ffAnimCells.push({ col: ff.col, row: ff.row });
+            _ffAnimCells.push({ col: ff.col, row: ff.row });   // 피격 플래시(사망이어도 임팩트 먼저)
+            if (ff.destroyed) {
+              _op.alive = false;
+              // ★ 사망 GIF — 오사로 죽은 상대 유닛도 방어자 화면에서 사망 연출(예전엔 HP만 0되고 툭 사라짐).
+              _ffDeadDefCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx });
+            }
           }
         }
       }
     }
+    // ★ 오사 상대 사망정보(적 소유 → isDefending=false) — 내 말 사망(_deathInfos)과 병합해 함께 연출.
+    const _ffDefDeaths = _ffDeadDefCells.length ? _detectDeaths(_ffDeadDefCells, false) : [];
+    const _allDefDeaths = _deathInfos.concat(_ffDefDeaths);
     const meaningfulHits = hitPieces.filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
     const directHits = meaningfulHits.filter(h => !h.bodyguardRedirect);
     const _myDestroyedRatsFlag = (myDestroyedRats && myDestroyedRats.length > 0);
@@ -5407,19 +5415,20 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
       }
     };
 
-    if (_deathInfos.length > 0) {
-      // ★ 사망 유닛 존재 — 먼저 렌더 후 피격 애니, 400ms 후 사망 GIF → 재렌더
+    if (_allDefDeaths.length > 0) {
+      // ★ 사망 유닛 존재(내 말 + 오사 상대) — 먼저 렌더 후 피격 애니, 400ms 후 사망 GIF → 재렌더
       // ★ _pendingDeathCells: 사망 GIF 재생 전까지 dead piece 의 idle GIF 를 DOM 에 유지 (빈 프레임 방지)
-      S._pendingDeathCells = new Set(_deathInfos.map(d => `${d.col},${d.row}`));
+      S._pendingDeathCells = new Set(_allDefDeaths.map(d => `${d.col},${d.row}`));
       renderGameBoard();
       renderMyPieces();
       renderOppPieces();   // ★ 오사 상대 HP바 실시간 갱신
       _doPostRenderDef();
       if (_ffAnimCells.length) animateAttack([], _ffAnimCells, false);  // ★ 오사 상대 유닛 피격 애니
 
-      scheduleDeathGif(_deathInfos, _deathInfos, () => {
+      scheduleDeathGif(_allDefDeaths, _allDefDeaths, () => {
         renderGameBoard();
         renderMyPieces();
+        renderOppPieces();   // ★ 사망 GIF 완료 후 오사 상대 유해/제거 반영
         _flushPendingSpUpdate(); // ★ 애니 완료 후 큐잉된 SP 적용
       });
     } else {
@@ -15728,6 +15737,14 @@ function renderOppPieces() {
       ? `<span class="deduction-badge" title="추리 토큰: ${coord(placedToken.col, placedToken.row)}">📌${coord(placedToken.col, placedToken.row)}</span>`
       : '';
 
+    // ★ 사기증진(서버가 공개 적 한정으로 판정해 내려줌) — 변동 공격력 + 배지 표시. 적이므로 빨강 톤.
+    const _oppBuffed = pc.alive && pc.moraleBuff;
+    const _oppAtkDisp = _oppBuffed
+      ? `<span style="color:#ef4444;font-weight:800">${pc.effAtk != null ? pc.effAtk : (pc.atk || 0) + 1}</span>`
+      : `${pc.atk}`;
+    const _oppMoraleHtml = _oppBuffed
+      ? '<span class="status-badge" style="color:#ef4444;background:rgba(239,68,68,0.15)">📋 사기증진</span>'
+      : '';
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const nameLenCls = (typeof getNameLengthClass === 'function') ? getNameLengthClass(pc.name) : '';
     // #24: 보드 파괴 탈락 도장 (1v1 — opp 카드)
@@ -15751,12 +15768,12 @@ function renderOppPieces() {
         <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
       </div>
       <div class="piece-stat-row">
-        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
+        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${_oppAtkDisp}</span>
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.7rem">
           ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : ''}
         </span>
       </div>
-      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}`;
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${_oppMoraleHtml}`;
 
     // 호버 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
