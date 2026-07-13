@@ -11296,10 +11296,15 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Non-twins: standard 3 values
-    if (!Array.isArray(hps) || hps.length !== 3 ||
-        hps.reduce((a, b) => a + b, 0) !== 10 || hps.some(h => h < 1 || h > 8)) {
-      socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1 최대 8 · 3개 필요' }); return;
+    // Non-twins: standard 3 values (★ 언데드 티어는 HP 부여 불가 → 반드시 0, 나머지 1~8 합 10)
+    {
+      const dd = player.draft;
+      const undeadIdx = [dd.t1, dd.t2, dd.t3].map((t, i) => t === 'undead' ? i : -1).filter(i => i >= 0);
+      const badRange = hps.some((h, i) => undeadIdx.includes(i) ? (h !== 0) : (h < 1 || h > 8));
+      if (!Array.isArray(hps) || hps.length !== 3 ||
+          hps.reduce((a, b) => a + b, 0) !== 10 || badRange) {
+        socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1 최대 8 (언데드 제외) · 3개 필요' }); return;
+      }
     }
 
     player.hpDist = hps;

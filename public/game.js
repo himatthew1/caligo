@@ -11482,6 +11482,18 @@ function buildHpUI() {
   S._restoredHpDist = null;
   const types = [draft.t1, draft.t2, draft.t3];
   const tierLabels = ['1티어', '2티어', '3티어'];
+  // ★ 언데드: HP 부여 불가(HP0 시작) → 해당 티어 제외, 나머지 티어에 10 분배.
+  S._undeadHpTiers = new Set();
+  types.forEach((t, i) => { if (t === 'undead') S._undeadHpTiers.add(i); });
+  if (S._undeadHpTiers.size) {
+    const nonU = [0, 1, 2].filter(i => !S._undeadHpTiers.has(i));
+    const base = [0, 0, 0];
+    let rem = 10;
+    nonU.forEach((i, k) => { const v = (k === nonU.length - 1) ? rem : Math.min(8, Math.round(10 / nonU.length)); base[i] = v; rem -= v; });
+    if (rem !== 0 && nonU.length) base[nonU[0]] = Math.max(1, Math.min(8, base[nonU[0]] + rem));
+    S.hpValues = base;
+    S._undeadHpTiers.forEach(i => { S.hpValues[i] = 0; });
+  }
   const container = document.getElementById('hp-pieces');
   container.innerHTML = '';
   const rows = document.createElement('div');
@@ -11494,17 +11506,21 @@ function buildHpUI() {
     const row = document.createElement('div');
     row.className = 'hp-piece-row';
     const tagHtml = tagBadgeHtml(charData.tag);
+    const isUndead = S._undeadHpTiers && S._undeadHpTiers.has(i);
+    const controls = isUndead
+      ? `<div class="hp-input-group"><span class="hp-undead-note">HP 부여 불가</span></div>`
+      : `<div class="hp-input-group">
+        <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
+        <span class="hp-value" id="hp-val-${i}">${S.hpValues[i]}</span>
+        <button class="hp-btn" data-i="${i}" data-delta="1">+</button>
+      </div>`;
     row.innerHTML = `
       <span class="char-icon">${pieceIconHtml(charData.icon, {size:'1.4em'})}</span>
       <div class="hp-piece-label">
         <strong>${charData.name}${tagHtml}</strong>
         <span>${tierLabels[i]}</span>
       </div>
-      <div class="hp-input-group">
-        <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
-        <span class="hp-value" id="hp-val-${i}">${S.hpValues[i]}</span>
-        <button class="hp-btn" data-i="${i}" data-delta="1">+</button>
-      </div>`;
+      ${controls}`;
     rows.appendChild(row);
   }
   container.appendChild(rows);
@@ -11523,6 +11539,7 @@ function buildHpUI() {
 }
 
 function adjustHp(idx, delta) {
+  if (S._undeadHpTiers && S._undeadHpTiers.has(idx)) return;   // ★ 언데드 티어는 조정 불가
   const next = S.hpValues[idx] + delta;
   const total = S.hpValues.reduce((a, b) => a + b, 0);
   if (next < 1 || next > 8) return;

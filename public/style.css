@@ -1910,6 +1910,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   margin: 12px 0 10px;
 }
 .skill-trait-divider:first-child { display: none; }   /* 위에 스킬이 없으면 구분선 생략 */
+.hp-undead-note { color: #9ca3af; font-size: 0.78rem; font-weight: 700; padding: 4px 8px; }
 
 /* ── 드라이어드 생장 애니 ── */
 .growth-bubble {
