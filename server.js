@@ -294,7 +294,7 @@ const CHARACTERS = {
     // ── ★ Phase 3 신규 ──
     { type:'siegeBreaker', name:'공성파괴자', tier:3, atk:2, icon:'🔨', tag:'royal', desc:'제자리와 하단 1칸',
       skills:[{id:'demolish', name:'파괴공작', cost:4, replacesAction:false, desc:'한 칸 지정 → 다음 자신의 턴 시작과 동시에 영구 파괴(그 위 유닛 소멸)'}] },
-    { type:'mushkin', name:'머쉬킨', tier:3, atk:1, icon:'🍄', tag:'spirit', noRemains:true, desc:'자기 줄과 하단 2×3',
+    { type:'mushkin', name:'머쉬킨', tier:3, atk:0.5, icon:'🍄', tag:'spirit', noRemains:true, desc:'자기 줄과 하단 2×3',
       passives:['sporeSpread'],
       skills:[{id:'spread', name:'확산', cost:2, replacesAction:false, desc:'모든 진균지대의 인접 칸 중 하나씩 새 진균지대로 확산'}] },
     { type:'oberon', name:'오베론', tier:3, atk:1, icon:'🧝', tag:'spirit', desc:'제자리와 하단 대각 2칸',
@@ -12119,6 +12119,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
+        fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
       const defenderHitsByOwner = new Map();
@@ -12133,6 +12134,7 @@ io.on('connection', (socket) => {
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells,
           attackerImpactedAnything,
+          fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(피격자 시점)
           friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
           hitPieces: hits.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.

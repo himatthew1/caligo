@@ -151,21 +151,27 @@ function sortCharsByFaction(characters) {
       .map(x => x[0]);
   }
 }
+// ★ 공격 '유형/범위'가 특수한 유닛만 그리드 아래 캡션 표시.
+//   고정된 모양(마왕 V·언데드 양옆·기사 대각 등)은 특수 케이스 아님 → 캡션 없음.
 const SPECIAL_DESC_TYPES = new Set([
   'archer',         // 좌측 대각선 전체 (토글)
   'spearman',       // 세로줄 전체
-  'cavalry',        // 가로줄 전체
-  'twins',          // 형/동생 패턴
-  'shadowAssassin', // 1칸 선택
-  'witch',          // 원하는 칸 1곳
+  'cavalry',        // 공격 불가 · 질주
+  'twins',          // 레드 가로3 / 블루 세로3
+  'shadowAssassin', // 주변 9칸 중 1칸 지정
+  'witch',          // 공격 불가
   'ratMerchant',    // 쥐 위치
   'weaponSmith',    // 가로/세로 토글
+  // ── 새 팩션 특수 공격 유형 ──
+  'gunpowder',      // 주변 8칸 중 랜덤 2칸
+  'hookKiller',     // 가로 횡 전부
+  'catapult',       // 원하는 칸 1곳 선택
+  'wanderer',       // 부메랑 — 나이트 방향 8칸
 ]);
 function shouldShowDesc(typeOrObj) {
   if (!typeOrObj) return false;
-  // ★ 리워크: 화이트리스트 제거 — 모든 유닛이 그리드 아래에 공격범위 캡션(server desc)을 표시.
-  //   (화약상 "주변 8칸 중 랜덤 2칸", 갈고리 "가로 횡 전부", 투석기 "원하는 칸 선택" 등 특수공격 안내)
-  return true;
+  const t = typeof typeOrObj === 'string' ? typeOrObj : typeOrObj.type;
+  return SPECIAL_DESC_TYPES.has(t);
 }
 
 function ratDestroyMsg(rats, mine) {
@@ -4893,7 +4899,8 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
+  if (fungus) S.fungus = fungus;   // ★ 머쉬킨 포자살포 즉시 반영(공격자 시점)
   if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5294,7 +5301,8 @@ socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, 
     if (deaths.length) scheduleDeathGif(deaths, deaths, rerender); else { S._pendingDeathCells = null; rerender(); }
   } else rerender();
 });
-socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits }) => {
+socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
+  if (fungus) S.fungus = fungus;   // ★ 머쉬킨 포자살포 즉시 반영
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -9863,11 +9871,7 @@ const TAG_TO_BLOCK_CLASS = {
 //   철인(괴력): 공격력이 곧 남은 체력이라 기본값 0이 무의미 → "= 남은 체력".
 //   왕자(계승자): 생존 왕실 하나당 +0.5 → 기본값 + 보정 표기.
 function atkDisplayHtml(c) {
-  const passives = (c && c.passives) || [];
-  if (passives.includes('successor')) {
-    return `⚔ 공격력 ${c.atk} <span style="color:#f59e0b;font-size:0.82em">(+생존 왕실당 0.5)</span>`;
-  }
-  return `⚔ 공격력 ${c.atk}`;
+  return `⚔ 공격력 ${c ? c.atk : 0}`;
 }
 const mkSkillHead = (name, tagCls, tagLabel) => ({
   head: name,
@@ -9964,7 +9968,7 @@ const CHAR_DETAILS = {
   },
   twins: {
     blocks: [
-      { ...mkSkillHead('분신', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
+      { ...mkSkillHead('분신', 'tag-once', '자유시전·1회'), sp: 1, color: '#a78bfa' },
     ],
     body: '스킬 사용 시 한쪽의 위치를 다른 쪽으로 합류시켜 업어옵니다.',
     flavor: '피로 이어진 남매. 그 핏줄이 두 남매가 어디에 있든지 서로를 강하게 끌어당긴다.',
@@ -9978,7 +9982,7 @@ const CHAR_DETAILS = {
   },
   manhunter: {
     blocks: [
-      { ...mkSkillHead('덫 설치', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa' },
+      { ...mkSkillHead('덫 설치', 'tag-once', '자유시전·1회'), sp: 2, color: '#a78bfa' },
     ],
     body: '스킬 사용 시 현재 위치에 몰래 덫을 설치합니다. 적이 해당 칸을 밟으면 덫이 발동하여 2 피해를 입힙니다.',
     flavor: '소리 없는 사냥꾼. 당하기 전까지는 아무도 그의 함정을 눈치챌 수 없다.',
@@ -10054,7 +10058,7 @@ const CHAR_DETAILS = {
   },
   ratMerchant: {
     blocks: [
-      { ...mkSkillHead('역병의 자손들', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa' },
+      { ...mkSkillHead('역병의 자손들', 'tag-free', '자유시전형'), sp: 1, color: '#a78bfa' },
     ],
     body: '쥐가 없는 칸에 쥐 2마리를 소환합니다. 쥐에게 공격받거나 쥐를 공격한 유닛은 중독됩니다.',
     flavor: '쥐떼를 거느리는 어둠의 왕. 그의 휘파람 한번에 역병이 퍼져나간다.',
@@ -10576,7 +10580,18 @@ function populateSlideContent(c, prefix) {
   const bodyEl = document.getElementById(`${prefix}-detail-body`);
   if (!blocksEl || !bodyEl) return;
   if (detail) {
-    const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    let blocks = detail.blocks.map(b => ({ ...b }));
+    // 단일 스킬의 body 를 해당 블록 desc 로 흡수(통합 렌더).
+    if (detail.body) { const tgt = blocks.find(b => !b.isTrait && !b.desc); if (tgt) tgt.desc = detail.body; }
+    // ★ 소멸 특성 주입 — 유해를 남기지 않는 유닛(c.noRemains).
+    if (c.noRemains && !blocks.some(b => b.isTrait && b.head === '소멸')) {
+      blocks.unshift({ ...mkTraitHead('소멸'), color: '#9ca3af', desc: '유해를 남기지 않고 소멸합니다.' });
+    }
+    // ★ 특성은 항상 최상단(안정 정렬) + 특성↔스킬 경계에 구분선 1개.
+    const traits = blocks.filter(b => b.isTrait);
+    const rest = blocks.filter(b => !b.isTrait);
+    blocks = [...traits, ...rest];
+    const dividerIdx = (traits.length && rest.length) ? traits.length : -1;
     const renderHeadLine = (b) => {
       const cls = b.headCls || '';
       const name = cls
@@ -10584,21 +10599,16 @@ function populateSlideContent(c, prefix) {
         : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
       const tag = b.tag || '';
       const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
-      const divider = b.isTrait ? '<div class="skill-trait-divider"></div>' : '';   // ★ 특성 구분선
-      return `${divider}<div class="slide-head-line">${name}${tag}${sp}</div>`;
+      return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
     };
-    if (hasPerBlockDesc) {
-      blocksEl.innerHTML = detail.blocks.map(b => {
-        return `<div style="margin-bottom:10px">` +
-          renderHeadLine(b) +
-          (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
-          `</div>`;
-      }).join('');
-      bodyEl.textContent = '';
-    } else {
-      blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
-      bodyEl.innerHTML = detail.body || '';
-    }
+    blocksEl.innerHTML = blocks.map((b, i) => {
+      const divider = (i === dividerIdx) ? '<div class="skill-trait-divider"></div>' : '';
+      return `${divider}<div style="margin-bottom:10px">` +
+        renderHeadLine(b) +
+        (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
+        `</div>`;
+    }).join('');
+    bodyEl.textContent = '';
   } else {
     blocksEl.innerHTML = '';
     bodyEl.innerHTML = '';
@@ -10864,6 +10874,8 @@ const SKILL_PREVIEW = {
   poisoner:      { cells: (cc,cr)=>[{col:cc,row:cr},{col:cc,row:cr-1},{col:cc,row:cr+1},{col:cc-1,row:cr},{col:cc+1,row:cr}], cat: 'attack', label: '맹독 구름 범위 (전용)' },
   // ★ 악령술사 — 소환되는 악령의 모습·공격범위(세로 3칸) 미리보기
   necromancer:   { cells: (cc,cr)=>[{col:cc,row:cr},{col:cc,row:cr-1},{col:cc,row:cr+1}], cat: 'attack', label: '악령 소환 · 세로 3칸 · HP1 · ATK1', showSummon: true, summonIcon: '👻' },
+  // ★ 영웅 대지 분쇄 — 주위 9칸(설치물 파괴 + 악인 1 피해)
+  hero:          { cells: (cc,cr)=>{ const o=[]; for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)o.push({col:cc+dc,row:cr+dr}); return o; }, cat: 'attack', label: '대지 분쇄 · 주위 9칸' },
 };
 // 궁수 — 반전된 대각선(/ 방향). 기본은 \ 방향이라 / 만 표시.
 function archerReversedCells(cc, cr) {
@@ -11504,9 +11516,9 @@ function buildHpUI() {
     //   타입 기반 폴백(이름=타입, 아이콘=예측 경로)으로 렌더 → HP 분배 화면이 빈 화면이 되지 않음.
     const charData = findChar(types[i]) || { type: types[i], name: types[i], icon: `/assets/icons/${types[i]}.png`, tag: null };
     const row = document.createElement('div');
-    row.className = 'hp-piece-row';
-    const tagHtml = tagBadgeHtml(charData.tag);
     const isUndead = S._undeadHpTiers && S._undeadHpTiers.has(i);
+    row.className = 'hp-piece-row' + (isUndead ? ' hp-row-dimmed' : '');
+    const tagHtml = tagBadgeHtml(charData.tag);
     const controls = isUndead
       ? `<div class="hp-input-group"><span class="hp-undead-note">HP 부여 불가</span></div>`
       : `<div class="hp-input-group">
@@ -12391,7 +12403,18 @@ function exRenderSlide() {
   renderStatRadar(c.type, document.getElementById('ex-slide-stat-radar'));
 
   if (detail) {
-    const hasPerBlockDesc = detail.blocks.some(b => b.desc);
+    let blocks = detail.blocks.map(b => ({ ...b }));
+    // 단일 스킬의 body 를 해당 블록 desc 로 흡수(통합 렌더).
+    if (detail.body) { const tgt = blocks.find(b => !b.isTrait && !b.desc); if (tgt) tgt.desc = detail.body; }
+    // ★ 소멸 특성 주입 — 유해를 남기지 않는 유닛(c.noRemains).
+    if (c.noRemains && !blocks.some(b => b.isTrait && b.head === '소멸')) {
+      blocks.unshift({ ...mkTraitHead('소멸'), color: '#9ca3af', desc: '유해를 남기지 않고 소멸합니다.' });
+    }
+    // ★ 특성은 항상 최상단(안정 정렬) + 특성↔스킬 경계에 구분선 1개.
+    const traits = blocks.filter(b => b.isTrait);
+    const rest = blocks.filter(b => !b.isTrait);
+    blocks = [...traits, ...rest];
+    const dividerIdx = (traits.length && rest.length) ? traits.length : -1;
     const renderHeadLine = (b) => {
       const cls = b.headCls || '';
       const name = cls
@@ -12399,21 +12422,16 @@ function exRenderSlide() {
         : `<span class="slide-skill-name slide-skill-none">${b.head}</span>`;
       const tag = b.tag || '';
       const sp = (b.sp != null) ? `<span class="slide-sp-box">${spLabel(b.sp)}</span>` : '';
-      const divider = b.isTrait ? '<div class="skill-trait-divider"></div>' : '';   // ★ 특성 구분선
-      return `${divider}<div class="slide-head-line">${name}${tag}${sp}</div>`;
+      return `<div class="slide-head-line">${name}${tag}${sp}</div>`;
     };
-    if (hasPerBlockDesc) {
-      blocksEl.innerHTML = detail.blocks.map(b => {
-        return `<div style="margin-bottom:10px">` +
-          renderHeadLine(b) +
-          (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
-          `</div>`;
-      }).join('');
-      bodyEl.textContent = '';
-    } else {
-      blocksEl.innerHTML = detail.blocks.map(renderHeadLine).join('');
-      bodyEl.innerHTML = detail.body || '';
-    }
+    blocksEl.innerHTML = blocks.map((b, i) => {
+      const divider = (i === dividerIdx) ? '<div class="skill-trait-divider"></div>' : '';
+      return `${divider}<div style="margin-bottom:10px">` +
+        renderHeadLine(b) +
+        (b.desc ? `<div class="slide-detail-body" style="margin-top:4px">${b.desc}</div>` : '') +
+        `</div>`;
+    }).join('');
+    bodyEl.textContent = '';
   } else {
     blocksEl.innerHTML = '';
     bodyEl.innerHTML = '';
