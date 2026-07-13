@@ -248,6 +248,11 @@ const CHARACTERS = {
       skills:[], passives:['might'] },
     { type:'heretic', name:'이단자', tier:2, atk:1, icon:'/assets/icons/heretic.png', tag:'villain', desc:'세로 3칸 · 현혹: 공격 대상 이교단화(전원 이교단 시 승리)',
       skills:[], passives:['enthrall'] },
+    { type:'necromancer', name:'악령술사', tier:2, atk:1, icon:'/assets/icons/necromancer.png', tag:'villain', desc:'제자리+위 대각2 · 강령술로 유해를 악령으로 부활 · 조종으로 악령 일제 공격',
+      skills:[
+        {id:'raise', name:'강령술', cost:2, replacesAction:false, oncePerTurn:true, desc:'보드 위 유해 하나를 악령(세로3·HP1·ATK1)으로 부활(유해 단계 유지)'},
+        {id:'command', name:'조종', cost:2, replacesAction:true, desc:'보드 위 내 모든 악령이 1회씩 강제 공격'}
+      ] },
     { type:'storyteller', name:'이야기꾼', tier:2, atk:0.5, icon:'/assets/icons/storyteller.png', tag:null, desc:'자기줄+상단 2×3 · 선동으로 배신 유발',
       skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
@@ -658,6 +663,12 @@ function getAttackCells(type, col, row, bounds, extra) {
       push(col, row); push(col - 1, row); push(col + 1, row);
       break;
     case 'twins_younger':
+      push(col, row); push(col, row - 1); push(col, row + 1);
+      break;
+    case 'necromancer':   // ★ Phase 3 신규: 제자리 + 위 대각 2칸
+      push(col, row); push(col - 1, row - 1); push(col + 1, row - 1);
+      break;
+    case 'wraith':        // ★ Phase 3: 악령(강령술 부활) — 세로 3칸
       push(col, row); push(col, row - 1); push(col, row + 1);
       break;
     case 'scout':
@@ -4854,6 +4865,12 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
       if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
+  // ★ Phase 3: 악령술사 사망 → 그가 부활시킨 모든 악령이 다시 유해로 돌아감.
+  if (deadPiece.type === 'necromancer' && owner && owner.pieces) {
+    for (const p of owner.pieces.slice()) {
+      if (p.alive && p._isWraith && p._wraithSource === ownerIdx) handleDeath(room, p, ownerIdx);
+    }
+  }
 
   // 팀전: 플레이어 전멸 감지 → team_player_eliminated 이벤트 (1회성)
   if (room.mode === 'team' && owner) {
@@ -4917,7 +4934,14 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
   const NO_REMAINS_TYPES = ['rat', 'dragon', 'sulfurCauldron'];
   // ★ Phase 3: CHARACTERS 의 noRemains:true 플래그도 무유해 처리(유니콘·골렘·정령 다수·투석기 등).
   const _charNoRem = (typeof getChar === 'function') && getChar(deadPiece.type) && getChar(deadPiece.type).noRemains;
-  if (!NO_REMAINS_TYPES.includes(deadPiece.type) && !_charNoRem && !room._boardShrinkDeaths) {
+  // ★ Phase 3: 악령(강령술 부활) 사망 → 원래 유해로 복원(단계 유지). 기본 유해 생성은 하지 않음.
+  //   단 보드파괴/대지분쇄 증발(_boardShrinkDeaths) 시엔 복원도 안 함(완전 소멸).
+  if (deadPiece._isWraith) {
+    if (!room._boardShrinkDeaths && deadPiece._wraithRem) {
+      if (!room.remains) room.remains = [];
+      room.remains.push({ ...deadPiece._wraithRem, col: deadPiece.col, row: deadPiece.row });
+    }
+  } else if (!NO_REMAINS_TYPES.includes(deadPiece.type) && !_charNoRem && !room._boardShrinkDeaths) {
     if (!room.remains) room.remains = [];
     room.remains.push({
       col: deadPiece.col,
@@ -7073,6 +7097,22 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           qHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed, defPieceIdx: dpi, defOwnerIdx: ei });
         }
       }
+      // ★ Phase 3: 악령은 모두 대지분쇄에 한번에 증발(범위 무관·유해 복원 없음).
+      {
+        const _prevBS = room._boardShrinkDeaths;
+        room._boardShrinkDeaths = true;
+        for (let pi = 0; pi < room.players.length; pi++) {
+          const pl = room.players[pi]; if (!pl) continue;
+          for (const w of pl.pieces.slice()) {
+            if (w.alive && w._isWraith) {
+              const wi = pl.pieces.indexOf(w);
+              handleDeath(room, w, pi);
+              qHits.push({ col: w.col, row: w.row, damage: 0, newHp: 0, destroyed: true, defPieceIdx: wi, defOwnerIdx: pi });
+            }
+          }
+        }
+        room._boardShrinkDeaths = _prevBS;
+      }
       result.msg = `대지 분쇄: 주위 설치물 파괴`;
       result.oppMsg = `대지 분쇄`;
       result.data.hits = qHits;
@@ -7380,6 +7420,53 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.oppMsg = `파괴공작: 상대가 칸을 파괴 예약`;
       result.data.pendingDemolishCell = { col: dCol, row: dRow };
       break;
+    }
+
+    // ── NECROMANCER(악령술사): 강령술(유해→악령 부활) / 조종(악령 일제 공격) ──
+    case 'necromancer': {
+      const nSkill = skillId || 'raise';
+      if (nSkill === 'raise') {
+        const rc = params?.col, rr = params?.row;
+        if (rc == null || rr == null) return { ok: false, msg: '부활할 유해를 선택하세요.' };
+        const remIdx = (room.remains || []).findIndex(r => r.col === rc && r.row === rr);
+        if (remIdx < 0) return { ok: false, msg: '그 칸에 유해가 없습니다.' };
+        if (room.players.some(pl => pl.pieces.some(p => p.alive && p.col === rc && p.row === rr))) return { ok: false, msg: '유닛이 있는 칸입니다.' };
+        const rem = room.remains[remIdx];
+        room.remains.splice(remIdx, 1);
+        const wraith = createPiece('necromancer', 2, 1, { ownerIdx: playerIdx });
+        wraith.type = 'wraith'; wraith.name = '악령'; wraith.icon = '/assets/icons/wraith.png';
+        wraith.atk = 1; wraith.hp = 1; wraith.maxHp = 1; wraith.col = rc; wraith.row = rr;
+        wraith.tag = 'villain'; wraith.tier = 2;
+        wraith.hasSkill = false; wraith.skillName = null; wraith.skillId = null; wraith.skillCost = 0;
+        wraith.skills = []; wraith.passives = []; wraith.passiveName = null;
+        wraith.desc = '세로 3칸';
+        wraith._isWraith = true; wraith._wraithSource = playerIdx;
+        wraith._wraithRem = { ...rem };   // 원래 유해(타입·단계 hits) 보존 → 악령 사망 시 그대로 복원
+        player.pieces.push(wraith);
+        spendSP(room, playerIdx, cost);
+        result.msg = `강령술: 유해를 악령으로 부활`;
+        result.oppMsg = `강령술: 상대가 악령을 부활`;
+        result.data.wraithSpawn = { col: rc, row: rr, ownerIdx: playerIdx };
+        result.data.remains = room.remains.slice();
+        break;
+      }
+      if (nSkill === 'command') {
+        spendSP(room, playerIdx, cost);
+        player.actionUsedSkillReplace = true;
+        player.actionDone = true;
+        const cmdHits = [];
+        const wraiths = player.pieces.filter(p => p.alive && p._isWraith);
+        for (const w of wraiths) {
+          const cells = getAttackCells('wraith', w.col, w.row, bounds, {});
+          const hits = processAttack(room, playerIdx, w, cells, undefined, {}) || [];
+          cmdHits.push(...hits);
+        }
+        result.msg = `조종: 악령 ${wraiths.length}체 공격`;
+        result.oppMsg = `조종: 상대 악령이 일제 공격`;
+        result.data.hits = cmdHits;
+        break;
+      }
+      return { ok: false, msg: '알 수 없는 악령술사 스킬입니다.' };
     }
 
     // ── GENERAL(장군): 부대공격 — 공격 가능한 모든 왕실 아군이 1회씩 강제 공격(1T→3T, 기마병 제외) ──

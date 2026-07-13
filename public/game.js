@@ -14423,6 +14423,12 @@ function renderGameBoard() {
         const inR = src && getAttackCells(src.type, src.col, src.row, { toggleState: src.toggleState }).some(c => c.col === col && c.row === row);
         const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (inR && hasRem) inSkillRange = true;
+      } else if (std.type === 'raise_cell') {
+        // 악령술사 강령술: 보드 위 유해 아무거나(유닛 없는 칸)
+        const hasRem2 = S.remains && S.remains.some(r => r.col === col && r.row === row);
+        const occ = (S.myPieces.some(p => p.alive && p.col === col && p.row === row)) ||
+                    (S.oppPieces && S.oppPieces.some(p => p.alive && p.col === col && p.row === row));
+        if (hasRem2 && !occ) inSkillRange = true;
       } else if (std.type === 'broom_cell') {
         // 마녀 빗자루 비행: 유닛/유해/파괴칸 없는 빈 칸(전체 보드)
         const blocked = (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) ||
@@ -16738,6 +16744,16 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     renderGameBoard();
     return;
   }
+  if (type === 'necromancer' && skillId === 'raise') {
+    // 강령술: 보드 위 유해 하나 선택 → 악령 부활
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'raise', type: 'raise_cell' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `부활할 유해를 선택하세요`;
+    renderGameBoard();
+    return;
+  }
+  // 악령술사 조종(command)·기타 무대상 스킬은 아래 기본 emit 으로 처리됨.
   if (type === 'princess') {
     // 그레이스 키스: 개구리 상태 아군 선택
     const modal = document.getElementById('skill-modal');
@@ -17679,6 +17695,13 @@ function handleGameCellClick(col, row) {
     } else if (data.type === 'broom_cell') {
       // ★ 마녀 빗자루 비행: 빈 칸으로 이동
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: 'broomFlight', params: { col, row } });
+    } else if (data.type === 'raise_cell') {
+      // ★ 악령술사 강령술: 유해 부활
+      if (!S.remains || !S.remains.some(r => r.col === col && r.row === row)) {
+        const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '그 칸에 유해가 없습니다.';
+        return;
+      }
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: 'raise', params: { col, row } });
     }
     resetAction();
     return;
@@ -17956,6 +17979,12 @@ function getAttackCells(type, col, row, extra) {
       push(col, row); push(col-1, row); push(col+1, row);
       break;
     case 'twins_younger':
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'necromancer':   // ★ 제자리 + 위 대각 2칸
+      push(col, row); push(col-1, row-1); push(col+1, row-1);
+      break;
+    case 'wraith':        // ★ 악령 — 세로 3칸
       push(col, row); push(col, row-1); push(col, row+1);
       break;
     case 'scout':
@@ -18539,6 +18568,8 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'watchman': for (let dc=-1;dc<=1;dc++) for(let dr=-1;dr<=1;dr++) if(dc||dr) push(col+dc,row+dr); break;
     case 'twins_elder': push(col,row);push(col-1,row);push(col+1,row); break;
     case 'twins_younger': push(col,row);push(col,row-1);push(col,row+1); break;
+    case 'necromancer': push(col,row);push(col-1,row-1);push(col+1,row-1); break;
+    case 'wraith': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'scout': push(col,row);push(col-1,row);push(col+1,row); break;
     case 'manhunter': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'messenger': for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
