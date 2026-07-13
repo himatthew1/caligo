@@ -10793,6 +10793,8 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
   }
 
   // ── 1v1 모드 ──
+  // ★ 용병(자유 배치): 어느 티어 슬롯에 넣을지 선택.
+  if (c.type === 'mercenary') { showMercenaryTierUI(c); return; }
   const isDuplicate = S.draftSelected[step] === c.type;
   S.draftSelected[step] = c.type;
   if (S.deckBuilderMode) S.deckSaved = false;
@@ -10804,6 +10806,32 @@ document.getElementById('btn-draft-select').addEventListener('click', () => {
     showSkillToast(`${c.name} 선택 완료`, false, undefined, 'event');
   }
 });
+
+// ★ 용병 — 자유 배치 특성: 어느 티어 슬롯에 넣을지 선택하는 모달.
+function showMercenaryTierUI(c) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  const titleEl = document.getElementById('skill-modal-title');
+  if (titleEl) titleEl.textContent = '용병 — 배치할 티어 선택';
+  body.innerHTML = '';
+  for (const tier of [1, 2, 3]) {
+    const occupied = S.draftSelected[tier];
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${tier}티어 슬롯</div><div class="skill-desc">${occupied ? `현재: ${occupied} (교체)` : '비어 있음'}</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      S.draftSelected[tier] = 'mercenary';
+      if (S.deckBuilderMode) S.deckSaved = false;
+      draftUpdateSelectionState();
+      socket.emit('draft_browse', { step: tier, type: 'mercenary', selected: { ...S.draftSelected } });
+      playSfxCharSelect();
+      showSkillToast(`용병 → ${tier}티어 배치`, false, undefined, 'event');
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
 
 // 키보드 좌우 화살표로도 슬라이드 이동
 document.addEventListener('keydown', (e) => {

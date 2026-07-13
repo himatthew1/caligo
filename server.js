@@ -3539,13 +3539,18 @@ function initialRevealTimeout(room) {
 }
 
 // 덱 유효성 검사 (무효하면 랜덤)
+// ★ 용병(자유 배치 특성)은 어느 티어 슬롯에도 허용.
+const FREE_TIER_TYPES = new Set(['mercenary']);
+function validForTier(type, tier) {
+  return !!type && (FREE_TIER_TYPES.has(type) || (CHARACTERS[tier] || []).some(c => c.type === type));
+}
 function validateDeck(deck) {
   if (!deck || !deck.t1 || !deck.t2 || !deck.t3) {
     return { t1: randomPick(CHARACTERS[1]).type, t2: randomPick(CHARACTERS[2]).type, t3: randomPick(CHARACTERS[3]).type };
   }
-  const t1 = CHARACTERS[1].find(c => c.type === deck.t1) ? deck.t1 : randomPick(CHARACTERS[1]).type;
-  const t2 = CHARACTERS[2].find(c => c.type === deck.t2) ? deck.t2 : randomPick(CHARACTERS[2]).type;
-  const t3 = CHARACTERS[3].find(c => c.type === deck.t3) ? deck.t3 : randomPick(CHARACTERS[3]).type;
+  const t1 = validForTier(deck.t1, 1) ? deck.t1 : randomPick(CHARACTERS[1]).type;
+  const t2 = validForTier(deck.t2, 2) ? deck.t2 : randomPick(CHARACTERS[2]).type;
+  const t3 = validForTier(deck.t3, 3) ? deck.t3 : randomPick(CHARACTERS[3]).type;
   return { t1, t2, t3 };
 }
 
