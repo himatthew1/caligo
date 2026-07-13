@@ -569,6 +569,8 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   piece.col = dCol; piece.row = dRow;
   player.actionDone = true;
   player._lastActionType = 'move';
+  // ★ 질주는 이동이자 공격 = '행동'이므로 중독 틱 트리거(사용자 정정).
+  if (typeof tickActorPoison === 'function') tickActorPoison(room, piece, playerIdx);
   // ★ 부대공격: 이 기마병이 큐 앞이면 소진.
   if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
     player._troopQueue.shift();
@@ -612,14 +614,16 @@ function darkVeilActive(room) {
   }
   return false;
 }
-// 어둠장막 적용: 악인 외 유닛의 공격셀에서 게임 시작 시 점지된 봉인칸(_darkVeilOff, 유닛 상대 오프셋) 1칸 제거.
+// 어둠장막 적용: 악인 외 유닛의 '현재' 공격셀에서 고정 시드로 정한 N번째 칸 1개 제거.
+//   ★ 시드 방식이라 개구리(가로3)·정비·생장 등 범위가 바뀌어도 항상 1칸 감소하고,
+//     원복 시 원래 범위의 같은 인덱스 칸이 다시 봉인돼 게임 시작 상태와 일관됨.
 function applyDarkVeil(room, piece, cells) {
   if (!piece || !Array.isArray(cells) || !cells.length) return cells;
-  if (!piece._darkVeilOff) return cells;
-  if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인 제외
-  if (!darkVeilActive(room)) return cells;   // 마왕 참수 등으로 비활성이면 봉인 해제(전 범위 복구)
-  const bc = piece.col + piece._darkVeilOff.dc, br = piece.row + piece._darkVeilOff.dr;
-  return cells.filter(c => !(c.col === bc && c.row === br));
+  if (piece._darkVeilSeed == null) return cells;
+  if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인(현재 소속) 제외
+  if (!darkVeilActive(room)) return cells;   // 마왕 참수/사망 등 비활성이면 전 범위 복구
+  const rmIdx = piece._darkVeilSeed % cells.length;
+  return cells.filter((c, i) => i !== rmIdx);
 }
 // ★ Phase 3: 공주 후원자 — 게임 시작 시(최초 1회) 살아있는 공주의 팀 왕실 아군 전원 HP/최대HP +1.
 //   이후 처형인으로 후원자가 제거돼도 이미 부여된 HP는 유효(1회성이라 되돌리지 않음).
@@ -648,18 +652,15 @@ function initUndeadState(room) {
     }
   }
 }
-// 게임 시작 시 악인 외 전 유닛에 봉인 오프셋 점지(1회, 저장). 마왕 유무와 무관하게 미리 배정 — 활성화는 darkVeilActive 게이트.
+// 게임 시작 시 악인 외 전 유닛에 봉인 시드(정수) 점지(1회, 저장). 마왕 유무와 무관하게 미리 배정.
+//   applyDarkVeil이 '현재 범위 길이 % 시드'로 봉인칸을 정하므로, 개구리 등으로 범위가 바뀌어도 항상 1칸 감소.
 function assignDarkVeilOffsets(room) {
   if (!room || !room.players) return;
   for (const pl of room.players) {
     if (!pl || !pl.pieces) continue;
     for (const p of pl.pieces) {
-      if (!p || p.col == null) continue;
-      if (typeof isFaction === 'function' && isFaction(p, 'villain')) continue;   // 악인 제외
-      const cells = getAttackCells(p.type, p.col, p.row, room.boardBounds, {}) || [];
-      if (!cells.length) continue;
-      const pick = cells[Math.floor(Math.random() * cells.length)];
-      p._darkVeilOff = { dc: pick.col - p.col, dr: pick.row - p.row };
+      if (!p) continue;
+      p._darkVeilSeed = Math.floor(Math.random() * 997);   // 큰 정수 시드(범위 길이로 mod)
     }
   }
 }
@@ -4184,7 +4185,7 @@ function pieceSummary(pieces) {
     messengerMovesLeft: pc.messengerMovesLeft,
     dragonSummoned: pc.dragonSummoned,
     oberonCounter: pc._oberonCounter || 0,   // ★ 요정왕 카운터(자기 유닛만 노출)
-    darkVeilOff: pc._darkVeilOff || null,    // ★ 어둠장막 봉인 오프셋(공격범위 표시용)
+    darkVeilSeed: pc._darkVeilSeed,    // ★ 어둠장막 봉인 오프셋(공격범위 표시용)
   }));
 }
 
@@ -4213,7 +4214,7 @@ function oppPieceSummary(pieces) {
       isDragon: pc.isDragon,
       range: pc.range,
       toggleState: pc.toggleState,
-      darkVeilOff: pc._darkVeilOff || null,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
+      darkVeilSeed: pc._darkVeilSeed,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
@@ -11957,7 +11958,8 @@ io.on('connection', (socket) => {
     // ★ 쌍둥이 동시 공격: 형+동생 공격 범위 합산
     // ★ 본체 공격 범위 1회만 계산 — 이전: 아래 processAttack/필터에서 동일 인자로 매번 재계산
     //   (특히 filter 내부 .some() 은 twinCell 개수만큼 반복 호출됨).
-    const baseAtkCells = applyDarkVeil(room, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra));   // ★ 어둠장막 봉인칸 제거
+    const _atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(atkPiece) : atkPiece.type;   // ★ 개구리면 'frog'(가로3)
+    const baseAtkCells = applyDarkVeil(room, atkPiece, getAttackCells(_atkType, atkPiece.col, atkPiece.row, bounds, extra));   // ★ 개구리 범위 → 어둠장막 봉인칸 제거
     let atkCells = baseAtkCells.slice();  // 쌍둥이 합산용 (아래에서 push 되므로 baseAtkCells 보존 위해 복사)
     let twinAtkPiece = null;
     if (atkPiece.subUnit) {

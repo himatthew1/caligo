@@ -11358,7 +11358,7 @@ function createRevealCard(pc, tooltipSide) {
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
   const tagHtml = tagBadgeHtml(pc.tag);
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilOff);
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
@@ -12689,7 +12689,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const selectedCls = (interactive && placementSelected === i) ? 'selected' : '';
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
-    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilOff);
+    const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
     const tagHtml = tagBadgeHtml(pc.tag);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
@@ -14386,7 +14386,7 @@ function renderGameBoard() {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc) {
         const extra = { toggleState: selPc.toggleState };
-        let range = applyClientDarkVeil(selPc, getAttackCells(selPc.type, selPc.col, selPc.row, extra));   // ★ 어둠장막 봉인칸 제거
+        let range = applyClientDarkVeil(selPc, getAttackCells(clientEffectiveType(selPc), selPc.col, selPc.row, extra));   // ★ 개구리→frog범위 + 어둠장막 봉인칸 제거
         // ★ 쌍둥이: 다른 쪽의 공격 범위도 합산 표시
         if (selPc.subUnit) {
           const otherSub = selPc.subUnit === 'elder' ? 'younger' : 'elder';
@@ -15953,6 +15953,11 @@ function renderOppPieces() {
 // ── 미니 공격범위 그리드 생성 ──────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 
+// 개구리 상태면 공격 유형이 'frog'(가로3)로 오버라이드됨(서버 effectiveAttackType 미러).
+function clientEffectiveType(pc) {
+  if (pc && (pc.statusEffects || []).some(e => e.type === 'frog')) return 'frog';
+  return pc ? pc.type : null;
+}
 // ★ Phase 3: 마왕 어둠장막 — 살아있는 마왕(참수 아님)이 아/적 어디든 있으면 발동(정보 공개 모델상 타입·상태 항상 노출).
 function clientDarkVeilActive() {
   const pools = [S.myPieces, S.oppPieces, S.teammatePieces];
@@ -15965,16 +15970,16 @@ function clientDarkVeilActive() {
   }
   return false;
 }
-// 어둠장막 적용: 악인 외 유닛의 공격셀에서 봉인 오프셋(piece.darkVeilOff) 1칸 제거.
+// 어둠장막 적용: 악인 외 유닛의 '현재' 공격셀에서 고정 시드(darkVeilSeed)로 정한 N번째 칸 제거.
 function applyClientDarkVeil(piece, cells) {
-  if (!piece || !piece.darkVeilOff || !Array.isArray(cells) || !cells.length) return cells;
+  if (!piece || piece.darkVeilSeed == null || !Array.isArray(cells) || !cells.length) return cells;
   if (piece.tag === 'villain') return cells;
   if (!clientDarkVeilActive()) return cells;
-  const bc = piece.col + piece.darkVeilOff.dc, br = piece.row + piece.darkVeilOff.dr;
-  return cells.filter(c => !(c.col === bc && c.row === br));
+  const rmIdx = piece.darkVeilSeed % cells.length;
+  return cells.filter((c, i) => i !== rmIdx);
 }
 
-function buildMiniRangeGrid(type, extra, icon, darkVeilOff) {
+function buildMiniRangeGrid(type, extra, icon, darkVeilSeed) {
   // 5x5 미니 그리드, 중앙(2,2)을 기준으로 공격범위 계산
   const fakeExtra = { ...(extra || {}), toggleState: extra?.toggleState };
   let cells;
@@ -15985,10 +15990,10 @@ function buildMiniRangeGrid(type, extra, icon, darkVeilOff) {
   } else {
     cells = getAttackCells(type, 2, 2, fakeExtra);
   }
-  // ★ 어둠장막: 미니그리드(중앙=2,2)에서도 봉인칸 1개 제거 — 활성 시에만.
-  if (darkVeilOff && type !== 'villain' && typeof clientDarkVeilActive === 'function' && clientDarkVeilActive()) {
-    const bc = 2 + darkVeilOff.dc, br = 2 + darkVeilOff.dr;
-    cells = cells.filter(c => !(c.col === bc && c.row === br));
+  // ★ 어둠장막: 미니그리드에서도 시드 기준 봉인칸 1개 제거 — 활성 시에만.
+  if (darkVeilSeed != null && cells.length && type !== 'villain' && typeof clientDarkVeilActive === 'function' && clientDarkVeilActive()) {
+    const rmIdx = darkVeilSeed % cells.length;
+    cells = cells.filter((c, i) => i !== rmIdx);
   }
   const atkSet = new Set(cells.map(c => `${c.col},${c.row}`));
 
@@ -16054,7 +16059,7 @@ function getSkillTypeTagFromChar(pc) {
 }
 
 function buildPieceTooltip(pc, side) {
-  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilOff);
+  const grid = buildMiniRangeGrid(pc.type, { toggleState: pc.toggleState }, pc.icon, pc.darkVeilSeed);
 
   // 캐릭터 도감(slide-content)과 동일 양식으로 통일:
   //   <slide-head-line>
