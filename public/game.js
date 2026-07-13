@@ -17409,8 +17409,10 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   const sprintActive = (S.myPieces || []).some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   const dualBladeActive = (S.myPieces || []).some(p => p.alive && p.dualBladeAttacksLeft > 0);
   const isCatapult = pc && pc.type === 'catapult';   // ★ 투석기: 일반 이동 불가(구동 스킬로만)
-  const moveDisabled = !canBasic || dualBladeActive || isCatapult;
-  const attackDisabled = !canBasic || sprintActive;
+  // ★ 마녀 채널링: 저주 유지 중(내가 건 저주가 적에게 있음)엔 이동·공격 불가(빗자루 비행/개구리 장난만).
+  const isChannelingWitch = pc && pc.type === 'witch' && (S.oppPieces || []).some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse' && e.source === (S.playerIdx ?? 0)));
+  const moveDisabled = !canBasic || dualBladeActive || isCatapult || isChannelingWitch;
+  const attackDisabled = !canBasic || sprintActive || isChannelingWitch;
 
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
   //   기본 행동 소진 시 → 이동·공격 둘 다 disabled. 스킬은 별도 canSkill 로 결정.

@@ -4211,6 +4211,15 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
+  // [마녀] ★ PPT 리워크: 마녀가 '피격'되면(0 데미지 피격 포함) 그가 건 저주 모두 해제(채널링 중단).
+  if (victim.type === 'witch') {
+    for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+      if (p.statusEffects && p.statusEffects.some(e => e.type === 'curse' && e.source === ownerIdx)) {
+        p.statusEffects = p.statusEffects.filter(e => !(e.type === 'curse' && e.source === ownerIdx));
+        emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: ownerIdx, targetName: p.name, msg: `저주: 마녀가 피격되어 ${p.name}의 저주 해제` });
+      }
+    }
+  }
   // [오베론] 요정왕 — 소유주의 정령 유닛(오베론 포함)이 피해 받을 때마다 그 소유주의 오베론 카운터 +1.
   if (typeof isFaction === 'function' && isFaction(victim, 'spirit')) {
     const ob = (room.players[ownerIdx] && room.players[ownerIdx].pieces || []).find(p => p.alive && p.type === 'oberon');
@@ -4390,16 +4399,24 @@ function setKillInfo(room, type, killer, victims) {
   room.lastKillInfo = { type, killer, victims: (victims || []).map(v => v.name || v) };
 }
 
-// #11: 저주 해제 조건 — 마녀 사망 또는 대상 HP ≤ 1 시 즉시 해제
+// ★ PPT 리워크: 마녀는 저주를 유지하는 동안 '행동 불가'(이동·공격·행동소비 스킬 잠금).
+//   자유시전 스킬(개구리 장난·빗자루 비행)은 행동이 아니므로 허용. 저주가 걸린 대상이 하나라도 있으면 채널링 중.
+function witchIsChanneling(room, piece) {
+  if (!piece || piece.type !== 'witch' || !piece.alive) return false;
+  const ownerIdx = room.players.findIndex(pl => pl.pieces && pl.pieces.includes(piece));
+  if (ownerIdx < 0) return false;
+  return room.players.some(pl => pl.pieces && pl.pieces.some(p => p.alive && (p.statusEffects || []).some(e => e.type === 'curse' && e.source === ownerIdx)));
+}
+// ★ PPT 리워크: 저주 해제 = 마녀 사망(여기) 또는 마녀 피격(applyDamageTriggers). 대상 HP≤1 해제는 제거.
 function checkCurseRemoval(room, piece, ownerIdx) {
   if (!piece || !piece.statusEffects) return;
   const curse = piece.statusEffects.find(e => e.type === 'curse');
   if (!curse) return;
   const sourceIdx = curse.source;
   const sourceWitch = room.players[sourceIdx]?.pieces.find(pc => pc.type === 'witch' && pc.alive);
-  if (!sourceWitch || piece.hp <= 1) {
+  if (!sourceWitch) {
     piece.statusEffects = piece.statusEffects.filter(e => e.type !== 'curse');
-    const reason = !sourceWitch ? '마녀가 사망해' : '체력 고갈로';
+    const reason = '마녀가 사망해';
     emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: ownerIdx, targetName: piece.name, msg: `저주: ${reason} ${piece.name}의 저주 해제` });
     emitToSpectators(room, 'spectator_log', { msg: `저주: ${reason} ${piece.name}의 저주 해제`, type: 'passive', playerIdx: ownerIdx });
     // AI 마녀 학습 — 같은 대상에 저주가 정화될 때마다 _curseHistory 카운트 증가 → 다음 시전 시 회피
@@ -5623,11 +5640,12 @@ function processTurnStart(room) {
         if (curse) {
           const sourceIdx = curse.source;
           const sourceWitch = room.players[sourceIdx]?.pieces.find(pc => pc.type === 'witch' && pc.alive);
-          if (!sourceWitch || p.hp <= 1) {
+          // ★ PPT 리워크: 저주는 '마녀 피격 시' 해제(그 처리는 applyDamageTriggers). 여기선 마녀 사망만 해제.
+          //   대상 HP≤1 해제(구버전) 제거 → 저주 지속 피해가 대상을 죽일 수 있음.
+          if (!sourceWitch) {
             p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
-            const reason = !sourceWitch ? '마녀가 사망해' : '체력 고갈로';
-            emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, targetName: p.name, msg: `저주: ${reason} ${p.name}의 저주 해제` });
-            emitToSpectators(room, 'spectator_log', { msg: `저주: ${reason} ${p.name}의 저주 해제`, type: 'passive', playerIdx: idx });
+            emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, targetName: p.name, msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제` });
+            emitToSpectators(room, 'spectator_log', { msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제`, type: 'passive', playerIdx: idx });
           } else {
             p.hp = Math.max(0, p.hp - 0.5);
             emitToBoth(room, 'curse_tick', { playerIdx: idx, targetName: p.name, damage: 0.5, newHp: p.hp });
@@ -6467,6 +6485,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   // 턴당 1회 제한 체크 (oncePerTurn)
   const effectiveSkillId = skillId || piece.skillId;
   const matchedSkillForOnce = baseChar ? baseChar.skills.find(s => s.id === effectiveSkillId) : null;
+  // ★ 마녀 채널링: 저주 유지 중에는 '행동소비' 스킬 사용 불가(자유시전 개구리 장난·빗자루 비행만 허용).
+  if (piece.type === 'witch' && matchedSkillForOnce && matchedSkillForOnce.replacesAction && witchIsChanneling(room, piece)) {
+    return { ok: false, msg: '저주를 유지하는 동안 마녀는 행동소비 스킬을 사용할 수 없습니다.' };
+  }
   if (matchedSkillForOnce && matchedSkillForOnce.oncePerTurn) {
     const usedKey = `${pieceIdx}:${effectiveSkillId}`;
     if (player.skillsUsedBeforeAction.includes(usedKey)) {
@@ -11229,6 +11251,7 @@ io.on('connection', (socket) => {
     if (!piece || !piece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
     if ((piece.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; }   // ★ 이야기꾼 선동
     if (piece.type === 'catapult') { socket.emit('err', { msg: '투석기는 구동 스킬로만 이동할 수 있습니다.' }); return; }   // ★ 투석기 일반 이동 불가
+    if (witchIsChanneling(room, piece)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 이동할 수 없습니다(빗자루 비행으로만 이동).' }); return; }   // ★ 마녀 채널링
 
     // Action-replace skill used => can't move (질주는 예외 — 이동을 위한 스킬이므로)
     if (player.actionUsedSkillReplace && !piece.messengerSprintActive) {
@@ -11511,6 +11534,8 @@ io.on('connection', (socket) => {
 
     // ★ 이야기꾼 선동: 배신 상태 유닛은 공격도 불가.
     { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; } }
+    // ★ 마녀 채널링: 저주 유지 중 공격 불가.
+    { const _ap = player.pieces[pieceIdx]; if (witchIsChanneling(room, _ap)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 공격할 수 없습니다.' }); return; } }
 
     // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
     if (player.pieces.some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0)) {
