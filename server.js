@@ -5244,8 +5244,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
 
-          // ★ Phase 3: 처형인 참수 — 공격받은 적은 처형 상태(패시브 무력화). 유니콘 면역도 무시(처형인 우세).
-          //   단 언데드는 참수로 '즉시 파괴'(소멸). 그림자 면역은 존중.
+          // ★ Phase 3: 처형인 참수 — 공격받은 적에 '처형(executed)' 상태이상 부여(패시브 무력화).
+          //   ★ 사용자 정정: 참수는 '상태이상'이므로 유니콘(백은의 뿔=모든 상태이상 면역)은 이를 무시한다.
+          //   → force 미사용 = isStatusImmune(유니콘/그림자)면 addStatus 가 자동 무시. 언데드는 참수로 '즉시 파괴'.
           if ((atkPiece.passives || []).includes('behead') && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'behead'))
               && !defPiece.statusEffects.some(e => e.type === 'shadow')) {
             if (defPiece.type === 'undead' && defPiece.alive) {
@@ -5254,7 +5255,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               handleDeath(room, defPiece, defIdx, 'behead');
               room._boardShrinkDeaths = _prevBS;
             } else if (defPiece.alive) {
-              addStatus(defPiece, 'executed', { force: true });   // 유니콘 면역 무시
+              addStatus(defPiece, 'executed');   // 유니콘·그림자 등 상태이상 면역이면 자동 무시(백은의 뿔 우세)
             }
           }
 
