@@ -270,6 +270,8 @@ const CHARACTERS = {
     { type:'demonKing', name:'마왕 칼리고', tier:3, atk:0, icon:'/assets/icons/demonKing.png', tag:'villain', desc:'제자리 중심 V(6칸)',
       skills:[{id:'corrupt', name:'타락', cost:1, replacesAction:true, desc:'보드 위 모든 악인 공격력 +0.5(누적)'}] },
     // ── ★ Phase 3 신규 ──
+    { type:'siegeBreaker', name:'공성파괴자', tier:3, atk:3, icon:'/assets/icons/siegeBreaker.png', tag:'villain', desc:'제자리+하단1 · 파괴공작으로 칸 자체를 파괴',
+      skills:[{id:'demolish', name:'파괴공작', cost:3, replacesAction:true, desc:'지정한 1칸을 영구 파괴(그 위 유닛 즉시 소멸, 이동 불가 지형화)'}] },
     { type:'oberon', name:'오베론', tier:3, atk:1, icon:'/assets/icons/oberon.png', tag:'spirit', desc:'제자리+하단 대각2 · 요정왕 카운터(정령 피해 시 +1)로 축복/은혜/종언',
       passives:['faeKing'],
       skills:[{id:'bless', name:'축복', cost:2, replacesAction:false, resource:'oberonCounter', desc:'카운터2 — 아군 정령 공격력 +1(다음 차례까지)'},
@@ -462,6 +464,10 @@ function getSkillData(pieceType, skillId) {
 
 function inBounds(col, row, bounds) {
   return col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max;
+}
+// ★ Phase 3: 공성파괴자 파괴공작으로 영구 파괴된 칸(이동/배치 불가 지형).
+function isCellDestroyed(room, col, row) {
+  return !!(room && room.destroyedCells && room.destroyedCells.some(d => d.col === col && d.row === row));
 }
 
 function getAttackCells(type, col, row, bounds, extra) {
@@ -3854,7 +3860,7 @@ function startGameFromRoom(room) {
         skillPoints: room.sp,
         boardBounds: room.boardBounds,
         boardObjects: boardObjectsSummary(room, i),
-        remains: room.remains || [],
+        remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
       });
     }
   });
@@ -5241,7 +5247,7 @@ function getSpectatorGameState(room) {
       ...boardObjectsSummary(room, 0),
       ...boardObjectsSummary(room, 1),
     ],
-    remains: room.remains || [],
+    remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
   };
 }
 
@@ -5356,6 +5362,9 @@ function processTurnStart(room) {
       }
       // 유해도 축소 범위 밖 제거
       if (room.remains) room.remains = room.remains.filter(r => inBounds(r.col, r.row, room.boardBounds));
+      // ★ Phase 3: 파괴칸·진균도 축소 범위 밖 제거
+      if (room.destroyedCells) room.destroyedCells = room.destroyedCells.filter(d => inBounds(d.col, d.row, room.boardBounds));
+      if (room.fungus) room.fungus = room.fungus.filter(f => inBounds(f.col, f.row, room.boardBounds));
       emitToBoth(room, 'board_shrink', {
         newBounds: room.boardBounds, bounds: room.boardBounds,
         eliminated, stage: ev.stage,
@@ -5773,7 +5782,7 @@ function endTurn(room, opts) {
       ...turnData,
       oppPieces: oppPieceSummary(cur.pieces),
       boardObjects: boardObjectsSummary(room, prevIdx),
-      remains: room.remains || [],
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
     });
     // AI 턴에도 타이머 리셋 (플레이어에게 시각적 표시)
     startTimer(room, 'game', () => turnTimeout(room));
@@ -5795,14 +5804,14 @@ function endTurn(room, opts) {
     yourPieces: pieceSummary(cur.pieces),
     oppPieces: oppPieceSummary(prev.pieces),
     boardObjects: boardObjectsSummary(room, curIdx),
-    remains: room.remains || [],
+    remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
     isYourTurn: true,
   });
   emitToPlayer(room, prevIdx, 'opp_turn', {
     ...turnData,
     oppPieces: oppPieceSummary(cur.pieces),
     boardObjects: boardObjectsSummary(room, prevIdx),
-    remains: room.remains || [],
+    remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
   });
 
   // 관전자에게 전체 상태 전송
@@ -5864,7 +5873,7 @@ function _buildTeamBaseStates(room) {
       boardShrinkStage: room.boardShrinkStage,
       players,
       boardObjects,
-      remains: room.remains || [],
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
       myTeamId: tid,
     };
   }
@@ -6994,6 +7003,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       for (const [c, r] of cand) {
         if (!inBounds(c, r, bounds)) continue;
         if (c === wsTgt.col && r === wsTgt.row) continue;
+        if (isCellDestroyed(room, c, r)) continue;   // ★ 파괴칸 제외
         if (occupied(c, r)) continue;
         dest = [c, r]; break;
       }
@@ -7012,6 +7022,44 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
+    // ── SIEGE BREAKER(공성파괴자): 파괴공작 — 지정 1칸을 영구 파괴(그 위 유닛 소멸 · 이동불가 지형화) ──
+    case 'siegeBreaker': {
+      const dCol = params?.col, dRow = params?.row;
+      if (dCol == null || dRow == null) return { ok: false, msg: '파괴할 칸을 지정하세요.' };
+      if (!inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '이미 파괴된 칸입니다.' };
+      spendSP(room, playerIdx, cost);
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      if (!room.destroyedCells) room.destroyedCells = [];
+      room.destroyedCells.push({ col: dCol, row: dRow });
+      // 그 위 유닛 즉시 소멸(보드축소 사망 경로 = 유해 없음).
+      const demoHits = [];
+      const prevFlag = room._boardShrinkDeaths;
+      room._boardShrinkDeaths = true;
+      for (let pi = 0; pi < room.players.length; pi++) {
+        const pl = room.players[pi]; if (!pl) continue;
+        for (let ui = 0; ui < pl.pieces.length; ui++) {
+          const u = pl.pieces[ui];
+          if (u.alive && u.col === dCol && u.row === dRow) {
+            handleDeath(room, u, pi, 'behead');   // 파괴칸 소멸은 언데드 불사도 무시(참수 급 소멸)
+            demoHits.push({ col: dCol, row: dRow, destroyed: true, defPieceIdx: ui, defOwnerIdx: pi });
+          }
+        }
+      }
+      room._boardShrinkDeaths = prevFlag;
+      // 파괴칸 위 유해·설치물도 제거(더 이상 존재 불가).
+      if (room.remains) room.remains = room.remains.filter(r => !(r.col === dCol && r.row === dRow));
+      for (let pi = 0; pi < room.players.length; pi++) {
+        if (room.boardObjects && room.boardObjects[pi]) room.boardObjects[pi] = room.boardObjects[pi].filter(o => !(o.col === dCol && o.row === dRow));
+      }
+      result.msg = `파괴공작: (${dCol},${dRow}) 칸 파괴`;
+      result.oppMsg = `파괴공작: 상대가 칸을 파괴`;
+      result.data.destroyedCell = { col: dCol, row: dRow };
+      result.data.hits = demoHits;
+      break;
+    }
+
     // ── KING: 절대복종 반지 (force move enemy) ──
     case 'king': {
       const targetName = params?.targetName;
@@ -7021,6 +7069,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return { ok: false, msg: '대상과 목적지를 지정하세요.' };
       }
       if (!inBounds(destCol, destRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      if (isCellDestroyed(room, destCol, destRow)) return { ok: false, msg: '파괴된 칸으로는 이동할 수 없습니다.' };   // ★ 공성파괴자
       // ★ 사용자 정정(2026-07): 절대복종 반지는 유해 칸으로도 강제 이동 가능.
       //   (유닛과 유해는 한 칸 공존 가능 — has-remains 렌더/캐러셀 지원. 자발 이동만 유해가 막고,
       //    강제 이동은 막지 않는다. 이전의 유해 차단은 의도치 않은 제약이라 제거.)
@@ -8307,7 +8356,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       sp: room.sp,
       instantSp: room.instantSp,
       boardObjects: boardObjectsSummary(room, 0),
-      remains: room.remains || [],
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
       msg: result.oppMsg || null,
       skillUsed: {
         icon: piece.icon,
@@ -8927,6 +8976,8 @@ function aiEndTurn(room) {
 //   2. 절대복종반지로 강제이동된 경우 (별도 흐름 — 이 함수와 무관).
 //   AI 가 자기 아군 위로 이동을 선택하지 않도록 점유 검사 시 사용.
 function _canMoveTo(room, piece, nc, nr) {
+  // ★ Phase 3: 공성파괴자로 파괴된 칸은 진입 불가(지형 소실).
+  if (isCellDestroyed(room, nc, nr)) return false;
   // 유해 차단 — ★ Phase 3: 묘지기(담력)는 유해 칸으로도 이동 가능.
   if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) {
     if (!(piece && (piece.passives || []).includes('valor'))) return false;
@@ -9615,7 +9666,7 @@ io.on('connection', (socket) => {
           skillPoints: room.sp,
           boardBounds: room.boardBounds,
           boardObjects: boardObjectsSummary(room, idx),
-          remains: room.remains || [],
+          remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
           // ★ 재접속 시 이번 턴 행동 소진 상태 복원 (이미 행동했는데 새로고침하면 다시 가능해 보이던 버그).
           actionDone: !!player.actionDone,
           actionUsedSkillReplace: !!player.actionUsedSkillReplace,
@@ -10931,6 +10982,7 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '전령 질주 중입니다. 해당 전령만 이동할 수 있습니다.' }); return;
     }
     if (!inBounds(col, row, room.boardBounds)) { socket.emit('err', { msg: '보드 밖입니다.' }); return; }
+    if (isCellDestroyed(room, col, row)) { socket.emit('err', { msg: '파괴된 칸입니다.' }); return; }   // ★ 공성파괴자
     if (!isCrossAdjacent(piece.col, piece.row, col, row)) {
       socket.emit('err', { msg: '상하좌우 1칸만 이동할 수 있습니다.' }); return;
     }
@@ -11017,7 +11069,7 @@ io.on('connection', (socket) => {
       pieceIdx, prev, col, row,
       yourPieces: pieceSummary(player.pieces),
       boardObjects: boardObjectsSummary(room, idx),
-      remains: room.remains || [],
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
     });
@@ -11828,7 +11880,7 @@ io.on('connection', (socket) => {
         instantSp: room.instantSp,
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
-        remains: room.remains || [],
+        remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
         actionDone: room.players[idx].actionDone,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
@@ -11901,7 +11953,7 @@ io.on('connection', (socket) => {
         instantSp: room.instantSp,
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
-        remains: room.remains || [],
+        remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
         actionDone: room.players[idx].actionDone,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
@@ -11918,7 +11970,7 @@ io.on('connection', (socket) => {
           instantSp: room.instantSp,
           skillPoints: room.sp,
           boardObjects: boardObjectsSummary(room, 1 - idx),
-          remains: room.remains || [],
+          remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
           msg: result.oppMsg || null,
           skillUsed: {
             icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
@@ -12094,7 +12146,7 @@ io.on('connection', (socket) => {
       instantSp: room.instantSp,
       skillPoints: room.sp,
       boardObjects: boardObjectsSummary(room, idx),
-      remains: room.remains || [],
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [],
       actionDone: room.players[idx].actionDone,
       actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
       skillsUsed: room.players[idx].skillsUsedBeforeAction,

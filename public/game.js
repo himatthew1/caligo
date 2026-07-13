@@ -4518,6 +4518,8 @@ socket.on('game_start', (data) => {
   S._cellFP = null; // ★ 새 게임 — 핑거프린트 캐시 무효화
   S.boardObjects = data.boardObjects || [];
   S.remains = data.remains || [];
+  S.destroyedCells = data.destroyedCells || [];   // ★ 공성파괴자 파괴칸
+  S.fungus = data.fungus || [];                    // ★ 머쉬킨 진균(Phase 4)
   S._remainsFacing = {};  // 사망 GIF 방향 캐시 — 새 게임 초기화
   S.attackLog = [];
   S.action = null;
@@ -4667,6 +4669,8 @@ socket.on('your_turn', (data) => {
   S.boardBounds = data.boardBounds || S.boardBounds;
   S.boardObjects = data.boardObjects || S.boardObjects;
   S.remains = data.remains || S.remains;
+  if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
+  if (data.fungus) S.fungus = data.fungus;
   S.action = null;
   S.selectedPiece = null;
   S.targetSelectMode = false;
@@ -4712,6 +4716,8 @@ socket.on('opp_turn', (data) => {
   S.boardBounds = data.boardBounds || S.boardBounds;
   S.boardObjects = data.boardObjects || S.boardObjects;
   S.remains = data.remains || S.remains;
+  if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
+  if (data.fungus) S.fungus = data.fungus;
   S.action = null;
   S.selectedPiece = null;
   // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (preCurseHps 로 저주 보라 도장 표시)
@@ -14097,6 +14103,11 @@ function renderGameBoard() {
       }
     }
 
+    // ── 파괴칸 (공성파괴자) 렌더링 — 이동 불가 지형 ──
+    if (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) {
+      cell.classList.add('cell-destroyed');
+    }
+
     // ── 유해 (remains) 렌더링 — 양측 모두 보임 ──
     // ★ 사망 GIF 진행 중인 셀(_pendingDeathCells)은 유해를 그리지 않음 — 사망 모션과 유해가
     //   동시에 보이는 버그 방지. 서버 payload·team_game_update 가 유해를 미리 보내도 여기서 가려짐.
@@ -14264,8 +14275,9 @@ function renderGameBoard() {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc && isCrossAdjacent(selPc.col, selPc.row, col, row) &&
           col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
-        // 유해가 있는 칸 → 이동 불가 (dimmed)
-        const hasRemains = S.remains && S.remains.some(r => r.col === col && r.row === row);
+        // 유해가 있는 칸 → 이동 불가 (dimmed). ★ 파괴칸도 이동 불가.
+        const hasRemains = (S.remains && S.remains.some(r => r.col === col && r.row === row)) ||
+                           (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row));
         // 아군이 있는 칸 → 이동 불가 (쌍둥이 합류 예외)
         const friendlyOccupant = S.myPieces.find(p => p.alive && p.col === col && p.row === row);
         const bothAreTwins = selPc.subUnit && friendlyOccupant && friendlyOccupant.subUnit;
@@ -16553,6 +16565,16 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     return;
   }
 
+  if (type === 'siegeBreaker') {
+    // 파괴공작: 파괴할 칸 선택(임의 1칸)
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'demolish', type: 'demolish_cell' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `파괴할 칸을 선택하세요`;
+    renderGameBoard();
+    return;
+  }
+
   if (type === 'king') {
     // 국왕 스킬: 적 말 이름 + 위치 선택
     showKingSkillUI(pieceIdx);
@@ -17397,6 +17419,13 @@ function handleGameCellClick(col, row) {
       const params = { targetName: data.targetName, col, row };
       if (data.targetOwnerIdx != null) params.targetOwnerIdx = data.targetOwnerIdx;
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params });
+    } else if (data.type === 'demolish_cell') {
+      // ★ 공성파괴자 파괴공작: 이미 파괴된 칸은 재선택 차단
+      if (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) {
+        const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '이미 파괴된 칸입니다.';
+        return;
+      }
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     }
     resetAction();
     return;
