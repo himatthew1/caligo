@@ -18379,6 +18379,12 @@ function getPassiveName(passiveId) {
     markPassive: '표식',
     tyranny: '폭정',
     loyalty: '충성',
+    // ★ Phase 3 신규 패시브
+    valor: '담력', venomFang: '독니', silverHorn: '백은의 뿔', rage: '격노',
+    growth: '생장', might: '괴력', enthrall: '현혹', suppression: '탄압',
+    successor: '계승자', patron: '후원자', rottenSoul: '부패한 영혼',
+    darkVeil: '어둠의 장막', sporeSpread: '포자살포', faeKing: '요정왕',
+    charge: '질주', oldHeart: '낡은 심장', behead: '참수',
   };
   return map[passiveId] || passiveId;
 }

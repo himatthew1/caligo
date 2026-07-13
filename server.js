@@ -221,7 +221,7 @@ const CHARACTERS = {
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
     { type:'wizard', name:'마법사', tier:2, atk:2, icon:'/assets/icons/wizard.png', tag:'spirit', desc:'한칸 건너뛴 십자 4칸',
       skills:[], passives:['instantMagic'] },
-    { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
+    { type:'armoredWarrior', name:'장갑병', tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
     { type:'witch', name:'마녀', tier:2, atk:0, icon:'/assets/icons/witch.png', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
       skills:[
@@ -235,7 +235,7 @@ const CHARACTERS = {
       skills:[{id:'rats', name:'역병의 자손들', cost:1, replacesAction:false, desc:'쥐가 없는 랜덤 타일 두 곳에 쥐 소환'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'/assets/icons/weaponSmith.png', tag:null, desc:'가로 3칸을 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
-    { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal', desc:'십자 4칸 · 자기 제외',
+    { type:'bodyguard', name:'성지기', tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal', desc:'제자리 제외 상하좌우 · 호위: 다른 왕실 아군 피격 시 전부 보호(하나당 1피해 대신 받음)',
       skills:[], passives:['loyalty'] },
     // ── ★ Phase 3 신규 ──
     { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'/assets/icons/unicorn.png', tag:null, desc:'제자리와 상단 대각선', noRemains:true,
@@ -257,6 +257,10 @@ const CHARACTERS = {
       skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
       skills:[], passives:['suppression'] },
+    { type:'golem', name:'골렘', tier:2, atk:3, icon:'/assets/icons/golem.png', tag:'spirit', noRemains:true, desc:'세로 3칸 · 낡은 심장: 지급 체력에서 2 낮게 시작',
+      skills:[], passives:['oldHeart'] },
+    { type:'executioner', name:'처형인', tier:2, atk:1, icon:'/assets/icons/executioner.png', tag:'royal', desc:'제자리+아래 대각2 · 참수: 공격받은 적 처형(패시브 무력화, 언데드는 즉시 파괴)',
+      skills:[], passives:['behead'] },
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:2, icon:'/assets/icons/prince.png', tag:'royal', desc:'가로 3칸 · 계승자: 생존 왕실 하나당 +0.5(적 포함)', skills:[], passives:['successor'] },
@@ -271,7 +275,7 @@ const CHARACTERS = {
     { type:'monk', name:'사제', tier:3, atk:1, icon:'/assets/icons/monk.png', tag:'spirit', desc:'상하 각1칸 · 자기 제외',
       skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
       passives:['grace'] },
-    { type:'slaughterHero', name:'학살 영웅', tier:3, atk:1, icon:'/assets/icons/slaughterHero.png', tag:'villain', desc:'3x3 전체 9칸',
+    { type:'slaughterHero', name:'광전사', tier:3, atk:1, icon:'/assets/icons/slaughterHero.png', tag:'villain', desc:'주위 9칸 · 학살: 공격이 아군에게도 영향',
       skills:[], passives:['betrayer'] },
     { type:'commander', name:'지휘관', tier:3, atk:1, icon:'/assets/icons/commander.png', tag:'royal', desc:'좌우 각1칸 · 자기 제외',
       skills:[], passives:['wrath'] },
@@ -600,13 +604,14 @@ function initPatronBonus(room) {
     }
   }
 }
-// ★ Phase 3: 언데드 부패한 영혼 — HP0로 시작·항상 유해로 간주(alive 유지). 게임 시작 시 강제.
+// ★ Phase 3: 언데드 부패한 영혼 — HP0로 시작·항상 유해로 간주(alive 유지). 골렘 낡은심장 — HP 2 낮게 시작. 게임 시작 시 강제.
 function initUndeadState(room) {
   if (!room || !room.players) return;
   for (const pl of room.players) {
     if (!pl || !pl.pieces) continue;
     for (const p of pl.pieces) {
       if (p && p.type === 'undead') { p.hp = 0; p.maxHp = 0; p.alive = true; p._undeadDown = true; }
+      if (p && p.type === 'golem') { p.maxHp = Math.max(1, (p.maxHp || 0) - 2); p.hp = Math.max(1, (p.hp || 0) - 2); }   // 낡은 심장
     }
   }
 }
@@ -4108,6 +4113,24 @@ function createPiece(type, tier, hp, extra) {
   if (base.passives.includes('markPassive')) base.passiveName = '표식';
   if (base.passives.includes('tyranny')) base.passiveName = '폭정';
   if (base.passives.includes('loyalty')) base.passiveName = '충성';
+  // ★ Phase 3 신규 패시브
+  if (base.passives.includes('valor')) base.passiveName = '담력';
+  if (base.passives.includes('venomFang')) base.passiveName = '독니';
+  if (base.passives.includes('silverHorn')) base.passiveName = '백은의 뿔';
+  if (base.passives.includes('rage')) base.passiveName = '격노';
+  if (base.passives.includes('growth')) base.passiveName = '생장';
+  if (base.passives.includes('might')) base.passiveName = '괴력';
+  if (base.passives.includes('enthrall')) base.passiveName = '현혹';
+  if (base.passives.includes('suppression')) base.passiveName = '탄압';
+  if (base.passives.includes('successor')) base.passiveName = '계승자';
+  if (base.passives.includes('patron')) base.passiveName = '후원자';
+  if (base.passives.includes('rottenSoul')) base.passiveName = '부패한 영혼';
+  if (base.passives.includes('darkVeil')) base.passiveName = '어둠의 장막';
+  if (base.passives.includes('sporeSpread')) base.passiveName = '포자살포';
+  if (base.passives.includes('faeKing')) base.passiveName = '요정왕';
+  if (base.passives.includes('charge')) base.passiveName = '질주';
+  if (base.passives.includes('oldHeart')) base.passiveName = '낡은 심장';
+  if (base.passives.includes('behead')) base.passiveName = '참수';
 
   return base;
 }
@@ -5220,6 +5243,20 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           }
 
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
+
+          // ★ Phase 3: 처형인 참수 — 공격받은 적은 처형 상태(패시브 무력화). 유니콘 면역도 무시(처형인 우세).
+          //   단 언데드는 참수로 '즉시 파괴'(소멸). 그림자 면역은 존중.
+          if ((atkPiece.passives || []).includes('behead') && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'behead'))
+              && !defPiece.statusEffects.some(e => e.type === 'shadow')) {
+            if (defPiece.type === 'undead' && defPiece.alive) {
+              const _prevBS = room._boardShrinkDeaths;
+              room._boardShrinkDeaths = true;
+              handleDeath(room, defPiece, defIdx, 'behead');
+              room._boardShrinkDeaths = _prevBS;
+            } else if (defPiece.alive) {
+              addStatus(defPiece, 'executed', { force: true });   // 유니콘 면역 무시
+            }
+          }
 
           // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
           if (defPiece.type === 'wizard') {
