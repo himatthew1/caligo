@@ -4519,7 +4519,8 @@ socket.on('game_start', (data) => {
   S.boardObjects = data.boardObjects || [];
   S.remains = data.remains || [];
   S.destroyedCells = data.destroyedCells || [];   // ★ 공성파괴자 파괴칸
-  S.fungus = data.fungus || [];                    // ★ 머쉬킨 진균(Phase 4)
+  S.pendingDemolish = data.pendingDemolish || [];  // ★ 공성파괴자 파괴 예약칸
+  S.fungus = data.fungus || [];                    // ★ 머쉬킨 진균
   S._remainsFacing = {};  // 사망 GIF 방향 캐시 — 새 게임 초기화
   S.attackLog = [];
   S.action = null;
@@ -4670,6 +4671,7 @@ socket.on('your_turn', (data) => {
   S.boardObjects = data.boardObjects || S.boardObjects;
   S.remains = data.remains || S.remains;
   if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
+  if (data.pendingDemolish) S.pendingDemolish = data.pendingDemolish;
   if (data.fungus) S.fungus = data.fungus;
   S.action = null;
   S.selectedPiece = null;
@@ -4717,6 +4719,7 @@ socket.on('opp_turn', (data) => {
   S.boardObjects = data.boardObjects || S.boardObjects;
   S.remains = data.remains || S.remains;
   if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
+  if (data.pendingDemolish) S.pendingDemolish = data.pendingDemolish;
   if (data.fungus) S.fungus = data.fungus;
   S.action = null;
   S.selectedPiece = null;
@@ -14115,6 +14118,10 @@ function renderGameBoard() {
     if (S.fungus && S.fungus.some(f => f.col === col && f.row === row)) {
       cell.classList.add('cell-fungus');
     }
+    // ── 파괴 예약칸 (공성파괴자) — 다음 시전자 턴 시작에 파괴 예정 경고 ──
+    if (S.pendingDemolish && S.pendingDemolish.some(d => d.col === col && d.row === row)) {
+      cell.classList.add('cell-demolish-pending');
+    }
 
     // ── 유해 (remains) 렌더링 — 양측 모두 보임 ──
     // ★ 사망 GIF 진행 중인 셀(_pendingDeathCells)은 유해를 그리지 않음 — 사망 모션과 유해가
@@ -14385,6 +14392,15 @@ function renderGameBoard() {
             col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
           inSkillRange = true;
         }
+      } else if (std.type === 'drive_cell') {
+        // 투석기 구동: 상하좌우 인접 1칸(파괴칸/유닛/유해 제외)
+        const src = S.myPieces[std.pieceIdx];
+        const adj = src && ((Math.abs(col - src.col) === 1 && row === src.row) || (Math.abs(row - src.row) === 1 && col === src.col));
+        const blocked = (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) ||
+                        (S.remains && S.remains.some(r => r.col === col && r.row === row)) ||
+                        (S.myPieces.some(p => p.alive && p.col === col && p.row === row)) ||
+                        (S.oppPieces && S.oppPieces.some(p => p.alive && p.col === col && p.row === row));
+        if (adj && !blocked && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) inSkillRange = true;
       } else {
         const _exRem2 = (std.type === 'dragon_place') && S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max && !_exRem2) {
@@ -16648,7 +16664,16 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
   if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
   if (type === 'storyteller') { showEnemyIdentitySkillUI(pieceIdx, 'incite', '선동 — 대상 선택', '배신 상태로 만듭니다'); return; }
-  if (type === 'windSurfer') { showEnemyIdentitySkillUI(pieceIdx, 'windPush', '바람몰이 — 대상 선택', '반대 방향으로 밀어냅니다'); return; }
+  if (type === 'windSurfer') { showWindPushUI(pieceIdx); return; }
+  if (type === 'catapult') {
+    // 구동: 인접 1칸 이동
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'drive', type: 'drive_cell' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `구동할 인접 칸을 선택하세요`;
+    renderGameBoard();
+    return;
+  }
 
   if (type === 'twins_elder' || type === 'twins_younger') {
     // 쌍둥이: 합류 방향 선택
@@ -16790,6 +16815,42 @@ function showEnemyIdentitySkillUI(pieceIdx, skillId, title, descText) {
     });
     body.appendChild(opt);
   }
+  modal.classList.remove('hidden');
+}
+// 윈드서퍼 바람몰이 — 아군/적 1명 선택 → 방향(상하좌우) 선택 → 1칸 밀기.
+function showWindPushUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '바람몰이 — 대상 선택';
+  body.innerHTML = '';
+  const caster = S.myPieces[pieceIdx];
+  const addTarget = (tpc, ownerIdx, isAlly) => {
+    if (!tpc.alive || tpc === caster) return;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(tpc.icon, {size:'1.2em'})} ${tpc.name}${isAlly ? ' <span style="opacity:.7">(아군)</span>' : ' <span style="opacity:.7">(적)</span>'}</div><div class="skill-desc">밀어낼 방향을 고릅니다</div>`;
+    opt.addEventListener('click', () => {
+      // 2단계: 방향 선택
+      document.getElementById('skill-modal-title').textContent = `바람몰이 — ${tpc.name} 방향`;
+      body.innerHTML = '';
+      for (const [dir, label] of [['up','↑ 위'],['down','↓ 아래'],['left','← 왼쪽'],['right','→ 오른쪽']]) {
+        const dopt = document.createElement('div');
+        dopt.className = 'skill-option';
+        dopt.innerHTML = `<div class="skill-name">${label}</div>`;
+        dopt.addEventListener('click', () => {
+          modal.classList.add('hidden');
+          const params = { targetName: tpc.type, dir };
+          if (ownerIdx != null) params.targetOwnerIdx = ownerIdx;
+          socket.emit('use_skill', { pieceIdx, skillId: 'windPush', params });
+        });
+        body.appendChild(dopt);
+      }
+    });
+    body.appendChild(opt);
+  };
+  for (const ap of (S.myPieces || [])) addTarget(ap, S.playerIdx, true);
+  if (S.isTeamMode && S.teammatePieces) for (const tp of S.teammatePieces) addTarget(tp, tp.ownerIdx, true);
+  for (const op of (S.oppPieces || [])) addTarget(op, op.ownerIdx, false);
   modal.classList.remove('hidden');
 }
 // 호문클루스 변이 — 진영 3택.
@@ -17278,7 +17339,8 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   // ★ 사용자 요청: 질주 활성 시 — 공격 dim (이동만). 쌍검무 활성 시 — 이동 dim (공격만).
   const sprintActive = (S.myPieces || []).some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
   const dualBladeActive = (S.myPieces || []).some(p => p.alive && p.dualBladeAttacksLeft > 0);
-  const moveDisabled = !canBasic || dualBladeActive;
+  const isCatapult = pc && pc.type === 'catapult';   // ★ 투석기: 일반 이동 불가(구동 스킬로만)
+  const moveDisabled = !canBasic || dualBladeActive || isCatapult;
   const attackDisabled = !canBasic || sprintActive;
 
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
@@ -17492,6 +17554,9 @@ function handleGameCellClick(col, row) {
         const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '이미 파괴된 칸입니다.';
         return;
       }
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
+    } else if (data.type === 'drive_cell') {
+      // ★ 투석기 구동: 인접 1칸 이동
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     }
     resetAction();
