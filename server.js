@@ -170,7 +170,8 @@ const CHARACTERS = {
     { type:'archer', name:'엘프', tier:1, atk:1, icon:'/assets/icons/archer.png', tag:'spirit', desc:'위치한 곳 좌측 대각선 전체 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'공격 범위 반전'}] },
     { type:'spearman', name:'창병', tier:1, atk:1, icon:'/assets/icons/spearman.png', tag:'royal', desc:'위치한 곳 세로줄 전체 공격', skills:[] },
-    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
+    { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'공격 불가 · 질주: 직선 최대 2칸 이동 + 지나온 칸(제자리·경로·도착) 전부 공격',
+      skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, desc:'상하좌우 직선 1~2칸 이동, 지나온 모든 칸을 공격'}] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'/assets/icons/watchman.png', tag:null, desc:'주변 8칸 · 자기 제외', skills:[] },
     { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'/assets/icons/twins.png', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
       skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
@@ -499,8 +500,7 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'spearman':
       for (let r = b.min; r <= b.max; r++) push(col, r);
       break;
-    case 'cavalry':
-      for (let c = b.min; c <= b.max; c++) push(c, row);
+    case 'cavalry':   // ★ Phase 3 리워크: 일반 공격 불가(질주 스킬로만 공격). 공격범위 없음.
       break;
     case 'watchman':
       for (let dc = -1; dc <= 1; dc++)
@@ -522,9 +522,8 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'messenger':   // ★ Phase 3 리워크(v2 그리드): 자기+X대각4 → 좌우 세로3(자기 제외)
       for (const dr of [-1,0,1]) { push(col-1, row+dr); push(col+1, row+dr); }
       break;
-    case 'gunpowder':
-      push(col, row - 1); push(col, row - 2);
-      push(col, row + 1); push(col, row + 2);
+    case 'gunpowder':   // ★ Phase 3 리워크: 주변 8칸(3×3 중앙 제외) — 잠재 범위. 실제 타격은 이 중 랜덤 2칸(processAttack).
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc || dr) push(col + dc, row + dr);
       break;
     case 'herbalist':   // ★ Phase 3 리워크: 가로±2 → 가로3(정령 편입)
       push(col - 1, row); push(col, row); push(col + 1, row);
@@ -4865,6 +4864,16 @@ function detonateBomb(room, ownerIdx, bomb, options) {
 
 function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts) {
   const attacker = room.players[attackerIdx];
+  // ★ Phase 3 리워크: 화약상 — 주변 8칸(잠재 범위) 중 랜덤 2칸만 실제 타격. 나머지 로직은 축소된 셀 기준.
+  if (atkPiece && atkPiece.type === 'gunpowder' && Array.isArray(atkCells) && atkCells.length > 2) {
+    const pool = atkCells.slice();
+    const picked = [];
+    for (let n = 0; n < 2 && pool.length; n++) {
+      const j = Math.floor(Math.random() * pool.length);
+      picked.push(pool.splice(j, 1)[0]);
+    }
+    atkCells = picked;
+  }
   // ★ Phase 3: 동적 공격력 반영(철인=HP·왕자=계승자·묘지기=유해수·개구리=0.5). wrath 는 resolveDamage
   //   에서 별도 가산되므로 getBaseAtk(wrath 제외)를 쓴다. 기존 유닛은 플래그 없어 atk 그대로.
   const baseDmg = (extraDamage !== undefined) ? extraDamage
@@ -7031,6 +7040,38 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         victimOwnerIdx: wsTargetOwnerIdx,
         victimPieceIdx: wsOwner.pieces.indexOf(wsTgt),
       };
+      break;
+    }
+
+    // ── CAVALRY(기마병): 질주 — 직선 1~2칸 이동 + 지나온 칸(제자리·경로·도착) 전부 공격 ──
+    case 'cavalry': {
+      const dCol = params?.col, dRow = params?.row;
+      if (dCol == null || dRow == null) return { ok: false, msg: '질주할 칸을 지정하세요.' };
+      if (!inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
+      const ddc = dCol - piece.col, ddr = dRow - piece.row;
+      const straight = (ddc === 0) !== (ddr === 0);   // 정확히 한 축만 변화(직선)
+      const dist = Math.abs(ddc) + Math.abs(ddr);
+      if (!straight || dist < 1 || dist > 2) return { ok: false, msg: '상하좌우 직선 1~2칸만 질주할 수 있습니다.' };
+      const stepC = ddc === 0 ? 0 : (ddc > 0 ? 1 : -1);
+      const stepR = ddr === 0 ? 0 : (ddr > 0 ? 1 : -1);
+      // 경로 셀(제자리 포함 ~ 도착). 도착칸은 착지 가능해야 함(파괴칸/살아있는 유닛 불가).
+      const pathCells = [];
+      for (let s = 0; s <= dist; s++) pathCells.push({ col: piece.col + stepC * s, row: piece.row + stepR * s });
+      if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '파괴된 칸에는 착지할 수 없습니다.' };
+      const landBlocked = room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow));
+      if (landBlocked) return { ok: false, msg: '착지할 칸에 다른 유닛이 있습니다.' };
+      // 이동(제자리→도착) 후 경로 전체 공격.
+      const _dashFromCol = piece.col, _dashFromRow = piece.row;
+      piece.col = dCol; piece.row = dRow;
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      // spendSP(cost 0)이지만 일관성 위해 호출(0 차감).
+      spendSP(room, playerIdx, cost);
+      const dashHits = processAttack(room, playerIdx, piece, pathCells, undefined, opts) || [];   // processAttack이 setKillInfo까지 처리
+      result.msg = `질주: (${_dashFromCol},${_dashFromRow})→(${dCol},${dRow}) 경로 공격`;
+      result.oppMsg = `질주: 기마병이 돌진`;
+      result.data.dash = { fromCol: _dashFromCol, fromRow: _dashFromRow, toCol: dCol, toRow: dRow, pathCells };
+      result.data.hits = dashHits;
       break;
     }
 

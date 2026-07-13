@@ -2878,6 +2878,10 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   border-color: rgba(120,80,80,0.4) !important;
   overflow: visible;
 }
+/* ★ 기마병 질주 사거리 — 직선 1~2칸(공격 경로 겸용) */
+#game-board .cell.dash-range {
+  box-shadow: inset 0 0 0 2px rgba(255,140,60,0.85), 0 0 8px rgba(255,120,40,0.5) !important;
+}
 /* ★ 머쉬킨 진균 지대 — 통행 가능, 그 칸에서 턴 마치면 중독 1 */
 .cell.cell-fungus {
   background: radial-gradient(circle at 50% 60%, rgba(120,180,90,0.4) 0%, rgba(70,120,60,0.28) 55%, transparent 80%) !important;

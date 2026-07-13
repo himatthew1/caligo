@@ -7560,6 +7560,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           });
         }, _lavaDeathDelay);
       }
+      // ★ 기마병 질주 — 경로 셀 전체에 공격 이펙트(시전자 시점). 위치는 yourPieces로 갱신됨.
+      if (data && data.dash && Array.isArray(data.dash.pathCells) && typeof animateAttackCellEffect === 'function') {
+        animateAttackCellEffect(data.dash.pathCells);
+      }
       // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
       if (data && data.herbCenter && typeof animateHerbCast === 'function') {
         animateHerbCast(data.herbCenter.col, data.herbCenter.row);
@@ -14299,6 +14303,23 @@ function renderGameBoard() {
       }
     }
 
+    // ★ 기마병 질주 범위 — 상하좌우 직선 1~2칸(도착칸 착지 가능해야 함)
+    if (S.action === 'dash' && S.selectedPiece !== null) {
+      const selPc = S.myPieces[S.selectedPiece];
+      if (selPc && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+        const dc = col - selPc.col, dr = row - selPc.row;
+        const straight = (dc === 0) !== (dr === 0);
+        const dist = Math.abs(dc) + Math.abs(dr);
+        if (straight && dist >= 1 && dist <= 2) {
+          const destDestroyed = S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row);
+          const destOccupied = (S.myPieces.some(p => p.alive && p.col === col && p.row === row && p !== selPc)) ||
+                               (S.isTeamMode && S.teammatePieces && S.teammatePieces.some(p => p.alive && p.col === col && p.row === row));
+          if (destDestroyed || destOccupied) cell.classList.add('move-range', 'move-range-blocked');
+          else cell.classList.add('move-range', 'dash-range');
+        }
+      }
+    }
+
     // 팀원 공격 범위 오버레이 (토글)
     if (S.isTeamMode && S.teammateRangePiece) {
       const tmPc = S.teammateRangePiece;
@@ -17237,11 +17258,15 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   // 라디얼 항목은 항상 이동/공격/스킬 동일 라벨·아이콘. 사용 가능 여부는 disabled (dim) 로만 표시 — 스킬과 동일 패턴.
   //   기본 행동 소진 시 → 이동·공격 둘 다 disabled. 스킬은 별도 canSkill 로 결정.
   //   스킬 미보유 캐릭터는 -45° 자리 비움 (hideIfMissing).
-  const items = [
-    { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: moveDisabled },
-    { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: attackDisabled },
-    { angle:  -45, key: 'skill',  icon: '✨',  label: '스킬',   disabled: !canSkill, hideIfMissing: !hasSkill },
-  ].filter(it => !it.hideIfMissing);
+  // ★ Phase 3 리워크: 기마병은 이동/공격이 없고 질주만(부채꼴에 질주 단일 표시).
+  const isCavalry = pc && pc.type === 'cavalry';
+  const items = isCavalry
+    ? [{ angle: -90, key: 'dash', icon: '🐎', label: '질주', disabled: !canBasic }]
+    : [
+        { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: moveDisabled },
+        { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: attackDisabled },
+        { angle:  -45, key: 'skill',  icon: '✨',  label: '스킬',   disabled: !canSkill, hideIfMissing: !hasSkill },
+      ].filter(it => !it.hideIfMissing);
 
   for (const it of items) {
     const btn = document.createElement('button');
@@ -17264,6 +17289,18 @@ function _showRadialActionMenu(col, row, pieceIdx) {
         if (!S.isMyTurn) return;
         if (typeof setActionButtonMode === 'function') setActionButtonMode('skill');
         openSkillModal(pieceIdx);
+        return;
+      }
+      if (it.key === 'dash') {
+        // ★ 기마병 질주: 직선 1~2칸 대상 선택 모드 진입.
+        if (!S.isMyTurn) return;
+        S.action = 'dash';
+        S.selectedPiece = pieceIdx;
+        const cancelBtn = document.getElementById('btn-cancel');
+        if (cancelBtn) cancelBtn.classList.remove('hidden');
+        const hintEl = document.getElementById('action-hint');
+        if (hintEl) hintEl.textContent = '질주할 칸(직선 1~2칸)을 선택하세요.';
+        renderGameBoard();
         return;
       }
       if (it.key === 'move') {
@@ -17431,6 +17468,23 @@ function handleGameCellClick(col, row) {
       }
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     }
+    resetAction();
+    return;
+  }
+
+  // ── 기마병 질주 ──
+  if (S.action === 'dash') {
+    const selPc = S.myPieces[S.selectedPiece];
+    if (!selPc) { resetAction(); return; }
+    const dc = col - selPc.col, dr = row - selPc.row;
+    const straight = (dc === 0) !== (dr === 0);
+    const dist = Math.abs(dc) + Math.abs(dr);
+    if (!straight || dist < 1 || dist > 2) { setActionHint('직선 1~2칸만 질주할 수 있습니다.', true); return; }
+    if (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) { setActionHint('파괴된 칸에는 착지할 수 없습니다.', true); return; }
+    const occupied = S.myPieces.some(p => p.alive && p.col === col && p.row === row && p !== selPc) ||
+                     (S.isTeamMode && S.teammatePieces && S.teammatePieces.some(p => p.alive && p.col === col && p.row === row));
+    if (occupied) { setActionHint('착지할 칸에 다른 유닛이 있습니다.', true); return; }
+    socket.emit('use_skill', { pieceIdx: S.selectedPiece, skillId: 'dash', params: { col, row } });
     resetAction();
     return;
   }
@@ -17681,8 +17735,7 @@ function getAttackCells(type, col, row, extra) {
     case 'spearman':
       for (let r = bMin; r <= bMax; r++) push(col, r);
       break;
-    case 'cavalry':
-      for (let c = bMin; c <= bMax; c++) push(c, row);
+    case 'cavalry':   // ★ Phase 3 리워크: 일반 공격 불가(질주로만). 공격범위 없음.
       break;
     case 'watchman':
       for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (dc !== 0 || dr !== 0) push(col+dc, row+dr);
@@ -17702,8 +17755,8 @@ function getAttackCells(type, col, row, extra) {
     case 'messenger':   // ★ Phase 3 리워크: 좌우 세로3(자기 제외)
       for (const dr of [-1,0,1]) { push(col-1, row+dr); push(col+1, row+dr); }
       break;
-    case 'gunpowder':
-      push(col, row-1); push(col, row-2); push(col, row+1); push(col, row+2);
+    case 'gunpowder':   // ★ Phase 3 리워크: 주변 8칸(잠재 범위, 실제는 랜덤 2칸 명중)
+      for (let dc=-1;dc<=1;dc++) for (let dr=-1;dr<=1;dr++) if (dc||dr) push(col+dc, row+dr);
       break;
     case 'herbalist':   // ★ Phase 3 리워크: 가로3
       push(col-1, row); push(col, row); push(col+1, row);
@@ -18270,14 +18323,14 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
       if (extra.toggleState === 'right') { const d = col - row; for (let c = bMin; c <= bMax; c++) { const r = c - d; if (r >= bMin && r <= bMax) push(c, r); } }
       else { const d = col + row; for (let c = bMin; c <= bMax; c++) { const r = d - c; if (r >= bMin && r <= bMax) push(c, r); } } break; }
     case 'spearman': for (let r = bMin; r <= bMax; r++) push(col, r); break;
-    case 'cavalry': for (let c = bMin; c <= bMax; c++) push(c, row); break;
+    case 'cavalry': break;   // ★ Phase 3 리워크: 공격범위 없음(질주로만)
     case 'watchman': for (let dc=-1;dc<=1;dc++) for(let dr=-1;dr<=1;dr++) if(dc||dr) push(col+dc,row+dr); break;
     case 'twins_elder': push(col,row);push(col-1,row);push(col+1,row); break;
     case 'twins_younger': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'scout': push(col,row);push(col-1,row);push(col+1,row); break;
     case 'manhunter': push(col,row);push(col,row-1);push(col,row+1); break;
     case 'messenger': for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
-    case 'gunpowder': push(col,row-1);push(col,row-2);push(col,row+1);push(col,row+2); break;
+    case 'gunpowder': for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++)if(dc||dr)push(col+dc,row+dr); break;
     case 'herbalist': push(col-1,row);push(col-2,row);push(col+1,row);push(col+2,row); break;
     case 'general': push(col-1,row);push(col+1,row);push(col,row+1); break;
     case 'knight': push(col,row); for(const[dc,dr]of[[-1,-1],[1,-1],[-1,1],[1,1]])push(col+dc,row+dr); break;
