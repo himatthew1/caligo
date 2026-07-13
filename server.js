@@ -193,7 +193,7 @@ const CHARACTERS = {
     { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능',
       skills:[], passives:['valor'] },
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'/assets/icons/poisoner.png', tag:'villain', desc:'제자리와 X자 대각선 · 독니: 공격 대상 중독',
-      skills:[], passives:['venomFang'] },
+      skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'공격 범위 내 모든 적 중독'}], passives:['venomFang'] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -6525,6 +6525,31 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     }
 
     // (호위 무사는 패시브로 변경됨 — 스킬 핸들러 불필요)
+
+    // ── POISONER: 맹독 구름 (공격 범위 내 모든 적 중독 · 행동소비) ──
+    case 'poisoner': {
+      spendSP(room, playerIdx, cost);
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      const pcells = getAttackCells(piece.type, piece.col, piece.row, bounds);
+      const pcellSet = new Set(pcells.map(c => `${c.col},${c.row}`));
+      const poisonedHits = [];
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        for (let dpi = 0; dpi < ep.pieces.length; dpi++) {
+          const t = ep.pieces[dpi];
+          if (!t.alive || t.col == null) continue;
+          if (!pcellSet.has(`${t.col},${t.row}`)) continue;
+          if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+          if (addStatus(t, 'poison', { stacks: 1 })) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: ei });
+        }
+      }
+      result.msg = `맹독 구름: 범위 내 적 ${poisonedHits.length}명 중독`;
+      result.oppMsg = `맹독 구름: 중독`;
+      result.data.poisonedCells = poisonedHits;
+      result.data.atkCells = pcells;
+      break;
+    }
 
     // ── KING: 절대복종 반지 (force move enemy) ──
     case 'king': {
