@@ -270,8 +270,9 @@ const CHARACTERS = {
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:1, icon:'/assets/icons/count.png', tag:'villain', desc:'제자리와 대각선 · 흡혈: 최대체력 조작',
       skills:[{id:'vampire', name:'흡혈', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 최대체력 -1, 자신 +1(왕실 대상 시 상한 돌파)'}] },
-    { type:'demonKing', name:'마왕 칼리고', tier:3, atk:0, icon:'/assets/icons/demonKing.png', tag:'villain', desc:'제자리 중심 V(6칸)',
-      skills:[{id:'corrupt', name:'타락', cost:1, replacesAction:true, desc:'보드 위 모든 악인 공격력 +0.5(누적)'}] },
+    { type:'demonKing', name:'마왕 칼리고', tier:3, atk:0, icon:'/assets/icons/demonKing.png', tag:'villain', desc:'제자리 중심 V(6칸) · 어둠장막: 악인 외 전 유닛 공격범위 1칸 봉인',
+      skills:[{id:'corrupt', name:'타락', cost:1, replacesAction:true, desc:'보드 위 모든 악인 공격력 +0.5(누적)'}],
+      passives:['darkVeil'] },
     // ── ★ Phase 3 신규 ──
     { type:'siegeBreaker', name:'공성파괴자', tier:3, atk:3, icon:'/assets/icons/siegeBreaker.png', tag:'villain', desc:'제자리+하단1 · 파괴공작으로 칸 자체를 파괴',
       skills:[{id:'demolish', name:'파괴공작', cost:3, replacesAction:true, desc:'지정한 1칸을 영구 파괴(그 위 유닛 즉시 소멸, 이동 불가 지형화)'}] },
@@ -471,6 +472,42 @@ function inBounds(col, row, bounds) {
 // ★ Phase 3: 공성파괴자 파괴공작으로 영구 파괴된 칸(이동/배치 불가 지형).
 function isCellDestroyed(room, col, row) {
   return !!(room && room.destroyedCells && room.destroyedCells.some(d => d.col === col && d.row === row));
+}
+// ★ Phase 3: 마왕 어둠장막 — 살아있는 마왕(패시브 active=참수 아님)이 있으면 발동.
+function darkVeilActive(room) {
+  if (!room || !room.players) return false;
+  for (const pl of room.players) {
+    if (!pl || !pl.pieces) continue;
+    for (const p of pl.pieces) {
+      if (p.alive && p.type === 'demonKing' && (p.passives || []).includes('darkVeil')
+          && (typeof isPassiveActive !== 'function' || isPassiveActive(p, 'darkVeil'))) return true;
+    }
+  }
+  return false;
+}
+// 어둠장막 적용: 악인 외 유닛의 공격셀에서 게임 시작 시 점지된 봉인칸(_darkVeilOff, 유닛 상대 오프셋) 1칸 제거.
+function applyDarkVeil(room, piece, cells) {
+  if (!piece || !Array.isArray(cells) || !cells.length) return cells;
+  if (!piece._darkVeilOff) return cells;
+  if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인 제외
+  if (!darkVeilActive(room)) return cells;   // 마왕 참수 등으로 비활성이면 봉인 해제(전 범위 복구)
+  const bc = piece.col + piece._darkVeilOff.dc, br = piece.row + piece._darkVeilOff.dr;
+  return cells.filter(c => !(c.col === bc && c.row === br));
+}
+// 게임 시작 시 악인 외 전 유닛에 봉인 오프셋 점지(1회, 저장). 마왕 유무와 무관하게 미리 배정 — 활성화는 darkVeilActive 게이트.
+function assignDarkVeilOffsets(room) {
+  if (!room || !room.players) return;
+  for (const pl of room.players) {
+    if (!pl || !pl.pieces) continue;
+    for (const p of pl.pieces) {
+      if (!p || p.col == null) continue;
+      if (typeof isFaction === 'function' && isFaction(p, 'villain')) continue;   // 악인 제외
+      const cells = getAttackCells(p.type, p.col, p.row, room.boardBounds, {}) || [];
+      if (!cells.length) continue;
+      const pick = cells[Math.floor(Math.random() * cells.length)];
+      p._darkVeilOff = { dc: pick.col - p.col, dr: pick.row - p.row };
+    }
+  }
 }
 
 function getAttackCells(type, col, row, bounds, extra) {
@@ -3213,6 +3250,8 @@ function teamPlacementTimeout(room) {
 function startTeamGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
+  // ★ Phase 3: 마왕 어둠장막 오프셋 점지(팀전도 동일).
+  assignDarkVeilOffsets(room);
   // ── 슬롯 정규화: 각 팀이 정확히 slotPos 0/1 한 명씩 갖도록 강제 ──
   // 기존 slotPos 가 명시되어 있으면 그 값을 우선 보존 (봇 추가 시 명시적 slotPos 가 join 순서와 다를 수 있음)
   // 정렬 후 인덱스로 재정규화 — 충돌·결손이 있을 때만 변경됨
@@ -3833,6 +3872,8 @@ function transitionToPlacement(room) {
 function startGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
+  // ★ Phase 3: 마왕 어둠장막 — 악인 외 전 유닛에 봉인 오프셋 점지(게임 시작 1회, 저장). 활성화는 마왕 생존 시.
+  assignDarkVeilOffsets(room);
   const firstPlayer = Math.random() < 0.5 ? 0 : 1;
   const secondPlayer = 1 - firstPlayer;
   room.currentPlayerIdx = firstPlayer;
@@ -3964,6 +4005,7 @@ function pieceSummary(pieces) {
     messengerMovesLeft: pc.messengerMovesLeft,
     dragonSummoned: pc.dragonSummoned,
     oberonCounter: pc._oberonCounter || 0,   // ★ 요정왕 카운터(자기 유닛만 노출)
+    darkVeilOff: pc._darkVeilOff || null,    // ★ 어둠장막 봉인 오프셋(공격범위 표시용)
   }));
 }
 
@@ -3992,6 +4034,7 @@ function oppPieceSummary(pieces) {
       isDragon: pc.isDragon,
       range: pc.range,
       toggleState: pc.toggleState,
+      darkVeilOff: pc._darkVeilOff || null,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
@@ -11500,14 +11543,14 @@ io.on('connection', (socket) => {
     // ★ 쌍둥이 동시 공격: 형+동생 공격 범위 합산
     // ★ 본체 공격 범위 1회만 계산 — 이전: 아래 processAttack/필터에서 동일 인자로 매번 재계산
     //   (특히 filter 내부 .some() 은 twinCell 개수만큼 반복 호출됨).
-    const baseAtkCells = getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra);
+    const baseAtkCells = applyDarkVeil(room, atkPiece, getAttackCells(atkPiece.type, atkPiece.col, atkPiece.row, bounds, extra));   // ★ 어둠장막 봉인칸 제거
     let atkCells = baseAtkCells.slice();  // 쌍둥이 합산용 (아래에서 push 되므로 baseAtkCells 보존 위해 복사)
     let twinAtkPiece = null;
     if (atkPiece.subUnit) {
       const otherSub = atkPiece.subUnit === 'elder' ? 'younger' : 'elder';
       twinAtkPiece = attacker.pieces.find(p => p.subUnit === otherSub && p.alive);
       if (twinAtkPiece) {
-        const twinCells = getAttackCells(twinAtkPiece.type, twinAtkPiece.col, twinAtkPiece.row, bounds, extra);
+        const twinCells = applyDarkVeil(room, twinAtkPiece, getAttackCells(twinAtkPiece.type, twinAtkPiece.col, twinAtkPiece.row, bounds, extra));
         // 중복 제거하여 합산
         for (const tc of twinCells) {
           if (!atkCells.some(c => c.col === tc.col && c.row === tc.row)) {
