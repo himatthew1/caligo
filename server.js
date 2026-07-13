@@ -2511,13 +2511,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       room._pendingBodyguardPassive = null;
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
       aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
-      if (aiPiece2.type === 'wizard' && dmg > 0) {
-        const wizSpSlot = teamSlotIdx(room, idx);
-        room.instantSp[wizSpSlot] += 1;
-        emitSPUpdate(room);
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: idx, msg: `인스턴트 매직 : SP 획득` });
-        emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: idx });
-      }
+      if (dmg > 0) applyDamageTriggers(room, aiPiece2, idx, dmg);   // 데미지-트리거(마법사 등)
       const willDie = aiPiece2.hp <= 0;
       if (willDie) handleDeath(room, aiPiece2, idx);
       emitToBoth(room, 'trap_triggered', {
@@ -3881,6 +3875,29 @@ function aiLogDmg(room, victim, defIdx, dmg, isStatus, attacker, attackerIdx) {
   });
 }
 // resolveDamage 래퍼 — 최종 피해를 분석 로그에 출처와 함께 기록 후 그대로 반환(동작 무변).
+// ══ ★ Phase 1: 데미지-트리거 단일 훅 ══════════════════════════════════════
+//   "데미지를 받을 때마다"(0 포함, 피격 판정 아님) 발동하는 방어자 패시브를 한 곳에서 처리.
+//   호출부(피해 적용 지점)가 victim + 그 소유 ownerIdx + 이번 dmg 를 넘긴다. 신규 데미지-트리거
+//   패시브(오베론 요정왕·드라이어드 생장·그리폰 격노)는 여기에만 추가하면 전 경로에서 발동.
+//   opts.spUpdate: 'always'(기본) | 'unlessSuppressed'(스킬 컨텍스트 — skill_result 가 SP 일괄전달)
+//                | 'none'. 각 호출부의 기존 emit 동작을 보존한다.
+function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
+  if (!victim) return;
+  opts = opts || {};
+  const passives = victim.passives || [];
+  // [마법사] 인스턴트 매직 — instant SP +1 (스펙: 0 데미지도 발동)
+  if (passives.includes('instantMagic')) {
+    const slot = teamSlotIdx(room, ownerIdx);
+    room.instantSp[slot] = (room.instantSp[slot] || 0) + 1;
+    const mode = opts.spUpdate || 'always';
+    if (mode === 'always') emitSPUpdate(room);
+    else if (mode === 'unlessSuppressed' && !room._suppressSpUpdate) emitSPUpdate(room);
+    emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ownerIdx, msg: `인스턴트 매직 : SP 획득` });
+    emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ownerIdx });
+  }
+  // TODO(Phase3/4): 오베론 요정왕(정령 피해→카운터+1) · 드라이어드 생장(사거리+1) · 그리폰 격노(스킬 활성).
+}
+
 function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
   const dmg = _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx);
   try { aiLogDmg(room, defenderPiece, defIdx, dmg, isStatusDmg, attackerPiece, attackerIdx); } catch (e) {}
@@ -4589,22 +4606,14 @@ function detonateBomb(room, ownerIdx, bomb, options) {
         if (ep.hp <= 0) {
           handleDeath(room, ep, defOwnerIdx);
         }
-        // Wizard passive: SP on bomb hit — 마법사 소속 플레이어/팀에 SP 추가
+        // Wizard passive: SP on bomb hit — 마법사 소속 플레이어/팀에 SP 추가 (데미지-트리거 훅)
         if (ep.type === 'wizard') {
-          // ep는 적의 wizard. ep의 소유자 idx를 찾아야 함
           let wizOwnerIdx = -1;
           for (let pi = 0; pi < room.players.length; pi++) {
             if (room.players[pi].pieces.includes(ep)) { wizOwnerIdx = pi; break; }
           }
           if (wizOwnerIdx < 0) wizOwnerIdx = defOwnerIdx;  // fallback
-          const wizSpSlot = teamSlotIdx(room, wizOwnerIdx);
-          room.instantSp[wizSpSlot] += 1;
-          if (!suppressSpUpdate) emitSPUpdate(room);
-          const wizOwnerName = room.players[wizOwnerIdx].name;
-          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: wizOwnerIdx, msg: `인스턴트 매직 : SP 획득` });
-
-          emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: wizOwnerIdx });
-
+          applyDamageTriggers(room, ep, wizOwnerIdx, dmg, { spUpdate: suppressSpUpdate ? 'none' : 'always' });
         }
         hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon, defPieceIdx: epi, defOwnerIdx });
       }
@@ -4759,14 +4768,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 
           // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
           if (defPiece.type === 'wizard') {
-            const wizSpSlot = teamSlotIdx(room, defIdx);
-            room.instantSp[wizSpSlot] += 1;
-            // 스킬 컨텍스트에서는 sp_update suppress (skill_result 가 일괄 sp/instantSp 전달)
-            if (!room._suppressSpUpdate) emitSPUpdate(room);
-            const defName = room.players[defIdx].name;
-            emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: defIdx, msg: `인스턴트 매직 : SP 획득` });
-
-            emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: defIdx });
+            applyDamageTriggers(room, defPiece, defIdx, dmg, { spUpdate: 'unlessSuppressed' });
           }
         }
       }
@@ -4799,13 +4801,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               ownerIdx: aIdx, defPieceIdx: _ffPi,
             });
             // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
-            if (allyPiece.type === 'wizard') {
-              const wizSpSlot = teamSlotIdx(room, aIdx);
-              room.instantSp[wizSpSlot] += 1;
-              if (!room._suppressSpUpdate) emitSPUpdate(room);
-              emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: aIdx, msg: `인스턴트 매직 : SP 획득` });
-              emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: aIdx });
-            }
+            if (allyPiece.type === 'wizard') applyDamageTriggers(room, allyPiece, aIdx, 1, { spUpdate: 'unlessSuppressed' });
             if (allyPiece.hp <= 0) {
               handleDeath(room, allyPiece, aIdx);
             }
@@ -6579,15 +6575,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           const dmg = resolveDamage(room, piece, m, playerIdx, 1, false);
           m.hp = Math.max(0, m.hp - dmg);
           // Wizard passive: 악몽으로 마법사가 피격되어도 인스턴트 SP 1 획득 (피격마다 트리거)
-          if (m.type === 'wizard' && dmg > 0) {
-            const wizSpSlot = teamSlotIdx(room, ee.idx);
-            room.instantSp[wizSpSlot] += 1;
-            // ❌ emitSPUpdate 제거 — skill_result 가 sp/instantSp 를 자동 전달함.
-            emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ee.idx, msg: `인스턴트 매직 : SP 획득` });
-
-            emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ee.idx });
-
-          }
+          // skill_result 가 sp/instantSp 를 자동 전달하므로 emitSPUpdate 는 생략(spUpdate:'none').
+          if (m.type === 'wizard' && dmg > 0) applyDamageTriggers(room, m, ee.idx, dmg, { spUpdate: 'none' });
           if (m.hp <= 0) handleDeath(room, m, ee.idx);
           hits.push({ col: m.col, row: m.row, damage: dmg, newHp: m.hp, destroyed: !m.alive, name: m.name, ownerIdx: ee.idx });
         }
@@ -8687,13 +8676,7 @@ function aiExecuteMove(room, action) {
       room._pendingBodyguardPassive = null;
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
       aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
-      if (aiPiece.type === 'wizard' && dmg > 0) {
-        const wizSpSlot = (room.mode === 'team') ? getTeamOf(room, 1) : 1;
-        room.instantSp[wizSpSlot] += 1;
-        emitSPUpdate(room);
-        emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: 1, msg: `인스턴트 매직 : SP 획득` });
-        emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: 1 });
-      }
+      if (aiPiece.type === 'wizard' && dmg > 0) applyDamageTriggers(room, aiPiece, 1, dmg);
       const willDie3 = aiPiece.hp <= 0;
       // ★ 화약상 사망 기폭 체인 순차화 (플레이어 경로와 동일) — startPhase 로 열어야 사망 기폭이 큐잉.
       startPhase(room);
@@ -10501,13 +10484,7 @@ io.on('connection', (socket) => {
         room._pendingBodyguardPassive = null;
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
-        if (piece2.type === 'wizard') {
-          const wizSpSlot = teamSlotIdx(room, tp.idx);
-          room.instantSp[wizSpSlot] += 1;
-          emitSPUpdate(room);
-          emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: tp.idx, msg: `인스턴트 매직 : SP 획득` });
-          emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: tp.idx });
-        }
+        if (piece2.type === 'wizard') applyDamageTriggers(room, piece2, tp.idx, dmg);
         const willDie = piece2.hp <= 0;
         // ★ 화약상 사망 기폭 체인 순차화 (사용자 보고) — startPhase 로 열어야 handleDeath 의
         //   queueDeathDetonation 이 페이즈 큐에 쌓여 "덫 발동 → 화약상 사망 → 사망 기폭 → 폭탄 피해
