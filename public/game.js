@@ -16575,6 +16575,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
   if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
   if (type === 'storyteller') { showEnemyIdentitySkillUI(pieceIdx, 'incite', '선동 — 대상 선택', '배신 상태로 만듭니다'); return; }
+  if (type === 'windSurfer') { showEnemyIdentitySkillUI(pieceIdx, 'windPush', '바람몰이 — 대상 선택', '반대 방향으로 밀어냅니다'); return; }
 
   if (type === 'twins_elder' || type === 'twins_younger') {
     // 쌍둥이: 합류 방향 선택
@@ -17085,7 +17086,7 @@ function refreshAttackConfirmBtn() {
   const pc = S.myPieces?.[S.selectedPiece];
   if (!pc || !pc.alive) { _clearAttackConfirmBtns(); return; }
   // target-pick (witch/shadow) 은 target 좌표 저장돼 있을 때만 버튼 (사용자 클릭 후)
-  const isTargetPick = (pc.type === 'witch' || pc.type === 'shadowAssassin');
+  const isTargetPick = (pc.type === 'witch' || pc.type === 'shadowAssassin' || pc.type === 'catapult');
   if (isTargetPick) {
     if (typeof S.targetCol === 'number' && typeof S.targetRow === 'number') {
       _placeAttackConfirmBtn(pc, { tCol: S.targetCol, tRow: S.targetRow });
@@ -17260,7 +17261,7 @@ function _showRadialActionMenu(col, row, pieceIdx) {
         //   그 외 공격은 머리 위 [공격 확정] 버튼 등장 (사용자 요청, 더블클릭 패턴 대체).
         if (it.key === 'attack') {
           const pc2 = S.myPieces && S.myPieces[pieceIdx];
-          if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin')) {
+          if (pc2 && (pc2.type === 'witch' || pc2.type === 'shadowAssassin' || pc2.type === 'catapult')) {
             S.targetSelectMode = true;
             const hintEl = document.getElementById('action-hint');
             if (hintEl) hintEl.textContent = `${pc2.name} 선택. 공격할 칸을 선택하세요.`;
@@ -17479,7 +17480,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(pc);
-        if (pc.type === 'shadowAssassin' || pc.type === 'witch') {
+        if (pc.type === 'shadowAssassin' || pc.type === 'witch' || pc.type === 'catapult') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${pc.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();
@@ -17525,7 +17526,7 @@ function handleGameCellClick(col, row) {
           return;
         }
         S.selectedPiece = S.myPieces.indexOf(clickedOther);
-        if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch') {
+        if (clickedOther.type === 'shadowAssassin' || clickedOther.type === 'witch' || clickedOther.type === 'catapult') {
           S.targetSelectMode = true;
           document.getElementById('action-hint').textContent = `${clickedOther.name} 선택. 공격할 칸을 선택하세요.`;
           _clearAttackConfirmBtns();

@@ -240,6 +240,9 @@ const CHARACTERS = {
       skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
     { type:'undead', name:'언데드', tier:2, atk:1, icon:'/assets/icons/undead.png', tag:'villain', desc:'좌우 · 불사: 피해로 죽지 않음(참수·대지분쇄·보드파괴로만 소멸)',
       passives:['undying'], skills:[] },
+    { type:'catapult', name:'투석기', tier:2, atk:2, icon:'/assets/icons/catapult.png', tag:null, desc:'단일 저격(사거리 무제한, 원하는 1칸)', skills:[] },
+    { type:'windSurfer', name:'윈드서퍼', tier:2, atk:1, icon:'/assets/icons/windSurfer.png', tag:'spirit', desc:'가로3 + 하단 · 바람몰이로 적 강제 이동',
+      skills:[{id:'windPush', name:'바람몰이', cost:2, replacesAction:false, oncePerTurn:true, desc:'적 1명을 인접 빈 칸으로 강제 이동'}] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
       skills:[], passives:['suppression'] },
   ],
@@ -2281,7 +2284,7 @@ function aiTeamTakeTurn(room, idx) {
       const piece = fleePiece, mem = fleeMem;
       // 반격 가치 (현재 자리에서 공격 점수)
       const counterExtra = {};
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
         const bt = aiBestTargetCell(brain, piece, room);
         counterExtra.tCol = bt.col; counterExtra.tRow = bt.row;
       }
@@ -2418,7 +2421,7 @@ function aiTeamTakeTurn(room, idx) {
       const pi = p.pieces.indexOf(piece);
       const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
         const bt = aiTeamBestTargetCell(room, idx, piece);
         extra.tCol = bt.col; extra.tRow = bt.row;
       }
@@ -2528,7 +2531,7 @@ function aiDecideAction(room, idx) {
     if (fleePiece) {
       const piece = fleePiece, mem = fleeMem;
       const counterExtra = {};
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch') { const bt = aiBestTargetCell(brain, piece, room); counterExtra.tCol = bt.col; counterExtra.tRow = bt.row; }
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') { const bt = aiBestTargetCell(brain, piece, room); counterExtra.tCol = bt.col; counterExtra.tRow = bt.row; }
       if (piece.toggleState) counterExtra.toggleState = piece.toggleState;
       const counterScore = aiTeamScoreAttack(room, idx, piece, counterExtra);
       let bestMove = null, bestFleeScore = -1;
@@ -2549,7 +2552,7 @@ function aiDecideAction(room, idx) {
       if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;
       const pi = p.pieces.indexOf(piece); const extra = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0 };
       if (piece.type === 'ratMerchant') extra.rats = room.rats[idx];
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') { const bt = aiTeamBestTargetCell(room, idx, piece); extra.tCol = bt.col; extra.tRow = bt.row; }
       const atkScore = aiTeamScoreAttack(room, idx, piece, extra);
       if (!bestAction || atkScore > bestAction.score) bestAction = { type: 'attack', pieceIdx: pi, score: atkScore, extra };
       for (const d of [[0,-1],[0,1],[-1,0],[1,0]]) { const nc = piece.col + d[0], nr = piece.row + d[1]; if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, piece, nc, nr)) continue; const ms = aiTeamScoreMove(room, idx, piece, nc, nr) * 0.7; if (!bestAction || ms > bestAction.score) bestAction = { type: 'move', pieceIdx: pi, score: ms, col: nc, row: nr }; }
@@ -6967,6 +6970,48 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       return { ok: false, msg: '알 수 없는 요정왕 스킬입니다.' };
     }
 
+    // ── WIND SURFER(윈드서퍼): 바람몰이 — 적 1명을 시전자 반대 방향(넉백) 인접 빈 칸으로 강제 이동 ──
+    case 'windSurfer': {
+      const wsTargetName = params?.targetName;
+      if (!wsTargetName) return { ok: false, msg: '바람몰이 대상을 선택하세요.' };
+      const wsTargetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : getEnemyIndices(room, playerIdx)[0];
+      const wsOwner = room.players[wsTargetOwnerIdx];
+      if (!wsOwner) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
+      const wsTgt = wsOwner.pieces.find(p => p.alive && p.type === wsTargetName && p.col != null);
+      if (!wsTgt) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
+      // 점유 판정용 헬퍼: 살아있는 말이 있으면 막힘(유해는 통과 허용 — 강제 이동이므로).
+      const occupied = (c, r) => room.players.some(pl => pl.pieces.some(p => p.alive && p.col === c && p.row === r));
+      // 넉백 방향 = 시전자→대상 벡터의 부호(대각이면 두 축 모두 시도). 우선순위: 정방향 → 축분해 → 남은 인접칸.
+      const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
+      const dcol = sgn(wsTgt.col - piece.col), drow = sgn(wsTgt.row - piece.row);
+      const cand = [];
+      if (dcol || drow) cand.push([wsTgt.col + dcol, wsTgt.row + drow]);   // 정방향(대각 포함)
+      if (dcol) cand.push([wsTgt.col + dcol, wsTgt.row]);
+      if (drow) cand.push([wsTgt.col, wsTgt.row + drow]);
+      // 폴백: 나머지 상하좌우 인접칸
+      cand.push([wsTgt.col + 1, wsTgt.row], [wsTgt.col - 1, wsTgt.row], [wsTgt.col, wsTgt.row + 1], [wsTgt.col, wsTgt.row - 1]);
+      let dest = null;
+      for (const [c, r] of cand) {
+        if (!inBounds(c, r, bounds)) continue;
+        if (c === wsTgt.col && r === wsTgt.row) continue;
+        if (occupied(c, r)) continue;
+        dest = [c, r]; break;
+      }
+      if (!dest) return { ok: false, msg: '밀어낼 빈 칸이 없습니다.' };
+      spendSP(room, playerIdx, cost);
+      const _wsFromCol = wsTgt.col, _wsFromRow = wsTgt.row;
+      wsTgt.col = dest[0]; wsTgt.row = dest[1];
+      result.msg = `바람몰이: ${wsTgt.name}${조사(wsTgt.name, '을', '를')} 밀어냄`;
+      result.oppMsg = `바람몰이: 상대가 ${wsTgt.name}${조사(wsTgt.name, '을', '를')} 강제 이동`;
+      result.data.ringTeleport = {
+        fromCol: _wsFromCol, fromRow: _wsFromRow,
+        toCol: dest[0], toRow: dest[1],
+        victimOwnerIdx: wsTargetOwnerIdx,
+        victimPieceIdx: wsOwner.pieces.indexOf(wsTgt),
+      };
+      break;
+    }
+
     // ── KING: 절대복종 반지 (force move enemy) ──
     case 'king': {
       const targetName = params?.targetName;
@@ -9004,7 +9049,7 @@ function aiTakeTurn(room) {
 
     // 반격 가치: 현재 위치에서 공격 시 예상 점수 (probMap 기반)
     let counterExtra = {};
-    if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+    if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
       const bt = aiBestTargetCell(brain, piece, room);
       counterExtra.tCol = bt.col; counterExtra.tRow = bt.row;
     }
@@ -9180,7 +9225,7 @@ function aiTakeTurn(room) {
 
       // Attack score
       let atkExtra = { ...extra };
-      if (piece.type === 'shadowAssassin' || piece.type === 'witch') {
+      if (piece.type === 'shadowAssassin' || piece.type === 'witch' || piece.type === 'catapult') {
         const bt = aiBestTargetCell(brain, piece, room);
         atkExtra.tCol = bt.col;
         atkExtra.tRow = bt.row;
