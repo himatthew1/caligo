@@ -178,16 +178,16 @@ const CHARACTERS = {
       skills:[{id:'windPush', name:'바람몰이', cost:2, replacesAction:false, desc:'아군 또는 적 1명을 상하좌우 원하는 방향으로 1칸 강제 이동(모서리면 무효)'}] },
     { type:'watchman', name:'파수꾼', tier:1, atk:0.5, icon:'/assets/icons/watchman.png', tag:null, desc:'주변 8칸 · 자기 제외', skills:[] },
     { type:'twins', name:'쌍둥이 강도', tier:1, atk:1, icon:'/assets/icons/twins.png', tag:'villain', desc:'누나 가로 3칸 / 동생 세로 3칸', isTwin:true,
-      skills:[{id:'brothers', name:'분신', cost:2, replacesAction:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
+      skills:[{id:'brothers', name:'분신', cost:1, replacesAction:false, oncePerTurn:true, desc:'누나가 동생 위치로, 또는 동생이 누나 위치로 합류'}] },
     { type:'scout', name:'척후병', tier:1, atk:1, icon:'/assets/icons/scout.png', tag:'royal', desc:'자신 포함 가로 3칸',
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'/assets/icons/manhunter.png', tag:'villain', desc:'자신 포함 세로 3칸',
-      skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
+      skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:false, oncePerTurn:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
     { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:null, desc:'X대각선 5칸 · 자신 포함',
       skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
     { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null, desc:'상하 각2칸 · 자기 제외',
       skills:[
-        {id:'bomb', name:'폭탄 설치', cost:2, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
+        {id:'bomb', name:'폭탄 설치', cost:1, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
         {id:'detonate', name:'기폭', cost:0, replacesAction:false, oncePerTurn:true, desc:'설치된 폭탄 전부 폭발 · 1 피해'}
       ] },
     { type:'herbalist', name:'약초전문가', tier:1, atk:1, icon:'/assets/icons/herbalist.png', tag:'spirit', desc:'가로 3칸',
@@ -216,16 +216,16 @@ const CHARACTERS = {
     { type:'knight', name:'기사', tier:2, atk:2, icon:'/assets/icons/knight.png', tag:'royal', desc:'자신 포함 X대각선 5칸', skills:[] },
     { type:'shadowAssassin', name:'그림자 암살자', tier:2, atk:2, icon:'/assets/icons/shadowAssassin.png', tag:'villain', desc:'주변 9칸 중 1칸 선택 공격',
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
-    { type:'wizard', name:'마법사', tier:2, atk:2, icon:'/assets/icons/wizard.png', tag:null, desc:'한칸 건너뛴 십자 4칸',
+    { type:'wizard', name:'마법사', tier:2, atk:2, icon:'/assets/icons/wizard.png', tag:'spirit', desc:'한칸 건너뛴 십자 4칸',
       skills:[], passives:['instantMagic'] },
     { type:'armoredWarrior', name:'갑주무사', tier:2, atk:2, icon:'/assets/icons/armoredWarrior.png', tag:null, desc:'자신 + 아래 가로3칸 · 총 4칸',
       skills:[], passives:['ironSkin'] },
-    { type:'witch', name:'마녀', tier:2, atk:1, icon:'/assets/icons/witch.png', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
-      skills:[{id:'curse', name:'저주', cost:3, replacesAction:true, desc:'적 1명에게 저주 부여'}] },
+    { type:'witch', name:'마녀', tier:2, atk:0, icon:'/assets/icons/witch.png', tag:'villain', desc:'전체 보드 중 1칸 선택 공격',
+      skills:[{id:'curse', name:'저주', cost:4, replacesAction:true, desc:'적 1명에게 저주 부여(마녀는 저주 중 행동 불가)'}] },
     { type:'dualBlade', name:'양손 검객', tier:2, atk:2, icon:'/assets/icons/dualBlade.png', tag:null, desc:'좌우 대각선 4칸 · col±1, row±1',
       skills:[{id:'dualStrike', name:'쌍검무', cost:2, replacesAction:false, oncePerTurn:true, desc:'이번 턴 공격 2회 실행'}] },
     { type:'ratMerchant', name:'쥐 장수', tier:2, atk:1, icon:'/assets/icons/ratMerchant.png', tag:'villain', desc:'제자리와 쥐가 소환된 칸 공격',
-      skills:[{id:'rats', name:'역병의 자손들', cost:2, replacesAction:false, desc:'쥐가 없는 랜덤 타일 세 곳에 쥐 소환'}] },
+      skills:[{id:'rats', name:'역병의 자손들', cost:1, replacesAction:false, desc:'쥐가 없는 랜덤 타일 두 곳에 쥐 소환'}] },
     { type:'weaponSmith', name:'무기상', tier:2, atk:2, icon:'/assets/icons/weaponSmith.png', tag:null, desc:'가로 3칸을 공격',
       skills:[{id:'reform', name:'정비', cost:1, replacesAction:false, oncePerTurn:true, desc:'가로 혹은 세로 공격 범위 전환'}] },
     { type:'bodyguard', name:'호위 무사', tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal', desc:'십자 4칸 · 자기 제외',
@@ -249,9 +249,9 @@ const CHARACTERS = {
   3: [
     { type:'prince', name:'왕자', tier:3, atk:2, icon:'/assets/icons/prince.png', tag:'royal', desc:'가로 3칸 · 계승자: 생존 왕실 하나당 +0.5(적 포함)', skills:[], passives:['successor'] },
     { type:'princess', name:'공주', tier:3, atk:3, icon:'/assets/icons/princess.png', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
-    { type:'king', name:'국왕', tier:3, atk:2, icon:'/assets/icons/king.png', tag:'royal', desc:'자신의 칸',
-      skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'적 유닛 하나의 위치 강제 이동'}] },
-    { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:null, desc:'X대각선 4칸 · 자기 제외',
+    { type:'king', name:'국왕', tier:3, atk:3, icon:'/assets/icons/king.png', tag:'royal', desc:'자신의 칸',
+      skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'아군 또는 적 유닛 하나를 원하는 위치로 강제 이동'}] },
+    { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:'spirit', desc:'X대각선 4칸 · 자기 제외',
       skills:[{id:'dragon', name:'드래곤 소환', cost:5, replacesAction:false, oncePerTurn:true, desc:'드래곤 유닛 소환'}] },
     { type:'monk', name:'사제', tier:3, atk:1, icon:'/assets/icons/monk.png', tag:'spirit', desc:'상하 각1칸 · 자기 제외',
       skills:[{id:'divine', name:'신성', cost:3, replacesAction:false, desc:'자신 제외 아군 한명 체력을 2 회복하고 상태 이상 제거'}],
@@ -6732,9 +6732,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
-    // ── RAT MERCHANT: 역병의 자손들 (summon 3 rats) ──
+    // ── RAT MERCHANT: 역병의 자손들 (PPT: 쥐 2마리 소환) ──
     case 'ratMerchant': {
-      // 보드 전체에서 랜덤 3곳 (이미 쥐가 있는 곳 제외)
+      // 보드 전체에서 랜덤 2곳 (이미 쥐가 있는 곳 제외)
       const existingRats = room.rats[playerIdx];
       const allCells = [];
       for (let c = bounds.min; c <= bounds.max; c++)
@@ -6742,7 +6742,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           if (!existingRats.some(er => er.col === c && er.row === r))
             allCells.push({ col: c, row: r });
         }
-      const numRats = Math.min(3, allCells.length);
+      const numRats = Math.min(2, allCells.length);
       const newRats = [];
       for (let i = 0; i < numRats; i++) {
         const ri = Math.floor(Math.random() * allCells.length);
