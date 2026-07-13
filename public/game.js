@@ -16567,6 +16567,10 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     return;
   }
 
+  if (type === 'homunculus') { showMorphUI(pieceIdx); return; }                                  // 변이: 진영 선택
+  if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
+  if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
+
   if (type === 'twins_elder' || type === 'twins_younger') {
     // 쌍둥이: 합류 방향 선택
     showTwinsSkillUI(pieceIdx, pc);
@@ -16683,6 +16687,46 @@ function showMonkSkillUI(pieceIdx) {
   modal.classList.remove('hidden');
 }
 
+// 적 1명을 정체(type)로 지정하는 범용 스킬 UI (흡혈·격노 등). 위치 몰라도 정체로 지정.
+function showEnemyIdentitySkillUI(pieceIdx, skillId, title, descText) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = title;
+  body.innerHTML = '';
+  for (const opc of (S.oppPieces || [])) {
+    if (!opc.alive) continue;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div><div class="skill-desc">${descText}</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      const params = { targetName: opc.type };
+      if (opc.ownerIdx != null) params.targetOwnerIdx = opc.ownerIdx;
+      if (opc.col != null) { params.targetCol = opc.col; params.targetRow = opc.row; }
+      socket.emit('use_skill', { pieceIdx, skillId, params });
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
+// 호문클루스 변이 — 진영 3택.
+function showMorphUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '변이 — 진영 선택';
+  body.innerHTML = '';
+  for (const [f, label] of [['villain','악인'],['royal','왕실'],['spirit','정령']]) {
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${label}</div><div class="skill-desc">이 진영으로 변신</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'morph', params: { faction: f } });
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
 // 요정 페어리 더스트 — 아군 1명 선택 → 행운 부여(다음 피해 1회 0).
 function showFairyDustUI(pieceIdx) {
   const modal = document.getElementById('skill-modal');

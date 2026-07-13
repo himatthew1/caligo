@@ -228,6 +228,8 @@ const CHARACTERS = {
     // ── ★ Phase 3 신규 ──
     { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'/assets/icons/unicorn.png', tag:null, desc:'제자리와 상단 대각선', noRemains:true,
       skills:[], passives:['silverHorn'] },
+    { type:'griffin', name:'그리폰', tier:2, atk:2, icon:'/assets/icons/griffin.png', tag:'spirit', desc:'세로 3칸 · 격노: 피해 받으면 활성', noRemains:true,
+      skills:[{id:'rage', name:'격노', cost:2, replacesAction:false, oncePerTurn:true, desc:'피해 받으면 활성 · 적 1명에게 1 피해'}], passives:['rage'] },
     { type:'ironman', name:'철인', tier:2, atk:0, icon:'/assets/icons/ironman.png', tag:null, desc:'제자리와 상단 · 괴력: 공격력 = 남은 체력',
       skills:[], passives:['might'] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
@@ -252,8 +254,8 @@ const CHARACTERS = {
     { type:'torturer', name:'고문 기술자', tier:3, atk:1, icon:'/assets/icons/torturer.png', tag:'villain', desc:'십자 4방향 · 자기 제외 · 총 4칸',
       skills:[{id:'nightmare', name:'악몽', cost:2, replacesAction:false, desc:'표식 상태의 모든 적에게 1 피해'}],
       passives:['markPassive'] },
-    { type:'count', name:'백작', tier:3, atk:2, icon:'/assets/icons/count.png', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
-      skills:[], passives:['tyranny'] },
+    { type:'count', name:'백작', tier:3, atk:1, icon:'/assets/icons/count.png', tag:'villain', desc:'제자리와 대각선 · 흡혈: 최대체력 조작',
+      skills:[{id:'vampire', name:'흡혈', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 최대체력 -1, 자신 +1(왕실 대상 시 상한 돌파)'}] },
     // ── ★ Phase 3 신규 ──
     { type:'militia', name:'민병대장', tier:3, atk:3, icon:'/assets/icons/militia.png', tag:null, desc:'가로 3칸', skills:[] },
     { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
@@ -261,6 +263,8 @@ const CHARACTERS = {
       skills:[{id:'earthquake', name:'대지 분쇄', cost:3, replacesAction:false, oncePerTurn:true, desc:'주위 9칸 설치물 전파괴 + 범위 내 악인 1 피해'}] },
     { type:'gladiator', name:'검투사', tier:3, atk:2, icon:'/assets/icons/gladiator.png', tag:null, desc:'좌우와 상단',
       skills:[{id:'grit', name:'투지', cost:3, replacesAction:false, desc:'스킬 없는 아군 회복1 + 다음 차례까지 사기증진'}] },
+    { type:'homunculus', name:'호문클루스', tier:3, atk:2, icon:'/assets/icons/homunculus.png', tag:null, desc:'좌우 + 하단 대각2',
+      skills:[{id:'morph', name:'변이', cost:1, replacesAction:false, desc:'다음 턴까지 진영 변신[악인/왕실/정령]'}] },
   ]
 };
 
@@ -4025,7 +4029,11 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ownerIdx, msg: `인스턴트 매직 : SP 획득` });
     emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ownerIdx });
   }
-  // TODO(Phase3/4): 오베론 요정왕(정령 피해→카운터+1) · 드라이어드 생장(사거리+1) · 그리폰 격노(스킬 활성).
+  // [그리폰] 격노 — 피해 받으면 스킬 활성.
+  if (passives.includes('rage')) victim._rageActive = true;
+  // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
+  if (passives.includes('growth')) victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;
+  // TODO(Phase4): 오베론 요정왕(정령 피해→카운터+1).
 }
 
 function resolveDamage(room, attackerPiece, defenderPiece, attackerIdx, baseDamage, isStatusDmg, defIdx) {
@@ -4114,8 +4122,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
     }
   }
 
-  // Step 7: Count hit by tier 1 or 2 => -0.5
-  if (defenderPiece.type === 'count' && (attackerPiece.tier === 1 || attackerPiece.tier === 2)) {
+  // Step 7: Count hit by tier 1 or 2 => -0.5 (★ 폭정 패시브 보유 시에만 — 백작 리워크로 폭정 제거되면 미발동)
+  if ((defenderPiece.passives || []).includes('tyranny') && (attackerPiece.tier === 1 || attackerPiece.tier === 2)) {
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
@@ -5194,8 +5202,10 @@ function processTurnStart(room) {
 
   // Remove shadow effects from THIS player's pieces (shadow lasts until own next turn)
   // ★ Phase 3: rally(검투사 투지 임시 사기증진 +1 ATK)도 '다음 자신의 차례'에 해제 — 동일 타이밍.
+  //   호문클루스 변이(_tagOverride)도 '다음 자신의 턴까지'라 여기서 원복.
   for (const p of player.pieces) {
     p.statusEffects = p.statusEffects.filter(e => e.type !== 'shadow' && e.type !== 'rally');
+    if (p._tagOverride) p._tagOverride = null;
   }
 
   // ★ Pre-curse HP 스냅샷은 보드 축소 *이후* 캡처해야 함 (사용자 보고:
@@ -6742,6 +6752,67 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `투지: 스킬 없는 아군 ${rallied.length}명 회복+사기증진`;
       result.oppMsg = `투지`;
       result.data.rallied = rallied;
+      break;
+    }
+
+    // ── HOMUNCULUS: 변이 (진영 변신 [악인/왕실/정령] · 자유시전) ──
+    case 'homunculus': {
+      const f = params && params.faction;
+      if (!['villain', 'royal', 'spirit'].includes(f)) return { ok: false, msg: '변신할 진영을 선택하세요.' };
+      spendSP(room, playerIdx, cost);
+      piece._tagOverride = f;   // 다음 자신의 턴까지 유지(턴 시작 해제)
+      result.msg = `변이: ${f === 'villain' ? '악인' : f === 'royal' ? '왕실' : '정령'} 진영으로 변신`;
+      result.oppMsg = `변이`;
+      result.data.morphFaction = f;
+      break;
+    }
+
+    // ── COUNT(백작): 흡혈 (적 최대체력 -1, 자신 +1 · 왕실 대상 시 상한 돌파) ──
+    case 'count': {
+      let tgt = null, tgtOwner = -1;
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        if (params && params.targetCol != null) tgt = ep.pieces.find(p => p.alive && p.col === params.targetCol && p.row === params.targetRow);
+        else if (params && params.targetName) tgt = ep.pieces.find(p => p.alive && p.type === params.targetName);
+        if (tgt) { tgtOwner = ei; break; }
+      }
+      if (!tgt) return { ok: false, msg: '흡혈 대상을 선택하세요.' };
+      spendSP(room, playerIdx, cost);
+      const wasRoyal = (typeof isFaction === 'function') ? isFaction(tgt, 'royal') : tgt.tag === 'royal';
+      // 데미지/피격이 아니라 '감소' — 반응형 효과 미발동(스펙).
+      tgt.maxHp = Math.max(0, (tgt.maxHp || 0) - 1);
+      if (tgt.hp > tgt.maxHp) tgt.hp = tgt.maxHp;
+      piece.hp = piece.hp + 1;
+      if (wasRoyal) { if (piece.hp > piece.maxHp) piece.maxHp = piece.hp; }   // 왕실 대상 → 상한 돌파
+      else piece.hp = Math.min(piece.maxHp, piece.hp);
+      const destroyed = tgt.hp <= 0 || tgt.maxHp <= 0;
+      if (destroyed) { tgt.hp = 0; handleDeath(room, tgt, tgtOwner); }
+      result.msg = `흡혈: ${tgt.name} 최대체력 -1`;
+      result.oppMsg = `흡혈: 최대체력 감소`;
+      result.data.vamp = { col: tgt.col, row: tgt.row, destroyed };
+      break;
+    }
+
+    // ── GRIFFIN: 격노 (피해 받으면 활성 · 적 1명에게 1 피해) ──
+    case 'griffin': {
+      if (!piece._rageActive) return { ok: false, msg: '격노: 피해를 받아야 활성화됩니다.' };
+      let tgt = null, tgtOwner = -1;
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        if (params && params.targetCol != null) tgt = ep.pieces.find(p => p.alive && p.col === params.targetCol && p.row === params.targetRow);
+        else if (params && params.targetName) tgt = ep.pieces.find(p => p.alive && p.type === params.targetName);
+        if (tgt) { tgtOwner = ei; break; }
+      }
+      if (!tgt) return { ok: false, msg: '격노 대상을 선택하세요.' };
+      spendSP(room, playerIdx, cost);
+      piece._rageActive = false;
+      const gdmg = resolveDamage(room, piece, tgt, playerIdx, 1, false, tgtOwner);
+      tgt.hp = Math.max(0, tgt.hp - gdmg);
+      const gdead = tgt.hp <= 0;
+      if (gdead) handleDeath(room, tgt, tgtOwner);
+      result.msg = `격노: ${tgt.name}에게 ${gdmg} 피해`;
+      result.oppMsg = `격노`;
+      result.data.hits = [{ col: tgt.col, row: tgt.row, damage: gdmg, newHp: tgt.hp, destroyed: gdead, defPieceIdx: room.players[tgtOwner].pieces.indexOf(tgt), defOwnerIdx: tgtOwner }];
       break;
     }
 
