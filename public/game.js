@@ -4496,6 +4496,7 @@ socket.on('game_start', (data) => {
   // ★ 이번 턴 행동 소진 상태 복원 (재접속) — 새 게임이면 모두 undefined → false 로 초기화.
   //   이 값을 buildGameUI/액션바 표시 *전*에 세팅해야 "이미 행동함" 상태가 UI 에 정확히 반영됨.
   S.actionDone = !!data.actionDone;
+  S.decreeRoyalMoves = data.decreeRoyalMoves || 0;   // ★ 전령 칙명 잔여 이동권
   S.actionUsedSkillReplace = !!data.actionUsedSkillReplace;
   S.skillsUsedThisTurn = Array.isArray(data.skillsUsed) ? data.skillsUsed : [];
   S.lastActionPieceType = data.lastActionPieceType || null;
@@ -4677,6 +4678,7 @@ socket.on('your_turn', (data) => {
   S.selectedPiece = null;
   S.targetSelectMode = false;
   S.actionDone = false;
+  S.decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화(새 턴)
   S.moveDone = false;
   S.skillsUsedThisTurn = [];
   S.actionUsedSkillReplace = false;
@@ -4735,13 +4737,14 @@ socket.on('opp_turn', (data) => {
 });
 
 // ── 이동 결과 ──
-socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub }) => {
+socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub, decreeRoyalMoves }) => {
   const pc = yourPieces[pieceIdx];
   animateMove(pc.icon, prev.col, prev.row, col, row, pc.type, pc.subUnit, `${S.playerIdx}:${pieceIdx}`);
   playSfx('move');
   S.myPieces = yourPieces;
   if (boardObjects) S.boardObjects = boardObjects;
   if (remains) S.remains = remains;
+  if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;   // ★ 전령 칙명 잔여 이동권
 
   // 쌍둥이 이동 페이즈 — 토스트/로그는 페이즈 종료 시점에 단 한 번만 (개별 이동마다 X)
   if (S.twinPhaseActive) {
@@ -7344,7 +7347,7 @@ function playBoardQuake() {
 //   ② SP 차감 집중 + 마법구 비행 (~2s)
 //   ③ 화면 dim 해제 (밝아짐)
 //   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
-socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx }) => {
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves }) => {
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
@@ -7355,6 +7358,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   // 1단계 — 즉시: 행동 플래그 + dim 오버레이 + SP 차감 집중 (마법구 비행)
   //   ★ SFX 는 SP 비행 종료 시점(SP_END) 으로 이동 — 보드 효과/토스트 와 동기화.
   if (actionDone !== undefined) S.actionDone = actionDone;
+  if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
@@ -13153,6 +13157,11 @@ function pieceCanTakeBasicAction(pc) {
   // ★ 사용자 요청: 쌍검무 활성 시 — 양손검객만 행동 가능. 다른 유닛은 일괄 불가.
   const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeCaster) return pc === dualBladeCaster;
+  // ★ 전령 칙명: 행동을 마쳤어도 왕실 유닛(배신/이교단 아님)은 이동권이 남아있으면 행동 가능.
+  if ((S.decreeRoyalMoves || 0) > 0 && pc.tag === 'royal'
+      && !(pc.statusEffects || []).some(e => e.type === 'betray') && !pc._cultOf) {
+    return true;
+  }
   // 일반 케이스
   if (S.actionUsedSkillReplace) return false;
   if (S.twinMovePending && pc.subUnit && S.twinMovedSub !== pc.subUnit) return true;

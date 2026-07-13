@@ -185,8 +185,8 @@ const CHARACTERS = {
       skills:[{id:'recon', name:'정찰', cost:2, replacesAction:false, desc:'랜덤 적 1개의 행 또는 열 공개'}] },
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'/assets/icons/manhunter.png', tag:'villain', desc:'자신 포함 세로 3칸',
       skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:false, oncePerTurn:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
-    { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:null, desc:'X대각선 5칸 · 자신 포함',
-      skills:[{id:'sprint', name:'질주', cost:1, replacesAction:false, oncePerTurn:true, desc:'이번 턴 이동 2회 실행'}] },
+    { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:'royal', desc:'좌우 세로3칸 · 칙명: 행동을 마쳤다면 왕실 유닛 조작 행동권 +1',
+      skills:[{id:'decree', name:'칙명', cost:3, replacesAction:false, oncePerTurn:true, desc:'이번 차례에 행동을 마쳤다면, 왕실 유닛 이동을 1회 추가 실행'}] },
     { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null, desc:'상하 각2칸 · 자기 제외',
       skills:[
         {id:'bomb', name:'폭탄 설치', cost:1, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
@@ -5468,6 +5468,7 @@ function processTurnStart(room) {
   player._anySkillUsedThisTurn = false;  // 턴스킵 판정용 (oncePerTurn 외 자유 스킬 포함)
 
   // Reset per-turn skill states for current player
+  player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화
   for (const p of player.pieces) {
     p.dualBladeAttacksLeft = 0;
     p.messengerSprintActive = false;
@@ -6638,24 +6639,20 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     // ── MESSENGER: 질주 — 이동권 +1회 ──
     // 사용 가능: 아직 행동 없음 / 본인(전령) 이동 후
     // 사용 불가: 누구든 공격함 / 다른 유닛이 이동함
+    // ── MESSENGER(전령): 칙명 — 이번 차례에 행동을 마쳤다면 왕실 유닛 이동 1회 추가(자유시전1회 SP3) ──
     case 'messenger': {
-      if (player._lastActionType === 'attack') {
-        return { ok: false, msg: '공격 후에는 질주를 사용할 수 없습니다.' };
+      if (!player.actionDone && !player.actionUsedSkillReplace && player._lastActionType !== 'move' && player._lastActionType !== 'attack') {
+        return { ok: false, msg: '칙명은 이번 차례에 행동을 마친 뒤에만 사용할 수 있습니다.' };
       }
-      if (player._lastActionType === 'move' &&
-          (player._lastActionPieceType !== 'messenger')) {
-        return { ok: false, msg: '다른 유닛이 이동했으므로 질주를 사용할 수 없습니다.' };
-      }
-      // 질주 활성화 — 이번 턴 이동권 1회 추가 제공
-      piece.messengerSprintActive = true;
-      // 이동권: 아직 이동 안 했으면 2회, 이미 1회 이동했으면 1회 더 남음
-      piece.messengerMovesLeft = player.actionDone ? 1 : 2;
-      // ★ 사용자 정정: 질주는 자유 시전형 1회 (replacesAction:false, oncePerTurn:true) —
-      //   actionUsedSkillReplace 부여 금지. 본 라인이 클라 측 모든 행동 차단을 유발했음.
-      //   공격 차단이 필요하다면 별도 플래그를 도입해야 하지만, 자유시전형 정의상 공격도 가능.
+      // 조작 가능한 왕실 유닛(살아있고 배신/이교단 아님)이 없으면 발동 불가(이단자와 동일 원리).
+      const hasControllableRoyal = player.pieces.some(p => p.alive
+        && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')
+        && !(p.statusEffects || []).some(e => e.type === 'betray') && p._cultOf == null);
+      if (!hasControllableRoyal) return { ok: false, msg: '조작할 수 있는 왕실 유닛이 없습니다.' };
+      player._decreeRoyalMoves = (player._decreeRoyalMoves || 0) + 1;
       spendSP(room, playerIdx, cost);
-      result.msg = `질주: 전령은 추가 이동 가능`;
-      result.oppMsg = `질주: 전령은 추가 이동 가능`;
+      result.msg = `칙명: 왕실 유닛 이동 1회 추가`;
+      result.oppMsg = `칙명: 상대가 왕실 이동권 획득`;
       break;
     }
 
@@ -11277,12 +11274,16 @@ io.on('connection', (socket) => {
 
     const player = room.players[idx];
 
-    // Check if action already done (unless messenger sprint OR twin's other half not yet moved)
+    // Check if action already done (unless messenger sprint OR twin's other half OR 칙명 왕실 이동권)
     {
       const _pc = player.pieces[pieceIdx];
       const _twinSecondMove = _pc && (_pc.subUnit === 'elder' || _pc.subUnit === 'younger') &&
         Array.isArray(player.twinMovedSubs) && !player.twinMovedSubs.includes(_pc.subUnit);
-      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove) {
+      // ★ 전령 칙명: 행동을 마친 뒤에도 왕실 유닛(배신/이교단 아님)을 1회 추가 이동 가능.
+      const _decreeMove = (player._decreeRoyalMoves > 0) && _pc && _pc.alive
+        && (typeof isFaction === 'function' ? isFaction(_pc, 'royal') : _pc.tag === 'royal')
+        && !(_pc.statusEffects || []).some(e => e.type === 'betray') && _pc._cultOf == null;
+      if (player.actionDone && !_pc?.messengerSprintActive && !_twinSecondMove && !_decreeMove) {
         socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
       }
     }
@@ -11378,6 +11379,10 @@ io.on('connection', (socket) => {
         piece.messengerSprintActive = false;
         player.actionDone = true;
       }
+    } else if (player.actionDone && player._decreeRoyalMoves > 0
+        && (typeof isFaction === 'function' ? isFaction(piece, 'royal') : piece.tag === 'royal')) {
+      // ★ 전령 칙명: 왕실 유닛 추가 이동 소진(actionDone 은 이미 true 유지).
+      player._decreeRoyalMoves--;
     } else {
       player.actionDone = true;
     }
@@ -11398,6 +11403,7 @@ io.on('connection', (socket) => {
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
+      decreeRoyalMoves: player._decreeRoyalMoves || 0,   // ★ 전령 칙명 잔여 이동권
     });
 
     // ★ Phase 3: 중독 틱 — 이동을 완료한 유닛이 중독이면 0.1×스택 지속뎀(감경 우회). move_ok 뒤 발동.
@@ -12209,7 +12215,7 @@ io.on('connection', (socket) => {
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
         remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-        actionDone: room.players[idx].actionDone,
+        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
         casterPieceIdx: pieceIdx,
@@ -12282,7 +12288,7 @@ io.on('connection', (socket) => {
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
         remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-        actionDone: room.players[idx].actionDone,
+        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
         casterPieceIdx: pieceIdx,           // 시전자 카드 spotlight 용
@@ -12475,7 +12481,7 @@ io.on('connection', (socket) => {
       skillPoints: room.sp,
       boardObjects: boardObjectsSummary(room, idx),
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-      actionDone: room.players[idx].actionDone,
+      actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
       actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
       skillsUsed: room.players[idx].skillsUsedBeforeAction,
     };
