@@ -14401,6 +14401,12 @@ function renderGameBoard() {
                         (S.myPieces.some(p => p.alive && p.col === col && p.row === row)) ||
                         (S.oppPieces && S.oppPieces.some(p => p.alive && p.col === col && p.row === row));
         if (adj && !blocked && col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) inSkillRange = true;
+      } else if (std.type === 'exhume_cell') {
+        // 묘지기 도굴: 공격범위 내 유해가 있는 칸만
+        const src = S.myPieces[std.pieceIdx];
+        const inR = src && getAttackCells(src.type, src.col, src.row, { toggleState: src.toggleState }).some(c => c.col === col && c.row === row);
+        const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
+        if (inR && hasRem) inSkillRange = true;
       } else {
         const _exRem2 = (std.type === 'dragon_place') && S.remains && S.remains.some(r => r.col === col && r.row === row);
         if (col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max && !_exRem2) {
@@ -16674,6 +16680,37 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     renderGameBoard();
     return;
   }
+  if (type === 'gravekeeper') {
+    // 도굴: 공격범위 내 유해 선택
+    S.action = 'skill_target';
+    S.skillTargetData = { pieceIdx, skillId: 'exhume', type: 'exhume_cell' };
+    document.getElementById('btn-cancel').classList.remove('hidden');
+    document.getElementById('action-hint').textContent = `도굴할 유해를 선택하세요`;
+    renderGameBoard();
+    return;
+  }
+  if (type === 'princess') {
+    // 그레이스 키스: 개구리 상태 아군 선택
+    const modal = document.getElementById('skill-modal');
+    const body = document.getElementById('skill-modal-body');
+    document.getElementById('skill-modal-title').textContent = '그레이스 키스 — 개구리 아군 선택';
+    body.innerHTML = '';
+    const frogs = (S.myPieces || []).filter(p => p.alive && (p.statusEffects || []).some(e => e.type === 'frog'));
+    if (S.isTeamMode && S.teammatePieces) frogs.push(...S.teammatePieces.filter(p => p.alive && (p.statusEffects || []).some(e => e.type === 'frog')));
+    if (frogs.length === 0) { setActionHint('개구리 상태의 아군이 없습니다.', true); return; }
+    for (const fp of frogs) {
+      const opt = document.createElement('div');
+      opt.className = 'skill-option';
+      opt.innerHTML = `<div class="skill-name">${pieceIconHtml(fp.icon, {size:'1.2em'})} ${fp.name} 🐸</div><div class="skill-desc">개구리 해제</div>`;
+      opt.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        socket.emit('use_skill', { pieceIdx, skillId: 'graceKiss', params: { targetName: fp.type } });
+      });
+      body.appendChild(opt);
+    }
+    modal.classList.remove('hidden');
+    return;
+  }
 
   if (type === 'twins_elder' || type === 'twins_younger') {
     // 쌍둥이: 합류 방향 선택
@@ -17557,6 +17594,13 @@ function handleGameCellClick(col, row) {
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     } else if (data.type === 'drive_cell') {
       // ★ 투석기 구동: 인접 1칸 이동
+      socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
+    } else if (data.type === 'exhume_cell') {
+      // ★ 묘지기 도굴: 범위 내 유해 제거
+      if (!S.remains || !S.remains.some(r => r.col === col && r.row === row)) {
+        const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '그 칸에 유해가 없습니다.';
+        return;
+      }
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     }
     resetAction();

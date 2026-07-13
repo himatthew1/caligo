@@ -195,8 +195,8 @@ const CHARACTERS = {
     // ── ★ Phase 3 신규(무스킬·무패시브) ──
     { type:'wanderer', name:'방랑자', tier:1, atk:1, icon:'/assets/icons/wanderer.png', tag:null, desc:'도약 — 나이트 8칸', skills:[] },
     { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'/assets/icons/hookKiller.png', tag:'villain', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
-    { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능',
-      skills:[], passives:['valor'] },
+    { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능 · 도굴로 유해 제거+SP',
+      skills:[{id:'exhume', name:'도굴', cost:0, replacesAction:false, desc:'공격범위 내 유해 하나를 제거하고 인스턴트 SP 2 획득'}], passives:['valor'] },
     { type:'fairy', name:'요정', tier:1, atk:0.5, icon:'/assets/icons/fairy.png', tag:'spirit', desc:'H자(좌우 세로3+제자리)',
       skills:[{id:'fairyDust', name:'페어리 더스트', cost:2, replacesAction:false, desc:'아군 1명에게 행운 부여(다음 피해 1회 0)'}] },
     { type:'mermaid', name:'샘의 인어', tier:1, atk:1, icon:'/assets/icons/mermaid.png', tag:'spirit', desc:'제자리와 상단',
@@ -248,7 +248,9 @@ const CHARACTERS = {
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:2, icon:'/assets/icons/prince.png', tag:'royal', desc:'가로 3칸 · 계승자: 생존 왕실 하나당 +0.5(적 포함)', skills:[], passives:['successor'] },
-    { type:'princess', name:'공주', tier:3, atk:3, icon:'/assets/icons/princess.png', tag:'royal', desc:'자신 포함 상하 3칸', skills:[] },
+    { type:'princess', name:'공주', tier:3, atk:2, icon:'/assets/icons/princess.png', tag:'royal', desc:'상하 2칸 · 후원자: 게임 시작 시 모든 아군 왕실 HP+1 · 그레이스 키스로 개구리 해제',
+      passives:['patron'],
+      skills:[{id:'graceKiss', name:'그레이스 키스', cost:1, replacesAction:false, oncePerTurn:true, desc:'개구리 상태의 아군 1명을 개구리에서 해제'}] },
     { type:'king', name:'국왕', tier:3, atk:3, icon:'/assets/icons/king.png', tag:'royal', desc:'자신의 칸',
       skills:[{id:'ring', name:'절대복종 반지', cost:3, replacesAction:false, desc:'아군 또는 적 유닛 하나를 원하는 위치로 강제 이동'}] },
     { type:'dragonTamer', name:'드래곤 조련사', tier:3, atk:2, icon:'/assets/icons/dragonTamer.png', tag:'spirit', desc:'X대각선 4칸 · 자기 제외',
@@ -525,6 +527,22 @@ function applyDarkVeil(room, piece, cells) {
   if (!darkVeilActive(room)) return cells;   // 마왕 참수 등으로 비활성이면 봉인 해제(전 범위 복구)
   const bc = piece.col + piece._darkVeilOff.dc, br = piece.row + piece._darkVeilOff.dr;
   return cells.filter(c => !(c.col === bc && c.row === br));
+}
+// ★ Phase 3: 공주 후원자 — 게임 시작 시(최초 1회) 살아있는 공주의 팀 왕실 아군 전원 HP/최대HP +1.
+//   이후 처형인으로 후원자가 제거돼도 이미 부여된 HP는 유효(1회성이라 되돌리지 않음).
+function initPatronBonus(room) {
+  if (!room || !room.players) return;
+  for (let pi = 0; pi < room.players.length; pi++) {
+    const pl = room.players[pi]; if (!pl || !pl.pieces) continue;
+    const hasPrincess = pl.pieces.some(p => p.type === 'princess');
+    if (!hasPrincess) continue;
+    for (const p of pl.pieces) {
+      if (p && p.type !== 'undead' && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) {
+        p.maxHp = (p.maxHp || 0) + 1;
+        p.hp = (p.hp || 0) + 1;
+      }
+    }
+  }
 }
 // ★ Phase 3: 언데드 부패한 영혼 — HP0로 시작·항상 유해로 간주(alive 유지). 게임 시작 시 강제.
 function initUndeadState(room) {
@@ -3294,6 +3312,7 @@ function startTeamGameFromRoom(room) {
   room.phase = 'game';
   // ★ Phase 3: 마왕 어둠장막 오프셋 점지(팀전도 동일).
   assignDarkVeilOffsets(room);
+  initPatronBonus(room);   // ★ 공주 후원자(왕실 아군 HP+1)
   initUndeadState(room);   // ★ 언데드 HP0 시작
   // ── 슬롯 정규화: 각 팀이 정확히 slotPos 0/1 한 명씩 갖도록 강제 ──
   // 기존 slotPos 가 명시되어 있으면 그 값을 우선 보존 (봇 추가 시 명시적 slotPos 가 join 순서와 다를 수 있음)
@@ -3917,6 +3936,7 @@ function startGameFromRoom(room) {
   room.phase = 'game';
   // ★ Phase 3: 마왕 어둠장막 — 악인 외 전 유닛에 봉인 오프셋 점지(게임 시작 1회, 저장). 활성화는 마왕 생존 시.
   assignDarkVeilOffsets(room);
+  initPatronBonus(room);   // ★ 공주 후원자(왕실 아군 HP+1)
   initUndeadState(room);   // ★ 언데드 HP0 시작(부패한 영혼)
   const firstPlayer = Math.random() < 0.5 ? 0 : 1;
   const secondPlayer = 1 - firstPlayer;
@@ -7142,6 +7162,41 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         victimOwnerIdx: wsOwnerIdx,
         victimPieceIdx: room.players[wsOwnerIdx].pieces.indexOf(wsTgt),
       };
+      break;
+    }
+
+    // ── PRINCESS(공주): 그레이스 키스 — 개구리 상태 아군 1명을 개구리에서 해제(자유시전1회 SP1) ──
+    case 'princess': {
+      const gkTargetName = params?.targetName;
+      if (!gkTargetName) return { ok: false, msg: '개구리 아군을 선택하세요.' };
+      let gkTgt = null;
+      for (const ai of getAllyIndices(room, playerIdx)) {
+        const ap = room.players[ai]; if (!ap) continue;
+        const t = ap.pieces.find(p => p.alive && p.type === gkTargetName && hasStatus(p, 'frog'));
+        if (t) { gkTgt = t; break; }
+      }
+      if (!gkTgt) return { ok: false, msg: '개구리 상태의 아군이 아닙니다.' };
+      removeStatus(gkTgt, 'frog');
+      spendSP(room, playerIdx, cost);
+      result.msg = `그레이스 키스: ${gkTgt.name} 개구리 해제`;
+      result.oppMsg = `그레이스 키스`;
+      break;
+    }
+
+    // ── GRAVEKEEPER(묘지기): 도굴 — 공격범위 내 유해 하나 제거 + 인스턴트 SP 2 (자유시전 SP0) ──
+    case 'gravekeeper': {
+      const dCol = params?.col, dRow = params?.row;
+      if (dCol == null || dRow == null) return { ok: false, msg: '도굴할 유해를 선택하세요.' };
+      const gkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, {});
+      if (!gkCells.some(c => c.col === dCol && c.row === dRow)) return { ok: false, msg: '공격범위 내 유해만 도굴할 수 있습니다.' };
+      if (!room.remains || !room.remains.some(r => r.col === dCol && r.row === dRow)) return { ok: false, msg: '그 칸에 유해가 없습니다.' };
+      room.remains = room.remains.filter(r => !(r.col === dCol && r.row === dRow));
+      const slot = teamSlotIdx(room, playerIdx);
+      room.instantSp[slot] = Math.min(10, (room.instantSp[slot] || 0) + 2);
+      result.msg = `도굴: 유해 제거 + 인스턴트 SP 2`;
+      result.oppMsg = `도굴: 상대가 유해를 도굴`;
+      result.data.exhumedCell = { col: dCol, row: dRow };
+      result.data.remains = room.remains.slice();
       break;
     }
 
