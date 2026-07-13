@@ -234,6 +234,8 @@ const CHARACTERS = {
       skills:[], passives:['growth'] },
     { type:'ironman', name:'철인', tier:2, atk:0, icon:'/assets/icons/ironman.png', tag:null, desc:'제자리와 상단 · 괴력: 공격력 = 남은 체력',
       skills:[], passives:['might'] },
+    { type:'heretic', name:'이단자', tier:2, atk:1, icon:'/assets/icons/heretic.png', tag:'villain', desc:'세로 3칸 · 현혹: 공격 대상 이교단화(전원 이교단 시 승리)',
+      skills:[], passives:['enthrall'] },
     { type:'courtier', name:'궁정대신', tier:2, atk:1, icon:'/assets/icons/courtier.png', tag:'royal', desc:'제자리 포함 U · 탄압: 비왕실 스킬 SP +1',
       skills:[], passives:['suppression'] },
   ],
@@ -836,7 +838,7 @@ function isPlayerEliminated(room, idx) {
   if (room.eliminatedPlayers && room.eliminatedPlayers.has(idx)) return true;
   const p = room.players[idx];
   if (!p || !p.pieces) return false;
-  return p.pieces.every(piece => !piece.alive);
+  return p.pieces.every(piece => (typeof _isNeutralized === 'function') ? _isNeutralized(piece) : !piece.alive);
 }
 // 팀 전멸 여부
 function isTeamEliminated(room, teamId) {
@@ -4084,6 +4086,11 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
     return 0;
   }
 
+  // ★ Phase 3: 이교단(현혹된 유닛)은 이단자에게 공격 데미지 0 (피격 판정·표식 등은 정상, 데미지만 0).
+  if (!isStatusDmg && attackerPiece && attackerPiece._cultOf != null && defenderPiece.type === 'heretic') {
+    return 0;
+  }
+
   // Step 4.5: ★ Phase 2 행운/불행 (상태이상 지속뎀엔 미적용). 판정 #9: 증폭(불행)→감경(-0.5) 순서.
   //   행운=이번 피해 1회 0(스택 1 소모, 피격 판정·데미지 트리거는 정상=0뎀도 데미지). 불행=받는 피해
   //   +스택수 증폭 후 전부 해제. 아직 부여 스킬(요정 페어리더스트·포춘텔러 흉조)은 Phase 3라 inert.
@@ -4601,6 +4608,16 @@ function handleDeath(room, deadPiece, ownerIdx) {
   deadPiece.alive = false;
   const owner = room.players[ownerIdx];
 
+  // ★ Phase 3: 이단자 사망 → 그 소유주가 건 현혹 해제(다른 이단자 없을 때만). 이교단이 소속 되찾음.
+  if (deadPiece.type === 'heretic') {
+    const stillHasHeretic = (owner && owner.pieces || []).some(p => p.alive && p.type === 'heretic' && p !== deadPiece);
+    if (!stillHasHeretic) {
+      for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+        if (p._cultOf === ownerIdx) p._cultOf = null;
+      }
+    }
+  }
+
   // 팀전: 플레이어 전멸 감지 → team_player_eliminated 이벤트 (1회성)
   if (room.mode === 'team' && owner) {
     if (!room.eliminatedPlayers) room.eliminatedPlayers = new Set();
@@ -4868,6 +4885,11 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
             addStatus(defPiece, 'poison', { stacks: 1 });
           }
+          // ★ Phase 3: 현혹(이단자) — 공격받은 대상 이교단화(소속 상실). 면역(유니콘/그림자) 제외.
+          if (!destroyed && (atkPiece.passives || []).includes('enthrall') && isPassiveActive(atkPiece, 'enthrall')
+              && typeof isStatusImmune === 'function' && !isStatusImmune(defPiece) && defPiece.type !== 'heretic') {
+            defPiece._cultOf = attackerIdx;
+          }
           if (destroyed) {
             handleDeath(room, defPiece, defIdx);
           }
@@ -5046,10 +5068,18 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   return hitResults;
 }
 
+// ★ Phase 3 알트승리 — 유닛이 사망 OR 이교단(이단자 현혹) OR 배신(이야기꾼 선동)이면 '무력화'.
+//   전원 무력화 = 그 소유주는 싸울 유닛이 없음 → 패배(전멸과 동일 취급). 정령전멸/오베론종언은 별도 아님.
+function _isNeutralized(piece) {
+  if (!piece || !piece.alive) return true;
+  if (typeof pieceFaction === 'function' && piece._cultOf != null) return true;   // 이교단(현혹)
+  if (typeof hasStatus === 'function' && hasStatus(piece, 'betray')) return true; // 배신(선동)
+  return false;
+}
 function checkWin(room, defenderIdx) {
   const defender = room.players[defenderIdx];
-  // 드래곤 포함 모든 유닛이 죽어야 패배 (드래곤 살아있으면 패배 불가)
-  return defender.pieces.every(p => !p.alive);
+  // 드래곤 포함 모든 유닛이 무력화(사망/이교단/배신)돼야 패배 (드래곤 살아있으면 패배 불가)
+  return defender.pieces.every(_isNeutralized);
 }
 
 // ══════════════════════════════════════════════════════════════════
