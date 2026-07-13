@@ -318,6 +318,18 @@ function effectiveAttackType(piece) {
   if (!piece) return null;
   return isFrog(piece) ? 'frog' : piece.type;
 }
+// 중독 틱 — 중독 유닛이 '이동·공격·행동소비 스킬을 완료한 직후'(판정 최후반) 0.1×스택 데미지.
+//   상태이상 지속뎀이라 아이언스킨/폭정 등 감경 미적용(파이프라인 우회). 원천 사망 후에도 유지.
+//   ★ Phase 3 배선 예정: move/attack/행동소비스킬 핸들러의 최종 완료 지점(플레이어+AI)에서 호출.
+//     반환: 이번 틱 데미지(0=중독 아님). 사망 시 handleDeath 는 호출부가 페이즈 컨텍스트에서 처리.
+function applyPoisonTick(room, piece, ownerIdx) {
+  if (!piece || !piece.alive) return 0;
+  const st = statusStacks(piece, 'poison');
+  if (st <= 0) return 0;
+  const dmg = 0.1 * st;
+  piece.hp = Math.max(0, Math.round((piece.hp - dmg) * 100) / 100);   // 감경 우회(상태이상 지속뎀)
+  return dmg;
+}
 
 // ══════════════════════════════════════════════════════════════════
 // ── 더미 캐릭터 (미정 — 추후 커스텀 모드 전용) ────────────────────
