@@ -1897,9 +1897,18 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
   text-align: left;
   flex: 1;
   min-height: 200px;       /* 2개 스킬 블록(약초학+신성, 폭탄+기폭) 한 화면 보장 */
-  overflow-y: visible;     /* 내부 스크롤 X — slide-content가 전체 스크롤 처리 */
+  max-height: 240px;       /* 마녀처럼 스킬 3개인 유닛 → 넘치면 내부 스크롤 */
+  overflow-y: auto;
+  scrollbar-width: none;   /* 스크롤바는 숨기고 스크롤만 (Firefox) */
   margin-bottom: 10px;
 }
+.slide-skill-box::-webkit-scrollbar { display: none; }   /* 스크롤바 숨김 (Chrome/Safari) */
+/* 특성 구분선 — 스킬과 특성(질주·낡은 심장) 사이 */
+.skill-trait-divider {
+  border-top: 1px dashed var(--border);
+  margin: 12px 0 10px;
+}
+.skill-trait-divider:first-child { display: none; }   /* 위에 스킬이 없으면 구분선 생략 */
 .slide-head-line {
   display: flex; align-items: center; flex-wrap: nowrap;
   gap: 8px; margin-bottom: 2px;

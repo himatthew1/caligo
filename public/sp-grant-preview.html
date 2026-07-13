@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>후공 인스턴트 SP 지급 — 인게임 연출 미리보기</title>
+<!-- ★ 실제 인게임 스타일시트 그대로 링크 (SP 바·pip·오브·트레이 CSS = 인게임과 100% 동일) -->
+<link rel="stylesheet" href="style.css?v=20260622a">
+<style>
+  /* ── 프리뷰 크롬(미리보기 전용) — 인게임 연출 자체는 실제 코드/CSS 사용 ── */
+  html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at 50% 30%, #1a1730 0%, #0c0a18 70%); color: #e8e4f5; font-family: 'Pretendard', system-ui, sans-serif; overflow: hidden; }
+  .wrap { height: 100vh; display: flex; flex-direction: column; align-items: center; box-sizing: border-box; padding: 18px 16px; }
+  header { text-align: center; flex: 0 0 auto; }
+  header h1 { margin: 0 0 4px; font-size: 1.25rem; letter-spacing: .5px; color: #ffd86b; }
+  header p { margin: 0; font-size: .82rem; color: #b9b2d8; line-height: 1.45; }
+  .stage { flex: 1 1 auto; width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; position: relative; }
+  /* 게임 시작 안내 → 후공 메시지 배너 (게임 톤: 다크 글래스 + 골드) */
+  .spg-announce { min-width: 360px; max-width: 90%; text-align: center; padding: 16px 26px; border-radius: 14px;
+    background: linear-gradient(180deg, rgba(40,34,72,.92), rgba(22,18,42,.95)); border: 1px solid rgba(255,216,107,.55);
+    box-shadow: 0 10px 40px rgba(0,0,0,.5), inset 0 0 20px rgba(255,216,107,.08);
+    opacity: 0; transform: translateY(10px) scale(.96); transition: opacity .45s ease, transform .45s cubic-bezier(.2,.9,.3,1.2); }
+  .spg-announce.show { opacity: 1; transform: translateY(0) scale(1); }
+  .spg-announce .spg-kicker { font-size: .68rem; letter-spacing: 3px; color: #8fd5ff; margin-bottom: 6px; }
+  .spg-announce .spg-main { font-size: 1.08rem; font-weight: 800; color: #fff3d6; }
+  .spg-announce .spg-main b { color: #ffd86b; }
+  .spg-announce .spg-sub { font-size: .74rem; color: #b9b2d8; margin-top: 5px; }
+  /* SP 바를 인게임처럼 보여주기 위한 컨테이너 (style.css 의 .sp-section 그대로 사용) */
+  .sp-host { width: 100%; max-width: 560px; }
+  .controls { flex: 0 0 auto; display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+  .controls button { background: linear-gradient(180deg,#5b4ba8,#3c2f78); color: #fff; border: 1px solid rgba(255,216,107,.4); border-radius: 9px; padding: 9px 18px; font-size: .9rem; font-weight: 700; cursor: pointer; }
+  .controls button:hover { filter: brightness(1.12); }
+  .controls .seq { font-size: .74rem; color: #9990c0; }
+  .side-toggle { display:flex; gap:6px; }
+  .side-toggle label { font-size:.78rem; color:#cfc8ea; display:flex; align-items:center; gap:4px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>후공 인스턴트 SP 지급 — 인게임 연출 미리보기</h1>
+    <p>게임 시작 안내 직후, <b style="color:#ffd86b">후공</b>에게 인스턴트 SP 1을 지급하며 안내 메시지 + SP 합류 애니메이션을 재생합니다.<br>
+       SP 바·pip·황금 오브 합류 연출은 모두 <b>실제 인게임 코드</b>(<code>style.css</code> · <code>spawnInstantGainOrb</code> · <code>syncInstantTray</code>)를 그대로 사용합니다.</p>
+  </header>
+
+  <div class="stage">
+    <div id="announce" class="spg-announce">
+      <div class="spg-kicker">GAME START</div>
+      <div class="spg-main">후공은 <b>인스턴트 SP</b>를 하나 지급받습니다</div>
+      <div class="spg-sub">인스턴트 SP는 상대에게 이관되지 않고, 한 번 사용하면 소멸합니다.</div>
+    </div>
+
+    <!-- ★ 실제 인게임 SP 바 DOM (index.html 742~764 그대로) -->
+    <div class="sp-host">
+      <div class="sp-section">
+        <div class="sp-bar-container sp-bar-v2">
+          <div class="sp-side sp-side-mine">
+            <div id="sp-side-title-mine" class="sp-side-title">내 SP <span style="color:#8fd5ff;font-size:.7rem">(후공)</span></div>
+            <div class="sp-num-row">
+              <div id="sp-instant-tray-mine" class="sp-instant-tray sp-instant-tray-mine"></div>
+              <div id="sp-my-num" class="sp-num sp-num-mine">1</div>
+            </div>
+          </div>
+          <div class="sp-bar">
+            <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
+            <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
+          </div>
+          <div class="sp-side sp-side-opp">
+            <div id="sp-side-title-opp" class="sp-side-title">상대 SP <span style="color:#ff9b9b;font-size:.7rem">(선공)</span></div>
+            <div class="sp-num-row">
+              <div id="sp-opp-num" class="sp-num sp-num-opp">1</div>
+              <div id="sp-instant-tray-opp" class="sp-instant-tray sp-instant-tray-opp"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="play">▶ 연출 재생</button>
+    <div class="side-toggle">
+      <label><input type="radio" name="side" value="mine" checked> 내가 후공</label>
+      <label><input type="radio" name="side" value="opp"> 상대가 후공</label>
+    </div>
+    <span class="seq" id="seq">안내 → 메시지 → SP 합류</span>
+  </div>
+</div>
+
+<script>
+// ── 실제 인게임 함수 그대로 이식 (game.js) — 재현 아님, verbatim ──
+function playSfxInstantGain() { /* 프리뷰: SFX 스텁 */ }
+function getWizardCardCenter() { return null; }  // 룰 지급은 마법사 무관 → null 폴백(트레이 위쪽에서 출발)
+
+// game.js 5781 — syncInstantTray (verbatim)
+function syncInstantTray(trayId, count) {
+  const tray = document.getElementById(trayId);
+  if (!tray) return;
+  const cur = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)').length;
+  if (cur < count) {
+    for (let i = 0; i < count - cur; i++) {
+      const pip = document.createElement('div');
+      pip.className = 'sp-instant-pip sp-pip-spawn';
+      tray.appendChild(pip);
+    }
+  } else if (cur > count) {
+    const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)');
+    const overflow = cur - count;
+    for (let i = 0; i < overflow; i++) { const pip = pips[i]; if (pip) pip.remove(); }
+  }
+}
+
+function easeInOutCubic(t){ return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3)/2; }
+
+// ── [신규 연출 — 사용자 디자인] 맵 중앙 생성 → 원 그리며 5회 빠르게 회전 → 해당 숫자로 합류 ──
+//   ★ 숫자 옆 pip 은 오브가 *도착하는 순간에만* 등장 (그 전엔 절대 미리 갱신 X).
+//   ★ 구동 = CSS @keyframes(컴포지터) — JS 타이머/rAF 가 프리뷰 패널에서 스로틀돼도 매끄럽게 재생.
+//     경로(중앙 5회전 → easeInOut 나선 진입)를 런타임 좌표로 샘플해 키프레임 생성.
+//   ★ 트레일 = 동일 키프레임을 지연 적용한 코멧 고스트 + 파티클(sp-dust). 합류 순간 흡수 펄스+버스트.
+let PV_KF_ID = 0;
+const PV_ORBS = [];
+function spawnGrantOrbCenter(targetSlot){
+  const isMine = (targetSlot === 'mine');
+  const numEl = document.getElementById(isMine ? 'sp-my-num' : 'sp-opp-num');
+  const trayId = isMine ? 'sp-instant-tray-mine' : 'sp-instant-tray-opp';
+  if (!numEl) return;
+  const nr = numEl.getBoundingClientRect();
+  const target = { x: nr.left + nr.width/2, y: nr.top + nr.height/2 };
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;   // 화면 정중앙 (인게임 SP 오브 관례)
+  const orbitR = 90, TURNS = 5, DUR = 1750, orbitFrac = 1150 / DUR;
+  const startAng = -Math.PI/2;
+  const dir = isMine ? -1 : 1;                       // ★ 내 쪽(좌측)으로 들어오면 역방향 회전
+  const targetAng = Math.atan2(target.y - cy, target.x - cx);
+  let rel = (dir > 0 ? targetAng - startAng : startAng - targetAng);
+  rel = ((rel % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+  const sweep = dir * (TURNS*2*Math.PI + rel);       // 5바퀴 후 타겟 방향 지점에서 이탈
+  const endAng = startAng + sweep;
+  const orbit = (a) => ({ x: cx + Math.cos(a)*orbitR, y: cy + Math.sin(a)*orbitR });
+  const S = 9;  // 오브 반경(centering 보정)
+
+  // 경로 키프레임 생성 (정속 5회전 → 직선 진입). transform=translate (컴포지터 친화).
+  const N = 84; let frames = '';
+  for (let i = 0; i <= N; i++){
+    const t = i / N; let pos;
+    if (t <= orbitFrac){ const op = t / orbitFrac; const a = startAng + op*sweep; pos = orbit(a); }
+    else { const fp = (t - orbitFrac)/(1 - orbitFrac); const e = easeInOutCubic(fp); const o = orbit(endAng); pos = { x: o.x + (target.x - o.x)*e, y: o.y + (target.y - o.y)*e }; }  // ★ 비틀지 않고 직선 진입
+    frames += `${(t*100).toFixed(3)}%{transform:translate(${(pos.x - S).toFixed(1)}px,${(pos.y - S).toFixed(1)}px)}`;
+  }
+  const id = ++PV_KF_ID, name = 'spg' + id;
+  const styleEl = document.createElement('style'); styleEl.id = 'spgkf' + id;
+  styleEl.textContent = `@keyframes ${name}{${frames}}`;
+  document.head.appendChild(styleEl);
+
+  const made = [];
+  function mkOrb(delay, op){
+    const o = document.createElement('div'); o.className = 'sp-orb sp-orb-instant';
+    o.style.left = '0'; o.style.top = '0'; o.style.opacity = String(op);
+    o.style.animation = `${name} ${DUR}ms linear ${delay}ms both`;
+    document.body.appendChild(o); made.push(o); PV_ORBS.push(o); return o;
+  }
+  // 코멧 트레일 고스트(뒤) → 메인(앞)
+  mkOrb(150, 0.12); mkOrb(112, 0.2); mkOrb(74, 0.34); mkOrb(38, 0.55);
+  const main = mkOrb(0, 1);
+
+  // 보조 파티클 — 포커스 탭(실게임)에선 setInterval 정상 → 반짝이 추가. 스로틀돼도 코멧이 트레일 담당.
+  const trailIv = setInterval(() => {
+    const r = main.getBoundingClientRect();
+    if (!r.width) return;
+    const d = document.createElement('div'); d.className = 'sp-dust sp-dust-instant';
+    d.style.left = (r.left + r.width/2) + 'px'; d.style.top = (r.top + r.height/2) + 'px';
+    document.body.appendChild(d); setTimeout(() => d.remove(), 700);
+  }, 28);
+  PV_TIMERS.push(trailIv);
+
+  let done = false;
+  function arrive(){
+    if (done) return; done = true;
+    clearInterval(trailIv);
+    try { playSfxInstantGain(); } catch(e){}
+    syncInstantTray(trayId, 1);                 // ★ 합류 순간에만 pip
+    numEl.classList.remove('sp-num-tick-up'); void numEl.offsetWidth; numEl.classList.add('sp-num-tick-up');
+    for (let i=0;i<12;i++){                      // 도착 파티클 버스트
+      const d = document.createElement('div'); d.className = 'sp-dust sp-dust-instant';
+      d.style.left = (target.x + (Math.random()-0.5)*14) + 'px';
+      d.style.top  = (target.y + (Math.random()-0.5)*14) + 'px';
+      document.body.appendChild(d); setTimeout(() => d.remove(), 700);
+    }
+    made.forEach(o => o.remove());
+    styleEl.remove();
+  }
+  main.addEventListener('animationend', arrive, { once: true });
+  setTimeout(arrive, DUR + 180);                // 폴백 (animationend 누락 대비)
+}
+
+// ── 프리뷰 시퀀스 드라이버 ──
+const announce = document.getElementById('announce');
+const PV_TIMERS = [];   // 비행 트레일 setInterval 추적 → 재생/리셋 시 확실히 정리(dust 무한생성 방지)
+function curSide() { return document.querySelector('input[name="side"]:checked').value; }
+function reset() {
+  announce.classList.remove('show');
+  document.getElementById('sp-instant-tray-mine').innerHTML = '';
+  document.getElementById('sp-instant-tray-opp').innerHTML = '';
+  // 이전 재생의 잔여 오브·dust·타이머·키프레임 전부 제거
+  while (PV_TIMERS.length) clearInterval(PV_TIMERS.pop());
+  document.querySelectorAll('.sp-orb, .sp-dust').forEach(el => el.remove());
+  document.querySelectorAll('style[id^="spgkf"]').forEach(el => el.remove());
+}
+function playSequence() {
+  reset();
+  const side = curSide();
+  // ① 안내 메시지 등장
+  setTimeout(() => announce.classList.add('show'), 250);
+  // ② 오브: 맵 중앙 생성 → 5회 회전 → 숫자로 합류 (pip 은 도착 순간에만 추가 — 함수 내부)
+  setTimeout(() => spawnGrantOrbCenter(side), 900);
+}
+document.getElementById('play').addEventListener('click', playSequence);
+window.addEventListener('load', () => setTimeout(playSequence, 500));
+</script>
+</body>
+</html>

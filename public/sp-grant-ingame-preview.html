@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>후공 인스턴트 SP 지급 — 인게임 시작화면 컨텍스트 프리뷰</title>
+<!-- ★ 실제 인게임 스타일시트 그대로 (보드·SP바·패널·액션바 전부 인게임과 100% 동일 CSS) -->
+<link rel="stylesheet" href="style.css?v=20260622a">
+<style>
+  html,body{margin:0;height:100%;background:#0c0a18;overflow:hidden;}
+  .pv-title{position:fixed;top:0;left:0;right:0;z-index:9999;text-align:center;padding:6px 10px;
+    background:linear-gradient(180deg,rgba(12,10,24,.95),rgba(12,10,24,0));pointer-events:none;}
+  .pv-title h1{margin:0;font-size:.95rem;color:#ffd86b;font-family:system-ui,sans-serif;}
+  .pv-title p{margin:2px 0 0;font-size:.72rem;color:#b9b2d8;font-family:system-ui,sans-serif;}
+  /* 인게임 #screen-game 을 standalone 에서 강제 표시 (실게임은 JS 가 토글) */
+  #screen-game.screen{display:flex!important;}
+  /* 프리뷰 재생 컨트롤 */
+  .pv-ctl{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;gap:10px;align-items:center;
+    background:rgba(20,16,40,.9);border:1px solid rgba(255,216,107,.4);border-radius:10px;padding:8px 14px;font-family:system-ui,sans-serif;}
+  .pv-ctl button{background:linear-gradient(180deg,#5b4ba8,#3c2f78);color:#fff;border:1px solid rgba(255,216,107,.4);border-radius:8px;padding:7px 16px;font-weight:700;cursor:pointer;font-size:.85rem;}
+  .pv-ctl label{font-size:.76rem;color:#cfc8ea;display:flex;align-items:center;gap:4px;cursor:pointer;}
+  /* 게임 시작 안내 메시지 (인게임 톤) */
+  .spg-announce{position:fixed;left:50%;top:16%;transform:translateX(-50%) translateY(8px) scale(.96);z-index:9400;
+    text-align:center;padding:14px 26px;border-radius:14px;opacity:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(40,34,72,.94),rgba(22,18,42,.96));border:1px solid rgba(255,216,107,.55);
+    box-shadow:0 10px 40px rgba(0,0,0,.55),inset 0 0 20px rgba(255,216,107,.08);
+    transition:opacity .45s ease,transform .45s cubic-bezier(.2,.9,.3,1.2);font-family:system-ui,sans-serif;}
+  .spg-announce.show{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}
+  .spg-announce .k{font-size:.66rem;letter-spacing:3px;color:#8fd5ff;margin-bottom:5px;}
+  .spg-announce .m{font-size:1.04rem;font-weight:800;color:#fff3d6;}
+  .spg-announce .m b{color:#ffd86b;}
+  .spg-announce .s{font-size:.72rem;color:#b9b2d8;margin-top:5px;}
+</style>
+</head>
+<body>
+<div class="pv-title">
+  <h1>후공 인스턴트 SP 지급 — 인게임 시작화면 컨텍스트</h1>
+  <p>실제 <code>#screen-game</code> 보드·SP바·패널·액션바 그대로(style.css 링크). 오브 합류 연출은 실 자산(.sp-orb/.sp-dust/.sp-instant-pip) 사용.</p>
+</div>
+
+<!-- ════════ 실제 인게임 #screen-game DOM 그대로 (index.html 739~820 verbatim) ════════ -->
+<div id="screen-game" class="screen">
+  <div class="game-layout">
+    <div class="sp-section">
+      <div class="sp-bar-container sp-bar-v2">
+        <div class="sp-side sp-side-mine">
+          <div id="sp-side-title-mine" class="sp-side-title">내 SP</div>
+          <div class="sp-num-row">
+            <div id="sp-instant-tray-mine" class="sp-instant-tray sp-instant-tray-mine"></div>
+            <div id="sp-my-num" class="sp-num sp-num-mine">1</div>
+          </div>
+        </div>
+        <div class="sp-bar">
+          <div id="sp-my-fill" class="sp-fill sp-mine-fill" style="width:50%"></div>
+          <div id="sp-opp-fill" class="sp-fill sp-opp-fill" style="width:50%"></div>
+        </div>
+        <div class="sp-side sp-side-opp">
+          <div id="sp-side-title-opp" class="sp-side-title">상대 SP</div>
+          <div class="sp-num-row">
+            <div id="sp-opp-num" class="sp-num sp-num-opp">1</div>
+            <div id="sp-instant-tray-opp" class="sp-instant-tray sp-instant-tray-opp"></div>
+          </div>
+        </div>
+      </div>
+      <div id="sp-countdown" class="sp-countdown">다음 SP 지급까지 10턴</div>
+      <div id="shrink-warning-container" class="shrink-warning-container"></div>
+    </div>
+
+    <div class="side-panel left-panel">
+      <h3>내 말</h3>
+      <div id="my-pieces-info"></div>
+    </div>
+
+    <div class="center-panel">
+      <div class="turn-banner" id="turn-banner">내 턴</div>
+      <div id="game-board" class="board"></div>
+      <div id="action-bar" class="action-bar">
+        <button id="btn-action" class="btn btn-action">행동</button>
+        <button id="btn-skill" class="btn btn-skill">스킬</button>
+        <button id="btn-end-turn" class="btn btn-warning">턴 종료</button>
+        <button id="btn-surrender" class="btn btn-surrender btn-surrender-mini" disabled>기권</button>
+      </div>
+      <div id="action-hint" class="action-hint"></div>
+      <div class="center-log-wrap">
+        <h3 class="center-log-title">전투 로그</h3>
+        <div id="game-log" class="game-log"></div>
+      </div>
+    </div>
+
+    <div class="side-panel right-panel">
+      <h3>상대방 말</h3>
+      <div id="opp-pieces-info"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 게임 시작 안내 메시지 -->
+<div id="announce" class="spg-announce">
+  <div class="k">GAME START</div>
+  <div class="m">후공은 <b>인스턴트 SP</b>를 하나 지급받습니다</div>
+  <div class="s">인스턴트 SP는 상대에게 이관되지 않고, 한 번 사용하면 소멸합니다.</div>
+</div>
+
+<div class="pv-ctl">
+  <button id="play">▶ 연출 재생</button>
+  <label><input type="radio" name="side" value="mine" checked> 내가 후공</label>
+  <label><input type="radio" name="side" value="opp"> 상대가 후공</label>
+</div>
+
+<script>
+// ── 보드/패널을 실 마크업으로 채움 (게임 시작 시점: 내 말 3개 보이고 적 숨김) ──
+const ICON = (t) => `/assets/icons/${t}.png`;
+const MY = [ {type:'spearman', name:'창병',  hp:4, col:1, row:3},
+             {type:'general',  name:'장군',  hp:3, col:3, row:4},
+             {type:'prince',   name:'왕자',  hp:3, col:2, row:2} ];
+function pieceIconHtml(icon){ return `<img class="piece-icon-img" src="${icon}" style="width:1.2em;height:1.2em;object-fit:contain;image-rendering:pixelated">`; }
+function renderBoard(){
+  const board = document.getElementById('game-board');
+  let html = '';
+  for (let r=0;r<5;r++) for (let c=0;c<5;c++){
+    const pc = MY.find(p=>p.col===c&&p.row===r);
+    const cls = pc ? 'cell has-piece' : 'cell';
+    // ★ 인게임 piece-marker 와 동일 마크업 (game.js 9442)
+    const inner = pc ? `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(ICON(pc.type))}</span><span class="p-hp">${pc.hp}</span></div>` : '';
+    html += `<div class="${cls}" data-col="${c}" data-row="${r}">${inner}</div>`;
+  }
+  board.innerHTML = html;
+}
+function renderPanels(){
+  document.getElementById('my-pieces-info').innerHTML = MY.map(p =>
+    `<div class="piece-info-card"><span class="p-icon">${pieceIconHtml(ICON(p.type))}</span><strong>${p.name}</strong> <span class="p-hp-text">HP ${p.hp}</span></div>`).join('');
+  document.getElementById('opp-pieces-info').innerHTML = ['?','?','?'].map(()=>
+    `<div class="piece-info-card"><span class="p-icon">❓</span><strong>알 수 없음</strong></div>`).join('');
+}
+renderBoard(); renderPanels();
+
+// ── SP 합류 연출 (sp-grant-preview.html 과 동일 — CSS @keyframes 구동) ──
+function playSfxInstantGain(){}
+function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+function syncInstantTray(trayId,count){
+  const tray=document.getElementById(trayId); if(!tray) return;
+  const cur=tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)').length;
+  if(cur<count){ for(let i=0;i<count-cur;i++){ const pip=document.createElement('div'); pip.className='sp-instant-pip sp-pip-spawn'; tray.appendChild(pip);} }
+  else if(cur>count){ const pips=tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)'); for(let i=0;i<cur-count;i++){ if(pips[i]) pips[i].remove(); } }
+}
+const PV_TIMERS=[], PV_ORBS=[]; let PV_KF_ID=0;
+function spawnGrantOrbCenter(targetSlot){
+  const isMine=(targetSlot==='mine');
+  const numEl=document.getElementById(isMine?'sp-my-num':'sp-opp-num');
+  const trayId=isMine?'sp-instant-tray-mine':'sp-instant-tray-opp';
+  if(!numEl) return;
+  const nr=numEl.getBoundingClientRect();
+  const target={x:nr.left+nr.width/2, y:nr.top+nr.height/2};
+  // 화면 중앙 기준 (인게임 playSpGrantAnimation 의 SP 오브 궤도와 동일 — 항상 화면 정중앙에서 회전)
+  const cx=window.innerWidth/2, cy=window.innerHeight/2;
+  const orbitR=90, TURNS=5, DUR=1750, orbitFrac=1150/DUR;
+  const startAng=-Math.PI/2;
+  const dir = isMine ? -1 : 1;                       // ★ 내 쪽(좌측)으로 들어오면 역방향 회전
+  const targetAng = Math.atan2(target.y-cy, target.x-cx);
+  let rel = (dir>0 ? targetAng-startAng : startAng-targetAng);
+  rel = ((rel % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+  const sweep = dir*(TURNS*2*Math.PI + rel);         // 5바퀴 후 타겟 방향 지점에서 이탈
+  const endAng = startAng + sweep;
+  const orbit=(a)=>({x:cx+Math.cos(a)*orbitR, y:cy+Math.sin(a)*orbitR});
+  const S=9, N=84; let frames='';
+  for(let i=0;i<=N;i++){ const t=i/N; let pos;
+    if(t<=orbitFrac){ const op=t/orbitFrac; const a=startAng+op*sweep; pos=orbit(a); }
+    else { const fp=(t-orbitFrac)/(1-orbitFrac); const e=easeInOutCubic(fp); const o=orbit(endAng); pos={x:o.x+(target.x-o.x)*e, y:o.y+(target.y-o.y)*e}; }  // ★ 비틀지 않고 직선 진입
+    frames+=`${(t*100).toFixed(3)}%{transform:translate(${(pos.x-S).toFixed(1)}px,${(pos.y-S).toFixed(1)}px)}`;
+  }
+  const id=++PV_KF_ID, name='spg'+id;
+  const styleEl=document.createElement('style'); styleEl.id='spgkf'+id; styleEl.textContent=`@keyframes ${name}{${frames}}`; document.head.appendChild(styleEl);
+  const made=[];
+  function mkOrb(delay,op){ const o=document.createElement('div'); o.className='sp-orb sp-orb-instant'; o.style.left='0'; o.style.top='0'; o.style.opacity=String(op); o.style.animation=`${name} ${DUR}ms linear ${delay}ms both`; document.body.appendChild(o); made.push(o); PV_ORBS.push(o); return o; }
+  mkOrb(150,0.12); mkOrb(112,0.2); mkOrb(74,0.34); mkOrb(38,0.55);
+  const main=mkOrb(0,1);
+  const trailIv=setInterval(()=>{ const r=main.getBoundingClientRect(); if(!r.width) return; const d=document.createElement('div'); d.className='sp-dust sp-dust-instant'; d.style.left=(r.left+r.width/2)+'px'; d.style.top=(r.top+r.height/2)+'px'; document.body.appendChild(d); setTimeout(()=>d.remove(),700); },28);
+  PV_TIMERS.push(trailIv);
+  let done=false;
+  function arrive(){ if(done) return; done=true; clearInterval(trailIv);
+    syncInstantTray(trayId,1);
+    numEl.classList.remove('sp-num-tick-up'); void numEl.offsetWidth; numEl.classList.add('sp-num-tick-up');
+    for(let i=0;i<12;i++){ const d=document.createElement('div'); d.className='sp-dust sp-dust-instant'; d.style.left=(target.x+(Math.random()-0.5)*14)+'px'; d.style.top=(target.y+(Math.random()-0.5)*14)+'px'; document.body.appendChild(d); setTimeout(()=>d.remove(),700); }
+    made.forEach(o=>o.remove()); styleEl.remove();
+  }
+  main.addEventListener('animationend', arrive, {once:true});
+  setTimeout(arrive, DUR+180);
+}
+
+const announce=document.getElementById('announce');
+function curSide(){ return document.querySelector('input[name=side]:checked').value; }
+function reset(){
+  announce.classList.remove('show');
+  document.getElementById('sp-instant-tray-mine').innerHTML='';
+  document.getElementById('sp-instant-tray-opp').innerHTML='';
+  while(PV_TIMERS.length) clearInterval(PV_TIMERS.pop());
+  document.querySelectorAll('.sp-orb,.sp-dust').forEach(el=>el.remove());
+  document.querySelectorAll('style[id^=spgkf]').forEach(el=>el.remove());
+}
+function playSequence(){ reset(); const side=curSide();
+  setTimeout(()=>announce.classList.add('show'),250);
+  setTimeout(()=>spawnGrantOrbCenter(side),900);
+}
+document.getElementById('play').addEventListener('click', playSequence);
+window.addEventListener('load', ()=>setTimeout(playSequence,600));
+</script>
+</body>
+</html>

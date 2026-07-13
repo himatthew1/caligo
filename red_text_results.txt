@@ -1,0 +1,36 @@
+﻿=== Para 1 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 2 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 3 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 4 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 5 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 6 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 7 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 8 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+
+=== Para 9 [style: (normal)] ===
+FULL: (추출 실패)
+RED:  (추출 실패)
+

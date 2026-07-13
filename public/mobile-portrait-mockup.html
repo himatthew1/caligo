@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 모바일 세로 인게임형 프리뷰 1v1/2v2 (목업·미적용)</title>
+<style>
+  :root{--bg:#0f0f1a;--surface:#1a1a2e;--border:#2a2a4a;--accent:#e2a84b;--danger:#e05252;--success:#52b788;
+    --muted:#7a7a9a;--text:#e8e8f0;--text-dim:#b0b0c8;--cell:#1e1e35;--royal:#f0c040;--villain:#a855f4;--sp-mine:#4ea8de;--sp-opp:#e05252;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:#0c0a14;color:var(--text);font-family:"맑은 고딕",system-ui,sans-serif;line-height:1.4;
+    padding:9px 14px;display:flex;flex-direction:column;gap:7px;overflow:hidden;align-items:center}
+  header.hdr{text-align:center;flex:0 0 auto}
+  header.hdr h1{font-size:15px;color:var(--accent);margin-bottom:2px}
+  header.hdr .sub{font-size:10.5px;color:var(--text-dim);max-width:820px;margin:0 auto}
+  .modeseg{display:flex;gap:5px;justify-content:center;margin-top:4px}
+  .modeseg button{background:#221f33;color:var(--text-dim);border:1px solid var(--border);border-radius:8px;padding:4px 14px;font-size:12px;font-weight:700;cursor:pointer}
+  .modeseg button.on{background:linear-gradient(135deg,#7c3aed,#a371f7);color:#fff;border-color:transparent}
+  main{flex:1 1 auto;display:flex;gap:18px;align-items:center;min-height:0;justify-content:center}
+
+  .phone{flex:0 0 auto;width:344px;background:#05040a;border:7px solid #15131f;border-radius:30px;overflow:hidden;
+    display:flex;flex-direction:column;box-shadow:0 10px 40px #000b;position:relative;align-self:center}
+  .scr{flex:1;display:flex;flex-direction:column;background:linear-gradient(180deg,#12101d,#0d0b16);min-height:0}
+
+  .topbar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#14121f;border-bottom:1px solid var(--border)}
+  .ic{width:25px;height:25px;border-radius:8px;background:#221f33;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--text-dim);flex:0 0 auto}
+  .spwrap{flex:1;display:flex;align-items:center;justify-content:center;gap:8px}
+  .spside{display:flex;flex-direction:column;align-items:center;line-height:1}
+  .spside .lab{font-size:8px;font-weight:700;opacity:.85}.spside.me .lab{color:var(--sp-mine)}.spside.op .lab{color:var(--sp-opp)}
+  .spside .num{font-size:19px;font-weight:900;text-shadow:0 0 10px currentColor}.spside.me .num{color:var(--sp-mine)}.spside.op .num{color:var(--sp-opp)}
+  .spbar{width:60px;height:10px;border-radius:7px;border:1px solid var(--border);background:var(--surface);overflow:hidden;display:flex}
+  .spbar i{display:block;height:100%}.spbar .l{width:58%;background:linear-gradient(90deg,#2563eb,#4ea8de)}.spbar .r{width:42%;background:linear-gradient(90deg,#dc2626,#e05252)}
+  .turnpill{font-size:9.5px;font-weight:800;color:var(--success);background:rgba(82,183,136,.14);border:1px solid rgba(82,183,136,.5);border-radius:10px;padding:2px 7px;flex:0 0 auto}
+
+  .teams{display:flex;gap:7px;padding:5px 8px;background:#100d1a;border-bottom:1px solid var(--border)}
+  .col{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+  .colh{font-size:9px;font-weight:800;letter-spacing:.4px;padding:0 3px;text-transform:uppercase}
+  .colh.me{color:var(--success)}.colh.op{color:var(--danger);text-align:right}
+  .subh{font-size:7.5px;color:var(--muted);font-weight:700;padding:0 4px}.col.opcol .subh{text-align:right}
+
+  /* ── 본대 카드 (정적 아이콘) ── */
+  .card{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:8px;position:relative;cursor:pointer;min-width:0;
+    background:#1a2040;border:1px solid #3a4a80}
+  .card:hover{border-color:var(--accent)}
+  .card.mate{background:#16243a;border-color:#2f4a72}
+  .card.opp{background:rgba(224,82,82,.1);border-color:rgba(224,82,82,.5);flex-direction:row-reverse;text-align:right}
+  .card.hid{background:#161325;border-color:#322c48}
+  .card.sel{border-color:var(--royal);box-shadow:0 0 0 1px rgba(240,192,64,.4)}
+  .card.compact{padding:2px 5px;gap:4px}
+  /* 팩션 = 아이콘 원형 배경색 (인게임 덱 표기와 동일) */
+  .card .pic{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:1.5px solid #4a4a64;background:#2a2a3e}
+  .card.compact .pic{width:25px;height:25px;border-width:1px}
+  .card .pic.f-royal{background:#7a5b1a;border-color:#f0c040}
+  .card .pic.f-villain{background:#4a2570;border-color:#a855f4}
+  .card .pic.f-neutral{background:#2a2a3e;border-color:#4a4a64}
+  .card .pic img{width:25px;height:25px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .card.compact .pic img{width:21px;height:21px}
+  .card.opp .pic img{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px var(--danger))}
+  .card .info{display:flex;flex-direction:column;gap:0;min-width:0;flex:1}
+  .card .nmrow{display:flex;align-items:center;gap:3px;min-width:0}
+  .card.opp .nmrow{justify-content:flex-end}
+  /* 이름은 잘리지 않고 항상 풀네임 — 길면 글자 크기를 줄여 영역에 맞춤 */
+  .card .nm{font-size:9px;font-weight:600;color:var(--text);white-space:nowrap;overflow:visible;min-width:0}
+  .card.compact .nm{font-size:8px}
+  .card .nm.nlong{font-size:7.5px}
+  .card .nm.nvlong{font-size:6.5px;letter-spacing:-0.2px}
+  .card.compact .nm.nlong{font-size:7px}
+  .card.compact .nm.nvlong{font-size:6px;letter-spacing:-0.2px}
+  .card .tier{font-size:7px;color:var(--accent);font-weight:700;flex:0 0 auto}
+  /* 팩션 라벨 = 왕실/악인 도장 (인게임 stamp 대응) */
+  .ftag{font-size:6.5px;font-weight:800;padding:0 3px;border-radius:4px;line-height:1.55;flex:0 0 auto}
+  .ftag.royal{color:#ffe066;background:rgba(240,192,64,.18);border:1px solid rgba(240,192,64,.55)}
+  .ftag.villain{color:#d8b4fe;background:rgba(168,85,244,.18);border:1px solid rgba(168,85,244,.55)}
+  .card .hp{font-size:9px;font-weight:800;color:var(--success);line-height:1}.card.opp .hp{color:#fca5a5}
+  .card .hpbar{width:100%;height:2.5px;border-radius:3px;background:#0d0b16;overflow:hidden;margin-top:1px}
+  .card .hpbar i{display:block;height:100%;background:var(--success)}.card.opp .hpbar i{background:var(--danger)}
+  .card .bsk{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:#3a2a5c;border:1px solid var(--villain);font-size:7px;display:flex;align-items:center;justify-content:center;right:-4px;z-index:2}
+  .card.opp .bsk{right:auto;left:-4px}
+  .card .bst{position:absolute;top:-6px;left:-4px;font-size:9px;z-index:2}.card.opp .bst{left:auto;right:-4px}
+  .card .q{font-size:16px;color:#5a5470;flex:0 0 auto;width:26px;text-align:center}
+
+  /* ── 쌍둥이 = 분할 카드 (한 카드 안 형/제 두 칸) ── */
+  .card.twin{flex-direction:column;align-items:stretch;gap:1px;padding:3px 6px}
+  .card.twin .tlab{font-size:7px;font-weight:700;color:var(--accent);line-height:1}
+  .card.twin .ths{display:flex;align-items:center}
+  .card.twin .th{flex:1;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0}
+  .card.twin .th+.th{border-left:1px dashed #4a5a90}
+  .card.twin .th img{width:21px;height:21px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .card.twin.f-villain .th img{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px rgba(168,116,231,.8))}
+  .card.twin .tlab .ftag{margin-left:2px}
+  .card.twin .th .sub{font-size:7px;color:var(--muted);font-weight:700}
+  .card.twin .th .hp{font-size:8.5px;font-weight:800;color:var(--success)}
+  .card.twin.joined .th+.th{display:none}
+  .card.twin.joined .th{flex:none}
+
+  /* ── 소환·분열 칸 (분할 영역) — 미니 칩 ── */
+  .extras{display:flex;flex-wrap:wrap;align-items:center;gap:3px;padding:3px 2px 0;margin-top:1px;border-top:1px dashed #322c48}
+  .extras.op{justify-content:flex-end}
+  .extras .elab{flex:0 0 100%;font-size:7px;color:var(--muted);font-weight:700;letter-spacing:.3px}
+  .extras.op .elab{text-align:right}
+  .chip{display:flex;align-items:center;gap:2px;padding:1px 5px;border-radius:7px;background:#1a2040;border:1px solid #3a4a80;cursor:pointer}
+  .chip img{width:17px;height:17px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .chip .em{font-size:13px;line-height:1}
+  .chip .hp{font-size:8px;font-weight:800;color:#9fe6b0}
+  .chip.dragon{border-color:var(--royal);background:rgba(240,192,64,.12)}
+  .chip.dragon .hp{color:var(--royal)}
+  .chip.opp{background:rgba(224,82,82,.1);border-color:rgba(224,82,82,.5)}.chip.opp .hp{color:#fca5a5}
+
+  /* ── 소환자 분할 카드 (조련사+드래곤 / 쥐장수+쥐 한 칸 공유) ── */
+  .card.host{align-items:stretch;gap:5px;padding:3px 5px}
+  .card.host .main{display:flex;align-items:center;gap:6px;flex:1;min-width:0}
+  .card.host.compact .main{gap:4px}
+  .card.host.opp{flex-direction:row-reverse}
+  .card.host .att{flex:0 0 auto;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1px;
+    padding-left:5px;border-left:1px dashed #4a5a90;max-width:60px}
+  .card.host.opp .att{border-left:none;border-right:1px dashed #4a5a90;padding-left:0;padding-right:5px}
+  .card.host .atl{font-size:6px;color:var(--muted);font-weight:700;letter-spacing:.2px}
+  .card.host .arow{display:flex;flex-wrap:wrap;gap:2px;justify-content:center}
+  .smini{display:flex;align-items:center;gap:1px;padding:0 2px;border-radius:5px;background:#1a2040;border:1px solid #3a4a80;cursor:pointer}
+  .smini img{width:15px;height:15px;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .smini .em{font-size:11px;line-height:1}
+  .smini .hp{font-size:7.5px;font-weight:800;color:#9fe6b0}
+  .smini .cnt{font-size:8px;font-weight:900;color:var(--text-dim)}
+  .smini.dragon{border-color:var(--royal);background:rgba(240,192,64,.12)}
+  .smini.dragon .hp{color:var(--royal)}
+  .smini.dragon img{width:20px;height:20px}
+
+  .boardwrap{flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:9px;min-height:0}
+  #mb-board{width:100%;aspect-ratio:1;display:grid;gap:3px}
+  .cell{background:var(--cell);border:1px solid var(--border);border-radius:5px;position:relative;display:flex;align-items:center;justify-content:center}
+  .cell.has-piece{background:#1a2040;border-color:#3a4a80}
+  .cell.mate{background:#16243a;border-color:#2f4a72}
+  .cell.oppm{background:rgba(224,82,82,.12);border-color:rgba(224,82,82,.5)}
+  .cell.sum{background:#1d1830;border-color:#4a3a70}
+  .marker{display:flex;flex-direction:column;align-items:center;position:relative}
+  .marker img{object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000)}
+  .marker.opp img{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 2px var(--danger))}
+  .marker .hp{font-weight:800;color:#9fe6b0;margin-top:-2px}.marker.opp .hp{color:#fca5a5}
+  .marker .mk{position:absolute;left:50%;transform:translateX(-50%)}
+  .marker .mk img{filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 3px rgba(168,116,231,.75))}
+
+  .actbar{display:flex;gap:6px;padding:6px 9px 9px;background:#0a0813;border-top:1px solid var(--border)}
+  .btn{flex:1;border:none;border-radius:10px;padding:10px 0;font-size:13px;font-weight:800;color:#fff;cursor:pointer}
+  .btn.a{background:linear-gradient(135deg,#2563eb,#4ea8de)}.btn.s{background:linear-gradient(135deg,#7c3aed,#a371f7)}.btn.e{background:linear-gradient(135deg,#b45309,#d97706)}
+  .btn.x{flex:0 0 40px;background:rgba(224,82,82,.12);border:1px solid rgba(224,82,82,.5);color:#fca5a5;font-size:14px}
+  .logbtn{position:absolute;right:10px;bottom:62px;width:30px;height:30px;border-radius:50%;background:#221f33ee;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--text-dim)}
+  .legend{font-size:10px;color:var(--text-dim);text-align:center;max-width:320px;line-height:1.7}.legend b{color:var(--text)}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <h1>📱 CALIGO 모바일 세로 — 인게임형 프리뷰 <span style="font-size:11px;color:var(--muted)">(목업·미적용)</span></h1>
+  <div class="sub">카드=정적 아이콘 · 보드=실제 GIF · <b style="color:var(--text-dim)">쌍둥이=분할 카드(형/제)</b> · <b style="color:var(--text-dim)">소환 유닛(드래곤·쥐)=별도 "소환" 칸(미니 칩)</b>. 본대/소환으로 카드 영역 분할 → 유닛이 늘어도 무스크롤.</div>
+  <div class="modeseg"><button data-m="1v1" class="on">1v1</button><button data-m="2v2">2v2 (팀전)</button></div>
+</header>
+
+<main>
+  <div class="phone">
+    <div class="scr">
+      <div class="topbar">
+        <div class="ic">☰</div>
+        <div class="spwrap">
+          <div class="spside me"><span class="lab">내 SP</span><span class="num">3</span></div>
+          <span class="spbar"><i class="l"></i><i class="r"></i></span>
+          <div class="spside op"><span class="lab" id="op-lab">상대</span><span class="num">2</span></div>
+        </div>
+        <span class="turnpill" id="turnpill">내 차례 · 8턴</span>
+        <div class="ic">⚙</div>
+      </div>
+      <div class="teams" id="teams"></div>
+      <div class="boardwrap"><div id="mb-board"></div></div>
+      <div class="logbtn">📜</div>
+      <div class="actbar">
+        <button class="btn a">행동</button><button class="btn s">스킬</button><button class="btn e">턴 종료</button><button class="btn x">🏳</button>
+      </div>
+    </div>
+  </div>
+  <div class="legend">
+    🎯표식 · ☠저주 · ⚡스킬 · ❔미공개<br>
+    팩션 <span style="color:#ffe066;font-weight:800">●왕실</span> <span style="color:#d8b4fe;font-weight:800">●악인</span> <span style="color:#8a8aa8;font-weight:800">●중립</span> (아이콘 원색+라벨)<br>
+    <b>본대</b>=아이콘 카드(탭=사전) · <b>쌍둥이</b>=형/제 분할 · <b>드래곤</b>=조련사 카드 슬롯 분할 공유 · 쥐 등 소량 토큰은 보드로만 표시<br>
+    <span id="modenote" style="color:var(--muted)"></span>
+  </div>
+</main>
+
+<script>
+const IC=t=>`/assets/icons/${t}.png`;        // 카드: 정적 아이콘
+const G =t=>`/art/${t}_idle.gif`;            // 보드: 실제 GIF
+const MK='/art/mark/mark_idle.gif';
+const RAT='/art/rat_white_idle.gif';
+
+// 팩션: 'royal'(왕실) / 'villain'(악인) / null(중립)
+const ftagHtml=f=> f==='royal'?'<span class="ftag royal">왕실</span>'
+                 : f==='villain'?'<span class="ftag villain">악인</span>':'';
+const fcls=f=> f==='royal'?'f-royal':f==='villain'?'f-villain':'f-neutral';
+// 이름 길이별 축소 클래스 (풀네임 유지)
+const nmCls=name=>{const l=(name||'').replace(/\s/g,'').length; return l>=8?'nvlong':l>=6?'nlong':'';};
+// ── 본대 카드 ──
+function card(p){
+  if(p.hid) return `<div class="card opp hid ${p.compact?'compact':''}"><span class="q">❔</span><div class="info"><span class="nm" style="color:var(--muted)">${p.hid}</span><span class="hp" style="color:#6a6480">?/?</span></div></div>`;
+  const cls=`card ${p.opp?'opp':''} ${p.mate?'mate':''} ${p.sel?'sel':''} ${p.compact?'compact':''}`;
+  const badges=(p.sk?`<span class="bsk">${p.sk}</span>`:'')+(p.st?`<span class="bst">${p.st}</span>`:'');
+  return `<div class="${cls}">${badges}<span class="pic ${fcls(p.f)}"><img src="${IC(p.type)}" alt=""></span><div class="info"><span class="nmrow"><span class="nm ${nmCls(p.name)}">${p.name}</span><span class="tier">${p.tier}</span>${ftagHtml(p.f)}</span><span class="hp">${p.hp}</span><span class="hpbar"><i style="width:${p.w}%${p.w<70?';background:var(--accent)':''}"></i></span></div></div>`;
+}
+// ── 쌍둥이 분할 카드 (쌍둥이 = 악인) ──
+function twin(p){
+  const f=p.f||'villain';
+  const cls=`card twin ${fcls(f)} ${p.opp?'opp':''} ${p.mate?'mate':''} ${p.sel?'sel':''} ${p.compact?'compact':''} ${p.joined?'joined':''}`;
+  const half=(lab,hp)=>`<div class="th"><img src="${IC('twins')}"><span><span class="sub">${lab}</span> <span class="hp">${hp}</span></span></div>`;
+  const body=p.joined
+    ? `<div class="ths"><div class="th"><img src="${IC('twins')}"><span class="hp">${p.hpA}</span></div></div>`
+    : `<div class="ths">${half('형',p.hpA)}${half('제',p.hpB)}</div>`;
+  return `<div class="${cls}"><span class="tlab">쌍둥이 ${p.tier}${ftagHtml(f)}${p.joined?' · 합류':''}${p.sk?' '+p.sk:''}</span>${body}</div>`;
+}
+// ── 소환자 분할 카드 (소환 유닛이 소환자 슬롯을 나눠씀) ──
+function summonMini(s){
+  const inner = s.em?`<span class="em">${s.em}</span>`:`<img src="${s.gif||IC(s.type)}">`;
+  const tail = s.count ? `<span class="cnt">×${s.count}</span>` : (s.hp?`<span class="hp">${s.hp}</span>`:'');
+  return `<span class="smini ${s.cls||''}">${inner}${tail}</span>`;
+}
+function hostCard(p){
+  const cls=`card host ${p.opp?'opp':''} ${p.mate?'mate':''} ${p.sel?'sel':''} ${p.compact?'compact':''}`;
+  const badges=(p.sk?`<span class="bsk">${p.sk}</span>`:'')+(p.st?`<span class="bst">${p.st}</span>`:'');
+  const main=`<span class="pic ${fcls(p.f)}"><img src="${IC(p.type)}" alt=""></span><div class="info"><span class="nmrow"><span class="nm ${nmCls(p.name)}">${p.name}</span><span class="tier">${p.tier}</span>${ftagHtml(p.f)}</span><span class="hp">${p.hp}</span><span class="hpbar"><i style="width:${p.w}%${p.w<70?';background:var(--accent)':''}"></i></span></div>`;
+  // 소환 1~2 = 개별 표시, 3+ = 대표 아이콘 + ×N (동일 토큰 압축, 좁은 칸 무넘침)
+  const sumHtml = p.summons.length<=2
+    ? p.summons.map(summonMini).join('')
+    : summonMini({...p.summons[0], hp:null, count:p.summons.length});
+  const att=`<div class="att"><span class="atl">${p.atl||'소환'}</span><div class="arow">${sumHtml}</div></div>`;
+  return `<div class="${cls}">${badges}<div class="main">${main}</div>${att}</div>`;
+}
+// ── 소환 미니 칩 (독립 토큰용 — 현재 미사용, 보존) ──
+function chip(p){
+  const cls='chip '+(p.cls||'')+(p.opp?' opp':'');
+  const inner = p.em?`<span class="em">${p.em}</span>`:`<img src="${p.gif||IC(p.type)}">`;
+  return `<span class="${cls}">${inner}${p.hp?`<span class="hp">${p.hp}</span>`:''}</span>`;
+}
+function extras(label, chips, opp){
+  if(!chips || !chips.length) return '';
+  return `<div class="extras${opp?' op':''}"><span class="elab">${label}</span>${chips.join('')}</div>`;
+}
+// ── 보드 ──
+function board(size, pieces){
+  const map={}; pieces.forEach(p=>map[`${p.c},${p.r}`]=p);
+  const isz = size===5?40:26, hsz=size===5?'8px':'6.5px', mkOff=size===5?'-13px':'-9px', mksz=size===5?'22px':'15px';
+  let h='';
+  for(let r=0;r<size;r++) for(let c=0;c<size;c++){
+    const p=map[`${c},${r}`];
+    if(!p){ h+='<div class="cell"></div>'; continue; }
+    const cellcls = p.opp?'cell oppm':(p.sum?'cell has-piece sum':(p.mate?'cell has-piece mate':'cell has-piece'));
+    const mcls = p.opp?'marker opp':'marker';
+    const mk = p.mk?`<span class="mk" style="top:${mkOff};width:${mksz};height:${mksz}"><img src="${MK}" style="width:${mksz};height:${mksz}"></span>`:'';
+    const src = p.gif || G(p.type);
+    h+=`<div class="${cellcls}"><div class="${mcls}">${mk}<img src="${src}" style="width:${isz}px;height:${isz}px">${p.hp?`<span class="hp" style="font-size:${hsz}">${p.hp}</span>`:''}</div></div>`;
+  }
+  const b=document.getElementById('mb-board');
+  b.style.gridTemplateColumns=`repeat(${size},1fr)`;
+  b.style.gridTemplateRows=`repeat(${size},1fr)`;
+  return h;
+}
+
+const DATA={
+  '1v1':{
+    op_lab:'상대', turn:'내 차례 · 14턴',
+    note:'1v1 — 본대 3(장군 왕실·쌍둥이 악인·드래곤조련사 중립). 소환된 드래곤은 조련사 카드 슬롯을 분할해 공유(쌍둥이 형/제와 동일 방식).',
+    teams:`<div class="col">
+      <div class="colh me">내 말</div>
+      ${card({type:'general',name:'장군',tier:'T2',f:'royal',hp:'3/3',w:100,sk:'⚡',sel:1})}
+      ${twin({tier:'T1',f:'villain',hpA:'2/2',hpB:'1/2',sk:'⚡'})}
+      ${hostCard({type:'dragonTamer',name:'드래곤조련사',tier:'T3',f:null,hp:'4/4',w:100,summons:[{type:'dragon',hp:'5/5',cls:'dragon'}]})}
+    </div>
+    <div class="col opcol">
+      <div class="colh op">상대 말</div>
+      ${card({type:'witch',name:'마녀',tier:'T2',f:'villain',hp:'2/2',w:100,st:'🎯',opp:1})}
+      ${card({hid:'추리 중'})}
+      ${card({hid:'T3 추정'})}
+    </div>`,
+    board:()=>board(5,[
+      {c:2,r:0,type:'witch',hp:'2/2',opp:1,mk:1},
+      {c:1,r:1,type:'general',hp:'3/3'},
+      {c:0,r:3,gif:'/art/twins_red_idle.gif',hp:'2/2'},
+      {c:1,r:3,gif:'/art/twins_blue_idle.gif',hp:'1/2'},
+      {c:3,r:1,type:'dragonTamer',hp:'4/4'},
+      {c:3,r:3,type:'dragon',hp:'5/5',sum:1},
+    ])
+  },
+  '2v2':{
+    op_lab:'상대팀', turn:'내 차례 · 22턴',
+    note:'2v2 — 본대 4(나: 장군 왕실·기사 왕실 / 팀원: 궁수 중립·쥐장수 악인). 소환된 쥐는 카드에 표시 안 함(보드에 그대로 보임).',
+    teams:`<div class="col">
+      <div class="colh me">내 팀</div>
+      <div class="subh">나</div>
+      ${card({type:'general',name:'장군',tier:'T2',f:'royal',hp:'3/3',w:100,sk:'⚡',sel:1,compact:1})}
+      ${card({type:'knight',name:'기사',tier:'T2',f:'royal',hp:'2/2',w:100,compact:1})}
+      <div class="subh">팀원 · 윤</div>
+      ${card({type:'archer',name:'궁수',tier:'T1',f:null,hp:'2/2',w:100,mate:1,compact:1})}
+      ${card({type:'ratMerchant',name:'쥐장수',tier:'T2',f:'villain',hp:'2/2',w:100,mate:1,sk:'⚡',compact:1})}
+    </div>
+    <div class="col opcol">
+      <div class="colh op">상대 팀</div>
+      <div class="subh">적 · 김</div>
+      ${card({type:'witch',name:'마녀',tier:'T2',f:'villain',hp:'2/2',w:100,st:'🎯',opp:1,compact:1})}
+      ${card({hid:'추리 중',compact:1})}
+      <div class="subh">적 · 이</div>
+      ${card({hid:'T1 추정',compact:1})}
+      ${card({hid:'추리 중',compact:1})}
+    </div>`,
+    board:()=>board(7,[
+      {c:3,r:0,type:'witch',hp:'2/2',opp:1,mk:1},
+      {c:2,r:2,type:'general',hp:'3/3'},
+      {c:3,r:3,type:'knight',hp:'2/2'},
+      {c:4,r:2,type:'archer',hp:'2/2',mate:1},
+      {c:5,r:4,type:'ratMerchant',hp:'2/2',mate:1},
+      {c:5,r:3,gif:RAT,hp:'1',sum:1},
+      {c:6,r:4,gif:RAT,hp:'1',sum:1},
+      {c:5,r:5,gif:RAT,hp:'1',sum:1},
+    ])
+  }
+};
+function render(m){
+  const d=DATA[m];
+  document.getElementById('op-lab').textContent=d.op_lab;
+  document.getElementById('turnpill').textContent=d.turn;
+  document.getElementById('teams').innerHTML=d.teams;
+  document.getElementById('mb-board').innerHTML=d.board();
+  document.getElementById('modenote').textContent=d.note;
+  document.querySelectorAll('.modeseg button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+}
+document.querySelectorAll('.modeseg button').forEach(b=>b.addEventListener('click',()=>render(b.dataset.m)));
+render('1v1');
+</script>
+</body>
+</html>

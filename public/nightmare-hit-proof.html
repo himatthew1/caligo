@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 악몽·피격·데미지도장 (인게임 소스 그대로)</title>
+<link rel="stylesheet" href="style.css?v=20260609r">
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:14px 18px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+  header.hd{text-align:center;flex:0 0 auto}
+  header.hd h1{font-size:17px;color:#e2b714;margin:0 0 4px}
+  header.hd .sub{color:#a89fb8;font-size:11.5px;max-width:880px;margin:0 auto;line-height:1.5}
+  .topbtns{display:flex;gap:8px;justify-content:center;margin-top:9px;flex-wrap:wrap}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:8px;padding:8px 13px;cursor:pointer;font-size:12.5px}
+  button:hover{border-color:#a874e7}
+  button.nm{background:linear-gradient(135deg,#6d28d9,#a371f7);border-color:transparent;font-weight:600}
+  button.hit{background:linear-gradient(135deg,#c0392b,#e05252);border-color:transparent;font-weight:600}
+  main{flex:1 1 auto;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:flex-start;min-height:0;overflow:auto}
+  @media(min-width:900px){ main{flex-direction:row;gap:26px;align-items:center;justify-content:center;overflow:hidden} }
+  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:20px 26px;display:flex;flex-direction:column;align-items:center;gap:10px;flex:0 0 auto}
+  .stagebox .tt{font-size:12px;font-weight:700;color:#a874e7}
+  /* 실제 인게임처럼 5×5 보드 — .cell 은 style.css 규칙을 그대로 받음 */
+  #game-board.miniboard{display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(3,54px);gap:5px}
+  #game-board .cell{background:#1c1828;border:1px solid #ffffff1f;border-radius:7px;position:relative;display:flex;align-items:center;justify-content:center}
+  .label{color:#8a809e;font-size:10.5px;text-align:center;line-height:1.5}
+  .side{display:flex;flex-direction:column;gap:12px;width:min(470px,100%);flex:0 0 auto}
+  .card{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:12px 15px}
+  .card h2{font-size:11px;color:#e2b714;margin:0 0 7px;text-transform:uppercase;letter-spacing:.4px}
+  .card h2:not(:first-child){margin-top:11px}
+  .legend{font-size:11px;color:#c9bfe0;line-height:1.7}
+  .legend .k{color:#e2b714;font-weight:700}
+  .problems{font-size:11px;color:#f0b9b9;line-height:1.7}
+  .status{font-family:Consolas,monospace;font-size:11px;color:#7CFC98;margin-top:6px}
+  select{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:6px;padding:4px 8px;font-size:11.5px}
+</style>
+</head>
+<body>
+<header class="hd">
+  <h1>⛓ 악몽 발동 · 피격 애니 · 데미지 도장 — 인게임 소스 그대로</h1>
+  <div class="sub">실제 <b>style.css · piece-gifs.js · mark-anim.js · nightmare-anim.js · game.js</b> 를 그대로 로드합니다(재구현 0). 버튼은 진짜 <code>animateNightmareCast()</code> · <code>animateBoardIconHit()</code> · <code>showBoardDamageStamp()</code> 를 호출합니다. 고문기술자(⛓)가 표식(🎯)한 적들에게 악몽을 겁니다.</div>
+  <div class="topbtns">
+    <button class="nm" data-act="nightmare">😱 악몽 발동 (표식 적 전체)</button>
+    <button class="hit" data-act="hit">💥 피격 애니 (단일, animateBoardIconHit)</button>
+    <button data-act="stamp1">🔴 데미지 도장 1개</button>
+    <button data-act="reset">⟲ 표식 다시</button>
+    <button data-act="sync" class="on" style="outline:2px solid #7CFC98">동기화: ON</button>
+    <label style="font-size:11px;color:#a89fb8;">피격 유닛 <select id="victimType">
+      <option value="general">장군</option><option value="archer">궁수</option>
+      <option value="knight">기사</option><option value="bodyguard">호위무사</option><option value="king">왕</option>
+    </select></label>
+  </div>
+</header>
+
+<main>
+  <div class="stagebox">
+    <div class="tt">실제 인게임 보드 (#game-board · 3×3)</div>
+    <div id="game-board" class="miniboard"></div>
+    <div class="label">⛓=고문기술자 · 🎯표식된 적 3명 · 실제 mark-board-layer/idle GIF 사용</div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h2>무엇을 보나</h2>
+      <div class="legend">
+        <span class="k">😱 악몽</span> = nightmare.gif(표식 2배) 1회 재생 → 4프레임 임팩트에 셀 흔들림 + 데미지 도장<br>
+        <span class="k">💥 피격</span> = 유닛 idle→hit GIF 교체 + 방향별 흔들림 (일반 공격 피격과 동일 함수)<br>
+        <span class="k">🔴 도장</span> = 유닛 위 −N (같은 셀 다중 = 세로 스택·시차 / 다른 셀 = 동시)
+      </div>
+      <div class="status" id="status">준비됨</div>
+    </div>
+    <div class="card">
+      <h2>확인 포인트 (문제 후보)</h2>
+      <div class="problems">
+        · 악몽 GIF·흔들림·도장이 <b>같은 타이밍</b>에 맞물리는가<br>
+        · 도장 위치가 유닛 정수리 위에 <b>안정적으로</b> 뜨는가<br>
+        · 다중 표식 적 동시 발동 시 도장이 <b>겹치지</b> 않는가<br>
+        · 피격 GIF가 <b>1회</b>만 재생 후 idle 복원되는가<br>
+        · 악몽에 <b>피격 GIF</b>가 빠져있지 않은가(현재 흔들림만)
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ★ game.js 초기화(로비 DOM 부재)로 인한 init 에러만 무해 처리 — 함수 정의는 이미 완료됨 -->
+<script>window.addEventListener('error', function(e){ /* game.js DOMContentLoaded init noise 무시 */ }, true);</script>
+<!-- ★ 인게임 실제 모듈 그대로 (game.js 는 io 필요 → socket.io 먼저) -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="piece-gifs.js?v=20260614b"></script>
+<script src="mark-anim.js?v=20260706a"></script>
+<script src="nightmare-anim.js?v=20260706a"></script>
+<script src="game.js?v=20260629a"></script>
+<script>
+const MARKED = [{col:2,row:0},{col:0,row:1},{col:2,row:2}];  // 표식된 적 3명
+const TORTURER = {col:1,row:1};
+let victimType = 'general';
+const st = (m)=>{ const e=document.getElementById('status'); if(e) e.textContent=m; };
+
+function pGifHtml(type){ const u=(window.PIECE_GIFS&&window.PIECE_GIFS[type])||('/art/'+type+'_idle.gif'); return `<img class="p-gif" src="${u}" alt="">`; }
+function markIdleHtml(){ const u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif'; return `<img class="mark-board-layer" src="${u}" alt="">`; }
+
+// ── 우리가 통제하는 보드 렌더 (실제 .cell/.piece-marker 구조; game.js renderGameBoard 는 S 필요라 미사용) ──
+function buildBoard(){
+  const b=document.getElementById('game-board'); if(!b) return;
+  b.innerHTML='';
+  for(let row=0;row<3;row++) for(let col=0;col<3;col++){
+    const cell=document.createElement('div');
+    cell.className='cell'; cell.dataset.col=col; cell.dataset.row=row;
+    const isTort = (col===TORTURER.col&&row===TORTURER.row);
+    const marked = MARKED.some(m=>m.col===col&&m.row===row);
+    if(isTort){
+      cell.classList.add('has-piece');
+      cell.innerHTML=`<div class="piece-marker"><span class="p-icon">${pGifHtml('torturer')}</span><span class="p-hp">3/3</span></div>`;
+    } else if(marked){
+      cell.classList.add('has-piece','has-mark');
+      cell.innerHTML=`<div class="piece-marker opp-marked"><span class="p-icon">${pGifHtml(victimType)}</span><span class="p-hp">3/3</span>${markIdleHtml()}</div>`;
+    }
+    b.appendChild(cell);
+  }
+}
+
+let syncMode = true;   // ★ 동기화: onImpact 에서 피격GIF+판정 동시
+function fireNightmare(){
+  buildBoard();
+  if(syncMode){
+    st('악몽 GIF + 피격GIF + 도장 = 임팩트에 동시 (onImpact)…');
+    if(window.animateNightmareCast) window.animateNightmareCast(
+      MARKED.map(m=>({...m,damage:1})),
+      { boardId:'game-board',
+        // ★ 판정 순간 = 악몽 임팩트 프레임 → 각 표식 유닛에 실제 피격 GIF 를 '동시' 발동.
+        //   (모듈은 이 시점에 셀 흔들림 + showBoardDamageStamp 를 이미 실행 → 전부 한 순간에 터짐)
+        onImpact:(list)=>{
+          if(window.animateBoardIconHit) window.animateBoardIconHit(list.map(p=>({col:p.col,row:p.row})), false);
+        }
+      });
+  } else {
+    st('현재 인게임 방식 — 흔들림/도장만, 피격GIF 없음, HP 즉시…');
+    if(window.animateNightmareCast) window.animateNightmareCast(MARKED.map(m=>({...m,damage:1})), {boardId:'game-board'});
+  }
+  setTimeout(()=>st(syncMode?'✅ 임팩트에 GIF+피격+도장 동시 발동':'⚠ 피격GIF 없음(현 인게임)'),1600);
+}
+function fireHit(){
+  // 표식 적 1명(2,0)에 실제 피격 애니
+  st('animateBoardIconHit([2,0], false) 호출…');
+  if(window.animateBoardIconHit) window.animateBoardIconHit([{col:2,row:0}], false);
+}
+function fireStamp(){
+  if(window.showBoardDamageStamp) window.showBoardDamageStamp(0,1,'normal',1);
+  st('showBoardDamageStamp(0,1,normal,1)');
+}
+
+document.querySelectorAll('[data-act]').forEach(btn=>btn.addEventListener('click',()=>{
+  const a=btn.dataset.act;
+  if(a==='nightmare') fireNightmare();
+  else if(a==='hit') fireHit();
+  else if(a==='stamp1') fireStamp();
+  else if(a==='reset') { buildBoard(); st('보드 리셋'); }
+  else if(a==='sync') { syncMode=!syncMode; btn.textContent='동기화: '+(syncMode?'ON':'OFF'); btn.style.outline=syncMode?'2px solid #7CFC98':'none'; st(syncMode?'동기화 ON — 임팩트에 전부 동시':'동기화 OFF — 현 인게임(피격GIF 없음)'); }
+}));
+document.getElementById('victimType').addEventListener('change',e=>{ victimType=e.target.value; buildBoard(); });
+
+function init(){
+  if(window.MARK_GIFS&&window.PIECE_GIFS&&window.animateNightmareCast&&window.showBoardDamageStamp){
+    buildBoard(); st('로드 완료 — 버튼을 눌러 확인');
+  } else setTimeout(init,100);
+}
+init();
+</script>
+</body>
+</html>

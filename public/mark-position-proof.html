@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALIGO — 표식 위치 정렬 증명 (인게임 소스 그대로)</title>
+<!-- ★ 인게임 실제 CSS 그대로 -->
+<link rel="stylesheet" href="style.css?v=20260609r">
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#0c0a14;color:#ede9f0;font-family:"맑은 고딕",system-ui,sans-serif;
+    padding:14px 18px;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+  header.hd{text-align:center;flex:0 0 auto}
+  header.hd h1{font-size:18px;color:#e2b714;margin:0 0 4px}
+  header.hd .sub{color:#a89fb8;font-size:12px;max-width:860px;margin:0 auto;line-height:1.5}
+  .topbtns{display:flex;gap:8px;justify-content:center;margin-top:9px;flex-wrap:wrap}
+  button{background:#2c2640;color:#ede9f0;border:1px solid #453c5c;border-radius:8px;padding:8px 13px;cursor:pointer;font-size:12.5px}
+  button:hover{border-color:#a874e7}
+  button.primary{background:linear-gradient(135deg,#7c3aed,#a371f7);border-color:transparent;font-weight:600}
+  button.danger{background:linear-gradient(135deg,#c0392b,#e05252);border-color:transparent;font-weight:600}
+  button.on{outline:2px solid #e2b714}
+  main{flex:1 1 auto;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:flex-start;min-height:0;overflow:auto}
+  @media(min-width:840px){ main{flex-direction:row;gap:26px;align-items:center;justify-content:center;overflow:hidden} }
+  .stagebox{background:#15121d;border:1px solid #453c5c;border-radius:14px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;gap:10px;flex:0 0 auto}
+  .stagebox .tt{font-size:12.5px;font-weight:700;color:#a874e7}
+  #game-board.miniboard{display:grid;grid-template-columns:1fr;width:150px}
+  #game-board .cell{aspect-ratio:1;background:#1c1828;border:1px solid #ffffff1f;border-radius:8px;position:relative;display:flex;align-items:center;justify-content:center}
+  .label{color:#8a809e;font-size:10.5px}
+  .side{display:flex;flex-direction:column;gap:12px;width:min(460px,100%);flex:0 0 auto}
+  .card{background:#221d30;border:1px solid #453c5c;border-radius:12px;padding:13px 15px}
+  .card h2{font-size:11.5px;color:#e2b714;margin:0 0 7px;text-transform:uppercase;letter-spacing:.4px}
+  .readout{font-family:Consolas,monospace;font-size:12px;line-height:1.7;color:#cbb6ee}
+  .readout b{color:#7CFC98}
+  .codebox{background:#0a0d12;border:1px solid #34405c;border-radius:8px;padding:10px 12px;font-family:Consolas,monospace;
+    font-size:10.5px;color:#a8d4ff;white-space:pre;overflow:auto;max-height:230px;line-height:1.55}
+  .codebox .cm{color:#6b7a90}
+  .codebox .hl{color:#ffd479}
+  .note{color:#8a809e;font-size:10.5px;line-height:1.55;margin-top:2px}
+  /* idle 기준선 (single source of truth) — position:fixed crosshair */
+  .idle-guide{position:fixed;z-index:9999;pointer-events:none}
+  .idle-guide .gh,.idle-guide .gv{position:absolute;background:#e2b714;box-shadow:0 0 4px #e2b714}
+  .idle-guide .gh{left:-16px;top:-0.5px;width:32px;height:1px}
+  .idle-guide .gv{top:-16px;left:-0.5px;width:1px;height:32px}
+  .idle-guide .gbox{position:absolute;border:1px dashed rgba(226,183,20,.85);border-radius:3px}
+  .idle-guide .gtag{position:absolute;left:20px;top:-8px;font-size:9px;color:#e2b714;white-space:nowrap;font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<header class="hd">
+  <h1>🎯 표식 위치 정렬 증명 — 생성 · 인두 · 파괴 = idle 한 지점</h1>
+  <div class="sub">실제 <b>style.css + piece-gifs.js + mark-anim.js</b> 를 인게임과 <b>똑같이</b> 로드합니다(재구현 0). 아래 버튼은 진짜 <code>animateMarkBrand()</code> / <code>animateMarkRelease()</code> 를 그대로 호출합니다. 노란 십자선 = <code>_markIdleCenter()</code> 가 뽑은 <b>idle 표식(아이들) 중심</b> — 세 애니가 모두 이 십자선에 정확히 앉는지 눈으로 확인하세요.</div>
+  <div class="topbtns">
+    <button class="primary" data-act="brand">🔨 표식 찍기 (생성 + 인두)</button>
+    <button class="danger" data-act="release">💥 표식 파괴 (release)</button>
+    <button data-act="idle">🎯 idle 복귀</button>
+    <button class="on" data-act="guide">기준선 표시: ON</button>
+  </div>
+</header>
+
+<main>
+  <div class="stagebox">
+    <div class="tt">실제 인게임 셀 (.cell → .piece-marker)</div>
+    <div id="game-board" class="miniboard"></div>
+    <div class="label">col0,row0 · mark-anim.js 가 보는 #game-board</div>
+  </div>
+
+  <div class="side">
+    <div class="card">
+      <h2>_markIdleCenter — 세 애니 공통 좌표</h2>
+      <div class="readout" id="readout">측정 대기…</div>
+      <div class="note">생성·인두·파괴는 모두 이 헬퍼 하나로 중심을 계산합니다. 값이 하나라는 것 = 세 애니가 서로·idle과 벌어질 수 없다는 뜻(구조적 보장).</div>
+    </div>
+    <div class="card">
+      <h2>실제 구현 (public/mark-anim.js)</h2>
+      <div class="codebox" id="code"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ★ 인게임 실제 모듈 그대로 -->
+<script src="piece-gifs.js?v=20260614b"></script>
+<script src="mark-anim.js?v=20260706a"></script>
+<script>
+let curType='torturer';        // 고문기술자(표식 주인)
+let guideOn=true;
+
+function pGifHtml(type){ const u=(window.PIECE_GIFS&&window.PIECE_GIFS[type])||('/art/'+type+'_idle.gif'); return `<img class="p-gif" src="${u}" alt="">`; }
+
+// ── 표식 셀 — mark-ingame-preview.html 과 동일 구조(인게임 renderGameBoard 축약) ──
+window.renderGameBoard = function(){
+  const b=document.getElementById('game-board'); if(!b) return;
+  b.innerHTML='';
+  const cell=document.createElement('div'); cell.className='cell has-piece has-mark'; cell.dataset.col=0; cell.dataset.row=0;
+  cell.innerHTML=`<div class="piece-marker"><span class="p-icon">${pGifHtml(curType)}</span><span class="p-hp">3/3</span></div>`;
+  if(!(window._markSummoningActive && window._markSummoningActive(0,0))){
+    const u=(window.MARK_GIFS&&window.MARK_GIFS.idle)||'/art/mark/mark_idle.gif';
+    cell.querySelector('.piece-marker').insertAdjacentHTML('beforeend',`<img class="mark-board-layer" src="${u}" alt="">`);
+  }
+  b.appendChild(cell);
+  drawGuide();
+};
+
+// ── idle 기준선 = 진짜 _markIdleCenter() 결과를 그대로 시각화 ──
+let guideEl=null;
+function drawGuide(){
+  if(guideEl){ guideEl.remove(); guideEl=null; }
+  const cell=document.querySelector('#game-board .cell');
+  if(!cell || !window._markIdleCenter || !guideOn){ if(!guideOn) updateReadout(null); return; }
+  const r=window._markIdleCenter(cell, window.MARK_IDLE_SIZE||35, 0);
+  const cr=r.cr;
+  const fx=cr.left+r.markCx, fy=cr.top+r.markCy;
+  const sz=window.MARK_IDLE_SIZE||35;
+  guideEl=document.createElement('div'); guideEl.className='idle-guide';
+  guideEl.style.left=fx+'px'; guideEl.style.top=fy+'px';
+  guideEl.innerHTML=`<div class="gh"></div><div class="gv"></div>`+
+    `<div class="gbox" style="left:${-sz/2}px;top:${-sz/2}px;width:${sz}px;height:${sz}px;"></div>`+
+    `<div class="gtag">idle 중심 (${r.markCx.toFixed(1)}, ${r.markCy.toFixed(1)})</div>`;
+  document.body.appendChild(guideEl);
+  updateReadout(r);
+}
+function updateReadout(r){
+  const el=document.getElementById('readout'); if(!el) return;
+  if(!r){ el.innerHTML='기준선 표시 OFF'; return; }
+  el.innerHTML =
+    `_markIdleCenter(cell, ${window.MARK_IDLE_SIZE||35}, 0)\n`+
+    ` → markCx = <b>${r.markCx.toFixed(2)}</b>  markCy = <b>${r.markCy.toFixed(2)}</b>\n\n`+
+    `🔨 생성(summon).left/top  = (markCx, markCy)\n`+
+    `🔨 인두(iron)             = markCx / 표식바닥\n`+
+    `💥 파괴(release).left/top = (markCx, markCy)\n`+
+    `= 셋 다 동일 좌표`;
+}
+window.addEventListener('resize', ()=>drawGuide());
+
+document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{
+  const a=b.dataset.act;
+  if(a==='brand'){ renderGameBoard(); if(window.animateMarkBrand) window.animateMarkBrand([{col:0,row:0}]);
+    // 인두/생성 진행 중에도 기준선 유지
+    setTimeout(drawGuide,60); setTimeout(drawGuide,1600); }
+  else if(a==='release'){ if(window.animateMarkRelease) window.animateMarkRelease([{col:0,row:0}]); setTimeout(drawGuide,60); }
+  else if(a==='idle'){ renderGameBoard(); }
+  else if(a==='guide'){ guideOn=!guideOn; b.textContent='기준선 표시: '+(guideOn?'ON':'OFF'); b.classList.toggle('on',guideOn); drawGuide(); }
+}));
+
+// ── 실제 코드 스니펫(그대로) 표시 ──
+document.getElementById('code').innerHTML =
+`<span class="cm">// 세 애니 공통 — idle .mark-board-layer 프로브로 실제 정착 위치 측정</span>
+function <span class="hl">_markIdleCenter</span>(cell, size, markOffY) {
+  const host = cell.querySelector('.piece-marker') || ...;
+  const probe = document.createElement('img');
+  probe.className = 'mark-board-layer';   <span class="cm">// ← 실제 idle 클래스</span>
+  probe.style.cssText = '...width:'+size+';transform:translate(-50%,11px);';
+  host.appendChild(probe);
+  const prb = probe.getBoundingClientRect();
+  markCx = prb.left + prb.width/2 - cr.left;
+  markCy = prb.top  + prb.height/2 - cr.top + markOffY;
+  probe.remove();  return { cr, markCx, markCy, host };
+}
+<span class="cm">// 생성</span>  const { cr, markCx, markCy } = <span class="hl">_markIdleCenter</span>(cell, _size, _markOffY);
+<span class="cm">// 파괴</span>  const { markCx, markCy }     = <span class="hl">_markIdleCenter</span>(cell, _size, _markOffY);`;
+
+function init(){ if(window.MARK_GIFS&&window.PIECE_GIFS){ renderGameBoard(); } else setTimeout(init,80); }
+init();
+</script>
+</body>
+</html>
