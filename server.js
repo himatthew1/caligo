@@ -7558,11 +7558,27 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         break;
       }
       if (nSkill === 'command') {
+        const wraiths = player.pieces.filter(p => p.alive && p._isWraith);
+        if (wraiths.length === 0) return { ok: false, msg: '조종할 악령이 없습니다.' };
         spendSP(room, playerIdx, cost);
         player.actionUsedSkillReplace = true;
         player.actionDone = true;
+        // ★ 리워크: 공격 OR 이동 선택. mode='move' 면 지정 방향으로 일제 1칸 이동.
+        const mode = (params && params.mode === 'move') ? 'move' : 'attack';
+        if (mode === 'move') {
+          const DIRS = { up:[0,-1], down:[0,1], left:[-1,0], right:[1,0] };
+          const d = DIRS[params && params.dir] || DIRS.up;
+          let movedN = 0;
+          for (const w of wraiths) {
+            const nc = w.col + d[0], nr = w.row + d[1];
+            if (inBounds(nc, nr, bounds) && _canMoveTo(room, w, nc, nr)) { w.col = nc; w.row = nr; movedN++; }
+          }
+          result.msg = `조종: 악령 ${movedN}체 일제 이동`;
+          result.oppMsg = `조종: 상대 악령 일제 이동`;
+          result.data.wraithMove = { dir: (params && params.dir) || 'up' };
+          break;
+        }
         const cmdHits = [];
-        const wraiths = player.pieces.filter(p => p.alive && p._isWraith);
         for (const w of wraiths) {
           const cells = getAttackCells('wraith', w.col, w.row, bounds, {});
           const hits = processAttack(room, playerIdx, w, cells, undefined, {}) || [];

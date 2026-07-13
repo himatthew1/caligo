@@ -10247,7 +10247,7 @@ const CHAR_DETAILS = {
   necromancer: {
     blocks: [
       { ...mkSkillHead('강령술', 'tag-once', '자유시전·1회'), sp: 2, color: '#a78bfa', desc: '보드 위 유해 하나를 악령으로 되살립니다. 악령은 세로 3칸을 공격하고 체력과 공격력이 1입니다.' },
-      { ...mkSkillHead('조종', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: '내 모든 악령이 한 번씩 공격합니다.' },
+      { ...mkSkillHead('조종', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: '내 모든 악령이 한 번씩 공격하거나, 같은 방향으로 일제히 이동합니다.' },
     ],
     flavor: '죽음의 문턱을 여는 자. 그의 부름에 잠들었던 시신들이 다시 일어나 칼을 든다.',
   },
@@ -17113,7 +17113,11 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     renderGameBoard();
     return;
   }
-  // 악령술사 조종(command)·기타 무대상 스킬은 아래 기본 emit 으로 처리됨.
+  // ★ 악령술사 조종(command) — 일제 공격 / 일제 이동(방향) 선택.
+  if (type === 'necromancer' && skillId === 'command') {
+    showNecroCommandUI(pieceIdx);
+    return;
+  }
   if (type === 'princess') {
     // 그레이스 키스: 개구리 상태 아군 선택
     const modal = document.getElementById('skill-modal');
@@ -17350,6 +17354,37 @@ function showMorphUI(pieceIdx) {
     });
     body.appendChild(opt);
   }
+  modal.classList.remove('hidden');
+}
+// 악령술사 조종 — 일제 공격 / 일제 이동(방향) 선택.
+function showNecroCommandUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '조종 — 방식 선택';
+  const renderRoot = () => {
+    body.innerHTML = '';
+    const atk = document.createElement('div');
+    atk.className = 'skill-option';
+    atk.innerHTML = `<div class="skill-name">⚔ 일제 공격</div><div class="skill-desc">모든 악령이 한 번씩 공격</div>`;
+    atk.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'attack' } }); });
+    body.appendChild(atk);
+    const mv = document.createElement('div');
+    mv.className = 'skill-option';
+    mv.innerHTML = `<div class="skill-name">🏃 일제 이동</div><div class="skill-desc">모든 악령이 같은 방향으로 1칸 이동</div>`;
+    mv.addEventListener('click', renderDirs);
+    body.appendChild(mv);
+  };
+  const renderDirs = () => {
+    body.innerHTML = '';
+    for (const [dir, label] of [['up','↑ 위'],['down','↓ 아래'],['left','← 왼쪽'],['right','→ 오른쪽']]) {
+      const opt = document.createElement('div');
+      opt.className = 'skill-option';
+      opt.innerHTML = `<div class="skill-name">${label}</div>`;
+      opt.addEventListener('click', () => { modal.classList.add('hidden'); socket.emit('use_skill', { pieceIdx, skillId: 'command', params: { mode: 'move', dir } }); });
+      body.appendChild(opt);
+    }
+  };
+  renderRoot();
   modal.classList.remove('hidden');
 }
 // 요정 페어리 더스트 — 아군 1명 선택 → 행운 부여(다음 피해 1회 0).
