@@ -2635,7 +2635,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       // ★ 패시브 dedupe Set 초기화 (이전 attack 잔재 방지) — 새 damage 이벤트.
       room._attackPassivesFired = new Set();
       room._pendingBodyguardPassive = null;
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
       aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
       if (dmg > 0) applyDamageTriggers(room, aiPiece2, idx, dmg);   // 데미지-트리거(마법사 등)
       const willDie = aiPiece2.hp <= 0;
@@ -4125,7 +4125,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
 
   // Step 8: Bodyguard passive — 왕실 아군 피해를 1로 줄이고 대신 받음 (항상 활성)
   // 팀모드: 방어자의 팀 전체에서 호위무사 탐색 + 대상 왕실은 팀원 것도 가능
-  if (defenderPiece.tag === 'royal' && defenderPiece.type !== 'bodyguard') {
+  // ★ 사용자 규칙: 덫 발동 피해는 호위무사가 가로챌 수 없다(왕실이 밟으면 온전히 받음). _trapSource 로 제외.
+  if (defenderPiece.tag === 'royal' && defenderPiece.type !== 'bodyguard' && !(attackerPiece && attackerPiece._trapSource)) {
     const defenderTeamIdx = (room.mode === 'team')
       ? getAllyIndices(room, defenderIdx)
       : [defenderIdx];
@@ -6737,7 +6738,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const trapIdx2 = room.boardObjects[playerIdx].findIndex(o => o.type === 'trap' && o.col === destCol && o.row === destRow);
       if (trapIdx2 >= 0) {
         room.boardObjects[playerIdx].splice(trapIdx2, 1);
-        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
+        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: destCol, row: destRow }, enemyPiece, playerIdx, 2, false);
         // ★ HP/사망/SP 변경은 모두 deferred — skill_result 시점에는 변경 X.
         //   wizard 패시브 SP 도 deferred (이동확정 후 덫 발동 시점에서 처리).
         result.data.deferredKingTrap = {
@@ -8996,7 +8997,7 @@ function aiExecuteMove(room, action) {
       // ★ 패시브 dedupe Set 초기화.
       room._attackPassivesFired = new Set();
       room._pendingBodyguardPassive = null;
-      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
+      const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
       aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
       if (aiPiece.type === 'wizard' && dmg > 0) applyDamageTriggers(room, aiPiece, 1, dmg);
       const willDie3 = aiPiece.hp <= 0;
@@ -10811,7 +10812,7 @@ io.on('connection', (socket) => {
         // ★ 패시브 dedupe Set 초기화.
         room._attackPassivesFired = new Set();
         room._pendingBodyguardPassive = null;
-        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
+        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
         if (piece2.type === 'wizard') applyDamageTriggers(room, piece2, tp.idx, dmg);
         const willDie = piece2.hp <= 0;
