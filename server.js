@@ -190,6 +190,8 @@ const CHARACTERS = {
     // ── ★ Phase 3 신규(무스킬·무패시브) ──
     { type:'wanderer', name:'방랑자', tier:1, atk:1, icon:'/assets/icons/wanderer.png', tag:null, desc:'도약 — 나이트 8칸', skills:[] },
     { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'/assets/icons/hookKiller.png', tag:'villain', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
+    { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능',
+      skills:[], passives:['valor'] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -213,6 +215,8 @@ const CHARACTERS = {
     // ── ★ Phase 3 신규 ──
     { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'/assets/icons/unicorn.png', tag:null, desc:'제자리와 상단 대각선', noRemains:true,
       skills:[], passives:['silverHorn'] },
+    { type:'ironman', name:'철인', tier:2, atk:0, icon:'/assets/icons/ironman.png', tag:null, desc:'제자리와 상단 · 괴력: 공격력 = 남은 체력',
+      skills:[], passives:['might'] },
   ],
   3: [
     { type:'prince', name:'왕자', tier:3, atk:3, icon:'/assets/icons/prince.png', tag:'royal', desc:'자신 포함 좌우 3칸', skills:[] },
@@ -4759,7 +4763,10 @@ function detonateBomb(room, ownerIdx, bomb, options) {
 
 function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts) {
   const attacker = room.players[attackerIdx];
-  const baseDmg = (extraDamage !== undefined) ? extraDamage : atkPiece.atk;
+  // ★ Phase 3: 동적 공격력 반영(철인=HP·왕자=계승자·묘지기=유해수·개구리=0.5). wrath 는 resolveDamage
+  //   에서 별도 가산되므로 getBaseAtk(wrath 제외)를 쓴다. 기존 유닛은 플래그 없어 atk 그대로.
+  const baseDmg = (extraDamage !== undefined) ? extraDamage
+    : ((typeof getBaseAtk === 'function') ? getBaseAtk(atkPiece, room, attackerIdx) : atkPiece.atk);
   // ★ 이번 공격 *이전*에 존재하던 유해 칸 스냅샷 — 공격으로 죽어 새로 생긴 유해를 피격에서 제외하기 위함.
   //   (유닛 사망 = 유해 생성. 생성 즉시 피격 카운트되면 안 됨.)
   //   opts.preRemainsOverride: 합류 쌍둥이처럼 한 액션에서 여러 번 호출될 때 액션-시작 시점 스냅샷 공유.
@@ -7395,19 +7402,34 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
 //   동적 기본공격력(철인=남은HP · 왕자 계승자=+0.5×타왕실 · 묘지기=+0.5×유해수 · 마왕 타락/
 //   오베론 축복=팩션버프)은 신규 로스터 활성 시 아래 스텁을 켠다. 현재 라이브 유닛은 리워크 전이라
 //   미적용 → 기존 _effectiveAtkForAi(base+wrath)와 100% 동일 동작(라이브 불변).
+// ── 동적 기본 공격력 (지휘관 wrath 제외 — wrath 는 resolveDamage Step2 에서 별도 가산) ──
+//   개구리=0.5 / 철인 괴력=남은HP / 왕자 계승자=+0.5×타왕실(적 포함) / 묘지기 담력=+0.5×유해수.
+//   패시브 기반 동적항은 해당 passive 플래그가 있을 때만 발동 → 기존 유닛(플래그 없음) 불변.
+//   처형(참수)·개구리면 패시브 무력화(isPassiveActive). processAttack 의 baseDmg 도 이 값을 쓴다.
+function _countOtherAliveRoyals(room, self) {
+  let n = 0;
+  for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
+    if (p !== self && p.alive && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) n++;
+  }
+  return n;
+}
+function getBaseAtk(piece, room, ownerIdx) {
+  if (!piece) return 0;
+  if (typeof isFrog === 'function' && isFrog(piece)) return 0.5;   // 개구리 오버라이드
+  let base = piece.atk || 0;
+  const pas = piece.passives || [];
+  const on = (id) => (typeof isPassiveActive === 'function') ? isPassiveActive(piece, id) : true;
+  if (pas.includes('might') && on('might')) return Math.max(0, piece.hp || 0);        // 철인 괴력
+  if (pas.includes('successor') && on('successor')) base += 0.5 * _countOtherAliveRoyals(room, piece); // 왕자 계승자
+  if (pas.includes('valor') && on('valor')) base += 0.5 * ((room && room.remains && room.remains.length) || 0); // 묘지기 담력
+  return base;
+}
 function getEffectiveAtk(piece, room, ownerIdx, opts) {
   if (!piece) return 0;
   opts = opts || {};
   const col = opts.col != null ? opts.col : piece.col;
   const row = opts.row != null ? opts.row : piece.row;
-  // ── 개구리 오버라이드 — atk 0.5 고정(사기증진 등 버프도 무의미하나 정합상 base 대체) ──
-  if (typeof isFrog === 'function' && isFrog(piece)) return 0.5;
-  let base = piece.atk || 0;
-  // ── 동적 기본공격력 (신규 로스터 활성 시 켬) ──
-  //   TODO(Phase3): if (piece.type==='ironman') base = max(0, hp);
-  //                 if (piece.type==='prince') base += 0.5 * (생존 타 왕실 수, 적 포함);
-  //                 if (piece.type==='gravekeeper') base += 0.5 * (room.remains?.length||0);
-  //                 처형(참수) 상태면 동적/패시브 무력화.
+  const base = getBaseAtk(piece, room, ownerIdx);
   if (piece.type === 'commander') return base;
   const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
   for (const ai of allyIdxs) {
@@ -8395,8 +8417,10 @@ function aiEndTurn(room) {
 //   2. 절대복종반지로 강제이동된 경우 (별도 흐름 — 이 함수와 무관).
 //   AI 가 자기 아군 위로 이동을 선택하지 않도록 점유 검사 시 사용.
 function _canMoveTo(room, piece, nc, nr) {
-  // 유해 차단
-  if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) return false;
+  // 유해 차단 — ★ Phase 3: 묘지기(담력)는 유해 칸으로도 이동 가능.
+  if (room.remains && room.remains.some(r => r.col === nc && r.row === nr)) {
+    if (!(piece && (piece.passives || []).includes('valor'))) return false;
+  }
   for (const pl of (room.players || [])) {
     for (const pc of (pl.pieces || [])) {
       if (pc.alive && pc !== piece && pc.col === nc && pc.row === nr) {
@@ -10414,7 +10438,8 @@ io.on('connection', (socket) => {
       }
     }
     // 유해 차단 — 유해가 있는 칸으로 이동 불가
-    if (room.remains && room.remains.some(r => r.col === col && r.row === row)) {
+    if (room.remains && room.remains.some(r => r.col === col && r.row === row)
+        && !(piece && (piece.passives || []).includes('valor'))) {   // ★ 묘지기(담력)는 유해 칸 이동 가능
       socket.emit('err', { msg: '유해가 있는 칸으로는 이동할 수 없습니다.' }); return;
     }
 
