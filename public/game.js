@@ -7830,6 +7830,9 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
         };
         animateNightmareCast(nightmareCells, { onImpact: _nmReveal });
         setTimeout(_nmReveal, 1100);
+      } else if (Array.isArray(borderCells) && borderCells.length > 0) {
+        // ★ 유황범람(라바): 피격판정(HP 노출·프로필 흔들림)을 보드가 빨개지는 라바 피크(~1100ms)에 맞춤.
+        setTimeout(_revealNmHit, 1100);
       } else {
         _revealNmHit();
       }
@@ -7919,12 +7922,12 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
         // ★ 사용자 보고 (도장 미출력): stamps 가 addBodyDamage/addLoyaltyDamage 로 누적된 후
         //   renderMyPieces 가 호출되어야 buildDamageOverlay 가 실행되어 도장이 시각화됨.
         //   line 6264 의 renderMyPieces 는 stamps 추가 전에 실행되어 도장이 누락됨 → 추가 재렌더.
-        if (_stampsAdded) {
-          if (typeof renderMyPieces === 'function') renderMyPieces();
-        }
-        // 피격 카드 brighten/protected 애니 — server status_update 가 보낸 hits 대상에 적용.
-        //   defPieceIdx 는 받는 쪽 (= S.playerIdx) 의 my-pieces 인덱스.
-        requestAnimationFrame(() => {
+        // ★ 유황범람(라바)이면 도장 렌더 + 프로필 피격 애니도 라바 피크(~1100ms)에 맞춰 지연 →
+        //   보드 빨강 = 피격판정 동기화. 라바 없으면(악몽 등) 즉시.
+        const _lavaHitDelay = (Array.isArray(borderCells) && borderCells.length > 0) ? 1100 : 0;
+        const _doStampRender = () => { if (_stampsAdded && typeof renderMyPieces === 'function') renderMyPieces(); };
+        // 피격 카드 brighten/protected 애니 — defPieceIdx 는 받는 쪽(= S.playerIdx) my-pieces 인덱스.
+        const _doProfileHitAnim = () => requestAnimationFrame(() => {
           for (const h of hits) {
             if (h.defPieceIdx == null) continue;
             if (h.redirectedToBodyguard) continue;
@@ -7939,6 +7942,11 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
             }
           }
         });
+        if (_lavaHitDelay > 0) {
+          setTimeout(() => { _doStampRender(); _doProfileHitAnim(); }, _lavaHitDelay);
+        } else {
+          _doStampRender(); _doProfileHitAnim();
+        }
         // ★ 버퍼된 wizard 등 패시브 alert flush — 1v1 상대 스킬에 의해 본인 wizard 가 피격된 시점.
         if (typeof flushDefensiveAlerts === 'function') {
           const _killed = hits.some(h => h.destroyed);
