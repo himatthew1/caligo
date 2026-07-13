@@ -4976,7 +4976,10 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
     setTimeout(() => {
       // ── ★ 사망 감지 — 상태 업데이트 전에 현재 DOM 에서 방향 캡처 ──────────
       const _destroyedCells = cellResults.filter(c => c.hit && c.destroyed);
-      const _deathInfosRaw = _detectDeaths(_destroyedCells, false); // 공격자 시점 → 상대 말(opp-marked)
+      // ★ 충성으로 대신 맞다 사망한 호위무사 — cellResults 엔 없고 bodyguardHits 로만 오므로 사망 목록에 합류.
+      const _bgDeadCells = (bodyguardHits || []).filter(bg => bg.destroyed && bg.col != null)
+        .map(bg => ({ col: bg.col, row: bg.row, type: 'bodyguard', destroyed: true, defPieceIdx: bg.defPieceIdx }));
+      const _deathInfosRaw = _detectDeaths(_destroyedCells.concat(_bgDeadCells), false); // 공격자 시점 → 상대 말
       // ★ 드래곤/유황솥 포함 — 모든 타입의 사망 애니를 공격자에게도 재생.
       //   유해 생성 여부는 _addClientSideRemains 내부에서 별도 처리 (dragon/sulfurCauldron/rat → skip).
       const _deathInfos = _deathInfosRaw;
@@ -7884,12 +7887,13 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       if (Array.isArray(hits) && hits.length > 0) {
         const hitCells = hits.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
+        //   ★ 사용자 보고: 피해자 시점이라 isDefending=true 여야 내 유닛 마커의 피격 GIF 가 재생됨(누락 수정).
         if (hitCells.length > 0) {
           const _hasLava = Array.isArray(borderCells) && borderCells.length > 0;
           if (_hasLava) {
-            setTimeout(() => { animateAttack([], hitCells); }, 1100);
+            setTimeout(() => { animateAttack([], hitCells, true); }, 1100);
           } else {
-            animateAttack([], hitCells);
+            animateAttack([], hitCells, true);
           }
         }
         // ★ attackLog 기록 — 보드 위 💥/· 셀 마크 (1v1 상대 시점 — 피격자)
