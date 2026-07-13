@@ -258,6 +258,8 @@ const CHARACTERS = {
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:1, icon:'/assets/icons/count.png', tag:'villain', desc:'제자리와 대각선 · 흡혈: 최대체력 조작',
       skills:[{id:'vampire', name:'흡혈', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 최대체력 -1, 자신 +1(왕실 대상 시 상한 돌파)'}] },
+    { type:'demonKing', name:'마왕 칼리고', tier:3, atk:0, icon:'/assets/icons/demonKing.png', tag:'villain', desc:'제자리 중심 V(6칸)',
+      skills:[{id:'corrupt', name:'타락', cost:1, replacesAction:true, desc:'보드 위 모든 악인 공격력 +0.5(누적)'}] },
     // ── ★ Phase 3 신규 ──
     { type:'militia', name:'민병대장', tier:3, atk:3, icon:'/assets/icons/militia.png', tag:null, desc:'가로 3칸', skills:[] },
     { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
@@ -6818,6 +6820,18 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       break;
     }
 
+    // ── DEMON KING(마왕): 타락 (보드 위 모든 악인 공격력 +0.5 · 행동소비 · 누적) ──
+    case 'demonKing': {
+      spendSP(room, playerIdx, cost);
+      player.actionUsedSkillReplace = true;
+      player.actionDone = true;
+      if (!room._factionAtkBuff) room._factionAtkBuff = {};
+      room._factionAtkBuff.villain = (room._factionAtkBuff.villain || 0) + 0.5;
+      result.msg = `타락: 모든 악인 공격력 +0.5`;
+      result.oppMsg = `타락: 악인 강화`;
+      break;
+    }
+
     // ── KING: 절대복종 반지 (force move enemy) ──
     case 'king': {
       const targetName = params?.targetName;
@@ -7738,6 +7752,8 @@ function getBaseAtk(piece, room, ownerIdx) {
   if (pas.includes('might') && on('might')) return Math.max(0, piece.hp || 0);        // 철인 괴력
   if (pas.includes('successor') && on('successor')) base += 0.5 * _countOtherAliveRoyals(room, piece); // 왕자 계승자
   if (pas.includes('valor') && on('valor')) base += 0.5 * ((room && room.remains && room.remains.length) || 0); // 묘지기 담력
+  // 팩션 ATK 버프(마왕 타락 +0.5/악인 · 오베론 축복 등) — room._factionAtkBuff[faction] 누적.
+  if (room && room._factionAtkBuff && typeof pieceFaction === 'function') base += room._factionAtkBuff[pieceFaction(piece)] || 0;
   return base;
 }
 function getEffectiveAtk(piece, room, ownerIdx, opts) {
