@@ -192,6 +192,8 @@ const CHARACTERS = {
     { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'/assets/icons/hookKiller.png', tag:'villain', desc:'위치한 곳 가로줄 전체 공격', skills:[] },
     { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'/assets/icons/gravekeeper.png', tag:'villain', desc:'제자리 제외 십자 · 담력: 유해당 +0.5, 유해 칸 이동 가능',
       skills:[], passives:['valor'] },
+    { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'/assets/icons/poisoner.png', tag:'villain', desc:'제자리와 X자 대각선 · 독니: 공격 대상 중독',
+      skills:[], passives:['venomFang'] },
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'자신 포함 십자 5칸', skills:[] },
@@ -341,6 +343,21 @@ function applyPoisonTick(room, piece, ownerIdx) {
   if (st <= 0) return 0;
   const dmg = 0.1 * st;
   piece.hp = Math.max(0, Math.round((piece.hp - dmg) * 100) / 100);   // 감경 우회(상태이상 지속뎀)
+  return dmg;
+}
+// 중독 틱 배선 — 중독 유닛이 '행동(이동/공격/행동소비스킬)을 완료한 직후' 호출.
+//   데미지 적용 + 클라 이벤트 + 사망 처리(호출부가 startPhase 컨텍스트에서 호출해야 사망 시퀀스 정상).
+function tickActorPoison(room, actor, ownerIdx) {
+  if (!actor || !actor.alive) return 0;
+  const dmg = applyPoisonTick(room, actor, ownerIdx);
+  if (dmg <= 0) return 0;
+  const newHp = actor.hp, destroyed = actor.hp <= 0;
+  try {
+    emitToBoth(room, 'poison_tick', { col: actor.col, row: actor.row, damage: dmg, newHp, destroyed, ownerIdx, type: actor.type, name: actor.name });
+    emitToSpectators(room, 'spectator_log', { msg: `중독: ${actor.name} 지속 피해 ${dmg}`, type: 'passive', playerIdx: ownerIdx });
+    aiLogDmg(room, actor, ownerIdx, dmg, true, null, null);
+  } catch (e) {}
+  if (destroyed) handleDeath(room, actor, ownerIdx);
   return dmg;
 }
 
@@ -4822,6 +4839,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             checkCurseRemoval(room, defPiece, defIdx);
           }
           const destroyed = defPiece.hp <= 0;
+          // ★ Phase 3: 독니(독살꾼) — 공격받은(사거리 내·비그림자) 대상 중독. 처형 시 무력화(isPassiveActive),
+          //   addStatus 가 면역(유니콘/그림자) 존중. 죽은 대상엔 무의미하므로 생존 시만.
+          if (!destroyed && typeof addStatus === 'function'
+              && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
+            addStatus(defPiece, 'poison', { stacks: 1 });
+          }
           if (destroyed) {
             handleDeath(room, defPiece, defIdx);
           }
