@@ -503,10 +503,20 @@ function getAttackCells(type, col, row, bounds, extra) {
       push(col, row); push(col-1, row-1); push(col+1, row-1);
       break;
     case 'hero':         // 영웅 — 제자리+하단1
+    case 'siegeBreaker': // 공성파괴자 — 제자리+하단1 (v2 PPT 그리드 slide45)
       push(col, row); push(col, row + 1);
       break;
-    case 'siegeBreaker': // 공성파괴자 — 가로3 (PPT 그리드 판독: 중앙행 좌·자기·우)
+    case 'militia':      // 민병대장(구 왕자) — 가로3
       push(col-1, row); push(col, row); push(col+1, row);
+      break;
+    case 'golem':        // 골렘(구 공주) — 세로3
+      push(col, row); push(col, row-1); push(col, row+1);
+      break;
+    case 'hookKiller':   // 갈고리 살인마(구 기마병) — 가로 행 전체
+      for (let c = b.min; c <= b.max; c++) push(c, row);
+      break;
+    case 'demonKing':    // 마왕 칼리고 — 제자리 중심 V(6칸): 상단대각2+좌우+하단
+      push(col, row); push(col-1, row-1); push(col+1, row-1); push(col-1, row); push(col+1, row); push(col, row+1);
       break;
     case 'homunculus':   // 호문클루스 — 좌우 2
     case 'undead':       // 언데드 — 양옆(좌우)
@@ -536,18 +546,15 @@ function getAttackCells(type, col, row, bounds, extra) {
       for (const dc of [-1,0,1]) { push(col+dc, row); push(col+dc, row+1); }
       break;
     case 'oberon':       // 오베론 — 제자리+하단 대각2
+    case 'executioner':  // 처형인 — 제자리+아래 대각2 (v2 PPT 그리드 slide39: 자기 포함)
       push(col, row); push(col-1, row+1); push(col+1, row+1);
-      break;
-    case 'executioner':  // 처형인 — 아래 대각2만 (PPT 그리드: 중앙/자기 미포함)
-      push(col-1, row+1); push(col+1, row+1);
       break;
     //   ── 왕실(Royal) ──
     case 'catapult':     // 투석기 — 원하는 칸(단일, 무제한) : witch 처럼 tCol/tRow 1칸
       if (extra.tCol !== undefined && extra.tRow !== undefined) push(extra.tCol, extra.tRow);
       break;
-    case 'courtier':     // 궁정대신 — 제자리+U(5칸): 자기 좌우 + 하단 좌우/중앙? PPT U = 위로 열린 U
-      // 위로 열린 U(5칸) = 좌열 위·자기, 우열 위·자기, 하단 중앙 → (−1,0),(−1,1),(1,0),(1,1),(0,1)+제자리 판독 보류
-      push(col, row); push(col-1, row); push(col+1, row); push(col-1, row+1); push(col+1, row+1);
+    case 'courtier':     // 궁정대신 — 제자리 포함 U(위로 열림, 5칸): 자기+좌우+상단대각2 (v2 그리드 slide40)
+      push(col, row); push(col-1, row); push(col+1, row); push(col-1, row-1); push(col+1, row-1);
       break;
     //   ── 악인(Villain) ──
     case 'poisoner':     // 독살꾼 — 제자리+X 대각4
