@@ -243,12 +243,80 @@ const getChar = (type) => ALL_CHARS.find(c => c.type === type);
 const FACTIONS = ['royal', 'villain', 'spirit', 'neutral'];
 function pieceFaction(piece) {
   if (!piece) return 'neutral';
-  if (piece._tagOverride) return piece._tagOverride;                 // 호문클루스 변이 등(Phase 3)
+  if (piece._cultOf != null) return 'cult';                          // 이단자 현혹 — 소속 상실(이교단)
+  if (piece._tagOverride) return piece._tagOverride;                 // 호문클루스 변이(Phase 3)
   return piece.tag || 'neutral';                                      // null = 무소속(neutral)
 }
 function isFaction(piece, faction) {
   if (faction === 'neutral') return pieceFaction(piece) === 'neutral';
   return pieceFaction(piece) === faction;
+}
+
+// ══ ★ Phase 2: 상태이상 엔진 (중앙 관리 · 오버라이드 · 면역) ═══════════════════
+//   기존엔 statusEffects.push/.some 이 곳곳에 흩어져 있었음. 신규 상태이상(중독·행운/불행·
+//   처형·개구리·이교단)을 안전하게 얹기 위한 중앙 헬퍼 + 오버라이드 읽기점. 전부 additive —
+//   아직 아무 유닛도 신규 상태를 부여받지 못하므로(스킬은 Phase 3) 현재 동작 불변.
+function hasStatus(piece, type) {
+  return !!(piece && piece.statusEffects && piece.statusEffects.some(e => e.type === type));
+}
+function getStatus(piece, type) {
+  return (piece && piece.statusEffects) ? piece.statusEffects.find(e => e.type === type) : null;
+}
+function statusStacks(piece, type) {
+  const e = getStatus(piece, type);
+  return e ? (e.stacks || 1) : 0;
+}
+// 상태이상 완전 면역 — 유니콘 백은뿔(모든 상태이상 거부) + 그림자(새 상태 거부).
+function isStatusImmune(piece) {
+  if (!piece) return false;
+  if (piece.type === 'unicorn' || (piece.passives || []).includes('silverHorn')) return true;
+  if (hasStatus(piece, 'shadow')) return true;
+  return false;
+}
+function _addStacks(piece, type, n) {
+  const e = getStatus(piece, type);
+  if (e) e.stacks = (e.stacks || 1) + n;
+  else piece.statusEffects.push({ type, stacks: n });
+}
+// 행운↔불행 상쇄(1:1) — 반대 상태 스택을 깎고, 남으면 이쪽에 적립.
+function _applyOpposing(piece, type, n) {
+  const opp = type === 'luck' ? 'misfortune' : 'luck';
+  const oe = getStatus(piece, opp);
+  if (oe) {
+    const m = oe.stacks || 1;
+    if (n >= m) { removeStatus(piece, opp); n -= m; if (n > 0) _addStacks(piece, type, n); }
+    else { oe.stacks = m - n; }
+    return;
+  }
+  _addStacks(piece, type, n);
+}
+// 상태이상 부여 — 면역 존중 + 스택형(poison/misfortune/luck) 누적. 반환: 실제 부여됐나.
+function addStatus(piece, type, opts) {
+  if (!piece) return false;
+  opts = opts || {};
+  if (!piece.statusEffects) piece.statusEffects = [];
+  if (isStatusImmune(piece) && !opts.force) return false;
+  const n = opts.stacks || 1;
+  if (type === 'luck' || type === 'misfortune') { _applyOpposing(piece, type, n); return true; }
+  if (type === 'poison') { _addStacks(piece, 'poison', n); return true; }
+  if (!hasStatus(piece, type)) piece.statusEffects.push(Object.assign({ type }, opts.data || {}));
+  return true;
+}
+function removeStatus(piece, type) {
+  if (piece && piece.statusEffects) piece.statusEffects = piece.statusEffects.filter(e => e.type !== type);
+}
+// 처형(참수)·개구리는 패시브 무력화. 단 개구리 중 독살꾼의 독니(독개구리)만 예외 유지.
+function isPassiveActive(piece, passiveId) {
+  if (!piece) return false;
+  if (hasStatus(piece, 'executed')) return false;                    // 처형 = 패시브 전면 무력화
+  if (hasStatus(piece, 'frog')) return piece.type === 'poisoner' && passiveId === 'venomFang'; // 독개구리
+  return true;
+}
+// 개구리 오버라이드 — 공격범위 '가로3'(getAttackCells 'frog' case) / atk 0.5 / 스킬 없음.
+function isFrog(piece) { return hasStatus(piece, 'frog'); }
+function effectiveAttackType(piece) {
+  if (!piece) return null;
+  return isFrog(piece) ? 'frog' : piece.type;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -565,6 +633,10 @@ function getAttackCells(type, col, row, bounds, extra) {
       break;
     case 'gravekeeper':  // 묘지기 — 제자리 제외 십자
       for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) push(col+dc, row+dr);
+      break;
+    // ── 상태이상 오버라이드 ──
+    case 'frog':         // 개구리(마녀 스킬) — 공격범위 가로3 (effectiveAttackType 이 반환)
+      push(col-1, row); push(col, row); push(col+1, row);
       break;
   }
   return cells;
@@ -3948,6 +4020,19 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
     return 0;
   }
 
+  // Step 4.5: ★ Phase 2 행운/불행 (상태이상 지속뎀엔 미적용). 판정 #9: 증폭(불행)→감경(-0.5) 순서.
+  //   행운=이번 피해 1회 0(스택 1 소모, 피격 판정·데미지 트리거는 정상=0뎀도 데미지). 불행=받는 피해
+  //   +스택수 증폭 후 전부 해제. 아직 부여 스킬(요정 페어리더스트·포춘텔러 흉조)은 Phase 3라 inert.
+  if (!isStatusDmg && typeof hasStatus === 'function') {
+    if (hasStatus(defenderPiece, 'luck')) {
+      const e = getStatus(defenderPiece, 'luck');
+      if ((e.stacks || 1) > 1) e.stacks -= 1; else removeStatus(defenderPiece, 'luck');
+      return 0;
+    }
+    const mf = statusStacks(defenderPiece, 'misfortune');
+    if (mf > 0) { dmg += mf; removeStatus(defenderPiece, 'misfortune'); }
+  }
+
   // Step 5: ArmoredWarrior iron skin: -0.5 (not status dmg)
   if (defenderPiece.type === 'armoredWarrior') {
     const before = dmg;
@@ -7292,6 +7377,8 @@ function getEffectiveAtk(piece, room, ownerIdx, opts) {
   opts = opts || {};
   const col = opts.col != null ? opts.col : piece.col;
   const row = opts.row != null ? opts.row : piece.row;
+  // ── 개구리 오버라이드 — atk 0.5 고정(사기증진 등 버프도 무의미하나 정합상 base 대체) ──
+  if (typeof isFrog === 'function' && isFrog(piece)) return 0.5;
   let base = piece.atk || 0;
   // ── 동적 기본공격력 (신규 로스터 활성 시 켬) ──
   //   TODO(Phase3): if (piece.type==='ironman') base = max(0, hp);
