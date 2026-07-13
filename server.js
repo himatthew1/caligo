@@ -518,9 +518,11 @@ function getAttackCells(type, col, row, bounds, extra) {
     case 'demonKing':    // 마왕 칼리고 — 제자리 중심 V(6칸): 상단대각2+좌우+하단
       push(col, row); push(col-1, row-1); push(col+1, row-1); push(col-1, row); push(col+1, row); push(col, row+1);
       break;
-    case 'homunculus':   // 호문클루스 — 좌우 2
-    case 'undead':       // 언데드 — 양옆(좌우)
+    case 'undead':       // 언데드 — 양옆(좌우) (v2 그리드 slide59)
       push(col-1, row); push(col+1, row);
+      break;
+    case 'homunculus':   // 호문클루스 — 좌우 + 하단 대각2 (v2 그리드 slide13; 글="좌우"지만 그리드 우선)
+      push(col-1, row); push(col+1, row); push(col-1, row+1); push(col+1, row+1);
       break;
     case 'gladiator':    // 검투사 — 좌우+상단
       push(col-1, row); push(col+1, row); push(col, row-1);
