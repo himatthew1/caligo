@@ -16587,22 +16587,26 @@ function showKingSkillUI(pieceIdx) {
   document.getElementById('skill-modal-title').textContent = '절대복종 반지 — 대상 선택';
   body.innerHTML = '';
 
-  for (const opc of S.oppPieces) {
-    if (!opc.alive) continue;
+  // ★ 리워크: 아군/적 모두 강제 이동 가능. 단 국왕 자신(pieceIdx)은 제외(사용자 규칙).
+  const _addRingOpt = (pc, ownerIdx, isAlly) => {
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div>
-      <div class="skill-desc">이 적을 선택 후 강제 이동할 위치를 지정합니다</div>`;
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name}${isAlly ? ' <span style="opacity:.7">(아군)</span>' : ''}</div>
+      <div class="skill-desc">이 유닛을 강제 이동시킬 위치를 지정합니다</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
       S.action = 'skill_target';
-      // 팀모드: ownerIdx 포함해 어느 적의 어떤 캐릭터인지 명확히
-      S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: opc.type, targetOwnerIdx: opc.ownerIdx };
+      S.skillTargetData = { pieceIdx, skillId: 'ring', type: 'king_move', targetName: pc.type, targetOwnerIdx: ownerIdx };
       document.getElementById('btn-cancel').classList.remove('hidden');
       document.getElementById('action-hint').textContent = `대상을 강제 이동시킬 위치를 클릭하세요.`;
       renderGameBoard();
     });
     body.appendChild(opt);
+  };
+  for (const opc of (S.oppPieces || [])) { if (opc.alive) _addRingOpt(opc, opc.ownerIdx, false); }
+  for (let i = 0; i < (S.myPieces || []).length; i++) {   // 아군 — 국왕 자신 제외
+    const apc = S.myPieces[i];
+    if (apc.alive && i !== pieceIdx) _addRingOpt(apc, S.playerIdx, true);
   }
   modal.classList.remove('hidden');
 }

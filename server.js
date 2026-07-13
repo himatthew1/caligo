@@ -6842,11 +6842,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const kingTargetOwnerIdx = (params?.targetOwnerIdx != null) ? params.targetOwnerIdx : (1 - playerIdx);
       const kingTargetOwner = room.players[kingTargetOwnerIdx];
       if (!kingTargetOwner) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
-      if (room.mode === 'team' && kingTargetOwner.teamId === room.players[playerIdx].teamId) {
-        return { ok: false, msg: '같은 팀원은 강제 이동할 수 없습니다.' };
-      }
-      const enemyPiece = kingTargetOwner.pieces.find(p => p.alive && p.type === targetName);
-      if (!enemyPiece) return { ok: false, msg: '대상을 찾을 수 없습니다.' };
+      // ★ 리워크: 아군/적 모두 강제 이동 가능. 단 ★국왕 자신은 지정 불가(사용자 규칙) → p !== piece.
+      const enemyPiece = kingTargetOwner.pieces.find(p => p.alive && p.type === targetName && p !== piece);
+      if (!enemyPiece) return { ok: false, msg: '대상을 찾을 수 없습니다. (자기 자신 제외)' };
       // ★ 사용자 정정: 그림자 암살자는 그림자 상태여도 절대복종 반지의 대상이 됨.
       //   공격·새 상태이상 면역일 뿐, 강제 이동은 상태이상이 아니므로 정상 적용.
       // ★ 순간이동 애니용 — 이전 좌표 캡쳐 (피해자만 자기 piece 의 사라짐 → 등장 애니 가능)
