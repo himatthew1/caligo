@@ -250,9 +250,11 @@ const CHARACTERS = {
       passives:['markPassive'] },
     { type:'count', name:'백작', tier:3, atk:2, icon:'/assets/icons/count.png', tag:'villain', desc:'X대각선 5칸 · 자신 포함',
       skills:[], passives:['tyranny'] },
-    // ── ★ Phase 3 신규(무스킬) ──
+    // ── ★ Phase 3 신규 ──
     { type:'militia', name:'민병대장', tier:3, atk:3, icon:'/assets/icons/militia.png', tag:null, desc:'가로 3칸', skills:[] },
     { type:'mercenary', name:'용병', tier:3, atk:2, icon:'/assets/icons/mercenary.png', tag:null, desc:'십자 — 자유 티어 배치', skills:[] },
+    { type:'hero', name:'영웅', tier:3, atk:3, icon:'/assets/icons/hero.png', tag:null, desc:'제자리와 하단',
+      skills:[{id:'earthquake', name:'대지 분쇄', cost:3, replacesAction:false, oncePerTurn:true, desc:'주위 9칸 설치물 전파괴 + 범위 내 악인 1 피해'}] },
   ]
 };
 
@@ -6622,6 +6624,41 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `페어리 더스트: ${t.name}에게 행운 부여`;
       result.oppMsg = `페어리 더스트`;
       result.data.luckPieceIdx = params.targetPieceIdx;
+      break;
+    }
+
+    // ── HERO: 대지 분쇄 (주위 9칸 설치물 전파괴 + 범위 내 악인 1딜) ──
+    case 'hero': {
+      spendSP(room, playerIdx, cost);
+      const cx = piece.col, cy = piece.row;
+      const inArea = (c, r) => Math.abs(c - cx) <= 1 && Math.abs(r - cy) <= 1;
+      // 설치물 전파괴 — 유해 / 덫·폭탄(전 플레이어) / 쥐 / 진균지대
+      if (room.remains) room.remains = room.remains.filter(rm => !inArea(rm.col, rm.row));
+      for (let pi = 0; pi < (room.boardObjects || []).length; pi++)
+        room.boardObjects[pi] = (room.boardObjects[pi] || []).filter(o => !inArea(o.col, o.row));
+      for (let pi = 0; pi < (room.rats || []).length; pi++)
+        room.rats[pi] = (room.rats[pi] || []).filter(rt => !inArea(rt.col, rt.row));
+      if (room.fungus) room.fungus = room.fungus.filter(f => !inArea(f.col, f.row));   // Phase 4 진균
+      // 범위 내 악인 1 데미지
+      const qHits = [];
+      for (const ei of getEnemyIndices(room, playerIdx)) {
+        const ep = room.players[ei]; if (!ep) continue;
+        for (let dpi = 0; dpi < ep.pieces.length; dpi++) {
+          const t = ep.pieces[dpi];
+          if (!t.alive || t.col == null || !inArea(t.col, t.row)) continue;
+          if (!(typeof isFaction === 'function' ? isFaction(t, 'villain') : t.tag === 'villain')) continue;
+          if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+          const dmg = resolveDamage(room, piece, t, playerIdx, 1, false, ei);
+          t.hp = Math.max(0, t.hp - dmg);
+          const destroyed = t.hp <= 0;
+          if (destroyed) handleDeath(room, t, ei);
+          qHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed, defPieceIdx: dpi, defOwnerIdx: ei });
+        }
+      }
+      result.msg = `대지 분쇄: 주위 설치물 파괴`;
+      result.oppMsg = `대지 분쇄`;
+      result.data.hits = qHits;
+      result.data.quakeCenter = { col: cx, row: cy };
       break;
     }
 
