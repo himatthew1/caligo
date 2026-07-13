@@ -567,6 +567,30 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   player._lastActionType = 'move';
   return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits };
 }
+// ★ Phase 3: 부대공격 등 '자동 질주'용 — 적을 가장 많이 때리는 유효 질주 도착칸을 고른다(없으면 null).
+function bestCavalryDash(room, ownerIdx, piece) {
+  const bounds = room.boardBounds;
+  if (!piece || piece.type !== 'cavalry' || piece.col == null) return null;
+  const enemyIdxs = getEnemyIndices(room, ownerIdx);
+  const occupied = (c, r) => room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === c && p.row === r));
+  const enemyAt = (c, r) => enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(p => p.alive && p.col === c && p.row === r && !(p.statusEffects || []).some(e => e.type === 'shadow')));
+  let best = null, bestHits = 0, bestDist = 0;
+  for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+    for (let dist = 1; dist <= 2; dist++) {
+      const tc = piece.col + dc * dist, tr = piece.row + dr * dist;
+      if (!inBounds(tc, tr, bounds)) break;               // 더 먼 거리도 밖 → 방향 종료
+      if (isCellDestroyed(room, tc, tr)) break;
+      if (occupied(tc, tr)) break;                        // 착지 불가 → 그 방향 더 못 감
+      // 경로(제자리 제외 ~ 도착)의 적 수 계산
+      let hits = 0;
+      for (let s = 1; s <= dist; s++) if (enemyAt(piece.col + dc * s, piece.row + dr * s)) hits++;
+      if (hits > bestHits || (hits === bestHits && hits > 0 && dist > bestDist)) {
+        best = { col: tc, row: tr }; bestHits = hits; bestDist = dist;
+      }
+    }
+  }
+  return bestHits > 0 ? best : null;   // 적을 하나도 못 때리면 질주하지 않음
+}
 // ★ Phase 3: 마왕 어둠장막 — 살아있는 마왕(패시브 active=참수 아님)이 있으면 발동.
 function darkVeilActive(room) {
   if (!room || !room.players) return false;
@@ -7505,7 +7529,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       return { ok: false, msg: '알 수 없는 악령술사 스킬입니다.' };
     }
 
-    // ── GENERAL(장군): 부대공격 — 공격 가능한 모든 왕실 아군이 1회씩 강제 공격(1T→3T, 기마병 제외) ──
+    // ── GENERAL(장군): 부대공격 — 공격 가능한 모든 왕실 아군이 1회씩 강제 공격(1T→3T). 기마병은 자동 질주. ──
     case 'general': {
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
@@ -7518,8 +7542,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           const p = ap.pieces[ui];
           if (!p.alive) continue;
           if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) continue;
-          if (p.type === 'cavalry') continue;                       // 공격 없음(질주 특성)
           if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;   // 배신 조작 불가
+          // ★ 기마병: 일반 공격은 없지만 부대공격 대상에 포함 → 적을 가장 많이 때리는 방향으로 자동 질주.
+          if (p.type === 'cavalry') { attackers.push({ ownerIdx: ai, pieceIdx: ui, p, tier: p.tier || 1, dash: true }); continue; }
           const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
           let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0 });
           if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
@@ -7529,12 +7554,22 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       attackers.sort((a, b) => a.tier - b.tier);                    // 1T→3T 순차
       const taHits = [];
+      let taActed = 0;
       for (const at of attackers) {
+        if (at.dash) {
+          // 기마병 자동 질주 — 적을 때릴 수 있는 방향이 있을 때만.
+          const dest = bestCavalryDash(room, at.ownerIdx, at.p);
+          if (!dest) continue;
+          const dr = doCavalryDash(room, at.ownerIdx, at.pieceIdx, dest.col, dest.row);
+          if (dr.ok) { taHits.push(...(dr.hits || [])); taActed++; }
+          continue;
+        }
         const hits = processAttack(room, at.ownerIdx, at.p, at.cells, undefined, {}) || [];
         taHits.push(...hits);
+        taActed++;
         if (typeof tickActorPoison === 'function') tickActorPoison(room, at.p, at.ownerIdx);   // 공격행동 후 중독 틱
       }
-      result.msg = `부대공격: 왕실 아군 ${attackers.length}명 공격`;
+      result.msg = `부대공격: 왕실 아군 ${taActed}명 공격`;
       result.oppMsg = `부대공격: 상대 왕실 부대가 공격`;
       result.data.hits = taHits;
       break;
