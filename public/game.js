@@ -5278,7 +5278,28 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 // ── 피격 ──
 let _beingAttackedSeq = 0;
 // ★ Phase 3: 중독 지속뎀(틱) — 중독 유닛이 행동 후 0.1×스택 피해. HP 갱신 + 도장 + 사망 연출.
-socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, name }) => {
+// ★ 중독 데미지 페이즈 — 행동(이동/공격)을 하자마자 격발되지 않고, 행동 처리 이후에
+//   큐에 쌓아 하나씩 순차적으로 재생(받아들이기 편하게). 저주 지속뎀처럼 위치 공개·추리토큰 없음.
+socket.on('poison_tick', (payload) => {
+  if (!payload || payload.col == null) return;
+  if (!S._poisonTickQueue) S._poisonTickQueue = [];
+  S._poisonTickQueue.push(payload);
+  _schedulePoisonFlush();
+});
+function _schedulePoisonFlush() {
+  if (S._poisonFlushTimer) return;
+  const INITIAL = 650;   // 행동 애니가 마무리될 시간
+  const GAP = 750;       // 틱 사이 간격 — 하나씩 순차 인지
+  const step = () => {
+    const p = (S._poisonTickQueue || []).shift();
+    if (!p) { S._poisonFlushTimer = null; return; }
+    try { _renderPoisonTick(p); } catch (e) {}
+    // 이번 틱이 격파였으면 사망 연출을 위해 좀 더 대기.
+    S._poisonFlushTimer = setTimeout(step, p.destroyed ? GAP + 900 : GAP);
+  };
+  S._poisonFlushTimer = setTimeout(step, INITIAL);
+}
+function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type, name }) {
   if (col == null) return;
   const mine = (ownerIdx === S.playerIdx);
   const teammate = !mine && S.isTeamMode && Array.isArray(S.teammatePieces) && (typeof S.teammateIdx === 'number') && ownerIdx === S.teammateIdx;
@@ -5312,7 +5333,7 @@ socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, 
     S._pendingDeathCells = new Set([`${col},${row}`]); rerender();
     if (deaths.length) scheduleDeathGif(deaths, deaths, rerender); else { S._pendingDeathCells = null; rerender(); }
   } else rerender();
-});
+}
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
   if (fungus) S.fungus = fungus;   // ★ 머쉬킨 포자살포 즉시 반영
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
