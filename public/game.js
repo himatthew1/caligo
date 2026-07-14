@@ -3399,7 +3399,8 @@ function renderTeamPlayerBlock(playerData, isAlly) {
     if (pc.isDragon && !pc.alive) return '';
     // 카드 베이스 클래스 — 1v1 대전과 동일하게 통일: 아군=my-piece-card, 적=opp-piece-card
     const isCursedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
-    const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}`;
+    const isPoisonedTm = pc.alive && (pc.statusEffects || []).some(e => e.type === 'poison');
+    const baseCardClass = `${isAlly ? 'my-piece-card' : 'opp-piece-card'}${isCursedTm ? ' curse-active' : ''}${isPoisonedTm ? ' poison-active' : ''}`;
     if (!pc.alive) {
       // 사망 — 아이콘만 💀 로 변경. "격파" 텍스트는 제거 (피격 애니 + .turn-bright 가 사망 알림 역할).
       // 도장(damage stamp) 은 그 턴 동안 카드에 남아 마지막 일격 시각화.
@@ -16235,7 +16236,8 @@ function renderMyPieces() {
     const skillLockDimmed = (dualActive && pc !== dualActive) || (sprintActive && pc !== sprintActive);
     const lockedClass = skillLockDimmed ? 'skill-locked-dimmed' : '';
     const isCursed = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
-    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''} ${lockedClass} ${isCursed ? 'curse-active' : ''}`;
+    const isPoisonedMy = pc.alive && (pc.statusEffects || []).some(e => e.type === 'poison');
+    card.className = `my-piece-card ${pc.alive ? '' : 'dead'} ${isActive ? 'active-piece' : ''} ${lockedClass} ${isCursed ? 'curse-active' : ''} ${isPoisonedMy ? 'poison-active' : ''}`;
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     // 이번 턴 데미지 도장 + HP 바 빨간 오버레이
     const dmgOv = buildDamageOverlay(`my:${i}`, pc.alive ? pc.hp : 0, pc.maxHp);
@@ -16388,7 +16390,8 @@ function renderOppPieces() {
     if (pc.isDragon && !pc.alive) continue;
     const card = document.createElement('div');
     const isCursedOpp = pc.alive && (pc.statusEffects || []).some(e => e.type === 'curse');
-    card.className = `opp-piece-card ${pc.alive ? '' : 'dead'} ${isCursedOpp ? 'curse-active' : ''}`;
+    const isPoisonedOpp = pc.alive && (pc.statusEffects || []).some(e => e.type === 'poison');
+    card.className = `opp-piece-card ${pc.alive ? '' : 'dead'} ${isCursedOpp ? 'curse-active' : ''} ${isPoisonedOpp ? 'poison-active' : ''}`;
     card.style.position = 'relative';
 
     // ── 추리 토큰 드래그 시작 ──

@@ -2385,6 +2385,7 @@ function aiTeamFindEvacuation(room, idx) {
 
 // ── 팀전 AI 메인 턴 — 1v1과 동일한 STEP 구조 ──
 function aiTeamTakeTurn(room, idx) {
+ try {
   if (!room || room.phase !== 'game') return;
   if (room.currentPlayerIdx !== idx) return;
   const p = room.players[idx];
@@ -2688,6 +2689,12 @@ function aiTeamTakeTurn(room, idx) {
   } else {
     aiTeamExecuteAttack(room, idx, bestAction.pieceIdx, bestAction.extra);
   }
+ } catch (e) {
+   // ★ AI 사고 예외 안전망 — 새 캐릭터 경로에서 던져도 15초 워치독까지 멈추지 않고 즉시 턴 종료.
+   //   stack 로그로 어떤 유닛/스킬에서 터졌는지 추적 가능.
+   console.error('[aiTeamTakeTurn] AI 사고 예외 — 턴 안전 종료:', e && e.message, e && e.stack);
+   try { if (room && room.phase === 'game' && room.currentPlayerIdx === idx) scheduleAITurnEnd(room, idx, 600); } catch (_) {}
+ }
 }
 
 // ── AI 자동조작(플레이어 대리): 실행 없이 "이번 수 최선 행동"만 결정해 반환 ──────────

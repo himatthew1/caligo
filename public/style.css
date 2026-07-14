@@ -5927,13 +5927,13 @@ body.team-mode .placement-opp-panel {
   100% { opacity: 1; transform: scale(1); filter: blur(0); }
 }
 
-/* 현재 턴 플레이어 강조 — 단, 저주 상태 카드는 보라색 유지 우선 */
-.left-panel.turn-active .my-piece-card:not(.dead):not(.curse-active) {
+/* 현재 턴 플레이어 강조 — 단, 저주/중독 상태 카드는 상태 배경 유지 우선 */
+.left-panel.turn-active .my-piece-card:not(.dead):not(.curse-active):not(.poison-active) {
   background: rgba(59,130,246,0.10);
   border: 2px solid rgba(59,130,246,0.6);
   box-shadow: 0 0 8px rgba(59,130,246,0.2);
 }
-.right-panel.turn-active .opp-piece-card:not(.dead):not(.curse-active) {
+.right-panel.turn-active .opp-piece-card:not(.dead):not(.curse-active):not(.poison-active) {
   background: rgba(239,68,68,0.10);
   border: 2px solid rgba(239,68,68,0.6);
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
@@ -6586,6 +6586,23 @@ body.team-mode .placement-opp-panel {
     inset 0 0 14px rgba(168, 85, 247, 0.4);
   position: relative;
   overflow: hidden;
+}
+/* 중독 상태 — 프로필 상시 진한 녹색(독성) 배경 + 글로우 (저주 평행 구조) */
+.my-piece-card.poison-active,
+.opp-piece-card.poison-active {
+  background: linear-gradient(135deg, rgba(54, 83, 20, 0.55), rgba(132, 204, 22, 0.42));
+  border-color: rgba(190, 242, 100, 0.95);
+  box-shadow:
+    0 0 18px rgba(132, 204, 22, 0.55),
+    0 0 30px rgba(163, 230, 53, 0.35),
+    inset 0 0 14px rgba(163, 230, 53, 0.4);
+  position: relative;
+  overflow: hidden;
+  animation: poisonCardPulse 2.4s ease-in-out infinite;
+}
+@keyframes poisonCardPulse {
+  0%,100% { box-shadow: 0 0 14px rgba(132,204,22,0.45), 0 0 24px rgba(163,230,53,0.28), inset 0 0 12px rgba(163,230,53,0.35); }
+  50%     { box-shadow: 0 0 22px rgba(132,204,22,0.7), 0 0 36px rgba(163,230,53,0.45), inset 0 0 16px rgba(163,230,53,0.5); }
 }
 /* 화염 불씨 스타일 — 카드 바닥에서 도트들이 떠올라 카드 위로 사라짐, 끝없이 반복 */
 /* 핵심 아이디어:
