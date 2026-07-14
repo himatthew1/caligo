@@ -84,16 +84,18 @@ const SFX = {
     _sfxTone(ctx, now + 0.16, 150, 0.34, 'sine', 0.045, 72);
     _sfxNoise(ctx, now + 0.22, 0.28, 0.03, 500, 2600);
   },
-  omen(ctx, now) { // 흉조 (불행) — 까마귀 울음 강조
-    const caw = (t) => {
-      _sfxTone(ctx, t, 920, 0.15, 'sawtooth', 0.1, 480);   // 까악 급강하
-      _sfxTone(ctx, t + 0.02, 1350, 0.12, 'square', 0.05, 680);
-      _sfxNoise(ctx, t, 0.15, 0.055, 1200, 4800);           // 거친 목소리
+  omen(ctx, now) { // 흉조 — 까악 까악 (더 까마귀답게)
+    const caw = (t, base) => {
+      // "ㄲ" 어택 상승 → "아악" 하강 본체가 끊김 없이 이어짐 + 톱니 러프 + 나잘 하모닉 + 라스프
+      _sfxTone(ctx, t,        base * 1.3,  0.05, 'sawtooth', 0.08, base * 1.75);  // 어택 상승
+      _sfxTone(ctx, t + 0.05, base * 1.75, 0.22, 'sawtooth', 0.12, base * 0.82);  // 하강 본체(까~악)
+      _sfxTone(ctx, t + 0.05, base * 1.77, 0.22, 'sawtooth', 0.05, base * 0.83);  // 디튠 러프니스
+      _sfxTone(ctx, t + 0.05, base * 3.4,  0.18, 'square',   0.03, base * 1.7);   // 나잘 하모닉(까마귀 특유)
+      _sfxNoise(ctx, t, 0.07, 0.045, 1400, 5200);                                 // 목 긁는 라스프
     };
-    caw(now);
-    caw(now + 0.3);
-    _sfxTone(ctx, now, 150, 0.7, 'sine', 0.06, 110);        // 불길한 저음 종
-    _sfxTone(ctx, now + 0.55, 420, 0.4, 'sawtooth', 0.04, 250);
+    caw(now, 500);
+    caw(now + 0.42, 460);
+    _sfxTone(ctx, now, 90, 0.9, 'sine', 0.03, 70);   // 아주 옅은 불길한 저음(까마귀 우선)
   },
   fateShift(ctx, now) { // 운명변곡 (상태이상 이동)
     _sfxTone(ctx, now, 400, 0.5, 'sine', 0.06, 940);
@@ -206,22 +208,23 @@ const SFX = {
     _sfxTone(ctx, now, 85, 0.4, 'square', 0.05, 68);   // 낮은 모터 험
     _sfxNoise(ctx, now, 0.4, 0.02, 90, 480);
   },
-  sirenSong(ctx, now) { // 사이렌 송 — 아름다운 시작 → 소름끼치는 비명
-    // ① 아름다운 사이렌 웨일 (유지)
-    _sfxTone(ctx, now, 500, 0.65, 'sine', 0.07, 1100);
-    _sfxTone(ctx, now, 505, 0.65, 'sine', 0.035, 1110);   // 디튠 비트
-    _sfxTone(ctx, now + 0.2, 990, 0.45, 'sine', 0.04);    // 맑은 화음
-    // ② 소름끼치는 비명으로 전환 — 불협 상승 + 날카로운 상단 + 공포 쉭
-    _sfxTone(ctx, now + 0.62, 700, 0.55, 'sawtooth', 0.075, 2300);
-    _sfxTone(ctx, now + 0.62, 742, 0.55, 'sawtooth', 0.05, 2180);   // 불협 디튠
-    _sfxTone(ctx, now + 0.66, 1650, 0.5, 'square', 0.035, 3100);    // 날카로운 비명 상단
-    _sfxNoise(ctx, now + 0.7, 0.4, 0.045, 2200, 7200);
+  sirenSong(ctx, now) { // 사이렌 송 — 끊김 없이 아름다움→비명으로 연속 상승
+    // ① 사인 본체: 500→1900 하나의 긴 연속 상승(아름다운 웨일이 그대로 긴장으로). 끊기지 않는 척추.
+    _sfxTone(ctx, now, 500, 1.4, 'sine', 0.07, 1900);
+    _sfxTone(ctx, now, 503, 1.4, 'sine', 0.035, 1912);           // 디튠 비트(끝까지 유지)
+    _sfxTone(ctx, now + 0.15, 990, 1.2, 'sine', 0.03, 2700);     // 하모닉도 함께 연속 상승
+    // ② 톱니 비명 레이어 — 사인 궤적과 같은 피치대(≈1000)에서 시작해 위로 이어짐(점프 없음).
+    //    사인이 계속 울리는 위에 거친 톱니가 겹쳐 올라가며 자연스레 비명으로 변모.
+    _sfxTone(ctx, now + 0.55, 1000, 0.85, 'sawtooth', 0.05, 2900);
+    _sfxTone(ctx, now + 0.55, 1013, 0.85, 'sawtooth', 0.035, 2850);  // 불협 디튠
+    _sfxTone(ctx, now + 0.62, 1600, 0.75, 'square', 0.028, 3300);    // 날카로운 상단(겹쳐 상승)
+    _sfxNoise(ctx, now + 0.6, 0.6, 0.03, 2200, 7200);                // 공포 쉭(길게 겹침)
   },
 };
 
 const SKILLS = [
   { k:'venomCloud', nm:'맹독 구름', unit:'독살꾼', t:'villain', d:'독가스 쉭— + 낮게 부글대는 저음' },
-  { k:'omen',       nm:'흉조',      unit:'포춘텔러', t:'villain', d:'까마귀 울음 2회 강조 + 불길한 저음 종' },
+  { k:'omen',       nm:'흉조',      unit:'포춘텔러', t:'villain', d:'까악 까악 — 더 까마귀다운 울음 2회' },
   { k:'fateShift',  nm:'운명변곡',  unit:'포춘텔러', t:'villain', d:'교차하는 상승·하강 글라이드(맞바꿈)' },
   { k:'raise',      nm:'강령술',    unit:'악령술사', t:'villain', d:'낮게 솟아오르는 강령 드론 + 유령음' },
   { k:'command',    nm:'조종',      unit:'악령술사', t:'villain', d:'명령 펄스 + 어두운 잔향' },
@@ -239,7 +242,7 @@ const SKILLS = [
   { k:'demolish',   nm:'파괴공작',  unit:'공성파괴자', t:'royal', d:'서브베이스 폭발 붐 + 파편·잔해(더 폭발적)' },
   { k:'windPush',   nm:'바람몰이',  unit:'—',        t:'none',    d:'휘몰아치는 바람 스윕' },
   { k:'drive',      nm:'구동',      unit:'투석기',   t:'none',    d:'톱니 래칫 연속 클랭크 + 모터 험(더 기계적)' },
-  { k:'sirenSong',  nm:'사이렌 송', unit:'샘의인어', t:'none',    d:'아름다운 웨일로 시작 → 소름끼치는 불협 비명' },
+  { k:'sirenSong',  nm:'사이렌 송', unit:'샘의인어', t:'none',    d:'끊김 없는 연속 상승 — 아름다운 웨일이 그대로 비명으로' },
 ];
 
 const grid = document.getElementById('grid');
