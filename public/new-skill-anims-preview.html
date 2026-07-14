@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>신규 스킬 연출 (인게임 요소) · CALIGO</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 50% 0%,rgba(30,41,59,.7),transparent 65%),linear-gradient(135deg,#020617,#0f172a 60%,#020617);
+    color:#e2e8f0;font-family:'Malgun Gothic','Noto Sans KR',sans-serif;padding:28px 14px 80px;display:block!important}
+  h1{margin:0 0 4px;text-align:center;font-size:1.6rem;font-weight:800;background:linear-gradient(135deg,#fde68a,#fbbf24);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{text-align:center;color:#94a3b8;font-size:.84rem;max-width:760px;margin:0 auto 14px;line-height:1.6}
+  .bar{max-width:1080px;margin:8px auto 20px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .bar button{background:rgba(99,164,255,.2);border:1px solid rgba(99,164,255,.5);color:#dbeafe;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:700;font-size:.85rem}
+  .bar button.on{background:rgba(34,197,94,.22);border-color:rgba(74,222,128,.6);color:#f0fdf4}
+  .grid{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+  .demo{background:rgba(15,23,42,.7);border:1px solid rgba(148,163,184,.2);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .demo::before{content:"";height:3px;border-radius:3px;background:var(--fac,#63a4ff);width:46px}
+  .dh{display:flex;align-items:center;gap:9px}
+  .dh .ic{font-size:1.35rem}
+  .dh .nm{font-weight:800;font-size:1rem}
+  .dh .un{font-size:.7rem;color:#64748b}
+  .dh .rp{margin-left:auto;background:rgba(148,163,184,.15);border:1px solid rgba(148,163,184,.3);color:#cbd5e1;border-radius:6px;padding:5px 11px;cursor:pointer;font-size:.75rem;font-weight:700}
+  .dd{font-size:.8rem;color:#94a3b8;line-height:1.5}
+  /* 실제 인게임 보드와 동일 구조 (#game-board 스타일 상속) */
+  .miniboard{position:relative;width:100%;aspect-ratio:5/5;max-width:300px;margin:0 auto;
+    display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(5,1fr);gap:4px;padding:8px;
+    background:rgba(15,23,42,.55);border:2px solid rgba(99,102,241,.3);border-radius:10px}
+  .miniboard .cell{position:relative;background:rgba(30,41,59,.6);border:1px solid rgba(148,163,184,.15);border-radius:5px;
+    display:grid;place-items:center;font-size:1.15rem;overflow:visible}
+  .miniboard .cell.caster{box-shadow:inset 0 0 0 1px rgba(251,191,36,.5)}
+  /* 스킬 시전 말풍선 (실제 .skill-cast-bubble 재사용, 로컬 배치) */
+  .pv-bubble{position:absolute;z-index:40;transform:translate(-50%,-120%);left:50%;top:0;
+    font-family:'Malgun Gothic',sans-serif;font-size:.62rem;font-weight:800;color:#0b1220;white-space:nowrap;
+    padding:3px 9px;border-radius:9px;opacity:0;transition:opacity .2s,transform .25s;pointer-events:none;
+    box-shadow:0 3px 8px #0007}
+  .pv-bubble.show{opacity:1;transform:translate(-50%,-140%)}
+  .pv-bubble::after{content:"";position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);border:5px solid transparent;border-top-color:inherit;border-bottom:0}
+  /* 로컬 데미지/효과 도장 (실제 .board-dmg-stamp 클래스 재사용) */
+  .miniboard .board-dmg-stamp{position:absolute;z-index:35;animation:pvStamp 1.1s ease-out forwards}
+  @keyframes pvStamp{0%{opacity:0;transform:translate(-50%,4px) scale(.5)}20%{opacity:1;transform:translate(-50%,-2px) scale(1.15)}45%{transform:translate(-50%,-2px) scale(1)}100%{opacity:0;transform:translate(-50%,-14px) scale(1)}}
+  .pv-float{position:absolute;z-index:36;transform:translate(-50%,-50%);font-size:1rem;pointer-events:none;animation:pvFloat 1.2s ease-out forwards}
+  @keyframes pvFloat{0%{opacity:0;transform:translate(-50%,-30%) scale(.6)}25%{opacity:1;transform:translate(-50%,-55%) scale(1)}100%{opacity:0;transform:translate(-50%,-95%) scale(1)}}
+  .pv-ring{position:absolute;z-index:20;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;animation:pvRing 1s ease-out forwards}
+  @keyframes pvRing{0%{opacity:.9;transform:translate(-50%,-50%) scale(.25)}100%{opacity:0;transform:translate(-50%,-50%) scale(2.6)}}
+  .pv-frag{position:absolute;z-index:34;width:6px;height:6px;border-radius:2px;pointer-events:none}
+  .flash{animation:pvFlash .55s ease-out}
+  @keyframes pvFlash{0%,100%{filter:none}40%{filter:brightness(1.6) drop-shadow(0 0 7px #fbbf24)}}
+  .redflash{animation:pvRed .6s ease-out}
+  @keyframes pvRed{0%,100%{filter:none}45%{filter:brightness(1.4) drop-shadow(0 0 7px #ff6d6d)}}
+  footer{margin-top:44px;text-align:center;color:#64748b;font-size:.72rem}
+</style>
+</head>
+<body>
+  <h1>신규 스킬 연출 — 인게임 요소</h1>
+  <p class="sub">실제 게임의 CSS(셀·상태 배지·데미지 도장·파티클·시전 말풍선)를 그대로 써서 각 스킬 발동을 구현했습니다. 승인되면 이 조합을 skill_result 핸들러에 그대로 이식합니다.</p>
+  <div class="bar"><button id="playAll">▶ 전체 재생</button><button id="loopBtn">🔁 반복</button></div>
+  <div class="grid" id="grid"></div>
+  <footer>CALIGO · 각 카드의 ⟳ 로 개별 재생 · 인게임 style.css 재사용</footer>
+
+<script>
+// ── 실제 인게임 연출 프리미티브를 그대로 재현 (단일 소스: style.css 클래스 사용) ──
+function board(el){ el.innerHTML=''; for(let r=0;r<5;r++)for(let c=0;c<5;c++){const d=document.createElement('div');d.className='cell';d.dataset.col=c;d.dataset.row=r;el.appendChild(d);} return el; }
+function cellAt(bd,c,r){ return bd.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`); }
+function put(bd,c,r,icon,cls){ const cell=cellAt(bd,c,r); if(cell){cell.textContent=icon; if(cls)cell.classList.add(cls);} return cell; }
+function bubble(bd,c,r,text,tone){ // 실제 스킬 시전 말풍선 톤(action=빨강/once=노랑/free=초록/passive=하늘)
+  const cell=cellAt(bd,c,r); if(!cell)return; const b=document.createElement('div'); b.className='pv-bubble';
+  const bg={action:'#f87171',once:'#facc15',free:'#34d399',passive:'#38bdf8',villain:'#ff6d6d',royal:'#63a4ff',spirit:'#54e08a'}[tone]||'#fbbf24';
+  b.style.background=bg; b.textContent=text; cell.appendChild(b); requestAnimationFrame(()=>b.classList.add('show'));
+  setTimeout(()=>{b.classList.remove('show');},1100); setTimeout(()=>b.remove(),1500); }
+function stamp(bd,c,r,type,val,delay){ // 실제 board-dmg-stamp 재사용
+  const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{ const s=document.createElement('span');
+    s.className='board-dmg-stamp '+(type||'normal'); s.textContent=(val==null?'':val); s.style.left='50%'; s.style.top='2px';
+    cell.appendChild(s); setTimeout(()=>s.remove(),1150); }, delay||0); }
+function floatIcon(bd,c,r,icon,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{const f=document.createElement('div');
+    f.className='pv-float'; f.textContent=icon; f.style.left='50%'; f.style.top='50%'; cell.appendChild(f); setTimeout(()=>f.remove(),1250);},delay||0); }
+function ring(bd,c,r,color,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{const g=document.createElement('div');
+    g.className='pv-ring'; g.style.left='50%';g.style.top='50%';g.style.width='60%';g.style.height='60%';g.style.border='3px solid '+color;
+    cell.appendChild(g); setTimeout(()=>g.remove(),1000);},delay||0); }
+function frags(bd,c,r,color,n,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{ for(let i=0;i<(n||8);i++){const p=document.createElement('div');
+    p.className='pv-frag'; p.style.background=color; p.style.left='50%';p.style.top='50%'; const a=(Math.PI*2*i)/(n||8), dist=18+i%3*6;
+    p.style.transition='transform .5s ease-out,opacity .5s'; cell.appendChild(p);
+    requestAnimationFrame(()=>{p.style.transform=`translate(${Math.cos(a)*dist}px,${Math.sin(a)*dist}px)`;p.style.opacity='0';});
+    setTimeout(()=>p.remove(),550);} },delay||0); }
+function badge(bd,c,r,cls,label,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{const b=document.createElement('span');
+    b.className='status-badge '+cls; b.style.position='absolute';b.style.bottom='-3px';b.style.left='50%';b.style.transform='translateX(-50%) scale(0)';
+    b.style.transition='transform .3s';b.style.fontSize='.5rem';b.style.zIndex='30'; b.textContent=label; cell.appendChild(b);
+    requestAnimationFrame(()=>b.style.transform='translateX(-50%) scale(1)'); setTimeout(()=>b.remove(),1400);},delay||0); }
+function flash(bd,c,r,cls,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{cell.classList.add(cls||'flash');
+    setTimeout(()=>cell.classList.remove(cls||'flash'),600);},delay||0); }
+function fungus(bd,c,r,delay){ const cell=cellAt(bd,c,r); if(!cell)return; setTimeout(()=>{cell.classList.add('cell-fungus');
+    setTimeout(()=>cell.classList.remove('cell-fungus'),1400);},delay||0); }
+function moveTok(bd,fromC,fromR,toC,toR,icon,delay){ const a=cellAt(bd,fromC,fromR),b=cellAt(bd,toC,toR); if(!a||!b)return;
+  setTimeout(()=>{ a.textContent=''; const ra=a.getBoundingClientRect(),rb=b.getBoundingClientRect();
+    const fly=document.createElement('div'); fly.textContent=icon; fly.style.cssText='position:fixed;z-index:50;font-size:1.15rem;transition:left .45s ease,top .45s ease;';
+    fly.style.left=(ra.left+ra.width/2-9)+'px'; fly.style.top=(ra.top+ra.height/2-11)+'px'; document.body.appendChild(fly);
+    requestAnimationFrame(()=>{fly.style.left=(rb.left+rb.width/2-9)+'px';fly.style.top=(rb.top+rb.height/2-11)+'px';});
+    setTimeout(()=>{fly.remove(); b.textContent=icon;},470);},delay||0); }
+
+// ── 스킬 정의: 아이콘·유닛·팩션색·설명·연출 시퀀스 ──
+const FAC={neutral:'#9aa8bd',spirit:'#54e08a',royal:'#63a4ff',villain:'#ff6d6d'};
+const SKILLS=[
+ {id:'steal',ic:'🦹',nm:'강탈',un:'도적 · 무소속',fac:'neutral',tone:'action',
+  dd:'상대 유닛에서 SP 코인이 튕겨 나와 도적에게 흡수. 상대 SP 도장 −, 도적 SP +.',
+  init(bd){put(bd,0,2,'🦹','caster');put(bd,4,2,'🃏');},
+  play(bd){bubble(bd,0,2,'강탈','action');moveTok(bd,4,2,0,2,'🪙',300);stamp(bd,4,2,'curse','−1',350);stamp(bd,0,2,'heal','+1',800);}},
+ {id:'omen',ic:'🔮',nm:'흉조',un:'포춘텔러 · 무소속',fac:'neutral',tone:'action',
+  dd:'대상 칸에 보라빛 불행 낙인. 불행 상태 배지 부여.',
+  init(bd){put(bd,2,2,'🔮','caster');put(bd,2,0,'👹');},
+  play(bd){bubble(bd,2,2,'흉조','action');floatIcon(bd,2,0,'🐦‍⬛',150);ring(bd,2,0,'#a371f7',500);badge(bd,2,0,'curse','💢불행',650);}},
+ {id:'fairyDust',ic:'🧚',nm:'페어리 더스트',un:'요정 · 정령',fac:'spirit',tone:'free',
+  dd:'아군 위로 반짝임 낙하 + 금빛 방패 고리(다음 피해 0).',
+  init(bd){put(bd,2,2,'🧚','caster');put(bd,1,2,'🛡️');},
+  play(bd){bubble(bd,2,2,'페어리 더스트','free');floatIcon(bd,1,2,'✨',150);floatIcon(bd,1,2,'✨',350);ring(bd,1,2,'#f6c453',500);badge(bd,1,2,'luck','🍀행운',600);}},
+ {id:'siren',ic:'🧜',nm:'사이렌 송',un:'샘의 인어 · 정령',fac:'spirit',tone:'action',
+  dd:'인어 중심 음파가 보드 전체로 확산, 전원 0.5 룰 피해(인어 면역).',
+  init(bd){put(bd,2,2,'🧜','caster');put(bd,0,0,'🃏');put(bd,4,4,'🛡️');put(bd,4,0,'👹');},
+  play(bd){bubble(bd,2,2,'사이렌 송','action');[0,180,360].forEach((d,i)=>ring(bd,2,2,'#54e08a',d));
+    [[0,0],[4,4],[4,0]].forEach(([c,r])=>stamp(bd,c,r,'normal','0.5',420));}},
+ {id:'spread',ic:'🍄',nm:'확산',un:'머쉬킨 · 정령',fac:'spirit',tone:'free',
+  dd:'기존 진균에서 인접 칸으로 포자가 번져 새 진균 지대 생성.',
+  init(bd){put(bd,2,2,'🍄','caster');cellAt(bd,2,2).classList.add('cell-fungus');},
+  play(bd){bubble(bd,2,2,'확산','free');fungus(bd,1,2,300);fungus(bd,3,2,450);fungus(bd,2,1,600);floatIcon(bd,1,2,'🌫️',300);}},
+ {id:'oberon',ic:'🧝',nm:'축복 / 종언',un:'오베론 · 정령',fac:'spirit',tone:'passive',
+  dd:'카운터 응축 → 정령들에게 초록 축복광. 종언은 화면 섬광.',
+  init(bd){put(bd,2,2,'🧝','caster');put(bd,0,2,'🧚');put(bd,4,2,'🧜');},
+  play(bd){bubble(bd,2,2,'축복','free');ring(bd,2,2,'#54e08a',200);[ [0,2],[4,2] ].forEach(([c,r])=>{stamp(bd,c,r,'heal','ATK▲',500);flash(bd,c,r,'flash',500);});}},
+ {id:'rage',ic:'🦅',nm:'격노',un:'그리폰 · 정령',fac:'spirit',tone:'once',
+  dd:'피격으로 붉어진 그리폰이 분노의 번개로 적에게 반격.',
+  init(bd){put(bd,0,2,'🦅','caster');put(bd,4,2,'👹');},
+  play(bd){flash(bd,0,2,'redflash');bubble(bd,0,2,'격노','once');moveTok(bd,0,2,4,2,'⚡',300);cellAt(bd,0,2).textContent='🦅';stamp(bd,4,2,'normal','1',780);}},
+ {id:'decree',ic:'📜',nm:'칙명',un:'전령 · 왕실',fac:'royal',tone:'once',
+  dd:'왕관 섬광 + 왕실에 추가 행동권 토큰.',
+  init(bd){put(bd,2,2,'📜','caster');},
+  play(bd){bubble(bd,2,2,'칙명','once');floatIcon(bd,2,2,'👑',150);flash(bd,2,2,'flash',150);stamp(bd,2,2,'protected','+1 행동',500);}},
+ {id:'troop',ic:'🛡️',nm:'부대공격',un:'장군 · 왕실',fac:'royal',tone:'action',
+  dd:'모든 왕실 아군이 저티어부터 차례로 빛나며 일제 공격.',
+  init(bd){put(bd,0,4,'🛡️','caster');put(bd,2,2,'🗡️');put(bd,4,0,'🏹');},
+  play(bd){bubble(bd,0,4,'부대공격','action');[[0,4,0],[2,2,400],[4,0,800]].forEach(([c,r,d])=>{flash(bd,c,r,'flash',d);ring(bd,c,r,'#63a4ff',d);});}},
+ {id:'demolish',ic:'🔨',nm:'파괴공작',un:'공성파괴자 · 왕실',fac:'royal',tone:'free',
+  dd:'지정 칸에 균열 표식 → 붕괴 예고(다음 내 턴 시작에 파괴).',
+  init(bd){put(bd,2,2,'🔨','caster');put(bd,3,2,'');},
+  play(bd){bubble(bd,2,2,'파괴공작','free');floatIcon(bd,3,2,'💢',200);badge(bd,3,2,'mark','⚠ 파괴예약',400);flash(bd,3,2,'redflash',400);}},
+ {id:'raise',ic:'🪦',nm:'강령술',un:'악령술사 · 악인',fac:'villain',tone:'once',
+  dd:'유해에서 혼이 떠올라 세로 3칸 악령으로 부활.',
+  init(bd){put(bd,2,2,'💀','caster');cellAt(bd,2,2).classList.remove('caster');put(bd,0,4,'🪦','caster');},
+  play(bd){bubble(bd,0,4,'강령술','once');floatIcon(bd,2,2,'👻',200);setTimeout(()=>put(bd,2,2,'👻'),700);ring(bd,2,2,'#a371f7',400);}},
+ {id:'command',ic:'🪦',nm:'조종',un:'악령술사 · 악인',fac:'villain',tone:'action',
+  dd:'악령들을 하나씩 순차 이동(공격 모드는 일제 타격).',
+  init(bd){put(bd,1,1,'👻');put(bd,1,2,'👻');put(bd,1,3,'👻');put(bd,4,0,'🪦','caster');},
+  play(bd){bubble(bd,4,0,'조종','action');moveTok(bd,1,1,2,1,'👻',200);moveTok(bd,1,2,2,2,'👻',600);moveTok(bd,1,3,2,3,'👻',1000);}},
+ {id:'venom',ic:'🧪',nm:'맹독 구름',un:'독살꾼 · 악인',fac:'villain',tone:'action',
+  dd:'전용 십자 범위에 독구름 → 안의 모든 유닛(아군 포함) 중독.',
+  init(bd){put(bd,2,2,'🧪','caster');put(bd,2,1,'🃏');put(bd,3,2,'🛡️');},
+  play(bd){bubble(bd,2,2,'맹독 구름','action');[[2,2],[2,1],[2,3],[1,2],[3,2]].forEach(([c,r],i)=>{ring(bd,c,r,'#78c85a',i*60);});
+    [[2,1],[3,2]].forEach(([c,r])=>badge(bd,c,r,'poison','☣중독',450));}},
+ {id:'exhume',ic:'⚰️',nm:'도굴',un:'묘지기 · 악인',fac:'villain',tone:'free',
+  dd:'유해를 파헤쳐 흙먼지와 함께 제거 + 일회용 SP 2.',
+  init(bd){put(bd,2,2,'💀');put(bd,0,4,'⚰️','caster');},
+  play(bd){bubble(bd,0,4,'도굴','free');floatIcon(bd,2,2,'💨',200);setTimeout(()=>cellAt(bd,2,2).textContent='',600);stamp(bd,0,4,'protected','+SP2',700);}},
+ {id:'incite',ic:'📖',nm:'선동',un:'이야기꾼 · 악인',fac:'villain',tone:'once',
+  dd:'속삭임이 붉게 번져 적이 배신의 가면을 씀(조작 불가).',
+  init(bd){put(bd,1,2,'📖','caster');put(bd,3,2,'🛡️');},
+  play(bd){bubble(bd,1,2,'선동','once');ring(bd,3,2,'#ff6d6d',300);floatIcon(bd,3,2,'🎭',450);badge(bd,3,2,'betray','🗡️배신',600);}},
+ {id:'vampire',ic:'🧛',nm:'흡혈',un:'백작 · 악인',fac:'villain',tone:'once',
+  dd:'적의 정수를 뽑아 흡수. 적 최대체력 −1, 자신 회복.',
+  init(bd){put(bd,0,2,'🧛','caster');put(bd,4,2,'🧝');},
+  play(bd){bubble(bd,0,2,'흡혈','once');moveTok(bd,4,2,0,2,'🩸',300);cellAt(bd,4,2).textContent='🧝';stamp(bd,4,2,'curse','MaxHP−1',350);stamp(bd,0,2,'heal','+1',800);}},
+ {id:'corrupt',ic:'👹',nm:'타락',un:'마왕 칼리고 · 악인',fac:'villain',tone:'action',
+  dd:'어둠 파동이 보드를 훑고 모든 악인의 공격력 +0.5.',
+  init(bd){put(bd,2,2,'👹','caster');put(bd,0,0,'🃏');put(bd,4,4,'🪝');},
+  play(bd){bubble(bd,2,2,'타락','action');ring(bd,2,2,'#e0483f',100);ring(bd,2,2,'#e0483f',350);[[0,0],[4,4]].forEach(([c,r])=>{stamp(bd,c,r,'normal','ATK▲',500);flash(bd,c,r,'redflash',500);});}},
+ {id:'quake',ic:'🦸',nm:'대지 분쇄',un:'영웅 · 무소속',fac:'neutral',tone:'once',
+  dd:'충격파 링이 퍼지며 주위 9칸 설치물 파괴 + 악인 1 피해.',
+  init(bd){put(bd,2,2,'🦸','caster');put(bd,1,1,'💣');put(bd,3,3,'🪤');},
+  play(bd){bubble(bd,2,2,'대지 분쇄','once');ring(bd,2,2,'#9aa8bd',100);frags(bd,1,1,'#fbbf24',8,300);frags(bd,3,3,'#fbbf24',8,350);
+    setTimeout(()=>{cellAt(bd,1,1).textContent='';cellAt(bd,3,3).textContent='';},450);}},
+ {id:'grit',ic:'🤺',nm:'투지',un:'검투사 · 무소속',fac:'neutral',tone:'free',
+  dd:'깃발이 솟고 스킬 없는 아군들 회복 + 사기증진.',
+  init(bd){put(bd,2,2,'🤺','caster');put(bd,1,0,'🃏');put(bd,3,4,'🛡️');},
+  play(bd){bubble(bd,2,2,'투지','free');floatIcon(bd,2,2,'🚩',150);[[1,0],[3,4]].forEach(([c,r])=>{stamp(bd,c,r,'heal','+1',450);badge(bd,c,r,'morale','📋사기',500);});}},
+ {id:'morph',ic:'🧫',nm:'변이',un:'호문클루스 · 무소속',fac:'neutral',tone:'free',
+  dd:'몸이 세 팩션 색으로 어른거리다 선택한 진영 배지로 굳음(영구).',
+  init(bd){put(bd,2,2,'🧫','caster');},
+  play(bd){bubble(bd,2,2,'변이','free');const cell=cellAt(bd,2,2);let t=0;const seq=['#63a4ff','#54e08a','#ff6d6d'];
+    const iv=setInterval(()=>{cell.style.filter=`drop-shadow(0 0 9px ${seq[t%3]}) brightness(1.5)`;t++;if(t>5){clearInterval(iv);cell.style.filter='';badge(bd,2,2,'cult','악인',0);}},130);}},
+];
+
+const grid=document.getElementById('grid');
+const boards={};
+SKILLS.forEach(sk=>{
+  const card=document.createElement('div'); card.className='demo'; card.style.setProperty('--fac',FAC[sk.fac]);
+  card.innerHTML=`<div class="dh"><span class="ic">${sk.ic}</span><div><div class="nm">${sk.nm}</div><div class="un">${sk.un}</div></div><button class="rp">⟳ 재생</button></div>
+    <div class="miniboard"></div><div class="dd">${sk.dd}</div>`;
+  grid.appendChild(card);
+  const bd=card.querySelector('.miniboard'); board(bd); boards[sk.id]=bd; sk.init(bd);
+  const replay=()=>{ board(bd); sk.init(bd); requestAnimationFrame(()=>setTimeout(()=>sk.play(bd),60)); };
+  card.querySelector('.rp').addEventListener('click',replay); sk._replay=replay;
+});
+
+let looping=false, loopTimer=null;
+document.getElementById('playAll').addEventListener('click',()=>{ SKILLS.forEach((sk,i)=>setTimeout(()=>sk._replay(),i*120)); });
+document.getElementById('loopBtn').addEventListener('click',function(){ looping=!looping; this.classList.toggle('on',looping);
+  if(looping){ const tick=()=>{ SKILLS.forEach((sk,i)=>setTimeout(()=>sk._replay(),i*120)); loopTimer=setTimeout(tick,2600); }; tick(); }
+  else clearTimeout(loopTimer); });
+// 스크롤로 화면에 들어오는 카드만 1회 재생(가벼움) — 이미 본 카드는 다시 안 함
+const seen=new WeakSet();
+const io=new IntersectionObserver((ents)=>{ ents.forEach(e=>{ if(e.isIntersecting && !seen.has(e.target)){ seen.add(e.target);
+  const idx=[...grid.children].indexOf(e.target); const sk=SKILLS[idx]; if(sk) setTimeout(()=>sk._replay(),120); } }); },{threshold:.5});
+[...grid.children].forEach(c=>io.observe(c));
+</script>
+</body>
+</html>
