@@ -309,7 +309,7 @@ const CHARACTERS = {
     { type:'gladiator', name:'검투사', tier:3, atk:2, icon:'🤺', tag:null, desc:'좌우와 상단',
       skills:[{id:'grit', name:'투지', cost:3, replacesAction:false, desc:'스킬 없는 아군 회복1 + 다음 차례까지 사기증진'}] },
     { type:'homunculus', name:'호문클루스', tier:3, atk:2, icon:'🧫', tag:null, desc:'좌우와 하단 대각 2칸',
-      skills:[{id:'morph', name:'변이', cost:1, replacesAction:false, desc:'다음 턴까지 진영 변신[악인/왕실/정령]'}] },
+      skills:[{id:'morph', name:'변이', cost:1, replacesAction:false, desc:'악인·왕실·정령 중 한 진영으로 영구히 변신합니다'}] },
   ]
 };
 
@@ -7278,7 +7278,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const f = params && params.faction;
       if (!['villain', 'royal', 'spirit'].includes(f)) return { ok: false, msg: '변신할 진영을 선택하세요.' };
       spendSP(room, playerIdx, cost);
-      piece._tagOverride = f;   // 다음 자신의 턴까지 유지(턴 시작 해제)
+      piece._tagOverride = f;   // ★ 영구 변이 — 턴 시작에도 원복하지 않음(사용자 지시).
       result.msg = `변이: ${f === 'villain' ? '악인' : f === 'royal' ? '왕실' : '정령'} 진영으로 변신`;
       result.oppMsg = `변이`;
       result.data.morphFaction = f;
