@@ -204,7 +204,7 @@ const CHARACTERS = {
     { type:'mermaid', name:'샘의 인어', tier:1, atk:1, icon:'🧜', tag:'spirit', desc:'제자리와 상단',
       skills:[{id:'sirenSong', name:'사이렌 송', cost:2, replacesAction:true, desc:'자신 제외 보드 전체 0.5 피해(룰 데미지)'}] },
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'🧪', tag:'villain', desc:'제자리와 X자 대각선',
-      skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'공격 범위 내 모든 적 중독'}], passives:['venomFang'] },
+      skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'전용 범위 안의 모든 유닛을 중독시킵니다'}], passives:['venomFang'] },
     { type:'thief', name:'도적', tier:1, atk:1, icon:'🦹', tag:null, desc:'좌우 세로 2칸',
       skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'상대보다 SP가 적으면 상대 공유 SP 1 탈취'}] },
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'🔮', tag:null, desc:'십자',
@@ -5245,7 +5245,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           //   addStatus 가 면역(유니콘/그림자) 존중. 죽은 대상엔 무의미하므로 생존 시만.
           if (!destroyed && typeof addStatus === 'function'
               && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
-            addStatus(defPiece, 'poison', { stacks: 1 });
+            const _poisoned = addStatus(defPiece, 'poison', { stacks: 1 });
+            // ★ 독니 발동 말풍선 — 공격당 1회만(기존 패시브들과 동일 연출). 실제 중독이 걸린 경우만.
+            if (_poisoned && room._attackPassivesFired && !room._attackPassivesFired.has('venomFang')) {
+              emitToBoth(room, 'passive_alert', { type: 'poisoner', playerIdx: attackerIdx, msg: `독니 : 중독` });
+              emitToSpectators(room, 'spectator_log', { msg: `독니 : 중독`, type: 'passive', playerIdx: attackerIdx });
+              room._attackPassivesFired.add('venomFang');
+            }
           }
           // ★ Phase 3: 현혹(이단자) — 공격받은 대상 이교단화(소속 상실). 면역(유니콘/그림자) 제외.
           if (!destroyed && (atkPiece.passives || []).includes('enthrall') && isPassiveActive(atkPiece, 'enthrall')
@@ -5313,10 +5319,10 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             }
           }
 
-          // Post-damage: wizard passive (defender is wizard, gain 1 instant SP per hit, even on death)
-          if (defPiece.type === 'wizard') {
-            applyDamageTriggers(room, defPiece, defIdx, dmg, { spUpdate: 'unlessSuppressed' });
-          }
+          // Post-damage: 피격 트리거 패시브 — 모든 피격 대상에 호출.
+          //   마법사 인스턴트매직 · 머쉬킨 포자살포 · 그리폰 격노 · 드라이어드 생장 ·
+          //   오베론 카운터 · 마녀/이야기꾼 채널 해제 등. (이전엔 wizard 만 호출해 나머지가 일반 공격에서 발동 안 됨)
+          applyDamageTriggers(room, defPiece, defIdx, dmg, { spUpdate: 'unlessSuppressed' });
         }
       }
     }

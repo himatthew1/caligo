@@ -5292,7 +5292,9 @@ socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, 
   if (i < 0) return;
   const pc = arr[i];
   pc.hp = newHp;
-  if (!mine && !teammate) { pc.col = col; pc.row = row; pc.marked = true; }   // 중독 유닛 행동=위치 공개
+  // ★ 중독 틱은 적 위치를 공개하지 않음(표식처럼 노출 금지) — 데미지 도장(카드)만 표시.
+  //   단 중독으로 사망 시엔 사망 연출·유해를 위해 그 순간에만 위치 확정.
+  if (destroyed && !mine && !teammate) { pc.col = col; pc.row = row; }
   if (destroyed) pc.alive = false;
   try { if (damage > 0) addBodyDamage(keyOf(i), damage); } catch (e) {}
   try { addLog(`☣ ${name || '유닛'} 중독 피해 ${damage}`, 'hit'); } catch (e) {}
@@ -9319,6 +9321,7 @@ const PASSIVE_BUBBLE_INFO = {
   count:          { pieceType: 'count',          name: '폭정' },
   bodyguard:      { pieceType: 'bodyguard',      name: '충성' },
   torturer:       { pieceType: 'torturer',       name: '표식' },
+  poisoner:       { pieceType: 'poisoner',       name: '독니' },
 };
 
 // 패시브 발동 시 — 해당 piece 카드에서 보드 쪽으로 주황 말풍선 (스킬 시전 말풍선과 동일 디자인)
@@ -9892,6 +9895,13 @@ const mkTraitHead = (name) => ({
   tag: `<span class="skill-type-text tag-trait">특성</span>`,
   isTrait: true,
 });
+// ★ 특성(=회색 미니헤더)으로 취급할 패시브 id/이름. 나머지 패시브는 스카이블루.
+//   passives 배열에 실린 특성: 질주(charge)·낡은 심장(oldHeart). 소멸/HP부여불가/자유배치는 CHAR_DETAILS 주입.
+const TRAIT_PASSIVE_KEYS = new Set(['charge', 'oldHeart', '질주', '낡은 심장', '소멸', 'HP 부여 불가', '자유 배치']);
+const isTraitPassive = (pidOrName) => TRAIT_PASSIVE_KEYS.has(pidOrName);
+const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-trait' : 'mini-header-passive';
+// ★ 단계(스택)형 상태이상 — "N단계"로 표기 + 단계 상승 시 바운스.
+const STACKABLE_STATUS = new Set(['poison', 'misfortune', 'luck']);
 // SP 텍스트 — 블록 오른쪽에 붙을 작은 라벨용
 const spLabel = (sp) => {
   if (sp === 0 || sp === '0') return 'SP 소모 없음';
@@ -9900,7 +9910,7 @@ const spLabel = (sp) => {
 };
 // 상태 태그 인라인 — 게임 중 사용되는 아이콘 포함
 const STATUS_ICONS = { curse: '☠', shadow: '👻', mark: '🎯', morale: '📋',
-  executed: '🪓', cult: '🕯️', poison: '☣', misfortune: '💢', luck: '🍀', betray: '🗡️', frog: '🐸' };
+  executed: '🪓', cult: '🕯️', poison: '☣', misfortune: '🐦‍⬛', luck: '🍀', betray: '🗡️', frog: '🐸' };
 const stBadge = (cls, label) => {
   // ★ 이교단: 전용 소속 아이콘(빨간 로브) PNG 사용.
   if (cls === 'cult') {
@@ -13094,13 +13104,13 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
         const name = getPassiveName(pid);
         const desc = getPassiveLabel(pid);
         passiveHtml += `<div class="slide-head-line">` +
-          `<span class="slide-skill-name mini-header-passive">${name}</span>` +
+          `<span class="slide-skill-name ${passiveHeadCls(pid)}">${name}</span>` +
           `</div>`;
         passiveHtml += `<div class="slide-detail-body">${desc}</div>`;
       }
     } else if (pc.passiveName) {
       passiveHtml = `<div class="slide-head-line">` +
-        `<span class="slide-skill-name mini-header-passive">${pc.passiveName}</span>` +
+        `<span class="slide-skill-name ${passiveHeadCls(pc.passiveName)}">${pc.passiveName}</span>` +
         `</div>`;
     }
     const hasAnySkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
@@ -16203,12 +16213,22 @@ function renderStatusBadges(pc) {
   if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
   // ★ #9 이모지(마커)와 라벨을 분리 → 모바일에서 라벨만 숨겨 컴팩트 이모지 마커로 표시
   //   (좁은 프로필 카드에서도 가로 우선 유지, 자리 부족시 둘째 줄). 데스크탑은 이모지+텍스트 그대로.
-  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'], rally: ['📋', '사기증진'], betray: ['🗡', '배신'], executed: ['⛓', '처형'], frog: ['🐸', '개구리'], luck: ['🍀', '행운'], misfortune: ['💢', '불행'] };
+  const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'], rally: ['📋', '사기증진'], betray: ['🗡', '배신'], executed: ['⛓', '처형'], frog: ['🐸', '개구리'], luck: ['🍀', '행운'], misfortune: ['🐦‍⬛', '불행'] };
+  if (!pc._stackShown) pc._stackShown = {};
   let html = '<div class="status-badges">';
   for (const e of pc.statusEffects) {
     const cls = e.type;
     const lab = labels[e.type] || [e.type, ''];
-    html += `<span class="status-badge ${cls}"><i class="sb-ic">${lab[0]}</i><span class="sb-label">${lab[1]}</span></span>`;
+    // ★ 스택형 상태이상(중독·불행·행운)은 "N단계"로 노출. 단계가 오른 순간 숫자 한번 바운스.
+    let st = '';
+    if (STACKABLE_STATUS.has(e.type)) {
+      const n = e.stacks || 1;
+      const prev = pc._stackShown[e.type] || 0;
+      const bump = (n > prev) ? ' sb-stack-bump' : '';
+      pc._stackShown[e.type] = n;
+      st = ` <i class="sb-stack${bump}">${n}단계</i>`;
+    }
+    html += `<span class="status-badge ${cls}"><i class="sb-ic">${lab[0]}</i><span class="sb-label">${lab[1]}</span>${st}</span>`;
   }
   html += '</div>';
   return html;
@@ -16442,7 +16462,7 @@ function buildMiniHeaders(ch) {
       const name = getPassiveName(pid);
       if (shownNames.has(name)) continue;   // ★ 그리폰: 스킬 '격노'와 패시브 'rage'(격노) 중복 방지
       shownNames.add(name);
-      html += `<span class="mini-header mini-header-passive">${name}</span>`;
+      html += `<span class="mini-header ${passiveHeadCls(pid)}">${name}</span>`;
     }
   }
   return html;
@@ -16515,13 +16535,13 @@ function buildPieceTooltip(pc, side) {
       if (skillNames.has(name)) continue;   // ★ 그리폰: 스킬 '격노'와 패시브 중복 방지
       const desc = getPassiveLabel(pid);
       passiveHtml += `<div class="slide-head-line">` +
-        `<span class="slide-skill-name mini-header-passive">${name}</span>` +
+        `<span class="slide-skill-name ${passiveHeadCls(pid)}">${name}</span>` +
         `</div>`;
       passiveHtml += `<div class="slide-detail-body">${desc}</div>`;
     }
   } else if (pc.passiveName) {
     passiveHtml = `<div class="slide-head-line">` +
-      `<span class="slide-skill-name mini-header-passive">${pc.passiveName}</span>` +
+      `<span class="slide-skill-name ${passiveHeadCls(pc.passiveName)}">${pc.passiveName}</span>` +
       `</div>`;
   }
 

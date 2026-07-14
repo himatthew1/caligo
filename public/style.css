@@ -6632,6 +6632,16 @@ body.team-mode .placement-opp-panel {
 /* #9 상태배지 이모지(마커)/라벨 분리 — 데스크탑은 둘 다, 모바일은 이모지만 */
 .status-badge .sb-ic { font-style: normal; }
 .status-badge .sb-label { margin-left: 3px; }
+/* 스택형 상태이상 중첩 수(×N) — 배지 색을 따르되 살짝 굵고 촘촘하게 */
+.status-badge .sb-stack { font-style: normal; margin-left: 3px; font-weight: 800; opacity: 0.95; display: inline-block; }
+/* 스택 상승 순간 숫자 한번 크게 바운스 */
+.status-badge .sb-stack.sb-stack-bump { animation: sbStackBump 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes sbStackBump {
+  0%   { transform: scale(1);   }
+  30%  { transform: scale(2.1); }
+  60%  { transform: scale(0.88);}
+  100% { transform: scale(1);   }
+}
 
 /* 상대 말 정보 */
 .opp-piece-card {
