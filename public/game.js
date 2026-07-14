@@ -553,8 +553,11 @@ const S = {
 })();
 
 // ── 오디오 설정 ─────────────────────────────────────────────
-let bgmMuted = false;
-let sfxMuted = false;
+// ★ 백그라운드 테스트용 무음 스위치: URL 에 ?mute=1 이면 로드 즉시 음악·효과음 모두 끔.
+//   (일반 플레이엔 영향 없음 — 파라미터 없으면 false)
+const _forceMute = (() => { try { return new URLSearchParams(location.search).has('mute'); } catch (e) { return false; } })();
+let bgmMuted = _forceMute;
+let sfxMuted = _forceMute;
 let chatMuted = (() => {
   try { return localStorage.getItem('caligo_chat_muted') === '1'; } catch (e) { return false; }
 })();
