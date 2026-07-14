@@ -117,10 +117,26 @@ const SFX = {
     _sfxTone(ctx, now + 0.22, 900, 0.1, 'sine', 0.08);
     _sfxTone(ctx, now + 0.32, 1300, 0.14, 'sine', 0.07);
   },
-  corrupt(ctx, now) { // 타락 (마왕 버프)
-    _sfxTone(ctx, now, 220, 0.5, 'sawtooth', 0.07, 110);
-    _sfxTone(ctx, now, 110, 0.6, 'square', 0.035, 68);
-    _sfxNoise(ctx, now + 0.05, 0.3, 0.025, 60, 500);
+  corrupt(ctx, now) { // 타락 — 마왕(악인 보스)의 장엄하고 어두운 악마 성가 (종언의 다크 카운터파트)
+    // ① 심연의 서브베이스 토대 — 거부할 수 없는 무게
+    _sfxTone(ctx, now, 48, 1.9, 'sine', 0.11, 40);
+    _sfxTone(ctx, now, 55, 1.9, 'sawtooth', 0.05, 46);        // 낮은 그르렁 그로울
+    _sfxNoise(ctx, now, 1.8, 0.03, 25, 180);                  // 어두운 럼블
+    _sfxTone(ctx, now, 82, 0.9, 'sine', 0.06, 62);            // 낮은 공명 타격(장엄)
+    // ② 악마 성가 — 단조 + 트라이톤 대화음, 한 음씩 어둡게 페이드인(디튠 그로울)
+    const demon = (f, g, delay) => {
+      _sfxTone(ctx, now + delay, f,         1.9 - delay, 'sawtooth', g,       f * 0.995);
+      _sfxTone(ctx, now + delay, f * 1.006, 1.9 - delay, 'sawtooth', g * 0.6, f * 0.99);   // 러프 디튠
+    };
+    demon(131, 0.05, 0.0);    // C3
+    demon(156, 0.045, 0.15);  // Eb3 (단3도 — 어둠)
+    demon(196, 0.045, 0.3);   // G3
+    demon(233, 0.04, 0.45);   // Bb3
+    demon(185, 0.035, 0.6);   // F#3 (트라이톤 — '악마의 음정')
+    // ③ 거부하지 못하는 공포의 상승 스웰
+    _sfxTone(ctx, now + 0.7, 98, 1.1, 'sawtooth', 0.05, 300);
+    // ④ 악마의 숨결 라스프
+    _sfxNoise(ctx, now + 0.3, 1.2, 0.025, 300, 2200);
   },
   steal(ctx, now) { // 강탈 (SP 탈취)
     _sfxNoise(ctx, now, 0.06, 0.05, 2000, 6500);
@@ -229,7 +245,7 @@ const SKILLS = [
   { k:'raise',      nm:'강령술',    unit:'악령술사', t:'villain', d:'낮게 솟아오르는 강령 드론 + 유령음' },
   { k:'command',    nm:'조종',      unit:'악령술사', t:'villain', d:'명령 펄스 + 어두운 잔향' },
   { k:'exhume',     nm:'도굴',      unit:'묘지기',   t:'villain', d:'흙 파는 소리 + SP 획득 종소리' },
-  { k:'corrupt',    nm:'타락',      unit:'마왕',     t:'villain', d:'하강하는 왜곡 저음 + 럼블(버프)' },
+  { k:'corrupt',    nm:'타락',      unit:'마왕',     t:'villain', d:'마왕의 악마 성가 — 심연 베이스 + 단조·트라이톤 대화음 + 공포 스웰 (웅장·어둠 ~2s)' },
   { k:'steal',      nm:'강탈',      unit:'도적',     t:'villain', d:'빠른 스와이프 + 동전 팅—' },
   { k:'spread',     nm:'확산',      unit:'머쉬킨',   t:'spirit',  d:'포자 퍼프 뿜— + 유기적 성장음' },
   { k:'fairyDust',  nm:'페어리 더스트', unit:'요정', t:'spirit',  d:'반짝반짝 흩뿌리는 고음 샤워' },
