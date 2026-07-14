@@ -5296,7 +5296,15 @@ socket.on('poison_tick', ({ col, row, damage, newHp, destroyed, ownerIdx, type, 
   //   단 중독으로 사망 시엔 사망 연출·유해를 위해 그 순간에만 위치 확정.
   if (destroyed && !mine && !teammate) { pc.col = col; pc.row = row; }
   if (destroyed) pc.alive = false;
-  try { if (damage > 0) addBodyDamage(keyOf(i), damage); } catch (e) {}
+  // ★ 중독 데미지: 카드엔 데미지 누적(빨강 오버레이) + 보드엔 중독 전용 녹색 ☣ 도장(가시 유닛만 — 적 위치 비공개 유지).
+  try {
+    if (damage > 0) {
+      if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
+      if (typeof _clearOtherStampTypes === 'function') _clearOtherStampTypes(keyOf(i), 'body', ['loyalty']);
+      S.bodyDamageThisTurn[keyOf(i)] = (S.bodyDamageThisTurn[keyOf(i)] || 0) + damage;
+      if ((mine || teammate) && col != null) showBoardDamageStamp(col, row, 'poison', damage);
+    }
+  } catch (e) {}
   try { addLog(`☣ ${name || '유닛'} 중독 피해 ${damage}`, 'hit'); } catch (e) {}
   const rerender = () => { try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); } catch (e) {} };
   if (destroyed && typeof scheduleDeathGif === 'function' && typeof _detectDeaths === 'function') {
@@ -15927,6 +15935,9 @@ function _renderBoardDamageStamp(col, row, type, value) {
   // ★ 유닛 위 보드 도장은 글씨(저주/충성 태그) 없이 숫자만 — 타입은 색으로 구분 (사용자 요청).
   if (type === 'protected') {
     span.textContent = '0';
+  } else if (type === 'poison') {
+    const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
+    span.textContent = '☣ −' + v;   // 중독 전용 도장(독성 녹색)
   } else {
     const v = (typeof value === 'number') ? (Number.isInteger(value) ? value : value.toFixed(1)) : value;
     span.textContent = (type === 'heal' ? '+' : '−') + v;   // 회복은 +N(녹색), 그 외 −N

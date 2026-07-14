@@ -7056,6 +7056,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         const op = room.players[owi]; if (!op) continue;
         for (let dpi = 0; dpi < op.pieces.length; dpi++) {
           const t = op.pieces[dpi];
+          if (t === piece) continue;   // ★ 시전자(독살꾼) 자신은 면역 — 발동 주체는 안전.
           if (!t.alive || t.col == null) continue;
           if (!pcellSet.has(`${t.col},${t.row}`)) continue;
           if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
