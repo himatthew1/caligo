@@ -4905,7 +4905,10 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
-  if (fungus) S._pendingSporeFungus = fungus;   // ★ 포자살포 진균은 '포자살포 말풍선 이후' 렌더(그때부터 존재 판정)
+  if (fungus) {   // ★ 포자살포 진균 — 말풍선 직후 렌더(존재 판정). 폴백: 말풍선이 안 와도 이 턴 안에 렌더.
+    S._pendingSporeFungus = fungus;
+    setTimeout(() => { if (S._pendingSporeFungus) { S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null; try { _applyFungusCells(); } catch (e) {} } }, 1300);
+  }
   if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5393,7 +5396,10 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
   if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
-  if (fungus) S._pendingSporeFungus = fungus;   // ★ 포자살포 진균은 '포자살포 말풍선 이후' 렌더(그때부터 존재 판정)
+  if (fungus) {   // ★ 포자살포 진균 — 말풍선 직후 렌더(존재 판정). 폴백: 말풍선이 안 와도 이 턴 안에 렌더.
+    S._pendingSporeFungus = fungus;
+    setTimeout(() => { if (S._pendingSporeFungus) { S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null; try { _applyFungusCells(); } catch (e) {} } }, 1300);
+  }
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -7424,12 +7430,33 @@ function spawnCurseParticle(card) {
   card.appendChild(p);
   setTimeout(() => { if (p.parentNode) p.remove(); }, dur * 1000 + 100);
 }
-// 모든 .curse-active 카드를 주기적으로 순회하며 확률적으로 파티클 스폰 → 자연스러운 랜덤 등장
+// ── 중독 파티클 (저주와 동일 스타일, 녹색) ──
+const POISON_PARTICLE_COLORS = ['#bef264', '#a3e635', '#84cc16', '#d9f99d', '#65a30d'];
+function spawnPoisonParticle(card) {
+  if (!card || !card.classList.contains('poison-active')) return;
+  const p = document.createElement('div');
+  p.className = 'curse-particle';   // 동일 base 스타일(위치/--rise/키프레임) 재사용
+  const size = 3 + Math.floor(Math.random() * 3);
+  p.style.width = size + 'px';
+  p.style.height = size + 'px';
+  p.style.left = (5 + Math.random() * 90) + '%';
+  p.style.background = POISON_PARTICLE_COLORS[Math.floor(Math.random() * POISON_PARTICLE_COLORS.length)];
+  p.style.boxShadow = `0 0 4px ${p.style.background}`;
+  const kf = CURSE_RISE_KEYFRAMES[Math.floor(Math.random() * CURSE_RISE_KEYFRAMES.length)];
+  const dur = 1.6 + Math.random() * 1.4;
+  p.style.animation = `${kf} ${dur}s linear forwards`;
+  const cardH = card.getBoundingClientRect().height || 100;
+  p.style.setProperty('--rise', cardH + 'px');
+  card.appendChild(p);
+  setTimeout(() => { if (p.parentNode) p.remove(); }, dur * 1000 + 100);
+}
+// 모든 .curse-active / .poison-active 카드를 주기적으로 순회하며 확률적으로 파티클 스폰
 function _curseParticleTick() {
-  const cards = document.querySelectorAll('.my-piece-card.curse-active, .opp-piece-card.curse-active');
-  cards.forEach(card => {
-    // 카드당 확률 60% — 매 tick 마다 결정
+  document.querySelectorAll('.my-piece-card.curse-active, .opp-piece-card.curse-active').forEach(card => {
     if (Math.random() < 0.6) spawnCurseParticle(card);
+  });
+  document.querySelectorAll('.my-piece-card.poison-active, .opp-piece-card.poison-active').forEach(card => {
+    if (Math.random() < 0.6) spawnPoisonParticle(card);
   });
 }
 // 200ms 마다 tick (카드당 평균 0.6/0.2s = 초당 3개 정도 스폰)
@@ -7469,6 +7496,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
     const _vcCells = data.atkCells.slice();
     setTimeout(() => { try { animateVenomCloud(_vcCells); } catch (e) {} }, 520);
   }
+  // ★ 확산(머쉬킨) — 새 진균 지대를 그 사용 턴에 즉시 반영(스폰 애니 포함).
+  if (data && Array.isArray(data.fungusCells)) { S.fungus = data.fungusCells; try { _applyFungusCells(); } catch (e) {} }
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -17119,6 +17148,10 @@ function openSkillModal(targetPieceIdx) {
       if (pc.type === 'torturer') {
         const hasMarked = (S.oppPieces || []).some(p => p.alive && p.statusEffects && p.statusEffects.some(e => e.type === 'mark'));
         if (!hasMarked) { singleDisabled = true; singleNote = ' (표식 대상 없음)'; }
+      }
+      // 머쉬킨 확산: 확산할 진균 지대가 없으면 봉인.
+      if (pc.skillId === 'spread' && (!S.fungus || S.fungus.length === 0)) {
+        singleDisabled = true; singleNote = ' (확산할 진균 없음)';
       }
       // 드래곤 조련사: 드래곤이 이미 존재하면 비활성화
       if (pc.type === 'dragonTamer') {

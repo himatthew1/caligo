@@ -408,9 +408,9 @@ function applyPoisonTick(room, piece, ownerIdx) {
   if (!piece || !piece.alive) return 0;
   const st = statusStacks(piece, 'poison');
   if (st <= 0) return 0;
-  const dmg = 0.1 * st;
-  piece.hp = Math.max(0, Math.round((piece.hp - dmg) * 100) / 100);   // 감경 우회(상태이상 지속뎀)
-  return dmg;
+  const dmg = Math.round(st) * 0.1;                                    // 0.1 × 스택 (정확히 0.1 단위)
+  piece.hp = Math.max(0, Math.round((piece.hp - dmg) * 10) / 10);      // ★ hp 는 항상 0.1 단위로 라운딩(부동소수 잔재 제거)
+  return Math.round(dmg * 10) / 10;
 }
 // 중독 틱 배선 — 중독 유닛이 '행동(이동/공격/행동소비스킬)을 완료한 직후' 호출.
 //   데미지 적용 + 클라 이벤트 + 사망 처리(호출부가 startPhase 컨텍스트에서 호출해야 사망 시퀀스 정상).
