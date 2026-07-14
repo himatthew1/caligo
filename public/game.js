@@ -5300,6 +5300,39 @@ function _applyFungusCells() {
     S._fungusShownKeys = set;
   } catch (e) {}
 }
+// ★ 맹독 구름 살포 애니 — ＋ 전용 범위 각 칸에 녹색 독구름 퍼프(중앙부터 파문).
+function animateVenomCloud(cells) {
+  try {
+    const board = document.getElementById('game-board');
+    if (!board || !Array.isArray(cells)) return;
+    // 중앙(시전자 칸)부터 바깥으로 퍼지도록 정렬은 서버 순서([0,0] 먼저) 그대로 사용.
+    cells.forEach((c, idx) => {
+      const cell = board.querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+      if (!cell) return;
+      setTimeout(() => {
+        const puff = document.createElement('div');
+        puff.className = 'venom-cloud-puff';
+        cell.appendChild(puff);
+        setTimeout(() => { if (puff.parentNode) puff.remove(); }, 850);
+      }, idx * 55);
+    });
+    try { if (typeof playSfxPassive === 'function') playSfxPassive(); } catch (e) {}
+  } catch (e) {}
+}
+// ★ 중독 대상 딤 해제 — 중독 데미지를 받은 유닛 카드를 그 턴 동안 밝게(profile-hit + turn-bright).
+function _brightenPoisonCard(ownerIdx, mine, teammate, i) {
+  try {
+    let card = null;
+    if (S.isTeamMode) card = document.querySelector(`.team-profile-block[data-player-idx="${ownerIdx}"] [data-piece-idx="${i}"]`);
+    else if (mine) card = document.querySelectorAll('#my-pieces-info .my-piece-card')[i];
+    else card = document.querySelectorAll('#opp-pieces-info .opp-piece-card')[i];
+    if (card) {
+      card.classList.add('turn-bright');
+      card.classList.remove('profile-hit'); void card.offsetWidth; card.classList.add('profile-hit');
+      setTimeout(() => { if (card) card.classList.remove('profile-hit'); }, 1600);
+    }
+  } catch (e) {}
+}
 // ★ 중독 데미지 페이즈 — 행동(이동/공격)을 하자마자 격발되지 않고, 행동 처리 이후에
 //   큐에 쌓아 하나씩 순차적으로 재생(받아들이기 편하게). 저주 지속뎀처럼 위치 공개·추리토큰 없음.
 socket.on('poison_tick', (payload) => {
@@ -5355,6 +5388,8 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
     S._pendingDeathCells = new Set([`${col},${row}`]); rerender();
     if (deaths.length) scheduleDeathGif(deaths, deaths, rerender); else { S._pendingDeathCells = null; rerender(); }
   } else rerender();
+  // ★ 중독 대상 딤 해제 — 데미지 받은 유닛 카드를 그 턴 밝게(사망 아닌 경우).
+  if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
   if (fungus) { S.fungus = fungus; _applyFungusCells(); }   // ★ 머쉬킨 포자살포 즉시 반영
@@ -7428,6 +7463,11 @@ function playBoardQuake() {
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves }) => {
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
+  // ★ 맹독 구름 살포 애니 — ＋ 전용 범위(data.atkCells)에 녹색 독구름. SP 비행 후 재생.
+  if (data && Array.isArray(data.atkCells) && Array.isArray(data.poisonedCells)) {
+    const _vcCells = data.atkCells.slice();
+    setTimeout(() => { try { animateVenomCloud(_vcCells); } catch (e) {} }, 520);
+  }
   const oldOppHps = S.oppPieces ? S.oppPieces.map(p => p.hp) : [];
   const oldMyHps = S.myPieces.map(p => p.hp);
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];

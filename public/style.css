@@ -2940,6 +2940,18 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   border-color: rgba(120,170,90,0.5) !important;
   box-shadow: inset 0 0 8px rgba(90,150,70,0.5);
 }
+/* ★ 맹독 구름 살포 퍼프 — ＋ 범위 각 칸에 녹색 독구름 파문 */
+.cell:has(.venom-cloud-puff) { overflow: visible; }
+.venom-cloud-puff {
+  position: absolute; inset: 0; pointer-events: none; z-index: 6; border-radius: 50%;
+  background: radial-gradient(circle at 50% 55%, rgba(163,230,53,0.85) 0%, rgba(120,200,90,0.6) 40%, rgba(90,150,70,0.18) 70%, transparent 85%);
+  animation: venomPuff 0.85s ease-out forwards;
+}
+@keyframes venomPuff {
+  0%   { transform: scale(0.3); opacity: 0; }
+  35%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
 /* ★ 진균 지대 생성(포자살포·맹독구름·확산) 순간 녹색 플래시-인 */
 .cell.cell-fungus.fungus-spawn { animation: fungusSpawn 0.6s ease; }
 @keyframes fungusSpawn {
