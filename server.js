@@ -5127,14 +5127,14 @@ function detonateBomb(room, ownerIdx, bomb, options) {
         if (ep.hp <= 0) {
           handleDeath(room, ep, defOwnerIdx);
         }
-        // Wizard passive: SP on bomb hit — 마법사 소속 플레이어/팀에 SP 추가 (데미지-트리거 훅)
-        if (ep.type === 'wizard') {
-          let wizOwnerIdx = -1;
+        // 피격 트리거 패시브 — 모든 피격 대상(마법사 SP·머쉬킨 포자살포·그리폰/드라이어드·오베론 등)
+        if (dmg > 0) {
+          let victimOwnerIdx = -1;
           for (let pi = 0; pi < room.players.length; pi++) {
-            if (room.players[pi].pieces.includes(ep)) { wizOwnerIdx = pi; break; }
+            if (room.players[pi].pieces.includes(ep)) { victimOwnerIdx = pi; break; }
           }
-          if (wizOwnerIdx < 0) wizOwnerIdx = defOwnerIdx;  // fallback
-          applyDamageTriggers(room, ep, wizOwnerIdx, dmg, { spUpdate: suppressSpUpdate ? 'none' : 'always' });
+          if (victimOwnerIdx < 0) victimOwnerIdx = defOwnerIdx;  // fallback
+          applyDamageTriggers(room, ep, victimOwnerIdx, dmg, { spUpdate: suppressSpUpdate ? 'none' : 'always' });
         }
         hits.push({ col: ep.col, row: ep.row, damage: dmg, newHp: ep.hp, destroyed: !ep.alive, type: ep.type, name: ep.name, icon: ep.icon, defPieceIdx: epi, defOwnerIdx });
       }
@@ -5353,8 +5353,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               destroyed: allyPiece.hp <= 0, type: allyPiece.type,
               ownerIdx: aIdx, defPieceIdx: _ffPi,
             });
-            // Wizard passive: 배반자로 마법사가 피격되면 인스턴트 SP 1 획득
-            if (allyPiece.type === 'wizard') applyDamageTriggers(room, allyPiece, aIdx, 1, { spUpdate: 'unlessSuppressed' });
+            // 피격 트리거 패시브 — 배반자(학살) 오사 피격 대상도 모두 발동
+            applyDamageTriggers(room, allyPiece, aIdx, 1, { spUpdate: 'unlessSuppressed' });
             if (allyPiece.hp <= 0) {
               handleDeath(room, allyPiece, aIdx);
             }
@@ -7824,7 +7824,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
           m.hp = Math.max(0, m.hp - dmg);
           // Wizard passive: 악몽으로 마법사가 피격되어도 인스턴트 SP 1 획득 (피격마다 트리거)
           // skill_result 가 sp/instantSp 를 자동 전달하므로 emitSPUpdate 는 생략(spUpdate:'none').
-          if (m.type === 'wizard' && dmg > 0) applyDamageTriggers(room, m, ee.idx, dmg, { spUpdate: 'none' });
+          if (dmg > 0) applyDamageTriggers(room, m, ee.idx, dmg, { spUpdate: 'none' });   // 모든 피격 트리거 패시브
           if (m.hp <= 0) handleDeath(room, m, ee.idx);
           hits.push({ col: m.col, row: m.row, damage: dmg, newHp: m.hp, destroyed: !m.alive, name: m.name, ownerIdx: ee.idx });
         }
@@ -9950,7 +9950,7 @@ function aiExecuteMove(room, action) {
       room._pendingBodyguardPassive = null;
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
       aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
-      if (aiPiece.type === 'wizard' && dmg > 0) applyDamageTriggers(room, aiPiece, 1, dmg);
+      if (dmg > 0) applyDamageTriggers(room, aiPiece, 1, dmg);   // 모든 피격 트리거 패시브(덫)
       const willDie3 = aiPiece.hp <= 0;
       // ★ 화약상 사망 기폭 체인 순차화 (플레이어 경로와 동일) — startPhase 로 열어야 사망 기폭이 큐잉.
       startPhase(room);
@@ -11795,7 +11795,7 @@ io.on('connection', (socket) => {
         room._pendingBodyguardPassive = null;
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
-        if (piece2.type === 'wizard') applyDamageTriggers(room, piece2, tp.idx, dmg);
+        if (dmg > 0) applyDamageTriggers(room, piece2, tp.idx, dmg);   // 모든 피격 트리거 패시브(덫)
         const willDie = piece2.hp <= 0;
         // ★ 화약상 사망 기폭 체인 순차화 (사용자 보고) — startPhase 로 열어야 handleDeath 의
         //   queueDeathDetonation 이 페이즈 큐에 쌓여 "덫 발동 → 화약상 사망 → 사망 기폭 → 폭탄 피해
