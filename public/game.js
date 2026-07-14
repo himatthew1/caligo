@@ -9931,6 +9931,23 @@ const isTraitPassive = (pidOrName) => TRAIT_PASSIVE_KEYS.has(pidOrName);
 const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-trait' : 'mini-header-passive';
 // ★ 단계(스택)형 상태이상 — "N단계"로 표기 + 단계 상승 시 바운스.
 const STACKABLE_STATUS = new Set(['poison', 'misfortune', 'luck']);
+// ★ 모든 스킬 나열 순서 통일: 특성(0) → 패시브(1) → 자유시전(2) → 자유시전·1회(3) → 행동소비(4).
+function _blockOrderRank(b) {
+  if (!b) return 9;
+  if (b.isTrait || b.headCls === 'mini-header-trait') return 0;
+  const c = b.headCls || '';
+  if (c === 'mini-header-passive') return 1;
+  if (c === 'mini-header-free') return 2;
+  if (c === 'mini-header-once') return 3;
+  if (c === 'mini-header-action') return 4;
+  return 5;
+}
+function _skillTagRank(sk) {
+  if (!sk) return 9;
+  if (sk.replacesAction) return 4;   // 행동소비
+  if (sk.oncePerTurn) return 3;      // 자유시전·1회
+  return 2;                          // 자유시전
+}
 // SP 텍스트 — 블록 오른쪽에 붙을 작은 라벨용
 const spLabel = (sp) => {
   if (sp === 0 || sp === '0') return 'SP 소모 없음';
@@ -10632,11 +10649,11 @@ function populateSlideContent(c, prefix) {
     if (c.noRemains && !blocks.some(b => b.isTrait && b.head === '소멸')) {
       blocks.unshift({ ...mkTraitHead('소멸'), color: '#9ca3af', desc: '유해를 남기지 않고 소멸합니다.' });
     }
-    // ★ 특성은 항상 최상단(안정 정렬) + 특성↔스킬 경계에 구분선 1개.
-    const traits = blocks.filter(b => b.isTrait);
-    const rest = blocks.filter(b => !b.isTrait);
-    blocks = [...traits, ...rest];
-    const dividerIdx = (traits.length && rest.length) ? traits.length : -1;
+    // ★ 나열 순서: 특성 → 패시브 → 자유시전 → 자유시전·1회 → 행동소비 (안정 정렬).
+    //   특성↔나머지 경계에 구분선 1개.
+    blocks.sort((a, b) => _blockOrderRank(a) - _blockOrderRank(b));
+    const traitCount = blocks.filter(b => b.isTrait).length;
+    const dividerIdx = (traitCount && traitCount < blocks.length) ? traitCount : -1;
     const renderHeadLine = (b) => {
       const cls = b.headCls || '';
       const name = cls
@@ -12456,11 +12473,11 @@ function exRenderSlide() {
     if (c.noRemains && !blocks.some(b => b.isTrait && b.head === '소멸')) {
       blocks.unshift({ ...mkTraitHead('소멸'), color: '#9ca3af', desc: '유해를 남기지 않고 소멸합니다.' });
     }
-    // ★ 특성은 항상 최상단(안정 정렬) + 특성↔스킬 경계에 구분선 1개.
-    const traits = blocks.filter(b => b.isTrait);
-    const rest = blocks.filter(b => !b.isTrait);
-    blocks = [...traits, ...rest];
-    const dividerIdx = (traits.length && rest.length) ? traits.length : -1;
+    // ★ 나열 순서: 특성 → 패시브 → 자유시전 → 자유시전·1회 → 행동소비 (안정 정렬).
+    //   특성↔나머지 경계에 구분선 1개.
+    blocks.sort((a, b) => _blockOrderRank(a) - _blockOrderRank(b));
+    const traitCount = blocks.filter(b => b.isTrait).length;
+    const dividerIdx = (traitCount && traitCount < blocks.length) ? traitCount : -1;
     const renderHeadLine = (b) => {
       const cls = b.headCls || '';
       const name = cls
@@ -13110,7 +13127,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     };
     let skillHtml = '';
     if (pc.skills && pc.skills.length > 0) {
-      for (const sk of pc.skills) {
+      for (const sk of [...pc.skills].sort((a, b) => _skillTagRank(a) - _skillTagRank(b))) {
         const cls = headClassFor(sk);
         skillHtml += `<div class="slide-head-line">` +
           `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
@@ -13129,7 +13146,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     }
     let passiveHtml = '';
     if (pc.passives && pc.passives.length > 0) {
-      for (const pid of pc.passives) {
+      for (const pid of [...pc.passives].sort((a, b) => (passiveHeadCls(a) === 'mini-header-trait' ? 0 : 1) - (passiveHeadCls(b) === 'mini-header-trait' ? 0 : 1))) {
         const name = getPassiveName(pid);
         const desc = getPassiveLabel(pid);
         passiveHtml += `<div class="slide-head-line">` +
@@ -13161,8 +13178,8 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
         </div>
         <div class="placement-info-section">
           ${!hasAnySkill && !hasAnyPassive ? '<div class="slide-head-line" style="color:var(--muted)">스킬 없음</div>' : ''}
-          ${skillHtml}
           ${passiveHtml}
+          ${skillHtml}
         </div>
       </div>`;
     if (interactive) {
@@ -16476,28 +16493,30 @@ function getSkillTypeTag(skill) {
 
 function buildMiniHeaders(ch) {
   if (!ch) return '';
-  let html = '';
-  const shownNames = new Set();
+  // ★ 나열 순서: 특성 → 패시브 → 자유시전 → 자유시전·1회 → 행동소비.
+  const items = [];
+  const skillNames = new Set();
   if (ch.skills && ch.skills.length > 0) {
     for (const sk of ch.skills) {
       if (!skillIsVisible(sk)) continue;   // ★ 특성(질주)·미해금 시크릿(그레이스 키스)은 목록에 숨김
-      let cls;
-      if (sk.replacesAction) cls = 'mini-header-action';
-      else if (sk.oncePerTurn) cls = 'mini-header-once';
-      else cls = 'mini-header-free';
-      shownNames.add(sk.name);
-      html += `<span class="mini-header ${cls}">${sk.name}</span>`;
+      skillNames.add(sk.name);
+      let cls, rank;
+      if (sk.replacesAction) { cls = 'mini-header-action'; rank = 4; }
+      else if (sk.oncePerTurn) { cls = 'mini-header-once'; rank = 3; }
+      else { cls = 'mini-header-free'; rank = 2; }
+      items.push({ name: sk.name, cls, rank });
     }
   }
   if (ch.passives && ch.passives.length > 0) {
     for (const pid of ch.passives) {
       const name = getPassiveName(pid);
-      if (shownNames.has(name)) continue;   // ★ 그리폰: 스킬 '격노'와 패시브 'rage'(격노) 중복 방지
-      shownNames.add(name);
-      html += `<span class="mini-header ${passiveHeadCls(pid)}">${name}</span>`;
+      if (skillNames.has(name)) continue;   // ★ 그리폰: 스킬 '격노'와 패시브 'rage'(격노) 중복 방지
+      const cls = passiveHeadCls(pid);
+      items.push({ name, cls, rank: (cls === 'mini-header-trait') ? 0 : 1 });
     }
   }
-  return html;
+  items.sort((a, b) => a.rank - b.rank);
+  return items.map(it => `<span class="mini-header ${it.cls}">${it.name}</span>`).join('');
 }
 
 function getSkillTypeTagFromChar(pc) {
@@ -16538,7 +16557,7 @@ function buildPieceTooltip(pc, side) {
   const hasActiveSkill = (pc.skills && pc.skills.length > 0) || pc.hasSkill;
   const hasPassive = (pc.passives && pc.passives.length > 0) || pc.passiveName;
   if (pc.skills && pc.skills.length > 0) {
-    for (const sk of pc.skills) {
+    for (const sk of [...pc.skills].sort((a, b) => _skillTagRank(a) - _skillTagRank(b))) {
       const cls = headClassFor(sk);
       skillHtml += `<div class="slide-head-line">` +
         `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
@@ -16562,7 +16581,7 @@ function buildPieceTooltip(pc, side) {
   let passiveHtml = '';
   if (pc.passives && pc.passives.length > 0) {
     const skillNames = new Set((pc.skills || []).map(s => s.name));
-    for (const pid of pc.passives) {
+    for (const pid of [...pc.passives].sort((a, b) => (passiveHeadCls(a) === 'mini-header-trait' ? 0 : 1) - (passiveHeadCls(b) === 'mini-header-trait' ? 0 : 1))) {
       const name = getPassiveName(pid);
       if (skillNames.has(name)) continue;   // ★ 그리폰: 스킬 '격노'와 패시브 중복 방지
       const desc = getPassiveLabel(pid);
@@ -16590,8 +16609,8 @@ function buildPieceTooltip(pc, side) {
   tooltip.innerHTML = `
     <div class="tooltip-title">${pieceIconHtml(pc.icon, {size:'1.2em'})} ${pc.name}</div>
     <div class="tooltip-section">${grid}</div>
-    ${skillHtml}
     ${passiveHtml}
+    ${skillHtml}
     ${statusHtml}`;
   return tooltip;
 }
@@ -16921,7 +16940,7 @@ function openSkillModal(targetPieceIdx) {
     hasAnySkill = true;
 
     // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
-    const skillList = pc.skills && pc.skills.length > 1 ? pc.skills : null;
+    const skillList = pc.skills && pc.skills.length > 1 ? [...pc.skills].sort((a, b) => _skillTagRank(a) - _skillTagRank(b)) : null;
     // 저주 상태이면 모든 스킬 차단 — 1v1·팀전 양쪽 동일하게 적용
     const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
 
