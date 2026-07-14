@@ -1,0 +1,228 @@
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0e1116; color:#e6edf3; font-family:'Segoe UI',system-ui,sans-serif; }
+  .wrap { max-width:1120px; margin:0 auto; padding:18px 16px 28px; }
+  header { text-align:center; margin-bottom:14px; }
+  header h1 { font-size:1.35rem; margin:0 0 5px; letter-spacing:-0.3px; }
+  header p { margin:0; color:#8b98a5; font-size:0.86rem; }
+  .hint { margin-top:6px; color:#5b6672; font-size:0.76rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:9px; }
+  .card {
+    background:#171c23; border:1px solid #232a33; border-radius:10px; padding:10px 11px;
+    display:flex; flex-direction:column; gap:6px; transition:border-color .15s, transform .05s;
+  }
+  .card:hover { border-color:#3a4552; }
+  .card .top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card .nm { font-weight:700; font-size:0.95rem; }
+  .card .tag { font-size:0.66rem; padding:2px 7px; border-radius:999px; white-space:nowrap; font-weight:600; }
+  .t-villain { background:rgba(239,68,68,0.15); color:#f87171; }
+  .t-spirit  { background:rgba(56,189,248,0.15); color:#38bdf8; }
+  .t-royal   { background:rgba(250,204,21,0.15); color:#fbbf24; }
+  .t-none    { background:rgba(148,163,184,0.15); color:#94a3b8; }
+  .card .desc { font-size:0.74rem; color:#8b98a5; line-height:1.3; min-height:2.6em; }
+  .card button {
+    margin-top:2px; border:none; border-radius:7px; padding:7px; cursor:pointer;
+    background:#243b53; color:#dbeafe; font-weight:700; font-size:0.82rem; transition:background .12s, transform .05s;
+  }
+  .card button:hover { background:#2d4a68; }
+  .card button:active { transform:scale(0.96); }
+  .card button.playing { background:#0ea5e9; color:#001018; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>🔊 신규 스킬 효과음 오디션</h1>
+    <p>클릭해서 들어보고 마음에 드는 걸 정해주세요. 인게임과 <b>동일한 Web Audio 합성</b>(getAudioCtx·_sfxTone·_sfxNoise)으로 만들었습니다.</p>
+    <div class="hint">각 카드의 재생 버튼을 누르면 소리가 납니다. 결정하신 것만 인게임에 이식하겠습니다.</div>
+  </header>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+// ── 인게임 코드 그대로 (game.js verbatim) ─────────────────────────
+let _sharedAudioCtx = null;
+function getAudioCtx() {
+  if (!_sharedAudioCtx) {
+    try { _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (_sharedAudioCtx.state === 'suspended') { try { _sharedAudioCtx.resume(); } catch (e) {} }
+  return _sharedAudioCtx;
+}
+function _sfxTone(ctx, time, freq, dur, type, gain, glide) {
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, time);
+  if (glide) o.frequency.exponentialRampToValueAtTime(glide, time + dur);
+  g.gain.setValueAtTime(0.001, time);
+  g.gain.linearRampToValueAtTime(gain || 0.1, time + Math.min(0.02, dur * 0.2));
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(time); o.stop(time + dur + 0.02);
+}
+function _sfxNoise(ctx, time, dur, gain, hpFreq, lpFreq) {
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * dur)), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1);
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain || 0.1, time);
+  g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  let node = src;
+  if (hpFreq) { const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hpFreq; node.connect(f); node = f; }
+  if (lpFreq) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq; node.connect(f); node = f; }
+  node.connect(g); g.connect(ctx.destination);
+  src.start(time); src.stop(time + dur);
+}
+
+// ── 신규 스킬 효과음 후보 (인게임 이식 대상) ──────────────────────
+const SFX = {
+  // ─ 악인 ─
+  venomCloud(ctx, now) { // 맹독 구름
+    _sfxNoise(ctx, now, 0.5, 0.05, 300, 1800);
+    _sfxTone(ctx, now + 0.05, 180, 0.38, 'sine', 0.05, 90);
+    _sfxTone(ctx, now + 0.16, 150, 0.34, 'sine', 0.045, 72);
+    _sfxNoise(ctx, now + 0.22, 0.28, 0.03, 500, 2600);
+  },
+  omen(ctx, now) { // 흉조 (불행)
+    _sfxTone(ctx, now, 160, 0.6, 'sine', 0.09, 118);
+    _sfxNoise(ctx, now + 0.1, 0.16, 0.03, 1500, 4200);
+    _sfxTone(ctx, now + 0.28, 430, 0.42, 'sawtooth', 0.05, 250);
+  },
+  fateShift(ctx, now) { // 운명변곡 (상태이상 이동)
+    _sfxTone(ctx, now, 400, 0.5, 'sine', 0.06, 940);
+    _sfxTone(ctx, now, 940, 0.5, 'sine', 0.055, 400);
+    _sfxTone(ctx, now + 0.5, 660, 0.14, 'triangle', 0.06);
+  },
+  raise(ctx, now) { // 강령술 (부활)
+    _sfxTone(ctx, now, 90, 0.6, 'sawtooth', 0.06, 230);
+    _sfxTone(ctx, now + 0.2, 300, 0.5, 'sine', 0.05, 520);
+    _sfxNoise(ctx, now, 0.42, 0.03, 200, 800);
+  },
+  command(ctx, now) { // 조종 (악령 강제)
+    _sfxTone(ctx, now, 210, 0.14, 'square', 0.07);
+    _sfxTone(ctx, now + 0.12, 150, 0.32, 'sawtooth', 0.06, 118);
+    _sfxNoise(ctx, now + 0.02, 0.18, 0.025, 120, 900);
+  },
+  exhume(ctx, now) { // 도굴 (유해 제거 + SP)
+    _sfxNoise(ctx, now, 0.18, 0.06, 100, 900);
+    _sfxTone(ctx, now + 0.22, 900, 0.1, 'sine', 0.08);
+    _sfxTone(ctx, now + 0.32, 1300, 0.14, 'sine', 0.07);
+  },
+  corrupt(ctx, now) { // 타락 (마왕 버프)
+    _sfxTone(ctx, now, 220, 0.5, 'sawtooth', 0.07, 110);
+    _sfxTone(ctx, now, 110, 0.6, 'square', 0.035, 68);
+    _sfxNoise(ctx, now + 0.05, 0.3, 0.025, 60, 500);
+  },
+  steal(ctx, now) { // 강탈 (SP 탈취)
+    _sfxNoise(ctx, now, 0.06, 0.05, 2000, 6500);
+    _sfxTone(ctx, now + 0.06, 1800, 0.12, 'triangle', 0.08, 2700);
+    _sfxTone(ctx, now + 0.14, 2500, 0.1, 'sine', 0.05);
+  },
+  // ─ 정령 ─
+  spread(ctx, now) { // 확산 (진균)
+    _sfxNoise(ctx, now, 0.08, 0.05, 500, 2500);
+    _sfxTone(ctx, now + 0.05, 220, 0.26, 'sine', 0.05, 330);
+    _sfxNoise(ctx, now + 0.14, 0.08, 0.04, 400, 2100);
+    _sfxNoise(ctx, now + 0.26, 0.07, 0.03, 450, 2300);
+  },
+  fairyDust(ctx, now) { // 페어리 더스트 (행운)
+    for (let i = 0; i < 6; i++) _sfxTone(ctx, now + i * 0.055, 1500 + Math.random() * 1400, 0.13, 'sine', 0.045);
+  },
+  bless(ctx, now) { // 축복 (정령 ATK+)
+    _sfxTone(ctx, now, 784, 0.55, 'sine', 0.05);
+    _sfxTone(ctx, now, 988, 0.55, 'sine', 0.04);
+    _sfxTone(ctx, now, 1175, 0.55, 'sine', 0.03);
+    for (let i = 0; i < 4; i++) _sfxTone(ctx, now + 0.1 + i * 0.06, 2200 + Math.random() * 800, 0.1, 'sine', 0.025);
+  },
+  grace(ctx, now) { // 은혜 (정령 회복)
+    _sfxTone(ctx, now, 660, 0.16, 'sine', 0.06, 990);
+    _sfxTone(ctx, now + 0.16, 990, 0.32, 'sine', 0.05, 1320);
+  },
+  endAll(ctx, now) { // 종언 (정령 외 전멸)
+    _sfxTone(ctx, now, 60, 0.85, 'sine', 0.1, 40);
+    _sfxNoise(ctx, now, 0.6, 0.05, 40, 300);
+    _sfxTone(ctx, now + 0.2, 320, 0.6, 'sawtooth', 0.05, 100);
+    _sfxTone(ctx, now + 0.2, 240, 0.6, 'sawtooth', 0.04, 80);
+  },
+  morph(ctx, now) { // 변이 (호문클루스 영구변신)
+    _sfxTone(ctx, now, 300, 0.4, 'sine', 0.06, 620);
+    _sfxTone(ctx, now + 0.15, 620, 0.3, 'sine', 0.05, 250);
+    _sfxTone(ctx, now + 0.3, 250, 0.24, 'sine', 0.05, 480);
+    _sfxNoise(ctx, now + 0.1, 0.15, 0.03, 200, 1000);
+  },
+  // ─ 왕실/무소속 ─
+  troopAttack(ctx, now) { // 부대공격 (왕실 총공)
+    _sfxTone(ctx, now, 330, 0.35, 'sawtooth', 0.07);
+    _sfxTone(ctx, now, 440, 0.35, 'sawtooth', 0.05);
+    _sfxTone(ctx, now + 0.2, 550, 0.3, 'sawtooth', 0.06);
+    _sfxNoise(ctx, now, 0.1, 0.045, 80, 400);
+  },
+  decree(ctx, now) { // 칙명 (왕실 추가행동)
+    _sfxTone(ctx, now, 523, 0.15, 'triangle', 0.07);
+    _sfxTone(ctx, now + 0.12, 659, 0.15, 'triangle', 0.07);
+    _sfxTone(ctx, now + 0.24, 784, 0.28, 'triangle', 0.08);
+  },
+  demolish(ctx, now) { // 파괴공작 (공성파괴자)
+    _sfxTone(ctx, now, 80, 0.3, 'square', 0.1, 50);
+    _sfxNoise(ctx, now + 0.05, 0.22, 0.07, 200, 2200);
+    _sfxNoise(ctx, now + 0.05, 0.22, 0.04, 60, 400);
+  },
+  windPush(ctx, now) { // 바람몰이 (강제이동)
+    _sfxNoise(ctx, now, 0.4, 0.06, 400, 3000);
+    _sfxNoise(ctx, now + 0.1, 0.3, 0.04, 900, 4200);
+    _sfxTone(ctx, now + 0.02, 600, 0.35, 'sine', 0.02, 1400);
+  },
+  drive(ctx, now) { // 구동 (투석기 이동)
+    _sfxNoise(ctx, now, 0.15, 0.04, 100, 600);
+    _sfxTone(ctx, now, 120, 0.3, 'square', 0.05, 90);
+    _sfxTone(ctx, now + 0.16, 100, 0.2, 'square', 0.04, 78);
+  },
+  sirenSong(ctx, now) { // 사이렌 송 (전체 룰뎀)
+    _sfxTone(ctx, now, 500, 0.7, 'sine', 0.07, 1200);
+    _sfxTone(ctx, now + 0.35, 1200, 0.5, 'sine', 0.06, 600);
+    _sfxTone(ctx, now, 505, 0.7, 'sine', 0.035, 1210);
+  },
+};
+
+const SKILLS = [
+  { k:'venomCloud', nm:'맹독 구름', unit:'독살꾼', t:'villain', d:'독가스 쉭— + 낮게 부글대는 저음' },
+  { k:'omen',       nm:'흉조',      unit:'포춘텔러', t:'villain', d:'불길한 저음 종 + 까마귀 긁힘 + 하강 불안음' },
+  { k:'fateShift',  nm:'운명변곡',  unit:'포춘텔러', t:'villain', d:'교차하는 상승·하강 글라이드(맞바꿈)' },
+  { k:'raise',      nm:'강령술',    unit:'악령술사', t:'villain', d:'낮게 솟아오르는 강령 드론 + 유령음' },
+  { k:'command',    nm:'조종',      unit:'악령술사', t:'villain', d:'명령 펄스 + 어두운 잔향' },
+  { k:'exhume',     nm:'도굴',      unit:'묘지기',   t:'villain', d:'흙 파는 소리 + SP 획득 종소리' },
+  { k:'corrupt',    nm:'타락',      unit:'마왕',     t:'villain', d:'하강하는 왜곡 저음 + 럼블(버프)' },
+  { k:'steal',      nm:'강탈',      unit:'도적',     t:'villain', d:'빠른 스와이프 + 동전 팅—' },
+  { k:'spread',     nm:'확산',      unit:'머쉬킨',   t:'spirit',  d:'포자 퍼프 뿜— + 유기적 성장음' },
+  { k:'fairyDust',  nm:'페어리 더스트', unit:'요정', t:'spirit',  d:'반짝반짝 흩뿌리는 고음 샤워' },
+  { k:'bless',      nm:'축복',      unit:'오베론',   t:'spirit',  d:'맑은 화음 + 은은한 반짝임' },
+  { k:'grace',      nm:'은혜',      unit:'오베론',   t:'spirit',  d:'부드럽게 상승하는 회복 종' },
+  { k:'endAll',     nm:'종언',      unit:'오베론',   t:'spirit',  d:'깊은 붐 + 종말적 하강 둠' },
+  { k:'morph',      nm:'변이',      unit:'호문클루스', t:'none',  d:'꿀렁이는 변신 워블 + 스퀴시' },
+  { k:'troopAttack',nm:'부대공격',  unit:'장군',     t:'royal',   d:'전쟁 나팔 화음 + 북(집결)' },
+  { k:'decree',     nm:'칙명',      unit:'국왕',     t:'royal',   d:'밝은 상승 팡파르(C-E-G)' },
+  { k:'demolish',   nm:'파괴공작',  unit:'공성파괴자', t:'royal', d:'묵직한 쿵 + 파편 크랙' },
+  { k:'windPush',   nm:'바람몰이',  unit:'—',        t:'none',    d:'휘몰아치는 바람 스윕' },
+  { k:'drive',      nm:'구동',      unit:'투석기',   t:'none',    d:'삐걱 + 바퀴 굴림(기계)' },
+  { k:'sirenSong',  nm:'사이렌 송', unit:'샘의인어', t:'none',    d:'사이렌 웨일(상승→하강) + 디튠 비트' },
+];
+
+const grid = document.getElementById('grid');
+for (const s of SKILLS) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML =
+    `<div class="top"><span class="nm">${s.nm}</span><span class="tag t-${s.t}">${s.unit}</span></div>` +
+    `<div class="desc">${s.d}</div>` +
+    `<button>▶ 재생</button>`;
+  const btn = card.querySelector('button');
+  btn.addEventListener('click', () => {
+    const ctx = getAudioCtx(); if (!ctx) return;
+    try { SFX[s.k](ctx, ctx.currentTime); } catch (e) { console.error(s.k, e); }
+    btn.classList.add('playing');
+    setTimeout(() => btn.classList.remove('playing'), 500);
+  });
+  grid.appendChild(card);
+}
+</script>
