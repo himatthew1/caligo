@@ -84,10 +84,16 @@ const SFX = {
     _sfxTone(ctx, now + 0.16, 150, 0.34, 'sine', 0.045, 72);
     _sfxNoise(ctx, now + 0.22, 0.28, 0.03, 500, 2600);
   },
-  omen(ctx, now) { // 흉조 (불행)
-    _sfxTone(ctx, now, 160, 0.6, 'sine', 0.09, 118);
-    _sfxNoise(ctx, now + 0.1, 0.16, 0.03, 1500, 4200);
-    _sfxTone(ctx, now + 0.28, 430, 0.42, 'sawtooth', 0.05, 250);
+  omen(ctx, now) { // 흉조 (불행) — 까마귀 울음 강조
+    const caw = (t) => {
+      _sfxTone(ctx, t, 920, 0.15, 'sawtooth', 0.1, 480);   // 까악 급강하
+      _sfxTone(ctx, t + 0.02, 1350, 0.12, 'square', 0.05, 680);
+      _sfxNoise(ctx, t, 0.15, 0.055, 1200, 4800);           // 거친 목소리
+    };
+    caw(now);
+    caw(now + 0.3);
+    _sfxTone(ctx, now, 150, 0.7, 'sine', 0.06, 110);        // 불길한 저음 종
+    _sfxTone(ctx, now + 0.55, 420, 0.4, 'sawtooth', 0.04, 250);
   },
   fateShift(ctx, now) { // 운명변곡 (상태이상 이동)
     _sfxTone(ctx, now, 400, 0.5, 'sine', 0.06, 940);
@@ -139,11 +145,22 @@ const SFX = {
     _sfxTone(ctx, now, 660, 0.16, 'sine', 0.06, 990);
     _sfxTone(ctx, now + 0.16, 990, 0.32, 'sine', 0.05, 1320);
   },
-  endAll(ctx, now) { // 종언 (정령 외 전멸)
-    _sfxTone(ctx, now, 60, 0.85, 'sine', 0.1, 40);
-    _sfxNoise(ctx, now, 0.6, 0.05, 40, 300);
-    _sfxTone(ctx, now + 0.2, 320, 0.6, 'sawtooth', 0.05, 100);
-    _sfxTone(ctx, now + 0.2, 240, 0.6, 'sawtooth', 0.04, 80);
+  endAll(ctx, now) { // 종언 — 세계 최후, 요정들의 성스러운 찬양 (웅장·경외 ~2s)
+    // ① 깊은 심연의 토대
+    _sfxTone(ctx, now, 55, 1.9, 'sine', 0.09, 45);
+    _sfxNoise(ctx, now, 1.7, 0.02, 30, 200);
+    // ② 성스러운 대화음 (Cmaj9) — 한 음씩 페이드인, 요정 합창 느낌
+    const choir = (f, g, delay) => _sfxTone(ctx, now + delay, f, 1.95 - delay, 'sine', g, f * 1.004);
+    choir(262, 0.05, 0.0);    // C
+    choir(330, 0.045, 0.13);  // E
+    choir(392, 0.045, 0.26);  // G
+    choir(494, 0.04, 0.4);    // B
+    choir(587, 0.035, 0.55);  // D(9th)
+    choir(784, 0.03, 0.7);    // G
+    // ③ 천상의 반짝임 — 고음 찬양(랜덤 shimmer)
+    for (let i = 0; i < 11; i++) _sfxTone(ctx, now + 0.5 + i * 0.12, 1568 + Math.random() * 1500, 0.4, 'sine', 0.02);
+    // ④ 경외의 상승 스웰
+    _sfxTone(ctx, now + 0.9, 392, 1.05, 'triangle', 0.04, 1046);
   },
   morph(ctx, now) { // 변이 (호문클루스 영구변신)
     _sfxTone(ctx, now, 300, 0.4, 'sine', 0.06, 620);
@@ -152,42 +169,59 @@ const SFX = {
     _sfxNoise(ctx, now + 0.1, 0.15, 0.03, 200, 1000);
   },
   // ─ 왕실/무소속 ─
-  troopAttack(ctx, now) { // 부대공격 (왕실 총공)
-    _sfxTone(ctx, now, 330, 0.35, 'sawtooth', 0.07);
-    _sfxTone(ctx, now, 440, 0.35, 'sawtooth', 0.05);
-    _sfxTone(ctx, now + 0.2, 550, 0.3, 'sawtooth', 0.06);
-    _sfxNoise(ctx, now, 0.1, 0.045, 80, 400);
+  troopAttack(ctx, now) { // 부대공격 — 길고 멜로디있는 장엄한 팡파레 (~1.5s)
+    const brass = (t, f, d, g) => { _sfxTone(ctx, t, f, d, 'sawtooth', g); _sfxTone(ctx, t, f * 2, d, 'sawtooth', g * 0.4); };
+    brass(now,        392, 0.22, 0.06);   // G4
+    brass(now + 0.2,  523, 0.22, 0.06);   // C5
+    brass(now + 0.4,  659, 0.28, 0.07);   // E5
+    brass(now + 0.68, 784, 0.6,  0.08);   // G5 정점(지속)
+    _sfxTone(ctx, now + 0.68, 262, 0.85, 'sawtooth', 0.04);  // C4 하부 베드
+    _sfxTone(ctx, now + 0.68, 392, 0.85, 'sawtooth', 0.03);  // G4 하부 베드
+    _sfxNoise(ctx, now,        0.12, 0.05, 60, 400);          // 북
+    _sfxNoise(ctx, now + 0.4,  0.12, 0.05, 60, 400);
+    _sfxNoise(ctx, now + 0.68, 0.18, 0.06, 60, 400);
   },
   decree(ctx, now) { // 칙명 (왕실 추가행동)
     _sfxTone(ctx, now, 523, 0.15, 'triangle', 0.07);
     _sfxTone(ctx, now + 0.12, 659, 0.15, 'triangle', 0.07);
     _sfxTone(ctx, now + 0.24, 784, 0.28, 'triangle', 0.08);
   },
-  demolish(ctx, now) { // 파괴공작 (공성파괴자)
-    _sfxTone(ctx, now, 80, 0.3, 'square', 0.1, 50);
-    _sfxNoise(ctx, now + 0.05, 0.22, 0.07, 200, 2200);
-    _sfxNoise(ctx, now + 0.05, 0.22, 0.04, 60, 400);
+  demolish(ctx, now) { // 파괴공작 — 더 폭발하는 소리
+    _sfxTone(ctx, now, 120, 0.15, 'square', 0.09, 50);    // 초기 타격
+    _sfxTone(ctx, now, 68, 0.5, 'sine', 0.13, 34);        // 서브베이스 붐
+    _sfxNoise(ctx, now, 0.42, 0.12, 40, 1300);            // 폭발 바디
+    _sfxNoise(ctx, now + 0.02, 0.26, 0.08, 800, 5200);    // 밝은 파편
+    _sfxNoise(ctx, now + 0.22, 0.3, 0.045, 200, 2500);    // 잔해 낙하
   },
   windPush(ctx, now) { // 바람몰이 (강제이동)
     _sfxNoise(ctx, now, 0.4, 0.06, 400, 3000);
     _sfxNoise(ctx, now + 0.1, 0.3, 0.04, 900, 4200);
     _sfxTone(ctx, now + 0.02, 600, 0.35, 'sine', 0.02, 1400);
   },
-  drive(ctx, now) { // 구동 (투석기 이동)
-    _sfxNoise(ctx, now, 0.15, 0.04, 100, 600);
-    _sfxTone(ctx, now, 120, 0.3, 'square', 0.05, 90);
-    _sfxTone(ctx, now + 0.16, 100, 0.2, 'square', 0.04, 78);
+  drive(ctx, now) { // 구동 (투석기 이동) — 더 기계적인 톱니 래칫
+    for (let i = 0; i < 7; i++) {
+      _sfxTone(ctx, now + i * 0.05, 150 + (i % 2) * 45, 0.028, 'square', 0.06);  // 래칫 클릭
+      _sfxNoise(ctx, now + i * 0.05, 0.022, 0.035, 2200, 6500);                 // 금속 클랭크
+    }
+    _sfxTone(ctx, now, 85, 0.4, 'square', 0.05, 68);   // 낮은 모터 험
+    _sfxNoise(ctx, now, 0.4, 0.02, 90, 480);
   },
-  sirenSong(ctx, now) { // 사이렌 송 (전체 룰뎀)
-    _sfxTone(ctx, now, 500, 0.7, 'sine', 0.07, 1200);
-    _sfxTone(ctx, now + 0.35, 1200, 0.5, 'sine', 0.06, 600);
-    _sfxTone(ctx, now, 505, 0.7, 'sine', 0.035, 1210);
+  sirenSong(ctx, now) { // 사이렌 송 — 아름다운 시작 → 소름끼치는 비명
+    // ① 아름다운 사이렌 웨일 (유지)
+    _sfxTone(ctx, now, 500, 0.65, 'sine', 0.07, 1100);
+    _sfxTone(ctx, now, 505, 0.65, 'sine', 0.035, 1110);   // 디튠 비트
+    _sfxTone(ctx, now + 0.2, 990, 0.45, 'sine', 0.04);    // 맑은 화음
+    // ② 소름끼치는 비명으로 전환 — 불협 상승 + 날카로운 상단 + 공포 쉭
+    _sfxTone(ctx, now + 0.62, 700, 0.55, 'sawtooth', 0.075, 2300);
+    _sfxTone(ctx, now + 0.62, 742, 0.55, 'sawtooth', 0.05, 2180);   // 불협 디튠
+    _sfxTone(ctx, now + 0.66, 1650, 0.5, 'square', 0.035, 3100);    // 날카로운 비명 상단
+    _sfxNoise(ctx, now + 0.7, 0.4, 0.045, 2200, 7200);
   },
 };
 
 const SKILLS = [
   { k:'venomCloud', nm:'맹독 구름', unit:'독살꾼', t:'villain', d:'독가스 쉭— + 낮게 부글대는 저음' },
-  { k:'omen',       nm:'흉조',      unit:'포춘텔러', t:'villain', d:'불길한 저음 종 + 까마귀 긁힘 + 하강 불안음' },
+  { k:'omen',       nm:'흉조',      unit:'포춘텔러', t:'villain', d:'까마귀 울음 2회 강조 + 불길한 저음 종' },
   { k:'fateShift',  nm:'운명변곡',  unit:'포춘텔러', t:'villain', d:'교차하는 상승·하강 글라이드(맞바꿈)' },
   { k:'raise',      nm:'강령술',    unit:'악령술사', t:'villain', d:'낮게 솟아오르는 강령 드론 + 유령음' },
   { k:'command',    nm:'조종',      unit:'악령술사', t:'villain', d:'명령 펄스 + 어두운 잔향' },
@@ -198,14 +232,14 @@ const SKILLS = [
   { k:'fairyDust',  nm:'페어리 더스트', unit:'요정', t:'spirit',  d:'반짝반짝 흩뿌리는 고음 샤워' },
   { k:'bless',      nm:'축복',      unit:'오베론',   t:'spirit',  d:'맑은 화음 + 은은한 반짝임' },
   { k:'grace',      nm:'은혜',      unit:'오베론',   t:'spirit',  d:'부드럽게 상승하는 회복 종' },
-  { k:'endAll',     nm:'종언',      unit:'오베론',   t:'spirit',  d:'깊은 붐 + 종말적 하강 둠' },
+  { k:'endAll',     nm:'종언',      unit:'오베론',   t:'spirit',  d:'세계 최후·요정 성가(Cmaj9)+천상 반짝임 (~2s 웅장·경외)' },
   { k:'morph',      nm:'변이',      unit:'호문클루스', t:'none',  d:'꿀렁이는 변신 워블 + 스퀴시' },
-  { k:'troopAttack',nm:'부대공격',  unit:'장군',     t:'royal',   d:'전쟁 나팔 화음 + 북(집결)' },
+  { k:'troopAttack',nm:'부대공격',  unit:'장군',     t:'royal',   d:'장엄한 팡파레 멜로디(~1.5s) G4→C5→E5→G5 + 북' },
   { k:'decree',     nm:'칙명',      unit:'국왕',     t:'royal',   d:'밝은 상승 팡파르(C-E-G)' },
-  { k:'demolish',   nm:'파괴공작',  unit:'공성파괴자', t:'royal', d:'묵직한 쿵 + 파편 크랙' },
+  { k:'demolish',   nm:'파괴공작',  unit:'공성파괴자', t:'royal', d:'서브베이스 폭발 붐 + 파편·잔해(더 폭발적)' },
   { k:'windPush',   nm:'바람몰이',  unit:'—',        t:'none',    d:'휘몰아치는 바람 스윕' },
-  { k:'drive',      nm:'구동',      unit:'투석기',   t:'none',    d:'삐걱 + 바퀴 굴림(기계)' },
-  { k:'sirenSong',  nm:'사이렌 송', unit:'샘의인어', t:'none',    d:'사이렌 웨일(상승→하강) + 디튠 비트' },
+  { k:'drive',      nm:'구동',      unit:'투석기',   t:'none',    d:'톱니 래칫 연속 클랭크 + 모터 험(더 기계적)' },
+  { k:'sirenSong',  nm:'사이렌 송', unit:'샘의인어', t:'none',    d:'아름다운 웨일로 시작 → 소름끼치는 불협 비명' },
 ];
 
 const grid = document.getElementById('grid');
