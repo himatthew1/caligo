@@ -4904,7 +4904,7 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
-  if (fungus) { S.fungus = fungus; _applyFungusCells(); }   // ★ 머쉬킨 포자살포 즉시 반영(공격자 시점)
+  if (fungus) S._pendingSporeFungus = fungus;   // ★ 포자살포 진균은 '포자살포 말풍선 이후' 렌더(그때부터 존재 판정)
   if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5392,7 +5392,7 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
   if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
-  if (fungus) { S.fungus = fungus; _applyFungusCells(); }   // ★ 머쉬킨 포자살포 즉시 반영
+  if (fungus) S._pendingSporeFungus = fungus;   // ★ 포자살포 진균은 '포자살포 말풍선 이후' 렌더(그때부터 존재 판정)
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -9478,17 +9478,22 @@ function _renderPassiveAlert(payload) {
     }
     try { spawnInstantGainOrb(targetSlot); } catch (e) {}
   }
-  // ★ 패시브 말풍선 — 해당 piece 카드에서 주황 말풍선 (저주 관련 type 은 스킬·패시브 와 무관해 제외)
+  // ★ 패시브 말풍선 — 해당 piece 카드에서 라이트 스카이블루 말풍선 (저주 관련 type 은 제외)
   if (typeof playerIdx === 'number' && PASSIVE_BUBBLE_INFO[type]) {
     showPassiveBubble(type, playerIdx);
   }
+  // ★ 포자살포 — 말풍선 애니 이후 진균 렌더(그때부터 존재 판정). 그 전까진 pending 으로만 보관.
+  if (type === 'mushkin' && S._pendingSporeFungus) {
+    S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null;
+    setTimeout(() => { try { _applyFungusCells(); } catch (e) {} }, 650);
+  }
   const isCurseToast = (type === 'curse_tick' || type === 'curse_removed');
   if (S.isSpectator) {
-    showSkillToast(msg, false, playerIdx, isCurseToast ? 'curse' : undefined);
+    showSkillToast(msg, false, playerIdx, isCurseToast ? 'curse' : 'passive');
     return;
   }
   const isEnemy = (playerIdx !== undefined) ? (playerIdx !== S.playerIdx) : false;
-  showSkillToast(msg, isEnemy, undefined, isCurseToast ? 'curse' : undefined);
+  showSkillToast(msg, isEnemy, undefined, isCurseToast ? 'curse' : 'passive');
 }
 
 // 데미지 감소형 패시브(가호/폭정/아이언스킨) — 격파 발생 시 토스트 생략, 로그는 유지
@@ -19653,6 +19658,10 @@ function _showToastNow(msg, isEnemy, specPlayerIdx, toastType) {
     // 저주 관련 토스트는 보라색 — 아군/적군/관전자 구분 없이 통일
     toast.style.background = 'rgba(139, 92, 246, 0.92)';   // violet-500
     toast.style.border = '1px solid #c4b5fd';              // violet-300
+  } else if (toastType === 'passive') {
+    // ★ 패시브 발동 토스트 — 라이트 스카이블루로 통일(패시브 컬러). 아군/적군 구분 없이.
+    toast.style.background = 'rgba(56, 189, 248, 0.92)';   // sky-400
+    toast.style.border = '1px solid #7dd3fc';              // sky-300
   } else if (S.isSpectator && specPlayerIdx !== undefined) {
     // 관전자: 액터의 팀 컬러 기준 (팀모드: 그 player 의 teamId / 1v1: idx 0=blue, 1=red)
     let isRed;

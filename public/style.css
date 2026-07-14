@@ -2491,7 +2491,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .placement-opp-card .opp-info strong { font-size: 0.82rem; display: block; }
 .placement-opp-card .opp-info span { font-size: 0.68rem; color: var(--muted); display: block; line-height: 1.4; }
 .placement-opp-card .opp-info .skill-line { color: #a78bfa; }
-.placement-opp-card .opp-info .passive-line { color: #f59e0b; }
+.placement-opp-card .opp-info .passive-line { color: #38bdf8; }
 
 /* ── 보드 ── */
 .board {
@@ -4040,8 +4040,8 @@ body.team-mode img.p-gif {
   color: #fff;
 }
 .skill-cast-bubble.bubble-passive {
-  background: linear-gradient(135deg, #fdba74 0%, #ea580c 100%);
-  border-color: #fed7aa;
+  background: linear-gradient(135deg, #7dd3fc 0%, #0ea5e9 100%);  /* 라이트 스카이블루 — 패시브 */
+  border-color: #bae6fd;
   color: #fff;
 }
 /* ★ 모바일 세로: 시전자 카드 위 오버레이 변형 — 꼬리 없음, 카드 정중앙, 화면밖/겹침 방지 */
@@ -4108,7 +4108,7 @@ body.team-mode img.p-gif {
 .skill-cast-bubble.bubble-free::after,
 .skill-cast-bubble.bubble-free::before { color: #22c55e; }
 .skill-cast-bubble.bubble-passive::after,
-.skill-cast-bubble.bubble-passive::before { color: #ea580c; }
+.skill-cast-bubble.bubble-passive::before { color: #0ea5e9; }
 
 /* spotlight — dim 위로 띄움 (z-index 9000) + 강한 글로우로 시전자 카드 부각.
    사용자 요청: 마법구 비행 중에도 시전자 프로필이 명확히 튀어 보이도록. */
@@ -6801,7 +6801,7 @@ body.team-mode .placement-opp-panel {
 .tooltip-desc { font-size: 0.7rem; color: var(--muted); margin-top: 4px; text-align: center; }
 .tooltip-line { font-size: 0.75rem; color: var(--text-dim); line-height: 1.6; }
 .tooltip-line.skill-color { color: #a78bfa; }
-.tooltip-line.passive-color { color: #f59e0b; }
+.tooltip-line.passive-color { color: #38bdf8; }
 
 /* 호버 팝업 내부 — 캐릭터 도감 양식 그대로 사용. 단 폭이 좁으므로 약간 축소 */
 .piece-tooltip .slide-head-line { gap: 6px; margin-top: 6px; margin-bottom: 2px; }
