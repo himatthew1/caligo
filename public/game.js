@@ -4543,6 +4543,8 @@ socket.on('game_start', (data) => {
   S.destroyedCells = data.destroyedCells || [];   // ★ 공성파괴자 파괴칸
   S.pendingDemolish = data.pendingDemolish || [];  // ★ 공성파괴자 파괴 예약칸
   S.fungus = data.fungus || [];                    // ★ 머쉬킨 진균
+  S._fungusShownKeys = new Set();                   // 진균 스폰 애니 추적 초기화
+  S._stageSeen = {};                                // 중독/불행 단계 애니 추적 초기화
   S._remainsFacing = {};  // 사망 GIF 방향 캐시 — 새 게임 초기화
   S.attackLog = [];
   S.action = null;
@@ -4694,7 +4696,7 @@ socket.on('your_turn', (data) => {
   S.remains = data.remains || S.remains;
   if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
   if (data.pendingDemolish) S.pendingDemolish = data.pendingDemolish;
-  if (data.fungus) S.fungus = data.fungus;
+  if (data.fungus) { S.fungus = data.fungus; _applyFungusCells(); }
   S.action = null;
   S.selectedPiece = null;
   S.targetSelectMode = false;
@@ -4744,7 +4746,7 @@ socket.on('opp_turn', (data) => {
   S.remains = data.remains || S.remains;
   if (data.destroyedCells) S.destroyedCells = data.destroyedCells;
   if (data.pendingDemolish) S.pendingDemolish = data.pendingDemolish;
-  if (data.fungus) S.fungus = data.fungus;
+  if (data.fungus) { S.fungus = data.fungus; _applyFungusCells(); }
   S.action = null;
   S.selectedPiece = null;
   // 새 턴 시작 — 데미지 도장/HP 빨간 마킹 초기화 (preCurseHps 로 저주 보라 도장 표시)
@@ -4902,7 +4904,7 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
-  if (fungus) S.fungus = fungus;   // ★ 머쉬킨 포자살포 즉시 반영(공격자 시점)
+  if (fungus) { S.fungus = fungus; _applyFungusCells(); }   // ★ 머쉬킨 포자살포 즉시 반영(공격자 시점)
   if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5278,6 +5280,26 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
 // ── 피격 ──
 let _beingAttackedSeq = 0;
 // ★ Phase 3: 중독 지속뎀(틱) — 중독 유닛이 행동 후 0.1×스택 피해. HP 갱신 + 도장 + 사망 연출.
+// ★ 진균 지대(cell-fungus) 즉시 반영 — 전체 renderGameBoard 없이 클래스만 토글(진행 중 애니 보존).
+//   포자살포/맹독구름/확산으로 S.fungus 가 바뀌면 곧바로 호출해 실시간 표시 + 새 칸은 스폰 애니.
+function _applyFungusCells() {
+  try {
+    const board = document.getElementById('game-board');
+    if (!board) return;
+    const set = new Set((S.fungus || []).map(f => `${f.col},${f.row}`));
+    const prev = S._fungusShownKeys || new Set();
+    board.querySelectorAll('.cell').forEach(cell => {
+      const key = cell.dataset.col + ',' + cell.dataset.row;
+      if (set.has(key)) {
+        cell.classList.add('cell-fungus');
+        if (!prev.has(key)) { cell.classList.remove('fungus-spawn'); void cell.offsetWidth; cell.classList.add('fungus-spawn'); }
+      } else {
+        cell.classList.remove('cell-fungus', 'fungus-spawn');
+      }
+    });
+    S._fungusShownKeys = set;
+  } catch (e) {}
+}
 // ★ 중독 데미지 페이즈 — 행동(이동/공격)을 하자마자 격발되지 않고, 행동 처리 이후에
 //   큐에 쌓아 하나씩 순차적으로 재생(받아들이기 편하게). 저주 지속뎀처럼 위치 공개·추리토큰 없음.
 socket.on('poison_tick', (payload) => {
@@ -5326,7 +5348,7 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
       if ((mine || teammate) && col != null) showBoardDamageStamp(col, row, 'poison', damage);
     }
   } catch (e) {}
-  try { addLog(`☣ ${name || '유닛'} 중독 피해 ${damage}`, 'hit'); } catch (e) {}
+  try { const _pd = Math.round((damage || 0) * 10) / 10; addLog(`☣ ${name || '유닛'} 중독 피해 ${_pd}`, 'hit'); } catch (e) {}
   const rerender = () => { try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); } catch (e) {} };
   if (destroyed && typeof scheduleDeathGif === 'function' && typeof _detectDeaths === 'function') {
     const deaths = _detectDeaths([{ col, row, type, defPieceIdx: i }], isDef);
@@ -5335,7 +5357,7 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
   } else rerender();
 }
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
-  if (fungus) S.fungus = fungus;   // ★ 머쉬킨 포자살포 즉시 반영
+  if (fungus) { S.fungus = fungus; _applyFungusCells(); }   // ★ 머쉬킨 포자살포 즉시 반영
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -9351,6 +9373,7 @@ const PASSIVE_BUBBLE_INFO = {
   bodyguard:      { pieceType: 'bodyguard',      name: '충성' },
   torturer:       { pieceType: 'torturer',       name: '표식' },
   poisoner:       { pieceType: 'poisoner',       name: '독니' },
+  mushkin:        { pieceType: 'mushkin',        name: '포자살포' },
 };
 
 // 패시브 발동 시 — 해당 piece 카드에서 보드 쪽으로 주황 말풍선 (스킬 시전 말풍선과 동일 디자인)
@@ -14445,6 +14468,7 @@ function renderGameBoard() {
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
       if (_isCursed(pc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
+      if (_isPoisoned(pc)) cell.classList.add('has-poison');
       if (_isMarked(pc)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(pc); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
       if (isTwinDimmed) cell.classList.add('twin-dimmed-cell');
@@ -14512,6 +14536,7 @@ function renderGameBoard() {
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
+        if (_isPoisoned(tmPc)) cell.classList.add('has-poison');
         if (_isMarked(tmPc)) { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(tmPc); cell.classList.add('has-mark'); }
         cell.classList.add('has-piece');
         cell.classList.add(`teammate-cell-${S.teamId === 0 ? 'blue' : 'red'}`);
@@ -14559,6 +14584,7 @@ function renderGameBoard() {
       const _moCurse = _isCursed(markedOpp) ? markedOpp : (_oppTwin && _isCursed(_oppTwin) ? _oppTwin : null);
       const _moMark  = _isMarked(markedOpp) ? markedOpp : (_oppTwin && _isMarked(_oppTwin) ? _oppTwin : null);
       if (_moCurse) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(_moCurse); cell.classList.add('has-curse'); }
+      if (_isPoisoned(markedOpp) || (_oppTwin && _isPoisoned(_oppTwin))) cell.classList.add('has-poison');
       if (_moMark)  { if (!(window._markSummoningActive && window._markSummoningActive(col, row))) cell.innerHTML += markBoardLayerHtml(_moMark); cell.classList.add('has-mark'); }
       cell.classList.add('has-piece');
     }
@@ -15551,6 +15577,7 @@ function _relocateMarkLayers(board){
 // ── 저주 상태 보드 레이어 HTML — 저주 상태면 유닛 뒤(z:0)에 깔리는 idle 망령 GIF ──
 //   (보드 위 전용. facing 은 renderGameBoard 후 _pieceFacingDir 재적용 루프에서 .face-left 부여.)
 function _isCursed(pc){ return !!(pc && (pc.statusEffects || []).some(e => e.type === 'curse')); }
+function _isPoisoned(pc){ return !!(pc && (pc.statusEffects || []).some(e => e.type === 'poison')); }
 function curseBoardLayerHtml(pc){
   if (!_isCursed(pc)) return '';
   const url = (window.CURSE_GIFS && window.CURSE_GIFS.idle) || '/art/curse/curse_idle.gif';
@@ -16263,18 +16290,22 @@ function renderStatusBadges(pc) {
   // ★ #9 이모지(마커)와 라벨을 분리 → 모바일에서 라벨만 숨겨 컴팩트 이모지 마커로 표시
   //   (좁은 프로필 카드에서도 가로 우선 유지, 자리 부족시 둘째 줄). 데스크탑은 이모지+텍스트 그대로.
   const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'], rally: ['📋', '사기증진'], betray: ['🗡', '배신'], executed: ['⛓', '처형'], frog: ['🐸', '개구리'], luck: ['🍀', '행운'], misfortune: ['🐦‍⬛', '불행'] };
-  if (!pc._stackShown) pc._stackShown = {};
+  // ★ 단계 애니는 '단계가 실제로 오른 순간에만'. pc 객체는 서버 갱신마다 교체되므로
+  //   영속 키맵(S._stageSeen)에 마지막 표시 단계를 저장해, 다른 동작으로 재렌더돼도 범핑 안 함.
+  if (!S._stageSeen) S._stageSeen = {};
+  const _pkey = (pc.ownerIdx != null ? pc.ownerIdx : 'me') + ':' + (pc.type || '') + ':' + (pc.subUnit || '') + ':' + (pc.index != null ? pc.index : '');
   let html = '<div class="status-badges">';
   for (const e of pc.statusEffects) {
     const cls = e.type;
     const lab = labels[e.type] || [e.type, ''];
-    // ★ 스택형 상태이상(중독·불행·행운)은 "N단계"로 노출. 단계가 오른 순간 숫자 한번 바운스.
+    // ★ 스택형 상태이상(중독·불행·행운)은 "N단계"로 노출. 단계 상승(첫 부여 포함) 시에만 바운스+글로우.
     let st = '';
     if (STACKABLE_STATUS.has(e.type)) {
       const n = e.stacks || 1;
-      const prev = pc._stackShown[e.type] || 0;
-      const bump = (n > prev) ? ' sb-stack-bump' : '';
-      pc._stackShown[e.type] = n;
+      const sk = _pkey + '|' + e.type;
+      const seen = S._stageSeen[sk] || 0;
+      const bump = (n > seen) ? ' sb-stack-bump' : '';
+      S._stageSeen[sk] = n;
       st = ` <i class="sb-stack${bump}">${n}단계</i>`;
     }
     html += `<span class="status-badge ${cls}"><i class="sb-ic">${lab[0]}</i><span class="sb-label">${lab[1]}</span>${st}</span>`;

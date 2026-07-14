@@ -4337,9 +4337,16 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       if (room.fungus.some(f => f.col === c && f.row === r)) continue;
       empty.push({ col: c, row: r });
     }
+    let _spawned = 0;
     for (let n = 0; n < 2 && empty.length; n++) {
       const j = Math.floor(Math.random() * empty.length);
       room.fungus.push(empty.splice(j, 1)[0]);
+      _spawned++;
+    }
+    // ★ 포자살포 발동 말풍선 (머쉬킨 카드에서).
+    if (_spawned > 0) {
+      emitToBoth(room, 'passive_alert', { type: 'mushkin', playerIdx: ownerIdx, msg: `포자살포 : 진균 확산` });
+      emitToSpectators(room, 'spectator_log', { msg: `포자살포 : 진균 확산`, type: 'passive', playerIdx: ownerIdx });
     }
   }
 }
@@ -9030,6 +9037,13 @@ function aiExecSkill(room, pidx, skillId, params) {
   // ★ 사망 기폭 페이즈 — 스킬 (학살영웅 attack 비슷한 효과 / 유황범람 / 악몽 등) 로 화약상 사망 시 큐.
   startPhase(room);
   const result = executeSkill(room, 1, pidx, skillId, params || {});
+  // ★ 중독 틱 — AI 의 행동소비 스킬도 사용 직후 중독 데미지 판정.
+  try {
+    const _aiPiece = room.players[1] && room.players[1].pieces[pidx];
+    const _bc = getChar(_aiPiece && (_aiPiece.type === 'twins_elder' || _aiPiece.type === 'twins_younger') ? 'twins' : (_aiPiece && _aiPiece.type));
+    const _sk = _bc && _bc.skills && _bc.skills.find(s => s.id === skillId);
+    if (result && result.ok && _sk && _sk.replacesAction && typeof tickActorPoison === 'function') tickActorPoison(room, _aiPiece, 1);
+  } catch (e) {}
   aiNotifySkill(room, pidx, result, skillId);  // skillId 전달 — 다중스킬 캐릭터의 정확한 스킬명용
   // 사망 기폭 페이즈 flush — checkGameEndAfterPhase 는 별도 (AI는 endTurn 따로)
   flushPhase(room, () => {
@@ -12489,6 +12503,13 @@ io.on('connection', (socket) => {
     }
 
     const skillPiece = room.players[idx].pieces[pieceIdx];
+
+    // ★ 중독 틱 — 행동소비(replacesAction) 스킬도 '행동'이므로 사용 직후 중독 데미지 판정(PPT).
+    try {
+      const _bc = getChar(skillPiece && (skillPiece.type === 'twins_elder' || skillPiece.type === 'twins_younger') ? 'twins' : (skillPiece && skillPiece.type));
+      const _sk = _bc && _bc.skills && _bc.skills.find(s => s.id === skillId);
+      if (_sk && _sk.replacesAction && typeof tickActorPoison === 'function') tickActorPoison(room, skillPiece, idx);
+    } catch (e) {}
 
     if (room.mode === 'team') {
       // 팀모드: 시전자에게 skill_result 먼저

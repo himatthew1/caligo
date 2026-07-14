@@ -2940,6 +2940,13 @@ body.dim-morale-zone .cc-wrapper.morale-buffed {
   border-color: rgba(120,170,90,0.5) !important;
   box-shadow: inset 0 0 8px rgba(90,150,70,0.5);
 }
+/* ★ 진균 지대 생성(포자살포·맹독구름·확산) 순간 녹색 플래시-인 */
+.cell.cell-fungus.fungus-spawn { animation: fungusSpawn 0.6s ease; }
+@keyframes fungusSpawn {
+  0%   { box-shadow: inset 0 0 0 rgba(150,230,110,0); }
+  40%  { box-shadow: inset 0 0 22px 4px rgba(150,230,110,0.95); }
+  100% { box-shadow: inset 0 0 8px rgba(90,150,70,0.5); }
+}
 /* ★ 공성파괴자 파괴 예약칸 — 다음 시전자 턴에 파괴 예정(경고 점멸) */
 .cell.cell-demolish-pending {
   box-shadow: inset 0 0 0 2px rgba(255,60,40,0.9), inset 0 0 14px rgba(255,40,20,0.55) !important;
@@ -3085,6 +3092,18 @@ img.curse-aura {
   filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1))
           drop-shadow(0 0 1.5px rgba(163,113,247,0.5)) drop-shadow(0 0 2.5px rgba(163,113,247,0.5));
   animation: curseAuraOut var(--cadur,1.15s) linear forwards;
+}
+
+/* ── 중독 상태 — 캐릭터 녹색 글로우(저주와 평행 구조, 독성 녹색). 중독을 단단히 각인 ── */
+.cell.has-poison { overflow: visible; }
+.cell.has-poison .piece-marker { position: relative; z-index: 2; }
+.cell.has-poison .piece-marker img.p-gif,
+.cell.has-poison .spec-piece .p-icon img {
+  animation: poisonAuraPulse 2.2s ease-in-out infinite;
+}
+@keyframes poisonAuraPulse {
+  0%,100% { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 2px rgba(132,204,22,0.6)) drop-shadow(0 0 3px rgba(163,230,53,0.4)); }
+  50%     { filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 3px rgba(132,204,22,0.95)) drop-shadow(0 0 5.5px rgba(163,230,53,0.85)); }
 }
 
 /* ── 표식 상태 — 정수리 위 표식 idle 레이어(에셋) + 캐릭터 보라 글로우 (저주와 평행 구조) ── */
@@ -6636,12 +6655,12 @@ body.team-mode .placement-opp-panel {
 /* 스택형 상태이상 중첩 수(×N) — 배지 색을 따르되 살짝 굵고 촘촘하게 */
 .status-badge .sb-stack { font-style: normal; margin-left: 3px; font-weight: 800; opacity: 0.95; display: inline-block; }
 /* 스택 상승 순간 숫자 한번 크게 바운스 */
-.status-badge .sb-stack.sb-stack-bump { animation: sbStackBump 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.status-badge .sb-stack.sb-stack-bump { animation: sbStackBump 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 @keyframes sbStackBump {
-  0%   { transform: scale(1);   }
-  30%  { transform: scale(2.1); }
-  60%  { transform: scale(0.88);}
-  100% { transform: scale(1);   }
+  0%   { transform: scale(1);   text-shadow: none; }
+  30%  { transform: scale(2.2); text-shadow: 0 0 8px #a3e635, 0 0 14px #84cc16; }
+  60%  { transform: scale(0.86); text-shadow: 0 0 6px #a3e635; }
+  100% { transform: scale(1);   text-shadow: none; }
 }
 
 /* 상대 말 정보 */
