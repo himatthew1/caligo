@@ -22274,6 +22274,137 @@ function pickPassiveSfxByType(type) {
 
 // ── 스킬 메시지 prefix → 전용 SFX 라우터 ──
 // 서버 result.msg / oppMsg 와 정확히 매칭
+// ── 신규 팩션 스킬 전용 효과음 (오디션 확정본 — Web Audio 합성) ──────────────
+function playSfxVenomCloud() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxNoise(ctx, now, 0.5, 0.05, 300, 1800);
+  _sfxTone(ctx, now + 0.05, 180, 0.38, 'sine', 0.05, 90);
+  _sfxTone(ctx, now + 0.16, 150, 0.34, 'sine', 0.045, 72);
+  _sfxNoise(ctx, now + 0.22, 0.28, 0.03, 500, 2600);
+} catch (e) {} }
+function playSfxOmen() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  const caw = (t, base) => {
+    _sfxTone(ctx, t,        base * 1.3,  0.05, 'sawtooth', 0.08, base * 1.75);
+    _sfxTone(ctx, t + 0.05, base * 1.75, 0.22, 'sawtooth', 0.12, base * 0.82);
+    _sfxTone(ctx, t + 0.05, base * 1.77, 0.22, 'sawtooth', 0.05, base * 0.83);
+    _sfxTone(ctx, t + 0.05, base * 3.4,  0.18, 'square',   0.03, base * 1.7);
+    _sfxNoise(ctx, t, 0.07, 0.045, 1400, 5200);
+  };
+  caw(now, 500); caw(now + 0.42, 460);
+  _sfxTone(ctx, now, 90, 0.9, 'sine', 0.03, 70);
+} catch (e) {} }
+function playSfxFateShift() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 400, 0.5, 'sine', 0.06, 940);
+  _sfxTone(ctx, now, 940, 0.5, 'sine', 0.055, 400);
+  _sfxTone(ctx, now + 0.5, 660, 0.14, 'triangle', 0.06);
+} catch (e) {} }
+function playSfxRaise() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 90, 0.6, 'sawtooth', 0.06, 230);
+  _sfxTone(ctx, now + 0.2, 300, 0.5, 'sine', 0.05, 520);
+  _sfxNoise(ctx, now, 0.42, 0.03, 200, 800);
+} catch (e) {} }
+function playSfxWraithCommand() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 210, 0.14, 'square', 0.07);
+  _sfxTone(ctx, now + 0.12, 150, 0.32, 'sawtooth', 0.06, 118);
+  _sfxNoise(ctx, now + 0.02, 0.18, 0.025, 120, 900);
+} catch (e) {} }
+function playSfxExhume() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxNoise(ctx, now, 0.18, 0.06, 100, 900);
+  _sfxTone(ctx, now + 0.22, 900, 0.1, 'sine', 0.08);
+  _sfxTone(ctx, now + 0.32, 1300, 0.14, 'sine', 0.07);
+} catch (e) {} }
+function playSfxCorrupt() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 48, 1.9, 'sine', 0.11, 40);
+  _sfxTone(ctx, now, 55, 1.9, 'sawtooth', 0.05, 46);
+  _sfxNoise(ctx, now, 1.8, 0.03, 25, 180);
+  _sfxTone(ctx, now, 82, 0.9, 'sine', 0.06, 62);
+  const demon = (f, g, delay) => {
+    _sfxTone(ctx, now + delay, f,         1.9 - delay, 'sawtooth', g,       f * 0.995);
+    _sfxTone(ctx, now + delay, f * 1.006, 1.9 - delay, 'sawtooth', g * 0.6, f * 0.99);
+  };
+  demon(131, 0.05, 0.0); demon(156, 0.045, 0.15); demon(196, 0.045, 0.3); demon(233, 0.04, 0.45); demon(185, 0.035, 0.6);
+  _sfxTone(ctx, now + 0.7, 98, 1.1, 'sawtooth', 0.05, 300);
+  _sfxNoise(ctx, now + 0.3, 1.2, 0.025, 300, 2200);
+} catch (e) {} }
+function playSfxSteal() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxNoise(ctx, now, 0.06, 0.05, 2000, 6500);
+  _sfxTone(ctx, now + 0.06, 1800, 0.12, 'triangle', 0.08, 2700);
+  _sfxTone(ctx, now + 0.14, 2500, 0.1, 'sine', 0.05);
+} catch (e) {} }
+function playSfxSpread() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxNoise(ctx, now, 0.08, 0.05, 500, 2500);
+  _sfxTone(ctx, now + 0.05, 220, 0.26, 'sine', 0.05, 330);
+  _sfxNoise(ctx, now + 0.14, 0.08, 0.04, 400, 2100);
+  _sfxNoise(ctx, now + 0.26, 0.07, 0.03, 450, 2300);
+} catch (e) {} }
+function playSfxFairyDust() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  for (let i = 0; i < 6; i++) _sfxTone(ctx, now + i * 0.055, 1500 + Math.random() * 1400, 0.13, 'sine', 0.045);
+} catch (e) {} }
+function playSfxBless() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 784, 0.55, 'sine', 0.05);
+  _sfxTone(ctx, now, 988, 0.55, 'sine', 0.04);
+  _sfxTone(ctx, now, 1175, 0.55, 'sine', 0.03);
+  for (let i = 0; i < 4; i++) _sfxTone(ctx, now + 0.1 + i * 0.06, 2200 + Math.random() * 800, 0.1, 'sine', 0.025);
+} catch (e) {} }
+function playSfxGrace() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 660, 0.16, 'sine', 0.06, 990);
+  _sfxTone(ctx, now + 0.16, 990, 0.32, 'sine', 0.05, 1320);
+} catch (e) {} }
+function playSfxEnding() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 55, 1.9, 'sine', 0.09, 45);
+  _sfxNoise(ctx, now, 1.7, 0.02, 30, 200);
+  const choir = (f, g, delay) => _sfxTone(ctx, now + delay, f, 1.95 - delay, 'sine', g, f * 1.004);
+  choir(262, 0.05, 0.0); choir(330, 0.045, 0.13); choir(392, 0.045, 0.26); choir(494, 0.04, 0.4); choir(587, 0.035, 0.55); choir(784, 0.03, 0.7);
+  for (let i = 0; i < 11; i++) _sfxTone(ctx, now + 0.5 + i * 0.12, 1568 + Math.random() * 1500, 0.4, 'sine', 0.02);
+  _sfxTone(ctx, now + 0.9, 392, 1.05, 'triangle', 0.04, 1046);
+} catch (e) {} }
+function playSfxMorph() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 300, 0.4, 'sine', 0.06, 620);
+  _sfxTone(ctx, now + 0.15, 620, 0.3, 'sine', 0.05, 250);
+  _sfxTone(ctx, now + 0.3, 250, 0.24, 'sine', 0.05, 480);
+  _sfxNoise(ctx, now + 0.1, 0.15, 0.03, 200, 1000);
+} catch (e) {} }
+function playSfxTroopAttack() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  const brass = (t, f, d, g) => { _sfxTone(ctx, t, f, d, 'sawtooth', g); _sfxTone(ctx, t, f * 2, d, 'sawtooth', g * 0.4); };
+  brass(now, 392, 0.22, 0.06); brass(now + 0.2, 523, 0.22, 0.06); brass(now + 0.4, 659, 0.28, 0.07); brass(now + 0.68, 784, 0.6, 0.08);
+  _sfxTone(ctx, now + 0.68, 262, 0.85, 'sawtooth', 0.04);
+  _sfxTone(ctx, now + 0.68, 392, 0.85, 'sawtooth', 0.03);
+  _sfxNoise(ctx, now, 0.12, 0.05, 60, 400); _sfxNoise(ctx, now + 0.4, 0.12, 0.05, 60, 400); _sfxNoise(ctx, now + 0.68, 0.18, 0.06, 60, 400);
+} catch (e) {} }
+function playSfxDecree() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 523, 0.15, 'triangle', 0.07);
+  _sfxTone(ctx, now + 0.12, 659, 0.15, 'triangle', 0.07);
+  _sfxTone(ctx, now + 0.24, 784, 0.28, 'triangle', 0.08);
+} catch (e) {} }
+function playSfxDemolish() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 120, 0.15, 'square', 0.09, 50);
+  _sfxTone(ctx, now, 68, 0.5, 'sine', 0.13, 34);
+  _sfxNoise(ctx, now, 0.42, 0.12, 40, 1300);
+  _sfxNoise(ctx, now + 0.02, 0.26, 0.08, 800, 5200);
+  _sfxNoise(ctx, now + 0.22, 0.3, 0.045, 200, 2500);
+} catch (e) {} }
+function playSfxWindPush() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxNoise(ctx, now, 0.4, 0.06, 400, 3000);
+  _sfxNoise(ctx, now + 0.1, 0.3, 0.04, 900, 4200);
+  _sfxTone(ctx, now + 0.02, 600, 0.35, 'sine', 0.02, 1400);
+} catch (e) {} }
+function playSfxDrive() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  for (let i = 0; i < 7; i++) {
+    _sfxTone(ctx, now + i * 0.05, 150 + (i % 2) * 45, 0.028, 'square', 0.06);
+    _sfxNoise(ctx, now + i * 0.05, 0.022, 0.035, 2200, 6500);
+  }
+  _sfxTone(ctx, now, 85, 0.4, 'square', 0.05, 68);
+  _sfxNoise(ctx, now, 0.4, 0.02, 90, 480);
+} catch (e) {} }
+function playSfxSiren() { if (sfxMuted) return; try { const ctx = getAudioCtx(); if (!ctx) return; const now = ctx.currentTime;
+  _sfxTone(ctx, now, 500, 1.4, 'sine', 0.07, 1900);
+  _sfxTone(ctx, now, 503, 1.4, 'sine', 0.035, 1912);
+  _sfxTone(ctx, now + 0.15, 990, 1.2, 'sine', 0.03, 2700);
+  _sfxTone(ctx, now + 0.55, 1000, 0.85, 'sawtooth', 0.05, 2900);
+  _sfxTone(ctx, now + 0.55, 1013, 0.85, 'sawtooth', 0.035, 2850);
+  _sfxTone(ctx, now + 0.62, 1600, 0.75, 'square', 0.028, 3300);
+  _sfxNoise(ctx, now + 0.6, 0.6, 0.03, 2200, 7200);
+} catch (e) {} }
+
 function pickSkillSfxByMsg(msg) {
   if (!msg || typeof msg !== 'string') return null;
   if (msg.startsWith('악몽') || msg.indexOf('악몽') >= 0) return playSfxNightmare;
@@ -22293,6 +22424,27 @@ function pickSkillSfxByMsg(msg) {
   if (msg.startsWith('역병')) return playSfxRatSummon;             // 쥐 장수
   if (msg.startsWith('드래곤')) return playSfxDragonSummon;        // 드래곤 조련사
   if (msg.startsWith('절대복종') || msg.startsWith('반지')) return playSfxKingRing;  // 국왕
+  // ── 신규 팩션 스킬 ──
+  if (msg.startsWith('맹독 구름')) return playSfxVenomCloud;
+  if (msg.startsWith('흉조')) return playSfxOmen;
+  if (msg.startsWith('운명변곡')) return playSfxFateShift;
+  if (msg.startsWith('강령술')) return playSfxRaise;
+  if (msg.startsWith('조종')) return playSfxWraithCommand;
+  if (msg.startsWith('도굴')) return playSfxExhume;
+  if (msg.startsWith('타락')) return playSfxCorrupt;
+  if (msg.startsWith('강탈')) return playSfxSteal;
+  if (msg.startsWith('확산')) return playSfxSpread;
+  if (msg.startsWith('페어리')) return playSfxFairyDust;
+  if (msg.startsWith('축복')) return playSfxBless;
+  if (msg.startsWith('은혜')) return playSfxGrace;
+  if (msg.startsWith('종언')) return playSfxEnding;
+  if (msg.startsWith('변이')) return playSfxMorph;
+  if (msg.startsWith('부대공격')) return playSfxTroopAttack;
+  if (msg.startsWith('칙명')) return playSfxDecree;
+  if (msg.startsWith('파괴공작')) return playSfxDemolish;
+  if (msg.startsWith('바람몰이')) return playSfxWindPush;
+  if (msg.startsWith('구동')) return playSfxDrive;
+  if (msg.startsWith('사이렌 송')) return playSfxSiren;
   return null;
 }
 
