@@ -14995,7 +14995,10 @@ function renderGameBoard() {
         const src = S.myPieces[std.pieceIdx];
         const inR = src && getAttackCells(src.type, src.col, src.row, { toggleState: src.toggleState }).some(c => c.col === col && c.row === row);
         const hasRem = S.remains && S.remains.some(r => r.col === col && r.row === row);
-        if (inR && hasRem) inSkillRange = true;
+        // ★ 언데드(살아있는 유해)도 도굴 대상 — 보이는 언데드(내 말/표식된 적)면 선택 가능.
+        const hasUndead = (S.myPieces && S.myPieces.some(p => p.alive && p.type === 'undead' && p.col === col && p.row === row))
+          || (S.oppPieces && S.oppPieces.some(p => p.alive && p.type === 'undead' && p.marked && p.col === col && p.row === row));
+        if (inR && (hasRem || hasUndead)) inSkillRange = true;
       } else if (std.type === 'raise_cell') {
         // 악령술사 강령술: 보드 위 유해 아무거나(유닛 없는 칸)
         const hasRem2 = S.remains && S.remains.some(r => r.col === col && r.row === row);
@@ -18322,8 +18325,11 @@ function handleGameCellClick(col, row) {
       // ★ 투석기 구동: 인접 1칸 이동
       socket.emit('use_skill', { pieceIdx: data.pieceIdx, skillId: data.skillId, params: { col, row } });
     } else if (data.type === 'exhume_cell') {
-      // ★ 묘지기 도굴: 범위 내 유해 제거
-      if (!S.remains || !S.remains.some(r => r.col === col && r.row === row)) {
+      // ★ 묘지기 도굴: 범위 내 유해(죽은 유해) 또는 보이는 언데드(살아있는 유해) 제거
+      const _hasRemCell = S.remains && S.remains.some(r => r.col === col && r.row === row);
+      const _hasUndeadCell = (S.myPieces && S.myPieces.some(p => p.alive && p.type === 'undead' && p.col === col && p.row === row))
+        || (S.oppPieces && S.oppPieces.some(p => p.alive && p.type === 'undead' && p.marked && p.col === col && p.row === row));
+      if (!_hasRemCell && !_hasUndeadCell) {
         const _h = document.getElementById('action-hint'); if (_h) _h.textContent = '그 칸에 유해가 없습니다.';
         return;
       }
