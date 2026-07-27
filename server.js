@@ -1539,11 +1539,13 @@ const AI_WEIGHTS_DEFAULT = {
   escapeOutside: 30,     // (팀) 외곽→안쪽 탈출 보너스 (×urgency)
   edgePenaltyMul: 0.5,   // 후반(턴≥25) 가장자리 점수 배율
   centerReturn: 5,       // (팀) 가장자리→중앙 회귀 보너스
-  fleeBonus: 25,         // 피격기억 도주 보너스 (×HP항; 팀 버전은 ×(3-hp))
-  approachMul: 2.5,      // 적 확률질량 추격 유도
+  fleeBonus: 10,         // 피격기억 도주 보너스 (×HP항) — ★공격성↑: 25→10 (위협받아도 좋은 공격이면 공격)
+  approachMul: 2.5,      // 적 확률질량 추격 유도 (계속 접근해 사거리 확보 — 유지)
   threatMul: 1.0,        // 위협 회피 감점 배율
   infoGainMul: 0.4,      // 정보획득(정찰) 가산
   commanderAuraMul: 3,   // 지휘관 본인 오라 진형 유지
+  attackAggro: 3.4,      // ★공격 커밋 가중 — 확률맵 기대값(0~1)을 이동 보너스 스케일과 겨루게 끌어올림.
+                         //   사거리 내 '있을 법한' 칸이 있으면 접근/도주보다 실제 공격을 선택하게.
 };
 let AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT };
 try {
@@ -1882,13 +1884,16 @@ function aiTeamLearnFromAttack(room, attackerIdx, atkCells, hitResults) {
 
 function aiTeamScoreAttack(room, idx, piece, extra) {
   const brain = getTeamBrain(room, getTeamOf(room, idx));
+  const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra || {});
   // ★ 1v1 aiScoreAttack 과 동일 — probMap(정규화 믿음맵)에서 확신 피크(best) 주가중 + 나머지 소액(0.35).
   //   sum 으로 바꾸면 확산 믿음을 과대평가해 AI 가 탐색 대신 블라인드 난사 → 수동화(회귀). best-가중이 정답.
   let sum = 0, best = 0;
   for (const c of cells) { const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p; }
-  let score = best + 0.35 * (sum - best);
+  // ★ 공격 커밋 가중(attackAggro) — 기대값(0~1)을 이동 보너스(도주/접근 등 두 자릿수)와 겨루게 상향.
+  //   best 가 여전히 확률맵이라 '있을 법한' 칸에만 반응 → 블라인드 난사 아님, 날카로운 예측 공격.
+  let score = (best + 0.35 * (sum - best)) * (W.attackAggro || 1);
   // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK
   const effAtk = _effectiveAtkForAi(piece, room, idx);
   score *= (1 + effAtk * 0.1);
@@ -8711,7 +8716,10 @@ function aiScoreAttack(brain, piece, room, extra) {
       sum += p; if (p > best) best = p;
     }
   }
-  let score = best + 0.35 * (sum - best);
+  // ★ 공격 커밋 가중(attackAggro) — 팀 버전과 동일. probMap best(0~10) 를 이동 보너스(도주/접근) 스케일과
+  //   겨루게 상향 → 사거리 내 확신 칸이 있으면 접근/도주 대신 실제 공격을 택함(날카로운 예측 공격).
+  const _Wa = (brain && brain._weights) || AI_WEIGHTS;
+  let score = (best + 0.35 * (sum - best)) * (_Wa.attackAggro || 1);
   // ★ commander 버프 반영 — 인접 시 +1 ATK 로 점수 증폭.
   const effAtk = _effectiveAtkForAi(piece, room, 1);
   score *= (1 + effAtk * 0.1);
