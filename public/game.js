@@ -2607,7 +2607,7 @@ function renderTeamPlacement() {
       return `<div class="team-placement-piece ${placed ? 'placed' : ''} ${selected ? 'selected' : ''}" data-idx="${i}">
         <span class="piece-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <span class="piece-name">${escapeHtmlGlobal(pc.name || pc.type)}</span>
-        <span class="piece-hp">HP ${pc.hp}</span>
+        <span class="piece-hp">HP ${_hp(pc.hp)}</span>
       </div>`;
     }).join('');
     myList.querySelectorAll('.team-placement-piece').forEach(el => {
@@ -3523,7 +3523,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       <div class="hp-bar-bg hp-bar-with-text">
         <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
-        <span class="hp-bar-text">${pc.hp}/${pc.maxHp}</span>
+        <span class="hp-bar-text">${_hp(pc.hp)}/${pc.maxHp}</span>
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
@@ -9851,7 +9851,7 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
         const pc = pcs[0];
         cell.classList.add('has-piece');
         // 인게임 piece-marker 와 동일 마크업
-        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span><span class="p-hp">${pc.hp}</span></div>`;
+        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span><span class="p-hp">${_hp(pc.hp)}</span></div>`;
       }
       const objHere = (objects || []).find(o => o.col === realCol && o.row === realRow);
       if (objHere) {
@@ -10029,6 +10029,8 @@ const isTraitPassive = (pidOrName) => TRAIT_PASSIVE_KEYS.has(pidOrName);
 const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-trait' : 'mini-header-passive';
 // ★ 단계(스택)형 상태이상 — "N단계"로 표기 + 단계 상승 시 바운스.
 const STACKABLE_STATUS = new Set(['poison', 'misfortune', 'luck']);
+// ★ HP 표시 — 항상 0.1 단위로만(부동소수 잔재 0.399… 절대 표시 금지). 정수면 정수, 아니면 소수1자리.
+function _hp(v) { const n = Math.round((Number(v) || 0) * 10) / 10; return Number.isInteger(n) ? n : n.toFixed(1); }
 // ★ 모든 스킬 나열 순서 통일: 특성(0) → 패시브(1) → 자유시전(2) → 자유시전·1회(3) → 행동소비(4).
 function _blockOrderRank(b) {
   if (!b) return 9;
@@ -11876,7 +11878,7 @@ function createRevealCard(pc, tooltipSide) {
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
       <strong>${pc.name}${tagHtml}</strong>
-      <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}/${pc.maxHp}</span>
+      <span>T${pc.tier} · ATK ${pc.atk} · HP ${_hp(pc.hp)}/${pc.maxHp}</span>
     </div>`;
   const tooltip = buildPieceTooltip(pc, tooltipSide || 'right');
   card.appendChild(tooltip);
@@ -13108,7 +13110,7 @@ function buildPlacementOppPanel() {
         const card = document.createElement('div');
         card.className = `placement-opp-card placement-team-card placement-team-card-${myTeamColor}`;
         card.style.position = 'relative';
-        const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${pc.hp}` : `HP ${pc.maxHp ?? pc.hp}`;
+        const placedHp = (pc.col >= 0 && pc.row >= 0) ? `HP ${_hp(pc.hp)}` : `HP ${_hp(pc.maxHp ?? pc.hp)}`;
         card.innerHTML = `
           <span class="char-icon">${pieceIconHtml(pc.icon, {size:'1.4em'})}</span>
           <div class="opp-info">
@@ -13140,7 +13142,7 @@ function buildPlacementOppPanel() {
           <span class="char-icon">${pieceIconHtml(pc.icon, {size:'1.4em'})}</span>
           <div class="opp-info">
             <strong>${pc.name}${tagHtml}</strong>
-            <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
+            <span>T${pc.tier} · ATK ${pc.atk} · HP ${_hp(pc.hp)}</span>
           </div>`;
         const tooltip = buildPieceTooltip(pc, 'right');
         card.appendChild(tooltip);
@@ -13265,7 +13267,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
         <span class="piece-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
         <div class="piece-info">
           <strong>${pc.name} ${tagHtml}</strong>
-          <span>T${pc.tier} · ATK ${pc.atk} · HP ${pc.hp}</span>
+          <span>T${pc.tier} · ATK ${pc.atk} · HP ${_hp(pc.hp)}</span>
           ${placed ? `<span style="color:var(--success);font-size:0.7rem"> ✓ ${coord(pc.col,pc.row)}</span>` : ''}
         </div>
       </div>
@@ -14506,8 +14508,8 @@ function renderGameBoard() {
         ? getPieceGifHtml(pc.type, pc.subUnit, !!otherTwin) : null;
       const _iconContent = _gifHtml || pieceIconHtml(displayIcon, {size:'1.2em'});
       const hpText = otherTwin
-        ? `${pc.hp + otherTwin.hp}/${pc.maxHp + otherTwin.maxHp}`
-        : `${pc.hp}/${pc.maxHp}`;
+        ? `${_hp(pc.hp + otherTwin.hp)}/${pc.maxHp + otherTwin.maxHp}`
+        : `${_hp(pc.hp)}/${pc.maxHp}`;
       // 팀모드: 내 말도 팀 절대 컬러로 — 관전자/일관성을 위해
       const myTeamColorCls = S.isTeamMode ? (S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red') : '';
       // 쌍둥이 dim 면제 — 사용자 정정 요청:
@@ -14599,8 +14601,8 @@ function renderGameBoard() {
           ? getPieceGifHtml(tmPc.type, tmPc.subUnit, !!otherTwin) : null;
         const _tmIconContent = _tmGifHtml || pieceIconHtml(tmDisplayIcon, {size:'1.2em'});
         const tmHpText = otherTwin
-          ? `${tmPc.hp + otherTwin.hp}/${tmPc.maxHp + otherTwin.maxHp}`
-          : `${tmPc.hp}/${tmPc.maxHp}`;
+          ? `${_hp(tmPc.hp + otherTwin.hp)}/${tmPc.maxHp + otherTwin.maxHp}`
+          : `${_hp(tmPc.hp)}/${tmPc.maxHp}`;
         const tmStatus = getBoardStatusIcons(tmPc);
         // 팀 절대 컬러: S.teamId === 0 → 블루, 1 → 레드
         const teamColorCls = S.teamId === 0 ? 'piece-team-blue' : 'piece-team-red';
@@ -14638,8 +14640,8 @@ function renderGameBoard() {
       const _oppGifHtml = typeof getPieceGifHtml === 'function'
         ? getPieceGifHtml(markedOpp.type, markedOpp.subUnit, _oppJoined) : null;
       const _oppHpTxt = _oppJoined
-        ? `${markedOpp.hp + _oppTwin.hp}/${markedOpp.maxHp + _oppTwin.maxHp}`
-        : `${markedOpp.hp}/${markedOpp.maxHp}`;
+        ? `${_hp(markedOpp.hp + _oppTwin.hp)}/${markedOpp.maxHp + _oppTwin.maxHp}`
+        : `${_hp(markedOpp.hp)}/${markedOpp.maxHp}`;
       // ★ 표식 부여 직후(인두 낙하 전)에는 적 모습을 숨김 — 브랜드 임팩트 때 animateMarkBrand 가 페이드인.
       //   (mark_cast 시점 hasMarkStatus=false → 표식이 아직 안 찍혔는데 적이 먼저 보이던 버그 방지)
       const _revealPending = (() => {
@@ -15236,8 +15238,8 @@ function _renderCellCarousel(cell, col, row, units) {
     else                             hpColor = 'var(--success)';
     const statusIcons = (typeof getBoardStatusIcons === 'function') ? getBoardStatusIcons(pc) : '';
     const hpText = (u.joined && u.twinOther)
-      ? `${pc.hp + u.twinOther.hp}/${pc.maxHp + u.twinOther.maxHp}`
-      : `${pc.hp}/${pc.maxHp}`;
+      ? `${_hp(pc.hp + u.twinOther.hp)}/${pc.maxHp + u.twinOther.maxHp}`
+      : `${_hp(pc.hp)}/${pc.maxHp}`;
     // ★ 합류 쌍둥이 — twinRef(다른 한쪽)도 함께 보관. 상태레이어/슬롯매칭이 두 쌍둥이 모두를 본다.
     return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc, twinRef: (u.joined && u.twinOther) ? u.twinOther : null };
   });
@@ -16315,7 +16317,7 @@ function renderMyPieces() {
       <div class="hp-bar-bg hp-bar-with-text">
         <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
-        <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
+        <span class="hp-bar-text">${_hp(pc.alive ? pc.hp : 0)}/${pc.maxHp}</span>
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
@@ -16498,7 +16500,7 @@ function renderOppPieces() {
       <div class="hp-bar-bg hp-bar-with-text">
         <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
-        <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
+        <span class="hp-bar-text">${_hp(pc.alive ? pc.hp : 0)}/${pc.maxHp}</span>
       </div>
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${_oppAtkDisp}</span>
@@ -19137,7 +19139,7 @@ function renderSpectatorHp() {
         div.className = 'spec-hp-piece confirmed';
         div.innerHTML = `<span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>
           <strong>${pc.name}</strong> <span class="muted">T${pc.tier}</span>
-          <span style="color:var(--success);font-weight:600">HP ${pc.hp}/${pc.maxHp}</span>
+          <span style="color:var(--success);font-weight:600">HP ${_hp(pc.hp)}/${pc.maxHp}</span>
           <span class="slot-confirmed-badge">확정</span>`;
         div.style.position = 'relative';
         div.appendChild(buildPieceTooltip(pc, key === 'p0' ? 'right' : 'left'));
