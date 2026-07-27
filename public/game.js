@@ -4905,10 +4905,7 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
-  if (fungus) {   // ★ 포자살포 진균 — 말풍선 직후 렌더(존재 판정). 폴백: 말풍선이 안 와도 이 턴 안에 렌더.
-    S._pendingSporeFungus = fungus;
-    setTimeout(() => { if (S._pendingSporeFungus) { S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null; try { _applyFungusCells(); } catch (e) {} } }, 1300);
-  }
+  if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5396,10 +5393,7 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
   if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
-  if (fungus) {   // ★ 포자살포 진균 — 말풍선 직후 렌더(존재 판정). 폴백: 말풍선이 안 와도 이 턴 안에 렌더.
-    S._pendingSporeFungus = fungus;
-    setTimeout(() => { if (S._pendingSporeFungus) { S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null; try { _applyFungusCells(); } catch (e) {} } }, 1300);
-  }
+  if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -9512,11 +9506,7 @@ function _renderPassiveAlert(payload) {
   if (typeof playerIdx === 'number' && PASSIVE_BUBBLE_INFO[type]) {
     showPassiveBubble(type, playerIdx);
   }
-  // ★ 포자살포 — 말풍선 애니 이후 진균 렌더(그때부터 존재 판정). 그 전까진 pending 으로만 보관.
-  if (type === 'mushkin' && S._pendingSporeFungus) {
-    S.fungus = S._pendingSporeFungus; S._pendingSporeFungus = null;
-    setTimeout(() => { try { _applyFungusCells(); } catch (e) {} }, 650);
-  }
+  // (포자살포 진균은 attack_result/being_attacked 에서 이미 즉시 반영 — 여기선 말풍선만.)
   const isCurseToast = (type === 'curse_tick' || type === 'curse_removed');
   if (S.isSpectator) {
     showSkillToast(msg, false, playerIdx, isCurseToast ? 'curse' : 'passive');
