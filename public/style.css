@@ -5955,6 +5955,22 @@ body.team-mode .placement-opp-panel {
 .my-piece-header strong { font-size: 0.9rem; }
 .my-piece-header .tier-badge { font-size: 0.65rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
 .hp-bar-bg { height: 6px; background: var(--border); border-radius: 3px; margin: 4px 0; position: relative; overflow: hidden; }
+/* ★ 언데드 = 체력바 없음(불사 유해). HP 바 자리에 '불사' 라벨. */
+.undead-nohp {
+  margin: 4px 0;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #b8a3d8;
+  background: linear-gradient(90deg, rgba(90,70,120,0.28), rgba(60,45,85,0.42));
+  border: 1px solid rgba(150,120,190,0.35);
+  border-radius: 4px;
+  text-shadow: 0 0 6px rgba(150,110,200,0.55);
+}
 .hp-bar    { height: 6px; background: var(--success); border-radius: 3px; transition: width 0.3s; }
 /* HP 바 위 숫자 표기 — 가시성 강화 */
 .hp-bar-bg.hp-bar-with-text {

@@ -9841,7 +9841,7 @@ function renderDefeatReplayBoard(winnerPieces, objects, bounds) {
         const pc = pcs[0];
         cell.classList.add('has-piece');
         // 인게임 piece-marker 와 동일 마크업
-        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span><span class="p-hp">${_hp(pc.hp)}</span></div>`;
+        cell.innerHTML = `<div class="piece-marker"><span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.2em'})}</span>${_noHpBar(pc) ? '' : `<span class="p-hp">${_hp(pc.hp)}</span>`}</div>`;
       }
       const objHere = (objects || []).find(o => o.col === realCol && o.row === realRow);
       if (objHere) {
@@ -10021,6 +10021,8 @@ const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-t
 const STACKABLE_STATUS = new Set(['poison', 'misfortune', 'luck']);
 // ★ HP 표시 — 항상 0.1 단위로만(부동소수 잔재 0.399… 절대 표시 금지). 정수면 정수, 아니면 소수1자리.
 function _hp(v) { const n = Math.round((Number(v) || 0) * 10) / 10; return Number.isInteger(n) ? n : n.toFixed(1); }
+// ★ 언데드 = 게임 중 체력바 없음(불사 유해). 체력 관련 능력 대상 불가. 표시 억제 판별.
+function _noHpBar(pc) { return !!(pc && pc.type === 'undead'); }
 // ★ 모든 스킬 나열 순서 통일: 특성(0) → 패시브(1) → 자유시전(2) → 자유시전·1회(3) → 행동소비(4).
 function _blockOrderRank(b) {
   if (!b) return 9;
@@ -10360,7 +10362,7 @@ const CHAR_DETAILS = {
   fortuneTeller: {
     blocks: [
       { ...mkSkillHead('흉조', 'tag-action', '행동소비형'), sp: 1, color: '#a78bfa', desc: `무작위 유닛 1명에게 ${stBadge('misfortune', '불행')}을 겁니다. 불행한 유닛은 받는 피해가 1 늘고, 겹쳐 쌓입니다.` },
-      { ...mkSkillHead('운명변곡', 'tag-free', '자유시전형'), sp: 3, color: '#a78bfa', desc: '아군 1명의 모든 상태 이상을 적 1명에게 옮깁니다.' },
+      { ...mkSkillHead('운명변곡', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: '아군 1명의 모든 상태 이상을 적 1명에게 옮깁니다.' },
     ],
     flavor: '수정구 너머로 정해진 운명을 읽고, 때로는 그 실을 비틀어 재앙을 떠넘긴다.',
   },
@@ -14530,7 +14532,7 @@ function renderGameBoard() {
       cell.innerHTML += `
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
           <span class="p-icon">${_iconContent}</span>
-          <span class="p-hp">${hpText}</span>
+          ${_noHpBar(pc) ? '' : `<span class="p-hp">${hpText}</span>`}
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
@@ -14599,7 +14601,7 @@ function renderGameBoard() {
         cell.innerHTML += `
           <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
             <span class="p-icon">${_tmIconContent}</span>
-            <span class="p-hp">${tmHpText}</span>
+            ${_noHpBar(tmPc) ? '' : `<span class="p-hp">${tmHpText}</span>`}
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
@@ -14644,7 +14646,7 @@ function renderGameBoard() {
       cell.innerHTML += `
         <div class="piece-marker opp-marked ${oppColorCls}${_revealPending ? ' mark-reveal-pending' : ''}">
           <span class="p-icon">${_oppGifHtml || pieceIconHtml(markedOpp.icon, {size:'1.3em'})}</span>
-          <span class="p-hp">${_oppHpTxt}</span>
+          ${_noHpBar(markedOpp) ? '' : `<span class="p-hp">${_oppHpTxt}</span>`}
         </div>`;
       // (표식 🎯 이모지 제거 — 정수리 위 표식 레이어(아래 markBoardLayerHtml)가 대신 표현)
       // ★ 저주/표식 보드 레이어 — 합류면 둘 중 하나라도 해당 상태면 표시(피격은 그 유닛, 표시는 합류체).
@@ -15227,9 +15229,11 @@ function _renderCellCarousel(cell, col, row, units) {
     else if (u.owner === 'teammate') hpColor = (S.teamId === 0 ? '#93c5fd' : '#fca5a5');
     else                             hpColor = 'var(--success)';
     const statusIcons = (typeof getBoardStatusIcons === 'function') ? getBoardStatusIcons(pc) : '';
-    const hpText = (u.joined && u.twinOther)
-      ? `${_hp(pc.hp + u.twinOther.hp)}/${pc.maxHp + u.twinOther.maxHp}`
-      : `${_hp(pc.hp)}/${pc.maxHp}`;
+    const hpText = _noHpBar(pc)
+      ? ''
+      : (u.joined && u.twinOther)
+        ? `${_hp(pc.hp + u.twinOther.hp)}/${pc.maxHp + u.twinOther.maxHp}`
+        : `${_hp(pc.hp)}/${pc.maxHp}`;
     // ★ 합류 쌍둥이 — twinRef(다른 한쪽)도 함께 보관. 상태레이어/슬롯매칭이 두 쌍둥이 모두를 본다.
     return { iconHtml, hpText, hpColor, statusIcons, owner: u.owner, pcRef: pc, twinRef: (u.joined && u.twinOther) ? u.twinOther : null };
   });
@@ -16304,11 +16308,12 @@ function renderMyPieces() {
         ${tagHtml}
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
+      ${_noHpBar(pc) ? `<div class="undead-nohp">불사</div>` : `
       <div class="hp-bar-bg hp-bar-with-text">
         <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
         <span class="hp-bar-text">${_hp(pc.alive ? pc.hp : 0)}/${pc.maxHp}</span>
-      </div>
+      </div>`}
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : ''}</span>
@@ -16487,11 +16492,12 @@ function renderOppPieces() {
         ${placedBadge}
       </div>
       ${miniHeaders ? `<div class="piece-mini-headers">${miniHeaders}</div>` : ''}
+      ${_noHpBar(pc) ? `<div class="undead-nohp">불사</div>` : `
       <div class="hp-bar-bg hp-bar-with-text">
         <div class="hp-bar" style="width:${_displayHpPct}%"></div>
         ${pc.alive ? dmgOv.barOverlay : ''}
         <span class="hp-bar-text">${_hp(pc.alive ? pc.hp : 0)}/${pc.maxHp}</span>
-      </div>
+      </div>`}
       <div class="piece-stat-row">
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${_oppAtkDisp}</span>
         <span style="color:${pc.alive ? 'var(--success)' : 'var(--danger)'}; font-size:0.7rem">

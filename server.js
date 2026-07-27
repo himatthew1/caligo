@@ -210,7 +210,7 @@ const CHARACTERS = {
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'🔮', tag:null, desc:'십자',
       skills:[
         {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
-        {id:'fateShift', name:'운명변곡', cost:3, replacesAction:false, desc:'아군 1명의 모든 상태이상을 적 1명에게 이동'}
+        {id:'fateShift', name:'운명변곡', cost:2, replacesAction:false, desc:'아군 1명의 모든 상태이상을 적 1명에게 이동'}
       ] },
   ],
   2: [
@@ -354,6 +354,9 @@ function isStatusImmune(piece) {
   if (hasStatus(piece, 'shadow')) return true;
   return false;
 }
+// ★ 언데드(부패한 영혼) = 일반 피해/DoT/덫으로는 소멸하지 않음. hp<=0 라도 파괴 아님(피격모션만).
+//   실제 소멸은 오직 참수(behead)·파괴(보드/종언/대지분쇄)·도굴 — 그 경로는 room._boardShrinkDeaths/cause 로 handleDeath 가 처리.
+function _pieceUndying(p) { return !!(p && (p.passives || []).includes('rottenSoul')); }
 function _addStacks(piece, type, n) {
   const e = getStatus(piece, type);
   if (e) e.stacks = (e.stacks || 1) + n;
@@ -378,6 +381,7 @@ function addStatus(piece, type, opts) {
   if (!piece.statusEffects) piece.statusEffects = [];
   if (isStatusImmune(piece) && !opts.force) return false;
   if (type === 'poison' && piece.type === 'mushkin') return false;   // ★ 머쉬킨은 중독 면역(특성)
+  if ((type === 'poison' || type === 'curse') && piece.type === 'undead') return false;   // ★ 언데드 = 체력 없음 → HP 지속피해(중독·저주) 면역
   const n = opts.stacks || 1;
   if (type === 'luck' || type === 'misfortune') { _applyOpposing(piece, type, n); return true; }
   if (type === 'poison') { _addStacks(piece, 'poison', n); return true; }
@@ -558,7 +562,7 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
         if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
         const dmg = resolveDamage(room, piece, t, playerIdx, 1, false, ei);   // 무조건 기본 1(보정무시), 방어 패시브는 적용
         t.hp = Math.max(0, t.hp - dmg);
-        const dead = t.hp <= 0;
+        const dead = t.hp <= 0 && !_pieceUndying(t);
         if (dead) handleDeath(room, t, ei);
         dashHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed: dead, defPieceIdx: ui, defOwnerIdx: ei, revealedName: t.name });
       }
@@ -2882,7 +2886,7 @@ function aiTeamExecuteMove(room, idx, pieceIdx, nc, nr) {
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, aiPiece2, tp.trapOwnerIdx, 2, false, idx);
       aiPiece2.hp = Math.max(0, aiPiece2.hp - dmg);
       if (dmg > 0) applyDamageTriggers(room, aiPiece2, idx, dmg);   // 데미지-트리거(마법사 등)
-      const willDie = aiPiece2.hp <= 0;
+      const willDie = aiPiece2.hp <= 0 && !_pieceUndying(aiPiece2);
       if (willDie) handleDeath(room, aiPiece2, idx);
       emitToBoth(room, 'trap_triggered', {
         col: tp.col, row: tp.row,
@@ -4943,7 +4947,7 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
   // ★ Phase 3: 언데드(undying) — 일반 피해로는 소멸하지 않음(HP0에도 alive 유지 = 살아있는 유해).
   //   오직 '소멸' 효과에만 사망: 보드파괴/종언/공성파괴(room._boardShrinkDeaths) · 참수(cause=behead) · 대지분쇄(cause=earthquake).
   if (deadPiece.alive && (deadPiece.passives || []).includes('rottenSoul')
-      && !room._boardShrinkDeaths && cause !== 'behead' && cause !== 'earthquake') {
+      && !room._boardShrinkDeaths && cause !== 'behead' && cause !== 'earthquake' && cause !== 'exhume') {
     deadPiece.hp = 0;
     deadPiece._undeadDown = true;   // 클라: 살아있는 유해 표시용
     return;
@@ -5259,10 +5263,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           if (defPiece.alive && dmg > 0) {
             checkCurseRemoval(room, defPiece, defIdx);
           }
-          const destroyed = defPiece.hp <= 0;
+          // ★ 언데드(rottenSoul) = 일반 피해로 소멸하지 않음(오직 참수·파괴·도굴). 부수효과 게이팅용 예비 판정.
+          const _undyingCorpse = (defPiece.passives || []).includes('rottenSoul');
+          const willDie = defPiece.hp <= 0 && !_undyingCorpse;
           // ★ Phase 3: 독니(독살꾼) — 공격받은(사거리 내·비그림자) 대상 중독. 처형 시 무력화(isPassiveActive),
           //   addStatus 가 면역(유니콘/그림자) 존중. 죽은 대상엔 무의미하므로 생존 시만.
-          if (!destroyed && typeof addStatus === 'function'
+          if (!willDie && typeof addStatus === 'function'
               && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
             const _poisoned = addStatus(defPiece, 'poison', { stacks: 1 });
             // ★ 독니 발동 말풍선 — 공격당 1회만(기존 패시브들과 동일 연출). 실제 중독이 걸린 경우만.
@@ -5273,13 +5279,30 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             }
           }
           // ★ Phase 3: 현혹(이단자) — 공격받은 대상 이교단화(소속 상실). 면역(유니콘/그림자) 제외.
-          if (!destroyed && (atkPiece.passives || []).includes('enthrall') && isPassiveActive(atkPiece, 'enthrall')
+          if (!willDie && (atkPiece.passives || []).includes('enthrall') && isPassiveActive(atkPiece, 'enthrall')
               && typeof isStatusImmune === 'function' && !isStatusImmune(defPiece) && defPiece.type !== 'heretic') {
             defPiece._cultOf = attackerIdx;
           }
-          if (destroyed) {
+          // ★ Phase 3: 처형인 참수 — 언데드는 참수(상태이상)로 즉시 소멸(예외 사망 경로), 그 외 유닛은 executed 상태이상.
+          //   ★ 사망 판정 확정 전에 먼저 처리 → 참수로 죽은 언데드가 정확히 사망모션을 재생.
+          //   ★ 참수는 '상태이상'이므로 유니콘(백은의 뿔)은 무시 — isStatusImmune 이면 addStatus 자동 무시.
+          if ((atkPiece.passives || []).includes('behead') && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'behead'))
+              && !defPiece.statusEffects.some(e => e.type === 'shadow')) {
+            if (defPiece.type === 'undead' && defPiece.alive) {
+              const _prevBS = room._boardShrinkDeaths;
+              room._boardShrinkDeaths = true;
+              handleDeath(room, defPiece, defIdx, 'behead');
+              room._boardShrinkDeaths = _prevBS;
+            } else if (defPiece.alive) {
+              addStatus(defPiece, 'executed');
+            }
+          }
+          // 일반 사망 — 언데드가 아닌 유닛만 HP0 로 소멸. 언데드는 위 참수/후속 파괴로만 alive=false.
+          if (defPiece.hp <= 0 && defPiece.alive && !_undyingCorpse) {
             handleDeath(room, defPiece, defIdx);
           }
+          // ★ 최종 생존 상태로 파괴 여부 확정 — 언데드 일반피격 = alive 유지 → destroyed:false → 클라 '피격모션만'.
+          const destroyed = !defPiece.alive;
           hitResults.push({
             col: cell.col, row: cell.row,
             damage: dmg, newHp: defPiece.hp, destroyed,
@@ -5320,23 +5343,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           }
 
           // ★ 리워크(PPT): 표식은 고문기술자가 '공격'할 때만 부여. 피격 시 역방향 표식은 제거됨.
-
           // (마녀 저주는 이제 직접 대상 지정 스킬로 변경됨)
-
-          // ★ Phase 3: 처형인 참수 — 공격받은 적에 '처형(executed)' 상태이상 부여(패시브 무력화).
-          //   ★ 사용자 정정: 참수는 '상태이상'이므로 유니콘(백은의 뿔=모든 상태이상 면역)은 이를 무시한다.
-          //   → force 미사용 = isStatusImmune(유니콘/그림자)면 addStatus 가 자동 무시. 언데드는 참수로 '즉시 파괴'.
-          if ((atkPiece.passives || []).includes('behead') && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'behead'))
-              && !defPiece.statusEffects.some(e => e.type === 'shadow')) {
-            if (defPiece.type === 'undead' && defPiece.alive) {
-              const _prevBS = room._boardShrinkDeaths;
-              room._boardShrinkDeaths = true;
-              handleDeath(room, defPiece, defIdx, 'behead');
-              room._boardShrinkDeaths = _prevBS;
-            } else if (defPiece.alive) {
-              addStatus(defPiece, 'executed');   // 유니콘·그림자 등 상태이상 면역이면 자동 무시(백은의 뿔 우세)
-            }
-          }
+          // (처형인 참수 — 위 사망 판정 확정 전 블록으로 이동: 참수 언데드 소멸이 destroyed:true 로 정확히 반영되도록.)
 
           // Post-damage: 피격 트리거 패시브 — 모든 피격 대상에 호출.
           //   마법사 인스턴트매직 · 머쉬킨 포자살포 · 그리폰 격노 · 드라이어드 생장 ·
@@ -5369,12 +5377,12 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
             // ★ 피격 상세 기록 — 클라이언트 사망/피격 GIF 재생용 + defPieceIdx 추가 (도장 키용)
             room._friendlyFireHits.push({
               col: cell.col, row: cell.row, damage: 1, newHp: allyPiece.hp,
-              destroyed: allyPiece.hp <= 0, type: allyPiece.type,
+              destroyed: allyPiece.hp <= 0 && !_pieceUndying(allyPiece), type: allyPiece.type,
               ownerIdx: aIdx, defPieceIdx: _ffPi,
             });
             // 피격 트리거 패시브 — 배반자(학살) 오사 피격 대상도 모두 발동
             applyDamageTriggers(room, allyPiece, aIdx, 1, { spUpdate: 'unlessSuppressed' });
-            if (allyPiece.hp <= 0) {
+            if (allyPiece.hp <= 0 && !_pieceUndying(allyPiece)) {
               handleDeath(room, allyPiece, aIdx);
             }
           }
@@ -7131,7 +7139,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         if (!u.alive) continue;
         u.hp = Math.max(0, Math.round((u.hp - 0.5) * 100) / 100);   // 룰 데미지(감경 우회) 0.5
         if (typeof applyDamageTriggers === 'function') applyDamageTriggers(room, u, ownerIdx, 0.5, { spUpdate: 'none' });
-        const destroyed = u.hp <= 0;
+        const destroyed = u.hp <= 0 && !_pieceUndying(u);
         if (destroyed) handleDeath(room, u, ownerIdx);
         sHits.push({ col: u.col, row: u.row, damage: 0.5, newHp: u.hp, destroyed, defPieceIdx: pieceIdx, defOwnerIdx: ownerIdx });
       }
@@ -7165,6 +7173,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         // 흉조 (SP1 행동소비) — 랜덤 유닛 1명에게 불행(받는 피해 +1 중첩). 면역 유닛 제외.
         const pool = [];
         for (const pl of room.players) for (const t of (pl.pieces || [])) {
+          if (t === piece) continue;   // ★ 시전자 본인은 자기 흉조 대상에서 제외(타 포춘텔러 흉조는 대상 가능)
           if (t.alive && t.col != null && !isStatusImmune(t)) pool.push(t);
         }
         if (!pool.length) return { ok: false, msg: '대상 유닛이 없습니다.' };
@@ -7178,7 +7187,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         result.data.omenName = victim.name;
         break;
       }
-      // 운명변곡 (SP3 자유시전) — 아군 1명의 모든 상태이상을 적 1명에게 이동(면역 존중).
+      // 운명변곡 (SP2 자유시전) — 아군 1명의 모든 상태이상을 적 1명에게 이동(면역 존중).
       const src = (params && params.fromPieceIdx != null) ? player.pieces[params.fromPieceIdx] : null;
       if (!src || !src.alive) return { ok: false, msg: '상태이상을 옮길 아군을 선택하세요.' };
       let dst = null;
@@ -7307,6 +7316,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         if (tgt) { tgtOwner = ei; break; }
       }
       if (!tgt) return { ok: false, msg: '흡혈 대상을 선택하세요.' };
+      if (tgt.type === 'undead') return { ok: false, msg: '언데드는 체력 관련 대상이 될 수 없습니다.' };   // ★ 언데드 = 체력바 없음 → 흡혈 대상 불가
       spendSP(room, playerIdx, cost);
       const wasRoyal = (typeof isFaction === 'function') ? isFaction(tgt, 'royal') : tgt.tag === 'royal';
       // 데미지/피격이 아니라 '감소' — 반응형 효과 미발동(스펙).
@@ -7338,7 +7348,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       piece._rageActive = false;
       const gdmg = resolveDamage(room, piece, tgt, playerIdx, 1, false, tgtOwner);
       tgt.hp = Math.max(0, tgt.hp - gdmg);
-      const gdead = tgt.hp <= 0;
+      const gdead = tgt.hp <= 0 && !_pieceUndying(tgt);
       if (gdead) handleDeath(room, tgt, tgtOwner);
       result.msg = `격노: ${tgt.name}에게 ${gdmg} 피해`;
       result.oppMsg = `격노`;
@@ -7493,13 +7503,31 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (dCol == null || dRow == null) return { ok: false, msg: '도굴할 유해를 선택하세요.' };
       const gkCells = getAttackCells(piece.type, piece.col, piece.row, bounds, {});
       if (!gkCells.some(c => c.col === dCol && c.row === dRow)) return { ok: false, msg: '공격범위 내 유해만 도굴할 수 있습니다.' };
-      if (!room.remains || !room.remains.some(r => r.col === dCol && r.row === dRow)) return { ok: false, msg: '그 칸에 유해가 없습니다.' };
-      room.remains = room.remains.filter(r => !(r.col === dCol && r.row === dRow));
+      // ★ 도굴 대상 = 죽은 유해(room.remains) 또는 살아있는 유해(언데드). 언데드면 즉시 소멸(언데드 3대 사망 경로 중 하나).
+      let _exU = null, _exUOwner = -1, _exUIdx = -1;
+      for (const ei of [...room.players.keys()]) {
+        const ep = room.players[ei]; if (!ep) continue;
+        const _idx = (ep.pieces || []).findIndex(p => p.alive && p.type === 'undead' && p.col === dCol && p.row === dRow);
+        if (_idx >= 0) { _exU = ep.pieces[_idx]; _exUOwner = ei; _exUIdx = _idx; break; }
+      }
+      const _hasRemains = room.remains && room.remains.some(r => r.col === dCol && r.row === dRow);
+      if (!_exU && !_hasRemains) return { ok: false, msg: '그 칸에 유해가 없습니다.' };
       const slot = teamSlotIdx(room, playerIdx);
       room.instantSp[slot] = Math.min(10, (room.instantSp[slot] || 0) + 2);
-      result.msg = `도굴: 유해 제거 + 인스턴트 SP 2`;
-      result.oppMsg = `도굴: 상대가 유해를 도굴`;
-      result.data.exhumedCell = { col: dCol, row: dRow };
+      if (_exU) {
+        const _prevBS = room._boardShrinkDeaths; room._boardShrinkDeaths = true;
+        handleDeath(room, _exU, _exUOwner, 'exhume');   // 언데드 소멸(참수/파괴/도굴 중 도굴)
+        room._boardShrinkDeaths = _prevBS;
+        // 클라 사망 애니 — skill_result 는 data.hits 의 destroyed 를 사망모션으로 재생.
+        result.data.hits = [{ col: dCol, row: dRow, damage: 0, newHp: 0, destroyed: true, defPieceIdx: _exUIdx, defOwnerIdx: _exUOwner, revealedType: 'undead', revealedName: _exU.name, name: _exU.name }];
+        result.msg = `도굴: ${_exU.name} 소멸 + 인스턴트 SP 2`;
+        result.oppMsg = `도굴: 상대가 언데드를 도굴`;
+      } else {
+        room.remains = room.remains.filter(r => !(r.col === dCol && r.row === dRow));
+        result.msg = `도굴: 유해 제거 + 인스턴트 SP 2`;
+        result.oppMsg = `도굴: 상대가 유해를 도굴`;
+        result.data.exhumedCell = { col: dCol, row: dRow };
+      }
       result.data.remains = room.remains.slice();
       break;
     }
@@ -7779,6 +7807,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const targetPlayer = room.players[targetOwnerIdx];
       const target = targetPlayer && targetPlayer.pieces[targetIdx2];
       if (!target || !target.alive) return { ok: false, msg: '대상이 없습니다.' };
+      if (target.type === 'undead') return { ok: false, msg: '언데드는 체력 회복 대상이 될 수 없습니다.' };   // ★ 언데드 = 체력바 없음 → 회복 능력 대상 불가
       // ★ 사제 리워크(PPT): 스스로 회복 가능 — 자기 제외 가드 제거.
       target.hp = Math.min(target.maxHp, target.hp + 2);
       // AI 마녀 학습 — 신성으로 저주 정화 시 시전자 마녀의 _curseHistory 카운트 증가
@@ -9980,7 +10009,7 @@ function aiExecuteMove(room, action) {
       const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, aiPiece, 0, 2, false);
       aiPiece.hp = Math.max(0, aiPiece.hp - dmg);
       if (dmg > 0) applyDamageTriggers(room, aiPiece, 1, dmg);   // 모든 피격 트리거 패시브(덫)
-      const willDie3 = aiPiece.hp <= 0;
+      const willDie3 = aiPiece.hp <= 0 && !_pieceUndying(aiPiece);
       // ★ 화약상 사망 기폭 체인 순차화 (플레이어 경로와 동일) — startPhase 로 열어야 사망 기폭이 큐잉.
       startPhase(room);
       if (willDie3) {
@@ -11825,7 +11854,7 @@ io.on('connection', (socket) => {
         const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
         piece2.hp = Math.max(0, piece2.hp - dmg);
         if (dmg > 0) applyDamageTriggers(room, piece2, tp.idx, dmg);   // 모든 피격 트리거 패시브(덫)
-        const willDie = piece2.hp <= 0;
+        const willDie = piece2.hp <= 0 && !_pieceUndying(piece2);
         // ★ 화약상 사망 기폭 체인 순차화 (사용자 보고) — startPhase 로 열어야 handleDeath 의
         //   queueDeathDetonation 이 페이즈 큐에 쌓여 "덫 발동 → 화약상 사망 → 사망 기폭 → 폭탄 피해
         //   (마법사 인스턴트매직)" 가 순서대로 재생됨. 없으면 즉시 폭발(레거시)로 빠져 시퀀스가 뭉개짐.
@@ -12709,7 +12738,7 @@ io.on('connection', (socket) => {
         const victim = (room.players[dt.victimOwnerIdx]?.pieces || []).find(p => p.alive && p.col === dt.col && p.row === dt.row);
         if (!victim) return;   // 그 사이에 다른 효과로 사라졌으면 무시
         victim.hp = Math.max(0, victim.hp - dt.dmg);
-        const willDie = victim.hp <= 0;
+        const willDie = victim.hp <= 0 && !_pieceUndying(victim);
         // wizard 패시브 SP — 덫 발동과 동시에 SP 갱신 + alert 발사
         if (dt.wizardSpSlot != null) {
           room.instantSp[dt.wizardSpSlot] += 1;
