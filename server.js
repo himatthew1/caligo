@@ -238,7 +238,7 @@ const CHARACTERS = {
     { type:'bodyguard', name:'성지기', tier:2, atk:1, icon:'/assets/icons/bodyguard.png', tag:'royal', desc:'제자리 제외 상하좌우 · 호위: 다른 왕실 아군 피격 시 전부 보호(하나당 1피해 대신 받음)',
       skills:[], passives:['loyalty'] },
     // ── ★ Phase 3 신규 ──
-    { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'🦄', tag:null, desc:'제자리와 상단 대각선', noRemains:true,
+    { type:'unicorn', name:'유니콘', tier:2, atk:2, icon:'🦄', tag:'spirit', desc:'제자리와 상단 대각선', noRemains:true,
       skills:[], passives:['silverHorn'] },
     { type:'griffin', name:'그리폰', tier:2, atk:2, icon:'🦅', tag:'spirit', desc:'세로 3칸', noRemains:true,
       skills:[{id:'rage', name:'격노', cost:2, replacesAction:false, oncePerTurn:true, desc:'피해 받으면 활성 · 적 1명에게 1 피해'}], passives:['rage'] },
