@@ -17406,6 +17406,13 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
     return;
   }
 
+  if (type === 'fortuneTeller') {
+    if (skillId === 'fateShift') { showFateShiftUI(pieceIdx); return; }
+    // 흉조(omen)는 랜덤 대상 — 파라미터 없이 바로 전송.
+    socket.emit('use_skill', { pieceIdx, skillId, params: {} });
+    return;
+  }
+
   // 파라미터 불필요 스킬 → 바로 전송
   socket.emit('use_skill', { pieceIdx, skillId, params: {} });
 }
@@ -17530,6 +17537,56 @@ function showMonkSkillUI(pieceIdx) {
   modal.classList.remove('hidden');
 }
 
+// 포춘텔러 운명변곡 — 1단계: 상태이상 옮길 아군 선택 → 2단계: 받을 적 선택.
+const _FATE_STATUS_LABEL = { poison: '중독', curse: '저주', misfortune: '불행', mark: '표식', executed: '처형', frog: '개구리', shadow: '은신', luck: '행운', rally: '사기증진', betray: '배신' };
+function _fateStatusText(pc) {
+  const st = (pc.statusEffects || []).filter(e => e.type !== 'trap');
+  if (!st.length) return '';
+  return st.map(e => (_FATE_STATUS_LABEL[e.type] || e.type) + (e.stacks > 1 ? ` ${e.stacks}` : '')).join(' · ');
+}
+function showFateShiftUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '운명변곡 — 상태이상 옮길 아군 선택';
+  body.innerHTML = '';
+  // 1단계: 옮길 상태이상(비-덫)을 가진 아군만.
+  let any = false;
+  for (let i = 0; i < (S.myPieces || []).length; i++) {
+    const apc = S.myPieces[i];
+    if (!apc.alive) continue;
+    const stTxt = _fateStatusText(apc);
+    if (!stTxt) continue;   // 옮길 상태이상 없는 아군 제외
+    any = true;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, {size:'1.2em'})} ${apc.name}${i === pieceIdx ? ' <span style="opacity:.7">(자신)</span>' : ''}</div><div class="skill-desc">${stTxt}</div>`;
+    opt.addEventListener('click', () => _fateShiftPickEnemy(pieceIdx, i));
+    body.appendChild(opt);
+  }
+  if (!any) { setActionHint('옮길 상태이상을 가진 아군이 없습니다.', true); modal.classList.add('hidden'); return; }
+  modal.classList.remove('hidden');
+}
+function _fateShiftPickEnemy(pieceIdx, fromPieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '운명변곡 — 상태이상 받을 적 선택';
+  body.innerHTML = '';
+  for (const opc of (S.oppPieces || [])) {
+    if (!opc.alive) continue;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(opc.icon, {size:'1.2em'})} ${opc.name}</div><div class="skill-desc">이 적에게 상태이상 이동</div>`;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      const params = { fromPieceIdx, toName: opc.type };
+      if (opc.ownerIdx != null) params.toOwnerIdx = opc.ownerIdx;
+      if (opc.col != null) { params.toCol = opc.col; params.toRow = opc.row; }
+      socket.emit('use_skill', { pieceIdx, skillId: 'fateShift', params });
+    });
+    body.appendChild(opt);
+  }
+  modal.classList.remove('hidden');
+}
 // 적 1명을 정체(type)로 지정하는 범용 스킬 UI (흡혈·격노 등). 위치 몰라도 정체로 지정.
 function showEnemyIdentitySkillUI(pieceIdx, skillId, title, descText) {
   const modal = document.getElementById('skill-modal');
