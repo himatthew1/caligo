@@ -13138,4 +13138,6 @@ module.exports = {
   processTurnStart, getEnemyIndices, endGame,
   // ★ AI 가중치 (튜닝/학습용)
   AI_WEIGHTS_DEFAULT, getAiWeights: () => AI_WEIGHTS, setAiWeights: (w) => { AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT, ...w }; },
+  // ★ 헤드리스 검증용 — 기마병 질주·유해 피격·중독 틱·아군 인덱스
+  doCavalryDash, processRemainsHits, tickActorPoison, getAllyIndices, addStatus,
 };
