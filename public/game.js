@@ -9519,19 +9519,70 @@ function _renderPassiveAlert(payload) {
 
 // 데미지 감소형 패시브(가호/폭정/아이언스킨) — 격파 발생 시 토스트 생략, 로그는 유지
 const REDUCTION_PASSIVE_TYPES = new Set(['monk', 'count', 'armoredWarrior']);
+
+// ── 체인 페이즈: 여러 패시브가 동시 발동되면 하나씩 순차 재생 ──────────────────
+//   기준(사용자): ① 턴 오너의 유닛 먼저 → ② 저티어(T1<T2<T3) 순 → ③ 그 후 상대편 유닛 저티어 순.
+//   1개면 즉시, 2개 이상이면 정렬 후 CHAIN_ALERT_GAP 간격으로 하나씩. 상태변경은 서버가 이미 즉시 처리했고
+//   여기선 '말풍선/토스트/로그' 연출만 순차화한다. (스킬 후속효과 — 기폭/표식 — 는 서버 타임라인이 이미 순차)
+const CHAIN_ALERT_GAP = 850;
+let _chainAlertSeq = 0;
+let _chainFallbackTimer = null;
+function _chainTurnOwnerIdx() {
+  if (typeof S.currentTurnIdx === 'number') return S.currentTurnIdx;
+  if (S.isMyTurn) return (S.playerIdx ?? 0);
+  return S.isTeamMode ? -2 : (1 - (S.playerIdx ?? 0));   // 팀전 상대턴은 근사(-2=불명)
+}
+function _chainIsTurnOwnerSide(playerIdx) {
+  if (typeof playerIdx !== 'number') return false;
+  const owner = _chainTurnOwnerIdx();
+  if (owner === playerIdx) return true;
+  if (S.isTeamMode && owner >= 0) {
+    const ownerTeam = (S.teamGamePlayers || []).find(p => p.idx === owner)?.teamId;
+    const pTeam = (S.teamGamePlayers || []).find(p => p.idx === playerIdx)?.teamId;
+    return ownerTeam != null && ownerTeam === pTeam;
+  }
+  return false;
+}
+function _chainPieceTier(item) {
+  if (typeof item.tier === 'number') return item.tier;   // 서버가 실었으면 우선
+  const info = PASSIVE_BUBBLE_INFO[item.type];
+  if (!info) return 9;
+  let pieces = null;
+  if (S.isTeamMode) pieces = (S.teamGamePlayers || []).find(p => p.idx === item.playerIdx)?.pieces;
+  else pieces = (item.playerIdx === S.playerIdx) ? S.myPieces : S.oppPieces;
+  const pc = (pieces || []).find(p => p.type === info.pieceType);
+  return pc ? (pc.tier || 9) : 9;
+}
+function _chainOrderKey(item) {
+  const side = _chainIsTurnOwnerSide(item.playerIdx) ? 0 : 1;   // 턴 오너 측 우선
+  return side * 100 + _chainPieceTier(item) * 10;               // 그 다음 저티어 우선
+}
 function flushDefensiveAlerts(opts) {
+  if (_chainFallbackTimer) { clearTimeout(_chainFallbackTimer); _chainFallbackTimer = null; }
   if (!S._pendingDefensiveAlerts || S._pendingDefensiveAlerts.length === 0) return;
   const skipReduction = !!(opts && opts.skipReduction);
   const list = S._pendingDefensiveAlerts;
   S._pendingDefensiveAlerts = [];
-  for (const item of list) {
-    if (skipReduction && REDUCTION_PASSIVE_TYPES.has(item.type)) {
-      // 로그만 작성 (토스트 생략)
-      addLog(item.msg, 'skill');
-      continue;
-    }
+  const render = (item) => {
+    if (skipReduction && REDUCTION_PASSIVE_TYPES.has(item.type)) { addLog(item.msg, 'skill'); return; }  // 격파 시 토스트 생략
     _renderPassiveAlert(item);
-  }
+  };
+  if (list.length === 1) { render(list[0]); return; }   // 단일 발동 = 즉시
+  // ★ 체인 페이즈: 2개 이상 동시 발동 → 기준 순서로 정렬해 하나씩 순차 재생.
+  list.sort((a, b) => (_chainOrderKey(a) - _chainOrderKey(b)) || ((a._seq || 0) - (b._seq || 0)));
+  let i = 0;
+  const step = () => {
+    if (i >= list.length) return;
+    try { render(list[i]); } catch (e) {}
+    i++;
+    if (i < list.length) setTimeout(step, CHAIN_ALERT_GAP);
+  };
+  step();
+}
+// 안전망 — 버퍼에 쌓였는데 정상 flush 가 안 오면 자동 배출(말풍선 유실/무한대기 방지).
+function _scheduleChainFallback() {
+  if (_chainFallbackTimer) clearTimeout(_chainFallbackTimer);
+  _chainFallbackTimer = setTimeout(() => { _chainFallbackTimer = null; try { flushDefensiveAlerts(); } catch (e) {} }, 1600);
 }
 
 socket.on('passive_alert', (payload) => {
@@ -9539,9 +9590,13 @@ socket.on('passive_alert', (payload) => {
   // 호위무사 가로채기 플래그는 being_attacked 측 보호 애니메이션 분기에 사용
   if (type === 'bodyguard') S._bodyguardIntercepted = true;
   // ★ 사용자 보고: wizard 의 SP gain 오브는 더 이상 즉시 spawn 안 함 — flush 시점(_renderPassiveAlert)에 발사.
-  // 공격 반응형 패시브는 버퍼에 쌓아두고 being_attacked 직후 flush
-  if (DEFENSIVE_PASSIVE_TYPES.has(type)) {
+  // ★ 체인 순차화: 말풍선을 내는 모든 패시브(방어형 + 포자살포/독니 등)를 버퍼에 쌓아 flush 시점에
+  //   [턴오너→저티어→상대 저티어] 순으로 하나씩 재생. (torturer 표식은 인두 낙하 자체 타임라인 유지 → 제외)
+  const _isMarkBrand = (type === 'torturer' && Array.isArray(markCells) && markCells.length > 0);
+  if (PASSIVE_BUBBLE_INFO[type] && !_isMarkBrand) {
+    payload._seq = _chainAlertSeq++;
     S._pendingDefensiveAlerts.push(payload);
+    _scheduleChainFallback();   // flush 누락 대비 안전망
     return;
   }
   // ★ 표식 리워크: 인두 낙하 보드 애니메이션 — 셀 좌표가 있을 때만 발사.
