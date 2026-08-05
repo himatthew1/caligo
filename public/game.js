@@ -7829,7 +7829,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         //   유황솥이 척후병+호위무사를 동시 타격하면 distinct=2 → 자동 토큰 금지(2명 이상 피격).
         const distinctHitKeys = new Set(hitsData.filter(h => h.defPieceIdx != null && !h.bodyguardRedirect).map(h => `${h.defOwnerIdx ?? ''}:${h.defPieceIdx}`));
         const meaningfulHits = hitsData.filter(h => !h.redirectedToBodyguard && !h.bodyguardRedirect && h.defPieceIdx !== undefined);
-        if (distinctHitKeys.size === 1 && meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
+        // ★ 격노 등 위치 비공개 스킬(noReveal)은 자동 추리토큰·보드 피격위치 표시 금지 — 데미지만.
+        if (!(data && data.noReveal) && distinctHitKeys.size === 1 && meaningfulHits.length === 1 && !meaningfulHits[0].destroyed) {
           const c = meaningfulHits[0];
           let piece = null;
           let pieceKey = null;
@@ -17046,6 +17047,8 @@ function openSkillModal(targetPieceIdx) {
       if (twinSkillShown) continue;
       twinSkillShown = true;
     }
+    // ★ 특성(trait)만 보유한 유닛은 스킬탭에서 제외 — 기마병 질주(dash)는 스킬이 아니라 라디얼 전용.
+    if (Array.isArray(pc.skills) && pc.skills.length > 0 && !pc.skills.some(skillIsVisible)) continue;
     hasAnySkill = true;
 
     // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
@@ -17153,6 +17156,10 @@ function openSkillModal(targetPieceIdx) {
       // 머쉬킨 확산: 확산할 진균 지대가 없으면 봉인.
       if (pc.skillId === 'spread' && (!S.fungus || S.fungus.length === 0)) {
         singleDisabled = true; singleNote = ' (확산할 진균 없음)';
+      }
+      // 그리폰 격노: 피해를 받아야 활성화 — 비활성 상태면 잠금(사유: 비활성화).
+      if (pc.type === 'griffin' && pc.skillId === 'rage' && !pc.rageActive) {
+        singleDisabled = true; singleNote = ' (비활성화)';
       }
       // 드래곤 조련사: 드래곤이 이미 존재하면 비활성화
       if (pc.type === 'dragonTamer') {

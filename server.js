@@ -428,6 +428,16 @@ function tickActorPoison(room, actor, ownerIdx) {
     emitToSpectators(room, 'spectator_log', { msg: `중독: ${actor.name} 지속 피해 ${dmg}`, type: 'passive', playerIdx: ownerIdx });
     aiLogDmg(room, actor, ownerIdx, dmg, true, null, null);
   } catch (e) {}
+  // ★ 인스턴트 매직(마법사) — 중독 지속피해도 '피격'이므로 instant SP 획득(사용자 보고). 다른 피격 패시브는 미발동(중독은 공격자 없음).
+  if ((actor.passives || []).includes('instantMagic')) {
+    try {
+      const slot = teamSlotIdx(room, ownerIdx);
+      room.instantSp[slot] = (room.instantSp[slot] || 0) + 1;
+      if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
+      emitToBoth(room, 'passive_alert', { type: 'wizard', playerIdx: ownerIdx, msg: `인스턴트 매직 : SP 획득` });
+      emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ownerIdx });
+    } catch (e) {}
+  }
   if (destroyed) handleDeath(room, actor, ownerIdx);
   return dmg;
 }
@@ -549,7 +559,10 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   const pathCells = [];
   for (let s = 0; s <= dist; s++) pathCells.push({ col: piece.col + stepC * s, row: piece.row + stepR * s });
   if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '파괴된 칸에는 착지할 수 없습니다.' };
-  if (room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow))) return { ok: false, msg: '착지할 칸에 다른 유닛이 있습니다.' };
+  // ★ 착지 제한은 아군만 — 상대 유닛 위치는 전혀 고려하지 않는다(숨은 적 위로 질주 가능, 사용자 규칙).
+  const _allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, playerIdx) : [playerIdx];
+  if (_allyIdxs.some(ai => (room.players[ai]?.pieces || []).some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow)))
+    return { ok: false, msg: '착지할 칸에 아군이 있습니다.' };
   const _fromCol = piece.col, _fromRow = piece.row;
   const dashHits = [];
   const enemyIdxs = getEnemyIndices(room, playerIdx);
@@ -570,6 +583,16 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   }
   const dashKilled = dashHits.filter(h => h.destroyed);
   if (dashKilled.length > 0) setKillInfo(room, 'attack', piece.name, dashKilled.map(k => ({ name: k.revealedName })));
+  // ★ 질주 경로 = 기마병의 공격칸: 지나온 칸의 유해 파괴단계 상승 + 적 쥐 격파(일반 공격과 동일).
+  if (typeof processRemainsHits === 'function') processRemainsHits(room, pathCells, {});   // 내부에서 remains_update emit
+  const dashDestroyedRats = [];
+  for (const cell of pathCells) {
+    for (const ei of enemyIdxs) {
+      const before = (room.rats[ei] || []).length;
+      room.rats[ei] = (room.rats[ei] || []).filter(r => !(r.col === cell.col && r.row === cell.row));
+      if ((room.rats[ei] || []).length < before) dashDestroyedRats.push({ col: cell.col, row: cell.row, owner: ei });
+    }
+  }
   piece.col = dCol; piece.row = dRow;
   player.actionDone = true;
   player._lastActionType = 'move';
@@ -580,7 +603,7 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
     player._troopQueue.shift();
     if (player._troopQueue.length === 0) player._troopQueue = null;
   }
-  return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits };
+  return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits, destroyedRats: dashDestroyedRats };
 }
 // ★ Phase 3: 부대공격 등 '자동 질주'용 — 적을 가장 많이 때리는 유효 질주 도착칸을 고른다(없으면 null).
 function bestCavalryDash(room, ownerIdx, piece) {
@@ -4220,6 +4243,7 @@ function pieceSummary(pieces) {
     dragonSummoned: pc.dragonSummoned,
     oberonCounter: pc._oberonCounter || 0,   // ★ 요정왕 카운터(자기 유닛만 노출)
     darkVeilSeed: pc._darkVeilSeed,    // ★ 어둠장막 봉인 오프셋(공격범위 표시용)
+    rageActive: pc._rageActive || false,   // ★ 그리폰 격노 활성 여부(비활성 시 스킬 잠금 표시용)
   }));
 }
 
@@ -7353,6 +7377,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.msg = `격노: ${tgt.name}에게 ${gdmg} 피해`;
       result.oppMsg = `격노`;
       result.data.hits = [{ col: tgt.col, row: tgt.row, damage: gdmg, newHp: tgt.hp, destroyed: gdead, defPieceIdx: room.players[tgtOwner].pieces.indexOf(tgt), defOwnerIdx: tgtOwner }];
+      result.data.noReveal = true;   // ★ 격노는 위치 비공개 — 자동 추리토큰·보드 피격위치 표시 금지(데미지만).
       break;
     }
 
@@ -7472,10 +7497,12 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     case 'cavalry': {
       const dr = doCavalryDash(room, playerIdx, pieceIdx, params?.col, params?.row);
       if (!dr.ok) return { ok: false, msg: dr.msg };
-      result.msg = `질주: 기마병 돌진`;
-      result.oppMsg = `질주: 기마병이 돌진`;
+      // ★ 질주는 스킬이 아닌 이동 — 시전자 스킬 토스트 없음. 상대는 자기 유닛이 피격됐을 때만 '공격받았습니다'.
+      result.msg = null;
+      result.oppMsg = (dr.hits && dr.hits.length > 0) ? '공격받았습니다!' : null;
       result.data.dash = dr.dash;
       result.data.hits = dr.hits;
+      result.data.destroyedRats = dr.destroyedRats || [];
       break;
     }
 
