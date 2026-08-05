@@ -4553,8 +4553,21 @@ socket.on('game_start', (data) => {
   // ★ 재접속(새로고침) — 위 초기화 직후, 저장해둔 클라 사적 지식(추리토큰·공격마크·표식위치·유해방향) 복원.
   //   oppPieces 는 위(4259)에서 이미 세팅됨 → _revealedMarkedOpps 복원 후 재대입으로 setter reseed 재실행(표식 위치 반영).
   if (data.reconnected) { try { _restoreKnowledge(); S.oppPieces = S.oppPieces; } catch (e) {} }
-  // 게임 시작 — 데미지 도장 초기 스냅샷
+  // 게임 시작 — 데미지 도장 초기 스냅샷 (세팅 안내 전 = after 값 기준, 안내 애니 후 재stamp 방지)
   if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps();
+
+  // ★ 세팅 안내 페이즈 — 효과 적용 전(before) HP 로 잠깐 표시했다가, 안내 시점에 after 로 차오르/줄어드는 애니.
+  S._setupAnnouncements = Array.isArray(data.setupAnnouncements) ? data.setupAnnouncements.slice() : [];
+  S._firstPlayerIdx = (typeof data.firstPlayerIdx === 'number') ? data.firstPlayerIdx : null;
+  {
+    const _freshStart = !(!!data.reconnected || (data.turnNumber && data.turnNumber > 1));
+    if (_freshStart && S._setupAnnouncements.length) {
+      for (const ann of S._setupAnnouncements) for (const c of (ann.hpChanges || [])) {
+        const pc = (c.ownerIdx === S.playerIdx) ? (S.myPieces || [])[c.pieceIdx] : (S.oppPieces || [])[c.pieceIdx];
+        if (pc) { pc.hp = c.hpBefore; pc.maxHp = c.maxHpBefore; }
+      }
+    } else { S._setupAnnouncements = []; }   // 재접속은 안내 생략
+  }
 
   buildGameUI();
   showScreen('screen-game');
@@ -4579,18 +4592,26 @@ socket.on('game_start', (data) => {
   } else {
     addLog(`${S.isMyTurn ? '선공' : '후공'}`, 'system');
     playGameStartAnimation(S.isMyTurn);
-    // ★ 후공 인스턴트 SP 지급 연출 — 인트로~SP 합류까지 "애니 페이즈"로 양측 행동 잠금.
-    if (S._pendingSpGrant) {
+    // ★ 후공 인스턴트 SP 지급 연출 → 이어서 세팅 안내 페이즈 — 인트로~안내 완료까지 "애니 페이즈"로 양측 행동 잠금.
+    if (S._pendingSpGrant || (S._setupAnnouncements && S._setupAnnouncements.length)) {
       const g = S._pendingSpGrant; S._pendingSpGrant = null;
       setIntroPhaseLock(true);                       // 인트로 시작부터 입력 잠금
-      const _safety = setTimeout(() => setIntroPhaseLock(false), 6500);  // 안전망(콜백 누락 대비)
+      const _annMs = (S._setupAnnouncements ? S._setupAnnouncements.length : 0) * 1400;
+      const _safety = setTimeout(() => setIntroPhaseLock(false), 8000 + _annMs);  // 안전망(콜백 누락 대비)
+      const _afterSp = () => {
+        // ★ 세팅 안내 — 선공 유닛부터 저티어 순으로 하나씩(패시브 말풍선 + 체력 변화 애니).
+        try { playSetupAnnouncements(() => { clearTimeout(_safety); setIntroPhaseLock(false); }); }
+        catch (e) { clearTimeout(_safety); setIntroPhaseLock(false); }
+      };
       setTimeout(() => {
         try {
-          showSecondPlayerSpAnnounce();
-          playSecondPlayerSpGrant(g.side, () => {
-            S.instantSp = g.real; try { updateSPBar(); } catch (e) {}
-            clearTimeout(_safety); setIntroPhaseLock(false);   // 합류 완료 → 잠금 해제
-          });
+          if (g) {
+            showSecondPlayerSpAnnounce();
+            playSecondPlayerSpGrant(g.side, () => {
+              S.instantSp = g.real; try { updateSPBar(); } catch (e) {}
+              _afterSp();   // SP 합류 후 안내 시작
+            });
+          } else { _afterSp(); }
         } catch (e) { clearTimeout(_safety); setIntroPhaseLock(false); }
       }, 2000);
     }
@@ -6129,6 +6150,61 @@ function setIntroPhaseLock(on) {
       document.body.appendChild(el);
     }
   } else if (el) { el.remove(); }
+}
+
+// ── 게임 시작 세팅 안내 페이즈 ─────────────────────────────────────────────
+//   공주 후원자·골렘 낡은심장·언데드 부패한영혼·마왕 어둠장막 등 '시작 시 세팅 효과'를
+//   [선공 유닛 먼저 → 저티어(T1→T2→T3) 순] 으로 하나씩: 소스 카드에 패시브 말풍선 + 대상 체력 변화 애니.
+function _setupPieceCardByIdx(ownerIdx, pieceIdx) {
+  const isMine = (ownerIdx === S.playerIdx);
+  const containerSel = isMine ? '#my-pieces-info' : '#opp-pieces-info';
+  const cardSel = isMine ? '.my-piece-card' : '.opp-piece-card';
+  return document.querySelectorAll(`${containerSel} ${cardSel}`)[pieceIdx] || null;
+}
+function _playOneSetupAnnouncement(ann) {
+  // 소스 유닛 카드에 라이트 스카이블루 패시브 말풍선.
+  const srcCard = _setupPieceCardByIdx(ann.ownerIdx, ann.pieceIdx);
+  if (srcCard && typeof showSkillCastBubble === 'function') { try { showSkillCastBubble(srcCard, ann.name, 'passive'); } catch (e) {} }
+  try { addLog(`${ann.name} 발휘`, 'skill'); } catch (e) {}
+  try { (typeof playSfxPassive === 'function') && playSfxPassive(); } catch (e) {}
+  // 대상 체력 변화 — before(현재 표시) → after 로 갱신하며 바 애니 + 도장(+N/−N).
+  for (const c of (ann.hpChanges || [])) {
+    const isMine = (c.ownerIdx === S.playerIdx);
+    const pc = isMine ? (S.myPieces || [])[c.pieceIdx] : (S.oppPieces || [])[c.pieceIdx];
+    if (!pc) continue;
+    pc.hp = c.hpAfter; pc.maxHp = c.maxHpAfter;
+    const delta = Math.round((c.hpAfter - c.hpBefore) * 10) / 10;
+    const key = `${isMine ? 'my' : 'opp'}:${c.pieceIdx}`;
+    if (delta > 0 && typeof addHeal === 'function') { try { addHeal(key, delta); } catch (e) {} }
+    else if (delta < 0 && typeof addBodyDamage === 'function') { try { addBodyDamage(key, -delta); } catch (e) {} }
+  }
+  try { renderMyPieces(); } catch (e) {}
+  try { renderOppPieces(); } catch (e) {}
+  try { renderGameBoard(); } catch (e) {}
+}
+function playSetupAnnouncements(done) {
+  const list = (S._setupAnnouncements || []).slice();
+  S._setupAnnouncements = [];
+  if (!list.length) { if (typeof done === 'function') done(); return; }
+  // 선공 유닛 먼저 → 저티어 순.
+  const first = S._firstPlayerIdx;
+  list.sort((a, b) => {
+    const sa = (a.ownerIdx === first) ? 0 : 1, sb = (b.ownerIdx === first) ? 0 : 1;
+    return (sa - sb) || ((a.tier || 9) - (b.tier || 9));
+  });
+  const STEP_GAP = 1350;
+  let i = 0;
+  const step = () => {
+    if (i >= list.length) {
+      // 안내 종료 — 최종 상태(after)로 스냅샷 재설정(이후 데미지 도장 오작동 방지).
+      try { if (typeof snapshotTurnStartHps === 'function') snapshotTurnStartHps(); } catch (e) {}
+      if (typeof done === 'function') done();
+      return;
+    }
+    _playOneSetupAnnouncement(list[i]); i++;
+    setTimeout(step, STEP_GAP);
+  };
+  step();
 }
 
 // ── 후공 인스턴트 SP 오브 합류 연출 (화면 정중앙 5회전 → 해당 SP 숫자로 직선 합류) ──

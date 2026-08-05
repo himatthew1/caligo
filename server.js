@@ -679,6 +679,39 @@ function initUndeadState(room) {
     }
   }
 }
+// ★ 게임 시작 안내 페이즈용 — 세팅 효과(공주 후원자·골렘 낡은심장·언데드 부패한영혼·마왕 어둠장막 등)를
+//   [소스 유닛별] 안내 목록으로 수집. before = 세팅 적용 전 {hp,maxHp} 스냅샷(플레이어×피스). HP 변화는 before/after 로 전달.
+function buildSetupAnnouncements(room, before) {
+  const anns = [];
+  for (let oi = 0; oi < room.players.length; oi++) {
+    const pl = room.players[oi]; if (!pl || !pl.pieces) continue;
+    const beforeP = before[oi] || [];
+    for (let pidx = 0; pidx < pl.pieces.length; pidx++) {
+      const p = pl.pieces[pidx]; if (!p) continue;
+      const b = beforeP[pidx] || { hp: p.hp, maxHp: p.maxHp };
+      const selfChange = (b.hp !== p.hp || b.maxHp !== p.maxHp)
+        ? [{ ownerIdx: oi, pieceIdx: pidx, hpBefore: b.hp, hpAfter: p.hp, maxHpBefore: b.maxHp, maxHpAfter: p.maxHp }] : [];
+      if (p.type === 'princess') {
+        // 후원자 — 팀 왕실 아군(공주 자신 포함, 골렘/언데드는 자체 안내로 제외) HP 변화 수집.
+        const hpChanges = [];
+        for (let ti = 0; ti < pl.pieces.length; ti++) {
+          const t = pl.pieces[ti], tb = beforeP[ti]; if (!t || !tb) continue;
+          if (t.type === 'golem' || t.type === 'undead') continue;
+          if (t.hp !== tb.hp || t.maxHp !== tb.maxHp)
+            hpChanges.push({ ownerIdx: oi, pieceIdx: ti, hpBefore: tb.hp, hpAfter: t.hp, maxHpBefore: tb.maxHp, maxHpAfter: t.maxHp });
+        }
+        if (hpChanges.length) anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'princess', tier: p.tier || 3, key: 'patron', name: '후원자', hpChanges });
+      } else if (p.type === 'golem') {
+        anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'golem', tier: p.tier || 3, key: 'oldHeart', name: '낡은 심장', hpChanges: selfChange });
+      } else if (p.type === 'undead') {
+        anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'undead', tier: p.tier || 3, key: 'rottenSoul', name: '부패한 영혼', hpChanges: [] });   // 체력바 없음
+      } else if (p.type === 'demonKing' && (p.passives || []).includes('darkVeil')) {
+        anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'demonKing', tier: p.tier || 3, key: 'darkVeil', name: '어둠의 장막', hpChanges: [] });   // 공격범위 봉인(연출은 말풍선)
+      }
+    }
+  }
+  return anns;
+}
 // 게임 시작 시 악인 외 전 유닛에 봉인 시드(정수) 점지(1회, 저장). 마왕 유무와 무관하게 미리 배정.
 //   applyDarkVeil이 '현재 범위 길이 % 시드'로 봉인칸을 정하므로, 개구리 등으로 범위가 바뀌어도 항상 1칸 감소.
 function assignDarkVeilOffsets(room) {
@@ -4086,10 +4119,13 @@ function transitionToPlacement(room) {
 function startGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
+  // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 전 HP 스냅샷.
+  const _setupBefore = room.players.map(pl => (pl.pieces || []).map(p => ({ hp: p.hp, maxHp: p.maxHp })));
   // ★ Phase 3: 마왕 어둠장막 — 악인 외 전 유닛에 봉인 오프셋 점지(게임 시작 1회, 저장). 활성화는 마왕 생존 시.
   assignDarkVeilOffsets(room);
   initPatronBonus(room);   // ★ 공주 후원자(왕실 아군 HP+1)
   initUndeadState(room);   // ★ 언데드 HP0 시작(부패한 영혼)
+  room._setupAnnouncements = buildSetupAnnouncements(room, _setupBefore);   // 안내 페이즈용
   const firstPlayer = Math.random() < 0.5 ? 0 : 1;
   const secondPlayer = 1 - firstPlayer;
   room.currentPlayerIdx = firstPlayer;
@@ -4113,6 +4149,8 @@ function startGameFromRoom(room) {
         isYourTurn: i === firstPlayer,
         secondPlayerIdx: secondPlayer,      // 후공 인스턴트 SP 지급 연출용 (절대 슬롯)
         youAreSecond: i === secondPlayer,   // 이 수신자가 후공인가
+        firstPlayerIdx: firstPlayer,        // ★ 안내 페이즈 순서(선공부터)용
+        setupAnnouncements: room._setupAnnouncements || [],   // ★ 세팅 효과 안내(공주/골렘/언데드/마왕 등)
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,
@@ -4127,7 +4165,9 @@ function startGameFromRoom(room) {
   emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
   // ★ 첫 턴은 인트로+후공 SP 지급 연출이 끝난 뒤 시작 — 그 동안은 양측 모두 행동 불가(애니 페이즈).
   //   클라: 인트로 1.8s + 후공 SP 합류 ~2s. 타이머·AI 선공 모두 그 이후로 지연.
-  const INTRO_PHASE_MS = 4500;
+  // ★ 세팅 안내 페이즈만큼 첫 턴 지연 — 클라: 인트로 1.8s + 후공 SP 합류 ~2s + 안내 개수×1.35s.
+  const _annCount = (room._setupAnnouncements || []).length;
+  const INTRO_PHASE_MS = 4500 + _annCount * 1400;
   setTimeout(() => {
     if (room.phase !== 'game') return;
     startTimer(room, 'game', () => turnTimeout(room));
@@ -13140,4 +13180,6 @@ module.exports = {
   AI_WEIGHTS_DEFAULT, getAiWeights: () => AI_WEIGHTS, setAiWeights: (w) => { AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT, ...w }; },
   // ★ 헤드리스 검증용 — 기마병 질주·유해 피격·중독 틱·아군 인덱스
   doCavalryDash, processRemainsHits, tickActorPoison, getAllyIndices, addStatus,
+  // ★ 게임 시작 안내 페이즈 검증용
+  initPatronBonus, initUndeadState, buildSetupAnnouncements,
 };
