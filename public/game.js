@@ -18181,7 +18181,8 @@ function _showRadialActionMenu(col, row, pieceIdx) {
   const items = isCavalry
     ? [{ angle: -90, key: 'dash', icon: '🐎', label: '질주', disabled: !canBasic }]
     : [
-        { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: moveDisabled },
+        // ★ 투석기는 일반 이동이 없음(구동 스킬로만) → 이동 버튼 자체를 숨김.
+        { angle: -135, key: 'move',   icon: '🏃', label: '이동',   disabled: moveDisabled, hideIfMissing: isCatapult },
         { angle:  -90, key: 'attack', icon: '⚔',  label: '공격',   disabled: attackDisabled },
         { angle:  -45, key: 'skill',  icon: '✨',  label: '스킬',   disabled: !canSkill, hideIfMissing: !hasSkill },
       ].filter(it => !it.hideIfMissing);
