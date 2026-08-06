@@ -10488,7 +10488,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('강탈', 'tag-action', '행동소비형'), sp: 0, color: '#a78bfa' },
     ],
-    body: '상대보다 SP가 적을 때, 상대의 공유 SP 1을 빼앗습니다.',
+    body: '보유 SP가 상대 이하일 때, 상대의 공유 SP 1을 빼앗습니다.',
     flavor: '남의 것을 제 것으로 만드는 손버릇. 전세가 기울수록 그의 손놀림은 더욱 대담해진다.',
   },
   fortuneTeller: {

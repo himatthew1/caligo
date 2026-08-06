@@ -206,7 +206,7 @@ const CHARACTERS = {
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'🧪', tag:'villain', desc:'제자리와 X자 대각선',
       skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'전용 범위 안의 모든 유닛을 중독시킵니다'}], passives:['venomFang'] },
     { type:'thief', name:'도적', tier:1, atk:1, icon:'🦹', tag:null, desc:'좌우 세로 2칸',
-      skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'상대보다 SP가 적으면 상대 공유 SP 1 탈취'}] },
+      skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'보유 SP가 상대 이하일 때 상대 공유 SP 1 탈취'}] },
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'🔮', tag:null, desc:'십자',
       skills:[
         {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
@@ -7168,7 +7168,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       const oppSlot = teamSlotIdx(room, enemyIdxs[0]);
       const myTotal = (room.sp[mySlot] || 0) + (room.instantSp[mySlot] || 0);
       const oppTotal = (room.sp[oppSlot] || 0) + (room.instantSp[oppSlot] || 0);
-      if (myTotal >= oppTotal) return { ok: false, msg: '강탈: 상대보다 보유 SP가 적어야 합니다.' };
+      if (myTotal > oppTotal) return { ok: false, msg: '강탈: 상대보다 보유 SP가 많으면 사용할 수 없습니다.' };
       if ((room.sp[oppSlot] || 0) <= 0) return { ok: false, msg: '강탈: 상대의 공유 SP가 없습니다.' };  // 인스턴트는 건드리지 않음
       spendSP(room, playerIdx, cost);   // cost 0
       player.actionUsedSkillReplace = true;
@@ -13182,4 +13182,6 @@ module.exports = {
   doCavalryDash, processRemainsHits, tickActorPoison, getAllyIndices, addStatus,
   // ★ 게임 시작 안내 페이즈 검증용
   initPatronBonus, initUndeadState, buildSetupAnnouncements,
+  // ★ 스킬 실행 검증용
+  executeSkill,
 };
