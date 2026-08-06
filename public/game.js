@@ -4510,6 +4510,7 @@ socket.on('game_start', (data) => {
   closeAllModals(); // C-8: 모달 잔류 방지
   // ★ 표식 노출 정보 — 새 게임 시작 시 stale 엔트리 모두 정리
   if (S._revealedMarkedOpps instanceof Map) S._revealedMarkedOpps.clear();
+  if (S._unlockedSecretSkills instanceof Set) S._unlockedSecretSkills.clear();   // ★ 시크릿 스킬 해금 알림 추적 초기화
   // ★ 재접속(새로고침) 복원 — 서버가 보낸 신원 정보로 잃어버린 S 필드 복구.
   //   buildGameUI/refreshGameView 전에 설정해야 보드 방향·facing 키가 올바름.
   if (typeof data.playerIdx === 'number') S.playerIdx = data.playerIdx;
@@ -10377,7 +10378,8 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkPassiveHead('후원자'), color: '#f59e0b', desc: '게임 시작 시 모든 왕실 아군의 최대 체력을 1 올립니다.' },
     ],
-    body: '아군이 개구리가 됐을 때만 쓸 수 있는 숨겨진 스킬입니다. 개구리가 된 아군 1명을 되돌립니다.',
+    // ★ 그레이스 키스는 '개구리가 된 아군이 실제로 있을 때'만 존재하는 시크릿 스킬 → 정적 설명에 노출 금지.
+    //   해금(아군 개구리 발생) 시점에만 인게임 스킬 모달/알림으로 나타난다.
     flavor: '왕실의 적법한 후계자. 그녀의 축복이 왕가의 심장을 한층 더 단단하게 지킨다.',
   },
   king: {
@@ -13355,6 +13357,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     let skillHtml = '';
     if (pc.skills && pc.skills.length > 0) {
       for (const sk of [...pc.skills].sort((a, b) => _skillTagRank(a) - _skillTagRank(b))) {
+        if (typeof skillIsVisible === 'function' && !skillIsVisible(sk)) continue;   // ★ 특성(질주)·미해금 시크릿(그레이스키스)은 배치 프로필에서도 숨김
         const cls = headClassFor(sk);
         skillHtml += `<div class="slide-head-line">` +
           `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
@@ -13843,6 +13846,30 @@ function secretSkillUnlocked(sk) {
 }
 // 스킬이 지금 UI 에 노출/사용 가능한 종류인지(특성 제외 + 시크릿 해금).
 function skillIsVisible(sk) { return sk && !sk.trait && secretSkillUnlocked(sk); }
+
+// ★ 시크릿 스킬 해금 감지 — 잠겨있던 시크릿 스킬(그레이스키스 등)이 조건 충족으로 열리면 전용 알림.
+//   Set 으로 중복 방지, 재잠금(개구리 해제) 시 삭제 → 다음 해금에 다시 알림. 매 프로필 렌더에서 호출.
+S._unlockedSecretSkills = S._unlockedSecretSkills || new Set();
+function checkSecretSkillUnlocks() {
+  const mine = S.myPieces || [];
+  for (let i = 0; i < mine.length; i++) {
+    const pc = mine[i];
+    if (!pc || !pc.alive || !Array.isArray(pc.skills)) continue;
+    for (const sk of pc.skills) {
+      if (!sk || !sk.secret) continue;
+      const key = `${pc.type}:${sk.id}`;
+      const unlocked = secretSkillUnlocked(sk);
+      if (unlocked && !S._unlockedSecretSkills.has(key)) {
+        S._unlockedSecretSkills.add(key);
+        try { showSkillToast(`${sk.name} 해금! — ${pc.name}`, false, undefined, 'event'); } catch (e) {}
+        try { addLog(`${pc.name}의 ${sk.name} 해금`, 'skill'); } catch (e) {}
+        try { (typeof playSfx === 'function') && playSfx('sp'); } catch (e) {}
+      } else if (!unlocked && S._unlockedSecretSkills.has(key)) {
+        S._unlockedSecretSkills.delete(key);   // 재잠금 → 다음 해금에 다시 알림
+      }
+    }
+  }
+}
 
 function pieceHasAnySkill(pc) {
   if (!pc) return false;
@@ -16378,6 +16405,8 @@ function buildDamageOverlay(key, hp, maxHp) {
 
 // ── 내 말 정보 패널 ──────────────────────────────────────────
 function renderMyPieces() {
+  // ★ 시크릿 스킬 해금 감지(그레이스키스 등) — 상태 변동 시마다 확인해 열리면 알림.
+  try { if (typeof checkSecretSkillUnlocks === 'function') checkSecretSkillUnlocks(); } catch (e) {}
   // 팀 모드에서는 1v1 함수가 팀 프로필을 덮어쓰지 않도록 위임
   if (S.isTeamMode && typeof renderTeamProfiles === 'function') { renderTeamProfiles(); return; }
   const container = document.getElementById('my-pieces-info');

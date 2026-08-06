@@ -5060,7 +5060,7 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
   if (room.mode === 'team' && owner) {
     if (!room.eliminatedPlayers) room.eliminatedPlayers = new Set();
     if (!room.eliminatedPlayers.has(ownerIdx)) {
-      const allDead = owner.pieces && owner.pieces.every(p => !p.alive);
+      const allDead = owner.pieces && owner.pieces.every(_isNeutralized);   // ★ 언데드만 남아도 무력화=탈락
       if (allDead) {
         room.eliminatedPlayers.add(ownerIdx);
         const payload = {
@@ -5539,6 +5539,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 //   전원 무력화 = 그 소유주는 싸울 유닛이 없음 → 패배(전멸과 동일 취급). 정령전멸/오베론종언은 별도 아님.
 function _isNeutralized(piece) {
   if (!piece || !piece.alive) return true;
+  if (piece.type === 'undead') return true;   // ★ 언데드=살아있는 유해(항상 사망상태) → 무력화로 취급(언데드만 남으면 패배)
   if (typeof pieceFaction === 'function' && piece._cultOf != null) return true;   // 이교단(현혹)
   if (typeof hasStatus === 'function' && hasStatus(piece, 'betray')) return true; // 배신(선동)
   return false;
