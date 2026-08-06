@@ -3022,7 +3022,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
           redirectedToBodyguard: h.redirectedToBodyguard || false,
           bodyguardRedirect: h.bodyguardRedirect || false };
       }),
-      yourPieces: pieceSummary(defPlayer.pieces),
+      yourPieces: pieceSummary(defPlayer.pieces, room),
     });
   }
   // 적팀 멤버 중 hits 안 받은 자에게도 attackerImpactedAnything 알림 (빗나감 억제용)
@@ -3036,7 +3036,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         atkCells, attackerImpactedAnything,
         hitPieces: [],
         friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
-        yourPieces: pieceSummary(en.pieces),
+        yourPieces: pieceSummary(en.pieces, room),
       });
     }
   }
@@ -3179,7 +3179,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
               bodyguardRedirect: h.bodyguardRedirect || false,
               defPieceIdx: h.defPieceIdx };
           }),
-          yourPieces: pieceSummary(defPlayer.pieces),
+          yourPieces: pieceSummary(defPlayer.pieces, room),
         });
       }
       for (const [defOwnerIdx, hits] of hitsByOwner2.entries()) {
@@ -3348,7 +3348,7 @@ function transitionToTeamReveal(room) {
     idx: p.index,
     name: p.name,
     teamId: p.teamId,
-    pieces: pieceSummary(p.pieces),
+    pieces: pieceSummary(p.pieces, room),
   }));
   for (const p of room.players) {
     if (!p.socketId) continue;
@@ -3405,11 +3405,11 @@ function transitionToTeamPlacement(room) {
       teams: room.teams,
       boardBounds: room.boardBounds,
       zone: getTeamPlacementZone(p.teamId),
-      myPieces: pieceSummary(p.pieces),
+      myPieces: pieceSummary(p.pieces, room),
       teammates: getTeammates(room, p.index).map(i => ({
         idx: i,
         name: room.players[i].name,
-        pieces: pieceSummary(room.players[i].pieces),
+        pieces: pieceSummary(room.players[i].pieces, room),
       })),
       opponents,
     });
@@ -3440,7 +3440,7 @@ function broadcastTeamPlacementUpdate(room, changedIdx) {
   const teamPieces = teamMembers.map(i => ({
     idx: i,
     name: room.players[i].name,
-    pieces: pieceSummary(room.players[i].pieces),
+    pieces: pieceSummary(room.players[i].pieces, room),
   }));
   for (const tIdx of teamMembers) {
     const tp = room.players[tIdx];
@@ -4061,15 +4061,15 @@ function startRevealPhaseFromRoom(room) {
         passiveName: pc.passiveName, passives: pc.passives,
       }));
       io.to(p.socketId).emit('reveal_phase', {
-        yourPieces: pieceSummary(p.pieces),
+        yourPieces: pieceSummary(p.pieces, room),
         oppPieces,
       });
     }
   });
   // 관전자에게 공개 페이즈 알림
   emitToSpectators(room, 'spectator_reveal', {
-    p0Pieces: pieceSummary(room.players[0].pieces),
-    p1Pieces: pieceSummary(room.players[1].pieces),
+    p0Pieces: pieceSummary(room.players[0].pieces, room),
+    p1Pieces: pieceSummary(room.players[1].pieces, room),
     p0Name: room.players[0].name,
     p1Name: room.players[1].name,
   });
@@ -4104,13 +4104,13 @@ function transitionToPlacement(room) {
         hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
         passiveName: pc.passiveName, passives: pc.passives,
       }));
-      io.to(p.socketId).emit('placement_phase', { pieces: pieceSummary(p.pieces), oppPieces });
+      io.to(p.socketId).emit('placement_phase', { pieces: pieceSummary(p.pieces, room), oppPieces });
     }
   });
   // 관전자에게 배치 페이즈 시작 알림
   emitToSpectators(room, 'spectator_placement_start', {
-    p0Pieces: pieceSummary(room.players[0].pieces),
-    p1Pieces: pieceSummary(room.players[1].pieces),
+    p0Pieces: pieceSummary(room.players[0].pieces, room),
+    p1Pieces: pieceSummary(room.players[1].pieces, room),
     boardBounds: room.boardBounds,
   });
   startTimer(room, 'placement', () => placementTimeout(room));
@@ -4142,8 +4142,8 @@ function startGameFromRoom(room) {
   room.players.forEach((p, i) => {
     if (p.socketId !== 'AI') {
       io.to(p.socketId).emit('game_start', {
-        yourPieces: pieceSummary(p.pieces),
-        oppPieces: oppPieceSummary(room.players[1 - i].pieces),
+        yourPieces: pieceSummary(p.pieces, room),
+        oppPieces: oppPieceSummary(room.players[1 - i].pieces, room),
         currentPlayerIdx: firstPlayer,
         turnNumber: 1,
         isYourTurn: i === firstPlayer,
@@ -4260,10 +4260,13 @@ function createPiece(type, tier, hp, extra) {
   return base;
 }
 
-function pieceSummary(pieces) {
+function pieceSummary(pieces, room, ownerIdx) {
   return pieces.map((pc, idx) => ({
     index: idx, type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
     hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, desc: pc.desc, tag: pc.tag,
+    // ★ 실시간 변동 공격력(철인=HP·왕자 계승자·묘지기 담력·타락/축복 팩션버프·투지·지휘관 사기증진).
+    //   room 이 넘어오면 정본 getEffectiveAtk 로 계산, 없으면(프리게임) 정적 atk 폴백. 클라 프로필이 이 값을 표시.
+    effAtk: (room && typeof getEffectiveAtk === 'function') ? getEffectiveAtk(pc, room, (typeof ownerIdx === 'number' ? ownerIdx : room.players.findIndex(pl => pl.pieces === pieces))) : (pc.atk || 0),
     col: pc.col, row: pc.row, alive: pc.alive,
     statusEffects: pc.statusEffects,
     hasSkill: pc.hasSkill, skillName: pc.skillName, skillId: pc.skillId,
@@ -4287,7 +4290,7 @@ function pieceSummary(pieces) {
   }));
 }
 
-function oppPieceSummary(pieces) {
+function oppPieceSummary(pieces, room, ownerIdx) {
   // ★ 사기증진(wrath) 공유 — 사용자 원칙: 상대 유닛이 사기증진 상태인지 + 변동된 공격력을 '항상' 공개.
   //   버프 상태 자체가 추론 힌트다: "버프 = 적 지휘관과 직교 인접" → 한 명만 찾아도 나머지 대략 위치 추정.
   //   위치(col/row)는 여전히 표식 때만 공개하되, 버프 플래그/변동 ATK 는 숨은 적에게도 노출(안개 유지+추론 허용).
@@ -4319,9 +4322,12 @@ function oppPieceSummary(pieces) {
       col: hasMark ? pc.col : undefined,
       row: hasMark ? pc.row : undefined,
       marked: hasMark,
-      // ★ 사기증진(공개 적 한정) + 변동 공격력(+1)
+      // ★ 사기증진(공개 적 한정) + 변동 공격력 — room 있으면 정본 getEffectiveAtk(철인 HP·타락·계승자·담력 등 전부),
+      //   없으면 정적 atk + 사기(+1) 폴백.
       moraleBuff,
-      effAtk: (pc.atk || 0) + (moraleBuff ? 1 : 0),
+      effAtk: (room && typeof getEffectiveAtk === 'function')
+        ? getEffectiveAtk(pc, room, (typeof ownerIdx === 'number' ? ownerIdx : (1 - (room.currentPlayerIdx ?? 0))))
+        : ((pc.atk || 0) + (moraleBuff ? 1 : 0)),
     };
   });
 }
@@ -5657,8 +5663,8 @@ function getSpectatorGameState(room) {
     sp: room.sp,
     instantSp: room.instantSp,
     boardBounds: room.boardBounds,
-    p0Pieces: p0 ? pieceSummary(p0.pieces) : [],
-    p1Pieces: p1 ? pieceSummary(p1.pieces) : [],
+    p0Pieces: p0 ? pieceSummary(p0.pieces, room) : [],
+    p1Pieces: p1 ? pieceSummary(p1.pieces, room) : [],
     p0Name: p0 ? p0.name : '?',
     p1Name: p1 ? p1.name : '?',
     boardObjects: [
@@ -6238,7 +6244,7 @@ function endTurn(room, opts) {
   if (room.isAI && curIdx === 1) {
     emitToPlayer(room, prevIdx, 'opp_turn', {
       ...turnData,
-      oppPieces: oppPieceSummary(cur.pieces),
+      oppPieces: oppPieceSummary(cur.pieces, room),
       boardObjects: boardObjectsSummary(room, prevIdx),
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
     });
@@ -6259,15 +6265,15 @@ function endTurn(room, opts) {
   // Human turn
   emitToPlayer(room, curIdx, 'your_turn', {
     ...turnData,
-    yourPieces: pieceSummary(cur.pieces),
-    oppPieces: oppPieceSummary(prev.pieces),
+    yourPieces: pieceSummary(cur.pieces, room),
+    oppPieces: oppPieceSummary(prev.pieces, room),
     boardObjects: boardObjectsSummary(room, curIdx),
     remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
     isYourTurn: true,
   });
   emitToPlayer(room, prevIdx, 'opp_turn', {
     ...turnData,
-    oppPieces: oppPieceSummary(cur.pieces),
+    oppPieces: oppPieceSummary(cur.pieces, room),
     boardObjects: boardObjectsSummary(room, prevIdx),
     remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
   });
@@ -6386,7 +6392,7 @@ function getTeamSpectatorGameState(room) {
     teamId: p.teamId,
     slotPos: p.slotPos ?? 0,
     deckName: p.deckName || '',
-    pieces: pieceSummary(p.pieces),
+    pieces: pieceSummary(p.pieces, room),
     actionDone: !!p.actionDone,
     eliminated: isPlayerEliminated(room, p.index),
   }));
@@ -6660,8 +6666,8 @@ function endGame(room, winnerIdx, reason) {
 
   const winner = room.players[winnerIdx];
   const loser = room.players[1 - winnerIdx];
-  const finalPiecesW = { yours: pieceSummary(winner.pieces), opps: pieceSummary(loser.pieces) };
-  const finalPiecesL = { yours: pieceSummary(loser.pieces), opps: pieceSummary(winner.pieces) };
+  const finalPiecesW = { yours: pieceSummary(winner.pieces, room), opps: pieceSummary(loser.pieces, room) };
+  const finalPiecesL = { yours: pieceSummary(loser.pieces, room), opps: pieceSummary(winner.pieces, room) };
 
   // #15: 패배 측에 승자의 모든 piece 좌표(살아있는 것만) + 보드 오브젝트(덫·폭탄·쥐) + boardBounds 노출
   // — 패배 시 마지막 보드 상태 그리드 재현 용도
@@ -9049,8 +9055,8 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
   const human = room.players[0];
   if (human.socketId !== 'AI') {
     io.to(human.socketId).emit('status_update', {
-      oppPieces: oppPieceSummary(room.players[1].pieces),
-      yourPieces: pieceSummary(human.pieces),
+      oppPieces: oppPieceSummary(room.players[1].pieces, room),
+      yourPieces: pieceSummary(human.pieces, room),
       sp: room.sp,
       instantSp: room.instantSp,
       boardObjects: boardObjectsSummary(room, 0),
@@ -10139,7 +10145,7 @@ function aiExecuteAttack(room, action) {
         redirectedToBodyguard: h.redirectedToBodyguard || false,
         bodyguardRedirect: h.bodyguardRedirect || false };
     }),
-    yourPieces: pieceSummary(humanPlayer.pieces),
+    yourPieces: pieceSummary(humanPlayer.pieces, room),
   });
   // ★ FIX (표식 적 공격 모션 누락 — 1v1 AI 경로): AI 의 *표식된* 말이 공격하면 표식 부여자에게
   //   공격 캐릭터 모션 전송(인간 attack 핸들러 10160-10176, 팀 AI 2521 과 동일 패턴). 이게 없어
@@ -10223,7 +10229,7 @@ function aiExecuteAttack(room, action) {
             redirectedToBodyguard: h.redirectedToBodyguard || false,
             bodyguardRedirect: h.bodyguardRedirect || false };
         }),
-        yourPieces: pieceSummary(humanPlayer.pieces),
+        yourPieces: pieceSummary(humanPlayer.pieces, room),
       });
       // ★ 관전자 — 쌍검무 두 번째 공격 (1v1 AI). defOwnerIdx 0
       emitToSpectators(room, 'spectator_attack_anim', {
@@ -10361,8 +10367,8 @@ io.on('connection', (socket) => {
           //   playerIdx 가 없으면 facing 키·피격자 판정·보드 방향이 깨짐.
           playerIdx: idx,
           opponentName: opp.name,
-          yourPieces: pieceSummary(player.pieces),
-          oppPieces: oppPieceSummary(opp.pieces),
+          yourPieces: pieceSummary(player.pieces, room),
+          oppPieces: oppPieceSummary(opp.pieces, room),
           currentPlayerIdx: room.currentPlayerIdx,
           turnNumber: room.turnNumber,
           isYourTurn: room.currentPlayerIdx === idx,
@@ -10462,8 +10468,8 @@ io.on('connection', (socket) => {
       socket.emit('team_placement_phase', {
         myIdx: idx, teamId: player.teamId, teams: room.teams,
         boardBounds: room.boardBounds, zone: getTeamPlacementZone(player.teamId),
-        myPieces: pieceSummary(player.pieces),
-        teammates: getTeammates(room, idx).map(i => ({ idx: i, name: room.players[i].name, pieces: pieceSummary(room.players[i].pieces) })),
+        myPieces: pieceSummary(player.pieces, room),
+        teammates: getTeammates(room, idx).map(i => ({ idx: i, name: room.players[i].name, pieces: pieceSummary(room.players[i].pieces, room) })),
         opponents,
       });
       // ★ 이미 배치 확정한 경우 — 대기 중임을 알려 재클릭 혼란 방지
@@ -10513,7 +10519,7 @@ io.on('connection', (socket) => {
         hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
         passiveName: pc.passiveName, passives: pc.passives,
       }));
-      socket.emit('reveal_phase', { yourPieces: pieceSummary(player.pieces), oppPieces });
+      socket.emit('reveal_phase', { yourPieces: pieceSummary(player.pieces, room), oppPieces });
     } else if (phase === 'placement') {
       const oppPieces = room.players[1 - idx].pieces.map(pc => ({
         type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
@@ -10522,7 +10528,7 @@ io.on('connection', (socket) => {
         hasSkill: pc.hasSkill, skillName: pc.skillName, skillCost: pc.skillCost,
         passiveName: pc.passiveName, passives: pc.passives,
       }));
-      socket.emit('placement_phase', { pieces: pieceSummary(player.pieces), oppPieces, alreadyConfirmed: !!room.placementDone[idx] });
+      socket.emit('placement_phase', { pieces: pieceSummary(player.pieces, room), oppPieces, alreadyConfirmed: !!room.placementDone[idx] });
     } else {
       // 그 외(드래프트 단일 단계 등) — 기본 resume 이벤트만
       socket.emit('reconnect_phase_resume', { phase, idx });
@@ -10606,15 +10612,15 @@ io.on('connection', (socket) => {
       }
       if (_postDraft) {
         hpState = {
-          p0Pieces: room.players[0]?.pieces ? pieceSummary(room.players[0].pieces) : [],
-          p1Pieces: room.players[1]?.pieces ? pieceSummary(room.players[1].pieces) : [],
+          p0Pieces: room.players[0]?.pieces ? pieceSummary(room.players[0].pieces, room) : [],
+          p1Pieces: room.players[1]?.pieces ? pieceSummary(room.players[1].pieces, room) : [],
           hpDone: [...(room.hpDone || [false, false])],
         };
       }
       if (room.phase === 'placement') {
         placementState = {
-          p0Pieces: pieceSummary(room.players[0].pieces),
-          p1Pieces: pieceSummary(room.players[1].pieces),
+          p0Pieces: pieceSummary(room.players[0].pieces, room),
+          p1Pieces: pieceSummary(room.players[1].pieces, room),
           boardBounds: room.boardBounds,
         };
       }
@@ -11405,7 +11411,7 @@ io.on('connection', (socket) => {
       player.twinSplitDone = true;
       room.hpDone[idx] = true;
       socket.emit('hp_ok', { hps: player.hpDist, twinSplit });
-      emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces), hpDone: [...room.hpDone] });
+      emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces, room), hpDone: [...room.hpDone] });
 
       if (room.hpDone.every(d2 => d2)) {
         transitionToPlacement(room);
@@ -11451,7 +11457,7 @@ io.on('connection', (socket) => {
     ];
     room.hpDone[idx] = true;
     socket.emit('hp_ok', { hps });
-    emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces), hpDone: [...room.hpDone] });
+    emitToSpectators(room, 'spectator_hp_update', { playerIdx: idx, playerName: player.name, pieces: pieceSummary(player.pieces, room), hpDone: [...room.hpDone] });
 
     if (room.hpDone.every(d2 => d2)) {
       transitionToPlacement(room);
@@ -11627,8 +11633,8 @@ io.on('connection', (socket) => {
     socket.emit('placed_ok', { pieceIdx, col, row });
     // 관전자에게 배치 실시간 업데이트
     emitToSpectators(room, 'spectator_placement_update', {
-      p0Pieces: pieceSummary(room.players[0].pieces),
-      p1Pieces: pieceSummary(room.players[1].pieces),
+      p0Pieces: pieceSummary(room.players[0].pieces, room),
+      p1Pieces: pieceSummary(room.players[1].pieces, room),
       boardBounds: room.boardBounds,
     });
   });
@@ -11803,7 +11809,7 @@ io.on('connection', (socket) => {
       && player.pieces.some(p => p.alive && p.subUnit && p.subUnit !== piece.subUnit);
     socket.emit('move_ok', {
       pieceIdx, prev, col, row,
-      yourPieces: pieceSummary(player.pieces),
+      yourPieces: pieceSummary(player.pieces, room),
       boardObjects: boardObjectsSummary(room, idx),
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
       twinMovePending: stillCanMoveOtherTwin,
@@ -12040,7 +12046,7 @@ io.on('connection', (socket) => {
           socket.emit('attack_result', {
             pieceIdx, cellResults, anyHit: hitResults.length > 0,
             attackerImpactedAnything: attackerImpactedAnything2,
-            yourPieces: pieceSummary(player.pieces),
+            yourPieces: pieceSummary(player.pieces, room),
             friendlyFireHits: room._friendlyFireHits || [],
             bodyguardHits,
           });
@@ -12067,7 +12073,7 @@ io.on('connection', (socket) => {
                   defPieceIdx: h.defPieceIdx,
                 };
               }),
-              yourPieces: pieceSummary(defPlayer.pieces),
+              yourPieces: pieceSummary(defPlayer.pieces, room),
             });
           }
           broadcastTeamGameState(room);
@@ -12076,8 +12082,8 @@ io.on('connection', (socket) => {
           socket.emit('attack_result', {
             pieceIdx, cellResults, anyHit: hitResults.length > 0,
             attackerImpactedAnything: attackerImpactedAnything2,
-            oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
-            yourPieces: pieceSummary(player.pieces),
+            oppPieces: oppPieceSummary(room.players[1 - idx].pieces, room),
+            yourPieces: pieceSummary(player.pieces, room),
             friendlyFireHits: room._friendlyFireHits || [],
             bodyguardHits,
           });
@@ -12096,7 +12102,7 @@ io.on('connection', (socket) => {
                   defPieceIdx: h.defPieceIdx,
                 };
               }),
-              yourPieces: pieceSummary(defender.pieces),
+              yourPieces: pieceSummary(defender.pieces, room),
             });
           }
         }
@@ -12266,7 +12272,7 @@ io.on('connection', (socket) => {
       socket.emit('attack_result', {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
         attackerImpactedAnything,
-        yourPieces: pieceSummary(player.pieces),
+        yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
@@ -12297,7 +12303,7 @@ io.on('connection', (socket) => {
               defPieceIdx: h.defPieceIdx,
             };
           }),
-          yourPieces: pieceSummary(defPlayer.pieces),
+          yourPieces: pieceSummary(defPlayer.pieces, room),
         });
       }
       // ★ 사용자 보고 (fog-of-war 복원): 빗나감 시 적팀에 emit 금지.
@@ -12314,7 +12320,7 @@ io.on('connection', (socket) => {
             attackerImpactedAnything,
             hitPieces: [],
             friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
-            yourPieces: pieceSummary(en.pieces),
+            yourPieces: pieceSummary(en.pieces, room),
           });
         }
       }
@@ -12387,8 +12393,8 @@ io.on('connection', (socket) => {
       socket.emit('attack_result', {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
         attackerImpactedAnything,
-        oppPieces: oppPieceSummary(defender.pieces),
-        yourPieces: pieceSummary(player.pieces),
+        oppPieces: oppPieceSummary(defender.pieces, room),
+        yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
@@ -12409,7 +12415,7 @@ io.on('connection', (socket) => {
               defPieceIdx: h.defPieceIdx,
             };
           }),
-          yourPieces: pieceSummary(defender.pieces),
+          yourPieces: pieceSummary(defender.pieces, room),
         });
       }
     }
@@ -12640,7 +12646,7 @@ io.on('connection', (socket) => {
         data: result.data,
         success: true,
         effects: result.data,
-        yourPieces: pieceSummary(room.players[idx].pieces),
+        yourPieces: pieceSummary(room.players[idx].pieces, room),
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,
@@ -12712,8 +12718,8 @@ io.on('connection', (socket) => {
         data: result.data,
         success: true,
         effects: result.data,
-        yourPieces: pieceSummary(room.players[idx].pieces),
-        oppPieces: oppPieceSummary(room.players[1 - idx].pieces),
+        yourPieces: pieceSummary(room.players[idx].pieces, room),
+        oppPieces: oppPieceSummary(room.players[1 - idx].pieces, room),
         sp: room.sp,
         instantSp: room.instantSp,
         skillPoints: room.sp,
@@ -12729,8 +12735,8 @@ io.on('connection', (socket) => {
       const opp = room.players[1 - idx];
       if (opp.socketId !== 'AI') {
         io.to(opp.socketId).emit('status_update', {
-          oppPieces: oppPieceSummary(room.players[idx].pieces),
-          yourPieces: pieceSummary(opp.pieces),
+          oppPieces: oppPieceSummary(room.players[idx].pieces, room),
+          yourPieces: pieceSummary(opp.pieces, room),
           sp: room.sp,
           instantSp: room.instantSp,
           skillPoints: room.sp,
@@ -12906,7 +12912,7 @@ io.on('connection', (socket) => {
     const skillResultPayload = {
       msg: `폭탄 기폭: ${coord(bomb.col, bomb.row)}`,
       success: true,
-      yourPieces: pieceSummary(room.players[idx].pieces),
+      yourPieces: pieceSummary(room.players[idx].pieces, room),
       sp: room.sp,
       instantSp: room.instantSp,
       skillPoints: room.sp,
@@ -12918,7 +12924,7 @@ io.on('connection', (socket) => {
     };
     // 1v1에서만 oppPieces 첨부 (팀전 idx 2/3이면 1-idx 가 음수 → 크래시)
     if (room.mode !== 'team') {
-      skillResultPayload.oppPieces = oppPieceSummary(room.players[1 - idx].pieces);
+      skillResultPayload.oppPieces = oppPieceSummary(room.players[1 - idx].pieces, room);
     }
     socket.emit('skill_result', skillResultPayload);
 

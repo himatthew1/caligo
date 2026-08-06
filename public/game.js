@@ -3475,9 +3475,12 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       )
     );
     const _buffColor = isAlly ? '#22c55e' : '#ef4444';
-    const atkDisplay = _commanderAdjacent
-      ? `<span style="color:${_buffColor};font-weight:800">${(pc.atk || 0) + 1}</span>`
-      : `${pc.atk}`;
+    // ★ 변동 공격력 — 서버 effAtk(철인 HP·타락·계승자·담력·사기 전부) 기본값과 다르면 색 표시.
+    const _tBase = pc.atk || 0;
+    const _tEff = (pc.effAtk != null) ? pc.effAtk : _tBase;
+    const atkDisplay = (_tEff !== _tBase)
+      ? `<span style="color:${_buffColor};font-weight:800">${_tEff}</span>`
+      : `${_tEff}`;
 
     // 위치 표시 — 아군은 항상 / 적은 표식만
     let posText = '';
@@ -16424,9 +16427,15 @@ function renderMyPieces() {
       p => p.alive && p.type === 'commander' &&
       ((Math.abs(p.col - pc.col) === 1 && p.row === pc.row) || (Math.abs(p.row - pc.row) === 1 && p.col === pc.col))
     );
-    const atkDisplay = commanderBuff
-      ? `<span style="color:#22c55e;font-weight:800">${(pc.atk || 0) + 1}</span>`
-      : `${pc.atk}`;
+    // ★ 실시간 변동 공격력 — 서버 effAtk(철인=HP·타락·계승자·담력·투지·지휘관 사기 전부 반영) 우선 표시.
+    //   effAtk > 기본 = 강화(초록), < = 약화(빨강). 프로필 재렌더마다 최신값 반영.
+    const _baseAtk = pc.atk || 0;
+    const _effAtk = (pc.effAtk != null) ? pc.effAtk : _baseAtk;
+    const atkDisplay = (_effAtk > _baseAtk)
+      ? `<span style="color:#22c55e;font-weight:800">${_effAtk}</span>`
+      : (_effAtk < _baseAtk)
+        ? `<span style="color:#ef4444;font-weight:800">${_effAtk}</span>`
+        : `${_effAtk}`;
     const moraleHtml = commanderBuff ? '<span class="status-badge" style="color:#22c55e;background:rgba(34,197,94,0.15)">📋 사기증진</span>' : '';
 
     card.style.position = 'relative';
@@ -16603,10 +16612,13 @@ function renderOppPieces() {
       : '';
 
     // ★ 사기증진(서버가 공개 적 한정으로 판정해 내려줌) — 변동 공격력 + 배지 표시. 적이므로 빨강 톤.
+    // ★ 변동 공격력 — 서버 effAtk(철인 HP·타락·계승자·담력·사기 전부) 기본값과 다르면 항상 색으로 표시.
+    const _oppBase = pc.atk || 0;
+    const _oppEff = (pc.effAtk != null) ? pc.effAtk : _oppBase;
     const _oppBuffed = pc.alive && pc.moraleBuff;
-    const _oppAtkDisp = _oppBuffed
-      ? `<span style="color:#ef4444;font-weight:800">${pc.effAtk != null ? pc.effAtk : (pc.atk || 0) + 1}</span>`
-      : `${pc.atk}`;
+    const _oppAtkDisp = (_oppEff !== _oppBase)
+      ? `<span style="color:#ef4444;font-weight:800">${_oppEff}</span>`
+      : `${_oppEff}`;
     const _oppMoraleHtml = _oppBuffed
       ? '<span class="status-badge" style="color:#ef4444;background:rgba(239,68,68,0.15)">📋 사기증진</span>'
       : '';
