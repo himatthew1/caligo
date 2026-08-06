@@ -10299,7 +10299,7 @@ const CHAR_DETAILS = {
     blocks: [
       { ...mkSkillHead('부대공격', 'tag-action', '행동소비형'), sp: 3, color: '#a78bfa' },
     ],
-    body: '공격할 수 있는 모든 왕실 아군이 한 번씩 공격합니다.',
+    body: '저티어 순으로 조작 가능한 모든 왕실 아군이 한 번씩 공격하며, 기마병은 질주합니다.',
     flavor: '전장의 기둥. 그의 호령 한 번에 왕실의 전열이 일제히 창칼을 앞세운다.',
   },
   knight: {

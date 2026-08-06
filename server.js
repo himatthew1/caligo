@@ -215,7 +215,7 @@ const CHARACTERS = {
   ],
   2: [
     { type:'general', name:'장군', tier:2, atk:2, icon:'/assets/icons/general.png', tag:'royal', desc:'좌우와 하단 · 부대공격: 모든 왕실 아군이 1회씩 강제 공격',
-      skills:[{id:'troopAttack', name:'부대공격', cost:3, replacesAction:true, desc:'공격 가능한 모든 왕실 아군이 1회씩 공격(1T→3T순, 기마병 제외)'}] },
+      skills:[{id:'troopAttack', name:'부대공격', cost:3, replacesAction:true, desc:'저티어 순으로 조작 가능한 모든 왕실 아군이 1회씩 공격하고 기마병은 질주합니다'}] },
     { type:'knight', name:'기사', tier:2, atk:2, icon:'/assets/icons/knight.png', tag:'royal', desc:'자신 포함 X대각선 5칸', skills:[] },
     { type:'shadowAssassin', name:'그림자 암살자', tier:2, atk:2, icon:'/assets/icons/shadowAssassin.png', tag:'villain', desc:'주변 9칸 중 1칸 선택 공격',
       skills:[{id:'shadow', name:'그림자 숨기', cost:1, replacesAction:false, oncePerTurn:true, desc:'다음 턴까지 공격과 상태이상에 면역'}] },
@@ -251,7 +251,7 @@ const CHARACTERS = {
     { type:'necromancer', name:'악령술사', tier:2, atk:1, icon:'🪦', tag:'villain', desc:'제자리와 위 대각 2칸',
       skills:[
         {id:'raise', name:'강령술', cost:2, replacesAction:false, oncePerTurn:true, desc:'보드 위 유해 하나를 악령(세로3·HP1·ATK1)으로 부활(유해 단계 유지)'},
-        {id:'command', name:'조종', cost:2, replacesAction:true, desc:'보드 위 내 모든 악령이 1회씩 강제 공격'}
+        {id:'command', name:'조종', cost:2, replacesAction:true, desc:'보드 위 내 모든 악령을 일제히 공격시키거나 하나씩 이동시킵니다'}
       ] },
     { type:'storyteller', name:'이야기꾼', tier:2, atk:0.5, icon:'📖', tag:null, desc:'자기 줄과 상단 2×3',
       skills:[{id:'incite', name:'선동', cost:3, replacesAction:false, oncePerTurn:true, desc:'적 1명 배신 상태(전원 배신 시 분란 승리) · 이야기꾼 피격 시 해제'}] },
@@ -6752,7 +6752,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   }
 
   // If skill replaces action and action already done, can't use
-  if (replacesAction && player.actionDone) {
+  //   ★ 부대공격 큐 앞 유닛(기마병 질주)은 예외 — 부대공격 스킬이 actionDone 을 세운 뒤 큐 앞 기마병을
+  //     질주(행동대체 스킬)로 조작해야 하므로 여기서 막으면 부대공격이 먹통이 된다.
+  const _troopFrontSkill = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
+  if (replacesAction && player.actionDone && !_troopFrontSkill) {
     return { ok: false, msg: '이미 행동을 사용했습니다. 행동 대체 스킬을 사용할 수 없습니다.' };
   }
 
@@ -11688,7 +11691,11 @@ io.on('connection', (socket) => {
     if (witchIsChanneling(room, piece)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 이동할 수 없습니다(빗자루 비행으로만 이동).' }); return; }   // ★ 마녀 채널링
 
     // Action-replace skill used => can't move (질주는 예외 — 이동을 위한 스킬이므로)
-    if (player.actionUsedSkillReplace && !piece.messengerSprintActive) {
+    //   ★ 조종(악령 이동 큐)·부대공격 큐 앞 유닛도 예외 — 이 스킬들이 actionUsedSkillReplace 를 세운 뒤
+    //     순차 조작(이동)을 이어가야 하므로 여기서 막으면 먹통이 된다.
+    const _wraithMoveOK = !!(piece._wraithMovePending && player._wraithMoveQueue && player._wraithMoveQueue.length);
+    const _troopFrontMoveOK = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
+    if (player.actionUsedSkillReplace && !piece.messengerSprintActive && !_wraithMoveOK && !_troopFrontMoveOK) {
       socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 이동할 수 없습니다.' }); return;
     }
 
@@ -11989,7 +11996,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (player.actionDone) {
+    // ★ 부대공격 큐 앞 유닛 — 부대공격 스킬이 actionDone/actionUsedSkillReplace 를 세운 뒤 큐 앞 유닛을
+    //   순서대로 '공격'시켜야 하므로, 아래 행동소진 가드들을 우회한다(없으면 부대공격이 먹통).
+    const _troopFront = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
+
+    if (player.actionDone && !_troopFront) {
       // 쌍검무: 2회 공격 중 2번째 공격
       const piece = player.pieces[pieceIdx];
       if (piece && piece.dualBladeAttacksLeft > 0) {
@@ -12125,7 +12136,7 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
     }
 
-    if (player.actionUsedSkillReplace) {
+    if (player.actionUsedSkillReplace && !_troopFront) {
       socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 공격할 수 없습니다.' }); return;
     }
 
