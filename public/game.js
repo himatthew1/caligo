@@ -12499,7 +12499,7 @@ function createDraftRevealCard(ch, tier, tooltipSide, extraLabel) {
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(ch.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
       <div class="piece-name-row"><strong>${ch.name}</strong>${tagHtml}</div>
-      <div class="piece-stats">${tier}티어 · ATK ${ch.atk || '?'}</div>
+      <div class="piece-stats">${tier}티어 · ATK ${ch.atk != null ? ch.atk : 0}</div>
       <div class="piece-mini-headers">${buildMiniHeaders(ch)}</div>
       ${labelHtml}
     </div>`;
@@ -13300,7 +13300,7 @@ function buildPlacementOppPanel() {
     const tagHtml = pieceFactionBadgeHtml(pc);
     const skillDesc = getSkillDescForPiece(pc);
     const skillHtml = pc.hasSkill
-      ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP) — ${skillDesc}</span>`
+      ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost != null ? pc.skillCost : 0}SP) — ${skillDesc}</span>`
       : '';
     const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
     const passiveHtml = pc.passiveName
@@ -19498,6 +19498,12 @@ function renderSpectatorReveal() {
 
 // ── 관전자: 배치 페이즈 UI (색상별 공격범위) ─────────────────
 function getAttackCellsWithBounds(type, col, row, bounds, extra) {
+  // ★ 단일 소스화 — 정본 getAttackCells(S.boardBounds 기준)에 위임. 두 사본의 드리프트(dragon 누락·
+  //   herbalist 옛 범위 등)를 근절: 공격범위 로직은 오직 getAttackCells 한 곳에서만 유지된다.
+  const _saved = S.boardBounds;
+  try { S.boardBounds = bounds; return getAttackCells(type, col, row, extra); }
+  finally { S.boardBounds = _saved; }
+  // ── 이하 레거시 switch 는 도달 불가(정본 위임). 참조용으로만 남김 ──
   extra = extra || {};
   const cells = [];
   const bMin = bounds.min, bMax = bounds.max;
