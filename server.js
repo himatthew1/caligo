@@ -209,7 +209,7 @@ const CHARACTERS = {
       skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'보유 SP가 상대 이하일 때 상대 공유 SP 1 탈취'}] },
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'🔮', tag:null, desc:'십자',
       skills:[
-        {id:'omen', name:'흉조', cost:1, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
+        {id:'omen', name:'흉조', cost:0, replacesAction:true, desc:'랜덤 유닛 1명에게 불행 부여(받는 피해 +1, 중첩)'},
         {id:'fateShift', name:'운명변곡', cost:2, replacesAction:false, desc:'아군 1명의 모든 상태이상을 적 1명에게 이동'}
       ] },
   ],
@@ -363,16 +363,22 @@ function _addStacks(piece, type, n) {
   else piece.statusEffects.push({ type, stacks: n });
 }
 // 행운↔불행 상쇄(1:1) — 반대 상태 스택을 깎고, 남으면 이쪽에 적립.
+//   ★ 행운(luck)은 비중첩(단계진행 없음) — 잔여가 있어도 항상 최대 1스택. 불행(misfortune)은 누적.
 function _applyOpposing(piece, type, n) {
   const opp = type === 'luck' ? 'misfortune' : 'luck';
   const oe = getStatus(piece, opp);
+  let leftover = n;
   if (oe) {
     const m = oe.stacks || 1;
-    if (n >= m) { removeStatus(piece, opp); n -= m; if (n > 0) _addStacks(piece, type, n); }
-    else { oe.stacks = m - n; }
+    if (n >= m) { removeStatus(piece, opp); leftover = n - m; }
+    else { oe.stacks = m - n; return; }
+  }
+  if (leftover <= 0) return;
+  if (type === 'luck') {   // 행운 = 중첩 불가 → 없으면 1스택, 있으면 그대로(누적 안 함)
+    if (!hasStatus(piece, 'luck')) piece.statusEffects.push({ type: 'luck', stacks: 1 });
     return;
   }
-  _addStacks(piece, type, n);
+  _addStacks(piece, type, leftover);
 }
 // 상태이상 부여 — 면역 존중 + 스택형(poison/misfortune/luck) 누적. 반환: 실제 부여됐나.
 function addStatus(piece, type, opts) {
@@ -1348,8 +1354,10 @@ function hpTimeout(room) {
       } else {
         hps = randomHpSplit(3, 10, 1);
       }
-      player.hpDist = hps;
       const d = player.draft;
+      // ★ 언데드 슬롯 체력 0 + 재분배 (언데드=체력바 없음 → 증발 방지). twins 슬롯은 합산이라 3원소.
+      _redistributeUndeadHp(hps, hasTwins ? ['twins', d.t2, d.t3] : [d.t1, d.t2, d.t3]);
+      player.hpDist = hps;
       if (hasTwins) {
         // 쌍둥이 자동 분배
         const twinHp = hps[0];
@@ -1390,6 +1398,29 @@ function randomHpSplit(count, total, minVal) {
     if (arr[idx] < 8) { arr[idx]++; remaining--; }
   }
   return arr;
+}
+// ★ 언데드는 체력바가 없어(hp 강제 0) 배분된 체력이 증발한다 → AI/자동분배가 언데드 슬롯에 준 몫을
+//   비-언데드 슬롯에 재분배(1씩 라운드로빈, 상한 8). types = hps 와 같은 순서의 슬롯 타입.
+//   in-place 로 hps 수정 후 반환. (사용자 요청: AI 가 언데드에 체력 부여 못 하게 락)
+function _redistributeUndeadHp(hps, types, maxVal) {
+  maxVal = maxVal || 8;
+  const nonU = [];
+  let freed = 0;
+  for (let i = 0; i < hps.length; i++) {
+    if (types[i] === 'undead') { freed += hps[i] || 0; hps[i] = 0; }
+    else nonU.push(i);
+  }
+  if (freed <= 0 || nonU.length === 0) return hps;
+  let guard = 0;
+  while (freed > 0 && guard++ < 200) {
+    let placed = false;
+    for (const i of nonU) {
+      if (freed <= 0) break;
+      if (hps[i] < maxVal) { hps[i] += 1; freed -= 1; placed = true; }
+    }
+    if (!placed) break;   // 전부 상한(8) 도달 → 더 못 넣음(1v1 비언데드 2슬롯이면 항상 수용)
+  }
+  return hps;
 }
 
 // 배치 타임아웃: 미배치 말 랜덤 배치
@@ -1555,6 +1586,8 @@ function aiTeamHpDistribute(room, idx) {
   let hps = [5, 5];
   if (t1Twin) hps = [6, 4];
   else if (t2Twin) hps = [4, 6];
+  // ★ 언데드 픽 체력 0 + 재분배 (언데드=체력바 없음, 부여 시 증발 방지)
+  _redistributeUndeadHp(hps, [draft.pick1, draft.pick2]);
   p.hpDist = { pick1: hps[0], pick2: hps[1] };
   // 쌍둥이 분할
   if (t1Twin || t2Twin) {
@@ -4009,6 +4042,8 @@ function transitionToHpPhase(room) {
     const hasTwins = room.players[1].draft.t1 === 'twins';
     const aiHps = aiDistributeHp(hasTwins);
     const aiD = room.players[1].draft;
+    // ★ 언데드 슬롯 체력 0 + 재분배 (언데드=체력바 없음, AI가 언데드에 체력 부여 못 하게 락)
+    _redistributeUndeadHp(aiHps, aiD.t1 === 'twins' ? ['twins', 'twins', aiD.t2, aiD.t3] : [aiD.t1, aiD.t2, aiD.t3]);
     if (aiD.t1 === 'twins') {
       room.players[1].pieces = [
         createPiece('twins', 1, aiHps[0], { subUnit: 'elder', parentType: 'twins' }),
@@ -4497,8 +4532,7 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
   //   +스택수 증폭 후 전부 해제. 아직 부여 스킬(요정 페어리더스트·포춘텔러 흉조)은 Phase 3라 inert.
   if (!isStatusDmg && typeof hasStatus === 'function') {
     if (hasStatus(defenderPiece, 'luck')) {
-      const e = getStatus(defenderPiece, 'luck');
-      if ((e.stacks || 1) > 1) e.stacks -= 1; else removeStatus(defenderPiece, 'luck');
+      removeStatus(defenderPiece, 'luck');   // ★ 행운 = 비중첩(단계진행 없음) → 이번 피해 1회 0 후 즉시 해제
       return 0;
     }
     const mf = statusStacks(defenderPiece, 'misfortune');
@@ -13225,4 +13259,6 @@ module.exports = {
   getBaseAtk, getEffectiveAtk,
   // ★ 언데드 견제 정책 검증용 (공세 유인 제외 / 위협맵 유지)
   aiAttackTargetBonus, aiMarkedChaseBonus, aiBuildDangerMap, aiKnownEnemies, _aiUnitDestroysUndeadOnAttack,
+  // ★ 상태이상·HP분배 검증용
+  addStatus, hasStatus, getStatus, statusStacks, resolveDamage, _redistributeUndeadHp,
 };
