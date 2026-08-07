@@ -115,6 +115,15 @@ function tagBadgeHtml(tag) {
   const label = _FACTION_LABELS[t];
   return `<span class="tag-badge ${t}" title="${label}"><img class="tag-stamp" src="${src}" alt="${label}"></span>`;
 }
+// ★ 동적 소속 뱃지 — 라이브 말의 '현재' 소속(pc.faction: 이단자 현혹·호문클루스 변이 반영) 우선.
+//   서버 'cult'(이교단)은 클라 'pagan'(이교도) 스탬프로 표시. faction 미제공(프리게임 등)이면 정적 tag 폴백.
+//   상황에 따라 실시간 변함(현혹/변이/원복) → 프로필 재렌더마다 최신 소속 마크 반영.
+function pieceFactionBadgeHtml(pc) {
+  if (!pc) return '';
+  let f = (pc.faction != null) ? pc.faction : pc.tag;
+  if (f === 'cult') f = 'pagan';   // 이단자 현혹 = 이교도 소속
+  return tagBadgeHtml(f);
+}
 
 // ── 캐릭터 아이콘 <img> 생성 헬퍼 ──────────────────────────────────────
 // 모든 UI 에서 이모지 대신 PNG 아이콘을 렌더링할 때 사용.
@@ -3413,7 +3422,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
       </div>`;
     }
     const hpPct = (pc.hp / pc.maxHp) * 100;
-    const tagHtml = tagBadgeHtml(pc.tag);
+    const tagHtml = pieceFactionBadgeHtml(pc);
     const miniHeaders = (typeof buildMiniHeaders === 'function') ? buildMiniHeaders(pc) : '';
     const myPieceAttr = (isAlly && isMe) ? `data-my-piece-idx="${i}"` : '';
     const selectedClass = (isAlly && isMe && S.selectedPiece === i) ? 'active-piece' : '';
@@ -12001,7 +12010,7 @@ function createRevealCard(pc, tooltipSide) {
   const card = document.createElement('div');
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
-  const tagHtml = tagBadgeHtml(pc.tag);
+  const tagHtml = pieceFactionBadgeHtml(pc);
   const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
@@ -13235,7 +13244,7 @@ function buildPlacementOppPanel() {
       block.className = `placement-enemy-block placement-team-block placement-team-${myTeamColor}`;
       block.innerHTML = `<h5 class="enemy-block-header team-color-${myTeamColor}">${escapeHtmlGlobal(tm.name)}</h5>`;
       for (const pc of (tm.pieces || [])) {
-        const tagHtml = tagBadgeHtml(pc.tag);
+        const tagHtml = pieceFactionBadgeHtml(pc);
         const card = document.createElement('div');
         card.className = `placement-opp-card placement-team-card placement-team-card-${myTeamColor}`;
         card.style.position = 'relative';
@@ -13263,7 +13272,7 @@ function buildPlacementOppPanel() {
       block.className = `placement-enemy-block placement-team-block placement-team-${oppTeamColor}`;
       block.innerHTML = `<h5 class="enemy-block-header team-color-${oppTeamColor}">${escapeHtmlGlobal(en.name)}</h5>`;
       for (const pc of (en.pieces || [])) {
-        const tagHtml = tagBadgeHtml(pc.tag);
+        const tagHtml = pieceFactionBadgeHtml(pc);
         const card = document.createElement('div');
         card.className = `placement-opp-card placement-team-card placement-team-card-${oppTeamColor}`;
         card.style.position = 'relative';
@@ -13288,7 +13297,7 @@ function buildPlacementOppPanel() {
   for (const pc of S.oppPieces) {
     const card = document.createElement('div');
     card.className = 'placement-opp-card';
-    const tagHtml = tagBadgeHtml(pc.tag);
+    const tagHtml = pieceFactionBadgeHtml(pc);
     const skillDesc = getSkillDescForPiece(pc);
     const skillHtml = pc.hasSkill
       ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost || '?'}SP) — ${skillDesc}</span>`
@@ -13343,7 +13352,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
     const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
-    const tagHtml = tagBadgeHtml(pc.tag);
+    const tagHtml = pieceFactionBadgeHtml(pc);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
     //   별도 "(N SP)" 괄호 텍스트나 "스킬:" prefix 사용 안 함 — 색상·박스가 정보를 전달.
@@ -13807,6 +13816,9 @@ function updateSPBar() {
 //     3) 양손검객 쌍검무 활성 + 추가 공격 남음
 function pieceCanTakeBasicAction(pc) {
   if (!pc || !pc.alive) return false;
+  // ★ 배신(이야기꾼 선동): 아무것도 조작 불가 — 모든 특수 행동(부대/악령/질주/쌍검무/칙명)보다 우선.
+  //   서버도 이동·공격·스킬을 전부 거부하므로 클라도 라디얼/선택 자체를 막아 UX 를 일치시킴.
+  if ((pc.statusEffects || []).some(e => e.type === 'betray')) return false;
   // ★ 부대공격 진행 중: 큐 앞(저티어) 유닛만 조작 가능(actionDone 무시).
   if (S.troopQueue && S.troopQueue.length) {
     const idx = S.myPieces ? S.myPieces.indexOf(pc) : -1;
@@ -13883,6 +13895,8 @@ function pieceHasAnySkill(pc) {
 function canPieceUseAnySkill(pieceIdx) {
   const pc = S.myPieces && S.myPieces[pieceIdx];
   if (!pc || !pc.alive) return false;
+  // ★ 배신(이야기꾼 선동): 스킬도 불가 — 아무것도 조작할 수 없음(서버도 스킬 거부).
+  if ((pc.statusEffects || []).some(e => e.type === 'betray')) return false;
   // ★ 사용자 보고: 쌍검무/질주 활성 시 시전자 외 piece 는 스킬도 불가.
   //   기존 로직은 pieceCanTakeBasicAction 만 exclusivity 가드 → canPieceUseAnySkill 미가드 →
   //   getActablePieces 가 fallback 으로 스킬 체크 → 비-시전자가 actable 로 잘못 표시됨 (사용자 보고).
@@ -16451,7 +16465,7 @@ function renderMyPieces() {
     // 이번 턴 데미지 도장 + HP 바 빨간 오버레이
     const dmgOv = buildDamageOverlay(`my:${i}`, pc.alive ? pc.hp : 0, pc.maxHp);
 
-    const tagHtml = tagBadgeHtml(pc.tag);
+    const tagHtml = pieceFactionBadgeHtml(pc);
     const statusHtml = renderStatusBadges(pc);
     // 스킬·패시브 텍스트 라인은 제거됨 — 미니 헤더(mini-header)가 이미 표시
     const skillHtml = '';
@@ -16635,7 +16649,7 @@ function renderOppPieces() {
     }
     const hpPct = pc.alive ? (pc.hp / pc.maxHp * 100) : 0;
     const dmgOv = buildDamageOverlay(`opp:${pi}`, pc.alive ? pc.hp : 0, pc.maxHp);
-    const tagHtml = tagBadgeHtml(pc.tag);
+    const tagHtml = pieceFactionBadgeHtml(pc);
     const statusHtml = renderStatusBadges(pc);
     // 스킬·패시브 텍스트 라인은 제거됨 — 미니 헤더(mini-header)가 이미 표시
     const skillHtml = '';
@@ -16814,6 +16828,11 @@ function buildMiniHeaders(ch) {
       items.push({ name, cls, rank: (cls === 'mini-header-trait') ? 0 : 1 });
     }
   }
+  // ★ 상태 기반 미니헤더 — 조작 불가/소속 변동을 프로필에 명시(라이브 말만; 정적 도감엔 statusEffects/faction 없음).
+  //   배신(이야기꾼 선동): 아무 조작 불가. 이교도(이단자 현혹): 소속 상실 → 최우선 노출.
+  const _st = ch.statusEffects || [];
+  if (_st.some(e => e.type === 'betray')) items.unshift({ name: '배신', cls: 'mini-header-betray', rank: -2 });
+  if (ch.faction === 'cult' || ch._cultOf != null) items.unshift({ name: '이교도', cls: 'mini-header-cult', rank: -3 });
   items.sort((a, b) => a.rank - b.rank);
   return items.map(it => `<span class="mini-header ${it.cls}">${it.name}</span>`).join('');
 }

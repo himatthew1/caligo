@@ -4299,6 +4299,8 @@ function pieceSummary(pieces, room, ownerIdx) {
   return pieces.map((pc, idx) => ({
     index: idx, type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
     hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, desc: pc.desc, tag: pc.tag,
+    // ★ 현재 소속(동적) — 이단자 현혹(cult)·호문클루스 변이(_tagOverride)를 반영. 클라 소속 마크가 이 값으로 표시.
+    faction: (typeof pieceFaction === 'function') ? pieceFaction(pc) : (pc.tag || 'none'),
     // ★ 실시간 변동 공격력(철인=HP·왕자 계승자·묘지기 담력·타락/축복 팩션버프·투지·지휘관 사기증진).
     //   room 이 넘어오면 정본 getEffectiveAtk 로 계산, 없으면(프리게임) 정적 atk 폴백. 클라 프로필이 이 값을 표시.
     effAtk: (room && typeof getEffectiveAtk === 'function') ? getEffectiveAtk(pc, room, (typeof ownerIdx === 'number' ? ownerIdx : room.players.findIndex(pl => pl.pieces === pieces))) : (pc.atk || 0),
@@ -4339,6 +4341,8 @@ function oppPieceSummary(pieces, room, ownerIdx) {
     return {
       index: idx, type: pc.type, name: pc.name, icon: pc.icon, tier: pc.tier,
       hp: pc.hp, maxHp: pc.maxHp, atk: pc.atk, desc: pc.desc, tag: pc.tag,
+      // ★ 현재 소속(동적) — 이단자 현혹(cult)·호문클루스 변이 반영. 소속은 공개 정보라 항상 노출.
+      faction: (typeof pieceFaction === 'function') ? pieceFaction(pc) : (pc.tag || 'none'),
       alive: pc.alive,
       statusEffects: pc.statusEffects.filter(e => e.type !== 'trap'),
       hasSkill: pc.hasSkill, skillName: pc.skillName,
@@ -13261,4 +13265,6 @@ module.exports = {
   aiAttackTargetBonus, aiMarkedChaseBonus, aiBuildDangerMap, aiKnownEnemies, _aiUnitDestroysUndeadOnAttack,
   // ★ 상태이상·HP분배 검증용
   addStatus, hasStatus, getStatus, statusStacks, resolveDamage, _redistributeUndeadHp,
+  // ★ 소속 표시 검증용 (동적 faction 전송)
+  pieceSummary, oppPieceSummary, pieceFaction,
 };

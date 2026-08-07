@@ -6900,6 +6900,9 @@ body.team-mode .placement-opp-panel {
 .mini-header-free    { color: #34d399 !important; background: rgba(52,211,153,0.2) !important; border: 1px solid rgba(52,211,153,0.4) !important; } /* 초록 — 자유시전 */
 .mini-header-passive { color: #38bdf8 !important; background: rgba(56,189,248,0.2) !important; border: 1px solid rgba(56,189,248,0.4) !important; } /* 스카이블루 — 패시브 */
 .mini-header-trait   { color: #9ca3af !important; background: rgba(156,163,175,0.18) !important; border: 1px solid rgba(156,163,175,0.45) !important; } /* 회색 — 특성 */
+/* ★ 상태 기반 미니헤더 — 조작 불가/소속 변동 강조 (스킬 유형색과 구분되는 강렬한 톤) */
+.mini-header-betray  { color: #fca5a5 !important; background: rgba(220,38,38,0.28)  !important; border: 1px solid rgba(220,38,38,0.65)  !important; font-weight: 800 !important; } /* 진홍 — 배신(조작 불가) */
+.mini-header-cult    { color: #fdba74 !important; background: rgba(234,88,12,0.26)  !important; border: 1px solid rgba(234,88,12,0.62)  !important; font-weight: 800 !important; } /* 주황 — 이교도(현혹) */
 
 /* 호버 팝업 내 스킬/패시브 이름 — 굵은 글씨 + 유형 색상 칩 */
 .tooltip-skill-name {
