@@ -3044,6 +3044,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
     io.to(defPlayer.socketId).emit('being_attacked', {
       atkCells,
       attackerImpactedAnything,
+      fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
       friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(AI 공격자) 오사 피해 실시간 공유
       hitPieces: hits.map(h => {
         // ★ 합류 쌍둥이 버그 수정: col/row 기반 find 는 같은 칸의 첫 매치(누나)만 반환 → 동생 hit 도 누나 이름/도장으로 잘못 매핑.
@@ -3068,6 +3069,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       io.to(en.socketId).emit('being_attacked', {
         atkCells, attackerImpactedAnything,
         hitPieces: [],
+        fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(진균은 공개 보드상태)
         friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
         yourPieces: pieceSummary(en.pieces, room),
       });
@@ -3204,6 +3206,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         if (!defPlayer || !defPlayer.socketId || defPlayer.socketId === 'AI') continue;
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells: extra2Cells,
+          fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
           hitPieces: hits.map(h => {
             const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
             return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -10194,6 +10197,7 @@ function aiExecuteAttack(room, action) {
   const _atkFf = (room._attackerFriendlyFireCount || 0);
   emitToPlayer(room, 0, 'being_attacked', {
     atkCells,
+    fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(AI 공격에 피격된 인간 시점)
     attackerImpactedAnything: hitResults.length > 0 || _atkOwnRats > 0 || _atkFf > 0,
     hitPieces: hitResults.map(h => {
       // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
@@ -10280,6 +10284,7 @@ function aiExecuteAttack(room, action) {
       aiObserveEnemyAttack(getTeamBrain(room, getTeamOf(room, 0)), room, room.players[0].pieces, room.players[1].pieces, extraCells, extraHits);
       emitToPlayer(room, 0, 'being_attacked', {
         atkCells: extraCells,
+        fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(AI 쌍검무 2타 시점)
         hitPieces: extraHits.map(h => {
           const dp = (typeof h.defPieceIdx === 'number') ? humanPlayer.pieces[h.defPieceIdx] : null;
           return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -12107,6 +12112,7 @@ io.on('connection', (socket) => {
             yourPieces: pieceSummary(player.pieces, room),
             friendlyFireHits: room._friendlyFireHits || [],
             bodyguardHits,
+            fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
           });
           // being_attacked: 실제 피격된 각 적 플레이어에게 각각 전송
           const defHitsByOwner = new Map();
@@ -12121,6 +12127,7 @@ io.on('connection', (socket) => {
             io.to(defPlayer.socketId).emit('being_attacked', {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
+              fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
               hitPieces: hits.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
                 return {
@@ -12144,12 +12151,14 @@ io.on('connection', (socket) => {
             yourPieces: pieceSummary(player.pieces, room),
             friendlyFireHits: room._friendlyFireHits || [],
             bodyguardHits,
+            fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
           });
           const defender = room.players[1 - idx];
           if (defender && defender.socketId !== 'AI') {
             io.to(defender.socketId).emit('being_attacked', {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
+              fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
               hitPieces: hitResults.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
                 return {
