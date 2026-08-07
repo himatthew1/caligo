@@ -13958,6 +13958,23 @@ function skillHasValidTarget(piece, sk) {
     if (myDragon) return false;
     return true; // 빈 칸 판정은 서버에서
   }
+  // 악령술사 조종: 보드 위 내 악령이 1체 이상 있어야 함 (언데드는 악령 아님)
+  if (skillId === 'command') {
+    return alive(S.myPieces).some(p => p.type === 'wraith');
+  }
+  // 악령술사 강령술: 보드 위 유해가 1개 이상 (언데드는 유해로 카운트 안 함 — S.remains만)
+  if (skillId === 'raise') {
+    return (S.remains || []).length > 0;
+  }
+  // 묘지기 도굴: 공격범위 내 유해 또는 보이는 언데드(살아있는 유해)가 있어야 함
+  if (skillId === 'exhume') {
+    const cells = getAttackCells(piece.type, piece.col, piece.row, { toggleState: piece.toggleState });
+    return cells.some(c =>
+      (S.remains && S.remains.some(r => r.col === c.col && r.row === c.row)) ||
+      (S.myPieces && S.myPieces.some(p => p.alive && p.type === 'undead' && p.col === c.col && p.row === c.row)) ||
+      (S.oppPieces && S.oppPieces.some(p => p.alive && p.type === 'undead' && p.marked && p.col === c.col && p.row === c.row))
+    );
+  }
   // 나머지 (그림자 숨기, 쌍검무, 정찰, 질주, 정비, 덫 설치, 분신, 약초학, 폭탄 설치, 유황범람)
   // — 기본적으로 자신/주변 기반이라 SP/행동 조건만 통과하면 가능
   return true;
@@ -24966,6 +24983,18 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
         }
       }
       if (!anyOpen) return { ok: false, why: '주변 설치 가능한 칸 없음' };
+    }
+    // ★ 사용자 요청: 악령술사 조종 — 보드 위 내 악령이 없으면 잠금.
+    if (sk.id === 'command') {
+      if (!(S.myPieces || []).some(p => p.alive && p.type === 'wraith')) return { ok: false, why: '조종할 악령 없음' };
+    }
+    // ★ 사용자 요청: 악령술사 강령술 — 보드 위 유해가 없으면 잠금(언데드는 유해 아님).
+    if (sk.id === 'raise') {
+      if (!(S.remains || []).length) return { ok: false, why: '되살릴 유해 없음' };
+    }
+    // ★ 사용자 요청: 묘지기 도굴 — 공격범위 내 유해/언데드가 없으면 잠금.
+    if (sk.id === 'exhume') {
+      if (typeof skillHasValidTarget === 'function' && !skillHasValidTarget(pc, sk)) return { ok: false, why: '공격범위 내 유해 없음' };
     }
     if (typeof skillHasValidTarget === 'function' && !skillHasValidTarget(pc, sk)) {
       return { ok: false, why: '유효한 대상이 없음' };

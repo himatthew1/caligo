@@ -198,7 +198,7 @@ const CHARACTERS = {
     { type:'wanderer', name:'방랑자', tier:1, atk:1, icon:'🧭', tag:null, desc:'부메랑 — 나이트 방향 8칸', skills:[] },
     { type:'hookKiller', name:'갈고리 살인마', tier:1, atk:1, icon:'🪝', tag:'villain', desc:'위치한 곳 가로 횡 전부', skills:[] },
     { type:'gravekeeper', name:'묘지기', tier:1, atk:1, icon:'⚰️', tag:'villain', desc:'제자리 제외 십자',
-      skills:[{id:'exhume', name:'도굴', cost:0, replacesAction:false, desc:'공격범위 내 유해 하나를 제거하고 인스턴트 SP 2 획득'}], passives:['valor'] },
+      skills:[{id:'exhume', name:'도굴', cost:0, replacesAction:false, oncePerTurn:true, desc:'공격범위 내 유해 하나를 제거하고 인스턴트 SP 2 획득'}], passives:['valor'] },
     { type:'fairy', name:'요정', tier:1, atk:0.5, icon:'🧚', tag:'spirit', desc:'H자 — 좌우 세로 3칸과 제자리',
       skills:[{id:'fairyDust', name:'페어리 더스트', cost:2, replacesAction:false, desc:'아군 1명에게 행운 부여(다음 피해 1회 0)'}] },
     { type:'mermaid', name:'샘의 인어', tier:1, atk:1, icon:'🧜', tag:'spirit', desc:'제자리와 상단',
@@ -8680,7 +8680,11 @@ function getBaseAtk(piece, room, ownerIdx) {
   const on = (id) => (typeof isPassiveActive === 'function') ? isPassiveActive(piece, id) : true;
   if (pas.includes('might') && on('might')) return Math.max(0, piece.hp || 0);        // 철인 괴력
   if (pas.includes('successor') && on('successor')) base += 0.5 * _countOtherAliveRoyals(room, piece); // 왕자 계승자
-  if (pas.includes('valor') && on('valor')) base += 0.5 * ((room && room.remains && room.remains.length) || 0); // 묘지기 담력
+  if (pas.includes('valor') && on('valor')) {   // 묘지기 담력 — 보드 위 유해 + 언데드/악령(살아있는 유해 취급)도 카운트
+    let _corpses = (room && room.remains && room.remains.length) || 0;
+    if (room && room.players) for (const _pl of room.players) for (const _p of (_pl.pieces || [])) { if (_p && _p.alive && (_p.type === 'undead' || _p.type === 'wraith')) _corpses++; }
+    base += 0.5 * _corpses;
+  }
   // 팩션 ATK 버프(마왕 타락 +0.5/악인 · 오베론 축복 등) — room._factionAtkBuff[faction] 누적.
   if (room && room._factionAtkBuff && typeof pieceFaction === 'function') base += room._factionAtkBuff[pieceFaction(piece)] || 0;
   return base;
@@ -13202,4 +13206,6 @@ module.exports = {
   initPatronBonus, initUndeadState, buildSetupAnnouncements,
   // ★ 스킬 실행 검증용
   executeSkill,
+  // ★ 동적 공격력 검증용 (담력·철인·계승자·타락 등)
+  getBaseAtk, getEffectiveAtk,
 };
