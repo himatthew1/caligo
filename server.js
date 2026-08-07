@@ -7227,6 +7227,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       room.sp[oppSlot] -= 1;
       room.sp[mySlot] = Math.min(10, (room.sp[mySlot] || 0) + 1);
       emitSPUpdate(room);
+      result.data.spSteal = true;   // ★ 클라 SP 구슬 이동 애니용 (상대 SP바 → 내 SP바)
       result.msg = `강탈: 상대 공유 SP 1 탈취`;
       result.oppMsg = `강탈: 공유 SP 1 빼앗김`;
       break;

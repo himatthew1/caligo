@@ -7571,6 +7571,28 @@ function playBoardQuake() {
 //   ② SP 차감 집중 + 마법구 비행 (~2s)
 //   ③ 화면 dim 해제 (밝아짐)
 //   ④ 0.5초 후 — 스킬 효과 시전 (HP/보드 업데이트, 셀 애니, 토스트, 로그)
+// ★ 도적 강탈 — SP 구슬이 한쪽 SP바에서 다른 쪽으로 날아가는 연출.
+//   victim=false: 상대 SP바 → 내 SP바(시전자=도적 시점, "구슬이 내쪽으로 넘어옴").
+//   victim=true : 내 SP바 → 상대 SP바(피해자 시점).
+function playSpStealOrb(victim) {
+  const fromEl = document.getElementById(victim ? 'sp-my-num' : 'sp-opp-num');
+  const toEl   = document.getElementById(victim ? 'sp-opp-num' : 'sp-my-num');
+  if (!fromEl || !toEl) return;
+  const fr = fromEl.getBoundingClientRect(), tr = toEl.getBoundingClientRect();
+  if (!fr.width || !tr.width) return;
+  const x0 = fr.left + fr.width / 2, y0 = fr.top + fr.height / 2;
+  const x1 = tr.left + tr.width / 2, y1 = tr.top + tr.height / 2;
+  const orb = document.createElement('div');
+  orb.className = 'sp-steal-orb';
+  orb.style.left = x0 + 'px';
+  orb.style.top = y0 + 'px';
+  document.body.appendChild(orb);
+  void orb.offsetWidth;   // 강제 리플로우 → transition 발동
+  orb.style.transform = `translate(-50%,-50%) translate(${(x1 - x0).toFixed(1)}px, ${(y1 - y0).toFixed(1)}px) scale(0.55)`;
+  setTimeout(() => { orb.style.opacity = '0'; }, 560);
+  setTimeout(() => { orb.remove(); }, 820);
+}
+
 socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves }) => {
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
@@ -7609,6 +7631,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   startSkillCastDim(casterCard, _targetInfo);
   // SP 마법구 이동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+  // ★ 도적 강탈 — 상대 SP바에서 내 SP바로 구슬이 넘어오는 연출.
+  if (data && data.spSteal) { try { playSpStealOrb(false); } catch (e) {} }
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
   // ★ 시전자 말풍선 — 시전자 카드에서 보드 쪽으로 꼬리 달린 스킬명 말풍선 (2초 유지)
@@ -12011,7 +12035,7 @@ function createRevealCard(pc, tooltipSide) {
   card.className = 'reveal-piece-card';
   card.style.position = 'relative';
   const tagHtml = pieceFactionBadgeHtml(pc);
-  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed, pc.faction);
   card.innerHTML = `
     <span class="char-icon" style="font-size:1.6rem">${pieceIconHtml(pc.icon, {size:'1.6em'})}</span>
     <div class="piece-info">
@@ -13351,7 +13375,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     const selectedCls = (interactive && placementSelected === i) ? 'selected' : '';
     const teammateCls = interactive ? '' : 'teammate-piece-card';
     card.className = `piece-card placement-detail-card ${placed ? 'placed' : ''} ${selectedCls} ${teammateCls}`;
-    const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
+    const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed, pc.faction);
     const tagHtml = pieceFactionBadgeHtml(pc);
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
@@ -16763,7 +16787,7 @@ function applyClientDarkVeil(piece, cells) {
   return cells.filter((c, i) => i !== rmIdx);
 }
 
-function buildMiniRangeGrid(type, extra, icon, darkVeilSeed) {
+function buildMiniRangeGrid(type, extra, icon, darkVeilSeed, faction) {
   // 5x5 미니 그리드, 중앙(2,2)을 기준으로 공격범위 계산
   const fakeExtra = { ...(extra || {}), toggleState: extra?.toggleState };
   let cells;
@@ -16774,22 +16798,29 @@ function buildMiniRangeGrid(type, extra, icon, darkVeilSeed) {
   } else {
     cells = getAttackCells(type, 2, 2, fakeExtra);
   }
-  // ★ 어둠장막: 미니그리드에서도 시드 기준 봉인칸 1개 제거 — 활성 시에만.
-  if (darkVeilSeed != null && cells.length && type !== 'villain' && typeof clientDarkVeilActive === 'function' && clientDarkVeilActive()) {
-    const rmIdx = darkVeilSeed % cells.length;
-    cells = cells.filter((c, i) => i !== rmIdx);
+  // ★ 어둠장막: 봉인칸을 '제거'하지 말고 검은 봉인 표시로 남긴다(그냥 사라지면 원래 범위와 헷갈림).
+  //   서버 applyDarkVeil 과 동일한 시드 인덱스로 봉인칸 1개를 골라 sealed 로 표기(활성 시에만).
+  //   ★ 악인(villain) '현재' 소속은 봉인 제외(서버 applyDarkVeil 과 동일) — 호문클루스가 도중에 악인으로
+  //     변이하면 faction 이 'villain' 이 되어 자동 해제. type(캐릭터 타입)이 아니라 faction 으로 판정해야 함.
+  let sealedKey = null;
+  if (darkVeilSeed != null && cells.length && faction !== 'villain' && typeof clientDarkVeilActive === 'function' && clientDarkVeilActive()) {
+    const sc = cells[darkVeilSeed % cells.length];
+    if (sc) sealedKey = `${sc.col},${sc.row}`;
   }
   const atkSet = new Set(cells.map(c => `${c.col},${c.row}`));
 
   let html = '<div class="mini-range-grid">';
   for (let r = 0; r < 5; r++) {
     for (let c = 0; c < 5; c++) {
+      const key = `${c},${r}`;
       const isCenter = (c === 2 && r === 2);
-      const isAtk = atkSet.has(`${c},${r}`);
+      const isSealed = (key === sealedKey);
+      const isAtk = atkSet.has(key) && !isSealed;   // 봉인칸은 공격칸으로 세지 않음(검은 표시 우선)
       if (isCenter) {
-        html += `<div class="mini-cell center-icon${isAtk ? ' atk' : ''}">${pieceIconHtml(icon, {size:'0.9em'}) || ''}</div>`;
+        html += `<div class="mini-cell center-icon${isSealed ? ' sealed' : (isAtk ? ' atk' : '')}">${pieceIconHtml(icon, {size:'0.9em'}) || ''}</div>`;
       } else {
-        html += `<div class="${isAtk ? 'mini-cell atk' : 'mini-cell'}"></div>`;
+        const cls = isSealed ? 'mini-cell sealed' : (isAtk ? 'mini-cell atk' : 'mini-cell');
+        html += `<div class="${cls}"></div>`;
       }
     }
   }
@@ -16854,7 +16885,7 @@ function getSkillTypeTagFromChar(pc) {
 }
 
 function buildPieceTooltip(pc, side) {
-  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed);
+  const grid = buildMiniRangeGrid(clientEffectiveType(pc), { toggleState: pc.toggleState, growth: pc.rangeGrowth || 0, growthArms: pc.growthArms }, pc.icon, pc.darkVeilSeed, pc.faction);
 
   // 캐릭터 도감(slide-content)과 동일 양식으로 통일:
   //   <slide-head-line>
