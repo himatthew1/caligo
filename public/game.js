@@ -18994,7 +18994,8 @@ function getAttackCells(type, col, row, extra) {
     case 'storyteller': for (const dc of [-1,0,1]) { push(col+dc,row); push(col+dc,row-1); } break;
     case 'unicorn': case 'necromancer': push(col,row); push(col-1,row-1); push(col+1,row-1); break;
     case 'hero': case 'siegeBreaker': push(col,row); push(col,row+1); break;
-    case 'homunculus': case 'undead': push(col-1,row); push(col+1,row); break;
+    case 'homunculus': push(col-1,row); push(col+1,row); push(col-1,row+1); push(col+1,row+1); break;  // 좌우 + 하단 대각2 (서버 판정과 일치)
+    case 'undead': push(col-1,row); push(col+1,row); break;
     case 'gladiator': push(col-1,row); push(col+1,row); push(col,row-1); break;
     case 'fairy': push(col,row); for (const dr of [-1,0,1]) { push(col-1,row+dr); push(col+1,row+dr); } break;
     case 'windSurfer': push(col-1,row); push(col,row); push(col+1,row); push(col,row+1); break;
@@ -19528,7 +19529,8 @@ function getAttackCellsWithBounds(type, col, row, bounds, extra) {
     case 'storyteller': for(const dc of[-1,0,1]){push(col+dc,row);push(col+dc,row-1);} break;
     case 'unicorn': case 'necromancer': push(col,row);push(col-1,row-1);push(col+1,row-1); break;
     case 'hero': case 'siegeBreaker': push(col,row);push(col,row+1); break;
-    case 'homunculus': case 'undead': push(col-1,row);push(col+1,row); break;
+    case 'homunculus': push(col-1,row);push(col+1,row);push(col-1,row+1);push(col+1,row+1); break;  // 좌우 + 하단 대각2 (서버 판정과 일치)
+    case 'undead': push(col-1,row);push(col+1,row); break;
     case 'gladiator': push(col-1,row);push(col+1,row);push(col,row-1); break;
     case 'fairy': push(col,row); for(const dr of[-1,0,1]){push(col-1,row+dr);push(col+1,row+dr);} break;
     case 'windSurfer': push(col-1,row);push(col,row);push(col+1,row);push(col,row+1); break;
