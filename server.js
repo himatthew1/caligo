@@ -1958,7 +1958,7 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   const effAtk = _effectiveAtkForAi(piece, room, idx);
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 1v1 과 동일.
-  score += aiAttackTargetBonus(room, idx, cells, effAtk);
+  score += aiAttackTargetBonus(room, idx, cells, effAtk, piece);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(제자리)하면 페널티 (1v1 과 동일).
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
@@ -8137,7 +8137,10 @@ function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
 //   행동 가능한 최우선 타겟이므로, 가장 가까운 표식 적으로 맨해튼 거리를 좁히는 이동에 강하게
 //   가산 → 사거리 안으로 파고들어 확실히 타격. 고가치일수록 ↑. (aiScoreMove 1v1 + 팀 이동점수 공용)
 function aiMarkedChaseBonus(room, ownerIdx, piece, newCol, newRow) {
-  const marked = aiKnownEnemies(room, ownerIdx).filter(e => e.marked && e.col != null && e.row != null);
+  // ★ 언데드는 추격 대상에서 제외 — 일반공격 무가치. 단 처형(behead) 보유 유닛만 소멸 가능 → 추격 허용.
+  const _canBehead = _aiUnitDestroysUndeadOnAttack(piece);
+  const marked = aiKnownEnemies(room, ownerIdx).filter(e => e.marked && e.col != null && e.row != null
+    && (e.piece.type !== 'undead' || _canBehead));
   if (!marked.length) return 0;
   let bestTo = 999, bestFrom = 999, bestVal = 0;
   for (const e of marked) {
@@ -8162,6 +8165,14 @@ function aiMarkedChaseBonus(room, ownerIdx, piece, newCol, newRow) {
 // ══════════════════════════════════════════════════════════════════
 function aiIsMarked(piece) {
   return !!(piece && piece.statusEffects && piece.statusEffects.some(e => e.type === 'mark'));
+}
+// ★ 언데드 견제 정책: 언데드=살아있는 유해(일반 피해/DoT/덫 전부 무효, HP0에도 불사) → '일반 공격'으로는
+//   때려봐야 무가치. 오직 소멸 효과(참수/파괴/도굴/종언)로만 제거된다. AI 는 언데드를 공세 유인(공격 타겟·
+//   추격·믿음맵 앵커)에서 제외하되, 위협맵(회피)에는 그대로 유지 → "죽어라 패지 말고, 위치 알면 사거리만 피함".
+//   단 일반 '공격'으로 언데드를 실제 소멸시키는 유일 경로 = 처형(behead) 패시브 → 그 유닛에겐 언데드가 고가치 타겟.
+function _aiUnitDestroysUndeadOnAttack(piece) {
+  return !!(piece && (piece.passives || []).includes('behead') &&
+    (typeof isPassiveActive !== 'function' || isPassiveActive(piece, 'behead')));
 }
 // 살아있는 적 목록(공정). marked=true 일 때만 col/row 신뢰. 그 외 위치는 null(확률맵으로 추정).
 function aiKnownEnemies(room, ownerIdx) {
@@ -8209,9 +8220,10 @@ function aiCurseValue(piece) {
 // ── 공격 타겟 보너스 — 표식된 적(실위치 공개)이 공격칸에 들어올 때 처치/고가치 가중. ──
 //   공개 정보(HP·타입)만 사용 → 치팅 아님. 비표식 적은 확률맵 점수로만 평가(위치 모름).
 //   사용자 요청: 한 방의 의도 — 끝낼 수 있으면 끝내고, 핵심 유닛을 노린다.
-function aiAttackTargetBonus(room, ownerIdx, cells, effAtk) {
+function aiAttackTargetBonus(room, ownerIdx, cells, effAtk, attacker) {
   const enemies = aiKnownEnemies(room, ownerIdx).filter(e => e.marked);
   if (enemies.length === 0) return 0;
+  const _canBehead = _aiUnitDestroysUndeadOnAttack(attacker);   // 처형 보유 = 언데드 소멸 가능
   // ★ 내 아군이 저주(지속뎀 0.5/턴 · 축적 어트리션)에 걸려있으면 — 저주원(마녀) 처치 = 전체 저주 즉시
   //   해제 → 누적뎀 중단. 마녀 처치를 강하게 가산(사용자: 유황과 같은 "축적 데미지 견제" 일반화).
   let _myCursed = false;
@@ -8233,6 +8245,8 @@ function aiAttackTargetBonus(room, ownerIdx, cells, effAtk) {
   for (const c of cells) {
     const tgt = enemies.find(e => e.col === c.col && e.row === c.row);
     if (!tgt) continue;
+    // ★ 언데드 = 일반공격 무가치(불사). 처치/치사 보너스 전부 스킵. 단 처형(behead) 보유면 소멸 가능 → 고가치.
+    if (tgt.piece.type === 'undead') { if (_canBehead) bonus += 14; continue; }
     const hp = tgt.piece.hp || 1, val = aiUnitValue(tgt.piece);
     if (_myCursed && tgt.piece.type === 'witch') bonus += 10;  // 저주원 처치 = 아군 저주 전체 해제(축적뎀 중단)
     // 힐 엔진(herbalist/monk) 처치 우선 — 힐탱 파훼의 linchpin. 힐러 살아있을 때 특히.
@@ -8355,6 +8369,7 @@ function aiInjectMarkedEnemies(brain, room, ownerIdx) {
   for (const e of aiKnownEnemies(room, ownerIdx)) {
     if (!e.marked || e.col == null || e.row == null) continue;
     if (e.row < 0 || e.row >= size || e.col < 0 || e.col >= size) continue;
+    if (e.piece.type === 'undead') continue;   // ★ 언데드=일반공격 무가치 → 공세 믿음맵 앵커 제외(회피는 dangerMap 이 담당)
     const pri = 9 + Math.min(3, aiUnitValue(e.piece) * 0.18);   // 확정(9) + 가치 가중(최대 +3)
     if (brain.probMap[e.row]) brain.probMap[e.row][e.col] = Math.max(brain.probMap[e.row][e.col], pri);
   }
@@ -8834,7 +8849,7 @@ function aiScoreAttack(brain, piece, room, extra) {
   const effAtk = _effectiveAtkForAi(piece, room, 1);
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 끝낼 수 있으면 끝낸다.
-  score += aiAttackTargetBonus(room, 1, cells, effAtk);
+  score += aiAttackTargetBonus(room, 1, cells, effAtk, piece);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(=제자리 유지)하면 강한 페널티 → 안전한 이동 우선.
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
@@ -13208,4 +13223,6 @@ module.exports = {
   executeSkill,
   // ★ 동적 공격력 검증용 (담력·철인·계승자·타락 등)
   getBaseAtk, getEffectiveAtk,
+  // ★ 언데드 견제 정책 검증용 (공세 유인 제외 / 위협맵 유지)
+  aiAttackTargetBonus, aiMarkedChaseBonus, aiBuildDangerMap, aiKnownEnemies, _aiUnitDestroysUndeadOnAttack,
 };
