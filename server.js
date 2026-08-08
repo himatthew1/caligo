@@ -12365,8 +12365,8 @@ io.on('connection', (socket) => {
     const atkPiece = attacker.pieces[pieceIdx];
     if (!atkPiece || !atkPiece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
 
-    // Validate target for target-picking types
-    if ((atkPiece.type === 'shadowAssassin' || atkPiece.type === 'witch') &&
+    // Validate target for target-picking types (catapult 포함 — tCol 없이 오면 조용히 빈 공격이 되던 것 방지)
+    if ((atkPiece.type === 'shadowAssassin' || atkPiece.type === 'witch' || atkPiece.type === 'catapult') &&
         (tCol === undefined || tRow === undefined || !inBounds(tCol, tRow, room.boardBounds))) {
       socket.emit('err', { msg: '대상 칸을 선택하세요.' }); return;
     }
