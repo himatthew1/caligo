@@ -2424,6 +2424,32 @@ function aiTeamUsePreSkills(room, idx) {
     //   1. 보드 축소 임박 시 적을 외곽 파괴 영역으로 / 2. AI 공격범위 즉사 연계 /
     //   3. AI 덫·폭탄·쥐 위로 / 4. AI 유닛 위협 적을 위협 안 닿는 곳으로.
     //   _aiPickRingPlay 헬퍼가 4가지 조건을 점수화하여 최선의 play 반환 (없으면 null).
+    // ★ 머쉬킨: 확산 (SP2) — 진균 지대 확장. 진균이 있고 과다하지 않을 때.
+    if (piece.skillId === 'spread') {
+      const fCount = (room.fungus || []).length;
+      if (fCount > 0 && fCount < 8) { aiTeamExecSkill(room, idx, pi, 'spread'); return true; }
+    }
+    // ★ 검투사: 투지 (SP3) — 스킬 없는 아군 회복+사기증진. 팀 전체에서 스킬없는 부상 아군이 있을 때.
+    if (piece.skillId === 'grit') {
+      const woundedSkilless = allyIdxs.flatMap(ai => room.players[ai] ? room.players[ai].pieces : [])
+        .some(a => a.alive && !((a.skills && a.skills.length > 0) || a.hasSkill) && a.hp < a.maxHp);
+      if (woundedSkilless) { aiTeamExecSkill(room, idx, pi, 'grit'); return true; }
+    }
+    // ★ 요정: 페어리 더스트 (SP2) — 위급 아군(팀원 포함)에게 행운(다음 피해 1회 0).
+    if (piece.skillId === 'fairyDust') {
+      const _fdBrain = getTeamBrain(room, getTeamOf(room, idx));
+      const allies = allyIdxs.flatMap(ai => (room.players[ai] ? room.players[ai].pieces.map((pc, i2) => ({ pc, owner: ai, pidx: i2 })) : []));
+      const cand = allies.filter(o => o.pc.alive && !(o.pc.statusEffects || []).some(e => e.type === 'luck'))
+        .sort((a, b) => (a.pc.hp / a.pc.maxHp) - (b.pc.hp / b.pc.maxHp))[0];
+      if (cand) {
+        const mem = _fdBrain.hitMemory[cand.pc.type];
+        const recentlyHit = mem && (_fdBrain.turnCount - mem.turn) <= 2;
+        if (cand.pc.hp <= cand.pc.maxHp * 0.5 || recentlyHit) {
+          aiTeamExecSkill(room, idx, pi, 'fairyDust', { targetPieceIdx: cand.pidx, targetOwnerIdx: cand.owner });
+          return true;
+        }
+      }
+    }
     if (piece.skillId === 'ring') {
       // ★ 같은 팀 멤버는 적이 아니므로 _aiPickRingPlay 의 enemyOwnerIdxs 에서 제외 (이중 안전장치).
       const enemyOwners = (enemyIdxs || []).filter(ei => {
@@ -9670,6 +9696,35 @@ function aiUsePreSkills(room) {
         }
         break;
       }
+      // ★ 머쉬킨: 확산 (SP2) — 진균 지대 확장(적이 진균칸에서 턴 종료 시 중독). 순수 지역통제, 과다하지 않을 때만.
+      case 'mushkin': {
+        const fCount = (room.fungus || []).length;
+        if (fCount > 0 && fCount < 8) _tryExec(pidx, 'spread');
+        break;
+      }
+      // ★ 검투사: 투지 (SP3) — 스킬 없는 아군 회복+임시 사기증진. 스킬없는 아군이 부상일 때.
+      case 'gladiator': {
+        const woundedSkilless = alivePieces.some(a => {
+          const hasSk = (a.skills && a.skills.length > 0) || a.hasSkill;
+          return !hasSk && a.hp < a.maxHp;
+        });
+        if (woundedSkilless) _tryExec(pidx, 'grit');
+        break;
+      }
+      // ★ 요정: 페어리 더스트 (SP2) — 위급 아군에게 행운(다음 피해 1회 0). 최저HP 아군이 위급/피격 기억 시.
+      case 'fairy': {
+        const cand = alivePieces
+          .filter(a => !(a.statusEffects || []).some(e => e.type === 'luck'))
+          .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+        if (cand) {
+          const mem = brain.hitMemory[cand.type];
+          const recentlyHit = mem && (brain.turnCount - mem.turn) <= 2;
+          if (cand.hp <= cand.maxHp * 0.5 || recentlyHit) {
+            _tryExec(pidx, 'fairyDust', { targetPieceIdx: aiPlayer.pieces.indexOf(cand) });
+          }
+        }
+        break;
+      }
     }
   }
   return _execed;
@@ -13297,6 +13352,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
+  aiUsePreSkills, aiTeamUsePreSkills,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
