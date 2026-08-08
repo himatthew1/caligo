@@ -666,10 +666,18 @@ function initPatronBonus(room) {
     const pl = room.players[pi]; if (!pl || !pl.pieces) continue;
     const hasPrincess = pl.pieces.some(p => p.type === 'princess');
     if (!hasPrincess) continue;
-    for (const p of pl.pieces) {
-      if (p && p.type !== 'undead' && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) {
-        p.maxHp = (p.maxHp || 0) + 1;
-        p.hp = (p.hp || 0) + 1;
+    // ★ 후원자는 '팀 전체' 왕실 아군에게 적용 — 기존엔 공주 소유 플레이어의 말만 버프해 팀원(다른 인덱스)이
+    //   누락됐음(사용자 보고: 팀전 아군 버프 미적용). _patronApplied 로 팀 내 공주 2명 시 이중 적용 방지.
+    const allyIdxs = (room.mode === 'team' && typeof getAllyIndices === 'function') ? getAllyIndices(room, pi) : [pi];
+    for (const ai of allyIdxs) {
+      const ap = room.players[ai]; if (!ap || !ap.pieces) continue;
+      for (const p of ap.pieces) {
+        if (p && p.type !== 'undead' && !p._patronApplied
+            && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) {
+          p.maxHp = (p.maxHp || 0) + 1;
+          p.hp = (p.hp || 0) + 1;
+          p._patronApplied = true;
+        }
       }
     }
   }
@@ -1983,7 +1991,11 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   // ★ 1v1 aiScoreAttack 과 동일 — probMap(정규화 믿음맵)에서 확신 피크(best) 주가중 + 나머지 소액(0.35).
   //   sum 으로 바꾸면 확산 믿음을 과대평가해 AI 가 탐색 대신 블라인드 난사 → 수동화(회귀). best-가중이 정답.
   let sum = 0, best = 0;
-  for (const c of cells) { const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p; }
+  const _cultSkip = (piece && piece._cultOf != null) ? _aiMarkedHereticCells(room, idx) : null;   // 이교도→이단자 데미지0
+  for (const c of cells) {
+    if (_cultSkip && _cultSkip.has(`${c.col},${c.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
+    const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p;
+  }
   // ★ 공격 커밋 가중(attackAggro) — 기대값(0~1)을 이동 보너스(도주/접근 등 두 자릿수)와 겨루게 상향.
   //   best 가 여전히 확률맵이라 '있을 법한' 칸에만 반응 → 블라인드 난사 아님, 날카로운 예측 공격.
   let score = (best + 0.35 * (sum - best)) * (W.attackAggro || 1);
@@ -8181,8 +8193,10 @@ function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
 function aiMarkedChaseBonus(room, ownerIdx, piece, newCol, newRow) {
   // ★ 언데드는 추격 대상에서 제외 — 일반공격 무가치. 단 처형(behead) 보유 유닛만 소멸 가능 → 추격 허용.
   const _canBehead = _aiUnitDestroysUndeadOnAttack(piece);
+  const _cultChaser = piece && piece._cultOf != null;   // 이교도는 이단자 추격 제외(데미지0)
   const marked = aiKnownEnemies(room, ownerIdx).filter(e => e.marked && e.col != null && e.row != null
-    && (e.piece.type !== 'undead' || _canBehead));
+    && (e.piece.type !== 'undead' || _canBehead)
+    && !(_cultChaser && e.piece.type === 'heretic'));
   if (!marked.length) return 0;
   let bestTo = 999, bestFrom = 999, bestVal = 0;
   for (const e of marked) {
@@ -8215,6 +8229,20 @@ function aiIsMarked(piece) {
 function _aiUnitDestroysUndeadOnAttack(piece) {
   return !!(piece && (piece.passives || []).includes('behead') &&
     (typeof isPassiveActive !== 'function' || isPassiveActive(piece, 'behead')));
+}
+// ★ 이교도(현혹) 견제 정책: 현혹으로 이교단(_cultOf)이 된 유닛은 그 이단자(heretic)에게 데미지 0
+//   (server resolveDamage ~4533). 언데드처럼 — 이교도 공격자에겐 이단자가 무가치 타깃이므로 공격/추격/
+//   믿음가치에서 제외하고, 위협맵(회피)엔 유지 → "데미지 못 주는 이단자를 계속 패지 말고 다른 적을 탐색".
+function _aiCultCantHit(attacker, targetPiece) {
+  return !!(attacker && attacker._cultOf != null && targetPiece && targetPiece.type === 'heretic');
+}
+// 표식(위치 확정)된 적 이단자 칸 집합 — 이교도 공격자의 공격 가치 산정에서 그 칸을 제외하기 위함.
+function _aiMarkedHereticCells(room, ownerIdx) {
+  const set = new Set();
+  for (const e of aiKnownEnemies(room, ownerIdx)) {
+    if (e.marked && e.col != null && e.piece && e.piece.type === 'heretic') set.add(`${e.col},${e.row}`);
+  }
+  return set;
 }
 // 살아있는 적 목록(공정). marked=true 일 때만 col/row 신뢰. 그 외 위치는 null(확률맵으로 추정).
 function aiKnownEnemies(room, ownerIdx) {
@@ -8287,6 +8315,8 @@ function aiAttackTargetBonus(room, ownerIdx, cells, effAtk, attacker) {
   for (const c of cells) {
     const tgt = enemies.find(e => e.col === c.col && e.row === c.row);
     if (!tgt) continue;
+    // ★ 이교도(현혹) 공격자 → 이단자는 데미지 0 → 처치/치사 가치 없음(무가치 타깃).
+    if (_aiCultCantHit(attacker, tgt.piece)) continue;
     // ★ 언데드 = 일반공격 무가치(불사). 처치/치사 보너스 전부 스킵. 단 처형(behead) 보유면 소멸 가능 → 고가치.
     if (tgt.piece.type === 'undead') { if (_canBehead) bonus += 14; continue; }
     const hp = tgt.piece.hp || 1, val = aiUnitValue(tgt.piece);
@@ -8877,8 +8907,10 @@ function aiScoreAttack(brain, piece, room, extra) {
   //     있는가" 판단이라 best-가중이 정답 — sum 으로 바꾸면 정규화 믿음맵을 오해해 탐색을 안 함(수동화).
   //     (단일타깃 shadowAssassin/witch 는 호출부가 tCol 로 1칸만 넘겨 sum=best 라 동일하게 동작.)
   let sum = 0, best = 0;
+  const _cultSkip = (piece && piece._cultOf != null) ? _aiMarkedHereticCells(room, 1) : null;   // 이교도→이단자 데미지0
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
+      if (_cultSkip && _cultSkip.has(`${cell.col},${cell.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
       const p = brain.probMap[cell.row][cell.col];
       sum += p; if (p > best) best = p;
     }
