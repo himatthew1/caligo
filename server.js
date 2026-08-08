@@ -7337,13 +7337,20 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── FAIRY: 페어리 더스트 (아군 1명 행운 — 다음 피해 1회 0) ──
     case 'fairy': {
-      const t = (params && params.targetPieceIdx != null) ? player.pieces[params.targetPieceIdx] : null;
+      // ★ FIX (팀전 페어리 더스트 — 팀원 대상 지목): targetOwnerIdx 로 본인 OR 팀원 지정 가능.
+      //   (이전엔 player.pieces 본인 말만 → 팀전에서 팀원에게 행운을 못 줬음. divine/herb 와 동일 패턴.)
+      const _luckOwnerIdx = (typeof params?.targetOwnerIdx === 'number') ? params.targetOwnerIdx : playerIdx;
+      const _luckAllyIdxs = (room.mode === 'team') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      if (!_luckAllyIdxs.includes(_luckOwnerIdx)) return { ok: false, msg: '아군에게만 행운을 줄 수 있습니다.' };
+      const _luckPlayer = room.players[_luckOwnerIdx];
+      const t = (_luckPlayer && params && params.targetPieceIdx != null) ? _luckPlayer.pieces[params.targetPieceIdx] : null;
       if (!t || !t.alive) return { ok: false, msg: '행운을 줄 아군을 선택하세요.' };
       spendSP(room, playerIdx, cost);
       addStatus(t, 'luck', { stacks: 1 });
       result.msg = `페어리 더스트: ${t.name}에게 행운 부여`;
       result.oppMsg = `페어리 더스트`;
       result.data.luckPieceIdx = params.targetPieceIdx;
+      result.data.luckOwnerIdx = _luckOwnerIdx;
       break;
     }
 
