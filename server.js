@@ -1419,14 +1419,21 @@ function _redistributeUndeadHp(hps, types, maxVal) {
     else nonU.push(i);
   }
   if (freed <= 0 || nonU.length === 0) return hps;
+  // 1차: 상한(maxVal)까지 라운드로빈.
   let guard = 0;
-  while (freed > 0 && guard++ < 200) {
+  while (freed > 0 && guard++ < 400) {
     let placed = false;
     for (const i of nonU) {
       if (freed <= 0) break;
       if (hps[i] < maxVal) { hps[i] += 1; freed -= 1; placed = true; }
     }
-    if (!placed) break;   // 전부 상한(8) 도달 → 더 못 넣음(1v1 비언데드 2슬롯이면 항상 수용)
+    if (!placed) break;
+  }
+  // 2차: 상한으로 다 못 담았으면(팀 2픽 중 1개가 언데드 → 생존자 1명) 총량 보존 위해 초과 허용해 마저 배분.
+  //   언데드 슬롯 예산은 잃지 않는다(사용자: 언데드에 HP 부여로 총량 10이 깨지던 팀전 버그).
+  let g2 = 0;
+  while (freed > 0 && g2++ < 400) {
+    for (const i of nonU) { if (freed <= 0) break; hps[i] += 1; freed -= 1; }
   }
   return hps;
 }
@@ -3403,7 +3410,9 @@ function buildTeamPieces(draft, hpDist) {
       younger.type = 'twins_younger';
       pieces.push(elder, younger);
     } else {
-      pieces.push(createPiece(type, tier, hpDist[slot] || 1));
+      // ★ 언데드는 체력바 없음 → 0으로 생성(hpDist[slot] || 1 이 0을 1로 되살려 AI가 언데드에 HP를 주던 버그).
+      const _slotHp = (type === 'undead') ? 0 : (hpDist[slot] || 1);
+      pieces.push(createPiece(type, tier, _slotHp));
     }
   }
   return pieces;
@@ -13352,7 +13361,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
-  aiUsePreSkills, aiTeamUsePreSkills,
+  aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
