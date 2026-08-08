@@ -2457,6 +2457,24 @@ function aiTeamUsePreSkills(room, idx) {
         }
       }
     }
+    // ★ 묘지기: 도굴 (SP0) — 공격범위 내 유해/언데드 제거 + 인스턴트 SP2.
+    if (piece.skillId === 'exhume') {
+      const exCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
+      let exTarget = null;
+      for (const c of exCells) {
+        if ((room.remains || []).some(r => r.col === c.col && r.row === c.row)) { exTarget = c; break; }
+        for (const pl of room.players) { for (const pc of pl.pieces) { if (pc.alive && pc.type === 'undead' && pc.col === c.col && pc.row === c.row) { exTarget = c; break; } } if (exTarget) break; }
+        if (exTarget) break;
+      }
+      if (exTarget) { aiTeamExecSkill(room, idx, pi, 'exhume', { col: exTarget.col, row: exTarget.row }); return true; }
+    }
+    // ★ 이야기꾼: 선동 (SP3) — 위치 확정(표식) 적을 배신 상태로.
+    if (piece.skillId === 'incite') {
+      const inciteCand = aiKnownEnemies(room, idx)
+        .filter(e => e.marked && e.col != null && !(e.piece.statusEffects || []).some(s => s.type === 'betray'))
+        .sort((a, b) => aiUnitValue(b.piece) - aiUnitValue(a.piece))[0];
+      if (inciteCand) { aiTeamExecSkill(room, idx, pi, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row }); return true; }
+    }
     if (piece.skillId === 'ring') {
       // ★ 같은 팀 멤버는 적이 아니므로 _aiPickRingPlay 의 enemyOwnerIdxs 에서 제외 (이중 안전장치).
       const enemyOwners = (enemyIdxs || []).filter(ei => {
@@ -9732,6 +9750,26 @@ function aiUsePreSkills(room) {
             _tryExec(pidx, 'fairyDust', { targetPieceIdx: aiPlayer.pieces.indexOf(cand) });
           }
         }
+        break;
+      }
+      // ★ 묘지기: 도굴 (SP0, 자유시전) — 공격범위 내 유해/언데드가 있으면 제거 + 인스턴트 SP2 (순수 이득).
+      case 'gravekeeper': {
+        const exCells = getAttackCells(piece.type, piece.col, piece.row, room.boardBounds, { toggleState: piece.toggleState });
+        let exTarget = null;
+        for (const c of exCells) {
+          if ((room.remains || []).some(r => r.col === c.col && r.row === c.row)) { exTarget = c; break; }
+          for (const pl of room.players) { for (const pc of pl.pieces) { if (pc.alive && pc.type === 'undead' && pc.col === c.col && pc.row === c.row) { exTarget = c; break; } } if (exTarget) break; }
+          if (exTarget) break;
+        }
+        if (exTarget) _tryExec(pidx, 'exhume', { col: exTarget.col, row: exTarget.row });
+        break;
+      }
+      // ★ 이야기꾼: 선동 (SP3, 자유시전·1회) — 위치 확정(표식)된 적을 배신 상태로(강력한 무력화·분란승리 진행).
+      case 'storyteller': {
+        const inciteCand = aiKnownEnemies(room, 1)
+          .filter(e => e.marked && e.col != null && !(e.piece.statusEffects || []).some(s => s.type === 'betray'))
+          .sort((a, b) => aiUnitValue(b.piece) - aiUnitValue(a.piece))[0];
+        if (inciteCand) _tryExec(pidx, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row });
         break;
       }
     }
