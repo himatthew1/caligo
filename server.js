@@ -2073,6 +2073,8 @@ function aiTeamScoreMove(room, idx, piece, newCol, newRow) {
   score += aiMarkedChaseBonus(room, idx, piece, newCol, newRow);
   // ★ 위협 회피 + 정보 획득 — 1v1 aiScoreMove 와 동일. 치팅 X (표식+확률맵만).
   score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
+  // ★ 예상 반격 사망 회피 — 치명적 현재 칸에서 더 안전한 칸으로 대피 유도(1v1 과 동일).
+  score += _aiEscapeLethalBonus(piece, brain._dangerMap, newCol, newRow);
   score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * W.infoGainMul;
   // ★ 지휘관 본인 — 버프 가능한 아군 수만큼 가산 (사기증진 진형 유지). 1v1 과 동일.
   score += aiCommanderAuraScore(piece, room, idx, newCol, newRow) * W.commanderAuraMul;
@@ -2832,12 +2834,12 @@ function aiTeamTakeTurn(room, idx) {
   // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때 타락·강탈로 이득.
   {
     const _fbBrain = getTeamBrain(room, getTeamOf(room, idx));
-    const _marked = aiKnownEnemies(room, idx).filter(e => e.marked && e.col != null);
+    const _conf = _aiConfidentTargetCells(room, idx, _fbBrain);   // 표식 + 명중확정 + 추리 단일후보
     let _confidentTarget = false;
-    if (_marked.length) {
+    if (_conf.size) {
       for (const pc of myAlive) {
         const cs = getAttackCells(pc.type, pc.col, pc.row, bounds, pc.toggleState ? { toggleState: pc.toggleState } : {});
-        if (cs.some(c => _marked.some(m => m.col === c.col && m.row === c.row))) { _confidentTarget = true; break; }
+        if (cs.some(c => _conf.has(`${c.col},${c.row}`))) { _confidentTarget = true; break; }
       }
     }
     if (!_confidentTarget) {
@@ -8191,6 +8193,14 @@ function aiSpreadProbability(brain) {
   } else if (ch && (brain.turnCount - ch.turn) > 3) {
     brain._confirmedHit = null;
   }
+  // ★ 추리 확정칸(_deducedCells) 지속 — 확정칸처럼 3턴 유지(그동안 최고 확신), 이후 만료. 미스 시엔 즉시 제거됨.
+  if (brain._deducedCells) {
+    for (const k in brain._deducedCells) {
+      if ((brain.turnCount - brain._deducedCells[k]) > 3) { delete brain._deducedCells[k]; continue; }
+      const ci = k.indexOf(','); const c = +k.slice(0, ci), r = +k.slice(ci + 1);
+      if (brain.probMap[r]) brain.probMap[r][c] = 10;
+    }
+  }
   // ★ 빗나감 단서 지속 (명세 #7) — 확산/정규화가 미스 칸을 도로 채운 걸 다시 억제.
   //   최근 미스일수록 강하게 누르고 ~4턴에 걸쳐 서서히 복원(적이 그 칸으로 이동했을 수 있으므로).
   //   이게 다층적 추리의 핵심: 매 턴 리셋이 아니라 "어디가 비었나"를 누적 보존.
@@ -8296,6 +8306,18 @@ function _aiAdvantageFallbackSkill(room, ownerIdx, brain) {
     }
   }
   return null;
+}
+// ★ '확정적으로 아는' 적 위치 = 표식(실좌표) + 명중확정(_confirmedHit) + 추리 단일후보(_deducedCells).
+//   사용자: "위치를 아는 것 = 표식만이 아님. 추리로 '이 칸에만 존재 가능'이라고 확정한 것도 포함."
+//   → 폴백(블라인드 판정)·확정타깃 판단에 공용. 적이 이동(재공격 빗나감)하기 전까지 유효.
+function _aiConfidentTargetCells(room, ownerIdx, brain) {
+  const set = new Set();
+  for (const e of aiKnownEnemies(room, ownerIdx)) if (e.marked && e.col != null) set.add(`${e.col},${e.row}`);
+  if (brain) {
+    if (brain._confirmedHit) set.add(`${brain._confirmedHit.col},${brain._confirmedHit.row}`);
+    if (brain._deducedCells) for (const k in brain._deducedCells) if ((brain.turnCount - brain._deducedCells[k]) <= 3) set.add(k);
+  }
+  return set;
 }
 function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
   let potFrom = 0, potTo = 0;
@@ -8664,6 +8686,7 @@ function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
       brain._missMemory[`${cell.col},${cell.row}`] = brain.turnCount;
       // ★ 확정칸 재공격이 빗나감 = 적이 그 칸을 떠남 → 확신 해제(다시 추리 모드).
       if (brain._confirmedHit && brain._confirmedHit.col === cell.col && brain._confirmedHit.row === cell.row) brain._confirmedHit = null;
+      if (brain._deducedCells) delete brain._deducedCells[`${cell.col},${cell.row}`];   // 추리 확정칸도 빗나가면 무효
     }
   }
   // ★ 반격 실패 → 도주 충동: 피격당해 위치를 기억 중인 말이 반격했는데 전부 빗나갔다면
@@ -8752,6 +8775,10 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
         const [c, r] = [...newCandidates][0].split(',').map(Number);
         if (brain.probMap[r]) brain.probMap[r][c] = 10;
         if (brain._missMemory) delete brain._missMemory[`${c},${r}`];
+        // ★ 추리로 '이 칸에만 존재 가능'하다고 확정한 위치 — 표식과 동등한 '확정 타깃'으로 기억(사용자 요청:
+        //   위치를 아는 것 = 표식만이 아님). 적이 이동(재공격 빗나감)하기 전까지 유효. aiProcessAttackResult 가 미스 시 제거.
+        if (!brain._deducedCells) brain._deducedCells = {};
+        brain._deducedCells[`${c},${r}`] = brain.turnCount;
       }
       const candList = [...newCandidates];
       const baseConf = candList.length <= 3 ? 8 : (candList.length <= 6 ? 7 : 6);
@@ -9124,12 +9151,24 @@ function aiScoreMove(brain, piece, newCol, newRow, room) {
 
   // ★ 위협 회피 — 새 위치에서 받을 예상 피격량만큼 감점 (사람처럼 사거리 회피). 치팅 X.
   score -= aiThreatPenalty(piece, brain._dangerMap, newCol, newRow) * W.threatMul;
+  // ★ 예상 반격 사망 회피 (사용자 요청) — 현재 칸이 치명적(예상 피격 ≥ HP)이면 위협 낮은 칸으로 빠지는
+  //   이동에 큰 보너스. 단 확정 처치 공격이 있으면 그 공격 점수가 이걸 이겨 '위협 제거'가 우선됨.
+  score += _aiEscapeLethalBonus(piece, brain._dangerMap, newCol, newRow);
   // ★ 정보 획득(정찰) — 새 위치 공격범위가 불확실 영역을 덮으면 소액 가산 (다음 턴 확정 유도).
   score += aiInfoGain(brain, piece.type, newCol, newRow, bounds, piece.toggleState) * W.infoGainMul;
   // ★ 지휘관 본인 — 버프 가능한 아군 수만큼 가산 (사기증진 진형 유지).
   score += aiCommanderAuraScore(piece, room, 1, newCol, newRow) * W.commanderAuraMul;
 
   return score;
+}
+// ★ '치명적 현재 칸 → 더 안전한 칸' 이동 보너스. 예상 반격으로 죽을 자리면 빠져나가기를 강하게 유도.
+function _aiEscapeLethalBonus(piece, danger, newCol, newRow) {
+  if (!danger || !piece) return 0;
+  const dHere = (danger[piece.row]) ? (danger[piece.row][piece.col] || 0) : 0;
+  if (dHere < (piece.hp || 1)) return 0;                          // 지금 있어도 안 죽음 → 대피 불필요
+  const dThere = (danger[newRow]) ? (danger[newRow][newCol] || 0) : 0;
+  if (dThere >= dHere) return 0;                                   // 더 위험하거나 동일하면 이득 없음
+  return 20 + (dHere - dThere) * 3;                                // 생존 우선 — 저가치 이동을 압도
 }
 
 function aiBestTargetCell(brain, piece, room) {
@@ -10311,12 +10350,12 @@ function aiTakeTurn(room) {
   // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때
   //   타락·강탈로 소소한 이득 확보(블라인드 난사보다 확정 이득 우선, 사용자 요청).
   {
-    const _marked = aiKnownEnemies(room, 1).filter(e => e.marked && e.col != null);
+    const _conf = _aiConfidentTargetCells(room, 1, brain);   // 표식 + 명중확정 + 추리 단일후보
     let _confidentTarget = false;
-    if (_marked.length) {
+    if (_conf.size) {
       for (const pc of alivePieces) {
         const cs = getAttackCells(pc.type, pc.col, pc.row, bounds, pc.toggleState ? { toggleState: pc.toggleState } : {});
-        if (cs.some(c => _marked.some(m => m.col === c.col && m.row === c.row))) { _confidentTarget = true; break; }
+        if (cs.some(c => _conf.has(`${c.col},${c.row}`))) { _confidentTarget = true; break; }
       }
     }
     if (!_confidentTarget) {
@@ -13495,7 +13534,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
-  aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill,
+  aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill, _aiConfidentTargetCells, _aiEscapeLethalBonus, aiProcessAttackResult,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
