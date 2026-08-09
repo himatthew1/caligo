@@ -11,9 +11,9 @@ const CH = S.CHARACTERS;
 
 // 1차 검증용 안전 캐릭터 풀 (특수 소환/전역 스킬 제외 — 안정화 후 전체로 확장).
 const SAFE = {
-  1: ['spearman', 'cavalry', 'archer', 'watchman', 'scout', 'manhunter', 'herbalist', 'fairy', 'gravekeeper'],
+  1: ['spearman', 'cavalry', 'archer', 'watchman', 'scout', 'manhunter', 'herbalist', 'fairy', 'gravekeeper', 'thief'],
   2: ['general', 'knight', 'wizard', 'armoredWarrior', 'weaponSmith', 'bodyguard', 'dualBlade', 'storyteller'],
-  3: ['prince', 'princess', 'monk', 'commander', 'count', 'slaughterHero', 'torturer', 'mushkin', 'gladiator'],
+  3: ['prince', 'princess', 'monk', 'commander', 'count', 'slaughterHero', 'torturer', 'mushkin', 'gladiator', 'demonKing'],
 };
 const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
 

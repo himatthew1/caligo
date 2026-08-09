@@ -2475,6 +2475,17 @@ function aiTeamUsePreSkills(room, idx) {
         .sort((a, b) => aiUnitValue(b.piece) - aiUnitValue(a.piece))[0];
       if (inciteCand) { aiTeamExecSkill(room, idx, pi, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row }); return true; }
     }
+    // ★ 백작: 흡혈 (SP3) — 표식된 적(왕실 우선=상한돌파) 최대체력 -1, 자신 +1.
+    if (piece.skillId === 'vampire') {
+      const vampCand = aiKnownEnemies(room, idx)
+        .filter(e => e.marked && e.col != null && e.piece.type !== 'undead')
+        .sort((a, b) => {
+          const ar = (typeof isFaction === 'function' && isFaction(a.piece, 'royal')) ? 1 : 0;
+          const br = (typeof isFaction === 'function' && isFaction(b.piece, 'royal')) ? 1 : 0;
+          return (br - ar) || (aiUnitValue(b.piece) - aiUnitValue(a.piece));
+        })[0];
+      if (vampCand) { aiTeamExecSkill(room, idx, pi, 'vampire', { targetCol: vampCand.col, targetRow: vampCand.row }); return true; }
+    }
     if (piece.skillId === 'ring') {
       // ★ 같은 팀 멤버는 적이 아니므로 _aiPickRingPlay 의 enemyOwnerIdxs 에서 제외 (이중 안전장치).
       const enemyOwners = (enemyIdxs || []).filter(ei => {
@@ -2815,6 +2826,23 @@ function aiTeamTakeTurn(room, idx) {
           bestAction = { type: 'move', piece, pieceIdx: pi, score: moveScore, col: nc, row: nr };
         }
       }
+    }
+  }
+
+  // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때 타락·강탈로 이득.
+  {
+    const _fbBrain = getTeamBrain(room, getTeamOf(room, idx));
+    const _marked = aiKnownEnemies(room, idx).filter(e => e.marked && e.col != null);
+    let _confidentTarget = false;
+    if (_marked.length) {
+      for (const pc of myAlive) {
+        const cs = getAttackCells(pc.type, pc.col, pc.row, bounds, pc.toggleState ? { toggleState: pc.toggleState } : {});
+        if (cs.some(c => _marked.some(m => m.col === c.col && m.row === c.row))) { _confidentTarget = true; break; }
+      }
+    }
+    if (!_confidentTarget) {
+      const _adv = _aiAdvantageFallbackSkill(room, idx, _fbBrain);
+      if (_adv) { aiTeamExecSkill(room, idx, _adv.pieceIdx, _adv.skillId, _adv.params); scheduleAITurnEnd(room, idx, 3000); return; }
     }
   }
 
@@ -8230,6 +8258,45 @@ function _cells3x3(col, row) {
 //   포텐셜필드: 각 셀의 확률값을 거리로 나눠 합산 → 새 위치가 확률질량에 더 가까우면 +.
 //   공격이 즉시 가능한 강한 칸(원점수 6~10+)은 이 보너스를 압도하므로, 접근은
 //   "딱히 더 좋은 공격이 없을 때" 적 쪽으로 한 칸씩 좁혀가는 약한 유도력으로 작동.
+// ★ "무행동/저가치 턴" 대신 소소한 이득 확보 — 좋은 공격/이동이 없을 때(폴백)만, 그리고 시전 유닛이
+//   '안전'할 때만 행동소비형 이득 스킬을 사용. 사용자 요청: "모든 수가 이득이어야. 타락/강탈 같은 소소한
+//   이득이라도. 타락은 당장 피격 예상 없으면 안전한 곳에서 파워업으로 써도 됨." 반환 {pieceIdx,skillId,params}|null.
+function _aiAdvantageFallbackSkill(room, ownerIdx, brain) {
+  const p = room.players[ownerIdx];
+  if (!p) return null;
+  const teamId = getTeamOf(room, ownerIdx);
+  const sp = (room.sp[teamId] || 0) + (room.instantSp[teamId] || 0);
+  const danger = brain && brain._dangerMap;
+  const isSafe = (pc) => {
+    const d = (danger && danger[pc.row]) ? (danger[pc.row][pc.col] || 0) : 0;
+    if (d >= (pc.hp || 1)) return false;                     // 예상 피격이 치명적이면 위험
+    const mem = brain && brain.hitMemory && brain.hitMemory[pc.type];
+    if (mem && (brain.turnCount - mem.turn) <= 1) return false;   // 방금 맞았으면 위험
+    return true;
+  };
+  const _blocked = (pc) => (pc.statusEffects || []).some(e => e.type === 'curse' || e.type === 'betray' || e.type === 'shadow');
+  // ① 타락(마왕 corrupt, SP1·행동소비) — 팀에 아군 악인이 있고 마왕이 안전하면 파워업(악인 ATK +0.5 누적).
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const pc = p.pieces[pi];
+    if (!pc.alive || pc.skillId !== 'corrupt' || _blocked(pc)) continue;
+    if (sp < (pc.skillCost || 1)) continue;
+    const allyVillain = getAllyIndices(room, ownerIdx).some(ai =>
+      (room.players[ai]?.pieces || []).some(u => u.alive && typeof isFaction === 'function' && isFaction(u, 'villain')));
+    if (allyVillain && isSafe(pc)) return { pieceIdx: pi, skillId: 'corrupt', params: {} };
+  }
+  // ② 강탈(도적 steal, SP0·행동소비) — 내 SP ≤ 상대 & 상대 공유SP>0 & 도적 안전.
+  const enemyTeam = (typeof getEnemyTeamOf === 'function') ? getEnemyTeamOf(room, ownerIdx) : (1 - teamId);
+  const oppTot = (room.sp[enemyTeam] || 0) + (room.instantSp[enemyTeam] || 0);
+  const oppShared = (room.sp[enemyTeam] || 0);
+  if (sp <= oppTot && oppShared > 0) {
+    for (let pi = 0; pi < p.pieces.length; pi++) {
+      const pc = p.pieces[pi];
+      if (!pc.alive || pc.skillId !== 'steal' || _blocked(pc)) continue;
+      if (isSafe(pc)) return { pieceIdx: pi, skillId: 'steal', params: {} };
+    }
+  }
+  return null;
+}
 function aiApproachScore(brain, fromC, fromR, toC, toR, bounds) {
   let potFrom = 0, potTo = 0;
   for (let r = bounds.min; r <= bounds.max; r++) {
@@ -9772,6 +9839,18 @@ function aiUsePreSkills(room) {
         if (inciteCand) _tryExec(pidx, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row });
         break;
       }
+      // ★ 백작: 흡혈 (SP3, 자유시전·1회) — 표식된 적 최대체력 -1, 자신 +1(왕실 대상 시 상한 돌파). 순수 이득.
+      case 'count': {
+        const vampCand = aiKnownEnemies(room, 1)
+          .filter(e => e.marked && e.col != null && e.piece.type !== 'undead')
+          .sort((a, b) => {
+            const ar = (typeof isFaction === 'function' && isFaction(a.piece, 'royal')) ? 1 : 0;
+            const br = (typeof isFaction === 'function' && isFaction(b.piece, 'royal')) ? 1 : 0;
+            return (br - ar) || (aiUnitValue(b.piece) - aiUnitValue(a.piece));   // 왕실(상한돌파) 우선, 그다음 고가치
+          })[0];
+        if (vampCand) _tryExec(pidx, 'vampire', { targetCol: vampCand.col, targetRow: vampCand.row });
+        break;
+      }
     }
   }
   return _execed;
@@ -10228,6 +10307,23 @@ function aiTakeTurn(room) {
       topAtk: Math.round(topAtk * 10) / 10,
     });
   } catch (e) {}
+
+  // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때
+  //   타락·강탈로 소소한 이득 확보(블라인드 난사보다 확정 이득 우선, 사용자 요청).
+  {
+    const _marked = aiKnownEnemies(room, 1).filter(e => e.marked && e.col != null);
+    let _confidentTarget = false;
+    if (_marked.length) {
+      for (const pc of alivePieces) {
+        const cs = getAttackCells(pc.type, pc.col, pc.row, bounds, pc.toggleState ? { toggleState: pc.toggleState } : {});
+        if (cs.some(c => _marked.some(m => m.col === c.col && m.row === c.row))) { _confidentTarget = true; break; }
+      }
+    }
+    if (!_confidentTarget) {
+      const _adv = _aiAdvantageFallbackSkill(room, 1, brain);
+      if (_adv) { aiExecSkill(room, _adv.pieceIdx, _adv.skillId, _adv.params); aiEndTurn(room); return; }
+    }
+  }
 
   if (!bestAction) {
     aiPlayer.actionDone = true;
@@ -13399,7 +13495,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
-  aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces,
+  aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
   processTurnStart, getEnemyIndices, endGame,
