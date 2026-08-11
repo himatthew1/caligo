@@ -9594,4 +9594,58 @@ html, body { touch-action: manipulation; }
   animation: oberonDotPulse 1.8s ease-in-out infinite;
 }
 @keyframes oberonDotPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: 0.75; } }
+/* ★ 카운터 스태킹 순간 — 새로 생긴 구슬만 팝(밝은 플래시). transform 은 궤도 위치라 건드리지 않고 filter/box-shadow 로만. */
+.oberon-orb.oberon-orb-spawn { animation: oberonOrbSpawn 0.55s ease-out; }
+@keyframes oberonOrbSpawn {
+  0%   { filter: brightness(3.2); box-shadow: 0 0 12px 5px rgba(180,255,200,0.95), 0 0 20px 8px rgba(46,204,113,0.7); }
+  60%  { filter: brightness(1.6); box-shadow: 0 0 8px 3px rgba(120,240,160,0.7); }
+  100% { filter: none; }
+}
+
+/* ★ 드라이어드 성장칸 — 공격확정 범위 중 '성장으로 늘어난' 칸을 주황으로 강조(기본 범위와 구분). */
+#game-board .cell.attack-range.attack-grown {
+  background: rgba(255,138,28,0.5) !important;
+  box-shadow: inset 0 0 0 2px rgba(255,138,28,0.95), 0 0 7px rgba(255,120,20,0.55) !important;
+  border-color: rgba(255,138,28,1) !important;
+  z-index: 5;
+}
+
+/* ★ 마왕 어둠의 장막 봉인칸 — 공격확정 메뉴에서도 사라지지 않고 검은 공동으로(미니그리드 sealed 와 동일 톤). */
+#game-board .cell.dark-veil-sealed {
+  background: radial-gradient(circle at 50% 45%, #000 42%, #17091d 100%) !important;
+  border-color: rgba(124,58,168,0.6) !important;
+  box-shadow: inset 0 0 8px 2px rgba(0,0,0,0.92), 0 0 6px rgba(96,40,140,0.55) !important;
+  animation: none !important;
+  filter: none !important;
+  z-index: 5;
+  position: relative;
+  cursor: help;
+}
+/* 봉인칸 호버 팝업 — "어둠의 장막 : 봉인됨" */
+#game-board .cell.dark-veil-sealed:hover::after {
+  content: attr(data-veil-tip);
+  position: absolute;
+  left: 50%; bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 4px 9px;
+  font-size: 0.68rem; font-weight: 700;
+  color: #e9d5ff;
+  background: linear-gradient(180deg, rgba(30,14,42,0.98), rgba(18,8,26,0.98));
+  border: 1px solid rgba(124,58,168,0.7);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6), 0 0 8px rgba(96,40,140,0.4);
+  pointer-events: none;
+  z-index: 60;
+}
+#game-board .cell.dark-veil-sealed:hover::before {
+  content: '';
+  position: absolute;
+  left: 50%; bottom: calc(100% + 1px);
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(124,58,168,0.7);
+  pointer-events: none;
+  z-index: 60;
+}
 

@@ -14847,7 +14847,7 @@ function renderGameBoard() {
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
           <span class="p-icon">${_iconContent}</span>
           ${_noHpBar(pc) ? '' : `<span class="p-hp">${hpText}</span>`}
-          ${pc.type === 'oberon' ? oberonOrbsHtml(pc.oberonCounter) : ''}
+          ${pc.type === 'oberon' ? oberonOrbsHtml(pc.oberonCounter, `mine:${S.myPieces.indexOf(pc)}`) : ''}
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
@@ -14917,7 +14917,7 @@ function renderGameBoard() {
           <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
             <span class="p-icon">${_tmIconContent}</span>
             ${_noHpBar(tmPc) ? '' : `<span class="p-hp">${tmHpText}</span>`}
-            ${tmPc.type === 'oberon' ? oberonOrbsHtml(tmPc.oberonCounter) : ''}
+            ${tmPc.type === 'oberon' ? oberonOrbsHtml(tmPc.oberonCounter, `tm:${tmPc.col},${tmPc.row}`) : ''}
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
@@ -15250,25 +15250,50 @@ function renderGameBoard() {
       }
     }
 
-    // 공격 범위
+    // 공격 범위 — 드라이어드 성장칸=주황(attack-grown) / 마왕 어둠장막 봉인칸=검게(dark-veil-sealed)+봉인 팝업
     if (S.action === 'attack' && S.selectedPiece !== null && !S.targetSelectMode) {
       const selPc = S.myPieces[S.selectedPiece];
       if (selPc) {
         const extra = { toggleState: selPc.toggleState, growth: selPc.rangeGrowth || 0, growthArms: selPc.growthArms };   // ★ 드라이어드 생장 반영
-        let range = applyClientDarkVeil(selPc, getAttackCells(clientEffectiveType(selPc), selPc.col, selPc.row, extra));   // ★ 개구리→frog범위 + 어둠장막 봉인칸 제거
+        const sealedKeys = new Set();
+        const grownKeys = new Set();
+        // 봉인칸: 지우지 않고 식별해 검게 표시(서버 applyDarkVeil 과 동일 시드).
+        const _sealOf = (pc, cells) => {
+          if (pc && pc.darkVeilSeed != null && pc.tag !== 'villain' && cells.length && clientDarkVeilActive()) {
+            const sc = cells[pc.darkVeilSeed % cells.length];
+            if (sc) sealedKeys.add(`${sc.col},${sc.row}`);
+          }
+        };
+        // 성장칸(드라이어드): 성장 전 기본 범위를 벗어난 칸 = 주황.
+        const _grownOf = (pc, cells) => {
+          if (pc && pc.type === 'dryad' && !(pc.statusEffects || []).some(e => e.type === 'frog')) {
+            const base = getAttackCells('dryad', pc.col, pc.row, { growth: 0 });
+            const baseSet = new Set(base.map(c => `${c.col},${c.row}`));
+            for (const c of cells) { const k = `${c.col},${c.row}`; if (!baseSet.has(k)) grownKeys.add(k); }
+          }
+        };
+        let allCells = getAttackCells(clientEffectiveType(selPc), selPc.col, selPc.row, extra);   // 봉인 전 '전체'
+        _sealOf(selPc, allCells); _grownOf(selPc, allCells);
+        allCells = allCells.slice();
         // ★ 쌍둥이: 다른 쪽의 공격 범위도 합산 표시
         if (selPc.subUnit) {
           const otherSub = selPc.subUnit === 'elder' ? 'younger' : 'elder';
           const otherTwin = S.myPieces.find(p => p.subUnit === otherSub && p.alive);
           if (otherTwin) {
-            const twinRange = applyClientDarkVeil(otherTwin, getAttackCells(otherTwin.type, otherTwin.col, otherTwin.row, extra));
-            for (const tc of twinRange) {
-              if (!range.some(c => c.col === tc.col && c.row === tc.row)) range.push(tc);
-            }
+            const twinFull = getAttackCells(otherTwin.type, otherTwin.col, otherTwin.row, extra);
+            _sealOf(otherTwin, twinFull); _grownOf(otherTwin, twinFull);
+            for (const tc of twinFull) if (!allCells.some(c => c.col === tc.col && c.row === tc.row)) allCells.push(tc);
           }
         }
-        if (range.some(c => c.col === col && c.row === row)) {
-          cell.classList.add('attack-range');
+        const _akey = `${col},${row}`;
+        if (allCells.some(c => c.col === col && c.row === row)) {
+          if (sealedKeys.has(_akey)) {
+            cell.classList.add('dark-veil-sealed');   // 검게 봉인(attack-range 미부여 = 실제로 타격 안 됨)
+            cell.setAttribute('data-veil-tip', '어둠의 장막 : 봉인됨');
+          } else {
+            cell.classList.add('attack-range');
+            if (grownKeys.has(_akey)) cell.classList.add('attack-grown');   // 주황 성장칸
+          }
         }
       }
     }
@@ -16561,11 +16586,18 @@ function buildDamageOverlay(key, hp, maxHp) {
 // ── 오베론 요정왕 카운터 시각화 ──────────────────────────────────────────
 //   서버 pc.oberonCounter (정령 피격마다 +1). SP가 아닌 독자 자원.
 //   보드: 오베론 주위를 공전하는 녹색 미니구(구 하나 = 카운터 1). 프로필: 카운터 배지.
-function oberonOrbsHtml(count) {
+function oberonOrbsHtml(count, seenKey) {
   const n = Math.max(0, Math.min(count | 0, 12));   // 표시 상한 12 (종언=10)
+  // ★ seenKey: 카운터가 이전보다 늘어난 '새 구슬'만 스폰(팝) 애니 — 요정왕 발동/스태킹 순간 육안 확인.
+  window._oberonSeen = window._oberonSeen || {};
+  const prev = (seenKey != null) ? (window._oberonSeen[seenKey] || 0) : n;
+  if (seenKey != null) window._oberonSeen[seenKey] = n;
   if (n === 0) return '';
   let orbs = '';
-  for (let i = 0; i < n; i++) orbs += `<span class="oberon-orb" style="--ang:${(360 / n) * i}deg"></span>`;
+  for (let i = 0; i < n; i++) {
+    const isNew = (seenKey != null) && (i >= prev);
+    orbs += `<span class="oberon-orb${isNew ? ' oberon-orb-spawn' : ''}" style="--ang:${(360 / n) * i}deg"></span>`;
+  }
   return `<div class="oberon-orbit" aria-hidden="true">${orbs}</div>`;
 }
 function oberonCounterBadgeHtml(pc) {
