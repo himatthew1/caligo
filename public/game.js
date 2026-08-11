@@ -3541,7 +3541,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         ${posDisplayHtml}
       </div>
-      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}${isAlly ? oberonCounterBadgeHtml(pc) : ''}
     </div>`;
   }).join('');
 
@@ -14750,6 +14750,7 @@ function renderGameBoard() {
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
           <span class="p-icon">${_iconContent}</span>
           ${_noHpBar(pc) ? '' : `<span class="p-hp">${hpText}</span>`}
+          ${pc.type === 'oberon' ? oberonOrbsHtml(pc.oberonCounter) : ''}
         </div>`;
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
@@ -14819,6 +14820,7 @@ function renderGameBoard() {
           <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
             <span class="p-icon">${_tmIconContent}</span>
             ${_noHpBar(tmPc) ? '' : `<span class="p-hp">${tmHpText}</span>`}
+            ${tmPc.type === 'oberon' ? oberonOrbsHtml(tmPc.oberonCounter) : ''}
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
@@ -16459,6 +16461,23 @@ function buildDamageOverlay(key, hp, maxHp) {
 }
 
 // ── 내 말 정보 패널 ──────────────────────────────────────────
+// ── 오베론 요정왕 카운터 시각화 ──────────────────────────────────────────
+//   서버 pc.oberonCounter (정령 피격마다 +1). SP가 아닌 독자 자원.
+//   보드: 오베론 주위를 공전하는 녹색 미니구(구 하나 = 카운터 1). 프로필: 카운터 배지.
+function oberonOrbsHtml(count) {
+  const n = Math.max(0, Math.min(count | 0, 12));   // 표시 상한 12 (종언=10)
+  if (n === 0) return '';
+  let orbs = '';
+  for (let i = 0; i < n; i++) orbs += `<span class="oberon-orb" style="--ang:${(360 / n) * i}deg"></span>`;
+  return `<div class="oberon-orbit" aria-hidden="true">${orbs}</div>`;
+}
+function oberonCounterBadgeHtml(pc) {
+  if (!pc || !pc.alive || pc.type !== 'oberon') return '';
+  const c = pc.oberonCounter || 0;
+  return `<div class="oberon-counter-badge" title="정령 유닛이 피격될 때마다 +1. 축복2·은혜3·종언10에 소모.">`
+    + `<span class="oberon-counter-dot"></span>요정왕 카운터 <b>${c}</b></div>`;
+}
+
 function renderMyPieces() {
   // ★ 시크릿 스킬 해금 감지(그레이스키스 등) — 상태 변동 시마다 확인해 열리면 알림.
   try { if (typeof checkSecretSkillUnlocks === 'function') checkSecretSkillUnlocks(); } catch (e) {}
@@ -16546,7 +16565,7 @@ function renderMyPieces() {
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         <span class="my-piece-pos">${pc.alive ? `${coord(pc.col,pc.row)}` : ''}</span>
       </div>
-      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}`;
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}${oberonCounterBadgeHtml(pc)}`;
 
     // 호버 시 공격범위 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
@@ -17362,7 +17381,11 @@ function openSkillModal(targetPieceIdx) {
       }
     } else {
       // 단일 스킬
-      const canAfford = totalSP >= pc.skillCost;
+      // ★ 오베론 등 카운터 자원 스킬은 SP가 아니라 요정왕 카운터로 판정·표시.
+      const _singleSkillDef = pc.skills && pc.skills[0];
+      const singleUsesCounter = _singleSkillDef && _singleSkillDef.resource === 'oberonCounter';
+      const singleCounterVal = pc.oberonCounter || 0;
+      const canAfford = singleUsesCounter ? (singleCounterVal >= pc.skillCost) : (totalSP >= pc.skillCost);
       const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
       let singleDisabled = false;
       let singleNote = '';
@@ -17469,7 +17492,7 @@ function openSkillModal(targetPieceIdx) {
         ? (window.PIECE_ICONS && window.PIECE_ICONS.twins || pc.icon) : pc.icon;
       opt.innerHTML = `
         <div class="skill-name">${pieceIconHtml(skillTabIcon, {size:'1.2em'})} ${skillTabName} — ${pc.skillName} ${singleTag}</div>
-        <div class="skill-cost">SP 비용: ${pc.skillCost}${singleNote}</div>
+        <div class="skill-cost">${singleUsesCounter ? `카운터 ${pc.skillCost} (보유 ${singleCounterVal})` : `SP 비용: ${pc.skillCost}`}${singleNote}</div>
         <div class="skill-desc">${getSkillDesc(pc)}</div>`;
 
       if (canAfford && !singleDisabled) {
