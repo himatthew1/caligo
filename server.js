@@ -544,6 +544,48 @@ function processPendingDemolish(room, forOwnerIdx) {
   room._boardShrinkDeaths = prevFlag;
   return fired;
 }
+// ★ 덫(인간사냥꾼) 지연 발동 — move_piece(이동)·doCavalryDash(질주) 공용. tp = {trapIdx, trapOwnerIdx, col, row, idx, pieceIdx}.
+//   밟은 유닛에 2피해(방어 패시브 반영) + 화약상 사망 기폭 체인(startPhase/flushPhase) + trap_triggered emit.
+function triggerPendingTrap(room, tp) {
+  room._trapPending = false;
+  if (!rooms[room.id] || room.phase !== 'game') return;
+  const ownerArr = room.boardObjects[tp.trapOwnerIdx] || [];
+  const tIdx = ownerArr.findIndex(o => o.type === 'trap' && o.col === tp.col && o.row === tp.row);
+  if (tIdx < 0) return;
+  ownerArr.splice(tIdx, 1);
+  const player2 = room.players[tp.idx];
+  if (!player2) return;
+  // ★ 저장해 둔 pieceIdx 로 정확한 말 조회 — 좌표 기반 find 는 같은 칸에 겹친 다른 말을 잘못 집을 수 있음.
+  const piece2 = (typeof tp.pieceIdx === 'number' && tp.pieceIdx >= 0)
+    ? (player2.pieces || [])[tp.pieceIdx]
+    : (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
+  if (!piece2 || !piece2.alive || piece2.col !== tp.col || piece2.row !== tp.row) return;
+  room._attackPassivesFired = new Set();
+  room._pendingBodyguardPassive = null;
+  const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
+  piece2.hp = Math.max(0, piece2.hp - dmg);
+  if (dmg > 0) applyDamageTriggers(room, piece2, tp.idx, dmg);   // 모든 피격 트리거 패시브(덫)
+  const willDie = piece2.hp <= 0 && !_pieceUndying(piece2);
+  // ★ 화약상 사망 기폭 체인 순차화 — startPhase 로 열어 queueDeathDetonation 이 페이즈 큐에 쌓이게.
+  startPhase(room);
+  if (willDie) {
+    handleDeath(room, piece2, tp.idx);
+    setKillInfo(room, 'trap', null, [{ name: piece2.name }]);
+  }
+  emitToBoth(room, 'trap_triggered', {
+    col: tp.col, row: tp.row,
+    pieceInfo: { type: piece2.type, name: piece2.name, icon: piece2.icon },
+    damage: dmg, destroyed: willDie, newHp: piece2.hp,
+    victimOwnerIdx: tp.idx, trapOwnerIdx: tp.trapOwnerIdx,
+  });
+  if (room.mode === 'team') broadcastTeamGameState(room);
+  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+  flushPhase(room, () => {
+    if (!rooms[room.id] || room.phase !== 'game') return;
+    checkGameEndAfterPhase(room);
+  });
+}
+
 // ★ Phase 3: 기마병 질주(특성) — 스킬이 아니라 이동/공격 대체 특성. 직선 1~2칸 이동 + 지나온 경로 적에 고정 1피해.
 //   전용 소켓 이벤트(cavalry_dash)에서 호출. 반환 {ok, result?, msg?}.
 function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
@@ -609,7 +651,14 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
     player._troopQueue.shift();
     if (player._troopQueue.length === 0) player._troopQueue = null;
   }
-  return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits, destroyedRats: dashDestroyedRats };
+  // ★ 착지칸 덫 — 사용자 요청: 경로 데미지를 모두 적용한 뒤(도착 후) 순차 발동. 여기선 감지만, 발동은 지연 스케줄(use_skill 핸들러).
+  let dashTrapPending = null;
+  for (const eIdx of enemyIdxs) {
+    const arr = room.boardObjects[eIdx] || [];
+    const ti = arr.findIndex(o => o.type === 'trap' && o.col === dCol && o.row === dRow);
+    if (ti >= 0) { dashTrapPending = { trapIdx: ti, trapOwnerIdx: eIdx, col: dCol, row: dRow, idx: playerIdx, pieceIdx }; break; }
+  }
+  return { ok: true, dash: { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, pathCells }, hits: dashHits, destroyedRats: dashDestroyedRats, trapPending: dashTrapPending };
 }
 // ★ Phase 3: 부대공격 등 '자동 질주'용 — 적을 가장 많이 때리는 유효 질주 도착칸을 고른다(없으면 null).
 function bestCavalryDash(room, ownerIdx, piece) {
@@ -7713,6 +7762,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.data.dash = dr.dash;
       result.data.hits = dr.hits;
       result.data.destroyedRats = dr.destroyedRats || [];
+      result.data.dashTrapPending = dr.trapPending || null;   // ★ 착지칸 덫 지연 발동용(클라 미전송, use_skill 에서 스케줄)
       break;
     }
 
@@ -12347,53 +12397,7 @@ io.on('connection', (socket) => {
       room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + 1500);
       room._trapPending = true;
       const tp = trapPending;
-      setTimeout(() => {
-        room._trapPending = false;
-        if (!rooms[room.id] || room.phase !== 'game') return;
-        const ownerArr = room.boardObjects[tp.trapOwnerIdx] || [];
-        const tIdx = ownerArr.findIndex(o => o.type === 'trap' && o.col === tp.col && o.row === tp.row);
-        if (tIdx < 0) return;
-        ownerArr.splice(tIdx, 1);
-        const player2 = room.players[tp.idx];
-        if (!player2) return;
-        // ★ 저장해 둔 pieceIdx 로 정확한 말 조회 — 좌표 기반 find 는 같은 칸에 겹친 다른 말을 잘못 집을 수 있음.
-        const piece2 = (typeof tp.pieceIdx === 'number' && tp.pieceIdx >= 0)
-          ? (player2.pieces || [])[tp.pieceIdx]
-          : (player2.pieces || []).find(p => p.alive && p.col === tp.col && p.row === tp.row);
-        // 그 사이 죽었거나 트랩 칸을 떠났으면 발동 취소.
-        if (!piece2 || !piece2.alive || piece2.col !== tp.col || piece2.row !== tp.row) return;
-        // ★ 패시브 dedupe Set 초기화.
-        room._attackPassivesFired = new Set();
-        room._pendingBodyguardPassive = null;
-        const dmg = resolveDamage(room, { type: 'manhunter', tag: 'villain', tier: 1, _trapSource: true, col: tp.col, row: tp.row }, piece2, tp.trapOwnerIdx, 2, false, tp.idx);
-        piece2.hp = Math.max(0, piece2.hp - dmg);
-        if (dmg > 0) applyDamageTriggers(room, piece2, tp.idx, dmg);   // 모든 피격 트리거 패시브(덫)
-        const willDie = piece2.hp <= 0 && !_pieceUndying(piece2);
-        // ★ 화약상 사망 기폭 체인 순차화 (사용자 보고) — startPhase 로 열어야 handleDeath 의
-        //   queueDeathDetonation 이 페이즈 큐에 쌓여 "덫 발동 → 화약상 사망 → 사망 기폭 → 폭탄 피해
-        //   (마법사 인스턴트매직)" 가 순서대로 재생됨. 없으면 즉시 폭발(레거시)로 빠져 시퀀스가 뭉개짐.
-        startPhase(room);
-        if (willDie) {
-          handleDeath(room, piece2, tp.idx);
-          setKillInfo(room, 'trap', null, [{ name: piece2.name }]);
-        }
-        emitToBoth(room, 'trap_triggered', {
-          col: tp.col, row: tp.row,
-          pieceInfo: { type: piece2.type, name: piece2.name, icon: piece2.icon },
-          damage: dmg,
-          destroyed: willDie,
-          newHp: piece2.hp,
-          victimOwnerIdx: tp.idx,
-          trapOwnerIdx: tp.trapOwnerIdx,  // 덫 설치자 (사냥꾼 owner) — 시전 강조용
-        });
-        if (room.mode === 'team') broadcastTeamGameState(room);
-        emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
-        // 트랩 후 승리 검사 — 사망 기폭 페이즈 flush 후(폭발/사망 애니 완료 뒤) game_over.
-        flushPhase(room, () => {
-          if (!rooms[room.id] || room.phase !== 'game') return;
-          checkGameEndAfterPhase(room);
-        });
-      }, 700);
+      setTimeout(() => triggerPendingTrap(room, tp), 700);
     }
 
     // DON'T auto end turn - wait for 'end_turn' event
@@ -13091,6 +13095,15 @@ io.on('connection', (socket) => {
       if (_sk && _sk.replacesAction && typeof tickActorPoison === 'function') tickActorPoison(room, skillPiece, idx);
     } catch (e) {}
 
+    // ★ 기마병 질주 착지칸 덫 — 경로 데미지 전부 적용(클라 갤롭) 후 순차 발동. 지연 900ms(갤롭+마진).
+    if (result.data && result.data.dashTrapPending) {
+      const _dtp = result.data.dashTrapPending;
+      delete result.data.dashTrapPending;   // 클라 전송 제외(내부용)
+      room._trapPending = true;
+      room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + 1800);
+      setTimeout(() => triggerPendingTrap(room, _dtp), 900);
+    }
+
     if (room.mode === 'team') {
       // 팀모드: 시전자에게 skill_result 먼저
       socket.emit('skill_result', {
@@ -13639,7 +13652,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,

@@ -7859,7 +7859,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           });
         }
       };
-      if (!_isNightmareC) _revealC();
+      // ★ 질주는 갤롭 종료 후(도착 시점)에 보드/HP를 반영 — 그래야 피격자가 갤롭 중엔 살아 보이고
+      //   기마병이 지나쳐 도착할 때 피해/사망이 나타난다(사용자 요구). 그 전까진 이전 상태 유지.
+      const _deferRevealForDash = !!(data && data.dash);
+      if (!_isNightmareC && !_deferRevealForDash) _revealC();
 
       // ★ 유황범람 라바 애니 (시전자 시점)
       if (data && Array.isArray(data.borderCells) && data.borderCells.length > 0 && typeof animateLavaCells === 'function') {
@@ -7897,9 +7900,16 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
           });
         }, _lavaDeathDelay);
       }
-      // ★ 기마병 질주 — 경로 셀 전체에 공격 이펙트(시전자 시점). 위치는 yourPieces로 갱신됨.
-      if (data && data.dash && Array.isArray(data.dash.pathCells) && typeof animateAttackCellEffect === 'function') {
-        animateAttackCellEffect(data.dash.pathCells);
+      // ★ 기마병 질주(시전자 시점) — 공격모션 갤롭으로 출발→도착 슬라이드, 스치는 칸마다 피격.
+      //   피격자 = 표식 적(isOpp:false). 착지칸 덫은 서버가 갤롭 후(900ms) trap_triggered 로 발동.
+      if (data && data.dash && typeof animateCavalryDash === 'function') {
+        animateCavalryDash(data.dash, data.hits, data.destroyedRats, {
+          isOpp: false,
+          onDone: () => { try { _revealC(); } catch (e) {} },   // 도착 시점에 HP/사망/위치 반영
+        });
+      } else if (data && data.dash && _deferRevealForDash) {
+        // 폴백: 갤롭 함수 미탑재 시 즉시 반영
+        try { _revealC(); } catch (e) {}
       }
       // ★ 약초학 시전 — 보드에 회복 영역 녹색 빛 + 잎 파티클 (시전자 본인은 항상 봄)
       if (data && data.herbCenter && typeof animateHerbCast === 'function') {
@@ -7944,7 +7954,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       }
 
       const hitsData = data && Array.isArray(data.hits) ? data.hits : null;
-      if (hitsData && hitsData.length > 0) {
+      // ★ 기마병 질주는 갤롭(animateCavalryDash)이 칸별 타이밍으로 피격을 직접 처리 — 범용 일괄 hit 처리 스킵
+      //   (안 그러면 all-at-once animateAttack + 갤롭 중 renderGameBoard 로 플로터가 지워짐).
+      if (hitsData && hitsData.length > 0 && !(data && data.dash)) {
         const cells = hitsData.filter(h => h.col != null && h.row != null).map(h => ({ col: h.col, row: h.row }));
         // ★ 유황범람 라바 애니가 있을 때 hit 셀 표시를 지연 — 라바 ::before 가 빨간 배경을 덮으므로 라바 피크 후 표시
         if (cells.length > 0) {
@@ -15209,7 +15221,7 @@ function renderGameBoard() {
           const destOccupied = (S.myPieces.some(p => p.alive && p.col === col && p.row === row && p !== selPc)) ||
                                (S.isTeamMode && S.teammatePieces && S.teammatePieces.some(p => p.alive && p.col === col && p.row === row));
           if (destDestroyed || destOccupied) cell.classList.add('move-range', 'move-range-blocked');
-          else cell.classList.add('move-range', 'dash-range');
+          else cell.classList.add('move-range');   // ★ 이동과 동일한 초록 선택칸(질주=최대 2칸)
         }
       }
     }
@@ -20271,6 +20283,106 @@ const _pieceFacingDir = {};
  */
 // ★ 이동 애니 진행 중인 "도착 셀" 추적 — renderGameBoard 가 해당 셀의 말을 숨김 처리
 const _moveAnimDest = new Set();
+
+// ── 기마병 질주 갤롭 — 공격모션 PNG/GIF 로 출발칸→도착칸 슬라이드(잔상 포함), ────────────────
+//   지나치는 칸마다 그 순간 피격(유닛·유해·쥐)을 발동. 착지 후 renderGameBoard 로 정착.
+//   opts.isOpp: 피격자가 내 유닛(true=상대 질주를 내가 봄) / false=내가 질주(피격자=표식 적).
+function animateCavalryDash(dash, hits, destroyedRats, opts) {
+  opts = opts || {};
+  const board = document.getElementById('game-board');
+  if (!board || !dash || !Array.isArray(dash.pathCells) || dash.pathCells.length < 2) { renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
+  const path = dash.pathCells;
+  const dist = path.length - 1;
+  const STEP_MS = 235;                     // 칸당 이동 시간
+  const GALLOP_MS = STEP_MS * dist;
+  const cellOf = (c, r) => board.querySelector(`.cell[data-col="${c}"][data-row="${r}"]`);
+  const fromCell = cellOf(path[0].col, path[0].row);
+  if (!fromCell) { renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
+  try { playSfx('attack'); } catch (e) {}   // ★ 질주 = 공격이동, 시전 효과음
+
+  // 공격 GIF(없으면 이동 PNG 폴백)
+  const attackUrl = (window.PIECE_ATTACK_GIFS && window.PIECE_ATTACK_GIFS.cavalry)
+    || (window.PIECE_MOVE_PNGS && window.PIECE_MOVE_PNGS.cavalry) || null;
+  const scaleX = (dash.toCol < dash.fromCol) ? -1 : 1;   // 진행 방향 반전
+  // 기마병 마커 숨김 — 시전자 시점은 갤롭 시작 시점에 이미 보드가 도착칸으로 렌더됨(_revealC).
+  //   출발/도착 어느 칸에 있든 찾아 숨기고, 갤롭 종료 후 renderGameBoard 로 복귀.
+  const moverSel = opts.isOpp ? '.piece-marker.opp-marked' : '.piece-marker:not(.opp-marked)';
+  const destCell = cellOf(dash.toCol, dash.toRow);
+  const startMarker = (destCell && (destCell.querySelector(moverSel) || destCell.querySelector('.piece-marker')))
+    || fromCell.querySelector(moverSel) || fromCell.querySelector('.piece-marker');
+  if (startMarker) startMarker.style.visibility = 'hidden';
+
+  const fr = fromCell.getBoundingClientRect();
+  const cellSize = Math.min(fr.width, fr.height);
+  const imgSize = Math.round(cellSize * 0.92);
+  const centerOf = (cell) => { const r = cell.getBoundingClientRect(); return { x: r.left + r.width / 2 - imgSize / 2, y: r.top + r.height / 2 - imgSize / 2 }; };
+  const pts = path.map(p => { const cc = cellOf(p.col, p.row); return cc ? centerOf(cc) : null; });
+  if (pts.some(p => !p)) { if (startMarker) startMarker.style.visibility = ''; renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
+
+  const el = document.createElement('img');
+  if (attackUrl) el.src = attackUrl;
+  el.style.cssText = `position:fixed;z-index:2600;pointer-events:none;width:${imgSize}px;height:${imgSize}px;`
+    + `object-fit:contain;image-rendering:pixelated;transform:scaleX(${scaleX});transform-origin:center center;`
+    + `filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 7px rgba(255,180,80,.75));`
+    + `left:${pts[0].x}px;top:${pts[0].y}px;`;
+  document.body.appendChild(el);
+
+  // 칸별 히트 매핑
+  const hitByCell = {};
+  (hits || []).forEach(h => { const k = `${h.col},${h.row}`; (hitByCell[k] = hitByCell[k] || []).push(h); });
+  const ratCells = new Set((destroyedRats || []).map(rt => `${rt.col},${rt.row}`));
+
+  const firedCells = new Set();
+  const fireCellHit = (idx) => {
+    const p = path[idx]; if (!p) return;
+    const key = `${p.col},${p.row}`;
+    if (firedCells.has(key)) return; firedCells.add(key);
+    try { animateAttackCellEffect([{ col: p.col, row: p.row }]); } catch (e) {}
+    if ((hitByCell[key] || []).length) {
+      // ★ 그 칸을 스치는 순간 피격 모션(유닛 흔들림/번쩍). isDefending = 내 유닛이 맞는 경우(상대 질주).
+      try { animateBoardIconHit([{ col: p.col, row: p.row }], !!opts.isOpp); } catch (e) {}
+    }
+    if (ratCells.has(key)) { try { _animateSkillDestroyedRats([{ col: p.col, row: p.row }]); } catch (e) {} }
+  };
+
+  // 잔상 트레일
+  const trailIv = setInterval(() => {
+    const r = el.getBoundingClientRect();
+    const g = document.createElement('img');
+    if (attackUrl) g.src = attackUrl;
+    g.style.cssText = `position:fixed;z-index:2599;pointer-events:none;width:${imgSize}px;height:${imgSize}px;`
+      + `object-fit:contain;image-rendering:pixelated;transform:scaleX(${scaleX});`
+      + `left:${r.left}px;top:${r.top}px;opacity:0.32;filter:drop-shadow(0 0 5px rgba(255,160,60,.5));`
+      + `transition:opacity .28s ease-out;`;
+    document.body.appendChild(g);
+    requestAnimationFrame(() => { g.style.opacity = '0'; });
+    setTimeout(() => g.remove(), 300);
+  }, 42);
+
+  const startT = performance.now();
+  function step(now) {
+    const t = Math.min(1, (now - startT) / GALLOP_MS);
+    const fpos = t * dist;                         // 0..dist
+    const seg = Math.min(dist - 1, Math.floor(fpos));
+    const local = fpos - seg;
+    const a = pts[seg], b = pts[seg + 1];
+    el.style.left = (a.x + (b.x - a.x) * local) + 'px';
+    el.style.top = (a.y + (b.y - a.y) * local) + 'px';
+    // 스치는 순간 = 그 칸 중심 근처 도달 시 발동
+    const near = Math.round(fpos);
+    if (near >= 1 && fpos >= near - 0.12) fireCellHit(near);
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      clearInterval(trailIv);
+      for (let i = 1; i <= dist; i++) fireCellHit(i);   // 놓친 칸 보장
+      el.remove();
+      if (startMarker) startMarker.style.visibility = '';
+      renderGameBoard();
+      if (opts.onDone) opts.onDone();
+    }
+  }
+  requestAnimationFrame(step);
+}
 
 function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, pieceKey) {
   const board = document.getElementById('game-board');
