@@ -10187,7 +10187,7 @@ const TRAIT_PASSIVE_KEYS = new Set(['charge', 'oldHeart', '질주', '낡은 심�
 const isTraitPassive = (pidOrName) => TRAIT_PASSIVE_KEYS.has(pidOrName);
 const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-trait' : 'mini-header-passive';
 // ★ 단계(스택)형 상태이상 — "N단계"로 표기 + 단계 상승 시 바운스.
-const STACKABLE_STATUS = new Set(['poison', 'misfortune', 'luck']);
+const STACKABLE_STATUS = new Set(['poison', 'misfortune']);   // ★ 행운(luck)은 스택 개념 없음(이진) — 단계 표시 안 함
 // ★ HP 표시 — 항상 0.1 단위로만(부동소수 잔재 0.399… 절대 표시 금지). 정수면 정수, 아니면 소수1자리.
 function _hp(v) { const n = Math.round((Number(v) || 0) * 10) / 10; return Number.isInteger(n) ? n : n.toFixed(1); }
 // ★ 언데드 = 게임 중 체력바 없음(불사 유해). 체력 관련 능력 대상 불가. 표시 억제 판별.

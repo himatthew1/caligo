@@ -374,8 +374,8 @@ function _applyOpposing(piece, type, n) {
     else { oe.stacks = m - n; return; }
   }
   if (leftover <= 0) return;
-  if (type === 'luck') {   // 행운 = 중첩 불가 → 없으면 1스택, 있으면 그대로(누적 안 함)
-    if (!hasStatus(piece, 'luck')) piece.statusEffects.push({ type: 'luck', stacks: 1 });
+  if (type === 'luck') {   // 행운 = 스택 개념 없음(이진). 없으면 부여, 있으면 그대로(단계 없음).
+    if (!hasStatus(piece, 'luck')) piece.statusEffects.push({ type: 'luck' });
     return;
   }
   _addStacks(piece, type, leftover);
@@ -5159,6 +5159,8 @@ function handleDeath(room, deadPiece, ownerIdx, cause) {
     return;
   }
   deadPiece.alive = false;
+  // ★ 사망한 캐릭터의 자신에게 걸린 상태이상은 자연 소멸(알림 불필요 — 죽었으니 그냥 제거).
+  deadPiece.statusEffects = [];
   const owner = room.players[ownerIdx];
 
   // ★ Phase 3: 이단자 사망 → 그 소유주가 건 현혹 해제(다른 이단자 없을 때만). 이교단이 소속 되찾음.
@@ -7412,7 +7414,17 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       spendSP(room, playerIdx, cost);
       const moving = (src.statusEffects || []).filter(e => e.type !== 'trap');
       src.statusEffects = (src.statusEffects || []).filter(e => e.type === 'trap');
-      if (!isStatusImmune(dst)) { if (!dst.statusEffects) dst.statusEffects = []; for (const e of moving) dst.statusEffects.push(e); }
+      if (!isStatusImmune(dst)) {
+        if (!dst.statusEffects) dst.statusEffects = [];
+        for (const e of moving) {
+          // ★ 같은 종류는 병합 — 스택형(중독·불행·행운)은 단계 합산(중독 2+5=7), 비스택형은 중복 방지(데이터 보존).
+          if (e.type === 'poison' || e.type === 'misfortune' || e.type === 'luck') {
+            addStatus(dst, e.type, { stacks: e.stacks || 1 });
+          } else if (!hasStatus(dst, e.type)) {
+            dst.statusEffects.push(e);
+          }
+        }
+      }
       result.msg = `운명변곡: ${src.name}의 상태이상을 ${dst.name}에게 이동`;
       result.oppMsg = `운명변곡: 상태이상 이동`;
       break;
