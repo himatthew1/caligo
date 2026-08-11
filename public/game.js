@@ -14033,7 +14033,9 @@ function canPieceUseAnySkill(pieceIdx) {
     : (pc.hasSkill ? [{ id: pc.skillId, cost: pc.skillCost, replacesAction: !!pc.skillReplacesAction, oncePerTurn: !!pc.skillOncePerTurn }] : []);
   for (const sk of skills) {
     if (!skillIsVisible(sk)) continue;   // ★ 특성(질주)·미해금 시크릿(그레이스 키스)은 제외
-    if ((sk.cost || 0) > totalSP) continue;
+    // ★ 오베론 스킬은 SP가 아니라 요정왕 카운터로 판정.
+    if (sk.resource === 'oberonCounter') { if ((sk.cost || 0) > (pc.oberonCounter || 0)) continue; }
+    else if ((sk.cost || 0) > totalSP) continue;
     if (sk.replacesAction && S.actionDone) continue;
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) continue;
     // sprint/dualStrike 플래그 기반 사용완료 (서버는 messengerSprintActive / dualBladeAttacksLeft 로 추적)
@@ -25210,7 +25212,13 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     if (isCursed) return { ok: false, why: '저주에 걸려 스킬 봉인' };
     const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
     const totalSP = ((S.sp && S.sp[spSlot]) || 0) + ((S.instantSp && S.instantSp[spSlot]) || 0);
-    if ((sk.cost || 0) > totalSP) return { ok: false, why: `SP 부족 (필요 ${sk.cost} · 보유 ${totalSP})` };
+    // ★ 오베론 스킬은 SP가 아니라 요정왕 카운터(pc.oberonCounter)로 판정 — SP와 완전 별개.
+    if (sk.resource === 'oberonCounter') {
+      const counter = pc.oberonCounter || 0;
+      if ((sk.cost || 0) > counter) return { ok: false, why: `요정왕 카운터 부족 (필요 ${sk.cost} · 보유 ${counter})` };
+    } else if ((sk.cost || 0) > totalSP) {
+      return { ok: false, why: `SP 부족 (필요 ${sk.cost} · 보유 ${totalSP})` };
+    }
     if (sk.replacesAction && S.actionDone) return { ok: false, why: '이미 행동을 사용함' };
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) {
       return { ok: false, why: '이 스킬은 턴당 1회 — 이미 사용' };
