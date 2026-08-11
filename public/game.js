@@ -2907,7 +2907,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats, exhumedCell }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2938,6 +2938,11 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     : null;
   startSkillCastDim(casterCard, _spotlightTarget);
   try { spendSPAttention(oldSpSnap, newSp, oldInstantSnap, newInstant); } catch (e) {}
+  // ★ 묘지기 도굴 — 도굴 칸에서 시전자 팀 SP 트레이(내 팀=mine / 적팀=opp)로 인스턴트 SP 2 비행.
+  if (exhumedCell) {
+    const _ec = exhumedCell;
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, myTeam, 2); } catch (e) {} }, 460);
+  }
 
   // ★ 시전자 말풍선 — 팀모드 시점에서도 시전자 카드에서 보드 쪽으로 표시
   if (casterCard && typeof casterPieceIdx === 'number' && casterIdx != null) {
@@ -6139,6 +6144,69 @@ function spawnInstantGainOrb(targetSlot) {
   requestAnimationFrame(step);
 }
 
+// ── 인스턴트 SP 구슬 1개 비행 (임의 출발지 → 인스턴트 트레이 pip) — 마법사 인스턴트매직과 동일 톤 ──
+function _flyInstantSpOrb(fromPos, tray, pip) {
+  if (!fromPos || !tray) return;
+  let toPos;
+  if (pip) { const r = pip.getBoundingClientRect(); toPos = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+  else { const r = tray.getBoundingClientRect(); toPos = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+  const orb = document.createElement('div');
+  orb.className = 'sp-orb sp-orb-instant';
+  orb.style.left = fromPos.x + 'px';
+  orb.style.top = fromPos.y + 'px';
+  document.body.appendChild(orb);
+  const dur = 800, startT = performance.now();
+  const mid = { x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2 - 50 };
+  const trailIv = setInterval(() => {
+    const r = orb.getBoundingClientRect();
+    const dust = document.createElement('div');
+    dust.className = 'sp-dust sp-dust-instant';
+    dust.style.left = (r.left + r.width / 2) + 'px';
+    dust.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(dust);
+    setTimeout(() => dust.remove(), 700);
+  }, 35);
+  function step(now) {
+    const t = Math.min(1, (now - startT) / dur);
+    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const x = (1 - e) * (1 - e) * fromPos.x + 2 * (1 - e) * e * mid.x + e * e * toPos.x;
+    const y = (1 - e) * (1 - e) * fromPos.y + 2 * (1 - e) * e * mid.y + e * e * toPos.y;
+    const wobble = Math.sin(t * Math.PI * 6) * 4 * (1 - t);
+    orb.style.left = (x + wobble) + 'px';
+    orb.style.top = (y - wobble) + 'px';
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      clearInterval(trailIv);
+      orb.classList.add('sp-orb-arrive');
+      try { playSfxInstantGain(); } catch (e) {}
+      if (pip) { pip.style.opacity = '1'; pip.classList.remove('sp-pip-spawn'); void pip.offsetWidth; pip.classList.add('sp-pip-spawn'); }
+      setTimeout(() => orb.remove(), 320);
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// ── 묘지기 도굴 — 도굴한 유해 칸에서 인스턴트 SP 구슬 count개가 솟아 SP 트레이로 비행 ──
+//   전체 톤은 마법사 인스턴트매직(spawnInstantGainOrb)과 동일. 다만 출발지가 마법사 카드가 아니라 '도굴 칸'.
+function spawnExhumeSpOrbs(col, row, isMine, count) {
+  count = count || 2;
+  const cell = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+  if (!cell) return;
+  const cr = cell.getBoundingClientRect();
+  const fromPos = { x: cr.left + cr.width / 2, y: cr.top + cr.height / 2 };
+  const trayId = isMine ? 'sp-instant-tray-mine' : 'sp-instant-tray-opp';
+  const tray = document.getElementById(trayId);
+  if (!tray) return;
+  // 새로 추가된 pip = mine 은 뒤쪽 count개 / opp 은 앞쪽 count개. 비행 동안 잠시 숨겼다가 도착 시 노출.
+  const pips = Array.from(tray.children);
+  const targetPips = isMine ? pips.slice(-count) : pips.slice(0, count);
+  targetPips.forEach(p => { p.style.opacity = '0'; });
+  for (let i = 0; i < count; i++) {
+    const pip = targetPips[i] || null;
+    setTimeout(() => { try { _flyInstantSpOrb(fromPos, tray, pip); } catch (e) {} }, i * 160);
+  }
+}
+
 // ── 후공 인스턴트 SP 지급 안내 메시지 ──
 function showSecondPlayerSpAnnounce() {
   let el = document.getElementById('sp-grant-announce');
@@ -7633,6 +7701,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   // ★ 도적 강탈 — 상대 SP바에서 내 SP바로 구슬이 넘어오는 연출.
   if (data && data.spSteal) { try { playSpStealOrb(false); } catch (e) {} }
+  // ★ 묘지기 도굴 — 도굴한 유해 칸에서 인스턴트 SP 2개가 솟아 내 SP 트레이로 비행(마법사 인스턴트매직 톤).
+  //   SP 차감/트레이 pip 추가(spendSPAttention)가 반영된 뒤 솟도록 소폭 지연.
+  if (data && data.exhumedCell) {
+    const _ec = data.exhumedCell;
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, true, 2); } catch (e) {} }, 460);
+  }
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
   // ★ 시전자 말풍선 — 시전자 카드에서 보드 쪽으로 꼬리 달린 스킬명 말풍선 (2초 유지)
@@ -7994,7 +8068,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats, exhumedCell }) => {
   // ★ 분신 비행 애니메이션 — status_update 는 1v1 '적(상대)' 시점이므로 여기선 재생하지 않는다.
   //   (적에게는 분신 애니 비공개. 시전자=skill_result / 팀원=team_skill_notice / 관전자=spectator_skill_anim 에서 재생.)
 
@@ -8013,6 +8087,11 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   startSkillCastDim(oppCasterCard);
   // SP 마법구 비행 — opp 측이 SP 를 소비해 본인 측으로 transfer 되므로 transferToMe 경로(빨간 마법구)가 발동
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
+  // ★ 묘지기 도굴(상대 시전) — 도굴 칸에서 상대 SP 트레이로 인스턴트 SP 2 비행.
+  if (exhumedCell) {
+    const _ec = exhumedCell;
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, false, 2); } catch (e) {} }, 460);
+  }
 
   // ★ 시전자 말풍선 (1v1 상대 시전 시점)
   if (oppCasterCard && typeof casterPieceIdx === 'number') {

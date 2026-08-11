@@ -2153,6 +2153,8 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       divineTarget: result.data?.divineTarget || null,
       // ★ 악몽 시전 — 표식 적 셀 보라 펄스 + scale 애니용
       nightmareCells: result.data?.nightmareCells || null,
+      // ★ 묘지기 도굴 — 도굴 칸에서 시전자 팀 SP 트레이로 인스턴트 SP 2 비행.
+      exhumedCell: result.data?.exhumedCell || null,
     };
     // 본인/팀원/적 분기 (use_skill 핸들러의 explicitAlly/explicitOpp 와 동일 로직)
     const explicitAlly = (result.allyMsg !== undefined) ? result.allyMsg : (result.msg || null);
@@ -7761,8 +7763,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         room.remains = room.remains.filter(r => !(r.col === dCol && r.row === dRow));
         result.msg = `도굴: 유해 제거 + 인스턴트 SP 2`;
         result.oppMsg = `도굴: 상대가 유해를 도굴`;
-        result.data.exhumedCell = { col: dCol, row: dRow };
       }
+      // ★ 도굴 칸 — 클라 SP 구슬 소환 원점(언데드/유해 두 경로 공통). 인스턴트 SP 2가 이 자리에서 솟아 SP 트레이로 비행.
+      result.data.exhumedCell = { col: dCol, row: dRow };
       result.data.remains = room.remains.slice();
       break;
     }
@@ -13142,6 +13145,8 @@ io.on('connection', (socket) => {
         divineTarget: result.data?.divineTarget || null,
         // ★ 악몽 시전 — 표식 적 셀 보라 펄스 + scale (적/팀원/관전자 모두 표시)
         nightmareCells: result.data?.nightmareCells || null,
+        // ★ 묘지기 도굴 — 도굴 칸에서 시전자 팀 SP 트레이로 인스턴트 SP 2 비행.
+        exhumedCell: result.data?.exhumedCell || null,
       };
       for (const p of room.players) {
         if (!p.socketId || p.index === idx) continue;
@@ -13215,6 +13220,8 @@ io.on('connection', (socket) => {
           ringTeleport: result.data?.ringTeleport || null,
           // ★ 악몽 시전 — 표식 적 셀 보라 펄스 (1v1 상대 시점)
           nightmareCells: result.data?.nightmareCells || null,
+          // ★ 묘지기 도굴 — 상대 시점: 도굴 칸에서 상대 SP 트레이로 인스턴트 SP 2 비행.
+          exhumedCell: result.data?.exhumedCell || null,
           // ※ herbCenter / divineTarget — 1v1 상대 (적팀) 에는 비공개 (사용자 요청).
         });
       }
