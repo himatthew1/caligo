@@ -18564,14 +18564,17 @@ function _showRadialActionMenu(col, row, pieceIdx) {
         return;
       }
       if (it.key === 'dash') {
-        // ★ 기마병 질주: 직선 1~2칸 대상 선택 모드 진입.
+        // ★ 기마병 질주: 직선 1~2칸 대상 선택 모드 진입 — 일반 이동(btn-move)과 동일한 보드 상태.
         if (!S.isMyTurn) return;
         S.action = 'dash';
         S.selectedPiece = pieceIdx;
+        S.targetSelectMode = false;
+        document.body.classList.add('action-locked');   // ★ 이동과 동일: 다른 유닛 딤/타겟팅 잠금
         const cancelBtn = document.getElementById('btn-cancel');
         if (cancelBtn) cancelBtn.classList.remove('hidden');
         const hintEl = document.getElementById('action-hint');
         if (hintEl) hintEl.textContent = '질주할 칸(직선 1~2칸)을 선택하세요.';
+        if (typeof setActionButtonMode === 'function') setActionButtonMode('move');   // ★ 이동과 동일한 액션바 상태
         renderGameBoard();
         return;
       }
@@ -18674,7 +18677,7 @@ function handleGameCellClick(col, row) {
   if (S.isTeamMode && Array.isArray(S.teammatePieces)) {
     const tmPc = S.teammatePieces.find(p => p.col === col && p.row === row && p.alive);
     const myAtCell = S.myPieces?.find(p => p.col === col && p.row === row && p.alive);
-    const isMyActionTargeting = S.isMyTurn && (S.action === 'attack' || S.action === 'skill_target' || S.action === 'move') && S.selectedPiece !== null;
+    const isMyActionTargeting = S.isMyTurn && (S.action === 'attack' || S.action === 'skill_target' || S.action === 'move' || S.action === 'dash') && S.selectedPiece !== null;
     if (tmPc && !myAtCell && !isMyActionTargeting) {
       const key = `${tmPc.col},${tmPc.row}`;
       if (S.teammateRangeKey === key) {
