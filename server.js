@@ -4598,10 +4598,15 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       }
     }
   }
-  // [오베론] 요정왕 — 소유주의 정령 유닛(오베론 포함)이 피해 받을 때마다 그 소유주의 오베론 카운터 +1.
+  // [오베론] 요정왕 — 아군(팀전=팀 전체) 정령 유닛(오베론 포함)이 피해 받을 때마다 아군 오베론 카운터 +1.
+  //   한 공격으로 여러 정령이 맞으면 피격 대상마다 이 함수가 호출되므로 자연히 그 수만큼 중첩된다.
   if (typeof isFaction === 'function' && isFaction(victim, 'spirit')) {
-    const ob = (room.players[ownerIdx] && room.players[ownerIdx].pieces || []).find(p => p.alive && p.type === 'oberon');
-    if (ob) ob._oberonCounter = (ob._oberonCounter || 0) + 1;
+    const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+    for (const ai of allyIdxs) {
+      for (const p of (room.players[ai] && room.players[ai].pieces || [])) {
+        if (p.alive && p.type === 'oberon') p._oberonCounter = (p._oberonCounter || 0) + 1;   // 팀 내 모든 오베론 각각 +1
+      }
+    }
   }
   // [머쉬킨] 포자살포(패시브) — 머쉬킨이 피격당하면(피해>0) 랜덤한 맵 두 곳이 진균지대가 된다.
   if (victim.type === 'mushkin' && dmg > 0) {

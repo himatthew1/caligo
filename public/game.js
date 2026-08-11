@@ -13414,8 +13414,10 @@ function buildPlacementOppPanel() {
     card.className = 'placement-opp-card';
     const tagHtml = pieceFactionBadgeHtml(pc);
     const skillDesc = getSkillDescForPiece(pc);
+    const _slResource = pc.skills && pc.skills[0] && pc.skills[0].resource;
+    const _slCostTxt = (_slResource === 'oberonCounter') ? `카운터 ${pc.skillCost != null ? pc.skillCost : 0}` : `${pc.skillCost != null ? pc.skillCost : 0}SP`;
     const skillHtml = pc.hasSkill
-      ? `<span class="skill-line">스킬: ${pc.skillName} (${pc.skillCost != null ? pc.skillCost : 0}SP) — ${skillDesc}</span>`
+      ? `<span class="skill-line">스킬: ${pc.skillName} (${_slCostTxt}) — ${skillDesc}</span>`
       : '';
     const passiveDesc = pc.passives && pc.passives.length > 0 ? getPassiveLabel(pc.passives[0]) : '';
     const passiveHtml = pc.passiveName
@@ -13471,7 +13473,9 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
     // 스킬/패시브 정보 — 캐릭터 슬라이드(buildPieceTooltip)와 동일한 미니헤더 스타일로 통일.
     //   slide-head-line + slide-skill-name (mini-header-XXX 색상이 곧 스킬 유형) + slide-sp-box (SP 비용)
     //   별도 "(N SP)" 괄호 텍스트나 "스킬:" prefix 사용 안 함 — 색상·박스가 정보를 전달.
-    const spBoxFor = (cost) => `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
+    const spBoxFor = (cost, resource) => (resource === 'oberonCounter')
+      ? `<span class="slide-sp-box">카운터 ${cost}</span>`
+      : `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
     const headClassFor = (sk) => {
       if (!sk) return 'mini-header-action';
       if (sk.replacesAction) return 'mini-header-action';
@@ -13485,7 +13489,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
         const cls = headClassFor(sk);
         skillHtml += `<div class="slide-head-line">` +
           `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
-          spBoxFor(sk.cost) +
+          spBoxFor(sk.cost, sk.resource) +
           `</div>`;
         skillHtml += `<div class="slide-detail-body">${sk.desc}</div>`;
       }
@@ -13494,7 +13498,7 @@ function renderPlacementPieceCards(container, pieces, interactive, ownerName) {
       const skillDesc = getSkillDescForPiece(pc);
       skillHtml = `<div class="slide-head-line">` +
         `<span class="slide-skill-name ${cls}">${pc.skillName}</span>` +
-        spBoxFor(pc.skillCost) +
+        spBoxFor(pc.skillCost, pc.skills && pc.skills[0] && pc.skills[0].resource) +
         `</div>`;
       skillHtml += `<div class="slide-detail-body">${skillDesc}</div>`;
     }
@@ -17004,7 +17008,9 @@ function buildPieceTooltip(pc, side) {
   //   </slide-head-line>
   //   <slide-detail-body>설명</slide-detail-body>
   // ※ 별도의 [행동소비형/자유시전형/...] 태그는 제거 (이름 박스 색상이 곧 유형이므로 중복 정보)
-  const spBox = (cost) => `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
+  const spBox = (cost, resource) => (resource === 'oberonCounter')
+    ? `<span class="slide-sp-box">카운터 ${cost}</span>`
+    : `<span class="slide-sp-box">${(typeof spLabel === 'function') ? spLabel(cost) : ('SP ' + cost)}</span>`;
   const headClassFor = (sk) => {
     if (!sk) return 'mini-header-action';
     if (sk.replacesAction) return 'mini-header-action';
@@ -17020,7 +17026,7 @@ function buildPieceTooltip(pc, side) {
       const cls = headClassFor(sk);
       skillHtml += `<div class="slide-head-line">` +
         `<span class="slide-skill-name ${cls}">${sk.name}</span>` +
-        spBox(sk.cost) +
+        spBox(sk.cost, sk.resource) +
         `</div>`;
       skillHtml += `<div class="slide-detail-body">${sk.desc}</div>`;
     }
@@ -17029,7 +17035,7 @@ function buildPieceTooltip(pc, side) {
     const skillDesc = getSkillDescForPiece(pc);
     skillHtml = `<div class="slide-head-line">` +
       `<span class="slide-skill-name ${cls}">${pc.skillName}</span>` +
-      spBox(pc.skillCost) +
+      spBox(pc.skillCost, pc.skills && pc.skills[0] && pc.skills[0].resource) +
       `</div>`;
     skillHtml += `<div class="slide-detail-body">${skillDesc}</div>`;
   } else if (!hasPassive) {
@@ -20317,7 +20323,11 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
 
   const fr = fromCell.getBoundingClientRect();
   const cellSize = Math.min(fr.width, fr.height);
-  const imgSize = Math.round(cellSize * 0.92);
+  // ★ 공격 GIF 는 64² 캔버스에 말을 32²(이동 png)와 같은 픽셀 스케일로 그려 캔버스의 ~절반만 채움.
+  //   이동/idle(32²)이 ~0.88×cell 로 렌더되므로, 같은 픽셀 스케일이 되도록 64² 는 그 2배 박스로 렌더
+  //   → 말이 일반 유닛과 동일한 크기로 보임(빈 캔버스는 투명 패딩이라 무해).
+  const _isCavAttackSprite = !!(window.PIECE_ATTACK_GIFS && window.PIECE_ATTACK_GIFS.cavalry);
+  const imgSize = Math.round(cellSize * (_isCavAttackSprite ? 1.76 : 0.88));
   const centerOf = (cell) => { const r = cell.getBoundingClientRect(); return { x: r.left + r.width / 2 - imgSize / 2, y: r.top + r.height / 2 - imgSize / 2 }; };
   const pts = path.map(p => { const cc = cellOf(p.col, p.row); return cc ? centerOf(cc) : null; });
   if (pts.some(p => !p)) { if (startMarker) startMarker.style.visibility = ''; renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
@@ -25078,8 +25088,8 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
         const box = document.createElement('div');
         box.className = 'gskill-box' + (ev.ok ? '' : ' locked');
         const tagInfo = getSkillTagInfo(sk);
-        const spLabel = (sk.cost === 0 || sk.cost == null) ? '0 SP' : `${sk.cost} SP`;
-        const spClass = (sk.cost === 0 || sk.cost == null) ? 'gskill-sp zero' : 'gskill-sp';
+        const spLabel = (sk.resource === 'oberonCounter') ? `카운터 ${sk.cost}` : (sk.cost === 0 || sk.cost == null) ? '0 SP' : `${sk.cost} SP`;
+        const spClass = (sk.resource === 'oberonCounter') ? 'gskill-sp' : (sk.cost === 0 || sk.cost == null) ? 'gskill-sp zero' : 'gskill-sp';
         box.innerHTML = `
           <span class="gskill-status-tag ${ev.ok ? 'ok' : 'no'}">${ev.ok ? '✓ 가능' : '✗ 불가'}</span>
           <div class="gskill-row-inline">
@@ -25121,8 +25131,8 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
       const miniHeaderCls = tagInfo.cls.replace('tag-', 'mini-header-');
       const entry = document.createElement('div');
       entry.className = 'cskill-entry' + (ev.ok ? ' castable' : ' locked');
-      const spLabel = (sk.cost === 0 || sk.cost == null) ? 'SP 소모 없음' : `SP ${sk.cost} 소모`;
-      const spClass = (sk.cost === 0 || sk.cost == null) ? 'cskill-sp-cost zero' : 'cskill-sp-cost';
+      const spLabel = (sk.resource === 'oberonCounter') ? `카운터 ${sk.cost} 소모` : (sk.cost === 0 || sk.cost == null) ? 'SP 소모 없음' : `SP ${sk.cost} 소모`;
+      const spClass = (sk.resource === 'oberonCounter') ? 'cskill-sp-cost' : (sk.cost === 0 || sk.cost == null) ? 'cskill-sp-cost zero' : 'cskill-sp-cost';
       const desc = getSkillBodyDesc(pc.type, sk.id, sk.desc || '');
       entry.innerHTML = `
         <div class="cskill-head">
