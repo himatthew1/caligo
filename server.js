@@ -2011,6 +2011,8 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 1v1 과 동일.
   score += aiAttackTargetBonus(room, idx, cells, effAtk, piece);
+  // ★ 공격자 후보 커버리지 — 역추론 집합을 통째로 덮는 공격에 가산(1v1 과 동일).
+  score += aiCandidateCoverageBonus(brain, cells, effAtk);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(제자리)하면 페널티 (1v1 과 동일).
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
@@ -8699,6 +8701,9 @@ function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
       // ★ 확정칸 재공격이 빗나감 = 적이 그 칸을 떠남 → 확신 해제(다시 추리 모드).
       if (brain._confirmedHit && brain._confirmedHit.col === cell.col && brain._confirmedHit.row === cell.row) brain._confirmedHit = null;
       if (brain._deducedCells) delete brain._deducedCells[`${cell.col},${cell.row}`];   // 추리 확정칸도 빗나가면 무효
+      // ★ 과신 금지 — 공격자 후보를 이 칸으로 찍었는데 빗나감 = 그 후보는 틀림 → 집합에서 제거(자기수정).
+      //   후보가 전부 소진되면 추론이 틀렸던 것 → 초기화(다시 넓게 탐색).
+      if (brain.lastHitCandidates) { brain.lastHitCandidates.delete(`${cell.col},${cell.row}`); if (brain.lastHitCandidates.size === 0) brain.lastHitCandidates = null; }
     }
   }
   // ★ 반격 실패 → 도주 충동: 피격당해 위치를 기억 중인 말이 반격했는데 전부 빗나갔다면
@@ -8725,6 +8730,45 @@ function boostHuntArea(brain, col, row) {
   }
 }
 
+// ── ★ 적이 이동/이동스킬(구동·분신·절대복종반지·바람몰이 등)을 썼다 = 숨은 적 배치가 바뀜 ──
+//   사용자: "표식받은/추리로 '이 칸에만 존재 가능'하다고 깨달은 확정자를 제외한 인원들이 상하좌우 혹은
+//   그 이상으로 이동했을 가능성을 유추해야 한다. 그 추리를 확정으로 너무 믿지 마라(틀렸으면 수정)."
+//   → 추리 확정(_confirmedHit/_deducedCells)·후보집합(lastHitCandidates)을 이동 가능성만큼 이웃으로
+//     번뜨린다. 표식은 서버 상태(marked)로 매 턴 실좌표 재주입되므로 안전(여기서 안 건드림).
+//   spread: 1=일반이동(1칸) / 2~=구동·반지·바람몰이·분신(광역/도약/텔레포트).
+function aiObserveEnemyMove(brain, spread) {
+  if (!brain || !brain.probMap) return;
+  spread = Math.max(1, spread || 1);
+  const size = brain.probMap.length;
+  const grow = (setLike, times) => {
+    let cur = new Set(setLike);
+    for (let s = 0; s < times; s++) {
+      const next = new Set(cur);
+      for (const k of cur) {
+        const ci = k.indexOf(','); const c = +k.slice(0, ci), r = +k.slice(ci + 1);
+        for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+          const nc = c + dc, nr = r + dr;
+          if (nc >= 0 && nc < size && nr >= 0 && nr < size) next.add(`${nc},${nr}`);
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  };
+  // 추리 확정은 이동으로 stale → 해제(그 인근으로 번뜨려 재탐색). 표식은 유지(실좌표 재주입됨).
+  brain._confirmedHit = null;
+  brain._deducedCells = {};
+  // 후보 집합을 이동 가능성만큼 확장 + 확장 칸에 중간 믿음 부여.
+  if (brain.lastHitCandidates && brain.lastHitCandidates.size) {
+    const grown = grow(brain.lastHitCandidates, spread);
+    if (grown.size <= 16) {
+      brain.lastHitCandidates = grown;
+      for (const k of grown) { const ci = k.indexOf(','); const c = +k.slice(0, ci), r = +k.slice(ci + 1); if (brain.probMap[r]) brain.probMap[r][c] = Math.max(brain.probMap[r][c] || 0, 5); }
+    } else {
+      brain.lastHitCandidates = null;   // 너무 넓어짐 = 사실상 정보 소실
+    }
+  }
+}
 // ── 적의 공격을 관측해 공격자 위치를 역추론 (fog-of-war 존중, 1v1·팀전 공용) ──
 //   사용자 요청: "실제 플레이어와 같은 정보만 보고 추리·추산해 정보를 끝없이 스택킹하라."
 //   AI 는 적의 정확한 위치를 직접 볼 수 없다. 대신 "내가 어느 칸에서 맞았는가"(atkCells/hitResults)
@@ -9090,9 +9134,27 @@ function aiScoreAttack(brain, piece, room, extra) {
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 끝낼 수 있으면 끝낸다.
   score += aiAttackTargetBonus(room, 1, cells, effAtk, piece);
+  // ★ 공격자 후보 커버리지 — 피격 후 역추론한 '공격자가 있을 수 있는 칸 집합'을 통째로 덮는 공격에 가산.
+  //   한 칸 찍기 대신 넓은 사거리로 후보 전체를 쓸어 '어느 칸에 있든 클립'을 노림(사용자 요청).
+  score += aiCandidateCoverageBonus(brain, cells, effAtk);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(=제자리 유지)하면 강한 페널티 → 안전한 이동 우선.
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
   return score;
+}
+// ★ 공격자 후보 집합(brain.lastHitCandidates = 역추론된 '공격자 가능 위치') 커버리지 보너스.
+//   후보를 많이 덮을수록(전부=확정 클립) 가산. 단 과신 금지: 최근(≤2턴) 추론일 때만, 마녀처치보다 낮게,
+//   빗나가면 aiProcessAttackResult 가 후보에서 제거해 자기수정. (단일확정은 belief-10 이 이미 처리 → size≥2 만.)
+function aiCandidateCoverageBonus(brain, cells, effAtk) {
+  const cand = brain && brain.lastHitCandidates;
+  if (!cand || cand.size < 2) return 0;
+  if (brain._lastObserveTurn == null || (brain.turnCount - brain._lastObserveTurn) > 2) return 0;   // 오래된 추론은 신뢰 X
+  if (cand.size > 12) return 0;   // 후보가 너무 넓으면(정보 없음) 커버 의미 없음
+  const cset = new Set(cells.map(c => `${c.col},${c.row}`));
+  let covered = 0;
+  for (const k of cand) if (cset.has(k)) covered++;
+  if (covered === 0) return 0;
+  const frac = covered / cand.size;                 // 후보 커버리지(1=후보 전부 덮음=확정 클립)
+  return frac * (5 + (effAtk || 1) * 1.2);          // 과신 방지: 표식 처치(16)보다 낮은 상한
 }
 
 function aiScoreMove(brain, piece, newCol, newRow, room) {
@@ -12154,6 +12216,23 @@ io.on('connection', (socket) => {
     player._lastActionPieceType = piece.type;
     player._lastActionSubUnit = piece.subUnit || null;
 
+    // ★ 이 이동을 관측하는 AI 브레인의 숨은-적 예상배치 재확산.
+    //   적(=관측 대상)이 1칸 움직였으니 표식/추리확정을 제외한 후보들의 위치 가능성이 이웃으로 번짐.
+    //   (표식은 marked 상태로 매 턴 실좌표 재주입되어 안전.)
+    try {
+      if (room.mode === 'team') {
+        const seen = new Set();
+        for (const eIdx of getEnemyIndices(room, idx)) {
+          const t = getTeamOf(room, eIdx);
+          if (seen.has(t)) continue; seen.add(t);   // 팀당 한 번만(브레인은 팀 공유)
+          const b = getTeamBrain(room, t);
+          if (b) aiObserveEnemyMove(b, 1);
+        }
+      } else if (room.isAI && idx === 0 && room.aiBrain) {
+        aiObserveEnemyMove(room.aiBrain, 1);
+      }
+    } catch (e) {}
+
     // twinMovePending: 쌍둥이 첫 이동 후 나머지 한쪽이 아직 이동 안 했으면 true.
     //   client 가 새 "쌍둥이 이동 페이즈" 를 유지하기 위한 플래그.
     const stillCanMoveOtherTwin = piece.subUnit
@@ -12988,6 +13067,20 @@ io.on('connection', (socket) => {
 
     const skillPiece = room.players[idx].pieces[pieceIdx];
 
+    // ★ 이동관련 스킬(구동·분신·절대복종반지·바람몰이·질주) = 숨은 배치 대격변 → 관측 AI 신념 광역 재확산(spread 2).
+    if (['drive', 'windPush', 'ring', 'brothers', 'sprint'].includes(skillId)) {
+      try {
+        if (room.mode === 'team') {
+          for (const eIdx of getEnemyIndices(room, idx)) {
+            const b = getTeamBrain(room, getTeamOf(room, eIdx));
+            if (b) aiObserveEnemyMove(b, 2);
+          }
+        } else if (room.isAI && idx === 0 && room.aiBrain) {
+          aiObserveEnemyMove(room.aiBrain, 2);
+        }
+      } catch (e) {}
+    }
+
     // ★ 중독 틱 — 행동소비(replacesAction) 스킬도 '행동'이므로 사용 직후 중독 데미지 판정(PPT).
     try {
       const _bc = getChar(skillPiece && (skillPiece.type === 'twins_elder' || skillPiece.type === 'twins_younger') ? 'twins' : (skillPiece && skillPiece.type));
@@ -13542,7 +13635,7 @@ module.exports = {
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
-  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiDecideAction, aiDecideExchange,
+  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
