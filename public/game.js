@@ -14609,7 +14609,9 @@ function renderGameBoard() {
   if (S.action === 'attack' && S.selectedPiece !== null && !S.targetSelectMode) {
     const sp = S.myPieces[S.selectedPiece];
     if (sp) {
-      const extra = { toggleState: sp.toggleState };
+      // ★ 드라이어드 생장 반영 — growth/growthArms 를 포함해야 성장칸이 핑거프린트('R')에 들어가
+      //   셀이 재빌드되고 attack-grown(주황)이 그려짐(안 그러면 스킵돼 표시 안 됨).
+      const extra = { toggleState: sp.toggleState, growth: sp.rangeGrowth || 0, growthArms: sp.growthArms };
       let range = getAttackCells(sp.type, sp.col, sp.row, extra);
       if (sp.subUnit) {
         const osub = sp.subUnit === 'elder' ? 'younger' : 'elder';
@@ -18408,6 +18410,11 @@ function _placeAttackConfirmBtn(pc, targetParams) {
   if (!pc || !pc.alive) return;
   const board = document.getElementById('game-board');
   if (!board) return;
+  // ★ 화약상: 표시된 공격범위(주변 8칸)는 '잠재 범위'이고 실제로는 그 중 랜덤 2곳만 명중 — 확정 메뉴에 명시.
+  if (pc.type === 'gunpowder') {
+    const _h = document.getElementById('action-hint');
+    if (_h) _h.textContent = '공격 확정 버튼을 눌러주세요. (범위 내 랜덤 2곳 명중)';
+  }
   const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
   if (!cellEl) return;
   const btn = document.createElement('button');

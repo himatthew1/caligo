@@ -5555,6 +5555,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
     }
     atkCells = picked;
   }
+  // ★ 실제로 '타격이 발생한' 셀 집합 — cellResults(피격 플래시)는 이 셀로 만들어야 한다.
+  //   (화약상: 랜덤 2칸만. 그 외: 전체 사거리 그대로.) 핸들러가 processAttack 직후 읽는다.
+  room._effAtkCells = atkCells.map(c => ({ col: c.col, row: c.row }));
   // ★ Phase 3: 동적 공격력 반영(철인=HP·왕자=계승자·묘지기=유해수·개구리=0.5). wrath 는 resolveDamage
   //   에서 별도 가산되므로 getBaseAtk(wrath 제외)를 쓴다. 기존 유닛은 플래그 없어 atk 그대로.
   const baseDmg = (extraDamage !== undefined) ? extraDamage
@@ -12768,8 +12771,10 @@ io.on('connection', (socket) => {
     }
 
     // 각 셀별로 모든 hit를 보존 (쌍둥이 중첩 공격 시 같은 셀에 2개의 hit 가능)
+    // ★ 화약상: 실제 타격 셀(랜덤 2칸)만 cellResults 로 — 안 그러면 클라가 주변 8칸을 전부 피격 표시.
+    const _resultCells = (atkPiece && atkPiece.type === 'gunpowder' && room._effAtkCells) ? room._effAtkCells : atkCells;
     const cellResults = [];
-    for (const cell of atkCells) {
+    for (const cell of _resultCells) {
       const cellHits = hitResults.filter(h => h.col === cell.col && h.row === cell.row);
       if (cellHits.length === 0) {
         cellResults.push({ col: cell.col, row: cell.row, hit: false, damage: 0, destroyed: false });
