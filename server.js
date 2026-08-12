@@ -665,7 +665,9 @@ function bestCavalryDash(room, ownerIdx, piece) {
   const bounds = room.boardBounds;
   if (!piece || piece.type !== 'cavalry' || piece.col == null) return null;
   const enemyIdxs = getEnemyIndices(room, ownerIdx);
-  const occupied = (c, r) => room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === c && p.row === r));
+  // ★ 착지 제한은 '아군'만 (doCavalryDash 규칙과 동일) — 적 위/통과는 질주 가능해야 offensive dash 를 찾는다.
+  const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
+  const allyAt = (c, r) => allyIdxs.some(ai => (room.players[ai]?.pieces || []).some(p => p.alive && p !== piece && p.col === c && p.row === r));
   const enemyAt = (c, r) => enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(p => p.alive && p.col === c && p.row === r && !(p.statusEffects || []).some(e => e.type === 'shadow')));
   let best = null, bestHits = 0, bestDist = 0;
   for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
@@ -673,7 +675,7 @@ function bestCavalryDash(room, ownerIdx, piece) {
       const tc = piece.col + dc * dist, tr = piece.row + dr * dist;
       if (!inBounds(tc, tr, bounds)) break;               // 더 먼 거리도 밖 → 방향 종료
       if (isCellDestroyed(room, tc, tr)) break;
-      if (occupied(tc, tr)) break;                        // 착지 불가 → 그 방향 더 못 감
+      if (allyAt(tc, tr)) continue;                       // 아군 위엔 착지 불가(그 너머 거리는 계속 시도)
       // 경로(제자리 제외 ~ 도착)의 적 수 계산
       let hits = 0;
       for (let s = 1; s <= dist; s++) if (enemyAt(piece.col + dc * s, piece.row + dr * s)) hits++;
@@ -683,6 +685,76 @@ function bestCavalryDash(room, ownerIdx, piece) {
     }
   }
   return bestHits > 0 ? best : null;   // 적을 하나도 못 때리면 질주하지 않음
+}
+// ★ AI 기마병 질주 결정 — 공격 우선(경로 적 타격), 없으면 표식 적으로 접근 리포지션.
+//   기마병은 일반 이동이 없으므로 이 결정이 곧 기마병의 유일한 능동 행동. 반환 {pieceIdx, col, row, offensive} 또는 null.
+function aiCavalryDashDecision(room, ownerIdx) {
+  const p = room.players[ownerIdx];
+  if (!p || p.actionDone) return null;
+  const bounds = room.boardBounds;
+  const enemyIdxs = getEnemyIndices(room, ownerIdx);
+  // 알려진(표식) 적 위치 — blind 리포지션은 위험하므로 확정 위치로만 접근.
+  const known = [];
+  for (const ei of enemyIdxs) for (const e of (room.players[ei]?.pieces || []))
+    if (e.alive && e.col != null && (e.statusEffects || []).some(s => s.type === 'mark')) known.push({ col: e.col, row: e.row });
+  const occ = (piece, c, r) => room.players.some(pl => pl.pieces.some(x => x.alive && x !== piece && x.col === c && x.row === r));
+  let off = null, rep = null;
+  for (let pi = 0; pi < p.pieces.length; pi++) {
+    const piece = p.pieces[pi];
+    if (!piece.alive || piece.type !== 'cavalry' || piece.col == null) continue;
+    const o = bestCavalryDash(room, ownerIdx, piece);   // 경로 적 타격 착지칸(없으면 null)
+    if (o) { if (!off) off = { pieceIdx: pi, col: o.col, row: o.row, offensive: true }; continue; }
+    if (!known.length) continue;   // 표식 적 없음 → 리포지션 안 함(blind 질주 자제)
+    let tgt = known[0], td = Infinity;
+    for (const k of known) { const d = Math.abs(k.col - piece.col) + Math.abs(k.row - piece.row); if (d < td) { td = d; tgt = k; } }
+    let best = null, bd = Infinity;
+    for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) for (let dist = 1; dist <= 2; dist++) {
+      const tc = piece.col + dc * dist, tr = piece.row + dr * dist;
+      if (!inBounds(tc, tr, bounds)) break;
+      if (isCellDestroyed(room, tc, tr)) break;
+      if (occ(piece, tc, tr)) break;
+      const d = Math.abs(tc - tgt.col) + Math.abs(tr - tgt.row);
+      if (d < bd) { bd = d; best = { col: tc, row: tr }; }
+    }
+    const cur = Math.abs(piece.col - tgt.col) + Math.abs(piece.row - tgt.row);
+    if (best && bd < cur && (!rep || bd < rep.d)) rep = { pieceIdx: pi, col: best.col, row: best.row, d: bd, offensive: false };
+  }
+  return off || rep || null;
+}
+// ★ AI 기마병 질주 실행 — doCavalryDash 적용 + 클라 동기(상대에 질주 결과·피해 전달). 성공 시 true.
+function aiRunCavalryDash(room, ownerIdx, cav) {
+  const dr = doCavalryDash(room, ownerIdx, cav.pieceIdx, cav.col, cav.row);
+  if (!dr.ok) return false;
+  const dashKilled = (dr.hits || []).filter(h => h.destroyed);
+  if (dashKilled.length > 0) setKillInfo(room, 'attack', room.players[ownerIdx].pieces[cav.pieceIdx]?.name || '기마병', dashKilled.map(k => ({ name: k.revealedName })));
+  if (room.mode === 'team') {
+    for (const pl of room.players) {
+      if (!pl.socketId || pl.socketId === 'AI' || pl.index === ownerIdx) continue;
+      const isAlly = (pl.teamId === room.players[ownerIdx].teamId);
+      io.to(pl.socketId).emit('team_skill_notice', {
+        casterIdx: ownerIdx, casterName: room.players[ownerIdx].name, casterTeamId: room.players[ownerIdx].teamId,
+        casterPieceIdx: cav.pieceIdx, sp: room.sp, instantSp: room.instantSp,
+        skillUsed: { icon: '/assets/icons/cavalry.png', name: '기마병', skillName: '질주' },
+        dash: dr.dash, hits: dr.hits, destroyedRats: dr.destroyedRats,
+        msg: isAlly ? null : ((dr.hits && dr.hits.length) ? '공격받았습니다!' : null),
+      });
+    }
+    broadcastTeamGameState(room);
+  } else {
+    const opp = room.players[1 - ownerIdx];
+    if (opp && opp.socketId && opp.socketId !== 'AI') {
+      io.to(opp.socketId).emit('status_update', {
+        oppPieces: oppPieceSummary(room.players[ownerIdx].pieces, room),
+        yourPieces: pieceSummary(opp.pieces, room),
+        sp: room.sp, instantSp: room.instantSp, boardObjects: boardObjectsSummary(room, 1 - ownerIdx),
+        remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
+        msg: (dr.hits && dr.hits.length) ? '공격받았습니다!' : null,
+        dash: dr.dash, hits: dr.hits, destroyedRats: dr.destroyedRats, casterPieceIdx: cav.pieceIdx,
+      });
+    }
+    emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+  }
+  return true;
 }
 // ★ Phase 3: 마왕 어둠장막 — 살아있는 마왕(패시브 active=참수 아님)이 있으면 발동.
 function darkVeilActive(room) {
@@ -2702,6 +2774,18 @@ function aiTeamTakeTurn(room, idx) {
         }
       }, waitMs);
       return;
+    }
+  }
+
+  // ★ STEP 1.4: 기마병 질주 — 일반 이동이 없으므로 질주가 유일한 능동 행동(경로 적 타격 우선/표식 접근).
+  {
+    const cav = aiCavalryDashDecision(room, idx);
+    if (cav && !p.actionDone) {
+      if (aiRunCavalryDash(room, idx, cav)) {
+        if (room._headless) { endTurn(room); return; }
+        scheduleAITurnEnd(room, idx, 1800);
+        return;
+      }
     }
   }
 
@@ -10140,6 +10224,9 @@ function aiEndTurn(room) {
 //   2. 절대복종반지로 강제이동된 경우 (별도 흐름 — 이 함수와 무관).
 //   AI 가 자기 아군 위로 이동을 선택하지 않도록 점유 검사 시 사용.
 function _canMoveTo(room, piece, nc, nr) {
+  // ★ 기마병은 일반 이동이 없다 — 질주(특성)로만 이동. AI 가 일반 1칸 이동을 생성하지 않도록 차단.
+  //   (투석기도 구동 스킬 전용이라 동일하게 차단.)
+  if (piece && (piece.type === 'cavalry' || piece.type === 'catapult')) return false;
   // ★ Phase 3: 공성파괴자로 파괴된 칸은 진입 불가(지형 소실).
   if (isCellDestroyed(room, nc, nr)) return false;
   // 유해 차단 — ★ Phase 3: 묘지기(담력)는 유해 칸으로도 이동 가능.
@@ -10251,6 +10338,14 @@ function aiTakeTurn(room) {
         }
       }, waitMs);
       return;
+    }
+  }
+
+  // ★ STEP 1.9: 기마병 질주 — 일반 이동이 없으므로 질주가 유일한 능동 행동(경로 적 타격 우선/표식 접근).
+  {
+    const cav = aiCavalryDashDecision(room, 1);
+    if (cav && !aiPlayer.actionDone) {
+      if (aiRunCavalryDash(room, 1, cav)) { aiTrackToast(room, 'attack'); aiEndTurn(room); return; }
     }
   }
 
@@ -13657,7 +13752,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
