@@ -4970,7 +4970,8 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, fungus }) => {
+  if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;   // ★ 전령 칙명 잔여 행동권 동기화
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   if (troopQueue !== undefined) {
     S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)

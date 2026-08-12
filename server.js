@@ -186,7 +186,7 @@ const CHARACTERS = {
     { type:'manhunter', name:'인간 사냥꾼', tier:1, atk:1, icon:'/assets/icons/manhunter.png', tag:'villain', desc:'자신 포함 세로 3칸',
       skills:[{id:'trap', name:'덫 설치', cost:2, replacesAction:false, oncePerTurn:true, desc:'현재 위치에 덫 설치 · 작동 시 2 피해'}] },
     { type:'messenger', name:'전령', tier:1, atk:0.5, icon:'/assets/icons/messenger.png', tag:'royal', desc:'좌우 세로 3칸',
-      skills:[{id:'decree', name:'칙명', cost:3, replacesAction:false, oncePerTurn:true, desc:'이번 차례에 행동을 마쳤다면, 왕실 유닛 이동을 1회 추가 실행'}] },
+      skills:[{id:'decree', name:'칙명', cost:3, replacesAction:false, oncePerTurn:true, desc:'이번 차례에 행동을 마쳤다면, 왕실 유닛에게 행동(공격·이동·행동소비 스킬)을 1회 추가'}] },
     { type:'gunpowder', name:'화약상', tier:1, atk:1, icon:'/assets/icons/gunpowder.png', tag:null, desc:'주변 8칸 중 랜덤 2칸',
       skills:[
         {id:'bomb', name:'폭탄 설치', cost:1, replacesAction:false, desc:'주변 8칸 중 한 곳에 폭탄 설치'},
@@ -7195,10 +7195,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')
         && !(p.statusEffects || []).some(e => e.type === 'betray') && p._cultOf == null);
       if (!hasControllableRoyal) return { ok: false, msg: '조작할 수 있는 왕실 유닛이 없습니다.' };
-      player._decreeRoyalMoves = (player._decreeRoyalMoves || 0) + 1;
+      player._decreeRoyalMoves = (player._decreeRoyalMoves || 0) + 1;   // ★ 범용 행동권(공격/이동/스킬 1회) — 변수명은 호환상 유지.
       spendSP(room, playerIdx, cost);
-      result.msg = `칙명: 왕실 유닛 이동 1회 추가`;
-      result.oppMsg = `칙명: 상대가 왕실 이동권 획득`;
+      result.msg = `칙명: 왕실 유닛 행동 1회 추가`;
+      result.oppMsg = `칙명: 상대가 왕실 행동권 획득`;
       break;
     }
 
@@ -12565,8 +12565,14 @@ io.on('connection', (socket) => {
     // ★ 부대공격 큐 앞 유닛 — 부대공격 스킬이 actionDone/actionUsedSkillReplace 를 세운 뒤 큐 앞 유닛을
     //   순서대로 '공격'시켜야 하므로, 아래 행동소진 가드들을 우회한다(없으면 부대공격이 먹통).
     const _troopFront = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
+    // ★ 전령 칙명(범용 행동권): 행동을 마친 뒤에도 왕실 유닛(배신/이교단 아님)이 '공격'을 1회 추가 가능.
+    //   (이 유닛이 칙명 행동권으로 공격하면 아래 일반 공격 흐름으로 진행하고 마지막에 행동권 1 소모.)
+    const _decreeAtkPc = player.pieces[pieceIdx];
+    const _decreeAttack = player.actionDone && (player._decreeRoyalMoves > 0) && _decreeAtkPc && _decreeAtkPc.alive
+      && (typeof isFaction === 'function' ? isFaction(_decreeAtkPc, 'royal') : _decreeAtkPc.tag === 'royal')
+      && !(_decreeAtkPc.statusEffects || []).some(e => e.type === 'betray') && _decreeAtkPc._cultOf == null;
 
-    if (player.actionDone && !_troopFront) {
+    if (player.actionDone && !_troopFront && !_decreeAttack) {
       // 쌍검무: 2회 공격 중 2번째 공격
       const piece = player.pieces[pieceIdx];
       if (piece && piece.dualBladeAttacksLeft > 0) {
@@ -12971,6 +12977,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
+        decreeRoyalMoves: player._decreeRoyalMoves || 0,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
       });
       if (defender.socketId !== 'AI') {
@@ -13072,6 +13079,8 @@ io.on('connection', (socket) => {
 
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
     // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
+    // ★ 전령 칙명 행동권으로 실행한 공격이면 여기서 행동권 1 소모(actionDone 은 이미 true 유지).
+    if (_decreeAttack) player._decreeRoyalMoves = Math.max(0, (player._decreeRoyalMoves || 0) - 1);
     player.actionDone = true;
     // (부대공격 큐 소진은 위쪽 emit 직전으로 이동함 — 클라가 갱신 큐를 받도록.)
     // 행동 추적
