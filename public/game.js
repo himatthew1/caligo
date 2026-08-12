@@ -4949,7 +4949,14 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 // ── 공격 결과 ──
 socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, fungus }) => {
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
-  if (troopQueue !== undefined) S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
+  if (troopQueue !== undefined) {
+    S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
+    // ★ 부대공격 자동 진행 — 이 유닛 공격의 피격·사망 연출 텀 뒤 다음 유닛으로.
+    if (troopQueue && troopQueue.length) {
+      const _hadDeaths = (cellResults || []).some(c => c.destroyed);
+      scheduleTroopAdvance(_hadDeaths);
+    }
+  }
   // ★ 공격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
   _pendingSpUpdate = null;
@@ -7692,7 +7699,13 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   ★ SFX 는 SP 비행 종료 시점(SP_END) 으로 이동 — 보드 효과/토스트 와 동기화.
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;
-  if (data && data.troopQueue !== undefined) S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작)
+  if (data && data.troopQueue !== undefined) {
+    S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작 또는 질주 소진 후)
+    // 장군 시전 개시(dash 아님) — 시전 연출 후 첫 유닛 자동 진행. (질주 skill_result 는 dash onDone 에서 진행.)
+    if (!(data && data.dash) && data.troopQueue && data.troopQueue.length) {
+      setTimeout(() => { try { advanceTroopStep(); } catch (e) {} }, 1100);
+    }
+  }
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
   // ★ 조종(악령 개별 이동) 개시 — 악령들의 wraithMovePending 을 '즉시' 반영해야 대기 악령을 바로
   //   클릭·조작 가능. (부대공격 troopQueue 는 data 로 T+0 에 오지만, 악령 pending 은 yourPieces 경유라
@@ -7931,7 +7944,11 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
       if (data && data.dash && typeof animateCavalryDash === 'function') {
         animateCavalryDash(data.dash, data.hits, data.destroyedRats, {
           isOpp: false,
-          onDone: () => { try { _revealC(); } catch (e) {} },   // 도착 시점에 HP/사망/위치 반영
+          onDone: () => {
+            try { _revealC(); } catch (e) {}   // 도착 시점에 HP/사망/위치 반영
+            // ★ 부대공격 중 기마병 질주 — 갤롭 완료 후 다음 유닛으로 자동 진행.
+            if (S.troopQueue && S.troopQueue.length) setTimeout(() => { try { advanceTroopStep(); } catch (e) {} }, 700);
+          },
         });
       } else if (data && data.dash && _deferRevealForDash) {
         // 폴백: 갤롭 함수 미탑재 시 즉시 반영
@@ -18480,6 +18497,57 @@ function _placeAttackConfirmBtn(pc, targetParams) {
 function _clearAttackConfirmBtns() {
   document.querySelectorAll('.attack-confirm-btn').forEach(b => b.remove());
 }
+// ── 부대공격(장군) 자동 진행 ─────────────────────────────────────────────
+//   리디자인: 저티어 왕실부터 하나씩, 각 유닛마다 '공격 확정' 1번만 누르면 자동으로 다음 유닛으로.
+//   - 일반 공격 유닛: 공격범위 표시 + 머리 위 [공격 확정] 버튼 (누르면 attack emit → 자동 다음).
+//   - 기마병: 질주 페이즈(직선 1~2칸 선택).
+//   - 투석기: 단일 타깃 선택 페이즈(칸 클릭 → 확정).
+//   유닛 사이엔 attack_result/skill_result 애니(피격·사망·후속효과)가 텀을 두고 처리된 뒤 호출됨.
+function advanceTroopStep() {
+  if (!S.isMyTurn) return;
+  _clearAttackConfirmBtns();
+  // 큐가 비었으면(부대공격 종료) 상태 정리 후 턴종료 가능 상태로.
+  if (!S.troopQueue || !S.troopQueue.length) {
+    S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+    S.targetCol = undefined; S.targetRow = undefined;
+    document.body.classList.remove('action-locked');
+    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+    const hint = document.getElementById('action-hint'); if (hint) hint.textContent = '';
+    try { renderGameBoard(); } catch (e) {}
+    return;
+  }
+  const front = S.troopQueue[0];
+  const idx = front.pieceIdx;
+  const pc = S.myPieces && S.myPieces[idx];
+  if (!pc || !pc.alive) return;   // 죽은 유닛은 서버가 큐에서 제거 — 다음 이벤트에서 재호출.
+  S.selectedPiece = idx;
+  S.targetCol = undefined; S.targetRow = undefined;
+  document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단(강제)
+  document.getElementById('btn-cancel')?.classList.add('hidden');   // 부대공격은 취소 불가
+  if (pc.type === 'cavalry') {
+    S.action = 'dash'; S.targetSelectMode = false;
+    if (typeof setActionButtonMode === 'function') setActionButtonMode('move');
+    try { renderGameBoard(); } catch (e) {}
+    setActionHint('부대공격 — 기마병 질주: 직선 1~2칸을 선택하세요.');
+  } else if (pc.type === 'catapult') {
+    S.action = 'attack'; S.targetSelectMode = true;
+    if (typeof setActionButtonMode === 'function') setActionButtonMode('attack');
+    try { renderGameBoard(); } catch (e) {}
+    setActionHint('부대공격 — 투석기: 공격할 칸을 선택하세요.');
+  } else {
+    S.action = 'attack'; S.targetSelectMode = false;
+    if (typeof setActionButtonMode === 'function') setActionButtonMode('attack');
+    try { renderGameBoard(); } catch (e) {}
+    _placeAttackConfirmBtn(pc);
+    setActionHint(`부대공격 — ${pc.name}: 공격 확정을 누르세요.`);
+  }
+}
+// 부대공격 유닛 행동 완료 후 다음 유닛으로 넘어가기 전 '텀'(피격·사망·후속효과 연출 시간).
+function scheduleTroopAdvance(hadDeaths) {
+  if (!S.troopQueue || !S.troopQueue.length) { try { advanceTroopStep(); } catch (e) {} return; }
+  const delay = hadDeaths ? 1800 : 1050;   // 사망 시 사망GIF 여유
+  setTimeout(() => { try { advanceTroopStep(); } catch (e) {} }, delay);
+}
 // 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
 function refreshAttackConfirmBtn() {
   if (S.action !== 'attack' || S.selectedPiece == null) {
@@ -18738,7 +18806,8 @@ function handleGameCellClick(col, row) {
   if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
 
   // #9 — 행동이 진행 중이지 않을 때 내 말 셀을 누르면 라디얼 메뉴 표시
-  if (S.isMyTurn && !S.action) {
+  //   ★ 부대공격 진행 중엔 자동 진행(advanceTroopStep)이 유닛을 강제 지정하므로 라디얼 미표시.
+  if (S.isMyTurn && !S.action && !(S.troopQueue && S.troopQueue.length)) {
     const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
     if (myPc) {
       const idx = S.myPieces.indexOf(myPc);
