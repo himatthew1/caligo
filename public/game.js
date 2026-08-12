@@ -14067,6 +14067,8 @@ function canPieceUseAnySkill(pieceIdx) {
     // sprint/dualStrike 플래그 기반 사용완료 (서버는 messengerSprintActive / dualBladeAttacksLeft 로 추적)
     if (sk.id === 'sprint' && pc.messengerSprintActive) continue;
     if (sk.id === 'dualStrike' && pc.dualBladeAttacksLeft > 0) continue;
+    // ★ 그리폰 격노: 피해를 받아 활성(rageActive)일 때만 사용 가능 — 비활성이면 스킬 잠금(라디얼 스킬 버튼도 dim).
+    if (sk.id === 'rage' && pc.type === 'griffin' && !pc.rageActive) continue;
     if (!skillHasValidTarget(pc, sk)) continue;
     return true;
   }

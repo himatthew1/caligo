@@ -4656,9 +4656,21 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
   if (passives.includes('rage')) victim._rageActive = true;
   // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
   if (passives.includes('growth')) {
-    // ★ 생장 리워크: 상하좌우 중 랜덤 한 방향의 arm 을 1칸 늘림(가로 고정 아님).
+    // ★ 생장 리워크: 상하좌우 중 한 방향의 arm 을 1칸 늘림(가로 고정 아님).
+    //   단, 사용자 요청 — '새로 생기는 칸이 보드(화면) 안'인 방향만 후보로 골라 성장.
+    //   (보드 밖으로 뻗는 방향은 클리핑돼 눈에 안 보이는 헛성장이 되므로 배제.)
     if (!victim._growthArms) victim._growthArms = { u: 0, d: 0, l: 0, r: 0 };
-    const dir = ['u', 'd', 'l', 'r'][Math.floor(Math.random() * 4)];
+    const gb = room.boardBounds || { min: 0, max: 4 };
+    const inB = (c, r) => c >= gb.min && c <= gb.max && r >= gb.min && r <= gb.max;
+    const a = victim._growthArms;
+    const cand = [];
+    // 각 방향으로 한 칸 더 자랐을 때 '새로 추가될 칸'(현재 arm 끝의 한 칸 바깥)이 보드 안이면 후보.
+    if (inB(victim.col - (2 + (a.l || 0)), victim.row)) cand.push('l');
+    if (inB(victim.col + (2 + (a.r || 0)), victim.row)) cand.push('r');
+    if (inB(victim.col, victim.row - (1 + (a.u || 0)))) cand.push('u');
+    if (inB(victim.col, victim.row + (1 + (a.d || 0)))) cand.push('d');
+    const pool = cand.length ? cand : ['u', 'd', 'l', 'r'];   // 전부 화면 밖(구석 끝)이면 폴백
+    const dir = pool[Math.floor(Math.random() * pool.length)];
     victim._growthArms[dir] = (victim._growthArms[dir] || 0) + 1;
     victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;   // 총 성장 카운트(표시용)
     victim._lastGrowthDir = dir;                            // 성장 애니용(주인 클라)
