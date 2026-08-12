@@ -8144,7 +8144,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats, exhumedCell }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats, exhumedCell, fungus }) => {
+  // ★ 상대 AI 포자살포/확산 등으로 진균 지대가 바뀌면 그 순간 즉시 반영(전체 재렌더 없이 클래스 토글).
+  if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }
   // ★ 분신 비행 애니메이션 — status_update 는 1v1 '적(상대)' 시점이므로 여기선 재생하지 않는다.
   //   (적에게는 분신 애니 비공개. 시전자=skill_result / 팀원=team_skill_notice / 관전자=spectator_skill_anim 에서 재생.)
 
