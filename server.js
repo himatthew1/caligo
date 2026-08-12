@@ -612,6 +612,10 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   if (_allyIdxs.some(ai => (room.players[ai]?.pieces || []).some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow)))
     return { ok: false, msg: '착지할 칸에 아군이 있습니다.' };
   const _fromCol = piece.col, _fromRow = piece.row;
+  // ★ 질주 경로의 유해 3타 진행은 '질주 이전부터 있던 유해'만 대상 — 이 질주가 유닛을 죽여
+  //   방금 생성한 유해(=사망=생성 1단계)는 제외해야 한다. (안 그러면 질주로 죽인 순간 그 유해가
+  //   같은 경로 칸에 있어 곧바로 진행도가 +1 되는 치명적 버그 — 일반 공격의 onlyExisting 과 동일 처리.)
+  const _preRemainsCells = new Set((room.remains || []).map(r => `${r.col},${r.row}`));
   const dashHits = [];
   const enemyIdxs = getEnemyIndices(room, playerIdx);
   for (const cell of pathCells) {
@@ -632,7 +636,7 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   const dashKilled = dashHits.filter(h => h.destroyed);
   if (dashKilled.length > 0) setKillInfo(room, 'attack', piece.name, dashKilled.map(k => ({ name: k.revealedName })));
   // ★ 질주 경로 = 기마병의 공격칸: 지나온 칸의 유해 파괴단계 상승 + 적 쥐 격파(일반 공격과 동일).
-  if (typeof processRemainsHits === 'function') processRemainsHits(room, pathCells, {});   // 내부에서 remains_update emit
+  if (typeof processRemainsHits === 'function') processRemainsHits(room, pathCells, { onlyExisting: _preRemainsCells });   // 내부에서 remains_update emit (질주로 방금 생성된 유해 제외)
   const dashDestroyedRats = [];
   for (const cell of pathCells) {
     for (const ei of enemyIdxs) {
