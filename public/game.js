@@ -4713,6 +4713,7 @@ function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
 socket.on('your_turn', (data) => {
   // ★ 질주 잔상 방어 — 탭 백그라운드로 setTimeout 이 스로틀돼 안전망이 늦을 때 대비, 턴 경계에서 강제 청소.
   try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
+  if (S.wraithPhaseActive && typeof exitWraithMovePhase === 'function') exitWraithMovePhase();   // 조종 이동 페이즈 잔재 정리
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼는 폐기 (turn 경계 stale 누설 방지).
@@ -4770,6 +4771,7 @@ socket.on('your_turn', (data) => {
 socket.on('opp_turn', (data) => {
   // ★ 질주 잔상 방어 — 턴 경계에서 강제 청소(안전망 타이머 스로틀 대비).
   try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
+  if (S.wraithPhaseActive && typeof exitWraithMovePhase === 'function') exitWraithMovePhase();   // 조종 이동 페이즈 잔재 정리
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (stale 누설 방지).
@@ -4839,6 +4841,27 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, rema
       exitTwinMovePhase(/*emitToast=*/true);
       showActionBar(true);
     }
+    return;
+  }
+
+  // 조종(악령 개별 이동) 페이즈 — 개별 이동마다 버튼만 갱신, 남은 악령 계속 조작.
+  if (S.wraithPhaseActive) {
+    S.action = null;
+    S.selectedPiece = null;
+    S.lastActionType = 'move';
+    S.lastActionPieceType = pc.type;
+    renderGameBoard();
+    renderMyPieces();
+    const stillPending = (S.myPieces || []).some(p => p.alive && p.wraithMovePending);
+    if (stillPending) {
+      refreshWraithMoveButtons();
+      setActionHint('조종 — 다음 악령의 [이동] 버튼을 누르거나 턴을 종료하세요.');
+    } else {
+      exitWraithMovePhase();
+      addLog('조종: 악령 이동 완료', 'skill');
+      showSkillToast('조종: 악령 이동');
+    }
+    showActionBar(true);
     return;
   }
 
@@ -7712,12 +7735,9 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   원래 SP_END(~800ms) 에야 도착 → 그 사이 actionUsedSkillReplace 만 켜져 pieceCanTakeBasicAction 이
   //   전부 false → "어느 악령도 조작 불가" 버그. yourPieces 를 앞당겨 적용하고 행동상태를 초기화.)
   if (data && data.wraithMoveQueue !== undefined) {
+    // ★ 조종(악령 개별 이동) 개시 — 쌍둥이식 이동 페이즈. 악령 상태를 즉시 반영하고 머리 위 [이동] 버튼 표시.
     if (yourPieces) S.myPieces = yourPieces;
-    S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
-    document.body.classList.remove('action-locked');
-    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
-    try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
-    try { setActionHint('조종: 각 악령을 하나씩 이동시키세요.'); } catch (e) {}
+    try { enterWraithMovePhase(); } catch (e) {}
   }
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
@@ -15515,6 +15535,10 @@ function renderGameBoard() {
   if (S.twinPhaseActive && typeof refreshTwinPhaseButtons === 'function') {
     refreshTwinPhaseButtons();
   }
+  // 조종(악령) 이동 버튼 재배치 — 셀 재생성/위치 변경 대응.
+  if (S.wraithPhaseActive && typeof refreshWraithMoveButtons === 'function') {
+    refreshWraithMoveButtons();
+  }
   // 공격 확정 floating 버튼 재배치 — 셀 재생성 / piece 위치 변경 / 선택 변경 대응.
   if (typeof refreshAttackConfirmBtn === 'function') refreshAttackConfirmBtn();
 
@@ -18548,6 +18572,71 @@ function scheduleTroopAdvance(hadDeaths) {
   const delay = hadDeaths ? 1800 : 1050;   // 사망 시 사망GIF 여유
   setTimeout(() => { try { advanceTroopStep(); } catch (e) {} }, delay);
 }
+// ── 조종(악령술사) 악령 개별 이동 페이즈 ─────────────────────────────────
+//   쌍둥이 이동 페이즈와 동일 컨셉: 대기 중(wraithMovePending)인 악령 머리 위에 [이동] 버튼을 띄우고,
+//   버튼을 누르면 그 악령이 이동 대상이 되어 초록 칸을 선택 → 이동. 이동한 악령의 버튼은 사라지고,
+//   남은 악령을 계속 조작. 모두 이동하면 페이즈 종료 → 턴 종료 가능.
+function enterWraithMovePhase() {
+  if (!S.isMyTurn) return;
+  const pending = (S.myPieces || []).filter(p => p.alive && p.wraithMovePending);
+  if (pending.length === 0) { exitWraithMovePhase(); return; }
+  S.wraithPhaseActive = true;
+  S.action = null;
+  S.selectedPiece = null;
+  S.targetSelectMode = false;
+  document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단(강제)
+  document.getElementById('btn-cancel')?.classList.add('hidden');
+  if (typeof setActionButtonMode === 'function') setActionButtonMode('move');
+  setActionHint('조종 — 각 악령의 [이동] 버튼을 눌러 하나씩 이동하세요.');
+  try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
+  refreshWraithMoveButtons();
+}
+function _closeWraithMoveButtons() {
+  document.querySelectorAll('.wraith-phase-btn').forEach(b => b.remove());
+}
+function refreshWraithMoveButtons() {
+  _closeWraithMoveButtons();
+  if (!S.wraithPhaseActive) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const pending = (S.myPieces || []).filter(p => p.alive && p.wraithMovePending);
+  if (pending.length === 0) { exitWraithMovePhase(); return; }
+  for (const w of pending) {
+    const idx = S.myPieces.indexOf(w);
+    // 현재 이동 대상으로 '선택됨' 상태면 버튼 대신 이동칸을 고르는 중 — 버튼은 is-selected 표시만.
+    const cellEl = board.querySelector(`.cell[data-col="${w.col}"][data-row="${w.row}"]`);
+    if (!cellEl) continue;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'twin-phase-btn wraith-phase-btn';   // 쌍둥이 버튼 스타일 재사용
+    btn.dataset.wraithIdx = String(idx);
+    btn.innerHTML = `<span class="ic">👻</span><span class="lbl">이동</span>`;
+    btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+    btn.style.top = cellEl.offsetTop + 'px';
+    if (S.selectedPiece === idx && S.action === 'move') btn.classList.add('is-selected');
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // 이 악령을 이동 대상으로 — 초록 이동칸 표시.
+      S.selectedPiece = idx;
+      S.action = 'move';
+      try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (er) {}
+      refreshWraithMoveButtons();
+      setActionHint('조종 — 악령 이동: 초록 칸을 선택하세요.');
+    });
+    board.appendChild(btn);
+  }
+}
+function exitWraithMovePhase() {
+  const was = S.wraithPhaseActive;
+  S.wraithPhaseActive = false;
+  S.action = null;
+  S.selectedPiece = null;
+  _closeWraithMoveButtons();
+  document.body.classList.remove('action-locked');
+  if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+  const hint = document.getElementById('action-hint'); if (hint) hint.textContent = '';
+  if (was) { try { renderGameBoard(); } catch (e) {} }
+}
 // 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
 function refreshAttackConfirmBtn() {
   if (S.action !== 'attack' || S.selectedPiece == null) {
@@ -18990,10 +19079,13 @@ function handleGameCellClick(col, row) {
       // 다른 내 말 → 선택 변경
       const otherPc = S.myPieces.find(p => p.col === col && p.row === row && p.alive && S.myPieces.indexOf(p) !== S.selectedPiece);
       if (otherPc) {
+        // ★ 조종 이동 페이즈 — 대기 중인 다른 악령으로만 전환 가능([이동] 버튼으로 전환하는 게 정석). 그 외는 무시.
+        if (S.wraithPhaseActive && !otherPc.wraithMovePending) return;
         S.selectedPiece = S.myPieces.indexOf(otherPc);
         document.getElementById('action-hint').textContent = `${otherPc.name} 선택. 이동할 칸을 클릭하세요.`;
         renderGameBoard();
         renderMyPieces();
+        if (S.wraithPhaseActive) { try { refreshWraithMoveButtons(); } catch (e) {} }
         return;
       }
       // 이동 범위 체크

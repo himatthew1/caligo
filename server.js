@@ -13136,6 +13136,17 @@ io.on('connection', (socket) => {
     endGame(room, 1 - idx, 'surrender');
   });
 
+  // ── [개발 전용] AI 연습 모드 한정 SP 지급 — 고SP 스킬(부대공격 등) 테스트용. 실 PvP 무영향. ──
+  socket.on('__dev_grant_sp', (payload) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || !room.isAI || room.phase !== 'game') return;   // AI 연습 모드에서만
+    const idx = socket.data.idx;
+    if (room.currentPlayerIdx !== idx) return;
+    const amt = (payload && typeof payload.amount === 'number') ? payload.amount : 10;
+    room.sp[idx] = Math.max(0, Math.min(10, amt));
+    if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
+  });
+
   socket.on('end_turn', () => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') return;
