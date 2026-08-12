@@ -9707,6 +9707,9 @@ const PASSIVE_BUBBLE_INFO = {
   torturer:       { pieceType: 'torturer',       name: '표식' },
   poisoner:       { pieceType: 'poisoner',       name: '독니' },
   mushkin:        { pieceType: 'mushkin',        name: '포자살포' },
+  griffin:        { pieceType: 'griffin',        name: '격노' },     // ★ 정령 피격 발동 — 그리폰 격노 활성
+  dryad:          { pieceType: 'dryad',          name: '생장' },     // ★ 드라이어드 사거리 성장
+  oberon:         { pieceType: 'oberon',         name: '요정왕' },   // ★ 오베론 카운터 +1
 };
 
 // 패시브 발동 시 — 해당 piece 카드에서 보드 쪽으로 주황 말풍선 (스킬 시전 말풍선과 동일 디자인)

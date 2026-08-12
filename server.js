@@ -4670,7 +4670,11 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ownerIdx });
   }
   // [그리폰] 격노 — 피해 받으면 스킬 활성.
-  if (passives.includes('rage')) victim._rageActive = true;
+  if (passives.includes('rage')) {
+    const _wasActive = victim._rageActive;
+    victim._rageActive = true;
+    if (!_wasActive) emitToBoth(room, 'passive_alert', { type: 'griffin', playerIdx: ownerIdx, msg: `격노 : 활성화` });   // 발동 표시(최초 활성 시)
+  }
   // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
   if (passives.includes('growth')) {
     // ★ 생장 리워크: 상하좌우 중 한 방향의 arm 을 1칸 늘림(가로 고정 아님).
@@ -4691,6 +4695,7 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     victim._growthArms[dir] = (victim._growthArms[dir] || 0) + 1;
     victim._rangeGrowth = (victim._rangeGrowth || 0) + 1;   // 총 성장 카운트(표시용)
     victim._lastGrowthDir = dir;                            // 성장 애니용(주인 클라)
+    emitToBoth(room, 'passive_alert', { type: 'dryad', playerIdx: ownerIdx, msg: `생장 : 사거리 +1` });   // 발동 표시
   }
   // [이야기꾼] 피해 받으면 그가 건 배신(선동) 모두 해제.
   if (victim.type === 'storyteller' && dmg > 0) {
@@ -4717,7 +4722,10 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
     for (const ai of allyIdxs) {
       for (const p of (room.players[ai] && room.players[ai].pieces || [])) {
-        if (p.alive && p.type === 'oberon') p._oberonCounter = (p._oberonCounter || 0) + 1;   // 팀 내 모든 오베론 각각 +1
+        if (p.alive && p.type === 'oberon') {
+          p._oberonCounter = (p._oberonCounter || 0) + 1;   // 팀 내 모든 오베론 각각 +1
+          emitToBoth(room, 'passive_alert', { type: 'oberon', playerIdx: ai, msg: `요정왕 : 카운터 +1 (${p._oberonCounter})` });   // 발동 표시
+        }
       }
     }
   }
