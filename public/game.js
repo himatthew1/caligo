@@ -2941,7 +2941,7 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
   // ★ 묘지기 도굴 — 도굴 칸에서 시전자 팀 SP 트레이(내 팀=mine / 적팀=opp)로 인스턴트 SP 2 비행.
   if (exhumedCell) {
     const _ec = exhumedCell;
-    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, myTeam, 2); } catch (e) {} }, 460);
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, myTeam, 2, instantSp); } catch (e) {} }, 460);
   }
 
   // ★ 시전자 말풍선 — 팀모드 시점에서도 시전자 카드에서 보드 쪽으로 표시
@@ -6188,7 +6188,7 @@ function _flyInstantSpOrb(fromPos, tray, pip) {
 
 // ── 묘지기 도굴 — 도굴한 유해 칸에서 인스턴트 SP 구슬 count개가 솟아 SP 트레이로 비행 ──
 //   전체 톤은 마법사 인스턴트매직(spawnInstantGainOrb)과 동일. 다만 출발지가 마법사 카드가 아니라 '도굴 칸'.
-function spawnExhumeSpOrbs(col, row, isMine, count) {
+function spawnExhumeSpOrbs(col, row, isMine, count, newInstantArr) {
   count = count || 2;
   const cell = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
   if (!cell) return;
@@ -6197,9 +6197,17 @@ function spawnExhumeSpOrbs(col, row, isMine, count) {
   const trayId = isMine ? 'sp-instant-tray-mine' : 'sp-instant-tray-opp';
   const tray = document.getElementById(trayId);
   if (!tray) return;
-  // 새로 추가된 pip = mine 은 뒤쪽 count개 / opp 은 앞쪽 count개. 비행 동안 잠시 숨겼다가 도착 시 노출.
-  const pips = Array.from(tray.children);
-  const targetPips = isMine ? pips.slice(-count) : pips.slice(0, count);
+  // ★ 새 인스턴트 pip 을 비행 전에 미리 확보(오브 착지 타깃) — updateSPBar 가 SP_END(≈780ms) 에야
+  //   실행돼 그 전엔 pip 이 아직 없을 수 있음. syncInstantTray 는 '절대 개수'로 수렴(멱등)하므로
+  //   나중 updateSPBar 와 충돌 없이, 서버가 보낸 새 instantSp 총량으로 pip 을 미리 렌더.
+  if (Array.isArray(newInstantArr)) {
+    const mineSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
+    const slot = isMine ? mineSlot : (1 - mineSlot);
+    try { syncInstantTray(trayId, newInstantArr[slot] || 0); } catch (e) {}
+  }
+  // 새로 추가된 pip = syncInstantTray 가 append → 항상 DOM-last count개. 비행 동안 숨겼다가 도착 시 노출.
+  const pips = Array.from(tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)'));
+  const targetPips = pips.slice(-count);
   targetPips.forEach(p => { p.style.opacity = '0'; });
   for (let i = 0; i < count; i++) {
     const pip = targetPips[i] || null;
@@ -7707,7 +7715,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   SP 차감/트레이 pip 추가(spendSPAttention)가 반영된 뒤 솟도록 소폭 지연.
   if (data && data.exhumedCell) {
     const _ec = data.exhumedCell;
-    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, true, 2); } catch (e) {} }, 460);
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, true, 2, instantSp); } catch (e) {} }, 460);
   }
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
@@ -8104,7 +8112,7 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
   // ★ 묘지기 도굴(상대 시전) — 도굴 칸에서 상대 SP 트레이로 인스턴트 SP 2 비행.
   if (exhumedCell) {
     const _ec = exhumedCell;
-    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, false, 2); } catch (e) {} }, 460);
+    setTimeout(() => { try { spawnExhumeSpOrbs(_ec.col, _ec.row, false, 2, instantSp); } catch (e) {} }, 460);
   }
 
   // ★ 시전자 말풍선 (1v1 상대 시전 시점)
