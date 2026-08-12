@@ -3546,7 +3546,7 @@ function renderTeamPlayerBlock(playerData, isAlly) {
         <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${atkDisplay}</span>
         ${posDisplayHtml}
       </div>
-      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}${isAlly ? oberonCounterBadgeHtml(pc) : ''}
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${moraleHtml}${oberonCounterBadgeHtml(pc)}
     </div>`;
   }).join('');
 

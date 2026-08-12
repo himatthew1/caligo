@@ -173,7 +173,7 @@ const CHARACTERS = {
     { type:'cavalry', name:'기마병', tier:1, atk:1, icon:'/assets/icons/cavalry.png', tag:'royal', desc:'공격 불가',
       passives:['charge'],
       // ★ 질주는 '특성'(trait) — 스킬 탭/버튼에 노출 안 됨. 부채꼴 전용 질주 버튼에서만 사용(내부 dash).
-      skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, trait:true, desc:'이동 대체 특성 · 직선 1~2칸, 경로의 적에 고정 1피해'}] },
+      skills:[{id:'dash', name:'질주', cost:0, replacesAction:true, trait:true, desc:'이동 특성 · 직선 1~2칸 질주하며 경로의 적에 고정 1피해(일반 이동·공격 없음)'}] },
     { type:'catapult', name:'투석기', tier:1, atk:2, icon:'🪨', tag:'royal', noRemains:true, desc:'전체 보드 중 1칸 선택 공격',
       skills:[{id:'drive', name:'구동', cost:2, replacesAction:true, desc:'투석기를 인접 1칸으로 이동(오직 이 스킬로만 이동 가능)'}] },
     { type:'windSurfer', name:'윈드서퍼', tier:1, atk:1, icon:'🏄', tag:'spirit', desc:'가로 3칸과 하단',
@@ -672,7 +672,15 @@ function bestCavalryDash(room, ownerIdx, piece) {
   // ★ 착지 제한은 '아군'만 (doCavalryDash 규칙과 동일) — 적 위/통과는 질주 가능해야 offensive dash 를 찾는다.
   const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
   const allyAt = (c, r) => allyIdxs.some(ai => (room.players[ai]?.pieces || []).some(p => p.alive && p !== piece && p.col === c && p.row === r));
-  const enemyAt = (c, r) => enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(p => p.alive && p.col === c && p.row === r && !(p.statusEffects || []).some(e => e.type === 'shadow')));
+  // ★ 공정성 — AI 기마병은 '숨은 적의 실제 좌표'를 알면 안 된다. 브레인 믿음맵(probMap) + 표식(확정
+  //   위치)로만 '적이 있을 법한 칸'을 추정해 질주한다. (이전엔 실좌표 전지 → 플레이어 위치를 아는 듯 추격.)
+  const _brain = (room.mode === 'team' && typeof getTeamBrain === 'function' && typeof getTeamOf === 'function')
+    ? getTeamBrain(room, getTeamOf(room, ownerIdx))
+    : room.aiBrain;
+  const _belief = (c, r) => (_brain && _brain.probMap && _brain.probMap[r]) ? (_brain.probMap[r][c] || 0) : 0;
+  const _markedAt = (c, r) => enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(p => p.alive && p.col === c && p.row === r
+    && (p.statusEffects || []).some(e => e.type === 'mark') && !(p.statusEffects || []).some(e => e.type === 'shadow')));
+  const enemyAt = (c, r) => _markedAt(c, r) || _belief(c, r) >= 6;   // 표식(확정) 또는 강한 믿음만
   let best = null, bestHits = 0, bestDist = 0;
   for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
     for (let dist = 1; dist <= 2; dist++) {
@@ -2116,6 +2124,8 @@ function aiTeamLearnFromAttack(room, attackerIdx, atkCells, hitResults) {
 }
 
 function aiTeamScoreAttack(room, idx, piece, extra) {
+  // ★ 기마병은 일반 공격 없음(질주 특성만) — 공격 후보 제외.
+  if (piece && piece.type === 'cavalry') return -Infinity;
   const brain = getTeamBrain(room, getTeamOf(room, idx));
   const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
@@ -4595,6 +4605,9 @@ function oppPieceSummary(pieces, room, ownerIdx) {
       toggleState: pc.toggleState,
       rangeGrowth: pc._rangeGrowth || 0,
     growthArms: pc._growthArms, lastGrowthDir: pc._lastGrowthDir,
+      // ★ 정령 자원/상태도 공개(추론·공유 힌트) — 위치와 무관. 상대 요정왕 카운터·그리폰 격노 활성 노출.
+      oberonCounter: pc._oberonCounter || 0,
+      rageActive: pc._rageActive || false,
       darkVeilSeed: pc._darkVeilSeed,   // ★ 어둠장막 봉인 오프셋(미니그리드 반영용)
       // 표식 상태인 적은 위치 공개
       col: hasMark ? pc.col : undefined,
@@ -9271,6 +9284,8 @@ function _aiSpBaseBar(room, slot, cost, regularBar) {
 }
 
 function aiScoreAttack(brain, piece, room, extra) {
+  // ★ 기마병은 일반 공격이 없다(질주 특성만) — 공격 후보에서 완전 제외. (질주는 aiCavalryDashDecision 이 담당.)
+  if (piece && piece.type === 'cavalry') return -Infinity;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
   // ★ probMap 은 매 턴 max=10 으로 정규화된 '믿음'맵이라 확률(기대 데미지)이 아님 → 확산(블라인드)도
