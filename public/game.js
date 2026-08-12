@@ -4711,6 +4711,8 @@ function playGameStartAnimation(isMyTurn, isReconnect, turnOwnerName) {
 
 // ── 내 턴 ──
 socket.on('your_turn', (data) => {
+  // ★ 질주 잔상 방어 — 탭 백그라운드로 setTimeout 이 스로틀돼 안전망이 늦을 때 대비, 턴 경계에서 강제 청소.
+  try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼는 폐기 (turn 경계 stale 누설 방지).
@@ -4766,6 +4768,8 @@ socket.on('your_turn', (data) => {
 
 // ── 상대 턴 ──
 socket.on('opp_turn', (data) => {
+  // ★ 질주 잔상 방어 — 턴 경계에서 강제 청소(안전망 타이머 스로틀 대비).
+  try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (stale 누설 방지).
@@ -7690,6 +7694,18 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;
   if (data && data.troopQueue !== undefined) S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작)
   if (actionUsedSkillReplace !== undefined) S.actionUsedSkillReplace = actionUsedSkillReplace;
+  // ★ 조종(악령 개별 이동) 개시 — 악령들의 wraithMovePending 을 '즉시' 반영해야 대기 악령을 바로
+  //   클릭·조작 가능. (부대공격 troopQueue 는 data 로 T+0 에 오지만, 악령 pending 은 yourPieces 경유라
+  //   원래 SP_END(~800ms) 에야 도착 → 그 사이 actionUsedSkillReplace 만 켜져 pieceCanTakeBasicAction 이
+  //   전부 false → "어느 악령도 조작 불가" 버그. yourPieces 를 앞당겨 적용하고 행동상태를 초기화.)
+  if (data && data.wraithMoveQueue !== undefined) {
+    if (yourPieces) S.myPieces = yourPieces;
+    S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+    document.body.classList.remove('action-locked');
+    if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+    try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
+    try { setActionHint('조종: 각 악령을 하나씩 이동시키세요.'); } catch (e) {}
+  }
   if (skillsUsed) S.skillsUsedThisTurn = skillsUsed;
   // dim 오버레이 + 시전자 프로필 spotlight (mine: 본인 카드)
   // 시전자 인덱스: 서버가 casterPieceIdx 로 보내며, 구 버전 호환을 위해 pieceIdx 도 fallback
@@ -20398,6 +20414,8 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
   const pts = path.map(p => { const cc = cellOf(p.col, p.row); return cc ? centerOf(cc) : null; });
   if (pts.some(p => !p)) { if (startMarker) startMarker.style.visibility = ''; renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
 
+  // ★ 이전 질주에서 남았을 수 있는 잔상을 먼저 싹 제거(연속 질주/렌더 경쟁으로 누적되던 것 방지).
+  try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
   // ★ 잔상/플로터 전부에 클래스 부여 — 갤롭 종료 시 한 번에 강제 제거(개별 setTimeout 유실 대비).
   //   (최초 질주 시 GIF 디코드 지연/모바일 타이머 밀림으로 잔상이 남던 문제 방지.)
   const _ghosts = [];
@@ -20449,7 +20467,11 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
     for (const gh of _ghosts) { try { gh.remove(); } catch (e) {} }
     _ghosts.length = 0;
     try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
+    if (trailIv) { try { clearInterval(trailIv); } catch (e) {} }
   };
+  // ★ 절대 안전망 — step 이 어떤 이유로든(렌더 경쟁·모바일 백그라운드·연속 질주 중단) 완료하지 못해도
+  //   갤롭 예상시간 + 여유 뒤 잔상을 반드시 전부 제거. (step 완료 시의 340ms sweep 과 별개·멱등.)
+  setTimeout(_sweepGhosts, GALLOP_MS + 900);
 
   const startT = performance.now();
   function step(now) {

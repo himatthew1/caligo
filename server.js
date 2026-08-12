@@ -7855,6 +7855,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.data.hits = dr.hits;
       result.data.destroyedRats = dr.destroyedRats || [];
       result.data.dashTrapPending = dr.trapPending || null;   // ★ 착지칸 덫 지연 발동용(클라 미전송, use_skill 에서 스케줄)
+      // ★ 부대공격 큐 — 이 기마병이 질주로 소진된 뒤 갱신된 큐를 클라에 전달(다음 저티어 유닛 조작).
+      //   (doCavalryDash 가 큐 앞이면 이미 shift 함. 안 실으면 클라가 기마병을 계속 큐 앞으로 오인.)
+      result.data.troopQueue = player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null;
       break;
     }
 
@@ -12814,6 +12817,13 @@ io.on('connection', (socket) => {
       (room._attackerFriendlyFireCount || 0) > 0 ||
       (room._attackerOwnRatsDestroyedCount || 0) > 0 ||
       (room._destroyedEnemyRatsCount || 0) > 0;
+    // ★ 부대공격 큐 소진 — 반드시 emit(attack_result/broadcast) 보다 '먼저' 실행해야 클라가
+    //   갱신된(다음 저티어) 큐를 받는다. (이전엔 emit 뒤에 shift 했던 탓에 클라가 방금 행동한
+    //   유닛이 여전히 맨 앞인 낡은 큐를 받아 → 다음 유닛도 방금 유닛도 조작 불가 = 부대공격 먹통.)
+    if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
+      player._troopQueue.shift();
+      if (player._troopQueue.length === 0) player._troopQueue = null;
+    }
     if (room.mode === 'team') {
       // 팀전: attack_result에 단일 oppPieces는 의미 없음 (team_game_update로 전체 동기)
       socket.emit('attack_result', {
@@ -12822,6 +12832,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
+        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐(팀전에서도 다음 유닛 조작되도록)
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
@@ -13046,11 +13057,7 @@ io.on('connection', (socket) => {
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
     // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
     player.actionDone = true;
-    // ★ 부대공격: 이 유닛이 큐 앞이면 소진(다음 저티어 유닛으로).
-    if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
-      player._troopQueue.shift();
-      if (player._troopQueue.length === 0) player._troopQueue = null;
-    }
+    // (부대공격 큐 소진은 위쪽 emit 직전으로 이동함 — 클라가 갱신 큐를 받도록.)
     // 행동 추적
     player._lastActionType = 'attack';
     player._lastActionPieceType = atkPiece.type;
