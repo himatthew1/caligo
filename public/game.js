@@ -14434,6 +14434,7 @@ function _cellStateFP(col, row, pre) {
   // ── 범위 오버레이 (pre-computed) ──
   f += '|' +
     (pre.move && pre.move.has(k) ? 'M' : '') +
+    (pre.dash && pre.dash.has(k) ? 'H' : '') +   // ★ 기마병 질주 범위 — 없으면 셀 스킵돼 초록칸 안 그려짐
     (pre.attack && pre.attack.has(k) ? 'R' : '') +
     (pre.teammate && pre.teammate.has(k) ? 'E' : '') +
     (pre.skill && pre.skill.has(k) ? 'S' : '') +
@@ -14588,6 +14589,20 @@ function renderGameBoard() {
         if (c >= bounds.min && c <= bounds.max && r >= bounds.min && r <= bounds.max)
           _preRanges.move.add(c+','+r);
       });
+    }
+  }
+  // — dash range (기마병 질주: 직선 1~2칸) — ★ 핑거프린트에 반영해야 셀이 재빌드돼 초록칸이 그려짐(안 그러면 스킵) —
+  if (S.action === 'dash' && S.selectedPiece !== null) {
+    const sp = S.myPieces[S.selectedPiece];
+    if (sp) {
+      _preRanges.dash = new Set();
+      for (const [dc, dr] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        for (let d = 1; d <= 2; d++) {
+          const c = sp.col + dc * d, r = sp.row + dr * d;
+          if (c >= bounds.min && c <= bounds.max && r >= bounds.min && r <= bounds.max)
+            _preRanges.dash.add(c + ',' + r);
+        }
+      }
     }
   }
   // — attack range —
