@@ -7696,8 +7696,10 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   const _targetInfo = (S.isTeamMode && _casterIdx !== null && S.playerIdx != null)
     ? { playerIdx: S.playerIdx, pieceIdx: _casterIdx }
     : null;
-  startSkillCastDim(casterCard, _targetInfo);
-  // SP 마법구 이동
+  // ★ 기마병 질주 = 스킬이 아니라 '특성(이동)' — 스킬 시전 연출(카스트 딤/시전자 스포트라이트/말풍선) 생략.
+  const _isDash = !!(data && data.dash);
+  if (!_isDash) startSkillCastDim(casterCard, _targetInfo);
+  // SP 마법구 이동 (질주는 SP 변화 없음 — 사실상 무동작)
   try { spendSPAttention(oldSpSnap, sp || S.sp, oldInstantSnap, instantSp || S.instantSp); } catch (e) {}
   // ★ 도적 강탈 — 상대 SP바에서 내 SP바로 구슬이 넘어오는 연출.
   if (data && data.spSteal) { try { playSpStealOrb(false); } catch (e) {} }
@@ -7709,8 +7711,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   }
   if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
 
-  // ★ 시전자 말풍선 — 시전자 카드에서 보드 쪽으로 꼬리 달린 스킬명 말풍선 (2초 유지)
-  if (casterCard && _casterIdx != null) {
+  // ★ 시전자 말풍선 — 시전자 카드에서 보드 쪽으로 꼬리 달린 스킬명 말풍선 (2초 유지). 질주(특성)는 생략.
+  if (casterCard && _casterIdx != null && !_isDash) {
     const casterPc = (S.myPieces || [])[_casterIdx];
     const skName = (casterPc?.skills || []).find(s => (s.cost || 0) > 0)?.name
                  || casterPc?.skillName
@@ -20366,13 +20368,18 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
   const pts = path.map(p => { const cc = cellOf(p.col, p.row); return cc ? centerOf(cc) : null; });
   if (pts.some(p => !p)) { if (startMarker) startMarker.style.visibility = ''; renderGameBoard(); if (opts.onDone) opts.onDone(); return; }
 
+  // ★ 잔상/플로터 전부에 클래스 부여 — 갤롭 종료 시 한 번에 강제 제거(개별 setTimeout 유실 대비).
+  //   (최초 질주 시 GIF 디코드 지연/모바일 타이머 밀림으로 잔상이 남던 문제 방지.)
+  const _ghosts = [];
   const el = document.createElement('img');
+  el.className = 'cav-dash-ghost';
   if (attackUrl) el.src = attackUrl;
   el.style.cssText = `position:fixed;z-index:2600;pointer-events:none;width:${imgSize}px;height:${imgSize}px;`
     + `object-fit:contain;image-rendering:pixelated;transform:scaleX(${scaleX});transform-origin:center center;`
     + `filter:drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000) drop-shadow(0 0 7px rgba(255,180,80,.75));`
     + `left:${pts[0].x}px;top:${pts[0].y}px;`;
   document.body.appendChild(el);
+  _ghosts.push(el);
 
   // 칸별 히트 매핑
   const hitByCell = {};
@@ -20396,15 +20403,23 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
   const trailIv = setInterval(() => {
     const r = el.getBoundingClientRect();
     const g = document.createElement('img');
+    g.className = 'cav-dash-ghost';
     if (attackUrl) g.src = attackUrl;
     g.style.cssText = `position:fixed;z-index:2599;pointer-events:none;width:${imgSize}px;height:${imgSize}px;`
       + `object-fit:contain;image-rendering:pixelated;transform:scaleX(${scaleX});`
       + `left:${r.left}px;top:${r.top}px;opacity:0.32;filter:drop-shadow(0 0 5px rgba(255,160,60,.5));`
       + `transition:opacity .28s ease-out;`;
     document.body.appendChild(g);
+    _ghosts.push(g);
     requestAnimationFrame(() => { g.style.opacity = '0'; });
     setTimeout(() => g.remove(), 300);
   }, 42);
+  // ★ 안전망: 어떤 이유로든(모바일 타이머 밀림 등) 잔상이 남지 않도록 갤롭 종료 직후 전부 강제 제거.
+  const _sweepGhosts = () => {
+    for (const gh of _ghosts) { try { gh.remove(); } catch (e) {} }
+    _ghosts.length = 0;
+    try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
+  };
 
   const startT = performance.now();
   function step(now) {
@@ -20426,6 +20441,8 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
       if (startMarker) startMarker.style.visibility = '';
       renderGameBoard();
       if (opts.onDone) opts.onDone();
+      // 트레일 페이드가 끝날 시점(잔상 마지막 클론 +여유)에 남은 잔상 전부 강제 제거.
+      setTimeout(_sweepGhosts, 340);
     }
   }
   requestAnimationFrame(step);
