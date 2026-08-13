@@ -14935,8 +14935,8 @@ function renderGameBoard() {
         <div class="piece-marker${dimClass ? ' ' + dimClass : ''} ${myTeamColorCls}${twinCls}">
           <span class="p-icon">${_iconContent}</span>
           ${_noHpBar(pc) ? '' : `<span class="p-hp">${hpText}</span>`}
-          ${pc.type === 'oberon' ? oberonOrbsHtml(pc.oberonCounter, `mine:${S.myPieces.indexOf(pc)}`) : ''}
         </div>`;
+          // ★ 오베론 카운터 구는 셀 HTML 이 아니라 지속 오버레이(refreshOberonOrbs)에서 렌더 — 공전 리셋 방지.
       if (statusIcons) cell.innerHTML += `<span class="cell-mark">${statusIcons}</span>`;
       // ★ 저주 보드 레이어 — 유닛 뒤 망령 idle (저주 상태일 때만)
       if (_isCursed(pc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(pc); cell.classList.add('has-curse'); }
@@ -15005,7 +15005,6 @@ function renderGameBoard() {
           <div class="piece-marker teammate-piece ${teamColorCls}" data-teammate-key="${tmPc.col},${tmPc.row}">
             <span class="p-icon">${_tmIconContent}</span>
             ${_noHpBar(tmPc) ? '' : `<span class="p-hp">${tmHpText}</span>`}
-            ${tmPc.type === 'oberon' ? oberonOrbsHtml(tmPc.oberonCounter, `tm:${tmPc.col},${tmPc.row}`) : ''}
           </div>`;
         if (tmStatus) cell.innerHTML += `<span class="cell-mark teammate-mark">${tmStatus}</span>`;
         if (_isCursed(tmPc)) { if (!_curseSummoningActive(col, row)) cell.innerHTML += curseBoardLayerHtml(tmPc); cell.classList.add('has-curse'); }
@@ -15545,6 +15544,8 @@ function renderGameBoard() {
   if (S.wraithPhaseActive && typeof refreshWraithMoveButtons === 'function') {
     refreshWraithMoveButtons();
   }
+  // ★ 오베론 카운터 구 — 지속 오버레이 갱신(위치만; 카운트 변화 시에만 구 재생성 → 공전 유지).
+  if (typeof refreshOberonOrbs === 'function') { try { refreshOberonOrbs(); } catch (e) {} }
   // 공격 확정 floating 버튼 재배치 — 셀 재생성 / piece 위치 변경 / 선택 변경 대응.
   if (typeof refreshAttackConfirmBtn === 'function') refreshAttackConfirmBtn();
 
@@ -16691,6 +16692,53 @@ function oberonOrbsHtml(count, seenKey) {
     orbs += `<span class="oberon-orb${isNew ? ' oberon-orb-spawn' : ''}" style="--ang:${(360 / n) * i}deg"></span>`;
   }
   return `<div class="oberon-orbit" aria-hidden="true">${orbs}</div>`;
+}
+// ★ 오베론 카운터 구(공전) — 셀 재구축과 분리된 '지속 오버레이'.
+//   renderGameBoard 가 셀을 재구축해도 이 오버레이는 남아 공전 애니가 끊기지 않는다.
+//   각 오베론 홀더는 매 렌더 '위치만' 갱신하고, 구(orb)는 '카운트가 바뀐 순간에만' 재생성한다
+//   → 이동/사망이 아니면 공전이 리셋되지 않음(사용자 요청).
+function refreshOberonOrbs() {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  let layer = document.getElementById('oberon-orb-layer');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.id = 'oberon-orb-layer';
+    layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;';
+    board.appendChild(layer);
+  }
+  const targets = [];   // {key, count, col, row}
+  (S.myPieces || []).forEach((pc, i) => { if (pc && pc.alive && pc.type === 'oberon' && pc.col != null) targets.push({ key: 'my:' + i, count: pc.oberonCounter || 0, col: pc.col, row: pc.row }); });
+  if (S.isTeamMode && Array.isArray(S.teammatePieces)) S.teammatePieces.forEach((pc, i) => { if (pc && pc.alive && pc.type === 'oberon' && pc.col != null) targets.push({ key: 'tm:' + i, count: pc.oberonCounter || 0, col: pc.col, row: pc.row }); });
+  // 상대 오베론은 위치가 공개(표식)됐을 때만 보드에 표시(카운터는 프로필 뱃지로 항상 보임).
+  (S.oppPieces || []).forEach((pc, i) => { if (pc && pc.alive && pc.type === 'oberon' && pc.col != null && pc.row != null) targets.push({ key: 'op:' + i, count: pc.oberonCounter || 0, col: pc.col, row: pc.row }); });
+  const seen = new Set();
+  for (const t of targets) {
+    seen.add(t.key);
+    const cell = board.querySelector(`.cell[data-col="${t.col}"][data-row="${t.row}"]`);
+    if (!cell) continue;
+    let holder = layer.querySelector(`.oberon-orb-holder[data-key="${t.key}"]`);
+    if (!holder) {
+      holder = document.createElement('div');
+      holder.className = 'oberon-orb-holder';
+      holder.dataset.key = t.key;
+      holder.dataset.count = '-1';
+      holder.style.cssText = 'position:absolute;pointer-events:none;';
+      layer.appendChild(holder);
+    }
+    // 위치는 매번 갱신(이동 대응) — 셀 크기 박스로 두면 .oberon-orbit 의 top/left(%) 가 원래대로 동작.
+    holder.style.left = cell.offsetLeft + 'px';
+    holder.style.top = cell.offsetTop + 'px';
+    holder.style.width = cell.offsetWidth + 'px';
+    holder.style.height = cell.offsetHeight + 'px';
+    // 카운트가 바뀐 순간에만 구 재생성(공전 리셋 최소화 + 새 구 pop).
+    if (String(t.count) !== holder.dataset.count) {
+      holder.dataset.count = String(t.count);
+      holder.innerHTML = oberonOrbsHtml(t.count, 'orb:' + t.key);
+    }
+  }
+  // 사망/해체된 오베론 홀더 제거.
+  layer.querySelectorAll('.oberon-orb-holder').forEach(h => { if (!seen.has(h.dataset.key)) h.remove(); });
 }
 function oberonCounterBadgeHtml(pc) {
   if (!pc || !pc.alive || pc.type !== 'oberon') return '';
