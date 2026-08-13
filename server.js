@@ -6014,6 +6014,7 @@ function processTurnStart(room) {
 
   // Reset per-turn skill states for current player
   player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화
+  player._aiDecreeUsed = false;    // ★ AI 칙명 1회/턴 사용 플래그 초기화
   player._troopQueue = null;       // ★ 부대공격 큐 초기화
   player._wraithMoveQueue = null;  // ★ 악령 조종 이동 큐 초기화
   for (const p of player.pieces) { if (p._wraithMovePending) p._wraithMovePending = false; }
@@ -10259,7 +10260,60 @@ function aiFindFleeingPieces(room) {
 }
 
 const AI_ACTION_DELAY = 3000;
+// ★ AI 칙명(전령) — 이번 턴 행동을 마친 뒤, 추가 행동권으로 왕실 유닛 하나가 '추가 공격'을 한다.
+//   조건: SP3 + 살아있는 전령(배신 아님) + 믿음 타겟(probMap≥6)이 사거리에 있는 공격 왕실 유닛.
+//   1v1(AI=1) 전용. 반환: 발동 여부. (기마병/투석기는 복잡 → 우선 일반 공격 왕실만.)
+function aiTryDecree(room) {
+  const p = room.players[1];
+  if (!p || p._aiDecreeUsed) return false;
+  if ((room.sp[1] + room.instantSp[1]) < 3) return false;
+  if (!(p.actionDone || p._lastActionType === 'move' || p._lastActionType === 'attack')) return false;   // 칙명 전제(행동 후)
+  const messenger = p.pieces.find(x => x.alive && x.type === 'messenger' && !(x.statusEffects || []).some(e => e.type === 'betray'));
+  if (!messenger) return false;
+  const bounds = room.boardBounds;
+  const brain = room.aiBrain;
+  let best = null, bestScore = 0;
+  for (let ui = 0; ui < p.pieces.length; ui++) {
+    const rp = p.pieces[ui];
+    if (!rp.alive || rp.type === 'messenger' || rp.type === 'cavalry' || rp.type === 'catapult') continue;
+    if (!(typeof isFaction === 'function' ? isFaction(rp, 'royal') : rp.tag === 'royal')) continue;
+    if ((rp.statusEffects || []).some(e => e.type === 'betray')) continue;
+    if (_effectiveAtkForAi(rp, room, 1) <= 0) continue;
+    const cells = getAttackCells(rp.type, rp.col, rp.row, bounds, { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms });
+    let mx = 0; for (const c of cells) mx = Math.max(mx, brain?.probMap?.[c.row]?.[c.col] || 0);
+    if (mx >= 6 && mx > bestScore) { bestScore = mx; best = { rp, ui, cells }; }
+  }
+  if (!best) return false;
+  const mi = p.pieces.indexOf(messenger);
+  const r = executeSkill(room, 1, mi, 'decree', {});
+  if (!r || !r.ok) return false;
+  p._aiDecreeUsed = true;
+  // 행동권으로 그 왕실 유닛 추가 공격 + 결과 emit.
+  startPhase(room);
+  const hits = processAttack(room, 1, best.rp, best.cells, undefined, { suppressSpUpdate: true });
+  try { aiProcessAttackResult(brain, best.cells, hits, best.rp); } catch (e) {}
+  p._decreeRoyalMoves = Math.max(0, (p._decreeRoyalMoves || 0) - 1);
+  const human = room.players[0];
+  if (human && human.socketId && human.socketId !== 'AI') {
+    io.to(human.socketId).emit('being_attacked', {
+      atkCells: best.cells, fungus: room.fungus || [],
+      attackerImpactedAnything: hits.length > 0,
+      hitPieces: hits.map(h => { const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
+        return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx, redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false }; }),
+      yourPieces: pieceSummary(human.pieces, room),
+    });
+  }
+  emitToSpectators(room, 'spectator_attack_anim', { atkCells: best.cells, atkCol: best.rp.col, atkRow: best.rp.row, atkType: best.rp.type, atkSubUnit: best.rp.subUnit || null,
+    hits: hits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: 0 })) });
+  room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
+  emitSPUpdate(room);
+  flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
+  return true;
+}
+
 function aiEndTurn(room) {
+  // ★ 칙명 — 턴 종료 직전, 행동을 마친 AI 가 추가 행동권으로 왕실 유닛 추가 공격(전령 보유 + 가치 있을 때).
+  try { aiTryDecree(room); } catch (e) {}
   // 사용자 요청: AI 는 자신의 턴에 발생한 모든 토스트가 사라진 후 0.5초 버퍼까지 대기 후 endTurn.
   //   - 토스트 발생 순서대로 표시되어야 하고,
   //   - 다음 플레이어의 턴오더 토스트가 직전 스킬/공격 토스트보다 먼저 오는 일이 없도록.
@@ -13928,7 +13982,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
