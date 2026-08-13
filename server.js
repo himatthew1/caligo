@@ -10395,6 +10395,29 @@ function aiTakeTurn(room) {
     }
   }
 
+  // ★ STEP 1.8: 장군 부대공격 — 왕실 전원 일괄 공격. replacesAction 스킬이라 스킬 switch(자유시전)를
+  //   안 타므로 여기서 결정. 조건: SP3 + 살아있는(배신 아님) 왕실 2명 이상 + 최소 1명이 믿음 타겟(≥6)
+  //   또는 기마병 질주 타겟/투석기 보유(헛발동 방지). 발동하면 그 턴 행동 소진 → 턴 종료.
+  if (!aiPlayer.actionDone && (room.sp[1] + room.instantSp[1]) >= 3) {
+    const gi = aiPlayer.pieces.findIndex(p => p.alive && p.type === 'general'
+      && !(p.statusEffects || []).some(e => e.type === 'betray'));
+    if (gi >= 0) {
+      const royals = aiPlayer.pieces.filter(p => p.alive
+        && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')
+        && !(p.statusEffects || []).some(e => e.type === 'betray'));
+      if (royals.length >= 2) {
+        let worth = false;
+        for (const rp of royals) {
+          if (rp.type === 'cavalry') { if (bestCavalryDash(room, 1, rp)) { worth = true; break; } continue; }
+          if (rp.type === 'catapult') { worth = true; break; }
+          const cells = getAttackCells(rp.type, rp.col, rp.row, room.boardBounds, { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms });
+          if (cells.some(c => (room.aiBrain?.probMap?.[c.row]?.[c.col] || 0) >= 6)) { worth = true; break; }
+        }
+        if (worth && aiRunTroopAttack(room, 1, gi)) { aiTrackToast(room, 'attack'); aiEndTurn(room); return; }
+      }
+    }
+  }
+
   // ★ STEP 1.9: 기마병 질주 — 일반 이동이 없으므로 질주가 유일한 능동 행동(경로 적 타격 우선/표식 접근).
   {
     const cav = aiCavalryDashDecision(room, 1);
@@ -10730,6 +10753,79 @@ function aiExecuteMove(room, action) {
   } else {
     aiEndTurn(room);
   }
+}
+
+// ★ AI 부대공격(장군) — 인간은 큐로 하나씩 조작하지만 AI 는 서버에서 저티어부터 왕실 유닛 전원을
+//   일괄 공격/질주시키고 결과를 한 번에 emit(큐 미사용). 1v1(AI=1) 전용. 반환 성공 여부.
+function aiRunTroopAttack(room, ownerIdx, generalIdx) {
+  const player = room.players[ownerIdx];
+  if (!player) return false;
+  const bounds = room.boardBounds;
+  const humanIdx = 1 - ownerIdx;
+  const brain = room.aiBrain;
+  spendSP(room, ownerIdx, 3);
+  player.actionDone = true;
+  player.actionUsedSkillReplace = true;
+  startPhase(room);
+  // 저티어부터 왕실 유닛(배신 제외)
+  const royals = [];
+  player.pieces.forEach((p, ui) => {
+    if (!p.alive) return;
+    if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) return;
+    if ((p.statusEffects || []).some(e => e.type === 'betray')) return;
+    royals.push({ p, ui, tier: p.tier || 1 });
+  });
+  royals.sort((a, b) => a.tier - b.tier);
+  const allAtkCells = [];
+  const allHits = [];
+  const _believedBest = () => {   // 믿음맵 최고 칸(단일타깃 투석기용)
+    let bc = null, bv = 0;
+    for (let r = bounds.min; r <= bounds.max; r++) for (let c = bounds.min; c <= bounds.max; c++) {
+      const v = brain?.probMap?.[r]?.[c] || 0; if (v > bv) { bv = v; bc = { col: c, row: r }; }
+    }
+    return bc;
+  };
+  for (const { p, ui } of royals) {
+    if (p.type === 'cavalry') {
+      const d = bestCavalryDash(room, ownerIdx, p);
+      if (d) { const r = doCavalryDash(room, ownerIdx, ui, d.col, d.row); if (r && r.ok) { (r.dash?.pathCells || []).forEach(c => allAtkCells.push(c)); (r.hits || []).forEach(h => allHits.push(h)); } }
+      continue;
+    }
+    let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
+    if (p.type === 'catapult') { const bc = _believedBest(); if (!bc) continue; extra = { tCol: bc.col, tRow: bc.row }; }
+    const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
+    let cells = getAttackCells(atkType || p.type, p.col, p.row, bounds, extra);
+    if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
+    if (!cells || !cells.length) continue;
+    const hits = processAttack(room, ownerIdx, p, cells, undefined, { suppressSpUpdate: true });
+    cells.forEach(c => allAtkCells.push(c));
+    (hits || []).forEach(h => allHits.push(h));
+    try { aiProcessAttackResult(brain, cells, hits, p); } catch (e) {}
+  }
+  player._troopQueue = null;
+  const human = room.players[humanIdx];
+  if (human && human.socketId && human.socketId !== 'AI') {
+    io.to(human.socketId).emit('being_attacked', {
+      atkCells: allAtkCells,
+      fungus: room.fungus || [],
+      attackerImpactedAnything: allHits.length > 0,
+      hitPieces: allHits.map(h => {
+        const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
+        return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+          name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx,
+          redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false };
+      }),
+      yourPieces: pieceSummary(human.pieces, room),
+    });
+  }
+  emitToSpectators(room, 'spectator_attack_anim', {
+    atkCells: allAtkCells, atkCol: player.pieces[generalIdx]?.col, atkRow: player.pieces[generalIdx]?.row, atkType: 'general', atkSubUnit: null,
+    hits: allHits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: humanIdx })),
+  });
+  room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
+  emitSPUpdate(room);
+  flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
+  return true;
 }
 
 function aiExecuteAttack(room, action) {
@@ -13832,7 +13928,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
