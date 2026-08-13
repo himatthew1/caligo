@@ -2126,6 +2126,9 @@ function aiTeamLearnFromAttack(room, attackerIdx, atkCells, hitResults) {
 function aiTeamScoreAttack(room, idx, piece, extra) {
   // ★ 기마병은 일반 공격 없음(질주 특성만) — 공격 후보 제외.
   if (piece && piece.type === 'cavalry') return -Infinity;
+  // ★ 실효 공격력 0(마왕 등) → 데미지 0 = 무의미 → 공격 후보 제외.
+  const effAtk = _effectiveAtkForAi(piece, room, idx);
+  if (effAtk <= 0) return -Infinity;
   const brain = getTeamBrain(room, getTeamOf(room, idx));
   const W = (brain && brain._weights) || AI_WEIGHTS;
   const bounds = room.boardBounds;
@@ -2141,8 +2144,7 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   // ★ 공격 커밋 가중(attackAggro) — 기대값(0~1)을 이동 보너스(도주/접근 등 두 자릿수)와 겨루게 상향.
   //   best 가 여전히 확률맵이라 '있을 법한' 칸에만 반응 → 블라인드 난사 아님, 날카로운 예측 공격.
   let score = (best + 0.35 * (sum - best)) * (W.attackAggro || 1);
-  // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK
-  const effAtk = _effectiveAtkForAi(piece, room, idx);
+  // ★ commander 사기증진 버프 반영 — 인접 시 +1 ATK (effAtk 는 위에서 이미 계산.)
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 1v1 과 동일.
   score += aiAttackTargetBonus(room, idx, cells, effAtk, piece);
@@ -9295,6 +9297,10 @@ function _aiSpBaseBar(room, slot, cost, regularBar) {
 function aiScoreAttack(brain, piece, room, extra) {
   // ★ 기마병은 일반 공격이 없다(질주 특성만) — 공격 후보에서 완전 제외. (질주는 aiCavalryDashDecision 이 담당.)
   if (piece && piece.type === 'cavalry') return -Infinity;
+  // ★ 사용자 요청: 실효 공격력 0(마왕 등)이면 공격해봐야 데미지 0 = 아무 소용없음 → 공격 후보 제외.
+  //   (철인은 HP기반 effAtk 라 0 아님, 마녀는 noAttack 이라 애초에 후보 아님.)
+  const effAtk = _effectiveAtkForAi(piece, room, 1);
+  if (effAtk <= 0) return -Infinity;
   const bounds = room.boardBounds;
   const cells = getAttackCells(piece.type, piece.col, piece.row, bounds, extra);
   // ★ probMap 은 매 턴 max=10 으로 정규화된 '믿음'맵이라 확률(기대 데미지)이 아님 → 확산(블라인드)도
@@ -9317,8 +9323,7 @@ function aiScoreAttack(brain, piece, room, extra) {
   //   겨루게 상향 → 사거리 내 확신 칸이 있으면 접근/도주 대신 실제 공격을 택함(날카로운 예측 공격).
   const _Wa = (brain && brain._weights) || AI_WEIGHTS;
   let score = (best + 0.35 * (sum - best)) * (_Wa.attackAggro || 1);
-  // ★ commander 버프 반영 — 인접 시 +1 ATK 로 점수 증폭.
-  const effAtk = _effectiveAtkForAi(piece, room, 1);
+  // ★ commander 버프 반영 — 인접 시 +1 ATK 로 점수 증폭. (effAtk 는 위에서 이미 계산.)
   score *= (1 + effAtk * 0.1);
   // ★ 처치·고가치 타겟 보너스 — 표식된 적 한정(공개 HP). 끝낼 수 있으면 끝낸다.
   score += aiAttackTargetBonus(room, 1, cells, effAtk, piece);
