@@ -2609,23 +2609,24 @@ function aiTeamUsePreSkills(room, idx) {
       }
       if (exTarget) { aiTeamExecSkill(room, idx, pi, 'exhume', { col: exTarget.col, row: exTarget.row }); return true; }
     }
-    // ★ 이야기꾼: 선동 (SP3) — 위치 확정(표식) 적을 배신 상태로.
+    // ★ 이야기꾼: 선동 (SP3) — 적을 배신 상태로. '정체(type)'로 선언(위치·표식 불필요, 적 정체는 공개).
     if (piece.skillId === 'incite') {
-      const inciteCand = aiKnownEnemies(room, idx)
-        .filter(e => e.marked && e.col != null && !(e.piece.statusEffects || []).some(s => s.type === 'betray'))
-        .sort((a, b) => aiUnitValue(b.piece) - aiUnitValue(a.piece))[0];
-      if (inciteCand) { aiTeamExecSkill(room, idx, pi, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row }); return true; }
+      const inciteT = getEnemyIndices(room, idx).flatMap(ei => (room.players[ei]?.pieces || []))
+        .filter(p => p.alive && !(p.statusEffects || []).some(s => s.type === 'betray')
+          && !(typeof isStatusImmune === 'function' && isStatusImmune(p)))
+        .sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+      if (inciteT) { aiTeamExecSkill(room, idx, pi, 'incite', { targetName: inciteT.type }); return true; }
     }
-    // ★ 백작: 흡혈 (SP3) — 표식된 적(왕실 우선=상한돌파) 최대체력 -1, 자신 +1.
+    // ★ 백작: 흡혈 (SP3) — 최대체력 -1/자신 +1(왕실 상한돌파). '정체(type)'로 선언(위치·표식 불필요).
     if (piece.skillId === 'vampire') {
-      const vampCand = aiKnownEnemies(room, idx)
-        .filter(e => e.marked && e.col != null && e.piece.type !== 'undead')
+      const vampT = getEnemyIndices(room, idx).flatMap(ei => (room.players[ei]?.pieces || []))
+        .filter(p => p.alive && p.type !== 'undead')
         .sort((a, b) => {
-          const ar = (typeof isFaction === 'function' && isFaction(a.piece, 'royal')) ? 1 : 0;
-          const br = (typeof isFaction === 'function' && isFaction(b.piece, 'royal')) ? 1 : 0;
-          return (br - ar) || (aiUnitValue(b.piece) - aiUnitValue(a.piece));
+          const ar = (typeof isFaction === 'function' && isFaction(a, 'royal')) ? 1 : 0;
+          const br = (typeof isFaction === 'function' && isFaction(b, 'royal')) ? 1 : 0;
+          return (br - ar) || (aiUnitValue(b) - aiUnitValue(a));
         })[0];
-      if (vampCand) { aiTeamExecSkill(room, idx, pi, 'vampire', { targetCol: vampCand.col, targetRow: vampCand.row }); return true; }
+      if (vampT) { aiTeamExecSkill(room, idx, pi, 'vampire', { targetName: vampT.type }); return true; }
     }
     if (piece.skillId === 'ring') {
       // ★ 같은 팀 멤버는 적이 아니므로 _aiPickRingPlay 의 enemyOwnerIdxs 에서 제외 (이중 안전장치).
@@ -10131,24 +10132,27 @@ function aiUsePreSkills(room) {
         if (exTarget) _tryExec(pidx, 'exhume', { col: exTarget.col, row: exTarget.row });
         break;
       }
-      // ★ 이야기꾼: 선동 (SP3, 자유시전·1회) — 위치 확정(표식)된 적을 배신 상태로(강력한 무력화·분란승리 진행).
+      // ★ 이야기꾼: 선동 (SP3) — 적을 배신 상태로. '정체(type)'로 선언하는 스킬이라 위치·표식 불필요
+      //   (적 정체는 초기공개로 공개 정보). 배신 안 된·면역 아닌 적 중 고가치 정체를 선언.
       case 'storyteller': {
-        const inciteCand = aiKnownEnemies(room, 1)
-          .filter(e => e.marked && e.col != null && !(e.piece.statusEffects || []).some(s => s.type === 'betray'))
-          .sort((a, b) => aiUnitValue(b.piece) - aiUnitValue(a.piece))[0];
-        if (inciteCand) _tryExec(pidx, 'incite', { targetCol: inciteCand.col, targetRow: inciteCand.row });
+        const inciteT = getEnemyIndices(room, 1).flatMap(ei => (room.players[ei]?.pieces || []))
+          .filter(p => p.alive && !(p.statusEffects || []).some(s => s.type === 'betray')
+            && !(typeof isStatusImmune === 'function' && isStatusImmune(p)))
+          .sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+        if (inciteT) _tryExec(pidx, 'incite', { targetName: inciteT.type });
         break;
       }
-      // ★ 백작: 흡혈 (SP3, 자유시전·1회) — 표식된 적 최대체력 -1, 자신 +1(왕실 대상 시 상한 돌파). 순수 이득.
+      // ★ 백작: 흡혈 (SP3) — 적 최대체력 -1/자신 +1(왕실 대상 시 상한 돌파). '정체(type)'로 선언 —
+      //   위치·표식 불필요. 왕실(상한돌파) 우선, 그다음 고가치. 언데드(체력바 없음)는 제외.
       case 'count': {
-        const vampCand = aiKnownEnemies(room, 1)
-          .filter(e => e.marked && e.col != null && e.piece.type !== 'undead')
+        const vampT = getEnemyIndices(room, 1).flatMap(ei => (room.players[ei]?.pieces || []))
+          .filter(p => p.alive && p.type !== 'undead')
           .sort((a, b) => {
-            const ar = (typeof isFaction === 'function' && isFaction(a.piece, 'royal')) ? 1 : 0;
-            const br = (typeof isFaction === 'function' && isFaction(b.piece, 'royal')) ? 1 : 0;
-            return (br - ar) || (aiUnitValue(b.piece) - aiUnitValue(a.piece));   // 왕실(상한돌파) 우선, 그다음 고가치
+            const ar = (typeof isFaction === 'function' && isFaction(a, 'royal')) ? 1 : 0;
+            const br = (typeof isFaction === 'function' && isFaction(b, 'royal')) ? 1 : 0;
+            return (br - ar) || (aiUnitValue(b) - aiUnitValue(a));
           })[0];
-        if (vampCand) _tryExec(pidx, 'vampire', { targetCol: vampCand.col, targetRow: vampCand.row });
+        if (vampT) _tryExec(pidx, 'vampire', { targetName: vampT.type });
         break;
       }
     }
