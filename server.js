@@ -9954,32 +9954,6 @@ function aiUsePreSkills(room) {
         }
         break;
       }
-      // 요정: 페어리 더스트 — 위급 아군(체력≤50% 또는 최근 피격)에게 행운(다음 피해 1회 0).
-      case 'fairy': {
-        const cand = aiPlayer.pieces.map((pc, i2) => ({ pc, pidx: i2 }))
-          .filter(o => o.pc.alive && !(o.pc.statusEffects || []).some(e => e.type === 'luck'))
-          .sort((a, b) => (a.pc.hp / a.pc.maxHp) - (b.pc.hp / b.pc.maxHp))[0];
-        if (cand) {
-          const mem = brain.hitMemory[cand.pc.type];
-          const recentlyHit = mem && (brain.turnCount - mem.turn) <= 2;
-          if (cand.pc.hp <= cand.pc.maxHp * 0.5 || recentlyHit) {
-            _tryExec(pidx, 'fairyDust', { targetPieceIdx: cand.pidx, targetOwnerIdx: 1 });
-          }
-        }
-        break;
-      }
-      // 백작: 흡혈 — 표식(위치 확정)된 적 중 왕실 우선(상한 돌파), 최대체력 -1 / 자신 +1.
-      case 'count': {
-        const vampCand = aiKnownEnemies(room, 1)
-          .filter(e => e.marked && e.col != null && e.piece.type !== 'undead')
-          .sort((a, b) => {
-            const ar = (typeof isFaction === 'function' && isFaction(a.piece, 'royal')) ? 1 : 0;
-            const br = (typeof isFaction === 'function' && isFaction(b.piece, 'royal')) ? 1 : 0;
-            return (br - ar) || (aiUnitValue(b.piece) - aiUnitValue(a.piece));
-          })[0];
-        if (vampCand) _tryExec(pidx, 'vampire', { targetCol: vampCand.col, targetRow: vampCand.row });
-        break;
-      }
       // 쥐장수: 쥐가 부족하면 소환 (SP 2). 사용자 요청 — random 제거, 부족분만 결정적으로 보충.
       case 'ratMerchant': {
         if (room.rats[1].length < 3) {
