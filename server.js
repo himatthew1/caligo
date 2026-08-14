@@ -10272,16 +10272,28 @@ function aiTryDecree(room) {
   if (!messenger) return false;
   const bounds = room.boardBounds;
   const brain = room.aiBrain;
-  let best = null, bestScore = 0;
+  // ★ 칙명은 '분명한 목적'이 있을 때만 발동한다(사용자 요청). 추측성 발동 금지.
+  //   목적: 확정 처치 — 사거리에 든 '마킹된(위치·HP 공개) 적'을 이 왕실 유닛의 추가 공격으로 확실히
+  //   죽일 수 있을 때(effAtk >= 적HP · aiAttackTargetBonus 와 동일 근사). 연속공격으로 마무리하겠다는 의지.
+  //   (고가치 처치 우선. 기마병/투석기는 별도 조작이라 우선 일반 공격 왕실만.)
+  const marked = aiKnownEnemies(room, 1).filter(e => e.marked && e.col != null && e.piece.alive && e.piece.type !== 'undead');
+  if (marked.length === 0) return false;
+  let best = null, bestVal = 0;
   for (let ui = 0; ui < p.pieces.length; ui++) {
     const rp = p.pieces[ui];
     if (!rp.alive || rp.type === 'messenger' || rp.type === 'cavalry' || rp.type === 'catapult') continue;
     if (!(typeof isFaction === 'function' ? isFaction(rp, 'royal') : rp.tag === 'royal')) continue;
     if ((rp.statusEffects || []).some(e => e.type === 'betray')) continue;
-    if (_effectiveAtkForAi(rp, room, 1) <= 0) continue;
+    const effAtk = _effectiveAtkForAi(rp, room, 1);
+    if (effAtk <= 0) continue;
     const cells = getAttackCells(rp.type, rp.col, rp.row, bounds, { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms });
-    let mx = 0; for (const c of cells) mx = Math.max(mx, brain?.probMap?.[c.row]?.[c.col] || 0);
-    if (mx >= 6 && mx > bestScore) { bestScore = mx; best = { rp, ui, cells }; }
+    for (const c of cells) {
+      const tgt = marked.find(e => e.col === c.col && e.row === c.row);
+      if (tgt && effAtk >= (tgt.piece.hp || 1)) {   // 확정 처치
+        const v = aiUnitValue(tgt.piece);
+        if (v > bestVal) { bestVal = v; best = { rp, ui, cells }; }
+      }
+    }
   }
   if (!best) return false;
   const mi = p.pieces.indexOf(messenger);
