@@ -2646,6 +2646,8 @@ function aiTeamUsePreSkills(room, idx) {
         // ★ 반지로 옮긴 적 위치는 AI 가 직접 정했으므로 확실히 앎 → 확률맵 스파이크로 후속 공격 유도.
         const _rb = getTeamBrain(room, getTeamOf(room, idx));
         if (_rb.probMap[play.destRow]) _rb.probMap[play.destRow][play.destCol] = 10;
+        // ★ 축소 도움 칸에 몰아넣었으면 '반지 처리 완료'로 기록 → 같은 적 재타겟(SP 낭비) 방지.
+        if (play.doomShrinkTurn) play.target._aiDoomedByRing = play.doomShrinkTurn;
         return true;
       }
     }
@@ -9723,7 +9725,12 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
     const owner = room.players[eIdx];
     if (!owner) continue;
     for (const p of (owner.pieces || [])) {
-      if (p.alive) enemies.push({ piece: p, ownerIdx: eIdx, marked: aiIsMarked(p) });
+      if (!p.alive) continue;
+      // ★ 사용자 지적: 이미 반지로 '파괴예정 칸(축소 도움)'에 몰아넣은 적은 축소로 죽을 운명이므로
+      //   재타겟 금지(SP 낭비 방지). 도움 축소 턴이 지나도 살아있으면(구석 탈출) 플래그가 과거값이
+      //   되어 다시 대상 가능(자기수정). — 위치가 확실한(반지로 내가 옮긴) 적을 기억하는 것.
+      if (p._aiDoomedByRing && p._aiDoomedByRing >= room.turnNumber) continue;
+      enemies.push({ piece: p, ownerIdx: eIdx, marked: aiIsMarked(p) });
     }
   }
   if (enemies.length === 0) return null;
@@ -9856,6 +9863,9 @@ function _aiPickRingPlay(room, aiIdx, enemyOwnerIdxs) {
   const best = candidates[0];
   // 임계값 — SP 3 가치 이상의 이득이 명확할 때만 시전 (남발 방지).
   if (best.score < 40) return null;
+  // ★ 축소 도움으로 몰아넣는 플레이면 그 적을 '반지 처리 완료'로 기록하기 위해 도움 축소 턴을 전달.
+  best.doomShrinkTurn = (nextShrink && (best.reasons.includes('shrink-corner') || best.reasons.includes('shrink-edge')))
+    ? nextShrink.shrinkTurn : null;
   return best;
 }
 
@@ -10024,6 +10034,9 @@ function aiUsePreSkills(room) {
           });
           // ★ 반지로 옮긴 적 위치는 AI 가 직접 정했으므로 확실히 앎 → 확률맵 스파이크로 후속 공격 유도.
           if (ok && brain.probMap[play.destRow]) brain.probMap[play.destRow][play.destCol] = 10;
+          // ★ 축소 도움 칸(구석 등)에 몰아넣었으면 그 적을 '반지 처리 완료'로 기록 → 다음 반지는 다른 적을
+          //   노림(같은 적 재타겟해 SP 낭비하던 문제 수정). 도움 축소 턴까지만 유효(탈출 시 자기수정).
+          if (ok && play.doomShrinkTurn) play.target._aiDoomedByRing = play.doomShrinkTurn;
         }
         break;
       }
@@ -13994,7 +14007,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree,
+  handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree, _aiPickRingPlay,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
