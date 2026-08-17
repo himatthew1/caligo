@@ -9891,7 +9891,12 @@ function aiUsePreSkills(room) {
 
   for (const piece of alivePieces) {
     if (_execed) break;  // 이미 한 개 시전 — 이번 호출 종료
-    if (!piece.hasSkill || piece.skillReplacesAction || (room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
+    if (!piece.hasSkill || piece.skillReplacesAction) continue;
+    // ★ 오베론 등 '카운터 자원' 스킬은 SP 가 아니라 요정왕 카운터로 판정(SP로 막던 버그 수정).
+    const _fsk0 = piece.skills && piece.skills[0];
+    const _counterRes0 = _fsk0 && _fsk0.resource === 'oberonCounter';
+    if (_counterRes0) { if ((piece._oberonCounter || 0) < (piece.skillCost || 0)) continue; }
+    else if ((room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
     if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
     const pidx = aiPlayer.pieces.indexOf(piece);
 
@@ -10172,6 +10177,27 @@ function aiUsePreSkills(room) {
             return (br - ar) || (aiUnitValue(b) - aiUnitValue(a));
           })[0];
         if (vampT) _tryExec(pidx, 'vampire', { targetName: vampT.type });
+        break;
+      }
+      // ★ 오베론(요정왕): 카운터 자원 스킬 — 은혜(3, 부상 정령 회복) / 축복(2, 이번 턴 공격할 정령 공격력+1).
+      //   (종언(10, 정령 외 전 유닛 소멸)은 행동대체 스킬이라 메인 행동 결정 전 STEP 에서 별도 판단.)
+      case 'oberon': {
+        const counter = piece._oberonCounter || 0;
+        const isSpirit = (p) => (typeof isFaction === 'function' ? isFaction(p, 'spirit') : p.tag === 'spirit');
+        // 은혜(3): 부상당한 아군 정령(오베론 포함) 회복.
+        if (counter >= 3) {
+          const injured = aiPlayer.pieces.find(p => p.alive && isSpirit(p) && p.hp < p.maxHp);
+          if (injured) { if (_tryExec(pidx, 'grace', {})) break; }
+        }
+        // 축복(2): 이번 턴 공격할 아군 정령(믿음 타깃 ≥6 사거리)이 있으면 공격력 +1.
+        if (counter >= 2) {
+          const willAttack = aiPlayer.pieces.some(p => {
+            if (!p.alive || !isSpirit(p) || (p.atk || 0) <= 0) return false;
+            const cells = getAttackCells(p.type, p.col, p.row, bounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms });
+            return cells.some(c => (brain.probMap[c.row]?.[c.col] || 0) >= 6);
+          });
+          if (willAttack) { if (_tryExec(pidx, 'bless', {})) break; }
+        }
         break;
       }
     }
@@ -10471,6 +10497,25 @@ function aiTakeTurn(room) {
         }
       }, waitMs);
       return;
+    }
+  }
+
+  // ★ STEP 1.7: 오베론 종언(카운터10) — '정령이 아닌' 모든 유닛(양측) 즉시 소멸. 행동대체 스킬이라
+  //   스킬 switch 를 안 타므로 여기서 결정. 조건: 카운터≥10 + 적 비정령 손실 가치 > 내 비정령 손실
+  //   가치(순이득) + 적 비정령 1명 이상. (내 유닛도 죽으므로 정령 위주일 때만 유리.)
+  if (!aiPlayer.actionDone) {
+    const _ob = aiPlayer.pieces.find(p => p.alive && p.type === 'oberon' && (p._oberonCounter || 0) >= 10);
+    if (_ob) {
+      const _isSpirit = (p) => (typeof isFaction === 'function' ? isFaction(p, 'spirit') : p.tag === 'spirit');
+      const _nonSpiritVal = (pieces) => (pieces || []).filter(p => p.alive && !_isSpirit(p)).reduce((s, p) => s + (typeof aiUnitValue === 'function' ? aiUnitValue(p) : 1), 0);
+      const _myLoss = _nonSpiritVal(aiPlayer.pieces);
+      const _enemyLoss = _nonSpiritVal(room.players[0].pieces);
+      const _enemyHasNonSpirit = room.players[0].pieces.some(p => p.alive && !_isSpirit(p));
+      if (_enemyHasNonSpirit && _enemyLoss > _myLoss) {
+        const _oi = aiPlayer.pieces.indexOf(_ob);
+        const _r = aiExecSkill(room, _oi, 'ending', {});
+        if (_r && _r.ok) { aiTrackToast(room, 'skill'); aiEndTurn(room); return; }
+      }
     }
   }
 
