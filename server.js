@@ -6015,7 +6015,8 @@ function processTurnStart(room) {
   player._anySkillUsedThisTurn = false;  // 턴스킵 판정용 (oncePerTurn 외 자유 스킬 포함)
 
   // Reset per-turn skill states for current player
-  player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화
+  player._decreeRoyalMoves = 0;   // ★ 전령 칙명 이동권 초기화(레거시)
+  player._decreeUnit = null;      // ★ 전령 칙명 대상 유닛(리워크) 초기화
   player._aiDecreeUsed = false;    // ★ AI 칙명 1회/턴 사용 플래그 초기화
   player._troopQueue = null;       // ★ 부대공격 큐 초기화
   player._wraithMoveQueue = null;  // ★ 악령 조종 이동 큐 초기화
@@ -7217,15 +7218,20 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (!player.actionDone && !player.actionUsedSkillReplace && player._lastActionType !== 'move' && player._lastActionType !== 'attack') {
         return { ok: false, msg: '칙명은 이번 차례에 행동을 마친 뒤에만 사용할 수 있습니다.' };
       }
-      // 조작 가능한 왕실 유닛(살아있고 배신/이교단 아님)이 없으면 발동 불가(이단자와 동일 원리).
-      const hasControllableRoyal = player.pieces.some(p => p.alive
-        && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')
-        && !(p.statusEffects || []).some(e => e.type === 'betray') && p._cultOf == null);
-      if (!hasControllableRoyal) return { ok: false, msg: '조작할 수 있는 왕실 유닛이 없습니다.' };
-      player._decreeRoyalMoves = (player._decreeRoyalMoves || 0) + 1;   // ★ 범용 행동권(공격/이동/스킬 1회) — 변수명은 호환상 유지.
+      // ★ 리워크: 대상 아군 왕실 유닛(팀전=팀원 왕실까지)을 '지정' → 그 유닛만 이번 턴 추가로 조작(칙명 페이즈).
+      //   대상이 실제로 이동/공격/행동소비 스킬 중 하나를 하면 칙명 소멸(자유시전 스킬로는 안 끝남 — 클라 페이즈).
+      const _dOwner = (typeof params?.targetOwnerIdx === 'number') ? params.targetOwnerIdx : playerIdx;
+      const _allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, playerIdx) : [playerIdx];
+      if (!_allyIdxs.includes(_dOwner)) return { ok: false, msg: '아군 왕실 유닛만 지정할 수 있습니다.' };
+      const _dp = room.players[_dOwner] && room.players[_dOwner].pieces[params?.targetPieceIdx];
+      if (!_dp || !_dp.alive) return { ok: false, msg: '대상 유닛이 올바르지 않습니다.' };
+      if (!(typeof isFaction === 'function' ? isFaction(_dp, 'royal') : _dp.tag === 'royal')) return { ok: false, msg: '왕실 유닛만 지정할 수 있습니다.' };
+      if ((_dp.statusEffects || []).some(e => e.type === 'betray') || _dp._cultOf != null) return { ok: false, msg: '조작할 수 없는 유닛입니다.' };
+      player._decreeUnit = { ownerIdx: _dOwner, pieceIdx: params.targetPieceIdx };
       spendSP(room, playerIdx, cost);
-      result.msg = `칙명: 왕실 유닛 행동 1회 추가`;
-      result.oppMsg = `칙명: 상대가 왕실 행동권 획득`;
+      result.msg = `칙명: ${_dp.name} 추가 행동`;
+      result.oppMsg = `칙명: 상대가 왕실 유닛에 추가 행동`;
+      result.data.decreeUnit = { ownerIdx: _dOwner, pieceIdx: params.targetPieceIdx };
       break;
     }
 
@@ -10336,14 +10342,14 @@ function aiTryDecree(room) {
   }
   if (!best) return false;
   const mi = p.pieces.indexOf(messenger);
-  const r = executeSkill(room, 1, mi, 'decree', {});
+  const r = executeSkill(room, 1, mi, 'decree', { targetOwnerIdx: 1, targetPieceIdx: best.ui });   // 대상 = 확정 처치할 왕실 유닛
   if (!r || !r.ok) return false;
   p._aiDecreeUsed = true;
-  // 행동권으로 그 왕실 유닛 추가 공격 + 결과 emit.
+  // 칙명 대상으로 그 왕실 유닛 추가 공격 + 결과 emit. (AI 는 서버에서 즉시 해결 → _decreeUnit 소멸.)
   startPhase(room);
   const hits = processAttack(room, 1, best.rp, best.cells, undefined, { suppressSpUpdate: true });
   try { aiProcessAttackResult(brain, best.cells, hits, best.rp); } catch (e) {}
-  p._decreeRoyalMoves = Math.max(0, (p._decreeRoyalMoves || 0) - 1);
+  p._decreeUnit = null;
   const human = room.players[0];
   if (human && human.socketId && human.socketId !== 'AI') {
     io.to(human.socketId).emit('being_attacked', {
@@ -12515,10 +12521,8 @@ io.on('connection', (socket) => {
       const _pc = player.pieces[pieceIdx];
       const _twinSecondMove = _pc && (_pc.subUnit === 'elder' || _pc.subUnit === 'younger') &&
         Array.isArray(player.twinMovedSubs) && !player.twinMovedSubs.includes(_pc.subUnit);
-      // ★ 전령 칙명: 행동을 마친 뒤에도 왕실 유닛(배신/이교단 아님)을 1회 추가 이동 가능.
-      const _decreeMove = (player._decreeRoyalMoves > 0) && _pc && _pc.alive
-        && (typeof isFaction === 'function' ? isFaction(_pc, 'royal') : _pc.tag === 'royal')
-        && !(_pc.statusEffects || []).some(e => e.type === 'betray') && _pc._cultOf == null;
+      // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛만 이번 턴 추가 이동 가능(actionDone 무시).
+      const _decreeMove = !!(player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx);
       // ★ 부대공격: 큐 앞(저티어) 유닛만 조작 가능(actionDone 무시).
       const _troopFront = player._troopQueue && player._troopQueue.length && player._troopQueue[0];
       if (_troopFront && _troopFront.pieceIdx !== pieceIdx) {
@@ -12626,10 +12630,9 @@ io.on('connection', (socket) => {
         piece.messengerSprintActive = false;
         player.actionDone = true;
       }
-    } else if (player.actionDone && player._decreeRoyalMoves > 0
-        && (typeof isFaction === 'function' ? isFaction(piece, 'royal') : piece.tag === 'royal')) {
-      // ★ 전령 칙명: 왕실 유닛 추가 이동 소진(actionDone 은 이미 true 유지).
-      player._decreeRoyalMoves--;
+    } else if (player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx) {
+      // ★ 전령 칙명(리워크): 지정 대상 왕실 유닛이 이동 = 칙명 소멸(actionDone 은 이미 true 유지).
+      player._decreeUnit = null;
     } else if (piece._wraithMovePending) {
       // ★ 악령 조종 이동: 해당 악령 소진(actionDone 은 이미 true 유지).
       piece._wraithMovePending = false;
@@ -12672,7 +12675,7 @@ io.on('connection', (socket) => {
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
-      decreeRoyalMoves: player._decreeRoyalMoves || 0,   // ★ 전령 칙명 잔여 이동권
+      decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 이동권
     });
 
     // ★ Phase 3: 중독 틱 — 이동을 완료한 유닛이 중독이면 0.1×스택 지속뎀(감경 우회). move_ok 뒤 발동.
@@ -12817,12 +12820,9 @@ io.on('connection', (socket) => {
     // ★ 부대공격 큐 앞 유닛 — 부대공격 스킬이 actionDone/actionUsedSkillReplace 를 세운 뒤 큐 앞 유닛을
     //   순서대로 '공격'시켜야 하므로, 아래 행동소진 가드들을 우회한다(없으면 부대공격이 먹통).
     const _troopFront = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
-    // ★ 전령 칙명(범용 행동권): 행동을 마친 뒤에도 왕실 유닛(배신/이교단 아님)이 '공격'을 1회 추가 가능.
-    //   (이 유닛이 칙명 행동권으로 공격하면 아래 일반 공격 흐름으로 진행하고 마지막에 행동권 1 소모.)
-    const _decreeAtkPc = player.pieces[pieceIdx];
-    const _decreeAttack = player.actionDone && (player._decreeRoyalMoves > 0) && _decreeAtkPc && _decreeAtkPc.alive
-      && (typeof isFaction === 'function' ? isFaction(_decreeAtkPc, 'royal') : _decreeAtkPc.tag === 'royal')
-      && !(_decreeAtkPc.statusEffects || []).some(e => e.type === 'betray') && _decreeAtkPc._cultOf == null;
+    // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛이 '공격'을 1회 추가 가능(actionDone 무시).
+    //   공격하면 아래 일반 공격 흐름으로 진행하고 마지막에 칙명 소멸.
+    const _decreeAttack = !!(player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx);
 
     if (player.actionDone && !_troopFront && !_decreeAttack) {
       // 쌍검무: 2회 공격 중 2번째 공격
@@ -13229,7 +13229,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
-        decreeRoyalMoves: player._decreeRoyalMoves || 0,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
+        decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
       });
       if (defender.socketId !== 'AI') {
@@ -13332,7 +13332,7 @@ io.on('connection', (socket) => {
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
     // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
     // ★ 전령 칙명 행동권으로 실행한 공격이면 여기서 행동권 1 소모(actionDone 은 이미 true 유지).
-    if (_decreeAttack) player._decreeRoyalMoves = Math.max(0, (player._decreeRoyalMoves || 0) - 1);
+    if (_decreeAttack) player._decreeUnit = null;   // ★ 칙명 대상이 공격 = 칙명 소멸
     player.actionDone = true;
     // (부대공격 큐 소진은 위쪽 emit 직전으로 이동함 — 클라가 갱신 큐를 받도록.)
     // 행동 추적
@@ -13406,6 +13406,14 @@ io.on('connection', (socket) => {
     const amt = (payload && typeof payload.amount === 'number') ? payload.amount : 10;
     room.sp[idx] = Math.max(0, Math.min(10, amt));
     if (typeof emitSPUpdate === 'function') emitSPUpdate(room);
+  });
+
+  // ★ 전령 칙명 취소 — 대상 유닛이 첫 조작을 하기 전 취소(대상 지정 해제). SP 는 이미 소모됨(취소는 조작 포기).
+  socket.on('cancel_decree', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.phase !== 'game') return;
+    const p = room.players[socket.data.idx];
+    if (p) p._decreeUnit = null;
   });
 
   socket.on('end_turn', () => {
@@ -13517,7 +13525,7 @@ io.on('connection', (socket) => {
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
         remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
+        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0, decreeUnit: room.players[idx]._decreeUnit || null,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
         casterPieceIdx: pieceIdx,
@@ -13592,7 +13600,7 @@ io.on('connection', (socket) => {
         skillPoints: room.sp,
         boardObjects: boardObjectsSummary(room, idx),
         remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
+        actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0, decreeUnit: room.players[idx]._decreeUnit || null,
         actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
         skillsUsed: room.players[idx].skillsUsedBeforeAction,
         casterPieceIdx: pieceIdx,           // 시전자 카드 spotlight 용
@@ -13787,7 +13795,7 @@ io.on('connection', (socket) => {
       skillPoints: room.sp,
       boardObjects: boardObjectsSummary(room, idx),
       remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
-      actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0,
+      actionDone: room.players[idx].actionDone, decreeRoyalMoves: room.players[idx]._decreeRoyalMoves || 0, decreeUnit: room.players[idx]._decreeUnit || null,
       actionUsedSkillReplace: room.players[idx].actionUsedSkillReplace,
       skillsUsed: room.players[idx].skillsUsedBeforeAction,
     };

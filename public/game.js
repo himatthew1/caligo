@@ -4714,6 +4714,7 @@ socket.on('your_turn', (data) => {
   // ★ 질주 잔상 방어 — 탭 백그라운드로 setTimeout 이 스로틀돼 안전망이 늦을 때 대비, 턴 경계에서 강제 청소.
   try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
   if (S.wraithPhaseActive && typeof exitWraithMovePhase === 'function') exitWraithMovePhase();   // 조종 이동 페이즈 잔재 정리
+  if (S.decreePhaseActive && typeof exitDecreePhase === 'function') exitDecreePhase();   // 칙명 페이즈 잔재 정리
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼는 폐기 (turn 경계 stale 누설 방지).
@@ -4772,6 +4773,7 @@ socket.on('opp_turn', (data) => {
   // ★ 질주 잔상 방어 — 턴 경계에서 강제 청소(안전망 타이머 스로틀 대비).
   try { document.querySelectorAll('.cav-dash-ghost').forEach(g => g.remove()); } catch (e) {}
   if (S.wraithPhaseActive && typeof exitWraithMovePhase === 'function') exitWraithMovePhase();   // 조종 이동 페이즈 잔재 정리
+  if (S.decreePhaseActive && typeof exitDecreePhase === 'function') exitDecreePhase();   // 칙명 페이즈 잔재 정리
   // 새 턴 진입 시 이전 턴 동안 유지된 turn-bright 카드 일괄 해제 (1v1)
   if (typeof clearAllTurnBright === 'function') clearAllTurnBright();
   // ★ 방어적 — 이전 턴에 flush 안 된 패시브 alert 버퍼 폐기 (stale 누설 방지).
@@ -4807,7 +4809,7 @@ socket.on('opp_turn', (data) => {
 });
 
 // ── 이동 결과 ──
-socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub, decreeRoyalMoves }) => {
+socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub, decreeRoyalMoves, decreeUnit }) => {
   const pc = yourPieces[pieceIdx];
   animateMove(pc.icon, prev.col, prev.row, col, row, pc.type, pc.subUnit, `${S.playerIdx}:${pieceIdx}`);
   playSfx('move');
@@ -4815,6 +4817,7 @@ socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, rema
   if (boardObjects) S.boardObjects = boardObjects;
   if (remains) S.remains = remains;
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;   // ★ 전령 칙명 잔여 이동권
+  if (decreeUnit !== undefined) { S.decreeUnit = decreeUnit; if (!decreeUnit && S.decreePhaseActive) { try { exitDecreePhase(); } catch (e) {} } }   // ★ 칙명 대상이 이동 = 페이즈 종료
 
   // 쌍둥이 이동 페이즈 — 토스트/로그는 페이즈 종료 시점에 단 한 번만 (개별 이동마다 X)
   if (S.twinPhaseActive) {
@@ -4970,8 +4973,9 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, fungus }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, decreeUnit, fungus }) => {
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;   // ★ 전령 칙명 잔여 행동권 동기화
+  if (decreeUnit !== undefined) { S.decreeUnit = decreeUnit; if (!decreeUnit && S.decreePhaseActive) { try { exitDecreePhase(); } catch (e) {} } }   // ★ 칙명 대상이 공격 = 페이즈 종료
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   if (troopQueue !== undefined) {
     S.troopQueue = troopQueue;   // ★ 부대공격 잔여 큐 갱신(다음 유닛)
@@ -7723,6 +7727,16 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
   //   ★ SFX 는 SP 비행 종료 시점(SP_END) 으로 이동 — 보드 효과/토스트 와 동기화.
   if (actionDone !== undefined) S.actionDone = actionDone;
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;
+  // ★ 칙명(리워크) 개시 — 대상 유닛이 지정되면 칙명 페이즈 진입(그 유닛만 조작). yourPieces 를 먼저 반영.
+  //   상태 잠금은 즉시, 부채꼴 메뉴는 시전 연출(dim/SP비행)이 끝난 뒤 열어 렌더 경쟁을 피함.
+  if (data && data.decreeUnit) {
+    if (yourPieces) S.myPieces = yourPieces;
+    S.decreeUnit = data.decreeUnit;
+    S.decreePhaseActive = true;
+    document.body.classList.add('action-locked');
+    const _du = data.decreeUnit;
+    setTimeout(() => { try { enterDecreePhase(_du); } catch (e) {} }, 1100);
+  }
   if (data && data.troopQueue !== undefined) {
     S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작 또는 질주 소진 후)
     // 장군 시전 개시(dash 아님) — 시전 연출 후 첫 유닛 자동 진행. (질주 skill_result 는 dash onDone 에서 진행.)
@@ -14016,6 +14030,11 @@ function pieceCanTakeBasicAction(pc) {
   if ((S.myPieces || []).some(p => p.alive && p.wraithMovePending)) {
     return !!pc.wraithMovePending;
   }
+  // ★ 전령 칙명 페이즈: 지정된 대상 왕실 유닛만 조작 가능(그 외 전부 불가).
+  if (S.decreePhaseActive && S.decreeUnit && S.decreeUnit.ownerIdx === S.playerIdx) {
+    const idx = S.myPieces ? S.myPieces.indexOf(pc) : -1;
+    return idx === S.decreeUnit.pieceIdx;
+  }
   // ★ 사용자 요청: 질주 활성 시 — 메신저만 행동 가능. 다른 유닛은 일괄 불가 (기존
   //   [행동가능]/[행동불가] 플로팅 버튼 시스템에 반영됨).
   const sprintCaster = (S.myPieces || []).find(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0);
@@ -14023,11 +14042,7 @@ function pieceCanTakeBasicAction(pc) {
   // ★ 사용자 요청: 쌍검무 활성 시 — 양손검객만 행동 가능. 다른 유닛은 일괄 불가.
   const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeCaster) return pc === dualBladeCaster;
-  // ★ 전령 칙명: 행동을 마쳤어도 왕실 유닛(배신/이교단 아님)은 이동권이 남아있으면 행동 가능.
-  if ((S.decreeRoyalMoves || 0) > 0 && pc.tag === 'royal'
-      && !(pc.statusEffects || []).some(e => e.type === 'betray') && !pc._cultOf) {
-    return true;
-  }
+  // (칙명은 위 페이즈 분기에서 처리 — 레거시 decreeRoyalMoves 분기 제거.)
   // 일반 케이스
   if (S.actionUsedSkillReplace) return false;
   if (S.twinMovePending && pc.subUnit && S.twinMovedSub !== pc.subUnit) return true;
@@ -17321,6 +17336,12 @@ function setActionButtonMode(mode) {
 }
 
 function resetAction() {
+  // ★ 칙명 페이즈 — 첫 조작 전 취소: 서버 _decreeUnit 해제 + 페이즈 종료.
+  if (S.decreePhaseActive) {
+    try { socket.emit('cancel_decree', {}); } catch (e) {}
+    exitDecreePhase();
+    return;
+  }
   // 쌍둥이 이동 페이즈 — 첫 이동 전에는 취소 가능, 첫 이동 후에는 페이즈 종료(토스트 송출).
   if (S.twinPhaseActive) {
     if (S.twinFirstSubMoved == null) {
@@ -17876,6 +17897,7 @@ function handleSkillUse(pieceIdx, pc, overrideSkillId) {
   if (type === 'count') { showEnemyIdentitySkillUI(pieceIdx, 'vampire', '흡혈 — 대상 선택', '최대체력 -1'); return; }
   if (type === 'griffin') { showEnemyIdentitySkillUI(pieceIdx, 'rage', '격노 — 대상 선택', '1 피해'); return; }
   if (type === 'storyteller') { showEnemyIdentitySkillUI(pieceIdx, 'incite', '선동 — 대상 선택', '배신 상태로 만듭니다'); return; }
+  if (type === 'messenger') { showDecreeTargetUI(pieceIdx); return; }   // ★ 칙명 — 추가 행동할 왕실 유닛 선택
   if (type === 'windSurfer') {
     // 바람몰이: 밀 칸 선택(유닛/유해/쥐/폭탄/덫 무엇이든) → 방향 선택
     S.action = 'skill_target';
@@ -18260,6 +18282,35 @@ function showFairyDustUI(pieceIdx) {
       _addOpt(apc, i, teammate.idx, ` <span style="opacity:.7">(${teammate.name})</span>`);
     }
   }
+  modal.classList.remove('hidden');
+}
+
+// ★ 전령 칙명(리워크) — 추가 행동할 아군 왕실 유닛을 스킬 탭에서 선택 → 칙명 페이즈 진입.
+//   (팀원 왕실 조작은 후속 — 현재는 본인 왕실만.)
+function showDecreeTargetUI(pieceIdx) {
+  const modal = document.getElementById('skill-modal');
+  const body = document.getElementById('skill-modal-body');
+  document.getElementById('skill-modal-title').textContent = '칙명 — 추가 행동할 왕실 유닛 선택';
+  body.innerHTML = '';
+  const isRoyal = (p) => (p.tag === 'royal' || p.faction === 'royal');
+  const canPick = (p) => p.alive && isRoyal(p) && !(p.statusEffects || []).some(e => e.type === 'betray');
+  let any = false;
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const apc = S.myPieces[i];
+    if (!canPick(apc)) continue;
+    any = true;
+    const opt = document.createElement('div');
+    opt.className = 'skill-option';
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, { size: '1.2em' })} ${apc.name}</div>
+      <div class="skill-desc">이 유닛에게 추가 행동 1회(이동·공격·행동소비 스킬)</div>`;
+    const _ti = i;
+    opt.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      socket.emit('use_skill', { pieceIdx, skillId: 'decree', params: { targetPieceIdx: _ti, targetOwnerIdx: S.playerIdx } });
+    });
+    body.appendChild(opt);
+  }
+  if (!any) { setActionHint('조작할 수 있는 왕실 유닛이 없습니다.', true); return; }
   modal.classList.remove('hidden');
 }
 
@@ -18691,6 +18742,36 @@ function exitWraithMovePhase() {
   const hint = document.getElementById('action-hint'); if (hint) hint.textContent = '';
   if (was) { try { renderGameBoard(); } catch (e) {} }
 }
+// ── 전령 칙명(리워크) 페이즈 — 지정된 아군 왕실 유닛만 조작(부대공격式). 이동/공격을 실제 실행하면 종료. ──
+//   첫 조작 전까진 취소 버튼으로 취소 가능. (현재 본인 왕실만; 팀원 왕실 조작은 후속.)
+function enterDecreePhase(decreeUnit) {
+  if (!S.isMyTurn || !decreeUnit) return;
+  if (decreeUnit.ownerIdx !== S.playerIdx) return;   // 팀원 왕실 조작은 후속 — 서버 핸들러 미지원
+  const idx = decreeUnit.pieceIdx;
+  const pc = S.myPieces && S.myPieces[idx];
+  if (!pc || !pc.alive) { exitDecreePhase(); return; }
+  S.decreePhaseActive = true;
+  S.decreeUnit = decreeUnit;
+  S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+  document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단
+  document.getElementById('btn-cancel')?.classList.remove('hidden');   // 첫 조작 전 취소 가능
+  setActionHint(`칙명 — ${pc.name}의 추가 행동을 실행하세요. (취소 가능)`);
+  try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
+  try { _showRadialActionMenu(pc.col, pc.row, idx); } catch (e) {}   // 그 유닛 부채꼴 메뉴 자동 팝업
+}
+function exitDecreePhase() {
+  const was = S.decreePhaseActive;
+  S.decreePhaseActive = false;
+  S.decreeUnit = null;
+  S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+  try { _closeRadialActionMenu(); } catch (e) {}
+  try { _clearAttackConfirmBtns(); } catch (e) {}
+  document.body.classList.remove('action-locked');
+  document.getElementById('btn-cancel')?.classList.add('hidden');
+  if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
+  const hint = document.getElementById('action-hint'); if (hint) hint.textContent = '';
+  if (was) { try { renderGameBoard(); } catch (e) {} }
+}
 // 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
 function refreshAttackConfirmBtn() {
   if (S.action !== 'attack' || S.selectedPiece == null) {
@@ -18950,6 +19031,14 @@ function handleGameCellClick(col, row) {
 
   // #9 — 행동이 진행 중이지 않을 때 내 말 셀을 누르면 라디얼 메뉴 표시
   //   ★ 부대공격 진행 중엔 자동 진행(advanceTroopStep)이 유닛을 강제 지정하므로 라디얼 미표시.
+  // ★ 칙명 페이즈: 지정 대상 왕실 유닛만 라디얼(다른 셀 클릭은 무시). 대상 셀 클릭 시 부채꼴 재팝업.
+  if (S.decreePhaseActive && S.decreeUnit && !S.action) {
+    const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
+    if (myPc && S.myPieces.indexOf(myPc) === S.decreeUnit.pieceIdx && S.decreeUnit.ownerIdx === S.playerIdx) {
+      _showRadialActionMenu(col, row, S.decreeUnit.pieceIdx);
+    }
+    return;
+  }
   if (S.isMyTurn && !S.action && !(S.troopQueue && S.troopQueue.length)) {
     const myPc = (S.myPieces || []).find(p => p.alive && p.col === col && p.row === row);
     if (myPc) {
