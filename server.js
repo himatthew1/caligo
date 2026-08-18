@@ -2485,6 +2485,19 @@ function aiTeamUsePreSkills(room, idx) {
       const danger = tb && tb._dangerMap ? (tb._dangerMap[piece.row]?.[piece.col] || 0) : 1;
       if (piece.hp <= 1 && danger >= 1) { aiTeamExecSkill(room, idx, pi, 'sprint'); return true; }
     }
+    // rage(그리폰 격노) — 2SP·자유시전·1회, 지정 적에게 1 피해. 정체(공개정보)로 타겟(인간 identity 피커
+    //   와 대칭 = 공정). 활성(_rageActive)일 때만. SP 낭비 방지: 처치 확정(HP≤1) 대상 우선, 없으면 그리폰이
+    //   위급(HP≤1, 사장 위험)할 때만 최고가치 적, 그 외 보류.
+    if (piece.skillId === 'rage') {
+      if (piece._rageActive) {
+        const enemies = aiKnownEnemies(room, idx).map(e => e.piece).filter(Boolean);
+        const finishable = enemies.filter(e => (e.hp || 0) <= 1);
+        let target = null;
+        if (finishable.length) target = finishable.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+        else if (piece.hp <= 1 && enemies.length) target = enemies.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+        if (target) { aiTeamExecSkill(room, idx, pi, 'rage', { targetName: target.type }); return true; }
+      }
+    }
     // herb — 인접 아군 부상 시
     if (piece.skillId === 'herb') {
       const woundedAlly = allyIdxs.flatMap(ai => room.players[ai]?.pieces || [])
@@ -9927,6 +9940,20 @@ function aiUsePreSkills(room) {
         if (!hasShadow && inImmediateDanger) {
           _tryExec(pidx, 'shadow');
         }
+        break;
+      }
+      // ★ 그리폰 격노 — 2SP·자유시전·1회, 지정 적에게 1 피해. 정체(공개정보)로 타겟(showEnemyIdentitySkillUI
+      //   와 대칭 = 공정). 피해 받아 활성(_rageActive)일 때만. SP 낭비 방지: ①처치 확정(HP≤1) 대상이 있으면
+      //   그 중 최고가치를 확실히 킬, ②없으면 그리폰이 위급(HP≤1, 사장 위험)할 때만 최고가치 적에게, ③그 외 보류.
+      case 'griffin': {
+        if (!piece._rageActive) break;
+        const enemies = aiKnownEnemies(room, 1).map(e => e.piece).filter(Boolean);
+        if (!enemies.length) break;
+        const finishable = enemies.filter(e => (e.hp || 0) <= 1);
+        let target = null;
+        if (finishable.length) target = finishable.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+        else if (piece.hp <= 1) target = enemies.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
+        if (target) _tryExec(pidx, 'rage', { targetName: target.type });
         break;
       }
       // 궁수/무기상: 대안 공격범위가 더 좋으면 토글 (SP 1 — 자유롭게)
