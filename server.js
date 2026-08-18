@@ -2932,16 +2932,21 @@ function aiTeamTakeTurn(room, idx) {
       if (!p._curseHistory) p._curseHistory = {};
       // ★ 사용자 정정: 수도승 자신을 0순위 저주 — 신성 스킬 봉인 → 다른 아군 저주 해소 차단.
       //   적팀에 수도승이 있고 살아있을 때 monk 가 후보에 포함되어 최우선 선택됨.
+      // ★ 저주 타겟(사용자 재정의): 고HP 탱커·메인어태커·성가신 서포터·철인 우선. 지속뎀이 이득인
+      //   정령(격노/생장/순간마법/포자/요정왕카운터)은 배제(적팀 오베론 생존 시 모든 정령 배제) — 최후1인 예외.
+      const _enemyAlive = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])).filter(pc => pc.alive);
+      const _curseOpts = {
+        lastEnemy: _enemyAlive.length === 1,
+        enemyHasOberon: enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(pc => pc.alive && pc.type === 'oberon')),
+      };
       const candidates = enemyIdxs.flatMap(ei => (room.players[ei]?.pieces || [])
         .map((pc, ti) => ({ pc, ownerIdx: ei, idxInOwner: ti }))
         .filter(o => o.pc.alive && o.pc.hp > 1 &&
           !o.pc.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')));
 
       if (candidates.length > 0) {
-        // 정렬: 저주 가치(aiCurseValue: 수도승=100 > 강스킬·고가치) > 정화 메모리 적음 > HP > tier
-        //   사용자 요청: 저주는 '스킬 봉인'이므로 봉인 가치가 큰 핵심 유닛(수도승·강스킬)을 노린다.
         candidates.sort((a, b) => {
-          const va = aiCurseValue(a.pc), vb = aiCurseValue(b.pc);
+          const va = aiCurseValue(a.pc, _curseOpts), vb = aiCurseValue(b.pc, _curseOpts);
           if (va !== vb) return vb - va;  // 저주 가치 높은 쪽 우선
           const ka = `${a.ownerIdx}:${a.pc.type}:${a.pc.subUnit || ''}`;
           const kb = `${b.ownerIdx}:${b.pc.type}:${b.pc.subUnit || ''}`;
@@ -2955,9 +2960,8 @@ function aiTeamTakeTurn(room, idx) {
         const t = candidates[0];
         const targetKey = `${t.ownerIdx}:${t.pc.type}:${t.pc.subUnit || ''}`;
         const cleansedTimes = p._curseHistory[targetKey] || 0;
-        // ★ 사용자 정정: 같은 monk 가 자기 자신 저주를 풀 수 없으므로 (저주 상태에서 스킬 봉인),
-        //   monk 자체에는 cleansed 추적 무의미 — 무조건 시전. monk 아닌 다른 타겟은 기존 cleansed 2회 가드 유지.
-        if (t.pc.type !== 'monk' && cleansedTimes >= 2) {
+        // 전부 배제 대상(음수 가치)이면 저주 안 함(정령 피격 헌납 방지). 정화 2회 초과 타겟도 스킵.
+        if (aiCurseValue(t.pc, _curseOpts) <= 0 || cleansedTimes >= 2) {
           // 저주 스킵 — 다음 행동 후보로 넘어감
         } else {
           aiTeamExecSkill(room, idx, pi, 'curse', { targetPieceIdx: t.idxInOwner, targetOwnerIdx: t.ownerIdx });
@@ -8684,13 +8688,18 @@ function aiUnitValue(piece) {
   v += (STRONG[piece.type] || 0);
   return v;
 }
-// ★ 개구리 장난(frogPrank) 타겟 가치 — 개구리 = 스킬 봉인 + ATK 0.5 + 사거리 가로3(완전 무력화).
-//   스킬 봉인이 저주에서 개구리로 이전됨(사용자 정정). 임팩트 큰 스킬 유닛·고가치 유닛을 개구리로.
+// ★ 개구리 장난(frogPrank) 타겟 가치 — 개구리 = 액티브 스킬 봉인 + ATK 0.5 + 사거리 가로3.
+//   사용자 정정: 성가신 '액티브 스킬' 유닛을 먼저 개구리로(스킬 봉인은 저주가 아니라 개구리로 이전).
+//   frog 는 마녀 피격 전까지 지속. 스킬 없는 유닛은 봉인 이득 거의 없음(ATK/사거리 억제만).
 function aiFrogValue(piece) {
-  if (!piece) return 0;
-  let v = aiUnitValue(piece);
-  if (piece.type === 'monk') v += 20;          // 신성(힐·정화) 봉인 특히 큼
-  if (piece.hasSkill) v += 4;                  // 스킬 자체 무력화 가치
+  if (!piece || !piece.hasSkill) return 0;
+  // 임팩트 큰 액티브 스킬 유닛 — 특히 monk(신성=힐·정화; 개구리면 스킬봉인이라 자가정화도 불가).
+  const ACTIVE = { monk: 30, king: 22, dragonTamer: 22, necromancer: 20, witch: 18, herbalist: 16,
+    sulfurCauldron: 16, oberon: 16, general: 14, gunpowder: 12, torturer: 12, ratMerchant: 10,
+    manhunter: 10, scout: 8, commander: 6 };
+  let v = ACTIVE[piece.type] || 4;             // 스킬 보유 기본 4
+  v += (piece.atk || 0);                       // ATK 0.5 로 억제되는 이득(고ATK일수록)
+  v += (piece.tier || 1);                      // 고티어 우선
   return v;
 }
 // ★ 마녀 빗자루 비행 도주칸 — 위험도 최소 + 비어있는(유닛/유해/파괴 없음) in-bounds 칸. 없으면 null.
@@ -8707,17 +8716,27 @@ function aiWitchSafestCell(room, witch, dm) {
   }
   return best;
 }
-// 저주 타겟 가치 — 저주 = 스킬 봉인 + 지속뎀(0.5/턴). 수도승은 저주 해제원이라 최우선.
-//   ★ 사용자 정정: 봉인만이 메인이 아님. 지속뎀은 status dmg 라 아이언스킨/폭정/충성 *경감을 무시* →
-//     고HP·피해경감으로 버티는 유닛(오래 살수록 이득)을 저주로 불구화하는 게 핵심. 일반딜 안 통하는
-//     탱크엔 저주가 유일한 해법. + 스킬 봉인 가치(스킬 보유 시). (저주는 위치 몰라도 정체로 타겟 — 공개정보.)
-function aiCurseValue(piece) {
+// ★ 저주 타겟 가치 (사용자 재정의) — 저주 = 지속뎀 0.5/턴(status dmg → 아이언스킨/폭정/충성 경감 무시).
+//   스킬 봉인 아님(→개구리로 이전). 오래 살수록 누적 이득 → 고HP·피해경감형 탱커, 메인 어태커,
+//   성가신 서포터, 철인(HP=ATK) 우선.
+//   ★ 배제: 지속뎀이 오히려 '이득'인 정령 — 피격 유발 패시브(griffin 격노 / dryad 생장 / wizard 순간마법 /
+//     mushkin 포자 / oberon 요정왕카운터). 게다가 적팀에 오베론 생존 시 '모든 정령' 저주 = 카운터 헌납.
+//     → 이 경우 강한 음수 가치로 회피. 단 opts.lastEnemy(최후 1인 + 처치 가능)면 배제 무시(활용 OK).
+//   (저주는 위치 몰라도 정체로 타겟 — 공개정보.)
+function aiCurseValue(piece, opts) {
   if (!piece) return 0;
-  if (piece.type === 'monk') return 100;   // 신성=아군 저주 해제원 → 봉인 최우선
-  let v = Math.max(piece.hp || 0, piece.maxHp || 0) * 0.7;            // 고HP = 오래 삶 = 저주 누적 이득
-  const TANK = { armoredWarrior: 7, bodyguard: 6, count: 4, king: 3 };  // 피해경감/흡수형 — 일반딜 안 통함
+  const o = opts || {};
+  if (!o.lastEnemy) {
+    const DOT_BENEFIT = new Set(['griffin', 'dryad', 'wizard', 'mushkin', 'oberon']);   // 피격이 이득인 정령
+    if (DOT_BENEFIT.has(piece.type)) return -100;
+    if (o.enemyHasOberon && typeof isFaction === 'function' && isFaction(piece, 'spirit')) return -100;  // 정령 피격=오베론 카운터 헌납
+  }
+  let v = Math.max(piece.hp || 0, piece.maxHp || 0) * 0.9;                 // 고HP = 오래 삶 = 저주 누적 이득
+  const TANK = { armoredWarrior: 8, ironman: 8, bodyguard: 6, count: 5, king: 3 };   // 피해경감/고HP형(경감 무시 저주가 유효)
   v += TANK[piece.type] || 0;
-  if (piece.hasSkill) v += aiUnitValue(piece) * 0.5 + 3;             // 스킬 봉인 가치
+  v += (piece.atk || 0) * 1.2;                                            // 메인 어태커 압박(철인은 HP=ATK 이중 타격)
+  const SUPPORT = { herbalist: 4, commander: 4, sulfurCauldron: 5, general: 3 };   // 성가신 서포터
+  v += SUPPORT[piece.type] || 0;
   return v;
 }
 // ── 공격 타겟 보너스 — 표식된 적(실위치 공개)이 공격칸에 들어올 때 처치/고가치 가중. ──
@@ -10784,25 +10803,29 @@ function aiTakeTurn(room) {
         }
       }
       if (piece.type === 'witch') {
-        // ★ 사용자 정정: 수도승은 신성 스킬로 다른 아군의 저주를 해소함 — 수도승 본인을 저주하면
-        //   저주 상태인 piece 는 스킬 봉인됨 ([server.js:4507](server.js:4507)) → 신성 차단 = 저주 해소 차단.
-        //   따라서 수도승을 0순위로 저주 (가호 패시브는 villain 공격 데미지에만 적용, 저주 status 와 무관).
+        // ★ 저주 타겟(사용자 재정의): 고HP 탱커·메인어태커·성가신 서포터·철인 우선. 지속뎀이 이득인
+        //   정령(격노/생장/순간마법/포자/요정왕카운터)은 배제 — 단 최후 1인+처치가능이면 예외.
+        const enemyAlive = room.players[0].pieces.filter(p => p.alive);
+        const lastEnemy = enemyAlive.length === 1;
+        const enemyHasOberon = room.players[0].pieces.some(p => p.alive && p.type === 'oberon');
+        const opts = { lastEnemy, enemyHasOberon };
         const enemies = room.players[0].pieces.filter(p => p.alive && p.hp > 1 &&
           !p.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow'));
         if (enemies.length > 0) {
-          // 우선순위: 저주 가치(aiCurseValue: 수도승=100 > 강스킬·고가치) > HP > 티어.
-          //   저주=스킬 봉인 → 봉인 가치 큰 핵심 유닛 우선 (사용자 요청).
           enemies.sort((a, b) =>
-            (aiCurseValue(b) - aiCurseValue(a)) ||
+            (aiCurseValue(b, opts) - aiCurseValue(a, opts)) ||
             b.hp - a.hp ||
             (b.tier || 0) - (a.tier || 0)
           );
           const target = enemies[0];
-          const tIdx = room.players[0].pieces.indexOf(target);
-          aiExecSkill(room, pidx, 'curse', { targetPieceIdx: tIdx });
-          aiPlayer.actionDone = true;
-          aiEndTurn(room);
-          return;
+          // 전부 배제 대상(음수 가치)이면 저주 시전 안 함(정령 피격 헌납 방지) — 다음 행동 후보로.
+          if (aiCurseValue(target, opts) > 0) {
+            const tIdx = room.players[0].pieces.indexOf(target);
+            aiExecSkill(room, pidx, 'curse', { targetPieceIdx: tIdx });
+            aiPlayer.actionDone = true;
+            aiEndTurn(room);
+            return;
+          }
         }
       }
       if (piece.type === 'sulfurCauldron' && (room.sp[1] + room.instantSp[1]) >= piece.skillCost) {
@@ -14221,6 +14244,7 @@ module.exports = {
   getBaseAtk, getEffectiveAtk,
   // ★ 언데드 견제 정책 검증용 (공세 유인 제외 / 위협맵 유지)
   aiAttackTargetBonus, aiMarkedChaseBonus, aiBuildDangerMap, aiKnownEnemies, _aiUnitDestroysUndeadOnAttack,
+  aiCurseValue, aiFrogValue, aiUnitValue,
   // ★ 상태이상·HP분배 검증용
   addStatus, hasStatus, getStatus, statusStacks, resolveDamage, _redistributeUndeadHp,
   // ★ 소속 표시 검증용 (동적 faction 전송)
