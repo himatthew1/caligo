@@ -14286,8 +14286,11 @@ function showActionBar(enabled) {
     const hasSprintMove = alivePieces.some(p => p.messengerSprintActive && p.messengerMovesLeft > 0);
     const hasDualBladeActive = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
     const hasTwinPending = !!S.twinMovePending;
-    const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending) &&
-                    (!S.actionUsedSkillReplace || hasSprintMove) &&
+    // ★ 칙명 페이즈(본인 왕실): 조작자는 이미 행동(actionDone)했지만 지정 왕실 유닛은 추가 행동권이
+    //   있으므로 이동/공격 버튼을 반드시 활성화해야 한다(라디얼이 이 버튼을 통해 위임 → disabled 면 먹통).
+    const decreeActive = !!(S.decreePhaseActive && S.decreeUnit && S.decreeUnit.ownerIdx === S.playerIdx);
+    const canMove = hasAlive && (!S.actionDone || hasSprintMove || hasTwinPending || decreeActive) &&
+                    (!S.actionUsedSkillReplace || hasSprintMove || decreeActive) &&
                     !hasDualBladeActive;
     btnMove.disabled = !canMove;
     btnMove.classList.toggle('action-dimmed', !canMove);
@@ -14299,8 +14302,8 @@ function showActionBar(enabled) {
     // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
     const hasDualBlade = alivePieces.some(p => p.dualBladeAttacksLeft > 0);
     const movedAlready = S.moveDone || S.twinMovePending;
-    const canAttack = hasAlive && (!S.actionDone || hasDualBlade) && !movedAlready
-                    && !S.actionUsedSkillReplace && !hasSprintMove;
+    const canAttack = hasAlive && (!S.actionDone || hasDualBlade || decreeActive) && (!movedAlready || decreeActive)
+                    && (!S.actionUsedSkillReplace || decreeActive) && !hasSprintMove;
     btnAttack.disabled = !canAttack;
     btnAttack.classList.toggle('action-dimmed', !canAttack);
 
@@ -18815,6 +18818,9 @@ function enterDecreePhase(decreeUnit) {
   S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
   document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단
   document.getElementById('btn-cancel')?.classList.remove('hidden');   // 첫 조작 전 취소 가능
+  // ★ 칙명 유닛의 추가 행동권을 위해 이동/공격 버튼을 재활성화(showActionBar 가 decreeActive 를 반영).
+  //   이게 없으면 조작자 actionDone 상태의 disabled 버튼이 남아 라디얼 위임이 먹통이 된다.
+  try { if (typeof showActionBar === 'function') showActionBar(true); } catch (e) {}
   setActionHint(`칙명 — ${pc.name}의 추가 행동을 실행하세요. (취소 가능)`);
   try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
   try { _showRadialActionMenu(pc.col, pc.row, idx); } catch (e) {}   // 그 유닛 부채꼴 메뉴 자동 팝업
