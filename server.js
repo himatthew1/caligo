@@ -2446,11 +2446,43 @@ function aiTeamUsePreSkills(room, idx) {
   if (!p || p.actionDone) return false;
   const allyIdxs = getAllyIndices(room, idx);
   const enemyIdxs = getEnemyIndices(room, idx);
+  // ★ 마녀 자유시전(개구리 장난·빗자루 비행) — 주 스킬 저주가 replacesAction:true 라 아래 루프의
+  //   skillReplacesAction skip 에 마녀 전체가 걸려 안 쓰였음. 여기서 별도 처리(저주는 메인 결정에서).
+  {
+    const teamId = getTeamOf(room, idx);
+    const brain = getTeamBrain(room, teamId);
+    for (let wi = 0; wi < p.pieces.length; wi++) {
+      const witch = p.pieces[wi];
+      if (!witch.alive || witch.type !== 'witch') continue;
+      if (p._aiFreeSkillUsedPieces && p._aiFreeSkillUsedPieces.has(wi)) continue;   // 재시전 방지
+      const sp = room.sp[teamId] + room.instantSp[teamId];
+      const dm = (brain._dangerMap && brain._dangerTurn === brain.turnCount) ? brain._dangerMap : aiBuildDangerMap(room, idx, brain);
+      const hereDanger = (dm && dm[witch.row] && dm[witch.row][witch.col]) || 0;
+      const channeling = (typeof witchIsChanneling === 'function') && witchIsChanneling(room, witch);
+      // (1) 빗자루 비행(cost1) — 채널링 중 or 위급인데 위험칸 → 안전한 빈 칸으로 도주.
+      if (sp >= 1 && (channeling || witch.hp <= 1) && hereDanger >= 1) {
+        const safe = aiWitchSafestCell(room, witch, dm);
+        if (safe && safe.danger < hereDanger) { aiTeamExecSkill(room, idx, wi, 'broomFlight', { col: safe.col, row: safe.row }); return true; }
+      }
+      // (2) 개구리 장난(cost3, oncePerTurn) — 스킬봉인 가치 큰 적을 개구리로.
+      const frogCost = ((witch.skills || []).find(s => s.id === 'frogPrank') || {}).cost || 3;
+      const frogUsed = p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(`${wi}:frogPrank`);
+      if (!channeling && sp >= frogCost && !frogUsed) {
+        const cands = aiKnownEnemies(room, idx).filter(e => e.piece && e.piece.alive && e.piece.hasSkill
+          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));
+        if (cands.length) {
+          cands.sort((a, b) => aiFrogValue(b.piece) - aiFrogValue(a.piece));
+          const top = cands[0];
+          if (aiFrogValue(top.piece) >= 8) { aiTeamExecSkill(room, idx, wi, 'frogPrank', { targetPieceIdx: top.idxInOwner, targetOwnerIdx: top.ownerIdx }); return true; }
+        }
+      }
+    }
+  }
   for (let pi = 0; pi < p.pieces.length; pi++) {
     const piece = p.pieces[pi];
     if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
     if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
-    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog' || e.type === 'shadow')) continue;   // ★ 개구리만 스킬 봉인(저주 아님)
     // ★ FIX (팀 AI 스킬 무한 재시전): 이번 턴에 이미 자유 스킬을 시전한 piece 는 재시전 금지.
     if (p._aiFreeSkillUsedPieces && p._aiFreeSkillUsedPieces.has(pi)) continue;
     // ★ FIX (팀 AI 루프 버그 — 질주 등 oncePerTurn 스킬 반복 시전): skillsUsedBeforeAction 은
@@ -2876,7 +2908,7 @@ function aiTeamTakeTurn(room, idx) {
   for (const piece of myAlive) {
     if (!piece.hasSkill || !piece.skillReplacesAction) continue;
     if ((room.sp[getTeamOf(room, idx)] + room.instantSp[getTeamOf(room, idx)]) < piece.skillCost) continue;
-    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog')) continue;   // ★ 개구리만 스킬 봉인(저주 아님)
     const pi = p.pieces.indexOf(piece);
 
     if (piece.type === 'manhunter') {
@@ -3089,7 +3121,7 @@ function aiDecideAction(room, idx) {
     if (!piece.alive || !piece.hasSkill || piece.skillReplacesAction) continue;
     if (p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(`${pi}:${piece.skillId}`)) continue;
     if ((room.sp[teamId] + room.instantSp[teamId]) < piece.skillCost) continue;
-    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse' || e.type === 'shadow')) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog' || e.type === 'shadow')) continue;   // ★ 개구리만 스킬 봉인(저주 아님)
     if (piece.skillId === 'recon' && brain.mode === 'scan' && aiMaxProb(brain) < 6) return { type: 'skill', pieceIdx: pi, skillId: 'recon', params: {} };
     if (piece.skillId === 'herb') {
       const wounded = getAllyIndices(room, idx).flatMap(ai => room.players[ai] ? room.players[ai].pieces : []).some(a => a.alive && a !== piece && a.hp < a.maxHp && Math.abs(a.col - piece.col) <= 1 && Math.abs(a.row - piece.row) <= 1);
@@ -7054,9 +7086,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   if ((piece.statusEffects || []).some(e => e.type === 'betray')) return { ok: false, msg: '배신 상태에서는 조작할 수 없습니다.' };   // ★ 이야기꾼 선동
   if (!piece.hasSkill) return { ok: false, msg: '이 말은 스킬이 없습니다.' };
 
-  // 저주 상태이면 스킬 봉인
-  if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) {
-    return { ok: false, msg: '저주 상태에서는 스킬을 사용할 수 없습니다.' };
+  // ★ 스킬 봉인은 '개구리(frogPrank)' 로 이전 — 저주는 더 이상 스킬을 봉인하지 않음(지속뎀만).
+  //   개구리 상태(가로3·ATK0.5·스킬 없음)의 유닛만 스킬 사용 불가.
+  if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog')) {
+    return { ok: false, msg: '개구리 상태에서는 스킬을 사용할 수 없습니다.' };
   }
 
   // Look up skill cost — 다중 스킬 지원 (화약상 등)
@@ -8651,6 +8684,29 @@ function aiUnitValue(piece) {
   v += (STRONG[piece.type] || 0);
   return v;
 }
+// ★ 개구리 장난(frogPrank) 타겟 가치 — 개구리 = 스킬 봉인 + ATK 0.5 + 사거리 가로3(완전 무력화).
+//   스킬 봉인이 저주에서 개구리로 이전됨(사용자 정정). 임팩트 큰 스킬 유닛·고가치 유닛을 개구리로.
+function aiFrogValue(piece) {
+  if (!piece) return 0;
+  let v = aiUnitValue(piece);
+  if (piece.type === 'monk') v += 20;          // 신성(힐·정화) 봉인 특히 큼
+  if (piece.hasSkill) v += 4;                  // 스킬 자체 무력화 가치
+  return v;
+}
+// ★ 마녀 빗자루 비행 도주칸 — 위험도 최소 + 비어있는(유닛/유해/파괴 없음) in-bounds 칸. 없으면 null.
+function aiWitchSafestCell(room, witch, dm) {
+  const b = room.boardBounds;
+  const occupied = (c, r) => room.players.some(pl => (pl.pieces || []).some(p => p.alive && p !== witch && p.col === c && p.row === r))
+    || (room.remains && room.remains.some(x => x.col === c && x.row === r))
+    || (typeof isCellDestroyed === 'function' && isCellDestroyed(room, c, r));
+  let best = null, bestD = Infinity;
+  for (let r = b.min; r <= b.max; r++) for (let c = b.min; c <= b.max; c++) {
+    if (occupied(c, r)) continue;
+    const d = (dm && dm[r] && dm[r][c]) || 0;
+    if (d < bestD) { bestD = d; best = { col: c, row: r, danger: d }; }
+  }
+  return best;
+}
 // 저주 타겟 가치 — 저주 = 스킬 봉인 + 지속뎀(0.5/턴). 수도승은 저주 해제원이라 최우선.
 //   ★ 사용자 정정: 봉인만이 메인이 아님. 지속뎀은 status dmg 라 아이언스킨/폭정/충성 *경감을 무시* →
 //     고HP·피해경감으로 버티는 유닛(오래 살수록 이득)을 저주로 불구화하는 게 핵심. 일반딜 안 통하는
@@ -9912,6 +9968,37 @@ function aiUsePreSkills(room) {
     return false;
   };
 
+  // ★ 마녀 자유시전 스킬(개구리 장난·빗자루 비행) — 주 스킬(저주)이 replacesAction:true 라 아래 일반
+  //   루프의 `skillReplacesAction` skip 에 마녀 전체가 걸려 영영 안 쓰였음. 여기서 별도 처리.
+  //   (저주 자체는 메인 행동 결정에서 시전.) 사용자 요청: 안전지대에서 저주 압박, 위험 시 빗자루로 도주.
+  if (!_execed) {
+    for (const witch of alivePieces) {
+      if (witch.type !== 'witch' || _execed) continue;
+      const wIdx = aiPlayer.pieces.indexOf(witch);
+      const sp = room.sp[1] + room.instantSp[1];
+      const dm = (brain._dangerMap && brain._dangerTurn === brain.turnCount) ? brain._dangerMap : aiBuildDangerMap(room, 1, brain);
+      const hereDanger = (dm && dm[witch.row] && dm[witch.row][witch.col]) || 0;
+      const channeling = (typeof witchIsChanneling === 'function') && witchIsChanneling(room, witch);
+      // (1) 빗자루 비행(cost1) — 저주 채널링 중 or 위급(HP≤1)인데 현재 칸이 위험 → 가장 안전한 빈 칸으로 도주.
+      if (sp >= 1 && (channeling || witch.hp <= 1) && hereDanger >= 1) {
+        const safe = aiWitchSafestCell(room, witch, dm);
+        if (safe && safe.danger < hereDanger) { if (_tryExec(wIdx, 'broomFlight', { col: safe.col, row: safe.row })) break; }
+      }
+      // (2) 개구리 장난(cost3, oncePerTurn) — 스킬봉인 가치 큰 적을 개구리로. 위험할 땐 도주 우선(위에서 처리).
+      const frogCost = ((witch.skills || []).find(s => s.id === 'frogPrank') || {}).cost || 3;
+      const frogUsed = aiPlayer.skillsUsedBeforeAction && aiPlayer.skillsUsedBeforeAction.includes(`${wIdx}:frogPrank`);
+      if (!channeling && sp >= frogCost && !frogUsed) {
+        const cands = aiKnownEnemies(room, 1).filter(e => e.piece && e.piece.alive && e.piece.hasSkill
+          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));
+        if (cands.length) {
+          cands.sort((a, b) => aiFrogValue(b.piece) - aiFrogValue(a.piece));
+          const top = cands[0];
+          if (aiFrogValue(top.piece) >= 8) { if (_tryExec(wIdx, 'frogPrank', { targetPieceIdx: top.idxInOwner, targetOwnerIdx: top.ownerIdx })) break; }
+        }
+      }
+    }
+  }
+
   for (const piece of alivePieces) {
     if (_execed) break;  // 이미 한 개 시전 — 이번 호출 종료
     if (!piece.hasSkill || piece.skillReplacesAction) continue;
@@ -9920,7 +10007,7 @@ function aiUsePreSkills(room) {
     const _counterRes0 = _fsk0 && _fsk0.resource === 'oberonCounter';
     if (_counterRes0) { if ((piece._oberonCounter || 0) < (piece.skillCost || 0)) continue; }
     else if ((room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
-    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
+    if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog')) continue;   // ★ 개구리만 스킬 봉인(저주 아님)
     const pidx = aiPlayer.pieces.indexOf(piece);
 
     switch (piece.type) {
@@ -12553,6 +12640,9 @@ io.on('connection', (socket) => {
       && player._decreeUnit.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
     const pieceOwnerIdx = _decreeCross ? decreeOwnerIdx : idx;
     const pieceOwner = room.players[pieceOwnerIdx];
+    // ★ 칙명 지정 유닛 — actionDone 뿐 아니라 actionUsedSkillReplace(행동대체 스킬 사용 후)도 우회해야
+    //   추가 행동권으로 이동 가능(예: 장군 부대공격 후 전령 칙명으로 전령에게 행동권 재부여 → 이동/공격).
+    const _isDecreePiece = !!(player._decreeUnit && player._decreeUnit.ownerIdx === pieceOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx);
 
     // Check if action already done (unless messenger sprint OR twin's other half OR 칙명 왕실 이동권)
     {
@@ -12584,7 +12674,7 @@ io.on('connection', (socket) => {
     //     순차 조작(이동)을 이어가야 하므로 여기서 막으면 먹통이 된다.
     const _wraithMoveOK = !!(piece._wraithMovePending && player._wraithMoveQueue && player._wraithMoveQueue.length);
     const _troopFrontMoveOK = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
-    if (player.actionUsedSkillReplace && !piece.messengerSprintActive && !_wraithMoveOK && !_troopFrontMoveOK) {
+    if (player.actionUsedSkillReplace && !piece.messengerSprintActive && !_wraithMoveOK && !_troopFrontMoveOK && !_isDecreePiece) {
       socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 이동할 수 없습니다.' }); return;
     }
 
@@ -13010,7 +13100,7 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '이미 행동을 사용했습니다.' }); return;
     }
 
-    if (player.actionUsedSkillReplace && !_troopFront) {
+    if (player.actionUsedSkillReplace && !_troopFront && !_decreeAttack) {
       socket.emit('err', { msg: '행동 대체 스킬을 사용했으므로 공격할 수 없습니다.' }); return;
     }
 

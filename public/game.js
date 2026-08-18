@@ -14137,8 +14137,9 @@ function canPieceUseAnySkill(pieceIdx) {
   const dualBladeCaster = (S.myPieces || []).find(p => p.alive && p.dualBladeAttacksLeft > 0);
   if (dualBladeCaster && pc !== dualBladeCaster) return false;
   if (!pc.hasSkill && !(pc.skills && pc.skills.length > 0)) return false;
-  const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
-  if (isCursed) return false;
+  // ★ 스킬 봉인은 개구리(frog) 로 이전 — 저주는 더 이상 스킬을 봉인하지 않음.
+  const isFrogged = pc.statusEffects && pc.statusEffects.some(e => e.type === 'frog');
+  if (isFrogged) return false;
   const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
   const totalSP = ((S.sp && S.sp[spSlot]) || 0) + ((S.instantSp && S.instantSp[spSlot]) || 0);
   const skills = (pc.skills && pc.skills.length > 0)
@@ -17653,8 +17654,8 @@ function openSkillModal(targetPieceIdx) {
 
     // 다중 스킬 지원 (화약상 등): skills 배열이 있으면 각각 표시
     const skillList = pc.skills && pc.skills.length > 1 ? [...pc.skills].sort((a, b) => _skillTagRank(a) - _skillTagRank(b)) : null;
-    // 저주 상태이면 모든 스킬 차단 — 1v1·팀전 양쪽 동일하게 적용
-    const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
+    // ★ 개구리(frog) 상태이면 모든 스킬 차단 — 저주는 더 이상 봉인하지 않음(봉인은 개구리 장난으로 이전).
+    const isFrogged = pc.statusEffects && pc.statusEffects.some(e => e.type === 'frog');
 
     if (skillList) {
       // 다중 스킬: 각 스킬을 별도 옵션으로 표시
@@ -17670,9 +17671,9 @@ function openSkillModal(targetPieceIdx) {
         // 행동소비형인데 이미 행동했으면 비활성화
         let extraDisabled = false;
         let extraNote = '';
-        if (isCursed) {
+        if (isFrogged) {
           extraDisabled = true;
-          extraNote = ' (저주 상태 — 사용 불가)';
+          extraNote = ' (개구리 상태 — 사용 불가)';
         }
         if (sk.replacesAction && S.actionDone && !_isDecreeUnitIdx(i)) {
           extraDisabled = true;
@@ -17731,10 +17732,10 @@ function openSkillModal(targetPieceIdx) {
       const instantLabel = myInstant > 0 ? ` + ✨${myInstant}` : '';
       let singleDisabled = false;
       let singleNote = '';
-      // 저주 상태이면 모든 스킬 차단
-      if (isCursed) {
+      // ★ 개구리(frog) 상태이면 모든 스킬 차단 (저주는 봉인 안 함)
+      if (isFrogged) {
         singleDisabled = true;
-        singleNote = ' (저주 상태 — 사용 불가)';
+        singleNote = ' (개구리 상태 — 사용 불가)';
       }
       if (pc.skillReplacesAction && S.actionDone) {
         singleDisabled = true;
@@ -25829,8 +25830,9 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   // ── 스킬 castability 평가 (글로벌·캐릭터 탭 공통) ───────────────
   function evalSkillCastable(pieceIdx, pc, sk) {
     if (!pc || !pc.alive) return { ok: false, why: '사망 — 시전 불가' };
-    const isCursed = pc.statusEffects && pc.statusEffects.some(e => e.type === 'curse');
-    if (isCursed) return { ok: false, why: '저주에 걸려 스킬 봉인' };
+    // ★ 스킬 봉인은 개구리(frog)로 이전 — 저주는 봉인 안 함.
+    const isFrogged = pc.statusEffects && pc.statusEffects.some(e => e.type === 'frog');
+    if (isFrogged) return { ok: false, why: '개구리 상태 — 스킬 봉인' };
     const spSlot = S.isTeamMode ? (S.teamId ?? 0) : (S.playerIdx ?? 0);
     const totalSP = ((S.sp && S.sp[spSlot]) || 0) + ((S.instantSp && S.instantSp[spSlot]) || 0);
     // ★ 오베론 스킬은 SP가 아니라 요정왕 카운터(pc.oberonCounter)로 판정 — SP와 완전 별개.
