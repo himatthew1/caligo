@@ -6929,6 +6929,9 @@ body.team-mode .placement-opp-panel {
 /* ★ 상태 기반 미니헤더 — 조작 불가/소속 변동 강조 (스킬 유형색과 구분되는 강렬한 톤) */
 .mini-header-betray  { color: #fca5a5 !important; background: rgba(220,38,38,0.28)  !important; border: 1px solid rgba(220,38,38,0.65)  !important; font-weight: 800 !important; } /* 진홍 — 배신(조작 불가) */
 .mini-header-cult    { color: #fdba74 !important; background: rgba(234,88,12,0.26)  !important; border: 1px solid rgba(234,88,12,0.62)  !important; font-weight: 800 !important; } /* 주황 — 이교도(현혹) */
+/* 개구리(frog): 액티브+패시브 전부 무력화 → 스킬/패시브 미니헤더를 어둡게 꺼진 상태로 표시. */
+.mini-header-frog    { color: #86efac !important; background: rgba(34,197,94,0.24)  !important; border: 1px solid rgba(34,197,94,0.6)  !important; font-weight: 800 !important; } /* 초록 — 개구리 */
+.mini-header.frog-sealed { color: #5b6472 !important; background: rgba(70,78,92,0.18) !important; border-color: rgba(90,98,112,0.35) !important; opacity: 0.45 !important; text-decoration: line-through !important; text-decoration-thickness: 1px !important; filter: grayscale(0.7); } /* 봉인 — 꺼짐 */
 
 /* 호버 팝업 내 스킬/패시브 이름 — 굵은 글씨 + 유형 색상 칩 */
 .tooltip-skill-name {

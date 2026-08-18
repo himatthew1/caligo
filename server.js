@@ -2468,8 +2468,8 @@ function aiTeamUsePreSkills(room, idx) {
       const frogCost = ((witch.skills || []).find(s => s.id === 'frogPrank') || {}).cost || 3;
       const frogUsed = p.skillsUsedBeforeAction && p.skillsUsedBeforeAction.includes(`${wi}:frogPrank`);
       if (!channeling && sp >= frogCost && !frogUsed) {
-        const cands = aiKnownEnemies(room, idx).filter(e => e.piece && e.piece.alive && e.piece.hasSkill
-          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));
+        const cands = aiKnownEnemies(room, idx).filter(e => e.piece && e.piece.alive
+          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));   // hasSkill 불문(패시브도 무력화)
         if (cands.length) {
           cands.sort((a, b) => aiFrogValue(b.piece) - aiFrogValue(a.piece));
           const top = cands[0];
@@ -8688,18 +8688,23 @@ function aiUnitValue(piece) {
   v += (STRONG[piece.type] || 0);
   return v;
 }
-// ★ 개구리 장난(frogPrank) 타겟 가치 — 개구리 = 액티브 스킬 봉인 + ATK 0.5 + 사거리 가로3.
-//   사용자 정정: 성가신 '액티브 스킬' 유닛을 먼저 개구리로(스킬 봉인은 저주가 아니라 개구리로 이전).
-//   frog 는 마녀 피격 전까지 지속. 스킬 없는 유닛은 봉인 이득 거의 없음(ATK/사거리 억제만).
+// ★ 개구리 장난(frogPrank) 타겟 가치 — 개구리 = 액티브 스킬 + 패시브 모두 무력화(현행) + ATK 0.5 + 가로3.
+//   사용자 메인 전략: 저주로 못 잡는 정령(피격이 이득 — griffin/dryad/wizard/mushkin/oberon)을 개구리로
+//   처리(개구리는 패시브까지 끄므로 격노/생장/순간마법/포자/요정왕도 무력화). 그다음 강한 액티브 스킬,
+//   위협적 패시브, 고ATK 순. frog 는 마녀 피격 전까지 지속. (hasSkill 불문 — 패시브도 무력화되므로.)
 function aiFrogValue(piece) {
-  if (!piece || !piece.hasSkill) return 0;
-  // 임팩트 큰 액티브 스킬 유닛 — 특히 monk(신성=힐·정화; 개구리면 스킬봉인이라 자가정화도 불가).
-  const ACTIVE = { monk: 30, king: 22, dragonTamer: 22, necromancer: 20, witch: 18, herbalist: 16,
-    sulfurCauldron: 16, oberon: 16, general: 14, gunpowder: 12, torturer: 12, ratMerchant: 10,
-    manhunter: 10, scout: 8, commander: 6 };
-  let v = ACTIVE[piece.type] || 4;             // 스킬 보유 기본 4
-  v += (piece.atk || 0);                       // ATK 0.5 로 억제되는 이득(고ATK일수록)
-  v += (piece.tier || 1);                      // 고티어 우선
+  if (!piece) return 0;
+  let v = 0;
+  const DOT_SPIRIT = { griffin: 30, dryad: 30, wizard: 28, mushkin: 28, oberon: 28 };   // 저주 불가 → 개구리 최우선
+  v += DOT_SPIRIT[piece.type] || 0;
+  const ACTIVE = { monk: 26, king: 20, dragonTamer: 20, necromancer: 18, storyteller: 18, witch: 16,
+    herbalist: 12, sulfurCauldron: 14, general: 12, gunpowder: 10, torturer: 10, ratMerchant: 8,
+    manhunter: 8, scout: 6 };                        // 강한 액티브 스킬(monk=자가정화도 봉인)
+  v += ACTIVE[piece.type] || 0;
+  const PASSIVE = { commander: 12, bodyguard: 10, ironman: 10, count: 8, armoredWarrior: 8, slaughterHero: 6 };  // 위협 패시브
+  v += PASSIVE[piece.type] || 0;
+  if (v === 0 && piece.hasSkill) v += 4;             // 기타 스킬 보유
+  v += (piece.atk || 0) + (piece.tier || 1);         // ATK 억제 + 고티어
   return v;
 }
 // ★ 마녀 빗자루 비행 도주칸 — 위험도 최소 + 비어있는(유닛/유해/파괴 없음) in-bounds 칸. 없으면 null.
@@ -10007,8 +10012,8 @@ function aiUsePreSkills(room) {
       const frogCost = ((witch.skills || []).find(s => s.id === 'frogPrank') || {}).cost || 3;
       const frogUsed = aiPlayer.skillsUsedBeforeAction && aiPlayer.skillsUsedBeforeAction.includes(`${wIdx}:frogPrank`);
       if (!channeling && sp >= frogCost && !frogUsed) {
-        const cands = aiKnownEnemies(room, 1).filter(e => e.piece && e.piece.alive && e.piece.hasSkill
-          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));
+        const cands = aiKnownEnemies(room, 1).filter(e => e.piece && e.piece.alive
+          && !(e.piece.statusEffects || []).some(x => x.type === 'frog' || x.type === 'shadow'));   // hasSkill 불문(패시브도 무력화)
         if (cands.length) {
           cands.sort((a, b) => aiFrogValue(b.piece) - aiFrogValue(a.piece));
           const top = cands[0];

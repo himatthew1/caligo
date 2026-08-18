@@ -17219,7 +17219,14 @@ function buildMiniHeaders(ch) {
   if (_st.some(e => e.type === 'betray')) items.unshift({ name: '배신', cls: 'mini-header-betray', rank: -2 });
   if (ch.faction === 'cult' || ch._cultOf != null) items.unshift({ name: '이교도', cls: 'mini-header-cult', rank: -3 });
   items.sort((a, b) => a.rank - b.rank);
-  return items.map(it => `<span class="mini-header ${it.cls}">${it.name}</span>`).join('');
+  // ★ 개구리(frog): 액티브 스킬 + 패시브 모두 무력화(현행 규칙) → 모든 스킬/패시브 미니헤더를 어둡게
+  //   표시하고 '개구리' 헤더를 맨 앞에. (상태 헤더 배신/이교도는 rank<0 이라 딤 제외.)
+  const isFrogged = _st.some(e => e.type === 'frog');
+  const frogHdr = isFrogged ? `<span class="mini-header mini-header-frog">개구리</span>` : '';
+  return frogHdr + items.map(it => {
+    const dim = (isFrogged && it.rank >= 0) ? ' frog-sealed' : '';
+    return `<span class="mini-header ${it.cls}${dim}">${it.name}</span>`;
+  }).join('');
 }
 
 function getSkillTypeTagFromChar(pc) {

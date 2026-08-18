@@ -26,13 +26,15 @@ ok('적팀 오베론 생존 시 정령(엘프궁수)도 배제', aiCurseValue(P(
 ok('오베론 있어도 비정령(창병)은 저주 가능', aiCurseValue(spear, { enemyHasOberon: true }) > 0, aiCurseValue(spear, { enemyHasOberon: true }));
 ok('탱커 > 그리폰(배제) 우선순위', aiCurseValue(tank, {}) > aiCurseValue(griffin, {}));
 
-// ── 개구리 가치 ──
+// ── 개구리 가치 (개구리는 패시브도 무력화 → 저주 불가 정령이 최우선) ──
 const monk = P('monk', 3);
-const commander = P('commander', 3);  // 패시브(wrath) 위협 — 액티브 스킬 없음? 있음(없음). 낮아야
+const commander = P('commander', 3);
 const king = P('king', 3);
-ok('수도승(신성) 개구리 가치 최상위권', aiFrogValue(monk) >= aiFrogValue(king), { monk: aiFrogValue(monk), king: aiFrogValue(king) });
-ok('스킬 없는 유닛(창병) 개구리 가치 0', aiFrogValue(spear) === 0, aiFrogValue(spear));
-ok('수도승 개구리 가치 > 지휘관', aiFrogValue(monk) > aiFrogValue(commander), { monk: aiFrogValue(monk), commander: aiFrogValue(commander) });
+ok('저주 불가 정령(그리폰) 개구리 최우선권 > 수도승', aiFrogValue(griffin) >= aiFrogValue(monk), { griffin: aiFrogValue(griffin), monk: aiFrogValue(monk) });
+ok('드라이어드(저주 불가) 개구리 가치 높음', aiFrogValue(dryad) > aiFrogValue(commander), { dryad: aiFrogValue(dryad), commander: aiFrogValue(commander) });
+ok('수도승(신성) 개구리 가치 높음', aiFrogValue(monk) >= aiFrogValue(king), { monk: aiFrogValue(monk), king: aiFrogValue(king) });
+ok('평범한 창병 개구리 가치 낮음(<8 임계 미만)', aiFrogValue(spear) < 8, aiFrogValue(spear));
+ok('지휘관(패시브 위협) 개구리 가치 > 창병', aiFrogValue(commander) > aiFrogValue(spear), { commander: aiFrogValue(commander), spear: aiFrogValue(spear) });
 
 // ── AI 저주 결정: 그리폰+갑주무사 → 갑주무사 저주(그리폰 배제) ──
 {
