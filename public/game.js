@@ -4809,7 +4809,18 @@ socket.on('opp_turn', (data) => {
 });
 
 // ── 이동 결과 ──
-socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub, decreeRoyalMoves, decreeUnit }) => {
+socket.on('move_ok', ({ pieceIdx, prev, col, row, yourPieces, boardObjects, remains, twinMovePending, twinMovedSub, decreeRoyalMoves, decreeUnit, crossDecree }) => {
+  // ★ 칙명 팀원 크로스 이동 — pieceIdx/yourPieces 는 조작자 것이 아니므로 내 말 애니 금지.
+  //   팀원 유닛 위치는 broadcastTeamGameState 로 갱신됨. 여기선 팀원 유닛 슬라이드 애니만 재생 후 칙명 종료.
+  if (crossDecree) {
+    try {
+      const dp = S.decreeCrossPc;
+      if (dp && prev) animateMove(dp.icon, prev.col, prev.row, col, row, dp.type, dp.subUnit, `${S.decreeCrossOwnerIdx}:${pieceIdx}`);
+      playSfx('move');
+    } catch (e) {}
+    if (decreeUnit !== undefined) { S.decreeUnit = decreeUnit; if (!decreeUnit && S.decreePhaseActive) { try { exitDecreePhase(); } catch (e) {} } }
+    return;
+  }
   const pc = yourPieces[pieceIdx];
   animateMove(pc.icon, prev.col, prev.row, col, row, pc.type, pc.subUnit, `${S.playerIdx}:${pieceIdx}`);
   playSfx('move');
@@ -4973,7 +4984,15 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, decreeUnit, fungus }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, decreeUnit, crossDecree, fungus }) => {
+  // ★ 칙명 팀원 크로스 공격 — pieceIdx/yourPieces 는 조작자 것이 아니므로 내 말 공격 애니 파이프라인을
+  //   타면 엉뚱한 말을 애니한다. 피격/사망/HP 연출은 broadcastTeamGameState + being_attacked 가 처리하므로
+  //   여기선 칙명 페이즈만 종료. (공격자 GIF 는 팀 동기화로 갈음.)
+  if (crossDecree) {
+    if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }
+    if (decreeUnit !== undefined) { S.decreeUnit = decreeUnit; if (!decreeUnit && S.decreePhaseActive) { try { exitDecreePhase(); } catch (e) {} } }
+    return;
+  }
   if (decreeRoyalMoves !== undefined) S.decreeRoyalMoves = decreeRoyalMoves;   // ★ 전령 칙명 잔여 행동권 동기화
   if (decreeUnit !== undefined) { S.decreeUnit = decreeUnit; if (!decreeUnit && S.decreePhaseActive) { try { exitDecreePhase(); } catch (e) {} } }   // ★ 칙명 대상이 공격 = 페이즈 종료
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
@@ -15327,6 +15346,24 @@ function renderGameBoard() {
       }
     }
 
+    // ★ 칙명 팀원 조작(cross) — 지정된 팀원 왕실 유닛의 이동/공격 범위 하이라이트.
+    //   S.myPieces 파이프라인과 완전 분리(전용 상태 S.decreeCrossPc/Mode). 팀원 유닛만 대상.
+    if (S.decreeCrossActive && S.decreeCrossPc && S.decreeCrossPc.alive &&
+        col >= bounds.min && col <= bounds.max && row >= bounds.min && row <= bounds.max) {
+      const dp = S.decreeCrossPc;
+      if (S.decreeCrossMode === 'move' && isCrossAdjacent(dp.col, dp.row, col, row)) {
+        const hasRemains = (S.remains && S.remains.some(r => r.col === col && r.row === row)) ||
+                           (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row));
+        const allyOccupied = ((S.myPieces || []).some(p => p.alive && p.col === col && p.row === row)) ||
+                             (S.teammatePieces && S.teammatePieces.some(p => p.alive && p.col === col && p.row === row && p !== dp));
+        cell.classList.add('move-range');
+        if (hasRemains || allyOccupied) cell.classList.add('move-range-blocked');
+      } else if (S.decreeCrossMode === 'attack') {
+        const _cells = getAttackCells(dp.type, dp.col, dp.row, { toggleState: dp.toggleState });
+        if (_cells && _cells.some(c => c.col === col && c.row === row)) cell.classList.add('attack-range');
+      }
+    }
+
     // ★ 기마병 질주 범위 — 상하좌우 직선 1~2칸(도착칸 착지 가능해야 함)
     if (S.action === 'dash' && S.selectedPiece !== null) {
       const selPc = S.myPieces[S.selectedPiece];
@@ -18305,20 +18342,32 @@ function showDecreeTargetUI(pieceIdx) {
   const isRoyal = (p) => (p.tag === 'royal' || p.faction === 'royal');
   const canPick = (p) => p.alive && isRoyal(p) && !(p.statusEffects || []).some(e => e.type === 'betray');
   let any = false;
-  for (let i = 0; i < S.myPieces.length; i++) {
-    const apc = S.myPieces[i];
-    if (!canPick(apc)) continue;
+  const _addOpt = (apc, targetPieceIdx, targetOwnerIdx, mine) => {
     any = true;
     const opt = document.createElement('div');
     opt.className = 'skill-option';
-    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, { size: '1.2em' })} ${apc.name}</div>
-      <div class="skill-desc">이 유닛에게 추가 행동 1회(이동·공격·행동소비 스킬)</div>`;
-    const _ti = i;
+    opt.innerHTML = `<div class="skill-name">${pieceIconHtml(apc.icon, { size: '1.2em' })} ${apc.name}${mine ? '' : ' <span style="opacity:.7;font-size:.85em">(팀원)</span>'}</div>
+      <div class="skill-desc">${mine ? '이 유닛에게 추가 행동 1회(이동·공격·행동소비 스킬)' : '팀원의 이 유닛을 내 턴에 조작(이동·공격) 1회'}</div>`;
     opt.addEventListener('click', () => {
       modal.classList.add('hidden');
-      socket.emit('use_skill', { pieceIdx, skillId: 'decree', params: { targetPieceIdx: _ti, targetOwnerIdx: S.playerIdx } });
+      socket.emit('use_skill', { pieceIdx, skillId: 'decree', params: { targetPieceIdx, targetOwnerIdx } });
     });
     body.appendChild(opt);
+  };
+  // 내 왕실 유닛
+  for (let i = 0; i < S.myPieces.length; i++) {
+    const apc = S.myPieces[i];
+    if (!canPick(apc)) continue;
+    _addOpt(apc, i, S.playerIdx, true);
+  }
+  // 팀전: 팀원의 왕실 유닛도 지정 가능(선택 시 내 턴에 조작)
+  if (S.isTeamMode && Array.isArray(S.teammatePieces) && S.teammatePieces.length > 0) {
+    const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (teammate) for (let i = 0; i < S.teammatePieces.length; i++) {
+      const apc = S.teammatePieces[i];
+      if (!canPick(apc)) continue;
+      _addOpt(apc, i, teammate.idx, false);
+    }
   }
   if (!any) { setActionHint('조작할 수 있는 왕실 유닛이 없습니다.', true); return; }
   modal.classList.remove('hidden');
@@ -18756,7 +18805,8 @@ function exitWraithMovePhase() {
 //   첫 조작 전까진 취소 버튼으로 취소 가능. (현재 본인 왕실만; 팀원 왕실 조작은 후속.)
 function enterDecreePhase(decreeUnit) {
   if (!S.isMyTurn || !decreeUnit) return;
-  if (decreeUnit.ownerIdx !== S.playerIdx) return;   // 팀원 왕실 조작은 후속 — 서버 핸들러 미지원
+  // ★ 칙명 팀원 크로스 — 지정 대상이 팀원 소유면 전용 컨트롤러로 조작(S.myPieces 파이프라인과 분리).
+  if (decreeUnit.ownerIdx !== S.playerIdx) { enterDecreeCrossPhase(decreeUnit); return; }
   const idx = decreeUnit.pieceIdx;
   const pc = S.myPieces && S.myPieces[idx];
   if (!pc || !pc.alive) { exitDecreePhase(); return; }
@@ -18769,10 +18819,122 @@ function enterDecreePhase(decreeUnit) {
   try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
   try { _showRadialActionMenu(pc.col, pc.row, idx); } catch (e) {}   // 그 유닛 부채꼴 메뉴 자동 팝업
 }
+// ── 칙명 팀원 크로스 조작 페이즈 ─────────────────────────────
+//   팀전 전용: 팀원 소유 왕실 유닛을 내 턴에 이동/공격시킴. move_piece/attack 에 decreeOwnerIdx 를
+//   실어 서버가 해당 팀원 유닛으로 조작을 리다이렉트. 전용 상태(S.decreeCross*)로 격리 — 내 말 조작
+//   파이프라인(S.myPieces/selectedPiece)을 전혀 건드리지 않음.
+function enterDecreeCrossPhase(decreeUnit) {
+  if (!S.isMyTurn || !decreeUnit) return;
+  const ownerIdx = decreeUnit.ownerIdx;
+  const pieceIdx = decreeUnit.pieceIdx;
+  const teammate = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+  const arr = (teammate && ownerIdx === teammate.idx) ? S.teammatePieces : null;
+  const pc = arr && arr[pieceIdx];
+  if (!pc || !pc.alive) { exitDecreePhase(); return; }
+  S.decreePhaseActive = true;
+  S.decreeUnit = decreeUnit;
+  S.decreeCrossActive = true;
+  S.decreeCrossOwnerIdx = ownerIdx;
+  S.decreeCrossPieceIdx = pieceIdx;
+  S.decreeCrossPc = pc;
+  S.decreeCrossMode = null;
+  S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+  document.body.classList.add('action-locked');
+  document.getElementById('btn-cancel')?.classList.remove('hidden');
+  setActionHint(`칙명 — 팀원의 ${pc.name}${조사(pc.name, '을', '를')} 조작하세요. (취소 가능)`);
+  try { renderGameBoard(); if (typeof renderMyPieces === 'function') renderMyPieces(); } catch (e) {}
+  try { _showDecreeCrossRadial(pc); } catch (e) {}
+}
+// 팀원 유닛용 부채꼴 메뉴 (이동/공격). S.myPieces 파이프라인 미사용.
+function _showDecreeCrossRadial(pc) {
+  _closeRadialActionMenu();
+  const cellEl = document.querySelector(`#game-board .cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+  if (!cellEl) return;
+  cellEl.classList.add('radial-active');
+  document.body.classList.add('radial-mode-active');
+  const r = cellEl.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2, radius = 68;
+  const menu = document.createElement('div');
+  menu.id = 'radial-action-menu';
+  menu.className = 'radial-action-menu';
+  const isNoAttack = pc.type === 'witch' || pc.type === 'cavalry';
+  const items = [
+    { angle: -135, key: 'move',   icon: '🏃', label: '이동', disabled: false },
+    { angle:  -45, key: 'attack', icon: '⚔',  label: '공격', disabled: isNoAttack },
+  ];
+  for (const it of items) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'radial-btn';
+    btn.dataset.key = it.key;
+    btn.innerHTML = `<span class="ic">${it.icon}</span><span class="lbl">${it.label}</span>`;
+    const rad = it.angle * Math.PI / 180;
+    btn.style.left = (cx + Math.cos(rad) * radius) + 'px';
+    btn.style.top = (cy + Math.sin(rad) * radius) + 'px';
+    if (it.disabled) btn.disabled = true;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      _closeRadialActionMenu();
+      const dp = S.decreeCrossPc;
+      if (!dp) return;
+      if (it.key === 'move') {
+        S.decreeCrossMode = 'move';
+        setActionHint(`팀원 ${dp.name} — 이동할 칸(상하좌우 1칸)을 클릭하세요.`);
+        try { renderGameBoard(); } catch (e2) {}
+      } else if (it.key === 'attack') {
+        S.decreeCrossMode = 'attack';
+        const isTargetPick = (dp.type === 'shadowAssassin' || dp.type === 'catapult');
+        if (isTargetPick) {
+          setActionHint(`팀원 ${dp.name} — 공격할 칸을 선택하세요.`);
+          try { renderGameBoard(); } catch (e2) {}
+        } else {
+          setActionHint('공격 확정 버튼을 눌러주세요.');
+          try { renderGameBoard(); } catch (e2) {}
+          _placeDecreeCrossAttackBtn(dp);
+        }
+      }
+    });
+    menu.appendChild(btn);
+  }
+  document.body.appendChild(menu);
+}
+// 팀원 유닛 공격 확정 버튼 — attack emit 에 decreeOwnerIdx 동봉.
+function _placeDecreeCrossAttackBtn(pc, targetParams) {
+  _clearAttackConfirmBtns();
+  if (!pc || !pc.alive) return;
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const cellEl = board.querySelector(`.cell[data-col="${pc.col}"][data-row="${pc.row}"]`);
+  if (!cellEl) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'attack-confirm-btn';
+  btn.innerHTML = '<span class="lbl">공격 확정</span>';
+  btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+  btn.style.top = cellEl.offsetTop + 'px';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!S.decreeCrossActive || S.decreeCrossMode !== 'attack') return;
+    const payload = { pieceIdx: S.decreeCrossPieceIdx, decreeOwnerIdx: S.decreeCrossOwnerIdx };
+    if (targetParams && typeof targetParams.tCol === 'number') { payload.tCol = targetParams.tCol; payload.tRow = targetParams.tRow; }
+    socket.emit('attack', payload);
+    S.decreeCrossMode = null;
+    _clearAttackConfirmBtns();
+    document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
+  });
+  board.appendChild(btn);
+}
 function exitDecreePhase() {
   const was = S.decreePhaseActive;
   S.decreePhaseActive = false;
   S.decreeUnit = null;
+  // ★ 칙명 팀원 크로스 상태 정리
+  S.decreeCrossActive = false;
+  S.decreeCrossOwnerIdx = null;
+  S.decreeCrossPieceIdx = null;
+  S.decreeCrossPc = null;
+  S.decreeCrossMode = null;
   S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
   try { _closeRadialActionMenu(); } catch (e) {}
   try { _clearAttackConfirmBtns(); } catch (e) {}
@@ -19038,6 +19200,42 @@ if (document.readyState !== 'loading') {
 function handleGameCellClick(col, row) {
   const bounds = S.boardBounds;
   if (col < bounds.min || col > bounds.max || row < bounds.min || row > bounds.max) return;
+
+  // ★ 칙명 팀원 크로스 조작 — 전용 상태로 이동/공격(내 말 파이프라인 우회, decreeOwnerIdx 동봉).
+  if (S.decreeCrossActive) {
+    const dp = S.decreeCrossPc;
+    if (!dp || !dp.alive) { try { exitDecreePhase(); } catch (e) {} return; }
+    // 대상 유닛 자기 셀 재클릭 — 모드 초기화 후 부채꼴 재오픈(이동↔공격 전환).
+    if (dp.col === col && dp.row === row) {
+      S.decreeCrossMode = null;
+      _clearAttackConfirmBtns();
+      document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
+      try { renderGameBoard(); _showDecreeCrossRadial(dp); } catch (e) {}
+      return;
+    }
+    if (S.decreeCrossMode === 'move') {
+      if (!isCrossAdjacent(dp.col, dp.row, col, row)) { setActionHint('상하좌우 1칸만 이동 가능합니다.', true); return; }
+      if (S.remains && S.remains.some(r => r.col === col && r.row === row)) { setActionHint('유해가 있는 칸으로는 이동할 수 없습니다.', true); return; }
+      socket.emit('move_piece', { pieceIdx: S.decreeCrossPieceIdx, col, row, decreeOwnerIdx: S.decreeCrossOwnerIdx });
+      S.decreeCrossMode = null;
+      return;
+    }
+    if (S.decreeCrossMode === 'attack') {
+      // target-pick 유닛만 셀 클릭으로 대상 지정 + 확정 버튼. 일반 공격은 머리 위 확정 버튼으로만.
+      const isTargetPick = (dp.type === 'shadowAssassin' || dp.type === 'catapult');
+      if (isTargetPick) {
+        if (dp.type === 'shadowAssassin' && (Math.abs(col - dp.col) > 1 || Math.abs(row - dp.row) > 1)) { setActionHint('주변 9칸 중에서만 선택 가능합니다.', true); return; }
+        document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
+        const tcell = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+        if (tcell) tcell.classList.add('target-locked-cell');
+        _placeDecreeCrossAttackBtn(dp, { tCol: col, tRow: row });
+      }
+      return;
+    }
+    // 모드 미선택 — 대상 유닛 셀 재클릭 시 부채꼴 재팝업.
+    if (dp.col === col && dp.row === row) { try { _showDecreeCrossRadial(dp); } catch (e) {} }
+    return;
+  }
 
   // #9 — 행동이 진행 중이지 않을 때 내 말 셀을 누르면 라디얼 메뉴 표시
   //   ★ 부대공격 진행 중엔 자동 진행(advanceTroopStep)이 유닛을 강제 지정하므로 라디얼 미표시.
