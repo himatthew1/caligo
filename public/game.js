@@ -17023,7 +17023,7 @@ function renderOppPieces() {
           ${pc.alive ? (pc.marked ? `📍${coord(pc.col,pc.row)}` : '생존') : ''}
         </span>
       </div>
-      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${_oppMoraleHtml}`;
+      ${skillHtml}${passiveHtml}${directionHtml}${statusHtml}${_oppMoraleHtml}${oberonCounterBadgeHtml(pc)}`;
 
     // 호버 팝업 (바깥쪽으로 표시)
     if (pc.alive) {
