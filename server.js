@@ -12511,7 +12511,7 @@ io.on('connection', (socket) => {
   });
 
   // ── 이동 ──
-  socket.on('move_piece', ({ pieceIdx, col, row }) => {
+  socket.on('move_piece', ({ pieceIdx, col, row, decreeOwnerIdx }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') return;
     const idx = socket.data.idx;
@@ -12519,14 +12519,21 @@ io.on('connection', (socket) => {
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
     const player = room.players[idx];
+    // ★ 칙명(팀전): 조작 대상이 팀원 소유 왕실 유닛일 수 있음(decreeOwnerIdx). 그 경우에만 조작 piece 를
+    //   팀원 것으로 리다이렉트(행동/턴 경제는 조작자 player 유지). decreeOwnerIdx 없으면 일반 경로(무영향).
+    const _decreeCross = !!(typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
+      && player._decreeUnit && player._decreeUnit.ownerIdx === decreeOwnerIdx
+      && player._decreeUnit.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
+    const pieceOwnerIdx = _decreeCross ? decreeOwnerIdx : idx;
+    const pieceOwner = room.players[pieceOwnerIdx];
 
     // Check if action already done (unless messenger sprint OR twin's other half OR 칙명 왕실 이동권)
     {
-      const _pc = player.pieces[pieceIdx];
+      const _pc = pieceOwner.pieces[pieceIdx];
       const _twinSecondMove = _pc && (_pc.subUnit === 'elder' || _pc.subUnit === 'younger') &&
         Array.isArray(player.twinMovedSubs) && !player.twinMovedSubs.includes(_pc.subUnit);
-      // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛만 이번 턴 추가 이동 가능(actionDone 무시).
-      const _decreeMove = !!(player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx);
+      // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛만 이번 턴 추가 이동 가능(actionDone 무시). 팀원 대상 포함(pieceOwnerIdx).
+      const _decreeMove = !!(player._decreeUnit && player._decreeUnit.ownerIdx === pieceOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx);
       // ★ 부대공격: 큐 앞(저티어) 유닛만 조작 가능(actionDone 무시).
       const _troopFront = player._troopQueue && player._troopQueue.length && player._troopQueue[0];
       if (_troopFront && _troopFront.pieceIdx !== pieceIdx) {
@@ -12539,7 +12546,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const piece = player.pieces[pieceIdx];
+    const piece = pieceOwner.pieces[pieceIdx];   // ★ 칙명 크로스면 팀원 유닛, 아니면 조작자 유닛
     if (!piece || !piece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
     if ((piece.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; }   // ★ 이야기꾼 선동
     if (piece.type === 'catapult') { socket.emit('err', { msg: '투석기는 구동 스킬로만 이동할 수 있습니다.' }); return; }   // ★ 투석기 일반 이동 불가
@@ -12616,7 +12623,7 @@ io.on('connection', (socket) => {
     if (trapIdx >= 0 && !isShadowedHuman) {
       // ★ 트랩을 밟은 정확한 piece 인덱스 저장 — 지연 발동(700ms) 사이 같은 칸에 다른 말이
       //   겹쳐 들어와도 엉뚱한 말이 피격되지 않도록 신원 확인용.
-      trapPending = { trapIdx, trapOwnerIdx, col, row, idx, pieceIdx: player.pieces.indexOf(piece) };
+      trapPending = { trapIdx, trapOwnerIdx, col, row, idx: pieceOwnerIdx, pieceIdx: pieceOwner.pieces.indexOf(piece) };
     }
 
     // ★ 쌍둥이 이동: 한쪽만 이동해도 행동 완료. 같은 턴에 다른 쪽 이동은 옵션.
@@ -12634,8 +12641,8 @@ io.on('connection', (socket) => {
         piece.messengerSprintActive = false;
         player.actionDone = true;
       }
-    } else if (player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx) {
-      // ★ 전령 칙명(리워크): 지정 대상 왕실 유닛이 이동 = 칙명 소멸(actionDone 은 이미 true 유지).
+    } else if (player._decreeUnit && player._decreeUnit.ownerIdx === pieceOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx) {
+      // ★ 전령 칙명(리워크): 지정 대상 왕실 유닛(팀원 포함)이 이동 = 칙명 소멸(actionDone 은 이미 true 유지).
       player._decreeUnit = null;
     } else if (piece._wraithMovePending) {
       // ★ 악령 조종 이동: 해당 악령 소진(actionDone 은 이미 true 유지).
@@ -12680,6 +12687,7 @@ io.on('connection', (socket) => {
       twinMovePending: stillCanMoveOtherTwin,
       twinMovedSub: piece.subUnit || null,
       decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 이동권
+      crossDecree: _decreeCross || undefined,   // ★ 팀원 유닛 칙명 조작 — 클라는 조작자 애니 스킵, 칙명 페이즈만 종료
     });
 
     // ★ Phase 3: 중독 틱 — 이동을 완료한 유닛이 중독이면 0.1×스택 지속뎀(감경 우회). move_ok 뒤 발동.
@@ -12799,7 +12807,7 @@ io.on('connection', (socket) => {
     socket.emit('ai_move', { action });
   });
 
-  socket.on('attack', ({ pieceIdx, tCol, tRow }) => {
+  socket.on('attack', ({ pieceIdx, tCol, tRow, decreeOwnerIdx }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') return;
     const idx = socket.data.idx;
@@ -12807,13 +12815,20 @@ io.on('connection', (socket) => {
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
     const player = room.players[idx];
+    // ★ 칙명(팀전): 조작 대상이 팀원 소유 왕실 유닛일 수 있음(decreeOwnerIdx). 그 경우 공격 piece 를 팀원 것으로.
+    //   (같은 팀이라 적 집합·데미지 판정 동일 → idx 기반 로직 유지, atkPiece 만 리다이렉트.) 일반 경로 무영향.
+    const _decreeCrossA = !!(typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
+      && player._decreeUnit && player._decreeUnit.ownerIdx === decreeOwnerIdx
+      && player._decreeUnit.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
+    const atkOwnerIdx = _decreeCrossA ? decreeOwnerIdx : idx;
+    const atkOwner = room.players[atkOwnerIdx];
 
     // ★ 이야기꾼 선동: 배신 상태 유닛은 공격도 불가.
-    { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; } }
+    { const _ap = atkOwner.pieces[pieceIdx]; if (_ap && (_ap.statusEffects || []).some(e => e.type === 'betray')) { socket.emit('err', { msg: '배신 상태 유닛은 조작할 수 없습니다.' }); return; } }
     // ★ 마녀 공격 불가(공격범위 없음 — PPT). 저주/개구리/빗자루만.
-    { const _ap = player.pieces[pieceIdx]; if (_ap && (_ap.type === 'witch' || getChar(_ap.type)?.noAttack)) { socket.emit('err', { msg: '이 유닛은 공격할 수 없습니다.' }); return; } }
+    { const _ap = atkOwner.pieces[pieceIdx]; if (_ap && (_ap.type === 'witch' || getChar(_ap.type)?.noAttack)) { socket.emit('err', { msg: '이 유닛은 공격할 수 없습니다.' }); return; } }
     // ★ 마녀 채널링: 저주 유지 중 공격 불가.
-    { const _ap = player.pieces[pieceIdx]; if (witchIsChanneling(room, _ap)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 공격할 수 없습니다.' }); return; } }
+    { const _ap = atkOwner.pieces[pieceIdx]; if (witchIsChanneling(room, _ap)) { socket.emit('err', { msg: '저주를 유지하는 동안 마녀는 공격할 수 없습니다.' }); return; } }
 
     // ★ 사용자 요청: 전령 질주 활성 시 공격 차단 (자유시전형이지만 sprint 동안은 공격 금지).
     if (player.pieces.some(p => p.alive && p.messengerSprintActive && p.messengerMovesLeft > 0)) {
@@ -12826,7 +12841,7 @@ io.on('connection', (socket) => {
     const _troopFront = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
     // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛이 '공격'을 1회 추가 가능(actionDone 무시).
     //   공격하면 아래 일반 공격 흐름으로 진행하고 마지막에 칙명 소멸.
-    const _decreeAttack = !!(player._decreeUnit && player._decreeUnit.ownerIdx === idx && player._decreeUnit.pieceIdx === pieceIdx);
+    const _decreeAttack = !!(player._decreeUnit && player._decreeUnit.ownerIdx === atkOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx);
 
     if (player.actionDone && !_troopFront && !_decreeAttack) {
       // 쌍검무: 2회 공격 중 2번째 공격
@@ -12977,7 +12992,7 @@ io.on('connection', (socket) => {
       socket.emit('err', { msg: '쌍둥이가 이동 중입니다. 나머지 쌍둥이도 이동하거나 턴을 종료하세요.' }); return;
     }
 
-    const attacker = player;
+    const attacker = atkOwner;   // ★ 칙명 크로스면 팀원, 아니면 조작자(atkOwnerIdx===idx)
     const defender = room.players[1 - idx];
     const atkPiece = attacker.pieces[pieceIdx];
     if (!atkPiece || !atkPiece.alive) { socket.emit('err', { msg: '올바르지 않은 말입니다.' }); return; }
@@ -12998,7 +13013,7 @@ io.on('connection', (socket) => {
     const extra = {
       tCol, tRow,
       toggleState: atkPiece.toggleState,
-      rats: room.rats[idx],
+      rats: room.rats[atkOwnerIdx],
       growth: atkPiece._rangeGrowth || 0, growthArms: atkPiece._growthArms,   // ★ 드라이어드 생장
     };
 
@@ -13036,17 +13051,17 @@ io.on('connection', (socket) => {
       preRemainsOverride: new Set((room.remains || []).map(r => `${r.col},${r.row}`)),
       remainsAlreadyHit: new Set(),
     };
-    const hitResults = processAttack(room, idx, atkPiece, baseAtkCells.slice(), undefined, _atkOpts);
+    const hitResults = processAttack(room, atkOwnerIdx, atkPiece, baseAtkCells.slice(), undefined, _atkOpts);
     // 쌍둥이 다른 쪽 공격 처리 (겹치는 셀은 이미 본체에서 처리됨 — 중복 피해 방지)
     if (twinAtkPiece) {
       const twinCells = getAttackCells(twinAtkPiece.type, twinAtkPiece.col, twinAtkPiece.row, bounds, extra);
       const twinOnlyCells = twinCells.filter(tc => !baseAtkCells.some(c => c.col === tc.col && c.row === tc.row));
-      const twinHits = processAttack(room, idx, twinAtkPiece, twinOnlyCells, undefined, _atkOpts);
+      const twinHits = processAttack(room, atkOwnerIdx, twinAtkPiece, twinOnlyCells, undefined, _atkOpts);
       hitResults.push(...twinHits);
       // 겹치는 셀은 두 번 공격 (형과 동생 각각 피해)
       const overlapCells = twinCells.filter(tc => baseAtkCells.some(c => c.col === tc.col && c.row === tc.row));
       if (overlapCells.length > 0) {
-        const overlapHits = processAttack(room, idx, twinAtkPiece, overlapCells, undefined, _atkOpts);
+        const overlapHits = processAttack(room, atkOwnerIdx, twinAtkPiece, overlapCells, undefined, _atkOpts);
         hitResults.push(...overlapHits);
       }
     }
@@ -13102,6 +13117,8 @@ io.on('connection', (socket) => {
       player._troopQueue.shift();
       if (player._troopQueue.length === 0) player._troopQueue = null;
     }
+    // ★ 칙명 소멸은 아래 attack_result/decreeUnit emit '이전'에 처리해야 클라가 null 을 받아 칙명 페이즈를 종료함.
+    if (_decreeAttack) player._decreeUnit = null;   // ★ 칙명 대상이 공격 = 칙명 소멸
     if (room.mode === 'team') {
       // 팀전: attack_result에 단일 oppPieces는 의미 없음 (team_game_update로 전체 동기)
       socket.emit('attack_result', {
@@ -13110,6 +13127,7 @@ io.on('connection', (socket) => {
         yourPieces: pieceSummary(player.pieces, room),
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
+        decreeUnit: player._decreeUnit || null, crossDecree: _decreeCrossA || undefined,   // ★ 칙명(팀전) 종료/크로스 알림
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐(팀전에서도 다음 유닛 조작되도록)
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
       });
@@ -13335,8 +13353,7 @@ io.on('connection', (socket) => {
 
     // 일반(첫) 공격 종료 — actionDone 만 표시, dualBladeAttacksLeft는 건드리지 않음
     // (추가 공격 크레딧은 actionDone 분기 안의 두 번째 공격 처리에서만 차감)
-    // ★ 전령 칙명 행동권으로 실행한 공격이면 여기서 행동권 1 소모(actionDone 은 이미 true 유지).
-    if (_decreeAttack) player._decreeUnit = null;   // ★ 칙명 대상이 공격 = 칙명 소멸
+    // ★ 전령 칙명 소멸은 위쪽 emit 이전으로 이동함(클라가 decreeUnit=null 을 받아 칙명 페이즈 종료).
     player.actionDone = true;
     // (부대공격 큐 소진은 위쪽 emit 직전으로 이동함 — 클라가 갱신 큐를 받도록.)
     // 행동 추적
