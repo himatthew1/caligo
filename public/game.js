@@ -7708,7 +7708,7 @@ function playSpStealOrb(victim) {
   setTimeout(() => { orb.remove(); }, 820);
 }
 
-socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves }) => {
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves, decreeUnit }) => {
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
   // ★ 맹독 구름 살포 애니 — ＋ 전용 범위(data.atkCells)에 녹색 독구름. SP 비행 후 재생.
@@ -7736,6 +7736,12 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
     document.body.classList.add('action-locked');
     const _du = data.decreeUnit;
     setTimeout(() => { try { enterDecreePhase(_du); } catch (e) {} }, 1100);
+  } else if (decreeUnit !== undefined && S.decreePhaseActive) {
+    // ★ 칙명 페이즈 중 대상 유닛이 스킬을 씀 — 행동소비 스킬이면 서버가 _decreeUnit 을 비워 보냄(→종료),
+    //   자유시전 스킬이면 그대로 유지(→부채꼴 메뉴 재팝업해 이동·공격 등 이어서).
+    S.decreeUnit = decreeUnit;
+    if (!decreeUnit) { try { exitDecreePhase(); } catch (e) {} }
+    else { const _du2 = decreeUnit; setTimeout(() => { try { if (S.decreePhaseActive) enterDecreePhase(_du2); } catch (e) {} }, 950); }
   }
   if (data && data.troopQueue !== undefined) {
     S.troopQueue = data.troopQueue;   // ★ 부대공격 큐(시작 또는 질주 소진 후)
@@ -14016,6 +14022,10 @@ function updateSPBar() {
 //     1) 전령 질주 활성 + 추가 이동 남음
 //     2) 쌍둥이 첫 이동 후 다른 쌍둥이 (twinMovePending + 다른 sub)
 //     3) 양손검객 쌍검무 활성 + 추가 공격 남음
+// ★ 칙명 페이즈 대상 유닛인지(pieceIdx 기준) — 행동소비 스킬 가드 우회용.
+function _isDecreeUnitIdx(idx) {
+  return !!(S.decreePhaseActive && S.decreeUnit && S.decreeUnit.ownerIdx === S.playerIdx && S.decreeUnit.pieceIdx === idx);
+}
 function pieceCanTakeBasicAction(pc) {
   if (!pc || !pc.alive) return false;
   // ★ 배신(이야기꾼 선동): 아무것도 조작 불가 — 모든 특수 행동(부대/악령/질주/쌍검무/칙명)보다 우선.
@@ -14120,7 +14130,7 @@ function canPieceUseAnySkill(pieceIdx) {
     // ★ 오베론 스킬은 SP가 아니라 요정왕 카운터로 판정.
     if (sk.resource === 'oberonCounter') { if ((sk.cost || 0) > (pc.oberonCounter || 0)) continue; }
     else if ((sk.cost || 0) > totalSP) continue;
-    if (sk.replacesAction && S.actionDone) continue;
+    if (sk.replacesAction && S.actionDone && !_isDecreeUnitIdx(pieceIdx)) continue;   // 칙명 대상은 행동소비 스킬 허용
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) continue;
     // sprint/dualStrike 플래그 기반 사용완료 (서버는 messengerSprintActive / dualBladeAttacksLeft 로 추적)
     if (sk.id === 'sprint' && pc.messengerSprintActive) continue;
@@ -14298,7 +14308,7 @@ function showActionBar(enabled) {
         } else {
           // fallback (evalSkillCastable 로딩 전): 기존 간이 검증
           if ((sk.cost || 0) > mySp) continue;
-          if (sk.replacesAction && S.actionDone) continue;
+          if (sk.replacesAction && S.actionDone && !_isDecreeUnitIdx(_i)) continue;
           if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${p.index}:${sk.id}`)) continue;
           if (!skillHasValidTarget(p, sk)) continue;
           hasUsableSkill = true;
@@ -17624,7 +17634,7 @@ function openSkillModal(targetPieceIdx) {
           extraDisabled = true;
           extraNote = ' (저주 상태 — 사용 불가)';
         }
-        if (sk.replacesAction && S.actionDone) {
+        if (sk.replacesAction && S.actionDone && !_isDecreeUnitIdx(i)) {
           extraDisabled = true;
           extraNote = ' (행동 이미 소비됨)';
         }
@@ -25626,7 +25636,7 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     } else if ((sk.cost || 0) > totalSP) {
       return { ok: false, why: `SP 부족 (필요 ${sk.cost} · 보유 ${totalSP})` };
     }
-    if (sk.replacesAction && S.actionDone) return { ok: false, why: '이미 행동을 사용함' };
+    if (sk.replacesAction && S.actionDone && !_isDecreeUnitIdx(pieceIdx)) return { ok: false, why: '이미 행동을 사용함' };
     if (sk.oncePerTurn && S.skillsUsedThisTurn && S.skillsUsedThisTurn.includes(`${pieceIdx}:${sk.id}`)) {
       return { ok: false, why: '이 스킬은 턴당 1회 — 이미 사용' };
     }

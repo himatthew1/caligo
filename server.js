@@ -7089,9 +7089,13 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
   //   ★ 부대공격 큐 앞 유닛(기마병 질주)은 예외 — 부대공격 스킬이 actionDone 을 세운 뒤 큐 앞 기마병을
   //     질주(행동대체 스킬)로 조작해야 하므로 여기서 막으면 부대공격이 먹통이 된다.
   const _troopFrontSkill = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
-  if (replacesAction && player.actionDone && !_troopFrontSkill) {
+  // ★ 전령 칙명 대상 유닛은 행동을 마친 뒤에도 '행동소비 스킬'을 1회 추가로 쓸 수 있다(칙명 페이즈).
+  const _decreeSkillUnit = !!(player._decreeUnit && player._decreeUnit.ownerIdx === playerIdx && player._decreeUnit.pieceIdx === pieceIdx);
+  if (replacesAction && player.actionDone && !_troopFrontSkill && !_decreeSkillUnit) {
     return { ok: false, msg: '이미 행동을 사용했습니다. 행동 대체 스킬을 사용할 수 없습니다.' };
   }
+  // ★ 칙명 대상이 '행동소비 스킬'을 쓰면 칙명 소멸(자유시전 스킬은 소멸 안 함 — 페이즈 유지).
+  if (replacesAction && _decreeSkillUnit) player._decreeUnit = null;
 
   const result = { ok: true, msg: '', data: {} };
   const bounds = room.boardBounds;
