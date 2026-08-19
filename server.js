@@ -10514,32 +10514,52 @@ function aiTryDecree(room) {
   if (!messenger) return false;
   const bounds = room.boardBounds;
   const brain = room.aiBrain;
-  // ★ 칙명은 '분명한 목적'이 있을 때만 발동한다(사용자 요청). 추측성 발동 금지.
-  //   목적: 확정 처치 — 사거리에 든 '마킹된(위치·HP 공개) 적'을 이 왕실 유닛의 추가 공격으로 확실히
-  //   죽일 수 있을 때(effAtk >= 적HP · aiAttackTargetBonus 와 동일 근사). 연속공격으로 마무리하겠다는 의지.
-  //   (고가치 처치 우선. 기마병/투석기는 별도 조작이라 우선 일반 공격 왕실만.)
-  const marked = aiKnownEnemies(room, 1).filter(e => e.marked && e.col != null && e.piece.alive && e.piece.type !== 'undead');
-  if (marked.length === 0) return false;
-  let best = null, bestVal = 0;
-  for (let ui = 0; ui < p.pieces.length; ui++) {
-    const rp = p.pieces[ui];
-    if (!rp.alive || rp.type === 'messenger' || rp.type === 'cavalry' || rp.type === 'catapult') continue;
-    if (!(typeof isFaction === 'function' ? isFaction(rp, 'royal') : rp.tag === 'royal')) continue;
-    if ((rp.statusEffects || []).some(e => e.type === 'betray')) continue;
-    const effAtk = _effectiveAtkForAi(rp, room, 1);
-    if (effAtk <= 0) continue;
-    const cells = getAttackCells(rp.type, rp.col, rp.row, bounds, { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms });
-    for (const c of cells) {
-      const tgt = marked.find(e => e.col === c.col && e.row === c.row);
-      if (tgt && effAtk >= (tgt.piece.hp || 1)) {   // 확정 처치
-        const v = aiUnitValue(tgt.piece);
-        if (v > bestVal) { bestVal = v; best = { rp, ui, cells }; }
+  const mi = p.pieces.indexOf(messenger);
+  const _sp = room.sp[1] + room.instantSp[1];
+  const _isRoyal = (x) => (typeof isFaction === 'function' ? isFaction(x, 'royal') : x.tag === 'royal');
+  const _blockedRoyal = (x) => !x.alive || !_isRoyal(x) || (x.statusEffects || []).some(e => e.type === 'betray' || e.type === 'frog');
+
+  // ★ 칙명 = 왕실 유닛에게 '추가 행동' 부여. 확정 처치에만 쓰는 게 아니라(사용자 정정):
+  //   (A) 행동소비 스킬 재사용(예: 장군 부대공격 한 번 더), (B) 이미 공격한 뒤 '추가타'(확정 처치가
+  //   아니어도 믿음 있는 공격/후속타). 표식은 색적 보조일 뿐 절대 게이트 아님 — 믿음맵/공개HP로도 판단.
+
+  // ── 옵션 A: 장군 부대공격(행동소비 스킬) 추가 시전 — 칙명3 + 부대공격3 = SP6, 왕실 2명↑, 가치 있을 때. ──
+  const _genIdx = p.pieces.findIndex(x => x.type === 'general' && !_blockedRoyal(x));
+  if (_genIdx >= 0 && _sp >= 6 && p.pieces.filter(x => !_blockedRoyal(x)).length >= 2) {
+    let worth = false;
+    for (const rp of p.pieces) {
+      if (_blockedRoyal(rp)) continue;
+      if (rp.type === 'cavalry') { if (bestCavalryDash(room, 1, rp)) { worth = true; break; } continue; }
+      if (rp.type === 'catapult') { worth = true; break; }
+      const cs = getAttackCells(rp.type, rp.col, rp.row, bounds, { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms });
+      if (cs.some(c => (brain?.probMap?.[c.row]?.[c.col] || 0) >= 6)) { worth = true; break; }
+    }
+    if (worth) {
+      const rr = executeSkill(room, 1, mi, 'decree', { targetOwnerIdx: 1, targetPieceIdx: _genIdx });
+      if (rr && rr.ok) {
+        p._aiDecreeUsed = true;
+        p._decreeUnit = null;   // 부대공격은 aiRunTroopAttack 이 직접 처리(executeSkill 우회) → 칙명 소멸.
+        try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {}
+        return aiRunTroopAttack(room, 1, _genIdx);   // 자체 SP소모·순차 emit·게임종료 처리
       }
     }
   }
-  if (!best) return false;
-  const mi = p.pieces.indexOf(messenger);
-  const r = executeSkill(room, 1, mi, 'decree', { targetOwnerIdx: 1, targetPieceIdx: best.ui });   // 대상 = 확정 처치할 왕실 유닛
+
+  // ── 옵션 B: 왕실 유닛 추가 '공격' — 확정 처치(표식) + 믿음맵 예측 공격 모두 aiScoreAttack 이 평가. ──
+  //   표식 없어도 믿음 피크가 있으면 추가타. (aiScoreAttack: best-가중 + 표식 처치 보너스 + 언데드 제외.)
+  let best = null, bestScore = 0;
+  for (let ui = 0; ui < p.pieces.length; ui++) {
+    const rp = p.pieces[ui];
+    if (_blockedRoyal(rp) || rp.type === 'messenger' || rp.type === 'cavalry' || rp.type === 'catapult') continue;
+    const extra = { toggleState: rp.toggleState, growth: rp._rangeGrowth || 0, growthArms: rp._growthArms };
+    let sc = 0;
+    try { sc = aiScoreAttack(brain, rp, room, extra); } catch (e) { sc = 0; }
+    if (sc > bestScore) { bestScore = sc; best = { rp, ui, cells: getAttackCells(rp.type, rp.col, rp.row, bounds, extra) }; }
+  }
+  // 문턱: 칙명 3SP 를 쓸 만한 '의미있는' 공격일 때만(확정 처치면 aiScoreAttack 이 크게 나옴 · 믿음 피크도 포함).
+  //   attackAggro=3.4 기준 belief 피크 ~3+ 또는 표식 확정처치면 통과. 저신뢰 블라인드 난사는 배제.
+  if (!best || bestScore < 11) return false;
+  const r = executeSkill(room, 1, mi, 'decree', { targetOwnerIdx: 1, targetPieceIdx: best.ui });
   if (!r || !r.ok) return false;
   p._aiDecreeUsed = true;
   // 칙명 대상으로 그 왕실 유닛 추가 공격 + 결과 emit. (AI 는 서버에서 즉시 해결 → _decreeUnit 소멸.)
