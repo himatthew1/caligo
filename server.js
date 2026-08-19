@@ -2996,14 +2996,15 @@ function aiTeamTakeTurn(room, idx) {
         return;
       }
     }
-    // ★ 샘의 인어 사이렌 송 — 처치 확보 시만(표식 적 hp≤0.5 사망 > 아군 사망). 아군 전체도 피격(팀 유닛 포함).
+    // ★ 샘의 인어 사이렌 송 — 전체 타격이라 위치 불필요(표식 불문, HP 는 공개정보). 처치 확보 시만
+    //   (죽는 적 hp≤0.5 수 > 아군 사망 수). 아군 전체도 피격(팀 유닛 포함).
     if (piece.type === 'mermaid') {
       const _allyIdxs = getAllyIndices(room, idx);
       const _sirenAllies = _allyIdxs.flatMap(ai => room.players[ai]?.pieces || []).filter(pc => pc.alive && pc !== piece && !(pc.statusEffects || []).some(e => e.type === 'shadow'));
       const _selfKills = _sirenAllies.filter(pc => (pc.hp || 0) <= 0.5).length;
-      const _markedEnem = aiKnownEnemies(room, idx).filter(e => e.marked && e.piece && e.piece.alive
-        && e.piece.type !== 'undead' && !(e.piece.statusEffects || []).some(x => x.type === 'shadow'));
-      const _enemyKills = _markedEnem.filter(e => (e.piece.hp || 0) <= 0.5).length;
+      const _enemies = getEnemyIndices(room, idx).flatMap(ei => room.players[ei]?.pieces || []).filter(pc => pc.alive
+        && pc.type !== 'undead' && !(pc.statusEffects || []).some(x => x.type === 'shadow'));
+      const _enemyKills = _enemies.filter(pc => (pc.hp || 0) <= 0.5).length;
       if (_enemyKills >= 1 && _enemyKills > _selfKills) {
         aiTeamExecSkill(room, idx, pi, 'sirenSong');
         scheduleAITurnEnd(room, idx, 3000);
@@ -10904,14 +10905,14 @@ function aiTakeTurn(room) {
         }
       }
       // ★ 샘의 인어 사이렌 송(0.5 전체 룰뎀 · 인어/그림자 제외 · 아군도 피격 · 언데드 불사 · 행동소비 SP2).
-      //   처치 확보 시만: 표식(공개 HP) 적 중 hp≤0.5 로 죽는 수가 내 아군 사망 수보다 많을 때(순이득 처치).
-      //   위치를 몰라도 전체 타격이라 공정. 아군 사망을 유발하는 헛발동/스펠 낭비 방지.
+      //   전체 타격이라 '위치'가 전혀 필요없음 → 표식 불문(HP 는 공개정보). 처치 확보 시만: 죽는 적(hp≤0.5)
+      //   수가 내 아군 사망 수보다 많을 때(순이득 처치). 아군 사망 유발/스펠 낭비 방지.
       if (piece.type === 'mermaid' && (room.sp[1] + room.instantSp[1]) >= piece.skillCost) {
         const _sirenAllies = aiPlayer.pieces.filter(p => p.alive && p !== piece && !(p.statusEffects || []).some(e => e.type === 'shadow'));
         const _selfKills = _sirenAllies.filter(p => (p.hp || 0) <= 0.5).length;
-        const _markedEnem = aiKnownEnemies(room, 1).filter(e => e.marked && e.piece && e.piece.alive
-          && e.piece.type !== 'undead' && !(e.piece.statusEffects || []).some(x => x.type === 'shadow'));
-        const _enemyKills = _markedEnem.filter(e => (e.piece.hp || 0) <= 0.5).length;
+        const _enemies = room.players[0].pieces.filter(p => p.alive && p.type !== 'undead'
+          && !(p.statusEffects || []).some(x => x.type === 'shadow'));
+        const _enemyKills = _enemies.filter(p => (p.hp || 0) <= 0.5).length;
         if (_enemyKills >= 1 && _enemyKills > _selfKills) {
           aiExecSkill(room, pidx, 'sirenSong');
           aiPlayer.actionDone = true;
