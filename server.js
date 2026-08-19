@@ -629,6 +629,10 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
         t.hp = Math.max(0, t.hp - dmg);
         const dead = t.hp <= 0 && !_pieceUndying(t);
         if (dead) handleDeath(room, t, ei);
+        // ★ 피격 트리거 패시브 — 일반 공격(processAttack)과 동일하게 호출해야 함.
+        //   버그: 질주가 이걸 빠뜨려 '질주에 맞은' 정령(요정 등)의 오베론 카운터·그리폰 격노·마법사 SP·
+        //   드라이어드 생장 등이 전혀 발동 안 했음(부대공격의 기마병 질주 포함). 이제 일반 피격과 동일.
+        if (typeof applyDamageTriggers === 'function') applyDamageTriggers(room, t, ei, dmg, { spUpdate: 'unlessSuppressed' });
         dashHits.push({ col: t.col, row: t.row, damage: dmg, newHp: t.hp, destroyed: dead, defPieceIdx: ui, defOwnerIdx: ei, revealedName: t.name });
       }
     }
