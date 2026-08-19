@@ -11078,6 +11078,10 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     }
     return bc;
   };
+  // ★ 부대공격 '시전' 연출용 — 공격 전 인간 말 스냅샷(마법구/말풍선 status_update 에 담아 보드가 미리
+  //   최종 HP 로 튀지 않게). 장군 카드에 말풍선 띄우기 위해 generalIdx 사용.
+  const _preHumanSnap = humanOk ? JSON.parse(JSON.stringify(pieceSummary(human.pieces, room))) : null;
+  const _genPiece = player.pieces[generalIdx];
   // ★ 사용자 지적: 부대공격 '과정'이 통째로 날아가고 결과만 보였음(전 유닛을 한 번에 처리 후 단일 emit).
   //   → 데미지 처리는 즉시(순서대로) 하되, 각 유닛 공격을 진행 스냅샷과 함께 steps 로 캡처하고
   //     아래에서 유닛별로 순차 지연 emit → 저티어부터 하나씩 때리는 과정이 보이게 함.
@@ -11105,8 +11109,25 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
   }
   player._troopQueue = null;
 
-  const STEP_MS = 950;   // 유닛 간 애니 간격(공격 GIF+피격 정착 ≈ 1s)
-  const totalMs = steps.length * STEP_MS + 300;
+  // ★ 장군 '부대공격' 시전 연출 — 인간 화면에 장군 카드 말풍선 + SP 마법구 비행(status_update 경유).
+  //   aiRunTroopAttack 은 aiNotifySkill 을 안 타므로 여기서 직접 emit(없으면 마법구·말풍선 누락).
+  //   보드는 '공격 전' 스냅샷으로 → 아래 순차 being_attacked 가 진행 HP 를 단계별로 반영.
+  if (humanOk) {
+    io.to(human.socketId).emit('status_update', {
+      oppPieces: oppPieceSummary(player.pieces, room),
+      yourPieces: _preHumanSnap,
+      sp: room.sp, instantSp: room.instantSp,
+      boardObjects: boardObjectsSummary(room, humanIdx),
+      remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
+      msg: '부대공격: 상대 왕실 부대 개시',
+      skillUsed: { icon: _genPiece?.icon, name: _genPiece?.name, skillName: '부대공격' },
+      casterPieceIdx: generalIdx,
+    });
+  }
+
+  const CAST_LEAD = 650;   // 시전 연출(말풍선/마법구) 먼저 보이도록 피격 애니를 살짝 뒤로.
+  const STEP_MS = 950;     // 유닛 간 애니 간격(공격 GIF+피격 정착 ≈ 1s)
+  const totalMs = CAST_LEAD + steps.length * STEP_MS + 300;
   // ★ 유닛별 순차 지연 emit — '시각'만 지연(데미지·phase·게임종료는 아래에서 동기 처리 → stale-phase/헤드리스 안전).
   //   room.phase 가 이미 끝났으면(게임 종료) 스킵. game_over 는 동기 emit 이라 승리타는 과정 애니 없이 종료됨(수용).
   steps.forEach((st, i) => {
@@ -11130,7 +11151,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
         atkCells: st.atkCells, atkCol: st.atkCol, atkRow: st.atkRow, atkType: st.atkType, atkSubUnit: null,
         hits: st.hits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: humanIdx })),
       });
-    }, i * STEP_MS);
+    }, CAST_LEAD + i * STEP_MS);
   });
 
   // 데미지·phase·게임종료는 동기(원본대로) — 지연 시 stale-phase/헤드리스 회귀 위험. 턴 종료만 애니 후로 미룸.
