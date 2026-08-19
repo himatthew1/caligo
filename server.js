@@ -832,9 +832,11 @@ function initUndeadState(room) {
 }
 // ★ 게임 시작 안내 페이즈용 — 세팅 효과(공주 후원자·골렘 낡은심장·언데드 부패한영혼·마왕 어둠장막 등)를
 //   [소스 유닛별] 안내 목록으로 수집. before = 세팅 적용 전 {hp,maxHp} 스냅샷(플레이어×피스). HP 변화는 before/after 로 전달.
-function buildSetupAnnouncements(room, before) {
+function buildSetupAnnouncements(room, before, order) {
   const anns = [];
-  for (let oi = 0; oi < room.players.length; oi++) {
+  // ★ order(플레이 순서 = 선 플레이어부터)가 주어지면 그 순서로 수집(팀전: 선 플레이어 1·2번 유닛 → 플레이 순서).
+  const idxOrder = (Array.isArray(order) && order.length) ? order : room.players.map((_, i) => i);
+  for (const oi of idxOrder) {
     const pl = room.players[oi]; if (!pl || !pl.pieces) continue;
     const beforeP = before[oi] || [];
     for (let pidx = 0; pidx < pl.pieces.length; pidx++) {
@@ -3852,6 +3854,8 @@ function teamPlacementTimeout(room) {
 function startTeamGameFromRoom(room) {
   clearTimer(room);
   room.phase = 'game';
+  // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 '전' HP 스냅샷(1v1 startGameFromRoom 과 동일).
+  const _setupBefore = room.players.map(pl => (pl.pieces || []).map(p => ({ hp: p.hp, maxHp: p.maxHp })));
   // ★ Phase 3: 마왕 어둠장막 오프셋 점지(팀전도 동일).
   assignDarkVeilOffsets(room);
   initPatronBonus(room);   // ★ 공주 후원자(왕실 아군 HP+1)
@@ -3890,6 +3894,17 @@ function startTeamGameFromRoom(room) {
   room.teamRotationIdx = [];
   room.teamRotationIdx[startTeam] = (startSlot + 1) % Math.max(startTeamMembers.length, 1);
   room.teamRotationIdx[otherTeam] = 0;
+
+  // ★ 후공 팀 인스턴트 SP +1 (선공 이점 보정 — 1v1 후공 SP 의 팀 버전). SP 는 팀 풀(teamId 인덱싱).
+  room.instantSp[otherTeam] = Math.min(10, (room.instantSp[otherTeam] || 0) + 1);
+  // ★ 세팅 효과 안내(부패한영혼·낡은심장·후원자·어둠의장막) — 플레이 순서(선 플레이어부터)로 수집.
+  const _slotOrder = buildTeamTurnOrder(room);   // [blue0, red0, blue1, red1]
+  const _playOrder = [];
+  for (let k = 0; k < 4; k++) { const idx = _slotOrder[(room.turnSlotIdx + k) % 4]; if (idx != null && idx >= 0 && !_playOrder.includes(idx)) _playOrder.push(idx); }
+  room._setupAnnouncements = buildSetupAnnouncements(room, _setupBefore, _playOrder);
+  room._firstPlayerIdx = room.currentPlayerIdx;
+  room._secondTeam = otherTeam;
+
   // 첫 플레이어 턴 리셋
   const first = room.players[room.currentPlayerIdx];
   if (first) {
@@ -3910,21 +3925,27 @@ function startTeamGameFromRoom(room) {
         myIdx: p.index,
         isMyTurn: room.currentPlayerIdx === p.index,
         teams: room.teams,
+        // ★ 세팅 안내 페이즈 + 후공 SP 연출용(1v1 game_start 과 동일 필드).
+        setupAnnouncements: room._setupAnnouncements || [],
+        firstPlayerIdx: room._firstPlayerIdx,
+        secondTeam: room._secondTeam,               // 후공 팀(인스턴트 SP 지급 대상)
+        youAreSecondTeam: p.teamId === room._secondTeam,
+        sp: room.sp, instantSp: room.instantSp,
       });
     }
   }
   // 관전자 (Phase 5에서 보강)
   emitToSpectators(room, 'spectator_log', { msg: `전투 개시. 선공은${first?.name || '?'}`, type: 'event' });
-  // 턴 타이머 시작
-  startTimer(room, 'game', () => turnTimeout(room));
-  // 첫 플레이어가 AI라면 자동으로 턴 시작
-  if (first && first.socketId === 'AI') {
-    setTimeout(() => {
-      if (room.phase === 'game' && room.currentPlayerIdx === first.index) {
-        aiTeamTakeTurn(room, first.index);
-      }
-    }, 3000);
-  }
+  // ★ 인트로 + 후공 SP 지급 + 세팅 안내 페이즈만큼 첫 턴 지연(1v1 과 동일). 그 동안 타이머·AI 선공 모두 지연.
+  const _annCount = (room._setupAnnouncements || []).length;
+  const INTRO_PHASE_MS = 4500 + _annCount * 1400;
+  setTimeout(() => {
+    if (room.phase !== 'game') return;
+    startTimer(room, 'game', () => turnTimeout(room));
+    if (first && first.socketId === 'AI' && room.currentPlayerIdx === first.index) {
+      aiTeamTakeTurn(room, first.index);
+    }
+  }, INTRO_PHASE_MS);
 }
 
 // ── 초기 공개: 드래프트 직후, 상대 캐릭터 타입 공개 ──

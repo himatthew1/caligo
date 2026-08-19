@@ -2751,8 +2751,27 @@ socket.on('team_game_start', (state) => {
     addLog(`${turnOwnerName}의 턴`, 'system');
     playGameStartAnimation(S.isMyTurn, true, turnOwnerName);
   } else {
-    // 팀전 시작 애니메이션
+    // 팀전 시작 애니메이션 + 세팅 효과 안내 페이즈(부패한영혼·낡은심장·후원자·어둠의장막) — 1v1 game_start 과 동일.
+    S._setupAnnouncements = Array.isArray(state.setupAnnouncements) ? state.setupAnnouncements.slice() : [];
+    S._firstPlayerIdx = (typeof state.firstPlayerIdx === 'number') ? state.firstPlayerIdx : null;
+    if (S._setupAnnouncements.length) {
+      // 효과 적용 '전(before)' HP 로 잠시 되돌림(내/팀원만; 적팀 HP 숨김) → 안내 시점에 after 로 차오름.
+      for (const ann of S._setupAnnouncements) for (const c of (ann.hpChanges || [])) {
+        const pc = _setupPieceOf(c.ownerIdx, c.pieceIdx);
+        if (pc) { pc.hp = c.hpBefore; pc.maxHp = c.maxHpBefore; }
+      }
+      try { renderTeamProfiles(); renderTeamGameSnapshot(); } catch (e) {}
+    }
     playGameStartAnimation(S.isMyTurn);
+    if (S._setupAnnouncements.length) {
+      if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(true);
+      const _annMs = S._setupAnnouncements.length * 1400;
+      const _safety = setTimeout(() => { if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }, 8000 + _annMs);
+      setTimeout(() => {
+        try { playSetupAnnouncements(() => { clearTimeout(_safety); if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }); }
+        catch (e) { clearTimeout(_safety); if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }
+      }, 2600);   // 인트로(≈1.8s) 후 안내 시작
+    }
   }
 });
 
@@ -6336,10 +6355,22 @@ function setIntroPhaseLock(on) {
 //   공주 후원자·골렘 낡은심장·언데드 부패한영혼·마왕 어둠장막 등 '시작 시 세팅 효과'를
 //   [선공 유닛 먼저 → 저티어(T1→T2→T3) 순] 으로 하나씩: 소스 카드에 패시브 말풍선 + 대상 체력 변화 애니.
 function _setupPieceCardByIdx(ownerIdx, pieceIdx) {
+  // ★ 팀전 포함 — _profileCardOf 가 팀 프로필 블록/1v1 카드를 모두 처리.
+  if (typeof _profileCardOf === 'function') { const c = _profileCardOf(ownerIdx, pieceIdx); if (c) return c; }
   const isMine = (ownerIdx === S.playerIdx);
   const containerSel = isMine ? '#my-pieces-info' : '#opp-pieces-info';
   const cardSel = isMine ? '.my-piece-card' : '.opp-piece-card';
   return document.querySelectorAll(`${containerSel} ${cardSel}`)[pieceIdx] || null;
+}
+// ★ 세팅 안내 HP 변화 대상 피스 — 팀전 포함(내/팀원/적팀). 적팀은 HP 숨김이라 null(버블만).
+function _setupPieceOf(ownerIdx, pieceIdx) {
+  if (ownerIdx === (S.playerIdx ?? 0)) return (S.myPieces || [])[pieceIdx];
+  if (S.isTeamMode) {
+    const tm = (S.teamGamePlayers || []).find(p => p.teamId === S.teamId && p.idx !== S.playerIdx);
+    if (tm && ownerIdx === tm.idx) return (S.teammatePieces || [])[pieceIdx];
+    return null;
+  }
+  return (S.oppPieces || [])[pieceIdx];
 }
 function _playOneSetupAnnouncement(ann) {
   // 소스 유닛 카드에 라이트 스카이블루 패시브 말풍선.
@@ -6350,16 +6381,16 @@ function _playOneSetupAnnouncement(ann) {
   // 대상 체력 변화 — before(현재 표시) → after 로 갱신하며 바 애니 + 도장(+N/−N).
   for (const c of (ann.hpChanges || [])) {
     const isMine = (c.ownerIdx === S.playerIdx);
-    const pc = isMine ? (S.myPieces || [])[c.pieceIdx] : (S.oppPieces || [])[c.pieceIdx];
+    const pc = _setupPieceOf(c.ownerIdx, c.pieceIdx);   // 팀전 포함(내/팀원/적팀)
     if (!pc) continue;
     pc.hp = c.hpAfter; pc.maxHp = c.maxHpAfter;
     const delta = Math.round((c.hpAfter - c.hpBefore) * 10) / 10;
-    const key = `${isMine ? 'my' : 'opp'}:${c.pieceIdx}`;
+    const key = S.isTeamMode ? `${c.ownerIdx}:${c.pieceIdx}` : `${isMine ? 'my' : 'opp'}:${c.pieceIdx}`;
     if (delta > 0 && typeof addHeal === 'function') { try { addHeal(key, delta); } catch (e) {} }
     else if (delta < 0 && typeof addBodyDamage === 'function') { try { addBodyDamage(key, -delta); } catch (e) {} }
   }
-  try { renderMyPieces(); } catch (e) {}
-  try { renderOppPieces(); } catch (e) {}
+  if (S.isTeamMode) { try { renderTeamProfiles(); } catch (e) {} }
+  else { try { renderMyPieces(); } catch (e) {} try { renderOppPieces(); } catch (e) {} }
   try { renderGameBoard(); } catch (e) {}
 }
 function playSetupAnnouncements(done) {
