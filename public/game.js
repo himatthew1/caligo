@@ -5489,6 +5489,34 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type,
   // ★ 중독 대상 딤 해제 — 데미지 받은 유닛 카드를 그 턴 밝게(사망 아닌 경우).
   if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
+// ── 프로필 강조(공유 정보) — 부대공격/칙명으로 '조작 중'인 유닛 카드를 모두가 실시간으로 봄. ──
+//   S._profileHL 에 저장 → 프로필 재렌더에도 살아남도록 _applyProfileHL() 로 재적용.
+function _profileCardOf(ownerIdx, pieceIdx) {
+  if (S.isTeamMode) return document.querySelector(`.team-profile-block[data-player-idx="${ownerIdx}"] [data-piece-idx="${pieceIdx}"]`);
+  if (ownerIdx === (S.playerIdx ?? 0)) return document.querySelectorAll('#my-pieces-info .my-piece-card')[pieceIdx];
+  return document.querySelectorAll('#opp-pieces-info .opp-piece-card')[pieceIdx];
+}
+function _applyProfileHL() {
+  document.querySelectorAll('.profile-operating').forEach(c => c.classList.remove('profile-operating'));
+  const hl = S._profileHL;
+  if (!hl || typeof hl.ownerIdx !== 'number' || hl.ownerIdx < 0) return;
+  try { const card = _profileCardOf(hl.ownerIdx, hl.pieceIdx); if (card) card.classList.add('profile-operating'); } catch (e) {}
+}
+let _profileHLObserver = null;
+function _stopProfileHLObserver() { if (_profileHLObserver) { try { _profileHLObserver.disconnect(); } catch (e) {} _profileHLObserver = null; } }
+socket.on('profile_highlight', ({ ownerIdx, pieceIdx, on }) => {
+  S._profileHL = (on && typeof ownerIdx === 'number' && ownerIdx >= 0) ? { ownerIdx, pieceIdx } : null;
+  try { _applyProfileHL(); } catch (e) {}
+  // 프로필 재렌더(카드 재구축)에도 강조가 살아남도록 관찰 — 강조 활성 동안만.
+  if (S._profileHL) {
+    if (!_profileHLObserver) {
+      _profileHLObserver = new MutationObserver(() => { if (S._profileHL) { try { _applyProfileHL(); } catch (e) {} } else { _stopProfileHLObserver(); } });
+      ['#my-pieces-info', '#opp-pieces-info'].forEach(sel => { const el = document.querySelector(sel); if (el) _profileHLObserver.observe(el, { childList: true, subtree: true }); });
+    }
+  } else { _stopProfileHLObserver(); }
+});
+// 턴 전환 시 강조 잔재 정리(공유 강조라 안전망).
+['your_turn', 'opp_turn', 'game_over'].forEach(ev => { try { socket.on(ev, () => { S._profileHL = null; _stopProfileHLObserver(); try { _applyProfileHL(); } catch (e) {} }); } catch (e) {} });
 socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화

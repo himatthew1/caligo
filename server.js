@@ -6040,6 +6040,16 @@ function emitToSpectators(room, event, data) {
   }
 }
 
+// ★ 프로필 강조(공유 정보) — 부대공격/칙명으로 '조작 중'인 유닛 카드를 모든 클라(양 플레이어+관전자)가
+//   실시간으로 보게 broadcast. on=false 또는 ownerIdx<0 이면 해제.
+function broadcastProfileHighlight(room, ownerIdx, pieceIdx, on) {
+  const payload = { ownerIdx, pieceIdx, on: !!on };
+  for (const pl of (room.players || [])) {
+    if (pl && pl.socketId && pl.socketId !== 'AI') io.to(pl.socketId).emit('profile_highlight', payload);
+  }
+  emitToSpectators(room, 'profile_highlight', payload);
+}
+
 function getSpectatorGameState(room) {
   const p0 = room.players[0], p1 = room.players[1];
   return {
@@ -7155,7 +7165,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
     return { ok: false, msg: '이미 행동을 사용했습니다. 행동 대체 스킬을 사용할 수 없습니다.' };
   }
   // ★ 칙명 대상이 '행동소비 스킬'을 쓰면 칙명 소멸(자유시전 스킬은 소멸 안 함 — 페이즈 유지).
-  if (replacesAction && _decreeSkillUnit) player._decreeUnit = null;
+  if (replacesAction && _decreeSkillUnit) { player._decreeUnit = null; try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {} }
 
   const result = { ok: true, msg: '', data: {} };
   const bounds = room.boardBounds;
@@ -7293,6 +7303,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if ((_dp.statusEffects || []).some(e => e.type === 'betray') || _dp._cultOf != null) return { ok: false, msg: '조작할 수 없는 유닛입니다.' };
       player._decreeUnit = { ownerIdx: _dOwner, pieceIdx: params.targetPieceIdx };
       spendSP(room, playerIdx, cost);
+      // ★ 칙명 대상 프로필 강조(공유) — 지정 유닛이 실제 행동할 때까지 모두가 실시간으로 봄.
+      try { broadcastProfileHighlight(room, _dOwner, params.targetPieceIdx, true); } catch (e) {}
       result.msg = `칙명: ${_dp.name} 추가 행동`;
       result.oppMsg = `칙명: 상대가 왕실 유닛에 추가 행동`;
       result.data.decreeUnit = { ownerIdx: _dOwner, pieceIdx: params.targetPieceIdx };
@@ -10510,6 +10522,7 @@ function aiTryDecree(room) {
   const hits = processAttack(room, 1, best.rp, best.cells, undefined, { suppressSpUpdate: true });
   try { aiProcessAttackResult(brain, best.cells, hits, best.rp); } catch (e) {}
   p._decreeUnit = null;
+  try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {}   // AI 칙명 해결 → 강조 해제(공유)
   const human = room.players[0];
   if (human && human.socketId && human.socketId !== 'AI') {
     io.to(human.socketId).emit('being_attacked', {
@@ -11109,7 +11122,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     if (!stepCells) continue;
     // 진행 스냅샷(이 유닛 공격 직후의 인간 말 상태 = 누적 HP) — 순차 emit 시 단계별 HP 표시용.
     const snap = humanOk ? JSON.parse(JSON.stringify(pieceSummary(human.pieces, room))) : null;
-    steps.push({ atkCol: p.col, atkRow: p.row, atkType: stepType, atkCells: stepCells, hits: stepHits, snap });
+    steps.push({ ui, atkCol: p.col, atkRow: p.row, atkType: stepType, atkCells: stepCells, hits: stepHits, snap });
   }
   player._troopQueue = null;
 
@@ -11129,12 +11142,26 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     });
   }
 
-  const CAST_LEAD = 650;   // 시전 연출(말풍선/마법구) 먼저 보이도록 피격 애니를 살짝 뒤로.
-  const STEP_MS = 950;     // 유닛 간 애니 간격(공격 GIF+피격 정착 ≈ 1s)
-  const totalMs = CAST_LEAD + steps.length * STEP_MS + 300;
+  // ★ 사용자 요청 페이싱: [프로필 강조 → 1초 → 공격 → 결과 확인 → 1초 → 다음 유닛 강조].
+  //   프로필 강조는 '공유 정보' → 인간(상대) + 관전자 모두에게 실시간 broadcast(profile_highlight).
+  const CAST_LEAD = 700;     // 시전 연출(말풍선/마법구) 먼저.
+  const HL_LEAD = 1000;      // 프로필 강조 → 공격까지.
+  const ATTACK_SHOW = 900;   // 공격 결과 표시 시간.
+  const GAP = 1000;          // 결과 확인 후 → 다음 유닛 강조까지.
+  const PER_UNIT = HL_LEAD + ATTACK_SHOW + GAP;
+  const totalMs = CAST_LEAD + steps.length * PER_UNIT + 300;
+  const _emitHL = (ownerIdx, pieceIdx, on) => {
+    const payload = { ownerIdx, pieceIdx, on: !!on };
+    if (humanOk) io.to(human.socketId).emit('profile_highlight', payload);
+    emitToSpectators(room, 'profile_highlight', payload);
+  };
   // ★ 유닛별 순차 지연 emit — '시각'만 지연(데미지·phase·게임종료는 아래에서 동기 처리 → stale-phase/헤드리스 안전).
   //   room.phase 가 이미 끝났으면(게임 종료) 스킵. game_over 는 동기 emit 이라 승리타는 과정 애니 없이 종료됨(수용).
   steps.forEach((st, i) => {
+    const base = CAST_LEAD + i * PER_UNIT;
+    // 1) 이 유닛 프로필 강조(공유) — 이전 강조는 클라가 자동 해제.
+    setTimeout(() => { if (rooms[room.id] && room.phase === 'game') _emitHL(ownerIdx, st.ui, true); }, base);
+    // 2) 강조 1초 뒤 실제 공격.
     setTimeout(() => {
       if (!rooms[room.id] || room.phase !== 'game') return;
       if (humanOk) {
@@ -11155,8 +11182,10 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
         atkCells: st.atkCells, atkCol: st.atkCol, atkRow: st.atkRow, atkType: st.atkType, atkSubUnit: null,
         hits: st.hits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: humanIdx })),
       });
-    }, CAST_LEAD + i * STEP_MS);
+    }, base + HL_LEAD);
   });
+  // 마지막 유닛 이후 강조 해제(공유).
+  setTimeout(() => { if (rooms[room.id]) _emitHL(-1, -1, false); }, CAST_LEAD + steps.length * PER_UNIT);
 
   // 데미지·phase·게임종료는 동기(원본대로) — 지연 시 stale-phase/헤드리스 회귀 위험. 턴 종료만 애니 후로 미룸.
   room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
@@ -12852,6 +12881,7 @@ io.on('connection', (socket) => {
     } else if (player._decreeUnit && player._decreeUnit.ownerIdx === pieceOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx) {
       // ★ 전령 칙명(리워크): 지정 대상 왕실 유닛(팀원 포함)이 이동 = 칙명 소멸(actionDone 은 이미 true 유지).
       player._decreeUnit = null;
+      try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {}   // 칙명 강조 해제(공유)
     } else if (piece._wraithMovePending) {
       // ★ 악령 조종 이동: 해당 악령 소진(actionDone 은 이미 true 유지).
       piece._wraithMovePending = false;
@@ -13326,7 +13356,7 @@ io.on('connection', (socket) => {
       if (player._troopQueue.length === 0) player._troopQueue = null;
     }
     // ★ 칙명 소멸은 아래 attack_result/decreeUnit emit '이전'에 처리해야 클라가 null 을 받아 칙명 페이즈를 종료함.
-    if (_decreeAttack) player._decreeUnit = null;   // ★ 칙명 대상이 공격 = 칙명 소멸
+    if (_decreeAttack) { player._decreeUnit = null; try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {} }   // ★ 칙명 대상이 공격 = 칙명 소멸 + 강조 해제(공유)
     if (room.mode === 'team') {
       // 팀전: attack_result에 단일 oppPieces는 의미 없음 (team_game_update로 전체 동기)
       socket.emit('attack_result', {
@@ -13643,6 +13673,7 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'game') return;
     const p = room.players[socket.data.idx];
     if (p) p._decreeUnit = null;
+    try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {}   // 칙명 취소 → 강조 해제(공유)
   });
 
   socket.on('end_turn', () => {
