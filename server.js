@@ -2661,7 +2661,8 @@ function aiTeamUsePreSkills(room, idx) {
       let exTarget = null;
       for (const c of exCells) {
         if ((room.remains || []).some(r => r.col === c.col && r.row === c.row)) { exTarget = c; break; }
-        for (const pl of room.players) { for (const pc of pl.pieces) { if (pc.alive && pc.type === 'undead' && pc.col === c.col && pc.row === c.row) { exTarget = c; break; } } if (exTarget) break; }
+        // ★ 공정성: 숨은 적 언데드(실좌표) 치팅 금지 — '표식된' 적 언데드만(아군 언데드는 자기소멸이라 제외).
+        for (const pl of room.players) { for (const pc of pl.pieces) { if (!pc.alive || pc.type !== 'undead' || pc.col !== c.col || pc.row !== c.row) continue; const _ally = getAllyIndices(room, idx).includes(pl.index); if (!_ally && (pc.statusEffects || []).some(e => e.type === 'mark')) { exTarget = c; break; } } if (exTarget) break; }
         if (exTarget) break;
       }
       if (exTarget) { aiTeamExecSkill(room, idx, pi, 'exhume', { col: exTarget.col, row: exTarget.row }); return true; }
@@ -8019,6 +8020,14 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       }
       const _hasRemains = room.remains && room.remains.some(r => r.col === dCol && r.row === dRow);
       if (!_exU && !_hasRemains) return { ok: false, msg: '그 칸에 유해가 없습니다.' };
+      // ★ 버그 수정: 육안으로 확인 불가한(표식 안 된) 적 언데드는 도굴 불가 — 애초에 선택 불가능한 조작.
+      //   죽은 유해(room.remains)는 항상 공개라 무관. 살아있는 '적' 언데드만 표식(가시) 요구. 아군 언데드는 공개.
+      if (_exU) {
+        const _allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, playerIdx) : [playerIdx];
+        const _isEnemyUndead = !_allyIdxs.includes(_exUOwner);
+        const _visible = (_exU.statusEffects || []).some(e => e.type === 'mark');
+        if (_isEnemyUndead && !_visible) return { ok: false, msg: '표식되지 않은(보이지 않는) 적 언데드는 도굴할 수 없습니다.' };
+      }
       const slot = teamSlotIdx(room, playerIdx);
       room.instantSp[slot] = Math.min(10, (room.instantSp[slot] || 0) + 2);
       if (_exU) {
@@ -10328,7 +10337,8 @@ function aiUsePreSkills(room) {
         let exTarget = null;
         for (const c of exCells) {
           if ((room.remains || []).some(r => r.col === c.col && r.row === c.row)) { exTarget = c; break; }
-          for (const pl of room.players) { for (const pc of pl.pieces) { if (pc.alive && pc.type === 'undead' && pc.col === c.col && pc.row === c.row) { exTarget = c; break; } } if (exTarget) break; }
+          // ★ 공정성: 숨은 적 언데드(실좌표) 치팅 금지 — '표식된' 적 언데드만(1v1: 적=idx 1). 아군 언데드 제외.
+          for (const pl of room.players) { for (const pc of pl.pieces) { if (!pc.alive || pc.type !== 'undead' || pc.col !== c.col || pc.row !== c.row) continue; if (pl.index !== 1 && (pc.statusEffects || []).some(e => e.type === 'mark')) { exTarget = c; break; } } if (exTarget) break; }
           if (exTarget) break;
         }
         if (exTarget) _tryExec(pidx, 'exhume', { col: exTarget.col, row: exTarget.row });
