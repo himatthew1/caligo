@@ -8119,7 +8119,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       if (!inBounds(dCol, dRow, bounds)) return { ok: false, msg: '보드 밖입니다.' };
       if (!isCrossAdjacent(piece.col, piece.row, dCol, dRow)) return { ok: false, msg: '인접 1칸으로만 구동할 수 있습니다.' };
       if (isCellDestroyed(room, dCol, dRow)) return { ok: false, msg: '파괴된 칸입니다.' };
-      if (room.players.some(pl => pl.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow))) return { ok: false, msg: '다른 유닛이 있는 칸입니다.' };
+      // ★ 숨은 적 위치는 고려하지 않음(일반 이동과 동일) — 아군(자기)·팀원·유해만 차단.
+      //   이전엔 room.players 전체(숨은 적 포함)를 검사해 적이 있는 칸이면 구동이 막히고 적 위치가 누설됐음.
+      if (player.pieces.some(p => p.alive && p !== piece && p.col === dCol && p.row === dRow)) return { ok: false, msg: '아군이 있는 칸입니다.' };
+      if (room.mode === 'team') {
+        for (const tIdx of getTeammates(room, playerIdx)) {
+          const tp = room.players[tIdx];
+          if (tp && (tp.pieces || []).some(p => p.alive && p.col === dCol && p.row === dRow)) return { ok: false, msg: '팀원이 있는 칸입니다.' };
+        }
+      }
       if (room.remains && room.remains.some(r => r.col === dCol && r.row === dRow)) return { ok: false, msg: '유해가 있는 칸입니다.' };
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
