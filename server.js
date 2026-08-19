@@ -11069,8 +11069,8 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     royals.push({ p, ui, tier: p.tier || 1 });
   });
   royals.sort((a, b) => a.tier - b.tier);
-  const allAtkCells = [];
-  const allHits = [];
+  const human = room.players[humanIdx];
+  const humanOk = human && human.socketId && human.socketId !== 'AI';
   const _believedBest = () => {   // 믿음맵 최고 칸(단일타깃 투석기용)
     let bc = null, bv = 0;
     for (let r = bounds.min; r <= bounds.max; r++) for (let c = bounds.min; c <= bounds.max; c++) {
@@ -11078,45 +11078,66 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     }
     return bc;
   };
+  // ★ 사용자 지적: 부대공격 '과정'이 통째로 날아가고 결과만 보였음(전 유닛을 한 번에 처리 후 단일 emit).
+  //   → 데미지 처리는 즉시(순서대로) 하되, 각 유닛 공격을 진행 스냅샷과 함께 steps 로 캡처하고
+  //     아래에서 유닛별로 순차 지연 emit → 저티어부터 하나씩 때리는 과정이 보이게 함.
+  const steps = [];
   for (const { p, ui } of royals) {
+    let stepCells = null, stepHits = null, stepType = p.type;
     if (p.type === 'cavalry') {
       const d = bestCavalryDash(room, ownerIdx, p);
-      if (d) { const r = doCavalryDash(room, ownerIdx, ui, d.col, d.row); if (r && r.ok) { (r.dash?.pathCells || []).forEach(c => allAtkCells.push(c)); (r.hits || []).forEach(h => allHits.push(h)); } }
-      continue;
+      if (d) { const r = doCavalryDash(room, ownerIdx, ui, d.col, d.row); if (r && r.ok) { stepCells = (r.dash?.pathCells || []).slice(); stepHits = (r.hits || []).slice(); } }
+    } else {
+      let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
+      if (p.type === 'catapult') { const bc = _believedBest(); if (!bc) continue; extra = { tCol: bc.col, tRow: bc.row }; }
+      const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
+      let cells = getAttackCells(atkType || p.type, p.col, p.row, bounds, extra);
+      if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
+      if (!cells || !cells.length) continue;
+      const hits = processAttack(room, ownerIdx, p, cells, undefined, { suppressSpUpdate: true });
+      try { aiProcessAttackResult(brain, cells, hits, p); } catch (e) {}
+      stepCells = cells; stepHits = hits || [];
     }
-    let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
-    if (p.type === 'catapult') { const bc = _believedBest(); if (!bc) continue; extra = { tCol: bc.col, tRow: bc.row }; }
-    const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
-    let cells = getAttackCells(atkType || p.type, p.col, p.row, bounds, extra);
-    if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
-    if (!cells || !cells.length) continue;
-    const hits = processAttack(room, ownerIdx, p, cells, undefined, { suppressSpUpdate: true });
-    cells.forEach(c => allAtkCells.push(c));
-    (hits || []).forEach(h => allHits.push(h));
-    try { aiProcessAttackResult(brain, cells, hits, p); } catch (e) {}
+    if (!stepCells) continue;
+    // 진행 스냅샷(이 유닛 공격 직후의 인간 말 상태 = 누적 HP) — 순차 emit 시 단계별 HP 표시용.
+    const snap = humanOk ? JSON.parse(JSON.stringify(pieceSummary(human.pieces, room))) : null;
+    steps.push({ atkCol: p.col, atkRow: p.row, atkType: stepType, atkCells: stepCells, hits: stepHits, snap });
   }
   player._troopQueue = null;
-  const human = room.players[humanIdx];
-  if (human && human.socketId && human.socketId !== 'AI') {
-    io.to(human.socketId).emit('being_attacked', {
-      atkCells: allAtkCells,
-      fungus: room.fungus || [],
-      attackerImpactedAnything: allHits.length > 0,
-      hitPieces: allHits.map(h => {
-        const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
-        return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
-          name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx,
-          redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false };
-      }),
-      yourPieces: pieceSummary(human.pieces, room),
-    });
-  }
-  emitToSpectators(room, 'spectator_attack_anim', {
-    atkCells: allAtkCells, atkCol: player.pieces[generalIdx]?.col, atkRow: player.pieces[generalIdx]?.row, atkType: 'general', atkSubUnit: null,
-    hits: allHits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: humanIdx })),
+
+  const STEP_MS = 950;   // 유닛 간 애니 간격(공격 GIF+피격 정착 ≈ 1s)
+  const totalMs = steps.length * STEP_MS + 300;
+  // ★ 유닛별 순차 지연 emit — '시각'만 지연(데미지·phase·게임종료는 아래에서 동기 처리 → stale-phase/헤드리스 안전).
+  //   room.phase 가 이미 끝났으면(게임 종료) 스킵. game_over 는 동기 emit 이라 승리타는 과정 애니 없이 종료됨(수용).
+  steps.forEach((st, i) => {
+    setTimeout(() => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      if (humanOk) {
+        io.to(human.socketId).emit('being_attacked', {
+          atkCells: st.atkCells,
+          fungus: room.fungus || [],
+          attackerImpactedAnything: st.hits.length > 0,
+          hitPieces: st.hits.map(h => {
+            const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
+            return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
+              name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx,
+              redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false };
+          }),
+          yourPieces: st.snap,
+        });
+      }
+      emitToSpectators(room, 'spectator_attack_anim', {
+        atkCells: st.atkCells, atkCol: st.atkCol, atkRow: st.atkRow, atkType: st.atkType, atkSubUnit: null,
+        hits: st.hits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: humanIdx })),
+      });
+    }, i * STEP_MS);
   });
+
+  // 데미지·phase·게임종료는 동기(원본대로) — 지연 시 stale-phase/헤드리스 회귀 위험. 턴 종료만 애니 후로 미룸.
   room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
   emitSPUpdate(room);
+  room._aiEndTurnEarliest = Math.max(room._aiEndTurnEarliest || 0, Date.now() + totalMs + 400);
+  room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + totalMs);
   flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
   return true;
 }
