@@ -2137,8 +2137,14 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   //   sum 으로 바꾸면 확산 믿음을 과대평가해 AI 가 탐색 대신 블라인드 난사 → 수동화(회귀). best-가중이 정답.
   let sum = 0, best = 0;
   const _cultSkip = (piece && piece._cultOf != null) ? _aiMarkedHereticCells(room, idx) : null;   // 이교도→이단자 데미지0
+  // ★ 확인된 언데드 칸 제외 — 일반공격 무효(참수 없으면 못 죽임). "언데드만 맞은 공격 = 헛방"(사용자).
+  const _canBehead = (typeof _aiUnitDestroysUndeadOnAttack === 'function') && _aiUnitDestroysUndeadOnAttack(piece);
+  const _undeadCells = _canBehead ? null : new Set(
+    aiKnownEnemies(room, idx).filter(e => e.marked && e.piece && e.piece.type === 'undead')
+      .map(e => `${e.col},${e.row}`));
   for (const c of cells) {
     if (_cultSkip && _cultSkip.has(`${c.col},${c.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
+    if (_undeadCells && _undeadCells.has(`${c.col},${c.row}`)) continue;   // ★ 확인된 언데드 칸 = 무가치
     const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p;
   }
   // ★ 공격 커밋 가중(attackAggro) — 기대값(0~1)을 이동 보너스(도주/접근 등 두 자릿수)와 겨루게 상향.
@@ -8549,7 +8555,7 @@ function _aiAdvantageFallbackSkill(room, ownerIdx, brain) {
     if (mem && (brain.turnCount - mem.turn) <= 1) return false;   // 방금 맞았으면 위험
     return true;
   };
-  const _blocked = (pc) => (pc.statusEffects || []).some(e => e.type === 'curse' || e.type === 'betray' || e.type === 'shadow');
+  const _blocked = (pc) => (pc.statusEffects || []).some(e => e.type === 'frog' || e.type === 'betray' || e.type === 'shadow');   // ★ 개구리만 스킬 봉인(저주 아님)
   // ① 타락(마왕 corrupt, SP1·행동소비) — 팀에 아군 악인이 있고 마왕이 안전하면 파워업(악인 ATK +0.5 누적).
   for (let pi = 0; pi < p.pieces.length; pi++) {
     const pc = p.pieces[pi];
@@ -9418,9 +9424,17 @@ function aiScoreAttack(brain, piece, room, extra) {
   //     (단일타깃 shadowAssassin/witch 는 호출부가 tCol 로 1칸만 넘겨 sum=best 라 동일하게 동작.)
   let sum = 0, best = 0;
   const _cultSkip = (piece && piece._cultOf != null) ? _aiMarkedHereticCells(room, 1) : null;   // 이교도→이단자 데미지0
+  // ★ 언데드(일반공격 절대 무효 — 참수 없으면 못 죽임)가 '확인된' 칸은 스코어에서 제외한다:
+  //   그 칸에 데미지 넣어봐야 0 → "언데드만 맞은 공격 = 아무것도 안 맞은 것". 다른 killable 칸이 사거리에
+  //   같이 들면 그 칸들 점수로 여전히 의미있는 공격이 됨(사용자 지적). 참수 가능 공격자는 예외(소멸 가능).
+  const _canBehead = (typeof _aiUnitDestroysUndeadOnAttack === 'function') && _aiUnitDestroysUndeadOnAttack(piece);
+  const _undeadCells = _canBehead ? null : new Set(
+    aiKnownEnemies(room, 1).filter(e => e.marked && e.piece && e.piece.type === 'undead')
+      .map(e => `${e.col},${e.row}`));
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
       if (_cultSkip && _cultSkip.has(`${cell.col},${cell.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
+      if (_undeadCells && _undeadCells.has(`${cell.col},${cell.row}`)) continue;   // ★ 확인된 언데드 칸 = 무가치
       const p = brain.probMap[cell.row][cell.col];
       sum += p; if (p > best) best = p;
     }
@@ -10167,7 +10181,7 @@ function aiUsePreSkills(room) {
       // 수도승: 아군 부상 시 신성 (SP 3) — 회복 + 상태이상 제거
       case 'monk': {
         const injured = alivePieces.filter(a => a !== piece && a.hp < a.maxHp).sort((a, b) => a.hp - b.hp);
-        const cursed = alivePieces.filter(a => a.statusEffects.some(e => e.type === 'curse' || e.type === 'mark'));
+        const cursed = alivePieces.filter(a => a.statusEffects.some(e => e.type === 'curse' || e.type === 'mark' || e.type === 'frog'));   // ★ 개구리도 정화 대상(신성이 상태이상 제거)
         const target = cursed[0] || injured[0];
         if (target && (cursed.length > 0 || target.hp <= target.maxHp * 0.6)) {
           const targetIdx = aiPlayer.pieces.indexOf(target);
@@ -10672,7 +10686,7 @@ function aiTakeTurn(room) {
   //   또는 기마병 질주 타겟/투석기 보유(헛발동 방지). 발동하면 그 턴 행동 소진 → 턴 종료.
   if (!aiPlayer.actionDone && (room.sp[1] + room.instantSp[1]) >= 3) {
     const gi = aiPlayer.pieces.findIndex(p => p.alive && p.type === 'general'
-      && !(p.statusEffects || []).some(e => e.type === 'betray'));
+      && !(p.statusEffects || []).some(e => e.type === 'betray' || e.type === 'frog'));   // ★ 개구리 장군은 부대공격(스킬) 불가
     if (gi >= 0) {
       const royals = aiPlayer.pieces.filter(p => p.alive
         && (typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')
@@ -10788,7 +10802,7 @@ function aiTakeTurn(room) {
   if (!aiPlayer.actionDone) {
     for (const piece of alivePieces) {
       if (!piece.hasSkill || !piece.skillReplacesAction || (room.sp[1] + room.instantSp[1]) < piece.skillCost) continue;
-      if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'curse')) continue;
+      if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'frog')) continue;   // ★ 개구리만 스킬 봉인(저주는 사용 가능)
       const pidx = aiPlayer.pieces.indexOf(piece);
 
       if (piece.type === 'manhunter') {
@@ -11036,6 +11050,9 @@ function aiExecuteMove(room, action) {
 function aiRunTroopAttack(room, ownerIdx, generalIdx) {
   const player = room.players[ownerIdx];
   if (!player) return false;
+  // ★ 개구리(frog) 장군은 스킬(부대공격) 봉인 — executeSkill 을 우회하는 경로라 여기서도 직접 가드.
+  const _gen = player.pieces[generalIdx];
+  if (_gen && (_gen.statusEffects || []).some(e => e.type === 'frog')) return false;
   const bounds = room.boardBounds;
   const humanIdx = 1 - ownerIdx;
   const brain = room.aiBrain;
