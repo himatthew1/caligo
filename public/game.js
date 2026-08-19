@@ -4398,6 +4398,11 @@ socket.on('final_reveal_phase', ({ myDraft, oppChars, myDeckName, oppDeckName, m
   S.phase = 'final_reveal';
   S.myDeckName = myDeckName || S.myDeckName || '';
   S.oppDeckName = oppDeckName || S.oppDeckName || '';
+  // ★ PVP 화면 멈춤 버그 수정: final_reveal_phase 는 서버의 '전원 완료 → 다음 단계' 권위 신호다.
+  //   그런데 스왑 애니 락(_irevAnimRunning)이 스테일하게 true 로 남아 있으면 playExchangeRevealAnimation
+  //   이 early-return 해 화면이 '대기중'에 갇힌 채 서버 타임아웃까지 안 넘어갔다(둘 다 교체/미교체 모두).
+  //   여기서 락을 강제 해제해 진행이 절대 막히지 않게 한다. (final_reveal 은 게임당 1회라 안전.)
+  _irevAnimRunning = false;
   // ★ 재접속 — 스왑 reveal 애니 재재생 생략, 최종 공개 화면을 정적으로 표시.
   if (reconnected) {
     clearAiWaitCountdown();
