@@ -658,6 +658,10 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
     player._troopQueue.shift();
     if (player._troopQueue.length === 0) player._troopQueue = null;
+    // ★ 시전자 자기 왕실 큐 소진(기마병 질주로) → 팀원 왕실 자동 지휘 시작.
+    if (!player._troopQueue && player._troopTeammates && room.mode === 'team') {
+      setTimeout(() => _resolveTeammateTroops(room, playerIdx), 900);
+    }
   }
   // ★ 착지칸 덫 — 사용자 요청: 경로 데미지를 모두 적용한 뒤(도착 후) 순차 발동. 여기선 감지만, 발동은 지연 스케줄(use_skill 핸들러).
   let dashTrapPending = null;
@@ -6125,6 +6129,7 @@ function processTurnStart(room) {
   player._decreeUnit = null;      // ★ 전령 칙명 대상 유닛(리워크) 초기화
   player._aiDecreeUsed = false;    // ★ AI 칙명 1회/턴 사용 플래그 초기화
   player._troopQueue = null;       // ★ 부대공격 큐 초기화
+  player._troopTeammates = null;   // ★ 부대공격 팀원 자동 지휘 큐 초기화
   player._wraithMoveQueue = null;  // ★ 악령 조종 이동 큐 초기화
   for (const p of player.pieces) { if (p._wraithMovePending) p._wraithMovePending = false; }
   for (const p of player.pieces) {
@@ -8019,7 +8024,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       result.data.dashTrapPending = dr.trapPending || null;   // ★ 착지칸 덫 지연 발동용(클라 미전송, use_skill 에서 스케줄)
       // ★ 부대공격 큐 — 이 기마병이 질주로 소진된 뒤 갱신된 큐를 클라에 전달(다음 저티어 유닛 조작).
       //   (doCavalryDash 가 큐 앞이면 이미 shift 함. 안 실으면 클라가 기마병을 계속 큐 앞으로 오인.)
-      result.data.troopQueue = player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null;
+      result.data.troopQueue = player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null;
       break;
     }
 
@@ -8211,26 +8216,39 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
       const taBounds = room.boardBounds;
-      const queue = [];
-      for (let ui = 0; ui < player.pieces.length; ui++) {
-        const p = player.pieces[ui];
-        if (!p.alive) continue;
-        if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) continue;
-        if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;
-        // 기마병(질주)·투석기(단일)는 타겟 지정 필요 → 포함. 그 외는 고정 범위 있을 때만.
-        if (p.type === 'cavalry' || p.type === 'catapult') { queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type }); continue; }
+      const _royalCanAct = (p) => {
+        if (!p.alive) return false;
+        if (!(typeof isFaction === 'function' ? isFaction(p, 'royal') : p.tag === 'royal')) return false;
+        if ((p.statusEffects || []).some(e => e.type === 'betray')) return false;
+        if (p.type === 'cavalry' || p.type === 'catapult') return true;   // 타겟 지정형 — 포함
         const atkType = (typeof effectiveAttackType === 'function') ? effectiveAttackType(p) : p.type;
         let cells = getAttackCells(atkType || p.type, p.col, p.row, taBounds, { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms });
         if (typeof applyDarkVeil === 'function') cells = applyDarkVeil(room, p, cells);
-        if (!cells || cells.length === 0) continue;
-        queue.push({ pieceIdx: ui, tier: p.tier || 1, type: p.type });
-      }
-      queue.sort((a, b) => a.tier - b.tier);   // 저티어부터
-      if (queue.length === 0) { result.msg = '부대공격: 공격 가능한 왕실 유닛이 없습니다'; result.oppMsg = '부대공격'; break; }
-      player._troopQueue = queue;              // 이후 attack/dash 핸들러가 앞부터 소진
-      result.msg = `부대공격 개시 — 왕실 ${queue.length}명을 순서대로 조작하세요`;
+        return !!(cells && cells.length);
+      };
+      const buildOwnerQ = (oi) => {
+        const owner = room.players[oi]; if (!owner) return [];
+        const idxs = owner.pieces.map((_, ui) => ui);
+        if (room.mode !== 'team') idxs.sort((a, b) => (owner.pieces[a].tier || 1) - (owner.pieces[b].tier || 1));   // 1v1: 저티어부터(기존)
+        return idxs.filter(ui => _royalCanAct(owner.pieces[ui]))
+          .map(ui => ({ ownerIdx: oi, pieceIdx: ui, tier: owner.pieces[ui].tier || 1, type: owner.pieces[ui].type }));
+      };
+      // ★ 시전자 자기 왕실 = 수동 큐(나1·나2). 팀원 왕실 = 자동 지휘 큐(팀원1·팀원2, 시전자 조작 후 서버가 자동 해결).
+      const manualQ = buildOwnerQ(playerIdx);
+      const teammateIdxs = (room.mode === 'team' && typeof getAllyIndices === 'function')
+        ? getAllyIndices(room, playerIdx).filter(i => i !== playerIdx) : [];
+      const teammateQ = teammateIdxs.flatMap(buildOwnerQ);
+      if (manualQ.length === 0 && teammateQ.length === 0) { result.msg = '부대공격: 공격 가능한 왕실 유닛이 없습니다'; result.oppMsg = '부대공격'; break; }
+      player._troopQueue = manualQ.length ? manualQ : null;
+      player._troopTeammates = teammateQ.length ? teammateQ : null;   // 수동 큐 소진 후 서버 자동 해결
+      result.msg = `부대공격 개시 — 왕실 ${manualQ.length + teammateQ.length}명 (내 ${manualQ.length} 조작 · 팀원 ${teammateQ.length} 자동)`;
       result.oppMsg = `부대공격: 상대 왕실 부대 개시`;
-      result.data.troopQueue = queue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type }));
+      result.data.troopQueue = (player._troopQueue || []).map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type }));
+      result.data.troopAutoTeammates = teammateQ.length;   // 클라 안내용(팀원 N 자동)
+      // 시전자 자기 왕실이 없으면(수동 큐 공백) 팀원 자동 지휘를 곧바로 시작(skill_result emit 후).
+      if (!player._troopQueue && player._troopTeammates) {
+        setTimeout(() => _resolveTeammateTroops(room, playerIdx), 1200);
+      }
       break;
     }
 
@@ -11144,6 +11162,42 @@ function aiExecuteMove(room, action) {
   }
 }
 
+// ★ 팀전 부대공격 — 팀원 왕실 자동 지휘. 시전자(인간)가 자기 왕실(나1·나2)을 큐로 수동 조작한 뒤,
+//   수동 큐가 비면 이 함수가 팀원 왕실(팀원1·팀원2)을 순서대로 자동 공격시킴(연출용 지연 emit).
+//   각 유닛 공격은 aiTeamExecuteAttack(owner-aware · 전체 브로드캐스트 · endTurn 미호출)을 재사용.
+function _resolveTeammateTroops(room, casterIdx) {
+  const caster = room.players[casterIdx];
+  if (!caster) return;
+  const list = (caster._troopTeammates || []).slice();
+  caster._troopTeammates = null;
+  if (!list.length || room.mode !== 'team') return;
+  const STEP = 1500;   // 팀원 유닛 간 간격(연출 여유)
+  list.forEach((entry, i) => {
+    setTimeout(() => {
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      if (room.currentPlayerIdx !== casterIdx) return;   // 시전자 턴이 이미 넘어갔으면 중단
+      const owner = room.players[entry.ownerIdx];
+      const p = owner && owner.pieces[entry.pieceIdx];
+      if (!p || !p.alive) return;
+      if ((p.statusEffects || []).some(e => e.type === 'betray')) return;
+      if (p.type === 'cavalry') {
+        const d = (typeof bestCavalryDash === 'function') ? bestCavalryDash(room, entry.ownerIdx, p) : null;
+        startPhase(room);
+        if (d) doCavalryDash(room, entry.ownerIdx, entry.pieceIdx, d.col, d.row);
+        flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
+        broadcastTeamGameState(room);
+      } else {
+        let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
+        if (p.type === 'catapult' || p.type === 'shadowAssassin' || p.type === 'witch') {
+          const bc = (typeof aiTeamBestTargetCell === 'function') ? aiTeamBestTargetCell(room, entry.ownerIdx, p) : null;
+          if (bc) { extra.tCol = bc.col; extra.tRow = bc.row; }
+        }
+        aiTeamExecuteAttack(room, entry.ownerIdx, entry.pieceIdx, extra);
+      }
+    }, i * STEP);
+  });
+}
+
 // ★ AI 부대공격(장군) — 인간은 큐로 하나씩 조작하지만 AI 는 서버에서 저티어부터 왕실 유닛 전원을
 //   일괄 공격/질주시키고 결과를 한 번에 emit(큐 미사용). 1v1(AI=1) 전용. 반환 성공 여부.
 function aiRunTroopAttack(room, ownerIdx, generalIdx) {
@@ -13140,7 +13194,12 @@ io.on('connection', (socket) => {
     const _decreeCrossA = !!(typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
       && player._decreeUnit && player._decreeUnit.ownerIdx === decreeOwnerIdx
       && player._decreeUnit.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
-    const atkOwnerIdx = _decreeCrossA ? decreeOwnerIdx : idx;
+    // ★ 부대공격(팀전): 큐 앞이 '팀원' 유닛이면 시전자가 decreeOwnerIdx 로 크로스 조작. (큐엔트리 ownerIdx 매칭)
+    const _tf0 = (player._troopQueue && player._troopQueue.length) ? player._troopQueue[0] : null;
+    const _troopCrossA = !!(typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
+      && _tf0 && (_tf0.ownerIdx ?? idx) === decreeOwnerIdx && _tf0.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
+    const _crossA = _decreeCrossA || _troopCrossA;
+    const atkOwnerIdx = _crossA ? decreeOwnerIdx : idx;
     const atkOwner = room.players[atkOwnerIdx];
 
     // ★ 이야기꾼 선동: 배신 상태 유닛은 공격도 불가.
@@ -13158,7 +13217,7 @@ io.on('connection', (socket) => {
 
     // ★ 부대공격 큐 앞 유닛 — 부대공격 스킬이 actionDone/actionUsedSkillReplace 를 세운 뒤 큐 앞 유닛을
     //   순서대로 '공격'시켜야 하므로, 아래 행동소진 가드들을 우회한다(없으면 부대공격이 먹통).
-    const _troopFront = !!(player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx);
+    const _troopFront = !!(_tf0 && (_tf0.ownerIdx ?? idx) === atkOwnerIdx && _tf0.pieceIdx === pieceIdx);
     // ★ 전령 칙명(리워크): 지정된 대상 왕실 유닛이 '공격'을 1회 추가 가능(actionDone 무시).
     //   공격하면 아래 일반 공격 흐름으로 진행하고 마지막에 칙명 소멸.
     const _decreeAttack = !!(player._decreeUnit && player._decreeUnit.ownerIdx === atkOwnerIdx && player._decreeUnit.pieceIdx === pieceIdx);
@@ -13433,9 +13492,14 @@ io.on('connection', (socket) => {
     // ★ 부대공격 큐 소진 — 반드시 emit(attack_result/broadcast) 보다 '먼저' 실행해야 클라가
     //   갱신된(다음 저티어) 큐를 받는다. (이전엔 emit 뒤에 shift 했던 탓에 클라가 방금 행동한
     //   유닛이 여전히 맨 앞인 낡은 큐를 받아 → 다음 유닛도 방금 유닛도 조작 불가 = 부대공격 먹통.)
-    if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
+    if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx
+        && (player._troopQueue[0].ownerIdx ?? idx) === atkOwnerIdx) {
       player._troopQueue.shift();
       if (player._troopQueue.length === 0) player._troopQueue = null;
+      // ★ 시전자 자기 왕실 큐 소진 → 팀원 왕실 자동 지휘 시작(공격 애니 이후).
+      if (!player._troopQueue && player._troopTeammates && room.mode === 'team') {
+        setTimeout(() => _resolveTeammateTroops(room, idx), 900);
+      }
     }
     // ★ 칙명 소멸은 아래 attack_result/decreeUnit emit '이전'에 처리해야 클라가 null 을 받아 칙명 페이즈를 종료함.
     if (_decreeAttack) { player._decreeUnit = null; try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {} }   // ★ 칙명 대상이 공격 = 칙명 소멸 + 강조 해제(공유)
@@ -13448,7 +13512,7 @@ io.on('connection', (socket) => {
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
         decreeUnit: player._decreeUnit || null, crossDecree: _decreeCrossA || undefined,   // ★ 칙명(팀전) 종료/크로스 알림
-        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐(팀전에서도 다음 유닛 조작되도록)
+        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐(팀전에서도 다음 유닛 조작되도록)
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
       });
       // being_attacked를 실제 피격된 각 적 플레이어에게 각각 전송
@@ -13572,7 +13636,7 @@ io.on('connection', (socket) => {
         friendlyFireHits: room._friendlyFireHits || [],
         bodyguardHits,
         decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
-        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
+        troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {
@@ -14402,6 +14466,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
+  _resolveTeammateTroops, aiTeamExecuteAttack, aiTeamBestTargetCell,
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree, _aiPickRingPlay,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
