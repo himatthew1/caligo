@@ -789,6 +789,10 @@ function darkVeilActive(room) {
 //     원복 시 원래 범위의 같은 인덱스 칸이 다시 봉인돼 게임 시작 상태와 일관됨.
 function applyDarkVeil(room, piece, cells) {
   if (!piece || !Array.isArray(cells) || !cells.length) return cells;
+  // ★ FIX (사용자 보고: 투석기가 마왕 있으면 무조건 빗나감): 어둠장막은 공격 '범위'에서 1칸을 봉인하는
+  //   효과인데, 단일 셀 공격(투석기·그림자암살자·마녀 = 셀 1개)은 그 1칸이 유일한 타깃이라 제거하면
+  //   공격 자체가 소멸(항상 빗나감)해 유닛이 완전 무력화됨. → 셀이 1개 이하면 봉인하지 않는다(최소 1칸 보존).
+  if (cells.length <= 1) return cells;
   if (piece._darkVeilSeed == null) return cells;
   if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인(현재 소속) 제외
   if (!darkVeilActive(room)) return cells;   // 마왕 참수/사망 등 비활성이면 전 범위 복구
@@ -14455,6 +14459,7 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
+  applyDarkVeil, darkVeilActive,
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree, _aiPickRingPlay,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
