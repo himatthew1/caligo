@@ -22473,90 +22473,117 @@ function clearOldRatSpawnMarks() {
 }
 
 // ── 팀모드: 팀원이 피격됨 ──
+let _teamAllyHitSeq = 0;
 socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
-  // 적 공격 휘두름 SFX — 팀원이 공격 받을 때 관전 시점에서도 들림
+  // 적 공격 휘두름 SFX — 즉시(휘두름).
   try { playSfx('attack'); } catch (e) {}
-  // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
-  for (const h of (hitPieces || [])) {
-    const dmg = (typeof h.damage === 'number') ? h.damage : 0;
-    if (dmg <= 0 || h.defPieceIdx == null) continue;
-    if (h.bodyguardRedirect) {
-      addLoyaltyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
-    } else if (!h.redirectedToBodyguard) {
-      addBodyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
-    }
-  }
-  // 호위무사 가로채기·0데미지 비격파는 본체 흔들림 제외 (1v1 being_attacked와 동일)
-  const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
-  const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
-  // ★ 사용자 요청 (fog-of-war): 피격팀의 다른 멤버도 atkCells 의 ·/딤 마크는 보지 않음.
-  //   hit 셀만 빨간 플래시. attackLog 에도 명중 셀만 기록.
-  animateAttack([], hitCells, true); // isDefending=true — 팀원 말이 피격됨
-  for (const hc of hitCells) {
-    S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
-  }
-  // ★ directHits = 본체로 직접 피해 받은 hit (호위무사 가로채기 제외) — "공격받았습니다!" 트리거 기준
-  const directHits = meaningful.filter(h => !h.bodyguardRedirect);
-  const killedAlly = directHits.filter(h => h.destroyed);
-  const hitAlly = directHits.filter(h => !h.destroyed);
-  if (killedAlly.length > 0) playSfx('kill');
-  else if (hitAlly.length > 0) playSfx('hit');
-  // ★ 사용자 요청: 사망 시 격파됨 토스트만 (공격받았습니다 중복 제거).
-  if (directHits.length > 0) {
-    if (killedAlly.length === 0) {
-      showSkillToast(`공격받았습니다!`, true);
-    }
-    if (hitAlly.length > 0) {
-      const hitLabels = hitAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
-      addLog(`${hitLabels} 피격`, 'hit');
-    }
-  }
-  if (killedAlly.length > 0) {
-    const labels = killedAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
-    showSkillToast(`${labels} 격파!`, true);
-    addLog(`${labels} 격파`, 'hit');
-  }
-  // 호위무사 가로채기 — passive_alert가 메시지 담당 (중복 토스트 제거)
-  // 팀원 프로필 카드에 hit 애니메이션 — 호위무사 가로채기 시 본체 카드는 제외
-  if (typeof applyProfileHitAnim === 'function' && victimIdx != null) {
-    const tmPlayer = (S.teamGamePlayers || []).find(p => p.idx === victimIdx);
-    if (tmPlayer && tmPlayer.pieces) {
-      const hitIdxs = [];
-      const protectedIdxs = [];
-      // 보호됨: 0 피해 + !destroyed. 그림자 상태는 피격 정보 숨김이므로 제외
-      // ★ 충성 리다이렉트(redirectedToBodyguard)된 왕족은 protected에서 제외
-      const protectedHits = (hitPieces || []).filter(h => {
-        if (!(h.damage === 0 && !h.destroyed)) return false;
-        if (h.redirectedToBodyguard) return false;
-        const p = tmPlayer.pieces.find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
-        const isShadow = p && (p.statusEffects || []).some(e => e.type === 'shadow');
-        return !isShadow;
-      });
-      for (let i = 0; i < tmPlayer.pieces.length; i++) {
-        const pc = tmPlayer.pieces[i];
-        if (meaningful.some(h => h.col === pc.col && h.row === pc.row)) hitIdxs.push(i);
-        if (protectedHits.some(h => h.col === pc.col && h.row === pc.row)) protectedIdxs.push(i);
+  // ★ FIX (동시 피격 밀림): 이전엔 team_ally_hit 이 '즉시' 처리해 being_attacked(내 유닛, +ATTACK_IMPACT_DELAY)
+  //   와 어긋났음(내 유닛/팀원 유닛이 같은 광역에 맞아도 500ms 밀림). 임팩트(데미지·플래시·도장·사망)를
+  //   being_attacked 와 동일하게 ATTACK_IMPACT_DELAY 후로 지연 → 동일 타이밍 동기화.
+  const _capturedTurn = S.turnNumber;
+  const _mySeq = ++_teamAllyHitSeq;
+  if (S.isTeamMode) S._teamRenderGateUntil = Date.now() + ATTACK_IMPACT_DELAY;
+  setTimeout(() => {
+    if (S.turnNumber !== _capturedTurn) return;      // 턴 바뀌면 stale 스킵
+    if (_teamAllyHitSeq !== _mySeq) return;          // 최신 이벤트가 왔으면 스킵
+    // 본체 직접 피해 / 충성 가로채기 — 데이터 종류별로 명시적 분류
+    for (const h of (hitPieces || [])) {
+      const dmg = (typeof h.damage === 'number') ? h.damage : 0;
+      if (dmg <= 0 || h.defPieceIdx == null) continue;
+      if (h.bodyguardRedirect) {
+        addLoyaltyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
+      } else if (!h.redirectedToBodyguard) {
+        addBodyDamage(`${victimIdx}:${h.defPieceIdx}`, dmg);
       }
-      if (hitIdxs.length > 0) {
-        requestAnimationFrame(() => {
-          for (const i of hitIdxs) {
-            // ★ 사용자 보고 (#my-pieces-info 하드코딩): 레드팀 피해자 카드가 #opp-pieces-info 에
-            //   있으면 못 찾음. 컨테이너 제약 없이 player-idx 로만 전역 검색.
-            const card = document.querySelector(`.team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
-            applyHitFlashWithBrighten(card);
-          }
+    }
+    // 호위무사 가로채기·0데미지 비격파는 본체 흔들림 제외 (1v1 being_attacked와 동일)
+    const meaningful = (hitPieces || []).filter(h => !h.redirectedToBodyguard && !(h.damage === 0 && !h.destroyed));
+    const hitCells = meaningful.map(h => ({ col: h.col, row: h.row }));
+    // ★ 사용자 요청 (fog-of-war): 피격팀의 다른 멤버도 atkCells 의 ·/딤 마크는 보지 않음.
+    //   hit 셀만 빨간 플래시. attackLog 에도 명중 셀만 기록.
+    animateAttack([], hitCells, true); // isDefending=true — 팀원 말이 피격됨
+    for (const hc of hitCells) {
+      S.attackLog.push({ col: hc.col, row: hc.row, hit: true, turn: S.turnNumber });
+    }
+    // ★ directHits = 본체로 직접 피해 받은 hit (호위무사 가로채기 제외) — "공격받았습니다!" 트리거 기준
+    const directHits = meaningful.filter(h => !h.bodyguardRedirect);
+    const killedAlly = directHits.filter(h => h.destroyed);
+    const hitAlly = directHits.filter(h => !h.destroyed);
+    if (killedAlly.length > 0) playSfx('kill');
+    else if (hitAlly.length > 0) playSfx('hit');
+    // ★ 사용자 요청: 사망 시 격파됨 토스트만 (공격받았습니다 중복 제거).
+    if (directHits.length > 0) {
+      if (killedAlly.length === 0) {
+        showSkillToast(`공격받았습니다!`, true);
+      }
+      if (hitAlly.length > 0) {
+        const hitLabels = hitAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
+        addLog(`${hitLabels} 피격`, 'hit');
+      }
+    }
+    if (killedAlly.length > 0) {
+      const labels = killedAlly.map(h => h.icon && h.name ? `${pieceIconHtml(h.icon, {size:'1em'})}${h.name}` : '유닛').join(', ');
+      showSkillToast(`${labels} 격파!`, true);
+      addLog(`${labels} 격파`, 'hit');
+    }
+    // 호위무사 가로채기 — passive_alert가 메시지 담당 (중복 토스트 제거)
+    // 팀원 프로필 카드에 hit 애니메이션 — 호위무사 가로채기 시 본체 카드는 제외
+    if (typeof applyProfileHitAnim === 'function' && victimIdx != null) {
+      const tmPlayer = (S.teamGamePlayers || []).find(p => p.idx === victimIdx);
+      if (tmPlayer && tmPlayer.pieces) {
+        const hitIdxs = [];
+        const protectedIdxs = [];
+        // 보호됨: 0 피해 + !destroyed. 그림자 상태는 피격 정보 숨김이므로 제외
+        // ★ 충성 리다이렉트(redirectedToBodyguard)된 왕족은 protected에서 제외
+        const protectedHits = (hitPieces || []).filter(h => {
+          if (!(h.damage === 0 && !h.destroyed)) return false;
+          if (h.redirectedToBodyguard) return false;
+          const p = tmPlayer.pieces.find(pc => pc.alive && pc.col === h.col && pc.row === h.row);
+          const isShadow = p && (p.statusEffects || []).some(e => e.type === 'shadow');
+          return !isShadow;
         });
-      }
-      // 보호됨 애니메이션 — 좌·우 컨테이너 모두 적용 (팀원이 어느 쪽이든)
-      for (const i of protectedIdxs) {
-        applyProtectedAnimTeam(victimIdx, i);
+        for (let i = 0; i < tmPlayer.pieces.length; i++) {
+          const pc = tmPlayer.pieces[i];
+          if (meaningful.some(h => h.col === pc.col && h.row === pc.row)) hitIdxs.push(i);
+          if (protectedHits.some(h => h.col === pc.col && h.row === pc.row)) protectedIdxs.push(i);
+        }
+        if (hitIdxs.length > 0) {
+          requestAnimationFrame(() => {
+            for (const i of hitIdxs) {
+              // ★ 사용자 보고 (#my-pieces-info 하드코딩): 레드팀 피해자 카드가 #opp-pieces-info 에
+              //   있으면 못 찾음. 컨테이너 제약 없이 player-idx 로만 전역 검색.
+              const card = document.querySelector(`.team-profile-block[data-player-idx="${victimIdx}"] [data-piece-idx="${i}"]`);
+              applyHitFlashWithBrighten(card);
+            }
+          });
+        }
+        // 보호됨 애니메이션 — 좌·우 컨테이너 모두 적용 (팀원이 어느 쪽이든)
+        for (const i of protectedIdxs) {
+          applyProtectedAnimTeam(victimIdx, i);
+        }
       }
     }
-  }
-  // ★ 버퍼된 wizard 등 패시브 alert flush — 팀원이 hit 받은 시점에 동기 fire.
-  if (typeof flushDefensiveAlerts === 'function') {
-    flushDefensiveAlerts({ skipReduction: killedAlly.length > 0 });
-  }
+    if (typeof renderTeamProfiles === 'function') renderTeamProfiles();   // 도장 표시
+    // ★ FIX (팀원 유닛 사망/유해 누락): 격파된 팀원 유닛의 사망 GIF + 유해를 being_attacked 와 동일 파이프라인으로.
+    const _deadCells = meaningful.filter(h => h.destroyed && h.col != null)
+      .map(h => ({ col: h.col, row: h.row, defPieceIdx: h.defPieceIdx, defOwnerIdx: victimIdx }));
+    const _deaths = (_deadCells.length && typeof _detectDeaths === 'function') ? _detectDeaths(_deadCells, true) : [];
+    if (_deaths.length > 0 && typeof scheduleDeathGif === 'function') {
+      const _prev = (S._pendingDeathCells instanceof Set) ? [...S._pendingDeathCells] : [];
+      S._pendingDeathCells = new Set([..._prev, ..._deaths.map(d => `${d.col},${d.row}`)]);
+      if (typeof renderGameBoard === 'function') renderGameBoard();
+      scheduleDeathGif(_deaths, _deaths, () => {
+        if (typeof renderGameBoard === 'function') renderGameBoard();
+        if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      });
+    } else if (typeof renderGameBoard === 'function') {
+      renderGameBoard();
+    }
+    // ★ 버퍼된 wizard 등 패시브 alert flush — 팀원이 hit 받은 시점에 동기 fire.
+    if (typeof flushDefensiveAlerts === 'function') {
+      flushDefensiveAlerts({ skipReduction: killedAlly.length > 0 });
+    }
+  }, ATTACK_IMPACT_DELAY);
 });
 
 // ── 팀모드: 같은 팀이 공격을 시전했음 ──
@@ -22667,7 +22694,23 @@ socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atk
         }
       }
     }
-    if (typeof renderGameBoard === 'function') renderGameBoard();
+    // ★ FIX (아군 시점 오사 사망/유해 누락): 학살영웅 오사로 격파된 우리 팀 유닛의 사망 GIF + 유해를
+    //   시전자 시점(attack_result)과 동일 파이프라인으로 재생. 피격 대상은 우리 팀이라 보드에 보임.
+    //   (표식 없는 적 사망은 team_game_update 가 유해로 반영 — 여기선 우리 팀 오사만.)
+    const _ffDeadTA = (friendlyFireHits || []).filter(ff => ff.destroyed && ff.col != null)
+      .map(ff => ({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx }));
+    const _ffDeathsTA = (_ffDeadTA.length && typeof _detectDeaths === 'function') ? _detectDeaths(_ffDeadTA, true) : [];
+    if (_ffDeathsTA.length > 0 && typeof scheduleDeathGif === 'function') {
+      const _prev = (S._pendingDeathCells instanceof Set) ? [...S._pendingDeathCells] : [];
+      S._pendingDeathCells = new Set([..._prev, ..._ffDeathsTA.map(d => `${d.col},${d.row}`)]);
+      if (typeof renderGameBoard === 'function') renderGameBoard();   // 사망 idle 유지 상태로 1차 렌더
+      scheduleDeathGif(_ffDeathsTA, _ffDeathsTA, () => {
+        if (typeof renderGameBoard === 'function') renderGameBoard();
+        if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      });
+    } else if (typeof renderGameBoard === 'function') {
+      renderGameBoard();
+    }
     if (typeof flushDefensiveAlerts === 'function') {
       flushDefensiveAlerts({ skipReduction: killed.length > 0 });
     }
