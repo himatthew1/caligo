@@ -5647,41 +5647,26 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
         else if (!h.destroyed) addProtectedHit(_selfStampKey(pieceIdx));
       }
     }
-    // ★ #6 적 학살영웅(배반자) 오사 — 실시간 공유(사용자 설계). 도장 + 상대(공격자) 유닛의 HP·위치·사망을
-    //   방어자 화면에도 즉시 반영. 오사는 이미 공개된 공격 셀(atkCells) 내부이므로 위치 노출이 규칙상 정상.
-    //   (이전엔 도장만 찍고 S.oppPieces·피격 애니를 안 건드려 "내 차례가 와야 갱신"됐음.)
-    const _ffAnimCells = [];
-    const _ffDeadDefCells = [];   // ★ 오사로 격파된 상대 유닛 — 사망 GIF 대상(방어자 시점에도 재생)
+    // ★ #6 적 학살영웅(학살) 오사 — 실시간 공유. 도장 + 프로필 피격 애니만.
+    //   ★ FIX (사용자 보고): 상대 유닛의 '보드 그래픽'은 1v1·팀전 불문 '표식' 상태일 때만 공개된다.
+    //     오사된 순간에도 보드에는 상대 모습을 보이지 않는다 → 보드 공개/보드 피격 플래시/보드 사망 GIF 전부 제거.
+    //     대신 프로필 카드에만: 데미지 도장 + 흔들림(피격) + 밝힘. HP/사망/유해는 서버 상태갱신이 반영.
+    const _ffAnimCells = [];       // (오사 대상은 보드 비공개 → 항상 빈 배열 유지)
+    const _ffDeadDefCells = [];    // (오사 대상 보드 사망 GIF 없음 → 항상 빈 배열 유지)
+    const _ffTeamProfileHits = [];   // (팀전) 오사 대상 상대 유닛 — 프로필 피격 애니
+    const _ffOppProfileHits = [];    // (1v1) 오사 대상 상대 유닛 pieceIdx — 프로필 피격 애니
     if (Array.isArray(friendlyFireHits)) {
       for (const ff of friendlyFireHits) {
         const _ffDmg = (typeof ff.damage === 'number') ? ff.damage : 0;
         if (ff.defPieceIdx == null) continue;
-        const _ffKey = S.isTeamMode
-          ? `${(ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx)}:${ff.defPieceIdx}`
-          : `opp:${ff.defPieceIdx}`;
+        const _ffOwn = (ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx);
+        const _ffKey = S.isTeamMode ? `${_ffOwn}:${ff.defPieceIdx}` : `opp:${ff.defPieceIdx}`;
+        const _prot = (_ffDmg === 0 && !ff.destroyed);
         if (_ffDmg > 0) addBodyDamage(_ffKey, _ffDmg);
         else if (!ff.destroyed) addProtectedHit(_ffKey);
-        // 오사 대상(상대 유닛)을 공개 + HP/사망 반영 → 보드/HP바 실시간 갱신 + 피격/사망 애니.
-        // ★ FIX (사용자 보고): 팀전에서 적 광전사가 자기 팀 유닛을 오사하면 그 '위치도 공개'되어야 함.
-        //   이전엔 1v1(!S.isTeamMode) 에서만 위치 공개+사망GIF 했고 팀전은 도장만 찍었음.
-        if (ff.col != null) {
-          let _op = null, _ffOwn = (ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx);
-          if (!S.isTeamMode) {
-            _op = (S.oppPieces || [])[ff.defPieceIdx];
-          } else {
-            _op = (S.oppPieces || []).find(p => p.ownerIdx === _ffOwn && p.index === ff.defPieceIdx);
-          }
-          if (_op) {
-            _op.col = ff.col; _op.row = ff.row; _op.marked = true;
-            if (typeof ff.newHp === 'number') _op.hp = ff.newHp;
-            _ffAnimCells.push({ col: ff.col, row: ff.row });   // 피격 플래시(사망이어도 임팩트 먼저)
-            if (ff.destroyed) {
-              _op.alive = false;
-              // ★ 사망 GIF — 오사로 죽은 상대 유닛도 방어자/상대팀 화면에서 사망 연출(예전엔 HP만 0되고 툭 사라짐).
-              _ffDeadDefCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx, defOwnerIdx: _ffOwn });
-            }
-          }
-        }
+        // 프로필 피격 애니 대상 수집(보드는 건드리지 않음).
+        if (S.isTeamMode) _ffTeamProfileHits.push({ ownerIdx: _ffOwn, pieceIdx: ff.defPieceIdx, protected: _prot });
+        else _ffOppProfileHits.push({ pieceIdx: ff.defPieceIdx, protected: _prot });
       }
     }
     // ★ 오사 상대 사망정보(적 소유 → isDefending=false) — 내 말 사망(_deathInfos)과 병합해 함께 연출.
@@ -5731,6 +5716,9 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
         applyProfileHitAnim('#my-pieces-info .my-piece-card', hitIndices);
         applyProtectedAnimByIndex('#my-pieces-info .my-piece-card', protectedIndices);
         for (const i of protectedIndices) addProtectedHit(`my:${i}`);
+        // ★ 1v1 오사 대상(상대) 프로필 피격 애니 — 보드는 비공개(표식 아님), 상대 프로필 카드만 흔들림/밝힘.
+        applyProfileHitAnim('#opp-pieces-info .opp-piece-card', _ffOppProfileHits.filter(h => !h.protected).map(h => h.pieceIdx));
+        applyProtectedAnimByIndex('#opp-pieces-info .opp-piece-card', _ffOppProfileHits.filter(h => h.protected).map(h => h.pieceIdx));
       } else {
         for (const i of protectedIndices) {
           applyProtectedAnimTeam(S.playerIdx, i);
@@ -5740,6 +5728,12 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
           for (const i of hitIndices) {
             const card = document.querySelector(`.team-profile-block[data-player-idx="${S.playerIdx}"] [data-piece-idx="${i}"]`);
             if (card) applyHitFlashWithBrighten(card);
+          }
+          // ★ 팀전 오사 대상(상대 유닛) 프로필 피격 애니 — 보드는 비공개(표식 아님), 프로필만 흔들림/밝힘.
+          for (const t of _ffTeamProfileHits) {
+            const card = document.querySelector(`.team-profile-block[data-player-idx="${t.ownerIdx}"] [data-piece-idx="${t.pieceIdx}"]`);
+            if (!card) continue;
+            if (t.protected) applyProtectedAnim(card); else applyHitFlashWithBrighten(card);
           }
         });
       }
