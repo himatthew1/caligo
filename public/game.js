@@ -5661,17 +5661,24 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
           : `opp:${ff.defPieceIdx}`;
         if (_ffDmg > 0) addBodyDamage(_ffKey, _ffDmg);
         else if (!ff.destroyed) addProtectedHit(_ffKey);
-        // 1v1: 오사 대상(상대 유닛)을 공개 + HP/사망 반영 → 보드/HP바 실시간 갱신 + 피격 애니.
-        if (!S.isTeamMode && ff.col != null) {
-          const _op = (S.oppPieces || [])[ff.defPieceIdx];
+        // 오사 대상(상대 유닛)을 공개 + HP/사망 반영 → 보드/HP바 실시간 갱신 + 피격/사망 애니.
+        // ★ FIX (사용자 보고): 팀전에서 적 광전사가 자기 팀 유닛을 오사하면 그 '위치도 공개'되어야 함.
+        //   이전엔 1v1(!S.isTeamMode) 에서만 위치 공개+사망GIF 했고 팀전은 도장만 찍었음.
+        if (ff.col != null) {
+          let _op = null, _ffOwn = (ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx);
+          if (!S.isTeamMode) {
+            _op = (S.oppPieces || [])[ff.defPieceIdx];
+          } else {
+            _op = (S.oppPieces || []).find(p => p.ownerIdx === _ffOwn && p.index === ff.defPieceIdx);
+          }
           if (_op) {
             _op.col = ff.col; _op.row = ff.row; _op.marked = true;
             if (typeof ff.newHp === 'number') _op.hp = ff.newHp;
             _ffAnimCells.push({ col: ff.col, row: ff.row });   // 피격 플래시(사망이어도 임팩트 먼저)
             if (ff.destroyed) {
               _op.alive = false;
-              // ★ 사망 GIF — 오사로 죽은 상대 유닛도 방어자 화면에서 사망 연출(예전엔 HP만 0되고 툭 사라짐).
-              _ffDeadDefCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx });
+              // ★ 사망 GIF — 오사로 죽은 상대 유닛도 방어자/상대팀 화면에서 사망 연출(예전엔 HP만 0되고 툭 사라짐).
+              _ffDeadDefCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx, defOwnerIdx: _ffOwn });
             }
           }
         }
