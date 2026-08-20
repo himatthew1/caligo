@@ -2751,9 +2751,19 @@ socket.on('team_game_start', (state) => {
     addLog(`${turnOwnerName}의 턴`, 'system');
     playGameStartAnimation(S.isMyTurn, true, turnOwnerName);
   } else {
-    // 팀전 시작 애니메이션 + 세팅 효과 안내 페이즈(부패한영혼·낡은심장·후원자·어둠의장막) — 1v1 game_start 과 동일.
+    // 팀전 시작 애니메이션 + 후공 SP 지급 연출 + 세팅 효과 안내 페이즈 — 1v1 game_start 과 동일.
     S._setupAnnouncements = Array.isArray(state.setupAnnouncements) ? state.setupAnnouncements.slice() : [];
     S._firstPlayerIdx = (typeof state.firstPlayerIdx === 'number') ? state.firstPlayerIdx : null;
+    // ★ 후공 인스턴트 SP 지급 연출 셋업 (1v1 game_start 와 동일). 팀전 SP바 = 블루(왼쪽 sp-my)/레드(오른쪽 sp-opp) 고정
+    //   → 지급 대상 = 후공 팀(secondTeam) 의 바. 지급분 pip 을 숨겼다가 오브 합류 시 등장.
+    S._pendingSpGrant = null;
+    if (typeof state.secondTeam === 'number') {
+      const st = state.secondTeam;
+      const real = (S.instantSp || []).slice();
+      S.instantSp = real.slice();
+      S.instantSp[st] = Math.max(0, (S.instantSp[st] || 0) - 1);
+      S._pendingSpGrant = { real, side: (st === 0) ? 'mine' : 'opp' };
+    }
     if (S._setupAnnouncements.length) {
       // 효과 적용 '전(before)' HP 로 잠시 되돌림(내/팀원만; 적팀 HP 숨김) → 안내 시점에 after 로 차오름.
       for (const ann of S._setupAnnouncements) for (const c of (ann.hpChanges || [])) {
@@ -2763,14 +2773,23 @@ socket.on('team_game_start', (state) => {
       try { renderTeamProfiles(); renderTeamGameSnapshot(); } catch (e) {}
     }
     playGameStartAnimation(S.isMyTurn);
-    if (S._setupAnnouncements.length) {
+    if (S._pendingSpGrant || S._setupAnnouncements.length) {
       if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(true);
       const _annMs = S._setupAnnouncements.length * 1400;
       const _safety = setTimeout(() => { if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }, 8000 + _annMs);
-      setTimeout(() => {
+      const _g = S._pendingSpGrant; S._pendingSpGrant = null;
+      const _afterSp = () => {
         try { playSetupAnnouncements(() => { clearTimeout(_safety); if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }); }
         catch (e) { clearTimeout(_safety); if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }
-      }, 2600);   // 인트로(≈1.8s) 후 안내 시작
+      };
+      setTimeout(() => {
+        try {
+          if (_g) {
+            if (typeof showSecondPlayerSpAnnounce === 'function') showSecondPlayerSpAnnounce();
+            playSecondPlayerSpGrant(_g.side, () => { S.instantSp = _g.real; try { updateSPBar(); } catch (e) {} _afterSp(); });
+          } else { _afterSp(); }
+        } catch (e) { clearTimeout(_safety); if (typeof setIntroPhaseLock === 'function') setIntroPhaseLock(false); }
+      }, 2600);   // 인트로(≈1.8s) 후 지급 연출 → 안내 시작
     }
   }
 });
