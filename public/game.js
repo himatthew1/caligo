@@ -9836,6 +9836,7 @@ const PASSIVE_BUBBLE_INFO = {
   count:          { pieceType: 'count',          name: '폭정' },
   bodyguard:      { pieceType: 'bodyguard',      name: '충성' },
   torturer:       { pieceType: 'torturer',       name: '표식' },
+  betrayer:       { pieceType: 'slaughterHero',   name: '배반자' },   // ★ 학살영웅 오사 발동 표시
   poisoner:       { pieceType: 'poisoner',       name: '독니' },
   mushkin:        { pieceType: 'mushkin',        name: '포자살포' },
   griffin:        { pieceType: 'griffin',        name: '격노' },     // ★ 정령 피격 발동 — 그리폰 격노 활성

@@ -5884,6 +5884,13 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
         }
       }
     }
+    // ★ 배반자(학살영웅) 패시브 발동 표시 — 오사 발생 시 1회 말풍선 + 토스트/로그(사용자 요청 복원).
+    //   말풍선은 시전자(학살영웅) 카드에, 토스트는 각 클라 시점(_renderPassiveAlert)에 표시.
+    if (room._friendlyFireHits.length > 0 && (!room._attackPassivesFired || !room._attackPassivesFired.has('betrayer'))) {
+      emitToBoth(room, 'passive_alert', { type: 'betrayer', playerIdx: attackerIdx, msg: `배반자: 아군 오사 ${room._friendlyFireHits.length}` });
+      emitToSpectators(room, 'spectator_log', { msg: `배반자: 아군 오사`, type: 'passive', playerIdx: attackerIdx });
+      if (room._attackPassivesFired) room._attackPassivesFired.add('betrayer');
+    }
     // 배반자 — 아군 쥐도 격파 (피격 유효)
     for (const cell of atkCells) {
       for (const aIdx of allyIndices) {
