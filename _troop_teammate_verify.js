@@ -1,99 +1,91 @@
-// 팀전 부대공격(장군) 팀원 자동 지휘 — 헤드리스 결정적 검증.
-//  - executeSkill('general') 가 시전자 자기 왕실 = 수동 큐(_troopQueue), 팀원 왕실 = 자동 큐(_troopTeammates)로 분리하는가.
-//  - 순서: 시전자 왕실(피스 순서) → 팀원 왕실(소유자·피스 순서).
-//  - 수동 큐 소진 후 _resolveTeammateTroops 가 팀원 왕실 공격을 실제로 적용하는가(적 HP 감소).
+// 팀전 부대공격(장군) — 팀원 왕실도 시전자가 '직접' 조작(크로스오너, 자동 아님) 검증(헤드리스).
+//  - executeSkill('general') 큐 = 나1·나2·팀원1·팀원2 (owner-aware 단일 큐).
+//  - 표준/투석기 팀원 크로스공격: attack 핸들러 _troopCrossA 결정식 + processAttack(팀원 소유) 적용.
+//  - 팀원 기마병 질주 크로스: executeSkill('dash', crossOwnerIdx) 가 팀원 유닛을 질주 + 시전자 큐 소진.
 const S = require('./server.js');
-const { createRoom, createPiece, executeSkill, getAllyIndices, getEnemyIndices, isFaction, _resolveTeammateTroops, rooms } = S;
+const { createRoom, createPiece, executeSkill, getAllyIndices, isFaction, processAttack, getAttackCells, rooms } = S;
 
 let pass = 0, fail = 0;
-function ok(name, cond, extra) { if (cond) { pass++; console.log('  ✅', name); } else { fail++; console.log('  ❌', name, extra != null ? '→ ' + JSON.stringify(extra) : ''); } }
+const ok = (n, c, e) => { if (c) { pass++; console.log('  ✅', n); } else { fail++; console.log('  ❌', n, e != null ? JSON.stringify(e) : ''); } };
 
 function mkPlayer(index, teamId, deck) {
   const pieces = deck.map((t, i) => createPiece(t, i + 1, [4, 3, 3][i] || 3)).filter(Boolean);
   return { socketId: 'AI', name: `P${index}`, index, teamId, pieces, draft: {}, hpDist: [4,3,3],
-    actionDone: false, actionUsedSkillReplace: false, skillsUsedBeforeAction: [],
-    _lastActionType: null, slotPos: teamId === 0 ? index : index - 2, alive: true, sp: 20 };
+    actionDone: false, actionUsedSkillReplace: false, skillsUsedBeforeAction: [], _lastActionType: null, alive: true, sp: 20 };
 }
-
-function makeRoom() {
+function makeRoom(casterDeck) {
   const room = createRoom('tt-' + Math.random().toString(36).slice(2, 8), { mode: 'team' });
   room.isAI = true; room._headless = true; room.phase = 'game';
   room.turnNumber = 5; room.currentPlayerIdx = 0; room.turnSlotIdx = 0;
-  // idx0(장군+왕자=team0 시전자) / idx1(왕자·공주=team0 팀원) / idx2,3 team1 적
   room.players = [
-    mkPlayer(0, 0, ['general', 'prince', 'monk']),
+    mkPlayer(0, 0, casterDeck),
     mkPlayer(1, 0, ['prince', 'princess', 'monk']),
     mkPlayer(2, 1, ['king', 'monk', 'watchman']),
     mkPlayer(3, 1, ['king', 'monk', 'watchman']),
   ];
   room.teams = [[0, 1], [2, 3]];
   room.sp = [20, 20]; room.instantSp = [0, 0];
+  room.players.forEach(p => p.pieces.forEach(pc => pc.alive = true));
   rooms[room.id] = room;
   return room;
 }
+// attack 핸들러 _troopCrossA 결정식 재현
+function troopCrossA(caster, idx, decreeOwnerIdx, pieceIdx, room) {
+  const tf0 = (caster._troopQueue && caster._troopQueue.length) ? caster._troopQueue[0] : null;
+  return !!(typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
+    && tf0 && (tf0.ownerIdx ?? idx) === decreeOwnerIdx && tf0.pieceIdx === pieceIdx && room.players[decreeOwnerIdx]);
+}
 
-console.log('== 팀전 부대공격 팀원 자동 지휘 검증 ==');
-const room = makeRoom();
-const caster = room.players[0];    // 장군 시전자
-const mate = room.players[1];      // 팀원 왕실
-const bounds = room.boardBounds;
-
-// 왕실 태그 확인(어떤 유닛이 큐에 들어가는지)
-console.log('  · royal 태그:', room.players.map((p,i)=>`P${i}[`+p.pieces.map(pc=>`${pc.type}:${isFaction(pc,'royal')?'R':'-'}`).join(',')+']').join(' '));
-
-// 배치: 시전자 왕실은 적 인접에 두어 공격 성립. 팀원 왕실도 적 인접.
-// 보드 7x7 (팀전 LV4) 가정 — bounds.min..max.
-const mn = bounds.min, mx = bounds.max;
-// 적 왕(idx2) 을 (3,3) 에 배치. 시전자/팀원 왕실을 인접 배치.
-room.players[2].pieces.forEach((pc,i)=>{ pc.alive=true; pc.col=3; pc.row=3+i<=mx?3+i:mx; });
-room.players[3].pieces.forEach((pc,i)=>{ pc.alive=true; pc.col=4; pc.row=3+i<=mx?3+i:mx; });
-// 시전자 general(0)=(3,2), prince(1)=(2,3), monk(2) 아무곳
-caster.pieces[0].col=3; caster.pieces[0].row=2; caster.pieces[0].alive=true;   // general
-caster.pieces[1].col=2; caster.pieces[1].row=3; caster.pieces[1].alive=true;   // prince (가로3 → (3,3) 적중)
-caster.pieces[2].col=0; caster.pieces[2].row=0; caster.pieces[2].alive=true;   // monk
-// 팀원 prince(0)=(3,4) 세로... prince=가로3, princess=세로3
-mate.pieces[0].col=2; mate.pieces[0].row=3; mate.pieces[0].alive=true;   // prince 가로3 → (3,3)
-mate.pieces[1].col=3; mate.pieces[1].row=2; mate.pieces[1].alive=true;   // princess 세로3 → (3,3)
-mate.pieces[2].col=0; mate.pieces[2].row=6; mate.pieces[2].alive=true;   // monk
-
+console.log('== 팀전 부대공격 팀원 직접 조작(크로스오너) 검증 ==');
+let room = makeRoom(['general', 'prince', 'monk']);
+const caster = room.players[0], mate = room.players[1];
+// 배치
+room.players[2].pieces.forEach((pc,i)=>{pc.alive=true;pc.col=3;pc.row=Math.min(3+i,room.boardBounds.max);});
+caster.pieces[0].col=3; caster.pieces[0].row=2;   // general (+ 모양 → (3,3))
+caster.pieces[1].col=2; caster.pieces[1].row=3;   // prince 가로3 → (3,3)
+caster.pieces[2].col=0; caster.pieces[2].row=0;
+mate.pieces[0].col=2; mate.pieces[0].row=3;        // prince 가로3 → (3,3)
+mate.pieces[1].col=3; mate.pieces[1].row=2;        // princess 세로3 → (3,3)
+mate.pieces[2].col=0; mate.pieces[2].row=6;
 caster.sp = 20;
-const gi = caster.pieces.findIndex(p => p.type === 'general');
-ok('장군 존재', gi >= 0, gi);
 
+const gi = caster.pieces.findIndex(p => p.type === 'general');
 const r = executeSkill(room, 0, gi, 'general', {});
 ok('부대공격 시전 성공', r && r.ok, r && r.msg);
-console.log('  · 시전 메시지:', r && r.msg);
+const q = caster._troopQueue || [];
+console.log('  · 큐:', q.map(e=>`${e.ownerIdx}:${e.pieceIdx}:${e.type}`).join(' | '));
+ok('큐에 시전자+팀원 왕실 모두 포함', q.length === 4, q.length);
+ok('순서 = 나1·나2·팀원1·팀원2', q[0].ownerIdx===0 && q[1].ownerIdx===0 && q[2].ownerIdx===1 && q[3].ownerIdx===1, q.map(e=>e.ownerIdx));
+ok('자동 지휘 큐(_troopTeammates) 없음(수동 조작)', caster._troopTeammates == null);
 
-// 수동 큐 = 시전자 자기 왕실만
-const mq = caster._troopQueue || [];
-ok('수동 큐 존재(시전자 왕실)', mq.length > 0, mq);
-ok('수동 큐 전부 시전자 소유(ownerIdx=0)', mq.every(q => (q.ownerIdx ?? 0) === 0), mq.map(q=>q.ownerIdx));
-console.log('  · 수동 큐:', mq.map(q=>`${q.ownerIdx}:${q.pieceIdx}:${q.type}`).join(' | '));
+// 팀원 첫 유닛(팀원 prince, ownerIdx=1, pieceIdx=0)을 큐 앞으로 가정 → 크로스공격 결정식
+caster._troopQueue = [{ ownerIdx: 1, pieceIdx: 0, tier: 3, type: 'prince' }];
+ok('크로스공격 결정식=true(팀원 조작, decreeOwnerIdx=1)', troopCrossA(caster, 0, 1, 0, room) === true);
+ok('크로스공격 결정식=false(자기 idx)', troopCrossA(caster, 0, 0, 0, room) === false);
+// 실제 데미지: 팀원 prince(2,3) 가로3 → (3,3) 적. processAttack(팀원 소유=1)
+const enemyHpBefore = [2,3].reduce((s,ei)=>s+room.players[ei].pieces.reduce((a,p)=>a+(p.alive?p.hp:0),0),0);
+const matePrince = mate.pieces[0];
+const cells = getAttackCells(matePrince.type, matePrince.col, matePrince.row, room.boardBounds, {});
+const hits = processAttack(room, 1, matePrince, cells, undefined, { suppressSpUpdate: true });
+ok('팀원 유닛(소유=1)으로 크로스공격 명중', hits.length > 0, hits.length);
+const enemyHpAfter = [2,3].reduce((s,ei)=>s+room.players[ei].pieces.reduce((a,p)=>a+(p.alive?p.hp:0),0),0);
+ok('적 HP 감소', enemyHpAfter < enemyHpBefore, { before: enemyHpBefore, after: enemyHpAfter });
 
-// 자동 큐 = 팀원 왕실만, 순서=팀원 소유·피스순
-const tq = caster._troopTeammates || [];
-ok('자동 큐 존재(팀원 왕실)', tq.length > 0, tq);
-ok('자동 큐 전부 팀원 소유(ownerIdx=1)', tq.every(q => q.ownerIdx === 1), tq.map(q=>q.ownerIdx));
-console.log('  · 자동 큐:', tq.map(q=>`${q.ownerIdx}:${q.pieceIdx}:${q.type}`).join(' | '));
+// ── 팀원 기마병 질주 크로스: executeSkill('dash', crossOwnerIdx) ──
+console.log('== 팀원 기마병 질주 크로스 ==');
+room = makeRoom(['general', 'monk', 'watchman']);
+const caster2 = room.players[0];
+// 팀원(1)에 기마병 배치
+const mate2 = room.players[1];
+mate2.pieces[0] = createPiece('cavalry', 1, 3); mate2.pieces[0].alive = true; mate2.pieces[0].col = 1; mate2.pieces[0].row = 1;
+// 시전자 큐: 팀원 기마병만
+caster2._troopQueue = [{ ownerIdx: 1, pieceIdx: 0, tier: 1, type: 'cavalry' }];
+caster2.actionDone = true; caster2.actionUsedSkillReplace = true;   // 부대공격 시전 후 상태
+const before = { c: mate2.pieces[0].col, r: mate2.pieces[0].row };
+const dr = executeSkill(room, 0, 0, 'dash', { col: 1, row: 3 }, 1);   // crossOwnerIdx=1
+ok('팀원 기마병 질주 크로스 성공', dr && dr.ok, dr && dr.msg);
+ok('팀원 기마병이 목표로 이동', mate2.pieces[0].row === 3 && mate2.pieces[0].col === 1, { c: mate2.pieces[0].col, r: mate2.pieces[0].row, before });
+ok('시전자 큐 소진(질주 후 비움)', caster2._troopQueue == null, caster2._troopQueue);
 
-// 팀원 왕실 피스 인덱스 순서 오름차순
-ok('자동 큐 피스 순서 오름차순', tq.every((q,i)=> i===0 || q.pieceIdx > tq[i-1].pieceIdx), tq.map(q=>q.pieceIdx));
-
-// 적 총 HP 스냅샷(자동 지휘 전)
-const enemyHpBefore = [2,3].reduce((s,ei)=> s + room.players[ei].pieces.reduce((a,p)=>a+(p.alive?p.hp:0),0), 0);
-console.log('  · 자동 지휘 전 적 총 HP:', enemyHpBefore);
-
-// 수동 큐를 비운 것으로 간주하고(시전자가 자기 왕실 조작 완료) 자동 지휘 직접 호출
-caster._troopQueue = null;
-_resolveTeammateTroops(room, 0);
-ok('_resolveTeammateTroops 호출 후 _troopTeammates 소거', caster._troopTeammates == null);
-
-// setTimeout 기반 → 충분히 대기 후 검증
-const waitMs = tq.length * 1500 + 800;
-setTimeout(() => {
-  const enemyHpAfter = [2,3].reduce((s,ei)=> s + room.players[ei].pieces.reduce((a,p)=>a+(p.alive?p.hp:0),0), 0);
-  console.log('  · 자동 지휘 후 적 총 HP:', enemyHpAfter);
-  ok('팀원 자동 지휘가 적에게 피해 적용(HP 감소)', enemyHpAfter < enemyHpBefore, { before: enemyHpBefore, after: enemyHpAfter });
-  console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
-  process.exit(fail ? 1 : 0);
-}, waitMs);
+console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
+setTimeout(() => process.exit(fail ? 1 : 0), 300);

@@ -658,10 +658,6 @@ function doCavalryDash(room, playerIdx, pieceIdx, dCol, dRow) {
   if (player._troopQueue && player._troopQueue.length && player._troopQueue[0].pieceIdx === pieceIdx) {
     player._troopQueue.shift();
     if (player._troopQueue.length === 0) player._troopQueue = null;
-    // ★ 시전자 자기 왕실 큐 소진(기마병 질주로) → 팀원 왕실 자동 지휘 시작.
-    if (!player._troopQueue && player._troopTeammates && room.mode === 'team') {
-      setTimeout(() => _resolveTeammateTroops(room, playerIdx), 900);
-    }
   }
   // ★ 착지칸 덫 — 사용자 요청: 경로 데미지를 모두 적용한 뒤(도착 후) 순차 발동. 여기선 감지만, 발동은 지연 스케줄(use_skill 핸들러).
   let dashTrapPending = null;
@@ -7145,9 +7141,11 @@ function _suppressionSurcharge(room, caster) {
   }
   return 0;
 }
-function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
-  const player = room.players[playerIdx];
-  const piece = player.pieces[pieceIdx];
+function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx) {
+  const player = room.players[playerIdx];   // ★ 경제(SP·행동·큐)는 항상 시전자
+  // ★ 부대공격 팀원 크로스(기마병 질주): 조작 대상 piece 는 팀원 소유. 그 외 스킬은 crossOwnerIdx 미전달 → 무영향.
+  const _opOwner = (typeof crossOwnerIdx === 'number' && room.players[crossOwnerIdx]) ? room.players[crossOwnerIdx] : player;
+  const piece = _opOwner.pieces[pieceIdx];
   if (!piece || !piece.alive) return { ok: false, msg: '올바르지 않은 말입니다.' };
   if ((piece.statusEffects || []).some(e => e.type === 'betray')) return { ok: false, msg: '배신 상태에서는 조작할 수 없습니다.' };   // ★ 이야기꾼 선동
   if (!piece.hasSkill) return { ok: false, msg: '이 말은 스킬이 없습니다.' };
@@ -8013,8 +8011,16 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
 
     // ── CAVALRY(기마병): 질주(특성) — 전용 함수 위임. UI는 부채꼴 질주 버튼(스킬 탭 아님). ──
     case 'cavalry': {
-      const dr = doCavalryDash(room, playerIdx, pieceIdx, params?.col, params?.row);
+      const _dashOwner = (typeof crossOwnerIdx === 'number') ? crossOwnerIdx : playerIdx;
+      const dr = doCavalryDash(room, _dashOwner, pieceIdx, params?.col, params?.row);
       if (!dr.ok) return { ok: false, msg: dr.msg };
+      // ★ 크로스(팀원 기마병): doCavalryDash 는 팀원 큐(없음)를 shift → 시전자 큐를 여기서 소진.
+      if (typeof crossOwnerIdx === 'number') {
+        const cq = player._troopQueue;
+        if (cq && cq[0] && cq[0].pieceIdx === pieceIdx && (cq[0].ownerIdx ?? playerIdx) === crossOwnerIdx) {
+          cq.shift(); if (cq.length === 0) player._troopQueue = null;
+        }
+      }
       // ★ 질주는 스킬이 아닌 이동 — 시전자 스킬 토스트 없음. 상대는 자기 유닛이 피격됐을 때만 '공격받았습니다'.
       result.msg = null;
       result.oppMsg = (dr.hits && dr.hits.length > 0) ? '공격받았습니다!' : null;
@@ -8241,22 +8247,17 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params) {
         return idxs.filter(ui => _royalCanAct(owner.pieces[ui]))
           .map(ui => ({ ownerIdx: oi, pieceIdx: ui, tier: owner.pieces[ui].tier || 1, type: owner.pieces[ui].type }));
       };
-      // ★ 시전자 자기 왕실 = 수동 큐(나1·나2). 팀원 왕실 = 자동 지휘 큐(팀원1·팀원2, 시전자 조작 후 서버가 자동 해결).
-      const manualQ = buildOwnerQ(playerIdx);
-      const teammateIdxs = (room.mode === 'team' && typeof getAllyIndices === 'function')
-        ? getAllyIndices(room, playerIdx).filter(i => i !== playerIdx) : [];
-      const teammateQ = teammateIdxs.flatMap(buildOwnerQ);
-      if (manualQ.length === 0 && teammateQ.length === 0) { result.msg = '부대공격: 공격 가능한 왕실 유닛이 없습니다'; result.oppMsg = '부대공격'; break; }
-      player._troopQueue = manualQ.length ? manualQ : null;
-      player._troopTeammates = teammateQ.length ? teammateQ : null;   // 수동 큐 소진 후 서버 자동 해결
-      result.msg = `부대공격 개시 — 왕실 ${manualQ.length + teammateQ.length}명 (내 ${manualQ.length} 조작 · 팀원 ${teammateQ.length} 자동)`;
+      // ★ 팀전: 시전자 왕실(나1·나2) → 팀원 왕실(팀원1·팀원2)을 한 큐에. 전부 시전자가 직접 조작(자동 아님).
+      //   팀원 유닛은 클라에서 크로스오너 조작(decreeOwnerIdx 동봉) — 내 유닛처럼 '공격 확정'만 누르면 됨.
+      const ownerOrder = (room.mode === 'team' && typeof getAllyIndices === 'function')
+        ? [playerIdx, ...getAllyIndices(room, playerIdx).filter(i => i !== playerIdx)]
+        : [playerIdx];
+      const queue = ownerOrder.flatMap(buildOwnerQ);
+      if (queue.length === 0) { result.msg = '부대공격: 공격 가능한 왕실 유닛이 없습니다'; result.oppMsg = '부대공격'; break; }
+      player._troopQueue = queue;
+      result.msg = `부대공격 개시 — 왕실 ${queue.length}명을 순서대로 조작하세요`;
       result.oppMsg = `부대공격: 상대 왕실 부대 개시`;
-      result.data.troopQueue = (player._troopQueue || []).map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type }));
-      result.data.troopAutoTeammates = teammateQ.length;   // 클라 안내용(팀원 N 자동)
-      // 시전자 자기 왕실이 없으면(수동 큐 공백) 팀원 자동 지휘를 곧바로 시작(skill_result emit 후).
-      if (!player._troopQueue && player._troopTeammates) {
-        setTimeout(() => _resolveTeammateTroops(room, playerIdx), 1200);
-      }
+      result.data.troopQueue = queue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type }));
       break;
     }
 
@@ -11170,42 +11171,6 @@ function aiExecuteMove(room, action) {
   }
 }
 
-// ★ 팀전 부대공격 — 팀원 왕실 자동 지휘. 시전자(인간)가 자기 왕실(나1·나2)을 큐로 수동 조작한 뒤,
-//   수동 큐가 비면 이 함수가 팀원 왕실(팀원1·팀원2)을 순서대로 자동 공격시킴(연출용 지연 emit).
-//   각 유닛 공격은 aiTeamExecuteAttack(owner-aware · 전체 브로드캐스트 · endTurn 미호출)을 재사용.
-function _resolveTeammateTroops(room, casterIdx) {
-  const caster = room.players[casterIdx];
-  if (!caster) return;
-  const list = (caster._troopTeammates || []).slice();
-  caster._troopTeammates = null;
-  if (!list.length || room.mode !== 'team') return;
-  const STEP = 1500;   // 팀원 유닛 간 간격(연출 여유)
-  list.forEach((entry, i) => {
-    setTimeout(() => {
-      if (!rooms[room.id] || room.phase !== 'game') return;
-      if (room.currentPlayerIdx !== casterIdx) return;   // 시전자 턴이 이미 넘어갔으면 중단
-      const owner = room.players[entry.ownerIdx];
-      const p = owner && owner.pieces[entry.pieceIdx];
-      if (!p || !p.alive) return;
-      if ((p.statusEffects || []).some(e => e.type === 'betray')) return;
-      if (p.type === 'cavalry') {
-        const d = (typeof bestCavalryDash === 'function') ? bestCavalryDash(room, entry.ownerIdx, p) : null;
-        startPhase(room);
-        if (d) doCavalryDash(room, entry.ownerIdx, entry.pieceIdx, d.col, d.row);
-        flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
-        broadcastTeamGameState(room);
-      } else {
-        let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
-        if (p.type === 'catapult' || p.type === 'shadowAssassin' || p.type === 'witch') {
-          const bc = (typeof aiTeamBestTargetCell === 'function') ? aiTeamBestTargetCell(room, entry.ownerIdx, p) : null;
-          if (bc) { extra.tCol = bc.col; extra.tRow = bc.row; }
-        }
-        aiTeamExecuteAttack(room, entry.ownerIdx, entry.pieceIdx, extra);
-      }
-    }, i * STEP);
-  });
-}
-
 // ★ AI 부대공격(장군) — 인간은 큐로 하나씩 조작하지만 AI 는 서버에서 저티어부터 왕실 유닛 전원을
 //   일괄 공격/질주시키고 결과를 한 번에 emit(큐 미사용). 1v1(AI=1) 전용. 반환 성공 여부.
 function aiRunTroopAttack(room, ownerIdx, generalIdx) {
@@ -13504,10 +13469,6 @@ io.on('connection', (socket) => {
         && (player._troopQueue[0].ownerIdx ?? idx) === atkOwnerIdx) {
       player._troopQueue.shift();
       if (player._troopQueue.length === 0) player._troopQueue = null;
-      // ★ 시전자 자기 왕실 큐 소진 → 팀원 왕실 자동 지휘 시작(공격 애니 이후).
-      if (!player._troopQueue && player._troopTeammates && room.mode === 'team') {
-        setTimeout(() => _resolveTeammateTroops(room, idx), 900);
-      }
     }
     // ★ 칙명 소멸은 아래 attack_result/decreeUnit emit '이전'에 처리해야 클라가 null 을 받아 칙명 페이즈를 종료함.
     if (_decreeAttack) { player._decreeUnit = null; try { broadcastProfileHighlight(room, -1, -1, false); } catch (e) {} }   // ★ 칙명 대상이 공격 = 칙명 소멸 + 강조 해제(공유)
@@ -13875,17 +13836,24 @@ io.on('connection', (socket) => {
   });
 
   // ── 스킬 사용 ──
-  socket.on('use_skill', ({ pieceIdx, skillId, params }) => {
+  socket.on('use_skill', ({ pieceIdx, skillId, params, decreeOwnerIdx }) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.phase !== 'game') return;
     const idx = socket.data.idx;
     if (room.currentPlayerIdx !== idx) { socket.emit('err', { msg: '당신의 턴이 아닙니다.' }); return; }
 
+    // ★ 부대공격 팀원 기마병 질주 크로스 — 시전자 큐 앞이 팀원 기마병일 때만 허용(dash 전용).
+    const _cp = room.players[idx];
+    const _cpFront = (_cp && _cp._troopQueue && _cp._troopQueue.length) ? _cp._troopQueue[0] : null;
+    const _troopCrossSkill = (skillId === 'dash' && typeof decreeOwnerIdx === 'number' && decreeOwnerIdx !== idx
+      && _cpFront && (_cpFront.ownerIdx ?? idx) === decreeOwnerIdx && _cpFront.pieceIdx === pieceIdx
+      && room.players[decreeOwnerIdx]) ? decreeOwnerIdx : undefined;
+
     // ★ 사망 기폭 페이즈 시작 — executeSkill 안 handleDeath 가 화약상 죽이면 큐에 push.
     //   handler 끝의 flushPhase 가 cast/bomb_detonated 시간차 스케줄링 + 게임종료 검사 지연.
     startPhase(room);
 
-    const result = executeSkill(room, idx, pieceIdx, skillId, params || {});
+    const result = executeSkill(room, idx, pieceIdx, skillId, params || {}, _troopCrossSkill);
     if (!result.ok) {
       socket.emit('err', { msg: result.msg });
       // ★ FIX #26: 스킬 실패 시 startPhase가 열어 둔 _currentPhase를 flushPhase로 정리
@@ -13894,7 +13862,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const skillPiece = room.players[idx].pieces[pieceIdx];
+    const skillPiece = room.players[(_troopCrossSkill !== undefined) ? _troopCrossSkill : idx].pieces[pieceIdx];
 
     // ★ 이동관련 스킬(구동·분신·절대복종반지·바람몰이·질주) = 숨은 배치 대격변 → 관측 AI 신념 광역 재확산(spread 2).
     if (['drive', 'windPush', 'ring', 'brothers', 'sprint'].includes(skillId)) {
@@ -14474,7 +14442,6 @@ module.exports = {
   CHARACTERS,
   getAttackCells, resolveDamage, processAttack,
   inBounds, getBorderCells, getBoardShrinkSchedule,
-  _resolveTeammateTroops, aiTeamExecuteAttack, aiTeamBestTargetCell,
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree, _aiPickRingPlay,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,

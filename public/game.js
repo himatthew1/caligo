@@ -18766,9 +18766,17 @@ function _clearAttackConfirmBtns() {
 //   - 기마병: 질주 페이즈(직선 1~2칸 선택).
 //   - 투석기: 단일 타깃 선택 페이즈(칸 클릭 → 확정).
 //   유닛 사이엔 attack_result/skill_result 애니(피격·사망·후속효과)가 텀을 두고 처리된 뒤 호출됨.
+function _clearTroopCross() {
+  // 부대공격에서 잠시 빌려 쓴 크로스오너 상태(팀원 유닛 조작) 정리.
+  if (S._troopCrossBorrow) {
+    S.decreeCrossActive = false; S.decreeCrossOwnerIdx = null; S.decreeCrossPieceIdx = null;
+    S.decreeCrossPc = null; S.decreeCrossMode = null; S._troopCrossBorrow = false;
+  }
+}
 function advanceTroopStep() {
   if (!S.isMyTurn) return;
   _clearAttackConfirmBtns();
+  _clearTroopCross();
   // 큐가 비었으면(부대공격 종료) 상태 정리 후 턴종료 가능 상태로.
   if (!S.troopQueue || !S.troopQueue.length) {
     S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
@@ -18781,12 +18789,42 @@ function advanceTroopStep() {
   }
   const front = S.troopQueue[0];
   const idx = front.pieceIdx;
+  const ownerIdx = (typeof front.ownerIdx === 'number') ? front.ownerIdx : S.playerIdx;
+  const isCross = S.isTeamMode && ownerIdx !== S.playerIdx;   // ★ 팀원 왕실 = 크로스오너 조작
+  document.getElementById('btn-cancel')?.classList.add('hidden');   // 부대공격은 취소 불가
+  document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단(강제)
+
+  if (isCross) {
+    // ★ 팀원 유닛 — 칙명-크로스 인프라(S.decreeCross*) 재사용. 내 말 파이프라인(myPieces/selectedPiece) 미사용.
+    const pc = S.teammatePieces && S.teammatePieces[idx];
+    if (!pc || !pc.alive) return;   // 죽은 유닛은 서버가 큐에서 제거 — 다음 이벤트에서 재호출.
+    S.selectedPiece = null; S.targetSelectMode = false; S.targetCol = undefined; S.targetRow = undefined;
+    S.decreeCrossActive = true; S.decreeCrossOwnerIdx = ownerIdx; S.decreeCrossPieceIdx = idx;
+    S.decreeCrossPc = pc; S._troopCrossBorrow = true;
+    if (pc.type === 'cavalry') {
+      S.decreeCrossMode = 'dash';
+      if (typeof setActionButtonMode === 'function') setActionButtonMode('move');
+      try { renderGameBoard(); } catch (e) {}
+      setActionHint(`부대공격 — 팀원 ${pc.name} 질주: 직선 1~2칸을 선택하세요.`);
+    } else if (pc.type === 'catapult') {
+      S.decreeCrossMode = 'attack';   // 셀 클릭 → 대상 지정(decreeCross 클릭 분기가 처리)
+      if (typeof setActionButtonMode === 'function') setActionButtonMode('attack');
+      try { renderGameBoard(); } catch (e) {}
+      setActionHint(`부대공격 — 팀원 ${pc.name}: 공격할 칸을 선택하세요.`);
+    } else {
+      S.decreeCrossMode = 'attack';
+      if (typeof setActionButtonMode === 'function') setActionButtonMode('attack');
+      try { renderGameBoard(); } catch (e) {}
+      _placeDecreeCrossAttackBtn(pc);   // decreeOwnerIdx 동봉 공격 확정 버튼
+      setActionHint(`부대공격 — 팀원 ${pc.name}: 공격 확정을 누르세요.`);
+    }
+    return;
+  }
+
   const pc = S.myPieces && S.myPieces[idx];
   if (!pc || !pc.alive) return;   // 죽은 유닛은 서버가 큐에서 제거 — 다음 이벤트에서 재호출.
   S.selectedPiece = idx;
   S.targetCol = undefined; S.targetRow = undefined;
-  document.body.classList.add('action-locked');   // 다른 유닛 상호작용 차단(강제)
-  document.getElementById('btn-cancel')?.classList.add('hidden');   // 부대공격은 취소 불가
   if (pc.type === 'cavalry') {
     S.action = 'dash'; S.targetSelectMode = false;
     if (typeof setActionButtonMode === 'function') setActionButtonMode('move');
@@ -19282,7 +19320,32 @@ function handleGameCellClick(col, row) {
   // ★ 칙명 팀원 크로스 조작 — 전용 상태로 이동/공격(내 말 파이프라인 우회, decreeOwnerIdx 동봉).
   if (S.decreeCrossActive) {
     const dp = S.decreeCrossPc;
-    if (!dp || !dp.alive) { try { exitDecreePhase(); } catch (e) {} return; }
+    if (!dp || !dp.alive) { if (S._troopCrossBorrow) return; try { exitDecreePhase(); } catch (e) {} return; }
+    // ★ 부대공격 팀원 조작(빌려 쓴 크로스) — 기마병 질주: 셀 클릭 → cross dash emit(고정 모드, 재클릭 무시).
+    if (S._troopCrossBorrow) {
+      if (S.decreeCrossMode === 'dash') {
+        if (dp.col === col && dp.row === row) return;   // 자기 칸 무시(부대공격은 유닛 강제 지정)
+        const dc = col - dp.col, dr = row - dp.row;
+        const straight = (dc === 0) !== (dr === 0);
+        const dist = Math.abs(dc) + Math.abs(dr);
+        if (!straight || dist < 1 || dist > 2) { setActionHint('직선 1~2칸만 질주할 수 있습니다.', true); return; }
+        if (S.destroyedCells && S.destroyedCells.some(d => d.col === col && d.row === row)) { setActionHint('파괴된 칸에는 착지할 수 없습니다.', true); return; }
+        socket.emit('use_skill', { pieceIdx: S.decreeCrossPieceIdx, skillId: 'dash', params: { col, row }, decreeOwnerIdx: S.decreeCrossOwnerIdx });
+        return;
+      }
+      if (S.decreeCrossMode === 'attack') {
+        const isTargetPick = (dp.type === 'shadowAssassin' || dp.type === 'catapult');
+        if (isTargetPick && !(dp.col === col && dp.row === row)) {
+          if (dp.type === 'shadowAssassin' && (Math.abs(col - dp.col) > 1 || Math.abs(row - dp.row) > 1)) { setActionHint('주변 9칸 중에서만 선택 가능합니다.', true); return; }
+          document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
+          const tcell = document.querySelector(`#game-board .cell[data-col="${col}"][data-row="${row}"]`);
+          if (tcell) tcell.classList.add('target-locked-cell');
+          _placeDecreeCrossAttackBtn(dp, { tCol: col, tRow: row });
+        }
+        return;   // 일반 공격은 머리 위 확정 버튼으로만(재클릭·타칸 무시)
+      }
+      return;
+    }
     // 대상 유닛 자기 셀 재클릭 — 모드 초기화 후 부채꼴 재오픈(이동↔공격 전환).
     if (dp.col === col && dp.row === row) {
       S.decreeCrossMode = null;
