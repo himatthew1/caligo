@@ -1891,14 +1891,16 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   //     광역이 전무하면(aoeMul 0.5) 아군 시너지 위해 밀집 허용. (사용자: 뭉칠지/퍼트릴지 결정)
   const et = ctx.enemyThreat || { aoeMul: 1, hLine: false, vLine: false, borderThreat: false };
   if (piece.type !== 'bodyguard') {
-    // ★ 사용자 피드백: AI가 '자기 유닛끼리' 뭉침 → 분산 회피 대상을 팀원뿐 아니라 '자기 포함'
-    //   모든 아군(friendlyIdxs)으로 확대. aoeMul 하한(0.8)으로 적 광역이 없어도 인접 배치는 항상 억제.
+    // ★ 사용자 피드백: AI가 '자기 유닛끼리' 항상 뭉침 → 분산 회피 대상을 팀원뿐 아니라 '자기 포함'
+    //   모든 아군(friendlyIdxs)으로 확대(근본: 팀전은 teammateIdxs 에 자기가 빠져 자기 유닛 분산이 전무했음).
+    //   aoeMul 하한(0.7)으로 적 광역이 없어도 무의미한 밀집은 억제 — 단 지휘관/호위무사 시너지(+10)는
+    //   이 패널티를 이기므로 '지휘관 픽 시 뭉침'은 그대로 유지(사용자: 지휘관이면 뭉치는 게 답).
     for (const tIdx of friendlyIdxs) {
       const tp = room.players[tIdx]; if (!tp) continue;
       for (const tpc of (tp.pieces || [])) {
         if (!tpc.alive || tpc.col < 0 || tpc === piece) continue;
         const md = Math.abs(tpc.col - c) + Math.abs(tpc.row - r);
-        if (md === 1) score -= 8 * Math.max(0.8, et.aoeMul);
+        if (md === 1) score -= 6 * Math.max(0.7, et.aoeMul);
         // 4b. 라인 공격수(창병=열, 기병=행 등) 대비 — 같은 행/열 정렬 회피 (인접 아니어도)
         if (md >= 2) {
           if (et.vLine && tpc.col === c) score -= 5;   // 같은 열 정렬 = 열 광역에 일렬피격
