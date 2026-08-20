@@ -790,17 +790,43 @@ function darkVeilActive(room) {
 // ★ 어둠장막 봉인 제외 유닛(사용자 정정) — 공격범위가 '고정'이 아닌 변주 유닛.
 //   투석기·그림자암살자(한 칸 지정) / 화약상(폭탄 설치·기폭) / 기마병(질주 경로) / 마녀(공격 없음).
 //   ★ 타입 기준이라 이단자(cult)로 소속이 바뀌어 악인 예외를 잃어도 이 유닛들은 항상 봉인에서 자유.
+//   ※ 쥐장수는 제외 아님 — '제자리' 고정 공격칸을 봉인(아래 특수처리).
 const DARK_VEIL_EXEMPT_TYPES = new Set(['catapult', 'shadowAssassin', 'witch', 'gunpowder', 'cavalry']);
 function applyDarkVeil(room, piece, cells) {
   if (!piece || !Array.isArray(cells) || !cells.length) return cells;
-  // ★ FIX (사용자 보고: 투석기가 마왕 있으면 무조건 빗나감): 어둠장막은 공격 '범위'에서 1칸을 봉인하는
-  //   효과인데, 단일 셀/변주 공격은 그 1칸이 유일/가변 타깃이라 제거하면 공격이 소멸(항상 빗나감)함.
-  //   → ① 셀이 1개 이하면 봉인 X(최소 1칸 보존), ② 변주 유닛(위 세트)은 타입 기준으로 봉인 X.
-  if (cells.length <= 1) return cells;
   if (DARK_VEIL_EXEMPT_TYPES.has(piece.type)) return cells;
   if (piece._darkVeilSeed == null) return cells;
   if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인(현재 소속) 제외
   if (!darkVeilActive(room)) return cells;   // 마왕 참수/사망 등 비활성이면 전 범위 복구
+  const bounds = room.boardBounds || { min: 0, max: 6 };
+  const size = bounds.max - bounds.min + 1;
+
+  // ★ 쥐장수: '제자리(own-position)' 고정 공격칸을 봉인. 쥐 위치는 변주라 유지 — 제자리만 막음.
+  if (piece.type === 'ratMerchant') {
+    return cells.filter(c => !(c.col === piece.col && c.row === piece.row));
+  }
+
+  // ★ FIX: 단일 셀/변주 공격은 그 1칸이 유일 타깃이라 제거하면 공격 소멸(항상 빗나감) → 최소 1칸 보존.
+  if (cells.length <= 1) return cells;
+
+  // ★ 한줄 지칭(세로열=창병 / 가로행=갈고리살인마): 봉인칸을 '유닛 상대 오프셋'으로 잡아 유닛과 함께
+  //   이동 + 보드 밖으로 밀리면 반대편으로 루핑(사용자 설계). (index 방식은 클리핑 시 봉인칸이 튀어 부적절.)
+  const _sameCol = cells.every(c => c.col === cells[0].col);
+  const _sameRow = cells.every(c => c.row === cells[0].row);
+  if (cells.length === size && _sameCol) {   // 세로 한줄
+    const off = piece._darkVeilSeed % size;
+    const sr = bounds.min + (((piece.row - bounds.min + off) % size) + size) % size;
+    const out = cells.filter(c => c.row !== sr);
+    return out.length ? out : cells;
+  }
+  if (cells.length === size && _sameRow) {   // 가로 한줄
+    const off = piece._darkVeilSeed % size;
+    const sc = bounds.min + (((piece.col - bounds.min + off) % size) + size) % size;
+    const out = cells.filter(c => c.col !== sc);
+    return out.length ? out : cells;
+  }
+
+  // 그 외 고정 패턴: 현재 범위의 seed%length 번째 1칸 제거(기존 방식).
   const rmIdx = piece._darkVeilSeed % cells.length;
   return cells.filter((c, i) => i !== rmIdx);
 }
