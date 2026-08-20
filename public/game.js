@@ -9966,7 +9966,15 @@ function flushDefensiveAlerts(opts) {
   const list = S._pendingDefensiveAlerts;
   S._pendingDefensiveAlerts = [];
   const render = (item) => {
-    if (skipReduction && REDUCTION_PASSIVE_TYPES.has(item.type)) { addLog(item.msg, 'skill'); return; }  // 격파 시 토스트 생략
+    if (skipReduction && REDUCTION_PASSIVE_TYPES.has(item.type)) {
+      // 격파 시 '토스트'만 생략 — 단, '패시브 발동 말풍선'은 유지(사용자 요청: 아군 피격 시 패시브가
+      //   발동됐다는 표시가 필요). 로그도 유지.
+      addLog(item.msg, 'skill');
+      if (typeof item.playerIdx === 'number' && PASSIVE_BUBBLE_INFO[item.type]) {
+        try { showPassiveBubble(item.type, item.playerIdx); } catch (e) {}
+      }
+      return;
+    }
     _renderPassiveAlert(item);
   };
   if (list.length === 1) { render(list[0]); return; }   // 단일 발동 = 즉시
