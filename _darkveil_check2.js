@@ -1,0 +1,24 @@
+const S = require('./server.js');
+const { createRoom, createPiece, getAttackCells, applyDarkVeil, darkVeilActive, rooms } = S;
+function mkP(index,teamId,deck){const pieces=deck.map((t,i)=>createPiece(t,i+1,[4,3,3][i]||3)).filter(Boolean);return{socketId:'AI',name:'P'+index,index,teamId,pieces,alive:true};}
+const room=createRoom('dv2-'+Math.random().toString(36).slice(2,7),{mode:'1v1'});
+room.phase='game';
+room.players=[mkP(0,0,['catapult','gunpowder','spearman']), mkP(1,1,['demonKing','monk','watchman'])];
+room.players.forEach(p=>p.pieces.forEach(pc=>pc.alive=true));
+const b=room.boardBounds;
+const cata=room.players[0].pieces[0]; cata.col=3; cata.row=3; cata._darkVeilSeed=7;
+const gun=room.players[0].pieces[1]; gun.col=3; gun.row=3; gun._darkVeilSeed=7;
+const spear=room.players[0].pieces[2]; spear.col=3; spear.row=3; spear._darkVeilSeed=7;
+room.players[1].pieces[0].col=4; room.players[1].pieces[0].row=4; room.players[1].pieces[0].alive=true;
+rooms[room.id]=room;
+let pass=0,fail=0; const ok=(n,c,e)=>{if(c){pass++;console.log('  ✅',n);}else{fail++;console.log('  ❌',n,e!=null?JSON.stringify(e):'');}};
+console.log('== 어둠의 장막 변주 유닛 제외 검증 (darkVeilActive='+darkVeilActive(room)+') ==');
+const cCells=getAttackCells('catapult',cata.col,cata.row,b,{tCol:4,tRow:4});
+ok('투석기 보존', applyDarkVeil(room,cata,cCells).length===cCells.length, {raw:cCells.length,after:applyDarkVeil(room,cata,cCells).length});
+const gCells=getAttackCells('gunpowder',gun.col,gun.row,b,{});
+console.log('  · 화약상 raw:',gCells.length);
+ok('화약상 보존(변주 제외)', applyDarkVeil(room,gun,gCells).length===gCells.length, {raw:gCells.length,after:applyDarkVeil(room,gun,gCells).length});
+const sCells=getAttackCells('spearman',spear.col,spear.row,b,{});
+ok('창병(고정)은 여전히 1칸 봉인', applyDarkVeil(room,spear,sCells).length===sCells.length-1, {raw:sCells.length,after:applyDarkVeil(room,spear,sCells).length});
+console.log(`\n결과: ${pass} 통과 / ${fail} 실패`);
+process.exit(fail?1:0);

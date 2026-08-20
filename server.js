@@ -787,12 +787,17 @@ function darkVeilActive(room) {
 // 어둠장막 적용: 악인 외 유닛의 '현재' 공격셀에서 고정 시드로 정한 N번째 칸 1개 제거.
 //   ★ 시드 방식이라 개구리(가로3)·정비·생장 등 범위가 바뀌어도 항상 1칸 감소하고,
 //     원복 시 원래 범위의 같은 인덱스 칸이 다시 봉인돼 게임 시작 상태와 일관됨.
+// ★ 어둠장막 봉인 제외 유닛(사용자 정정) — 공격범위가 '고정'이 아닌 변주 유닛.
+//   투석기·그림자암살자(한 칸 지정) / 화약상(폭탄 설치·기폭) / 기마병(질주 경로) / 마녀(공격 없음).
+//   ★ 타입 기준이라 이단자(cult)로 소속이 바뀌어 악인 예외를 잃어도 이 유닛들은 항상 봉인에서 자유.
+const DARK_VEIL_EXEMPT_TYPES = new Set(['catapult', 'shadowAssassin', 'witch', 'gunpowder', 'cavalry']);
 function applyDarkVeil(room, piece, cells) {
   if (!piece || !Array.isArray(cells) || !cells.length) return cells;
   // ★ FIX (사용자 보고: 투석기가 마왕 있으면 무조건 빗나감): 어둠장막은 공격 '범위'에서 1칸을 봉인하는
-  //   효과인데, 단일 셀 공격(투석기·그림자암살자·마녀 = 셀 1개)은 그 1칸이 유일한 타깃이라 제거하면
-  //   공격 자체가 소멸(항상 빗나감)해 유닛이 완전 무력화됨. → 셀이 1개 이하면 봉인하지 않는다(최소 1칸 보존).
+  //   효과인데, 단일 셀/변주 공격은 그 1칸이 유일/가변 타깃이라 제거하면 공격이 소멸(항상 빗나감)함.
+  //   → ① 셀이 1개 이하면 봉인 X(최소 1칸 보존), ② 변주 유닛(위 세트)은 타입 기준으로 봉인 X.
   if (cells.length <= 1) return cells;
+  if (DARK_VEIL_EXEMPT_TYPES.has(piece.type)) return cells;
   if (piece._darkVeilSeed == null) return cells;
   if (typeof isFaction === 'function' && isFaction(piece, 'villain')) return cells;   // 악인(현재 소속) 제외
   if (!darkVeilActive(room)) return cells;   // 마왕 참수/사망 등 비활성이면 전 범위 복구
