@@ -4851,9 +4851,11 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
       _spawned++;
     }
     // ★ 포자살포 발동 말풍선 (머쉬킨 카드에서).
+    //   ★ 사용자 지적: 메시지의 '확산' 이 액티브 스킬 '확산'(진균 인접 확장)과 헷갈림 →
+    //     피격 시 새 진균 '발생' 임을 명확히(스킬명과 겹치지 않게).
     if (_spawned > 0) {
-      emitToBoth(room, 'passive_alert', { type: 'mushkin', playerIdx: ownerIdx, msg: `포자살포 : 진균 확산` });
-      emitToSpectators(room, 'spectator_log', { msg: `포자살포 : 진균 확산`, type: 'passive', playerIdx: ownerIdx });
+      emitToBoth(room, 'passive_alert', { type: 'mushkin', playerIdx: ownerIdx, msg: `포자살포 : 피격 → 진균 ${_spawned}곳 발생` });
+      emitToSpectators(room, 'spectator_log', { msg: `포자살포 : 진균 ${_spawned}곳 발생`, type: 'passive', playerIdx: ownerIdx });
     }
   }
 }
@@ -5884,11 +5886,11 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
         }
       }
     }
-    // ★ 배반자(학살영웅) 패시브 발동 표시 — 오사 발생 시 1회 말풍선 + 토스트/로그(사용자 요청 복원).
+    // ★ 학살(학살영웅) 패시브 발동 표시 — 오사 발생 시 1회 말풍선 + 토스트/로그(사용자 요청 복원).
     //   말풍선은 시전자(학살영웅) 카드에, 토스트는 각 클라 시점(_renderPassiveAlert)에 표시.
     if (room._friendlyFireHits.length > 0 && (!room._attackPassivesFired || !room._attackPassivesFired.has('betrayer'))) {
-      emitToBoth(room, 'passive_alert', { type: 'betrayer', playerIdx: attackerIdx, msg: `배반자: 아군 오사 ${room._friendlyFireHits.length}` });
-      emitToSpectators(room, 'spectator_log', { msg: `배반자: 아군 오사`, type: 'passive', playerIdx: attackerIdx });
+      emitToBoth(room, 'passive_alert', { type: 'betrayer', playerIdx: attackerIdx, msg: `학살: 아군 오사 ${room._friendlyFireHits.length}` });
+      emitToSpectators(room, 'spectator_log', { msg: `학살: 아군 오사`, type: 'passive', playerIdx: attackerIdx });
       if (room._attackPassivesFired) room._attackPassivesFired.add('betrayer');
     }
     // 배반자 — 아군 쥐도 격파 (피격 유효)
