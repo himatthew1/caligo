@@ -4138,6 +4138,7 @@ function aiDecideExchange(myDraft, oppDraft) {
   const oppHasMonk = opp.includes('monk');
   const oppHasTwins = opp.includes('twins');
   const oppHasRats = opp.includes('ratMerchant');
+  const oppHasPrincess = opp.includes('princess');   // ★ 공주 = 마녀의 카운터(사용자 메타)
   const myAlready = (type) => my[1] === type || my[2] === type || my[3] === type;
 
   // 후보 수집 — priority + variety boost (작은 무작위 가산점으로 같은 우선순위 후보 중 다양화)
@@ -4145,6 +4146,8 @@ function aiDecideExchange(myDraft, oppDraft) {
   const addCounter = (tier, newType, basePriority) => {
     if (myAlready(newType)) return;
     if (my[tier] === newType) return;  // 안전망: 이미 같은 자리에 있는 캐릭터면 제외
+    // ★ 사용자 지적: 공주는 마녀의 카운터 → 상대가 공주면 마녀 견제픽 회피(오히려 역카운터당함).
+    if (newType === 'witch' && oppHasPrincess) return;
     // ★ 자기 시너지 파괴 방지 — 이 교체로 호위무사/마법사가 고립되면 스킵.
     const post = [tier === 1 ? newType : my[1], tier === 2 ? newType : my[2], tier === 3 ? newType : my[3]];
     if (_aiDraftSynergyBad(post)) return;
@@ -4210,6 +4213,10 @@ function aiDecideExchange(myDraft, oppDraft) {
   if (oppHasRats) {
     addCounter(2, 'wizard',       55);
     addCounter(3, 'sulfurCauldron', 50);
+  }
+  // ── ★ 적 마녀 → 공주 (공주는 마녀의 카운터, 사용자 메타) ──
+  if (opp.includes('witch')) {
+    addCounter(3, 'princess',     72);
   }
   // ── 원거리 다수 → 그림자 암살자/전령 (기동) ──
   if (oppRanged >= 2) {
