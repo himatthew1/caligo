@@ -8197,6 +8197,24 @@ body[data-my-team="red"] #chat-scope-team.active {
   100% { opacity: 1; transform: translate(-50%, -50%) scale(1.0);
          filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) brightness(1.0); }
 }
+/* ★ 모바일: 셀이 화면 대비 크게 잡혀(≈14% 폭) 착지 GIF(기본 220%×피크 scale3.0 ≈ 660%)가 화면을 꽉 채워
+   드래곤이 '어느 칸이든 화면 중앙에 뜬 것'처럼 보였음(사용자 보고). 피크 스케일을 낮춰 셀 위치가 드러나게. */
+@media (max-width: 700px) {
+  .dragon-landing-gif {
+    transform: translate(-50%, -50%) scale(1.6);
+    animation-name: dragonLandingInMobile;
+  }
+}
+@keyframes dragonLandingInMobile {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(1.6);
+         filter: drop-shadow(0 0 20px #fff) drop-shadow(0 0 34px #93c5fd) brightness(3.2); }
+  15%  { opacity: 1; transform: translate(-50%, -50%) scale(1.15);
+         filter: drop-shadow(0 0 14px #fff) drop-shadow(0 0 24px #bfdbfe) brightness(2.0); }
+  50%  { opacity: 1; transform: translate(-50%, -50%) scale(0.92);
+         filter: drop-shadow(0 0 5px rgba(255,255,255,0.5)) brightness(1.25); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(0.85);
+         filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) brightness(1.0); }
+}
 /* 화면 흔들림 — 천둥의 강렬한 진동 */
 .dragon-board-quake {
   animation: dragonBoardQuake 0.5s ease-out;
