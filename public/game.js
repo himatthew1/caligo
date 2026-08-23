@@ -9908,6 +9908,7 @@ const PASSIVE_BUBBLE_INFO = {
   bodyguard:      { pieceType: 'bodyguard',      name: '충성' },
   torturer:       { pieceType: 'torturer',       name: '표식' },
   betrayer:       { pieceType: 'slaughterHero',   name: '학살' },     // ★ 학살영웅 오사 발동 표시(passiveName=학살)
+  silverHorn:     { pieceType: 'unicorn',          name: '백은의 뿔' },  // ★ 유니콘 — 상태이상 무시 발동 표시
   poisoner:       { pieceType: 'poisoner',       name: '독니' },
   mushkin:        { pieceType: 'mushkin',        name: '포자살포' },
   griffin:        { pieceType: 'griffin',        name: '격노' },     // ★ 정령 피격 발동 — 그리폰 격노 활성

@@ -347,6 +347,17 @@ function statusStacks(piece, type) {
   const e = getStatus(piece, type);
   return e ? (e.stacks || 1) : 0;
 }
+// ★ 사용자 요청: 유니콘 '백은의 뿔'로 상태이상이 무시될 때마다 패시브 발동 말풍선 emit.
+//   (그림자 면역은 별도 — 이 함수는 유니콘/silverHorn 소유 말에만 발화.) 어떤 경로(addStatus·스킬 시전
+//   거부·직접 push 등)에서 상태이상이 백은의 뿔로 막힐 때 호출.
+function _silverHornBubble(room, piece) {
+  if (!room || !piece || typeof emitToBoth !== 'function') return;
+  if (!(piece.type === 'unicorn' || (piece.passives || []).includes('silverHorn'))) return;
+  const oi = (room.players || []).findIndex(pl => (pl.pieces || []).includes(piece));
+  if (oi < 0) return;
+  emitToBoth(room, 'passive_alert', { type: 'silverHorn', playerIdx: oi, msg: `백은의 뿔: 상태이상 무시` });
+  emitToSpectators(room, 'spectator_log', { msg: `백은의 뿔: 상태이상 무시`, type: 'passive', playerIdx: oi });
+}
 // 상태이상 완전 면역 — 유니콘 백은뿔(모든 상태이상 거부) + 그림자(새 상태 거부).
 function isStatusImmune(piece) {
   if (!piece) return false;
@@ -381,11 +392,15 @@ function _applyOpposing(piece, type, n) {
   _addStacks(piece, type, leftover);
 }
 // 상태이상 부여 — 면역 존중 + 스택형(poison/misfortune/luck) 누적. 반환: 실제 부여됐나.
-function addStatus(piece, type, opts) {
+//   ★ room 을 넘기면(선택) 유니콘 백은의 뿔로 상태이상이 '무시'될 때마다 패시브 말풍선 emit.
+function addStatus(piece, type, opts, room) {
   if (!piece) return false;
   opts = opts || {};
   if (!piece.statusEffects) piece.statusEffects = [];
-  if (isStatusImmune(piece) && !opts.force) return false;
+  if (isStatusImmune(piece) && !opts.force) {
+    if (room) _silverHornBubble(room, piece);   // ★ 백은의 뿔로 상태이상 무시 시 패시브 말풍선(room 있을 때)
+    return false;
+  }
   if (type === 'poison' && piece.type === 'mushkin') return false;   // ★ 머쉬킨은 중독 면역(특성)
   if ((type === 'poison' || type === 'curse') && piece.type === 'undead') return false;   // ★ 언데드 = 체력 없음 → HP 지속피해(중독·저주) 면역
   const n = opts.stacks || 1;
@@ -5239,6 +5254,7 @@ function _flushMarkPhaseInner(room, marks, casters, onComplete) {
       const t = m.target;
       if (!t || !t.alive) continue;
       if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
+      if (typeof isStatusImmune === 'function' && isStatusImmune(t)) { _silverHornBubble(room, t); continue; }   // ★ 유니콘 백은의 뿔 — 표식 무시 + 말풍선
       if (t.statusEffects && t.statusEffects.some(e => e.type === 'mark')) continue;
       t.statusEffects.push({ type: 'mark', source: m.sourceOwnerIdx });
       if (!byOwner.has(m.sourceOwnerIdx)) byOwner.set(m.sourceOwnerIdx, { names: [], cells: [] });
@@ -5805,7 +5821,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           //   addStatus 가 면역(유니콘/그림자) 존중. 죽은 대상엔 무의미하므로 생존 시만.
           if (!willDie && typeof addStatus === 'function'
               && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
-            const _poisoned = addStatus(defPiece, 'poison', { stacks: 1 });
+            const _poisoned = addStatus(defPiece, 'poison', { stacks: 1 }, room);
             // ★ 독니 발동 말풍선 — 공격당 1회만(기존 패시브들과 동일 연출). 실제 중독이 걸린 경우만.
             if (_poisoned && room._attackPassivesFired && !room._attackPassivesFired.has('venomFang')) {
               emitToBoth(room, 'passive_alert', { type: 'poisoner', playerIdx: attackerIdx, msg: `독니 : 중독` });
@@ -5815,8 +5831,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           }
           // ★ Phase 3: 현혹(이단자) — 공격받은 대상 이교단화(소속 상실). 면역(유니콘/그림자) 제외.
           if (!willDie && (atkPiece.passives || []).includes('enthrall') && isPassiveActive(atkPiece, 'enthrall')
-              && typeof isStatusImmune === 'function' && !isStatusImmune(defPiece) && defPiece.type !== 'heretic') {
-            defPiece._cultOf = attackerIdx;
+              && defPiece.type !== 'heretic') {
+            if (typeof isStatusImmune === 'function' && isStatusImmune(defPiece)) _silverHornBubble(room, defPiece);   // ★ 백은의 뿔 — 현혹 무시 + 말풍선
+            else defPiece._cultOf = attackerIdx;
           }
           // ★ Phase 3: 처형인 참수 — 언데드는 참수(상태이상)로 즉시 소멸(예외 사망 경로), 그 외 유닛은 executed 상태이상.
           //   ★ 사망 판정 확정 전에 먼저 처리 → 참수로 죽은 언데드가 정확히 사망모션을 재생.
@@ -5829,7 +5846,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               handleDeath(room, defPiece, defIdx, 'behead');
               room._boardShrinkDeaths = _prevBS;
             } else if (defPiece.alive) {
-              addStatus(defPiece, 'executed');
+              addStatus(defPiece, 'executed', {}, room);   // ★ 유니콘 백은의 뿔이면 참수(상태이상) 무시 + 말풍선
             }
           }
           // 일반 사망 — 언데드가 아닌 유닛만 HP0 로 소멸. 언데드는 위 참수/후속 파괴로만 alive=false.
@@ -6623,7 +6640,7 @@ function endTurn(room, opts) {
   if (room.fungus && room.fungus.length && prevPlayer && prevPlayer.pieces) {
     for (const p of prevPlayer.pieces) {
       if (p.alive && p.col != null && room.fungus.some(f => f.col === p.col && f.row === p.row)) {
-        addStatus(p, 'poison');
+        addStatus(p, 'poison', {}, room);
       }
     }
   }
@@ -7531,7 +7548,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
       // ▸ 개구리 장난: 적 1명을 개구리 상태로(가로3·ATK0.5·스킬 없음·티어/소속/체력 유지). 마녀 피격 시 해제.
       if (wSkill === 'frogPrank') {
         if (target.statusEffects.some(e => e.type === 'shadow')) return { ok: false, msg: '그림자 상태 대상에는 걸 수 없습니다.' };
-        if (typeof isStatusImmune === 'function' && isStatusImmune(target)) return { ok: false, msg: '상태이상 면역 대상입니다(유니콘 등).' };
+        if (typeof isStatusImmune === 'function' && isStatusImmune(target)) { _silverHornBubble(room, target); return { ok: false, msg: '상태이상 면역 대상입니다(유니콘 등).' }; }
         if (hasStatus(target, 'frog')) return { ok: false, msg: '이미 개구리 상태입니다.' };
         addStatus(target, 'frog', { data: { source: playerIdx } });
         spendSP(room, playerIdx, cost);
@@ -7551,6 +7568,11 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
       // 그림자 상태 면역
       if (target.statusEffects.some(e => e.type === 'shadow')) {
         return { ok: false, msg: '그림자 상태의 대상에게는 저주를 걸 수 없습니다.' };
+      }
+      // ★ 유니콘 백은의 뿔 — 저주도 무시(모든 상태이상 거부). 말풍선 + 시전 거부.
+      if (typeof isStatusImmune === 'function' && isStatusImmune(target)) {
+        _silverHornBubble(room, target);
+        return { ok: false, msg: '상태이상 면역 대상입니다(유니콘 등).' };
       }
       // 호위 무사 충성 — 왕실 아군이 받을 상태이상도 호위무사가 대신 받음
       let curseTarget = target;
@@ -7660,7 +7682,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
           if (!t.alive || t.col == null) continue;
           if (!pcellSet.has(`${t.col},${t.row}`)) continue;
           if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
-          if (addStatus(t, 'poison', { stacks: 1 })) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
+          if (addStatus(t, 'poison', { stacks: 1 }, room)) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
         }
       }
       result.msg = `맹독 구름: 범위 내 ${poisonedHits.length}명 중독`;
@@ -7733,7 +7755,7 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
         if (tgt) break;
       }
       if (!tgt) return { ok: false, msg: '선동 대상을 선택하세요.' };
-      if (typeof isStatusImmune === 'function' && isStatusImmune(tgt)) return { ok: false, msg: '대상이 상태이상에 면역입니다.' };
+      if (typeof isStatusImmune === 'function' && isStatusImmune(tgt)) { _silverHornBubble(room, tgt); return { ok: false, msg: '대상이 상태이상에 면역입니다.' }; }
       spendSP(room, playerIdx, cost);
       addStatus(tgt, 'betray', { data: { source: playerIdx } });
       result.msg = `선동: ${tgt.name} 배신 상태`;
