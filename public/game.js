@@ -15505,10 +15505,10 @@ function renderGameBoard() {
         const grownKeys = new Set();
         // 봉인칸: 지우지 않고 식별해 검게 표시(서버 applyDarkVeil 과 동일 시드).
         const _sealOf = (pc, cells) => {
-          if (pc && pc.darkVeilSeed != null && pc.tag !== 'villain' && cells.length && clientDarkVeilActive()) {
-            const sc = cells[pc.darkVeilSeed % cells.length];
-            if (sc) sealedKeys.add(`${sc.col},${sc.row}`);
-          }
+          if (!pc || pc.darkVeilSeed == null || !cells || !cells.length) return;
+          // ★ 서버 applyDarkVeil 미러링(변주 제외·쥐장수 제자리·한줄 루핑). 실제 타입+동적 소속으로 판정.
+          const key = clientDarkVeilSealedKey(pc.type, pc.col, pc.row, cells, S.boardBounds, pc.darkVeilSeed, pc.faction || pc.tag);
+          if (key) sealedKeys.add(key);
         };
         // 성장칸(드라이어드): 성장 전 기본 범위를 벗어난 칸 = 주황.
         const _grownOf = (pc, cells) => {
@@ -17225,13 +17225,42 @@ function clientDarkVeilActive() {
   }
   return false;
 }
-// 어둠장막 적용: 악인 외 유닛의 '현재' 공격셀에서 고정 시드(darkVeilSeed)로 정한 N번째 칸 제거.
+// ★ 서버 applyDarkVeil 과 동일 로직 — 봉인될 셀 1개의 key('col,row') 반환(없으면 null).
+//   변주 유닛 제외 / 쥐장수 제자리 / 한줄(세로열·가로행) 유닛-상대 오프셋+루핑 / 그 외 index.
+const CLIENT_DARK_VEIL_EXEMPT = new Set(['catapult', 'shadowAssassin', 'witch', 'gunpowder', 'cavalry']);
+function clientDarkVeilSealedKey(type, col, row, cells, bounds, seed, faction) {
+  if (seed == null || !Array.isArray(cells) || !cells.length) return null;
+  if (faction === 'villain') return null;
+  if (CLIENT_DARK_VEIL_EXEMPT.has(type)) return null;
+  if (typeof clientDarkVeilActive !== 'function' || !clientDarkVeilActive()) return null;
+  const b = bounds || S.boardBounds || { min: 0, max: 4 };
+  const size = b.max - b.min + 1;
+  if (type === 'ratMerchant') {                          // 제자리 봉인
+    return cells.some(c => c.col === col && c.row === row) ? `${col},${row}` : null;
+  }
+  if (cells.length <= 1) return null;                    // 단일 셀 보존
+  const sameCol = cells.every(c => c.col === cells[0].col);
+  const sameRow = cells.every(c => c.row === cells[0].row);
+  const off = seed % size;
+  if (cells.length === size && sameCol) {                // 세로 한줄 — 유닛상대 오프셋+루핑
+    const sr = b.min + (((row - b.min + off) % size) + size) % size;
+    const sc = cells.find(c => c.row === sr);
+    return sc ? `${sc.col},${sc.row}` : null;
+  }
+  if (cells.length === size && sameRow) {                // 가로 한줄
+    const scol = b.min + (((col - b.min + off) % size) + size) % size;
+    const sc = cells.find(c => c.col === scol);
+    return sc ? `${sc.col},${sc.row}` : null;
+  }
+  const sc = cells[seed % cells.length];                 // 그 외 고정 패턴
+  return sc ? `${sc.col},${sc.row}` : null;
+}
+// 어둠장막 적용(셀 필터) — 위 sealedKey 로 봉인칸 1개 제거.
 function applyClientDarkVeil(piece, cells) {
   if (!piece || piece.darkVeilSeed == null || !Array.isArray(cells) || !cells.length) return cells;
-  if (piece.tag === 'villain') return cells;
-  if (!clientDarkVeilActive()) return cells;
-  const rmIdx = piece.darkVeilSeed % cells.length;
-  return cells.filter((c, i) => i !== rmIdx);
+  const key = clientDarkVeilSealedKey(piece.type, piece.col, piece.row, cells, S.boardBounds, piece.darkVeilSeed, piece.faction || piece.tag);
+  if (!key) return cells;
+  return cells.filter(c => `${c.col},${c.row}` !== key);
 }
 
 function buildMiniRangeGrid(type, extra, icon, darkVeilSeed, faction) {
@@ -17249,11 +17278,8 @@ function buildMiniRangeGrid(type, extra, icon, darkVeilSeed, faction) {
   //   서버 applyDarkVeil 과 동일한 시드 인덱스로 봉인칸 1개를 골라 sealed 로 표기(활성 시에만).
   //   ★ 악인(villain) '현재' 소속은 봉인 제외(서버 applyDarkVeil 과 동일) — 호문클루스가 도중에 악인으로
   //     변이하면 faction 이 'villain' 이 되어 자동 해제. type(캐릭터 타입)이 아니라 faction 으로 판정해야 함.
-  let sealedKey = null;
-  if (darkVeilSeed != null && cells.length && faction !== 'villain' && typeof clientDarkVeilActive === 'function' && clientDarkVeilActive()) {
-    const sc = cells[darkVeilSeed % cells.length];
-    if (sc) sealedKey = `${sc.col},${sc.row}`;
-  }
+  // ★ 서버 applyDarkVeil 과 동일 로직 미러링(변주 제외·쥐장수 제자리·한줄 루핑). 미니 그리드는 5×5 중앙(2,2) 기준.
+  const sealedKey = clientDarkVeilSealedKey(type, 2, 2, cells, { min: 0, max: 4 }, darkVeilSeed, faction);
   const atkSet = new Set(cells.map(c => `${c.col},${c.row}`));
 
   let html = '<div class="mini-range-grid">';
