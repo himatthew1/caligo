@@ -2336,6 +2336,7 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       healedPieces: result.data?.healedPieces || null,
       // ★ 분신 비행 — fog-of-war 우회용 좌표
       twinJoin: result.data?.twinJoin || null,
+      witchFly: result.data?.witchFly || null,
       // ★ 절대복종 반지 순간이동
       ringTeleport: result.data?.ringTeleport || null,
       // ★ 약초학/신성 보드 시전 애니 (같은 팀만 표시 — 클라가 팀 분기 처리)
@@ -8192,7 +8193,9 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
       piece.col = dCol; piece.row = dRow;
       result.msg = `구동: 투석기 이동`;
       result.oppMsg = `구동: 상대 투석기 이동`;
-      result.data.ringTeleport = { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, victimOwnerIdx: playerIdx, victimPieceIdx: pieceIdx };
+      // ★ 사용자 요청: 구동 이동은 절대복종반지 연출이 아니라 '평범한 이동' 애니로. simpleMove 플래그 →
+      //   클라가 animateMove(일반 슬라이드) 사용 + 적에겐 숨김(표식 아니면 위치 비공개, 일반 이동과 동일).
+      result.data.ringTeleport = { fromCol: _fromCol, fromRow: _fromRow, toCol: dCol, toRow: dRow, victimOwnerIdx: playerIdx, victimPieceIdx: pieceIdx, simpleMove: true };
       break;
     }
 
@@ -9859,6 +9862,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       healedPieces: result.data?.healedPieces || null,
       // ★ 분신 비행 애니 — fog-of-war 우회용 좌표 정보
       twinJoin: result.data?.twinJoin || null,
+      witchFly: result.data?.witchFly || null,
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장용 (defPieceIdx, defOwnerIdx 포함)
       hits: result.data?.hits || null,
       // ★ 유황범람 borderCells — 라바 애니 적용용
@@ -9886,6 +9890,7 @@ function aiNotifySkill(room, pieceIdx, result, skillId) {
       skillUsed: { icon: piece.icon, name: piece.name, skillName: actualSkillName },
       // ★ 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
       twinJoin: result.data?.twinJoin || null,
+      witchFly: result.data?.witchFly || null,
       msg: result.msg || null,
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
       hits: result.data?.hits || null,
@@ -13991,6 +13996,7 @@ io.on('connection', (socket) => {
         healedPieces: result.data?.healedPieces || null,
         // ★ 분신 비행 — 모든 비시전자에게 좌표 전달. 클라가 같은 팀이면 표시, 적팀이면 무시.
         twinJoin: result.data?.twinJoin || null,
+        witchFly: result.data?.witchFly || null,
         // ★ 절대복종 반지 순간이동 — 좌표 + 피해자 정보 전달.
         ringTeleport: result.data?.ringTeleport || null,
         // ★ 약초학 / 신성 시전 — 보드 애니용 좌표. 클라가 같은 팀일 때만 표시.
@@ -14060,6 +14066,7 @@ io.on('connection', (socket) => {
           healedPieces: result.data?.healedPieces || null,
           // 분신 비행 애니메이션 — fog of war 우회용 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
+          witchFly: result.data?.witchFly || null,
           // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 빨간 도장 / 충성 파란 도장용
           //   defPieceIdx 는 server 의 opp.pieces (= 받는 쪽의 yourPieces) 인덱스와 일치.
           hits: result.data?.hits || null,
@@ -14092,6 +14099,7 @@ io.on('connection', (socket) => {
           skillUsed: { icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName },
           // 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
+          witchFly: result.data?.witchFly || null,
           msg: result.msg || null,
           // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용
           hits: result.data?.hits || null,

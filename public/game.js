@@ -2945,7 +2945,7 @@ socket.on('team_player_eliminated', ({ playerIdx, playerName, teamId }) => {
   addLog(txt, 'system');
 });
 
-socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats, exhumedCell }) => {
+socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed, msg, casterPieceIdx, sp, instantSp, hits, cursedPieceIdx, cursedOwnerIdx, borderCells, healedPieces, twinJoin, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats, exhumedCell, witchFly }) => {
   const myTeam = casterTeamId === S.teamId;
   const label = skillUsed?.skillName ? `${skillUsed.skillName}` : '스킬';
   const icon = skillUsed?.icon || '✨';
@@ -2960,6 +2960,7 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
     const moverSub = twinJoin.moverSub || 'elder';
     playTwinJoinFlight(moverSub, twinJoin.fromCol, twinJoin.fromRow, twinJoin.toCol, twinJoin.toRow);
   }
+  if (witchFly && typeof playWitchFly === 'function') playWitchFly(witchFly);   // ★ 마녀 빗자루 비행(적 팀은 내부 가드로 숨김)
 
   // 마법구 비행 + dim 시퀀스 (skill_result/status_update 와 동일)
   const oldSpSnap = Array.isArray(S.sp) ? [...S.sp] : [0, 0];
@@ -3158,7 +3159,10 @@ socket.on('team_skill_notice', ({ casterIdx, casterName, casterTeamId, skillUsed
       animateDivineCast(divineTarget.col, divineTarget.row);
     }
     // ★ 절대복종 반지 — 모든 viewer 가 보는 애니. 같은 팀이면 'observer', 적팀(피해자 팀)은 'victim'.
-    if (ringTeleport && typeof animateRingTeleport === 'function') {
+    if (ringTeleport && ringTeleport.simpleMove) {
+      // ★ 투석기 구동 = 평범한 이동(적 팀 이동은 숨김 — playSkillSimpleMove 내부에서 처리).
+      if (typeof playSkillSimpleMove === 'function') playSkillSimpleMove(ringTeleport);
+    } else if (ringTeleport && typeof animateRingTeleport === 'function') {
       // 피해자 팀 = ringTeleport.victimOwnerIdx 의 팀이 내 팀과 같음.
       const victimPlayer = (S.teamGamePlayers || []).find(p => p.idx === ringTeleport.victimOwnerIdx);
       const isVictimTeam = victimPlayer && victimPlayer.teamId === S.teamId;
@@ -3876,9 +3880,10 @@ socket.on('spectator_move_anim', ({ prevCol, prevRow, col, row, pieceType, piece
 // ── 관전자 1v1 스킬 시전 애니 (마법구 비행 + dim) ──
 // 1v1 모드에서만 사용 (팀모드는 team_skill_notice 가 동일 역할).
 // 페이로드: casterIdx, casterName, casterPieceIdx, sp, instantSp, skillUsed
-socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats }) => {
+socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, skillUsed, twinJoin, msg, hits, healedPieces, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, herbCenter, divineTarget, nightmareCells, destroyedRats, witchFly }) => {
   if (!S.isSpectator) return;
 
+  if (witchFly && typeof playWitchFly === 'function') playWitchFly(witchFly);   // ★ 마녀 빗자루 비행(관전자)
   // ★ 분신 비행 — 관전자도 동일 애니메이션 + SFX
   if (twinJoin && typeof playTwinJoinFlight === 'function') {
     const moverSub = twinJoin.moverSub || 'elder';
@@ -4023,7 +4028,9 @@ socket.on('spectator_skill_anim', ({ casterIdx, casterPieceIdx, sp, instantSp, s
     if (divineTarget && typeof animateDivineCast === 'function') {
       animateDivineCast(divineTarget.col, divineTarget.row);
     }
-    if (ringTeleport && typeof animateRingTeleport === 'function') {
+    if (ringTeleport && ringTeleport.simpleMove) {
+      if (typeof playSkillSimpleMove === 'function') playSkillSimpleMove(ringTeleport);   // 투석기 구동 = 평범한 이동(관전자 표시)
+    } else if (ringTeleport && typeof animateRingTeleport === 'function') {
       animateRingTeleport(ringTeleport, 'observer');
     }
   }, SP_END_MS);
@@ -6994,6 +7001,65 @@ function playTwinJoinFlight(moverSub, fromCol, fromRow, toCol, toRow) {
   requestAnimationFrame(step);
 }
 
+// ★ 마녀 빗자루 비행 — 쌍둥이 합류와 동일한 '준비 동작 + 일직선 비행' 모션으로 선택 칸까지 날아감.
+//   (사용자 요청: 그냥 나타나지 말고 날아가는 것처럼.)
+function playBroomFlight(fromCol, fromRow, toCol, toRow, ownerIdx, pieceIdx) {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  const fromCell = board.querySelector(`.cell[data-col="${fromCol}"][data-row="${fromRow}"]`);
+  const toCell   = board.querySelector(`.cell[data-col="${toCol}"][data-row="${toRow}"]`);
+  if (!fromCell || !toCell) return;
+  if (typeof _pieceFacingDir !== 'undefined' && fromCol !== toCol) {
+    _pieceFacingDir[`${ownerIdx}:${pieceIdx}`] = (toCol < fromCol) ? 'left' : 'right';
+  }
+  const moverMarker = fromCell.querySelector('.piece-marker') || fromCell.querySelector('.cc-wrapper');
+  if (moverMarker) moverMarker.classList.add('twin-flying');   // 비행 중 원위치 마커 숨김(재렌더 시 복귀)
+  const fromR = fromCell.getBoundingClientRect(), toR = toCell.getBoundingClientRect();
+  const fromX = fromR.left + fromR.width / 2, fromY = fromR.top + fromR.height / 2;
+  const toX = toR.left + toR.width / 2, toY = toR.top + toR.height / 2;
+  const _moveUrl = (typeof getPieceMoveUrl === 'function') ? getPieceMoveUrl('witch') : null;
+  const _idleUrl = window.PIECE_GIFS && window.PIECE_GIFS.witch;
+  const _imgStyle = 'width:100%;height:100%;object-fit:contain;image-rendering:pixelated;filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));';
+  const _flyerImgHtml = _moveUrl ? `<img src="${_moveUrl}" alt="" style="${_imgStyle}" draggable="false">` : '🧹';
+  const flyer = document.createElement('div');
+  flyer.className = 'twin-join-flyer';
+  flyer.innerHTML = _flyerImgHtml;
+  flyer.style.left = fromX + 'px'; flyer.style.top = fromY + 'px';
+  document.body.appendChild(flyer);
+  const WINDUP_MS = 180, FLIGHT_MS = 520, TOTAL_MS = WINDUP_MS + FLIGHT_MS;
+  const startT = performance.now();
+  const dx = toX - fromX, dy = toY - fromY, dist = Math.hypot(dx, dy) || 1, ux = dx / dist, uy = dy / dist;
+  const WINDUP_DIST = 14, windupX = fromX - ux * WINDUP_DIST, windupY = fromY - uy * WINDUP_DIST;
+  const trailIv = setInterval(() => {
+    if (performance.now() - startT < WINDUP_MS) return;
+    const r = flyer.getBoundingClientRect();
+    const g = document.createElement('div'); g.className = 'twin-join-trail'; g.innerHTML = _flyerImgHtml;
+    g.style.left = (r.left + r.width / 2) + 'px'; g.style.top = (r.top + r.height / 2) + 'px';
+    document.body.appendChild(g); setTimeout(() => g.remove(), 480);
+  }, 30);
+  function step(now) {
+    const el = now - startT; let x, y, scale;
+    if (el < WINDUP_MS) { const t = el / WINDUP_MS, e = 1 - Math.pow(1 - t, 3); x = fromX + (windupX - fromX) * e; y = fromY + (windupY - fromY) * e; scale = 1 + 0.15 * e; }
+    else { const t = Math.min(1, (el - WINDUP_MS) / FLIGHT_MS), e = 1 - Math.pow(1 - t, 3); x = windupX + (toX - windupX) * e; y = windupY + (toY - windupY) * e; scale = 1.15 - 0.15 * e; }
+    flyer.style.left = x + 'px'; flyer.style.top = y + 'px'; flyer.style.transform = `translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+    if (el < TOTAL_MS) requestAnimationFrame(step);
+    else { clearInterval(trailIv); if (_idleUrl) flyer.innerHTML = `<img src="${_idleUrl}" alt="" style="${_imgStyle}" draggable="false">`; flyer.classList.add('twin-join-arrive'); setTimeout(() => flyer.remove(), 320); }
+  }
+  requestAnimationFrame(step);
+}
+// fog-of-war: 적 마녀 비행은 숨김(표식 아니면 위치 비공개). 내 팀/관전자만 날아가는 연출.
+function playWitchFly(wf) {
+  if (!wf || wf.fromCol == null || wf.toCol == null) return;
+  const ownerIdx = wf.ownerIdx, pieceIdx = wf.pieceIdx;
+  if (!S.isSpectator) {
+    if (S.isTeamMode) {
+      const player = (S.teamGamePlayers || []).find(p => p.idx === ownerIdx);
+      if (!player || player.teamId !== S.teamId) return;
+    } else if (ownerIdx !== S.playerIdx) return;
+  }
+  try { playBroomFlight(wf.fromCol, wf.fromRow, wf.toCol, wf.toRow, ownerIdx, pieceIdx); } catch (e) {}
+}
+
 // SP 지급 풀스크린 애니메이션 — 통합 스파이럴 모션 (수영하듯이 매끄럽게)
 // 한 RAF 안에서 angle 과 radius 가 함께 변화 → 페이즈 사이 멈칫 없음, 빠른 템포, 2회 회전
 //
@@ -8107,27 +8173,33 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
         animateDivineCast(data.divineTarget.col, data.divineTarget.row);
       }
       // ★ 절대복종 반지 — 오로라 펄스 + 순간이동 + 화이트 페이드. 시전자 본인은 자동 추리 토큰.
-      if (data && data.ringTeleport && typeof animateRingTeleport === 'function') {
-        // ★ 사용자 보고 (자동 추리 토큰 미동작): push 후 refresh 호출이 없어 DOM 에 토큰이 즉시 안 나타남.
-        //   같은 pieceKey 의 기존 토큰은 filter 로 제거 후 새 위치로 push (= 갱신).
-        //   refreshDeductionTokens 는 token DOM 만 재배치 → aurora 클래스 wipe 안 함.
-        try {
-          const rt = data.ringTeleport;
-          const subUnit = '';                                // 일반 piece 라 subUnit 없음 (쌍둥이 제외)
-          const ownerSuffix = S.isTeamMode ? `@${rt.victimOwnerIdx}` : '';
-          const pieceKey = `${rt.victimType}:${subUnit}${ownerSuffix}`;
-          S.deductionTokens = (S.deductionTokens || []).filter(t =>
-            t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
-          S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
-          if (typeof refreshDeductionTokens === 'function') refreshDeductionTokens();
-          if (typeof updateDeductionBadgesInPlace === 'function') updateDeductionBadgesInPlace();
-        } catch (e) {}
-        animateRingTeleport(data.ringTeleport, 'caster');
-        if (window._crForceRingVictim) window._crForceRingVictim(data.ringTeleport);
+      //   ★ 투석기 구동(simpleMove)은 반지 연출이 아니라 평범한 이동 슬라이드(자동 추리 토큰 X — 자기 이동).
+      if (data && data.ringTeleport) {
+        const rt = data.ringTeleport;
+        if (rt.simpleMove) {
+          if (typeof playSkillSimpleMove === 'function') playSkillSimpleMove(rt);
+        } else if (typeof animateRingTeleport === 'function') {
+          try {
+            const subUnit = '';                                // 일반 piece 라 subUnit 없음 (쌍둥이 제외)
+            const ownerSuffix = S.isTeamMode ? `@${rt.victimOwnerIdx}` : '';
+            const pieceKey = `${rt.victimType}:${subUnit}${ownerSuffix}`;
+            S.deductionTokens = (S.deductionTokens || []).filter(t =>
+              t.pieceKey !== pieceKey && !(t.col === rt.toCol && t.row === rt.toRow));
+            S.deductionTokens.push({ pieceKey, icon: rt.victimIcon, name: rt.victimName, col: rt.toCol, row: rt.toRow });
+            if (typeof refreshDeductionTokens === 'function') refreshDeductionTokens();
+            if (typeof updateDeductionBadgesInPlace === 'function') updateDeductionBadgesInPlace();
+          } catch (e) {}
+          animateRingTeleport(rt, 'caster');
+          if (window._crForceRingVictim) window._crForceRingVictim(rt);
+        }
       }
       // ★ 윈드서퍼 바람몰이 — 국왕 반지와 다른 전용 바람 연출(가스트 스트리크).
       if (data && data.windPush && typeof animateWindPush === 'function') {
         animateWindPush(data.windPush);
+      }
+      // ★ 마녀 빗자루 비행 — 선택 칸으로 날아가는 연출(쌍둥이 합류와 동일 모션).
+      if (data && data.witchFly && typeof playWitchFly === 'function') {
+        playWitchFly(data.witchFly);
       }
 
       const healedIdxs = (data && data.healedPieceIdxs) || (effects && effects.healedPieceIdxs);
@@ -8267,7 +8339,7 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
 });
 
 // ── 상태 업데이트 (상대의 스킬 사용 시) ──
-socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats, exhumedCell, fungus }) => {
+socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects, remains, msg, skillUsed, healedPieceIdxs, healedPieces, casterPieceIdx, twinJoin, hits, borderCells, cursedPieceIdx, cursedOwnerIdx, ringTeleport, nightmareCells, destroyedRats, exhumedCell, fungus, witchFly }) => {
   // ★ 상대 AI 포자살포/확산 등으로 진균 지대가 바뀌면 그 순간 즉시 반영(전체 재렌더 없이 클래스 토글).
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }
   // ★ 분신 비행 애니메이션 — status_update 는 1v1 '적(상대)' 시점이므로 여기선 재생하지 않는다.
@@ -8408,10 +8480,15 @@ socket.on('status_update', ({ oppPieces, yourPieces, sp, instantSp, boardObjects
       // ★ 유황범람으로 죽은 쥐 사망 모션 (1v1 피해자 시점)
       _animateSkillDestroyedRats(destroyedRats);
       // ★ 절대복종 반지 — 1v1 상대(피해자) 시점: 자기 piece 가 vanish 후 재등장.
-      if (ringTeleport && typeof animateRingTeleport === 'function') {
+      //   ★ 투석기 구동(simpleMove)은 시전자 자기 이동 → 상대(피해자 아님)에겐 숨김(playSkillSimpleMove 내부 가드).
+      if (ringTeleport && ringTeleport.simpleMove) {
+        if (typeof playSkillSimpleMove === 'function') playSkillSimpleMove(ringTeleport);
+      } else if (ringTeleport && typeof animateRingTeleport === 'function') {
         animateRingTeleport(ringTeleport, 'victim');
         if (window._crForceRingVictim) window._crForceRingVictim(ringTeleport);
       }
+      // ★ 마녀 빗자루 비행 — 상대(1v1) 시점: 적 마녀 비행은 playWitchFly 내부 가드로 숨김.
+      if (witchFly && typeof playWitchFly === 'function') playWitchFly(witchFly);
       // ★ 저주 부여 turn-bright — 1v1 상대 시점 (누락 수정).
       if (typeof cursedPieceIdx === 'number') {
         // 1v1: cursedOwnerIdx 가 명시되지 않으면 받는 쪽이 곧 피해자 — my:idx 로 매핑
@@ -21210,6 +21287,28 @@ function animateCavalryDash(dash, hits, destroyedRats, opts) {
   requestAnimationFrame(step);
 }
 
+// ★ 투석기 구동 등 '자기 유닛 일반 이동'(ringTeleport.simpleMove) — 반지 연출 대신 평범한 슬라이드.
+//   적 유닛의 이동은 숨김(표식 아니면 위치 비공개 = 일반 이동과 동일). 내 팀/관전자만 애니.
+function playSkillSimpleMove(rt) {
+  if (!rt || rt.fromCol == null || rt.toCol == null) return;
+  const ownerIdx = rt.victimOwnerIdx, pieceIdx = rt.victimPieceIdx;
+  let pc = null;
+  if (S.isSpectator) {
+    const player = (S.teamGamePlayers || []).find(p => p.idx === ownerIdx);
+    pc = player ? (player.pieces || [])[pieceIdx] : null;
+  } else if (S.isTeamMode) {
+    const player = (S.teamGamePlayers || []).find(p => p.idx === ownerIdx);
+    if (!player || player.teamId !== S.teamId) return;   // 적 팀 이동 숨김
+    pc = (ownerIdx === S.playerIdx) ? (S.myPieces || [])[pieceIdx] : (S.teammatePieces || [])[pieceIdx];
+    if (!pc) pc = (player.pieces || [])[pieceIdx];
+  } else {
+    if (ownerIdx !== S.playerIdx) return;                 // 1v1 상대 이동 숨김
+    pc = (S.myPieces || [])[pieceIdx];
+  }
+  if (!pc) return;
+  const key = `${ownerIdx}:${pieceIdx}`;
+  try { animateMove(pc.icon, rt.fromCol, rt.fromRow, rt.toCol, rt.toRow, pc.type, pc.subUnit, key); } catch (e) {}
+}
 function animateMove(icon, fromCol, fromRow, toCol, toRow, pieceType, subUnit, pieceKey) {
   const board = document.getElementById('game-board');
   if (!board) return;
