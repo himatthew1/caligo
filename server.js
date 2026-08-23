@@ -895,6 +895,8 @@ function buildSetupAnnouncements(room, before, order) {
         anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'undead', tier: p.tier || 3, key: 'rottenSoul', name: '부패한 영혼', hpChanges: [] });   // 체력바 없음
       } else if (p.type === 'demonKing' && (p.passives || []).includes('darkVeil')) {
         anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'demonKing', tier: p.tier || 3, key: 'darkVeil', name: '어둠의 장막', hpChanges: [] });   // 공격범위 봉인(연출은 말풍선)
+      } else if (p.type === 'courtier' && (p.passives || []).includes('suppression')) {
+        anns.push({ ownerIdx: oi, pieceIdx: pidx, sourceType: 'courtier', tier: p.tier || 2, key: 'suppression', name: '탄압', hpChanges: [] });   // 비왕실 스킬 SP+1(연출은 말풍선)
       }
     }
   }
