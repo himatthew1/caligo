@@ -4072,21 +4072,34 @@ function aiGenerateDeckName(draft) {
   const types = [draft.t1, draft.t2, draft.t3].filter(Boolean);
   if (types.length === 0) return '미정 부대';
   const chars = types.map((t, i) => findCharData(t, i + 1));
-  const tags = chars.map(c => c.tag).filter(Boolean);
+  const tags = chars.map(c => c.tag);
   const royalCount = tags.filter(t => t === 'royal').length;
   const villainCount = tags.filter(t => t === 'villain').length;
+  const spiritCount = tags.filter(t => t === 'spirit').length;
+  const noneCount = tags.filter(t => !t || t === 'none').length;
   const setHas = (xs) => types.some(t => xs.includes(t));
-  if (setHas(['gunpowder', 'sulfurCauldron'])) return '화염 분대';
+  // ── 특수 콤보/팩션 지원 우선 (사용자 규칙: 팩션 지원엔 그 팩션 유닛이 있어야 이름도 그렇게) ──
+  if (setHas(['oberon']) && spiritCount >= 2) return '요정왕의 군세';
+  if (setHas(['demonKing']) && villainCount >= 2) return '어둠의 군단';
+  if (setHas(['dragonTamer'])) return '드래곤의 둥지';
+  if (setHas(['torturer']) && setHas(['scout', 'manhunter'])) return '표식 사냥꾼';
+  if (setHas(['witch', 'poisoner', 'count']) && villainCount >= 2) return '저주와 독의 밤';
+  if (setHas(['gunpowder', 'sulfurCauldron', 'hero'])) return '폭염 분대';
   if (setHas(['shadowAssassin', 'witch', 'torturer'])) return '암흑 첩보대';
-  if (setHas(['bodyguard', 'armoredWarrior'])) return '철벽 수비대';
+  if (setHas(['bodyguard', 'armoredWarrior', 'golem'])) return '철벽 수비대';
   if (setHas(['herbalist']) && setHas(['monk'])) return '신성 치유단';
-  if (setHas(['herbalist']) || setHas(['monk'])) return '서포트 부대';
+  if (setHas(['general']) && royalCount >= 2) return '왕실 총사령부';
+  if (setHas(['commander', 'king'])) return '지휘 사령부';
+  // ── 팩션 다수 ──
+  if (spiritCount >= 2) return '정령의 숲';
   if (royalCount >= 2) return '왕실 근위대';
   if (villainCount >= 2) return '어둠의 패거리';
-  if (setHas(['cavalry', 'messenger', 'twins'])) return '기동 정찰대';
-  if (setHas(['ratMerchant', 'manhunter'])) return '음습한 사냥꾼';
-  if (setHas(['dragonTamer'])) return '드래곤의 군단';
-  if (setHas(['king', 'commander'])) return '지휘 사령부';
+  if (noneCount >= 2) return '무명의 용병단';
+  // ── 기타 특징 ──
+  if (setHas(['cavalry', 'messenger', 'twins', 'dualBlade'])) return '기동 강습대';
+  if (setHas(['ratMerchant', 'manhunter', 'gravekeeper'])) return '음습한 사냥꾼';
+  if (setHas(['herbalist', 'monk', 'mermaid'])) return '서포트 부대';
+  if (spiritCount >= 1) return '정령 혼성대';
   return '균형 부대';
 }
 
@@ -4407,6 +4420,8 @@ function transitionToFinalReveal(room) {
     if (aiPlayer && aiPlayer._pendingSwap) {
       aiPlayer.draft[aiPlayer._pendingSwap.key] = aiPlayer._pendingSwap.newType;
       delete aiPlayer._pendingSwap;
+      // ★ 교환으로 덱이 바뀌면 큐레이션 이름이 안 맞음 → 조합 기반으로 이름 재생성.
+      aiPlayer.deckName = aiGenerateDeckName(aiPlayer.draft);
     }
     delete aiPlayer._exchangeOriginal;
     room.finalRevealDone[1] = true;
@@ -9747,19 +9762,75 @@ function aiBestTargetCell(brain, piece, room) {
   return { col: bestCol, row: bestRow };
 }
 
+// ★ AI 큐레이션 덱 50종 — 팩션 시너지(정령=오베론 버프/왕실=후원자·계승·부대공격/악인=어둠장막)와
+//   무팩션 조합을 의식해 구성. 팩션 지원 능력을 지녔으면 그 팩션 유닛을 반드시 포함(사용자 규칙).
+//   { n: 덱 이름, d: [t1, t2, t3], c: 콤보 의도 }
+const AI_DECK_LIST = [
+  // ── 정령(Spirit) — 오베론 요정왕이 정령 아군 공/체 버프 · 정령 시너지 ──
+  { n: '요정 여왕의 축복', d: ['fairy', 'griffin', 'oberon'],          c: '요정왕 축복/은혜로 정령(요정·그리폰) 공격력·체력 버프' },
+  { n: '백은의 성역',     d: ['herbalist', 'unicorn', 'monk'],         c: '유니콘 상태이상 면역 + 약초/신성 힐 = 정령 방벽' },
+  { n: '폭풍의 창공',     d: ['windSurfer', 'griffin', 'dragonTamer'], c: '바람몰이로 진형 흔들고 그리폰·드래곤 화력' },
+  { n: '마르지 않는 샘',  d: ['mermaid', 'dryad', 'monk'],             c: '사이렌송+생장+신성으로 정령 회복/성장 지속전' },
+  { n: '요정 마법진',     d: ['fairy', 'wizard', 'oberon'],            c: '마법사 인스턴트매직 SP 수급, 요정왕이 정령 강화' },
+  { n: '유황의 정령술',   d: ['mermaid', 'wizard', 'sulfurCauldron'],  c: 'SP 수급 후 유황범람 테두리 광역(정령)' },
+  { n: '골렘 성채',       d: ['archer', 'golem', 'oberon'],            c: '골렘(atk3 탱크) 앞세우고 요정왕이 정령 전원 버프' },
+  { n: '대지의 드라이어드', d: ['herbalist', 'dryad', 'dragonTamer'],  c: '정령 서포트 라인 + 드래곤 소환 피니시' },
+  { n: '신록의 수호자',   d: ['windSurfer', 'unicorn', 'monk'],        c: '면역 유니콘 + 신성으로 정령 지속 버티기' },
+  { n: '정령왕의 군세',   d: ['archer', 'griffin', 'oberon'],          c: '정령 3인 — 요정왕 버프 극대화(엘프·그리폰)' },
+  // ── 왕실(Royal) — 후원자/계승자/부대공격/호위/사기증진 ──
+  { n: '왕실 근위대',     d: ['spearman', 'bodyguard', 'princess'],    c: '후원자 HP+1 + 호위무사가 왕실 대신 피해' },
+  { n: '계승의 왕좌',     d: ['scout', 'knight', 'prince'],            c: '정찰 + 왕실 다수로 계승자 공격력 상승' },
+  { n: '총사령부',        d: ['messenger', 'general', 'king'],         c: '칙명+부대공격 다중 행동, 반지로 진형 붕괴' },
+  { n: '사기충천 돌격대', d: ['cavalry', 'knight', 'commander'],       c: '지휘관 인접 버프 + 기마 질주 러시' },
+  { n: '철벽 왕실',       d: ['spearman', 'bodyguard', 'king'],        c: '호위무사가 국왕/왕실 보호, 반지 견제' },
+  { n: '공주의 기사단',   d: ['scout', 'knight', 'princess'],          c: '후원자 버프 + 정찰로 정보 우위' },
+  { n: '참수 근위대',     d: ['scout', 'executioner', 'prince'],       c: '참수로 위협 제거 + 계승 왕실' },
+  { n: '폭군의 칙령',     d: ['messenger', 'courtier', 'king'],        c: '탄압으로 적 스킬 봉쇄 + 칙명 템포' },
+  { n: '부대 총공세',     d: ['spearman', 'general', 'commander'],     c: '부대공격 일제사격 + 사기증진 클러스터' },
+  { n: '계승 방벽',       d: ['cavalry', 'bodyguard', 'prince'],       c: '왕실 다수 계승 + 호위 보호' },
+  { n: '근위 저격조',     d: ['scout', 'knight', 'siegeBreaker'],      c: '정찰 + 파괴공작으로 지형 봉쇄' },
+  { n: '후원받은 원정대', d: ['spearman', 'executioner', 'princess'],  c: '후원자 HP + 참수 근위' },
+  // ── 악인(Villain) — 어둠장막(악인 면제)/저주/표식·악몽/독/흡혈/물량 ──
+  { n: '어둠의 장막',     d: ['manhunter', 'shadowAssassin', 'demonKing'], c: '마왕이 비악인 적 공격 봉인, 악인은 면제' },
+  { n: '저주받은 밤',     d: ['poisoner', 'witch', 'torturer'],        c: '맹독+저주+악몽 지속뎀 콤보' },
+  { n: '암흑 첩보대',     d: ['manhunter', 'shadowAssassin', 'torturer'], c: '덫+은신+표식 악몽' },
+  { n: '역병의 무리',     d: ['poisoner', 'ratMerchant', 'count'],     c: '독+쥐 물량+흡혈 소모전' },
+  { n: '망자의 군세',     d: ['gravekeeper', 'necromancer', 'undead'], c: '유해→악령 물량, 불사 언데드' },
+  { n: '학살의 광기',     d: ['hookKiller', 'shadowAssassin', 'slaughterHero'], c: '가로 횡+3×3 학살 광역(오사 감수)' },
+  { n: '마녀의 결계',     d: ['manhunter', 'witch', 'demonKing'],      c: '저주+어둠장막(악인 면제)' },
+  { n: '현혹의 교단',     d: ['twins', 'heretic', 'count'],            c: '현혹으로 적 소속 상실 + 흡혈' },
+  { n: '그림자 표식단',   d: ['twins', 'shadowAssassin', 'torturer'],  c: '기동+은신+표식 악몽' },
+  { n: '흡혈 귀족회',     d: ['poisoner', 'witch', 'count'],           c: '독+저주+흡혈 지속뎀' },
+  { n: '도굴꾼의 밤',     d: ['gravekeeper', 'necromancer', 'torturer'], c: '도굴+강령+표식 물량' },
+  { n: '사냥의 밤',       d: ['manhunter', 'ratMerchant', 'slaughterHero'], c: '덫+쥐물량+3×3 광역' },
+  { n: '타락의 군주',     d: ['hookKiller', 'heretic', 'demonKing'],   c: '현혹+어둠장막 악인 군단' },
+  // ── 무팩션(No-faction) — 순수 스탯/트릭 조합 ──
+  { n: '강철 용병단',     d: ['gunpowder', 'armoredWarrior', 'mercenary'], c: '폭탄+아이언스킨 탱크+용병 화력' },
+  { n: '검투장의 영웅',   d: ['wanderer', 'dualBlade', 'gladiator'],   c: '부메랑+쌍검무+투지 근접 다중타' },
+  { n: '민병 저항군',     d: ['watchman', 'weaponSmith', 'militia'],   c: '광역 파수+정비+민병(atk3)' },
+  { n: '폭발물 처리반',   d: ['gunpowder', 'dualBlade', 'hero'],       c: '폭탄 설치+대지 분쇄 광역' },
+  { n: '변이 실험체',     d: ['thief', 'ironman', 'homunculus'],       c: '강탈+철인 might+변이 트릭' },
+  { n: '운명의 도박판',   d: ['fortuneTeller', 'storyteller', 'mercenary'], c: '흉조+선동 교란 후 용병 마무리' },
+  { n: '철갑 방벽대',     d: ['watchman', 'armoredWarrior', 'militia'], c: '아이언스킨 방벽 + 광역' },
+  { n: '약탈자 무리',     d: ['thief', 'weaponSmith', 'gladiator'],    c: '강탈+정비+투지 어그로' },
+  { n: '폭풍 전야',       d: ['gunpowder', 'storyteller', 'hero'],     c: '선동 교란 + 폭탄/대지분쇄 광역' },
+  { n: '무명의 전사들',   d: ['wanderer', 'dualBlade', 'mercenary'],   c: '순수 근접 다중타 밸런스' },
+  // ── 혼합/특수 콤보 ──
+  { n: '정찰 저격대',     d: ['scout', 'wizard', 'prince'],            c: '정찰로 위치 확보 후 원거리 저격 + 계승' },
+  { n: '드래곤의 둥지',   d: ['herbalist', 'dryad', 'dragonTamer'],    c: '정령 서포트 + 드래곤 소환' },
+  { n: '기동 강습대',     d: ['cavalry', 'dualBlade', 'gladiator'],    c: '질주+쌍검무 다중 행동 러시' },
+  { n: '언데드 군단',     d: ['gravekeeper', 'necromancer', 'demonKing'], c: '유해 물량 + 어둠장막(악인)' },
+  { n: '요정과 골렘',     d: ['fairy', 'golem', 'sulfurCauldron'],     c: '정령 탱크(골렘)+테두리 광역(유황)' },
+];
 function aiSelectPieces() {
-  const t1 = CHARACTERS[1];
-  const t2 = CHARACTERS[2];
-  const t3 = CHARACTERS[3];
-  const pick = () => ({
-    t1: randomPick(t1.filter(c => c.type !== 'twins')).type,
-    t2: randomPick(t2).type,
-    t3: randomPick(t3).type,
-  });
-  // ★ 시너지 결함(고립 호위무사/마법사) 회피 — 결함이면 재추첨(최대 12회). 사용자 지적.
-  let draft = pick();
-  for (let i = 0; i < 12 && _aiDraftSynergyBad([draft.t1, draft.t2, draft.t3]); i++) draft = pick();
-  return draft;
+  // ★ 큐레이션 덱 50종에서 무작위 선택(시너지 내장). 결함(고립 호위무사/마법사) 회피 안전망.
+  let deck = null;
+  for (let i = 0; i < 8; i++) {
+    deck = AI_DECK_LIST[Math.floor(Math.random() * AI_DECK_LIST.length)];
+    if (!_aiDraftSynergyBad(deck.d)) break;
+  }
+  if (!deck) deck = AI_DECK_LIST[0];
+  return { t1: deck.d[0], t2: deck.d[1], t3: deck.d[2], deckName: deck.n };
 }
 
 function aiDistributeHp(hasTwins) {
@@ -12469,7 +12540,7 @@ io.on('connection', (socket) => {
 
     const aiDraft = aiSelectPieces();
     room.players[1].draft = aiDraft;
-    room.players[1].deckName = aiGenerateDeckName(aiDraft);
+    room.players[1].deckName = aiDraft.deckName || aiGenerateDeckName(aiDraft);   // ★ 큐레이션 덱 이름 우선
     room.draftDone[0] = true;
     room.draftDone[1] = true;
 
@@ -14536,7 +14607,7 @@ module.exports = {
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
-  aiSelectPieces, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
+  aiSelectPieces, AI_DECK_LIST, _aiDraftSynergyBad, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
   aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill, _aiConfidentTargetCells, _aiEscapeLethalBonus, aiProcessAttackResult,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
