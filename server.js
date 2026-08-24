@@ -66,8 +66,9 @@ app.use(express.json({ limit: '8mb' }));
 const supa = require('./supabase-admin');
 const accountData = require('./supabase-data');
 const aiLog = require('./supabase-log');
+const gacha = require('./gacha-config');  // 기본9·뽑기비용·보상표·풀 헬퍼
 app.get('/api/config', (req, res) => {
-  res.json({ supabase: supa.publicConfig() });  // 비활성 시 null
+  res.json({ supabase: supa.publicConfig(), base: gacha.BASE_TYPES, tierCost: gacha.TIER_COST });  // 비활성 시 supabase=null
 });
 
 // ── 진단용: 현재 서버 프로세스/방 상태를 외부에서 확인 ──
@@ -6946,6 +6947,51 @@ function getTeamSpectatorGameState(room) {
 }
 
 // 팀전 게임 종료
+// ══ 크레딧 보상 (게임 종료) ══════════════════════════════════════
+//   로그인 계정에만 지급(게스트/AI는 생략). 퍼펙트=대상 진영 전 유닛 alive
+//   (언데드는 정상 상태 alive=true·소멸 시에만 false 이므로 "언데드 제외·소멸금지"가 자동 반영).
+function _rewardUserId(room, playerIdx) {
+  const pl = room.players[playerIdx];
+  if (!pl || !pl.socketId) return null;
+  const s = io.sockets.sockets.get(pl.socketId);
+  return (s && s.data && s.data.user) ? s.data.user.id : null;
+}
+function _sidePerfect(players) {
+  const all = (players || []).reduce((a, p) => a.concat((p && p.pieces) || []), []);
+  return all.length > 0 && all.every(pc => pc.alive);
+}
+async function _awardCredits(room, playerIdx, amount, meta) {
+  if (!amount) return;
+  const uid = _rewardUserId(room, playerIdx);
+  if (!uid) return;                      // 게스트/AI → 지급 생략
+  try {
+    const bal = await accountData.addCredits(uid, amount);
+    const pl = room.players[playerIdx];
+    if (pl && pl.socketId) io.to(pl.socketId).emit('credit_reward', { amount, credits: bal, ...(meta || {}) });
+  } catch (e) { console.error('[credit] award:', e.message); }
+}
+// 1v1 / AI 종료 보상 (무승부는 호출 안 함)
+function grantSoloCredits(room, winnerIdx) {
+  if (!supa.enabled() || winnerIdx == null) return;
+  const R = gacha.REWARDS, isAI = !!room.isAI;
+  const winPerfect = _sidePerfect([room.players[winnerIdx]]);
+  const winAmt = (isAI ? R.aiWin : R.pvpWin) + (winPerfect ? R.perfectBonus : 0);
+  const loseAmt = isAI ? R.aiLoss : R.pvpLoss;
+  _awardCredits(room, winnerIdx, winAmt, { result: 'win', mode: isAI ? 'ai' : 'pvp', perfect: winPerfect });
+  _awardCredits(room, 1 - winnerIdx, loseAmt, { result: 'loss', mode: isAI ? 'ai' : 'pvp' });
+}
+// 2v2 종료 보상 (팀원 각자, 퍼펙트=승리팀 전원 무사망)
+function grantTeamCredits(room, winnerTeamId) {
+  if (!supa.enabled() || winnerTeamId == null) return;
+  const R = gacha.REWARDS;
+  const winIdxs = room.teams[winnerTeamId] || [];
+  const loseIdxs = room.teams[1 - winnerTeamId] || [];
+  const teamPerfect = _sidePerfect(winIdxs.map(i => room.players[i]).filter(Boolean));
+  const winAmt = R.teamWin + (teamPerfect ? R.perfectBonus : 0);
+  winIdxs.forEach(i => _awardCredits(room, i, winAmt, { result: 'win', mode: 'team', perfect: teamPerfect }));
+  loseIdxs.forEach(i => _awardCredits(room, i, R.teamLoss, { result: 'loss', mode: 'team' }));
+}
+
 function endTeamGame(room, winnerTeamId, reason) {
   if (!room || room.phase === 'ended') return;  // ★ 재진입 방지 (동시 이중 호출로 game_over 2회 emit 차단)
   try { aiLogFlush(room, winnerTeamId, reason); } catch (e) {}  // 대국 로깅 flush (팀 — winnerTeamId 기준)
@@ -6982,6 +7028,7 @@ function endTeamGame(room, winnerTeamId, reason) {
     winTeamLabel, loseTeamLabel, winners, losers,
     reason: reasonObj, spectator: true,
   });
+  if (!isDraw) { try { grantTeamCredits(room, winnerTeamId); } catch (e) { console.error('[credit] team:', e.message); } }  // 크레딧 보상
   // ★ S-7: 종료된 방 자동 정리 (60초 후 메모리 해제)
   setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
 }
@@ -7211,6 +7258,7 @@ function endGame(room, winnerIdx, reason) {
     replayWinnerPieces, replayBoardObjects, replayBounds: room.boardBounds,
   });
   emitToSpectators(room, 'game_over', { win: null, winnerName: winner.name, loserName: loser.name, spectator: true, reason: reasonObj });
+  try { grantSoloCredits(room, winnerIdx); } catch (e) { console.error('[credit] solo:', e.message); }  // 크레딧 보상(1v1/AI)
   // ★ S-7: 종료된 방 자동 정리 (60초 후 메모리 해제)
   setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
 }
@@ -11585,14 +11633,46 @@ io.on('connection', (socket) => {
 
   // ── 계정 데이터 로드 (로그인 직후) ──
   socket.on('account_load', async () => {
-    if (!socket.data.user) { socket.emit('account_data', { ok: false }); return; }
+    if (!socket.data.user) { socket.emit('account_data', { ok: false, base: gacha.BASE_TYPES }); return; }
     const account = await accountData.loadAccount(socket.data.user.id);
-    socket.emit('account_data', { ok: true, account });
+    socket.emit('account_data', { ok: true, account, base: gacha.BASE_TYPES });
   });
   // ── 계정 데이터 저장 (덱/닉네임/설정 변경, 게스트 흡수) ──
   socket.on('account_save', async (payload) => {
     if (!socket.data.user || !payload) return;
     await accountData.saveAccount(socket.data.user.id, payload);
+  });
+
+  // ── 지갑(크레딧+보유) 로드 ── 미로그인은 기본9만.
+  socket.on('wallet_load', async () => {
+    if (!socket.data.user) {
+      socket.emit('wallet_data', { ok: true, loggedIn: false, credits: 0, owned: [], base: gacha.BASE_TYPES });
+      return;
+    }
+    const w = await accountData.loadWallet(socket.data.user.id);
+    socket.emit('wallet_data', {
+      ok: true, loggedIn: true,
+      credits: w ? w.credits : 0, owned: w ? w.owned : [], base: gacha.BASE_TYPES,
+    });
+  });
+
+  // ── 가챠 뽑기 ── 로그인 필수. 서버가 풀·비용을 정해 원자적 RPC 호출(치트 방지).
+  socket.on('gacha_draw', async ({ tier } = {}) => {
+    if (!socket.data.user) { socket.emit('gacha_result', { ok: false, reason: 'login_required' }); return; }
+    const t = Number(tier);
+    if (![1, 2, 3].includes(t)) { socket.emit('gacha_result', { ok: false, reason: 'bad_tier' }); return; }
+    const cost = gacha.TIER_COST[t];
+    const pool = gacha.poolForTier(CHARACTERS, t);        // 티어 로스터 − 기본9
+    const r = await accountData.gachaDraw(socket.data.user.id, t, cost, pool);
+    socket.emit('gacha_result', r);
+  });
+
+  // ── 일일 출석 ── 클라가 자국 로컬 날짜('YYYY-MM-DD')를 보냄(자정 기준 하루1회).
+  socket.on('attendance_claim', async ({ localDate } = {}) => {
+    if (!socket.data.user) { socket.emit('attendance_result', { ok: false, reason: 'login_required' }); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(localDate || ''))) { socket.emit('attendance_result', { ok: false, reason: 'bad_date' }); return; }
+    const r = await accountData.claimAttendance(socket.data.user.id, localDate, gacha.REWARDS.attendance);
+    socket.emit('attendance_result', r);
   });
 
   // ── 캐릭터 데이터 요청 (덱빌더용) ──
