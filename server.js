@@ -4057,14 +4057,28 @@ const FREE_TIER_TYPES = new Set(['mercenary']);
 function validForTier(type, tier) {
   return !!type && (FREE_TIER_TYPES.has(type) || (CHARACTERS[tier] || []).some(c => c.type === type));
 }
-function validateDeck(deck) {
+// ownedSet(옵션): 주어지면 미보유 캐릭터를 그 티어의 '보유 캐릭터'로 강제 대체(치트/스테일 덱 방지).
+//   게스트=기본9, 로그인=기본9∪가챠보유. 미지정 시 소유권 무시(AI 상대 덱 등).
+function _rndOwnedType(tier, ownedSet) {
+  const full = CHARACTERS[tier] || [];
+  const pool = ownedSet ? full.filter(c => ownedSet.has(c.type)) : full;
+  return randomPick(pool.length ? pool : full).type;
+}
+function validateDeck(deck, ownedSet) {
   if (!deck || !deck.t1 || !deck.t2 || !deck.t3) {
-    return { t1: randomPick(CHARACTERS[1]).type, t2: randomPick(CHARACTERS[2]).type, t3: randomPick(CHARACTERS[3]).type };
+    return { t1: _rndOwnedType(1, ownedSet), t2: _rndOwnedType(2, ownedSet), t3: _rndOwnedType(3, ownedSet) };
   }
-  const t1 = validForTier(deck.t1, 1) ? deck.t1 : randomPick(CHARACTERS[1]).type;
-  const t2 = validForTier(deck.t2, 2) ? deck.t2 : randomPick(CHARACTERS[2]).type;
-  const t3 = validForTier(deck.t3, 3) ? deck.t3 : randomPick(CHARACTERS[3]).type;
-  return { t1, t2, t3 };
+  const coerce = (tier, cur) => {
+    if (!validForTier(cur, tier)) return _rndOwnedType(tier, ownedSet);       // 티어 무효
+    if (ownedSet && !ownedSet.has(cur)) return _rndOwnedType(tier, ownedSet); // 미보유 → 대체
+    return cur;
+  };
+  return { t1: coerce(1, deck.t1), t2: coerce(2, deck.t2), t3: coerce(3, deck.t3) };
+}
+// 소켓의 유효 보유 세트 (게스트=기본9, 로그인=기본9∪가챠보유 캐시)
+function ownedSetForSocket(socket) {
+  const owned = (socket && socket.data && Array.isArray(socket.data.owned)) ? socket.data.owned : [];
+  return new Set([...gacha.BASE_TYPES, ...owned]);
 }
 
 // AI 덱 이름 — 조합 분석해서 그럴싸한 별칭 생성
@@ -11623,9 +11637,12 @@ io.on('connection', (socket) => {
         name: m.name || m.full_name || (user.email ? user.email.split('@')[0] : ''),
       };
       console.log('[auth] 로그인:', socket.data.user.name || socket.data.user.email, '·', user.id);
+      // 보유 캐릭터 캐시 — 덱 소유권 강제(select_pieces/validateDeck)에서 동기 참조
+      try { const w = await accountData.loadWallet(user.id); socket.data.owned = (w && w.owned) || []; } catch (e) { socket.data.owned = []; }
       socket.emit('auth_ok', { userId: user.id, name: socket.data.user.name });
     } else {
       socket.data.user = null;
+      socket.data.owned = [];
       socket.emit('auth_guest', { reason: supa.enabled() ? 'invalid_token' : 'server_no_keys' });
     }
   });
@@ -11664,6 +11681,10 @@ io.on('connection', (socket) => {
     const cost = gacha.TIER_COST[t];
     const pool = gacha.poolForTier(CHARACTERS, t);        // 티어 로스터 − 기본9
     const r = await accountData.gachaDraw(socket.data.user.id, t, cost, pool);
+    if (r && r.ok && r.drawn) {   // 소켓 보유 캐시 갱신 → 즉시 덱 소유권 반영
+      if (!Array.isArray(socket.data.owned)) socket.data.owned = [];
+      if (socket.data.owned.indexOf(r.drawn) < 0) socket.data.owned.push(r.drawn);
+    }
     socket.emit('gacha_result', r);
   });
 
@@ -12010,7 +12031,7 @@ io.on('connection', (socket) => {
     }
 
     const idx = room.players.length;
-    const playerDraft = validateDeck(deck);
+    const playerDraft = validateDeck(deck, ownedSetForSocket(socket));
     const deckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
     const sessionToken = genSessionToken();
     room.players.push({
@@ -12532,7 +12553,7 @@ io.on('connection', (socket) => {
     room.aiBrain = initAiBrain();
 
     // 덱 유효성 검사 후 드래프트로 사용
-    const playerDraft = validateDeck(deck);
+    const playerDraft = validateDeck(deck, ownedSetForSocket(socket));
 
     const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
     const sessionToken = genSessionToken();  // #9: AI전도 새로고침 재접속 지원
@@ -12579,7 +12600,7 @@ io.on('connection', (socket) => {
     room.isAI = true;
     room.aiBrain = initAiBrain();
 
-    const playerDraft = validateDeck(deck);
+    const playerDraft = validateDeck(deck, ownedSetForSocket(socket));
     const aiDraftCustom = validateDeck(aiDeck);
 
     const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
@@ -12725,11 +12746,10 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'draft') return;
     const idx = socket.data.idx;
 
-    if (!CHARACTERS[1].find(c => c.type === t1) ||
-        !CHARACTERS[2].find(c => c.type === t2) ||
-        !CHARACTERS[3].find(c => c.type === t3)) {
-      socket.emit('err', { msg: '잘못된 선택입니다.' }); return;
-    }
+    // ★ 소유권 강제 — 미보유/무효 슬롯은 보유 캐릭터로 대체(게스트=기본9만, 로그인=∪가챠보유).
+    //   "로그인 없이 9종만 플레이" 규칙 실효화 + 클라 스테일 덱/조작 방지.
+    const coerced = validateDeck({ t1, t2, t3 }, ownedSetForSocket(socket));
+    t1 = coerced.t1; t2 = coerced.t2; t3 = coerced.t3;
 
     room.players[idx].draft = { t1, t2, t3 };
     room.draftDone[idx] = true;
@@ -14629,7 +14649,8 @@ module.exports = {
   aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
-  aiSelectPieces, AI_DECK_LIST, _aiDraftSynergyBad, _aiOppSpThreat, _aiSpTransferBar, _aiDraftSynergyBad, _aiSpAllInstant, _aiSpBaseBar,
+  aiSelectPieces, AI_DECK_LIST, _aiDraftSynergyBad, _aiOppSpThreat, _aiSpTransferBar, _aiSpAllInstant, _aiSpBaseBar,
+  validateDeck,
   aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill, _aiConfidentTargetCells, _aiEscapeLethalBonus, aiProcessAttackResult,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
