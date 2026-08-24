@@ -26524,3 +26524,152 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     _lastClickKey = key; _lastClickTime = now; _lastClickType = charType;
   }, { passive: false });
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// ── 가챠 (크레딧 캐릭터 뽑기) ──
+//   로그인 필수. 서버가 풀·비용·랜덤·차감을 원자적으로 처리(gacha_draw).
+//   보유/크레딧 상태는 CaligoAuth 가 소유(gacha_result/credit_reward 로 중앙 갱신).
+// ═══════════════════════════════════════════════════════════════
+(function setupGacha() {
+  const overlay = document.getElementById('gacha-overlay');
+  const btnOpen = document.getElementById('btn-gacha');
+  if (!overlay || !btnOpen) return;
+  const btnClose = document.getElementById('gacha-close');
+  const body = document.getElementById('gacha-body');
+  const attendEl = document.getElementById('gacha-attend');
+  const revealEl = document.getElementById('gacha-reveal');
+  const creditVal = document.getElementById('gacha-credit-val');
+
+  const A = () => window.CaligoAuth;
+  const loggedIn = () => !!(A() && A().user);
+  const authEnabled = () => !!(A() && A().enabled);
+  const creditsNow = () => (A() ? (A().credits || 0) : 0);
+  const tierCost = (tier) => (A() && A().tierCost && A().tierCost[tier]) || ({ 1: 10, 2: 20, 3: 30 })[tier];
+  const tierTotal = (tier) => ((S.characters && S.characters[tier]) || []).length;
+  function ownedCountTier(tier) {
+    const set = A() && A().ownedSet;
+    const list = (S.characters && S.characters[tier]) || [];
+    if (!set) return 0;
+    return list.reduce((n, c) => n + (set.has(c.type) ? 1 : 0), 0);
+  }
+  function findChar(type) {
+    for (const t of [1, 2, 3]) { const c = ((S.characters || {})[t] || []).find(x => x.type === type); if (c) return c; }
+    return null;
+  }
+
+  function render() {
+    if (creditVal) creditVal.textContent = creditsNow();
+    if (!loggedIn()) {
+      attendEl.classList.add('hidden');
+      body.innerHTML =
+        '<div class="gacha-login-gate">가챠는 <strong>로그인 후</strong> 이용할 수 있습니다.<br>' +
+        '로그인하면 크레딧으로 캐릭터를 뽑아 모을 수 있어요.' +
+        (authEnabled() ? '<br><br><button id="gacha-login-btn" class="gacha-reveal-close" type="button">구글로 로그인</button>' : '') +
+        '</div>';
+      const lb = document.getElementById('gacha-login-btn');
+      if (lb) lb.onclick = () => { try { A().signIn(); } catch (e) {} };
+      return;
+    }
+    body.innerHTML = [1, 2, 3].map(tier => {
+      const owned = ownedCountTier(tier), total = tierTotal(tier), cost = tierCost(tier);
+      const complete = total > 0 && owned >= total;
+      const afford = creditsNow() >= cost && !complete;
+      return '<div class="gacha-tier-card">' +
+        '<div class="gacha-tier-info">' +
+          '<div class="gacha-tier-name"><span class="gt-tier">' + tier + '티어</span> 뽑기</div>' +
+          '<div class="gacha-tier-owned">보유 <span class="gt-count">' + owned + '/' + total + '</span>' +
+            (complete ? ' <span class="gt-complete">· 컴플리트!</span>' : '') + '</div>' +
+        '</div>' +
+        '<button class="gacha-draw-btn" data-tier="' + tier + '"' + (afford ? '' : ' disabled') + '>' +
+          '<span>' + (complete ? '완료' : '뽑기') + '</span>' +
+          '<span class="gd-cost">' + (complete ? '' : cost + ' 크레딧') + '</span>' +
+        '</button>' +
+      '</div>';
+    }).join('');
+    body.querySelectorAll('.gacha-draw-btn[data-tier]').forEach(btn => {
+      btn.onclick = () => doDraw(parseInt(btn.dataset.tier));
+    });
+  }
+
+  let drawing = false;
+  function doDraw(tier) {
+    if (drawing || !window.socket) return;
+    drawing = true;
+    body.querySelectorAll('.gacha-draw-btn').forEach(b => b.disabled = true);
+    window.socket.emit('gacha_draw', { tier });
+  }
+
+  function showReveal(res) {
+    const c = findChar(res.drawn);
+    const gif = (window.PIECE_GIFS && window.PIECE_GIFS[res.drawn]) || (c && c.icon) || '';
+    const tag = (c && typeof tagBadgeHtml === 'function') ? tagBadgeHtml(c.tag) : '';
+    revealEl.innerHTML =
+      '<div class="gacha-reveal-inner">' +
+        '<div class="gacha-reveal-flash">획득!</div>' +
+        '<div class="gacha-reveal-icon">' + (gif ? '<img src="' + gif + '" alt="">' : '') + '</div>' +
+        '<div class="gacha-reveal-name">' + (c ? c.name : res.drawn) + '</div>' +
+        '<div class="gacha-reveal-tag">' + tag + ' <span class="gacha-reveal-new">캐릭터 북에 추가됨</span></div>' +
+        '<button class="gacha-reveal-close" id="gacha-reveal-ok" type="button">확인</button>' +
+      '</div>';
+    revealEl.classList.remove('hidden');
+    const ok = document.getElementById('gacha-reveal-ok');
+    if (ok) ok.onclick = () => { revealEl.classList.add('hidden'); render(); };
+  }
+
+  if (window.socket) {
+    window.socket.on('gacha_result', (res) => {
+      drawing = false;
+      if (!res || !res.ok) {
+        render();
+        const why = res && res.reason === 'insufficient' ? '크레딧이 부족합니다.'
+          : res && res.reason === 'complete' ? '이 티어의 캐릭터를 모두 모았습니다!'
+          : res && res.reason === 'login_required' ? '로그인 후 이용하세요.'
+          : '뽑기에 실패했습니다.';
+        if (typeof showSkillToast === 'function') showSkillToast(why, false, undefined, 'event');
+        return;
+      }
+      showReveal(res);   // CaligoAuth 가 별도 리스너로 보유/크레딧 갱신 → 확인 시 render 로 반영
+    });
+    window.socket.on('attendance_result', (res) => {
+      if (res && res.ok && res.granted) {
+        attendEl.innerHTML = '<span class="gacha-attend-msg">🎁 오늘 출석 완료! +3 크레딧</span>';
+        attendEl.classList.remove('hidden');
+        if (creditVal) creditVal.textContent = creditsNow();
+      }
+    });
+    window.socket.on('credit_reward', (d) => {
+      if (d && typeof d.amount === 'number' && typeof showSkillToast === 'function') {
+        showSkillToast((d.perfect ? '퍼펙트! +' : '+') + d.amount + ' 크레딧', false, undefined, 'event');
+      }
+    });
+  }
+
+  function claimAttendance() {
+    if (!loggedIn() || !window.socket) return;
+    const d = new Date();
+    const localDate = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    window.socket.emit('attendance_claim', { localDate });
+  }
+
+  function openGacha() {
+    if (!S.characters && window.socket) { try { window.socket.emit('request_characters'); } catch (e) {} }
+    overlay.classList.remove('hidden');
+    overlay.setAttribute('aria-hidden', 'false');
+    attendEl.classList.add('hidden');
+    revealEl.classList.add('hidden');
+    render();
+    claimAttendance();
+  }
+  function closeGacha() { overlay.classList.add('hidden'); overlay.setAttribute('aria-hidden', 'true'); }
+
+  btnOpen.addEventListener('click', openGacha);
+  if (btnClose) btnClose.addEventListener('click', closeGacha);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeGacha(); });
+
+  if (A() && typeof A().onWallet === 'function') {
+    A().onWallet(() => {
+      if (creditVal) creditVal.textContent = creditsNow();
+      if (!overlay.classList.contains('hidden') && revealEl.classList.contains('hidden')) render();
+    });
+  }
+})();

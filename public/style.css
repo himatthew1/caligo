@@ -9681,3 +9681,100 @@ html, body { touch-action: manipulation; }
   z-index: 60;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   가챠 (크레딧 캐릭터 뽑기)
+   ═══════════════════════════════════════════════════════════════ */
+.btn-gacha-pill {
+  background: linear-gradient(135deg, #7c3aed, #a371f7);
+  border: 1px solid #c9a3ff; color: #fff; font-weight: 700;
+  border-radius: 999px; padding: 8px 18px; margin-left: 8px;
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.4);
+}
+.btn-gacha-pill:hover { filter: brightness(1.08); }
+
+.gacha-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 6, 16, 0.82); backdrop-filter: blur(3px);
+  padding: 20px;
+}
+.gacha-overlay.hidden { display: none; }
+.gacha-panel {
+  position: relative; width: min(560px, 96vw); max-height: 92vh; overflow-y: auto;
+  background: #17121f; border: 1px solid #45375c; border-radius: 16px;
+  padding: 22px 22px 26px; box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+}
+.gacha-close {
+  position: absolute; top: 12px; right: 14px; z-index: 2;
+  background: none; border: none; color: #a89fb8; font-size: 20px; cursor: pointer; line-height: 1;
+}
+.gacha-close:hover { color: #fff; }
+.gacha-header { text-align: center; margin-bottom: 14px; }
+.gacha-title { margin: 0 0 8px; font-size: 20px; color: #e2b714; letter-spacing: 1px; }
+.gacha-credit-badge {
+  display: inline-block; background: #241c33; border: 1px solid #5a4b7a; border-radius: 999px;
+  padding: 5px 16px; color: #cbb6ee; font-size: 13px; font-weight: 600;
+}
+.gacha-credit-badge span { color: #ffd75e; font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.gacha-attend { margin: 0 0 14px; text-align: center; }
+.gacha-attend .gacha-attend-msg {
+  display: inline-block; background: linear-gradient(135deg,#2b6a3a,#3f9a56);
+  border: 1px solid #6fe08c; border-radius: 10px; padding: 8px 16px; color: #eafff0; font-size: 13px; font-weight: 700;
+}
+
+.gacha-body { display: flex; flex-direction: column; gap: 12px; }
+.gacha-login-gate {
+  text-align: center; padding: 30px 16px; color: #a89fb8; line-height: 1.7; font-size: 14px;
+}
+.gacha-login-gate strong { color: #ffd75e; }
+
+.gacha-tier-card {
+  display: flex; align-items: center; gap: 14px;
+  background: #1f1830; border: 1px solid #453c5c; border-radius: 12px; padding: 14px 16px;
+}
+.gacha-tier-info { flex: 1; min-width: 0; }
+.gacha-tier-name { font-size: 15px; font-weight: 700; color: #ede9f0; }
+.gacha-tier-name .gt-tier { color: #a371f7; }
+.gacha-tier-owned { font-size: 12px; color: #9a8fb0; margin-top: 3px; }
+.gacha-tier-owned .gt-count { color: #cbb6ee; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gacha-tier-owned .gt-complete { color: #6fe08c; font-weight: 700; }
+.gacha-draw-btn {
+  flex: 0 0 auto; background: linear-gradient(135deg,#7c3aed,#a371f7);
+  border: 1px solid #c9a3ff; color: #fff; font-weight: 700; border-radius: 10px;
+  padding: 10px 16px; cursor: pointer; font-size: 13px; white-space: nowrap;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 92px;
+}
+.gacha-draw-btn .gd-cost { font-size: 11px; color: #ffe08a; }
+.gacha-draw-btn:hover { filter: brightness(1.08); }
+.gacha-draw-btn:disabled { background: #2c2640; border-color: #453c5c; color: #6b6480; cursor: not-allowed; filter: none; }
+.gacha-draw-btn:disabled .gd-cost { color: #6b6480; }
+
+/* 뽑기 리빌 */
+.gacha-reveal {
+  position: absolute; inset: 0; z-index: 3; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 8, 18, 0.92); backdrop-filter: blur(2px);
+}
+.gacha-reveal.hidden { display: none; }
+.gacha-reveal-inner { text-align: center; animation: gachaPop 0.5s cubic-bezier(.2,1.3,.5,1) both; }
+.gacha-reveal-flash {
+  font-size: 12px; letter-spacing: 3px; color: #ffd75e; margin-bottom: 10px; text-transform: uppercase;
+  animation: gachaGlow 1.2s ease-in-out infinite;
+}
+.gacha-reveal-icon {
+  width: 128px; height: 128px; margin: 0 auto 12px; image-rendering: pixelated;
+  filter: drop-shadow(0 0 8px rgba(163,113,247,0.8)) drop-shadow(0 0 2px #000);
+}
+.gacha-reveal-icon img { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+.gacha-reveal-name { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+.gacha-reveal-tag { font-size: 13px; color: #cbb6ee; margin-bottom: 18px; }
+.gacha-reveal-new { color: #6fe08c; font-weight: 700; }
+.gacha-reveal-close {
+  background: linear-gradient(135deg,#7c3aed,#a371f7); border: 1px solid #c9a3ff; color: #fff;
+  font-weight: 700; border-radius: 10px; padding: 10px 28px; cursor: pointer; font-size: 14px;
+}
+.gacha-reveal-close:hover { filter: brightness(1.08); }
+@keyframes gachaPop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes gachaGlow { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }

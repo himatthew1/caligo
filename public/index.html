@@ -6,7 +6,7 @@
        position:fixed 이펙트(드래곤 소환·SP 오브 등) 위치가 깨지므로 줌 자체를 막는다. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CALIGO - 칼리고</title>
-  <link rel="stylesheet" href="style.css?v=20260820j">
+  <link rel="stylesheet" href="style.css?v=20260824a">
   <style>
     /* ── 로딩 오버레이 ── */
     #loading-overlay {
@@ -224,6 +224,7 @@
     <div class="deck-button-wrapper">
       <div id="btn-deck-preview" class="btn-deck-preview"></div>
       <button id="btn-deck" class="btn btn-deck-pill">내 덱</button>
+      <button id="btn-gacha" class="btn btn-gacha-pill" type="button">✦ 가챠</button>
     </div>
 
     <div class="lobby-grid">
@@ -1071,6 +1072,20 @@
   </div>
 </div>
 
+<!-- ── 가챠 오버레이 ── -->
+<div id="gacha-overlay" class="gacha-overlay hidden" aria-hidden="true">
+  <div class="gacha-panel">
+    <button id="gacha-close" class="gacha-close" type="button" aria-label="닫기">✕</button>
+    <div class="gacha-header">
+      <h2 class="gacha-title">✦ 캐릭터 가챠 ✦</h2>
+      <div class="gacha-credit-badge">보유 크레딧 <span id="gacha-credit-val">0</span></div>
+    </div>
+    <div id="gacha-attend" class="gacha-attend hidden"></div>
+    <div id="gacha-body" class="gacha-body"></div>
+    <div id="gacha-reveal" class="gacha-reveal hidden" aria-hidden="true"></div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script src="vendor/supabase.js?v=20260622a"></script>
 <script src="auth.js?v=20260824b"></script>
@@ -1081,7 +1096,7 @@
 <script src="mark-anim.js?v=20260824a"></script>
 <script src="nightmare-anim.js?v=20260706a"></script>
 <script src="piece-gifs.js?v=20260824a"></script>
-<script src="game.js?v=20260824b"></script>
+<script src="game.js?v=20260824c"></script>
 <script src="tutorial-interactive.js?v=20260707a"></script>
 
 <!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->
