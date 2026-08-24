@@ -15,7 +15,7 @@ async function loadAccount(userId) {
   if (!admin || !userId) return null;
   try {
     const { data: prof, error } = await admin
-      .from('profiles').select('nickname, settings').eq('id', userId).maybeSingle();
+      .from('profiles').select('nickname, settings, credits, owned').eq('id', userId).maybeSingle();
     if (error) { console.error('[data] loadAccount profiles:', error.message); }
     let stats = null;
     try {
@@ -26,6 +26,8 @@ async function loadAccount(userId) {
     return {
       nickname: (prof && prof.nickname) || '',
       settings: (prof && prof.settings) || {},
+      credits: (prof && typeof prof.credits === 'number') ? prof.credits : 30,
+      owned: (prof && Array.isArray(prof.owned)) ? prof.owned : [],
       stats: stats || { wins: 0, losses: 0, draws: 0, records: {} },
     };
   } catch (e) {
@@ -71,4 +73,56 @@ async function bumpStats(userId, result) {
   }
 }
 
-module.exports = { loadAccount, saveAccount, bumpStats };
+// ── 지갑(크레딧+보유) 로드 ──────────────────────────────────────
+async function loadWallet(userId) {
+  const admin = supa.admin;
+  if (!admin || !userId) return null;
+  try {
+    const { data, error } = await admin
+      .from('profiles').select('credits, owned').eq('id', userId).maybeSingle();
+    if (error) { console.error('[data] loadWallet:', error.message); return null; }
+    return {
+      credits: (data && typeof data.credits === 'number') ? data.credits : 30,
+      owned: (data && Array.isArray(data.owned)) ? data.owned : [],
+    };
+  } catch (e) { console.error('[data] loadWallet:', e.message); return null; }
+}
+
+// ── 가챠 뽑기 (원자적 RPC) → { ok, reason?, drawn?, tier?, credits, remaining? } ──
+async function gachaDraw(userId, tier, cost, pool) {
+  const admin = supa.admin;
+  if (!admin || !userId) return { ok: false, reason: 'no_server' };
+  try {
+    const { data, error } = await admin.rpc('gacha_draw', {
+      p_user: userId, p_tier: tier, p_cost: cost, p_pool: pool,
+    });
+    if (error) { console.error('[data] gachaDraw:', error.message); return { ok: false, reason: 'rpc_error' }; }
+    return data || { ok: false, reason: 'empty' };
+  } catch (e) { console.error('[data] gachaDraw:', e.message); return { ok: false, reason: 'exception' }; }
+}
+
+// ── 크레딧 가감(보상) → 새 잔액 | null ──────────────────────────
+async function addCredits(userId, amount) {
+  const admin = supa.admin;
+  if (!admin || !userId || !amount) return null;
+  try {
+    const { data, error } = await admin.rpc('add_credits', { p_user: userId, p_amount: amount });
+    if (error) { console.error('[data] addCredits:', error.message); return null; }
+    return (typeof data === 'number') ? data : null;
+  } catch (e) { console.error('[data] addCredits:', e.message); return null; }
+}
+
+// ── 일일 출석 → { ok, granted, credits } ────────────────────────
+async function claimAttendance(userId, localDate, amount) {
+  const admin = supa.admin;
+  if (!admin || !userId || !localDate) return { ok: false };
+  try {
+    const { data, error } = await admin.rpc('claim_attendance', {
+      p_user: userId, p_date: localDate, p_amount: amount,
+    });
+    if (error) { console.error('[data] claimAttendance:', error.message); return { ok: false }; }
+    return data || { ok: false };
+  } catch (e) { console.error('[data] claimAttendance:', e.message); return { ok: false }; }
+}
+
+module.exports = { loadAccount, saveAccount, bumpStats, loadWallet, gachaDraw, addCredits, claimAttendance };
