@@ -1812,7 +1812,7 @@ socket.on('team_draft_pick_update', ({ playerIdx, slot, type, teamDrafts }) => {
 function updateDraftLockState() {
   if (!S.teamDraftMode || !S.characters) return;
   const step = S.draftStep;
-  const chars = S.characters[step];
+  const chars = ownedTierChars(step);
   if (!chars || !chars.length) return;
   const c = chars[slideIndex];
   if (!c) return;
@@ -1947,20 +1947,11 @@ function renderTeamDraftSlots() {
     tmContainer.querySelectorAll('[data-tm-jump]').forEach(el => {
       el.addEventListener('click', () => {
         const targetType = el.dataset.tmJump;
-        // 모든 티어를 통합 검색
-        const allCh = [...(S.characters?.[1]||[]), ...(S.characters?.[2]||[]), ...(S.characters?.[3]||[])];
-        const targetIdx = allCh.findIndex(c => c.type === targetType);
-        if (targetIdx < 0) return;
-        // 어느 티어에 속하는지 결정 → draftStep 변경 후 슬라이드 인덱스 설정
-        let runIdx = targetIdx;
+        // 게이팅 리스트(보유분) 기준 검색 → 카루셀 인덱스와 일치. 미보유는 직행 불가.
         for (const tier of [1, 2, 3]) {
-          const tierChars = S.characters?.[tier] || [];
-          if (runIdx < tierChars.length) {
-            S.draftStep = tier;
-            slideIndex = runIdx;
-            break;
-          }
-          runIdx -= tierChars.length;
+          const arr = ownedTierChars(tier);
+          const idx = arr.findIndex(c => c.type === targetType);
+          if (idx >= 0) { S.draftStep = tier; slideIndex = idx; break; }
         }
         if (typeof buildDraftStepUI === 'function') buildDraftStepUI();
         if (typeof renderSlide === 'function') renderSlide();
@@ -11208,7 +11199,7 @@ function buildDraftStepUI() {
     el.parentNode.replaceChild(newEl, el);
   });
 
-  const chars = S.characters[step];
+  const chars = ownedTierChars(step);
   if (!chars) return;
 
   // 아이콘 인덱스 생성
@@ -11312,7 +11303,7 @@ function populateSlideContent(c, prefix) {
 
 function renderSlide() {
   const step = S.draftStep;
-  const chars = S.characters[step];
+  const chars = ownedTierChars(step);
   if (!chars || !chars.length) return;
   const c = chars[slideIndex];
   // 슬라이드 변경 시 항상 공격 범위 보기로 초기화
@@ -11398,8 +11389,19 @@ function renderSlide() {
   content.style.animation = '';
 }
 
+// ── 캐릭터 보유 게이팅 — 덱빌더/팀드래프트/딕셔너리/프리뷰/랜덤에서 미보유 숨김 ──
+//   CaligoAuth.ownedSet(기본=공개9, 로그인 시 ∪가챠보유) 기준. 인게임 렌더는 게이팅 안 함(전체 로스터 필요).
+//   세트 미준비(구버전 서버/로딩 전) 시 전부 노출 → 구동 안전.
+function ownedTierChars(tier) {
+  const list = (S.characters && S.characters[tier]) || [];
+  const A = window.CaligoAuth;
+  const set = A && A.ownedSet;
+  if (!set || !set.size) return list;
+  return list.filter(c => set.has(c.type));
+}
+
 function goToSlide(idx) {
-  const chars = S.characters[S.draftStep];
+  const chars = ownedTierChars(S.draftStep);
   if (!chars) return;
   slideIndex = ((idx % chars.length) + chars.length) % chars.length;
   renderSlide();
@@ -11412,7 +11414,7 @@ document.getElementById('btn-slide-next').addEventListener('click', () => goToSl
 // 드래프트 — 선택 상태만 부분 업데이트 (캐릭터 슬라이드 콘텐츠는 그대로)
 function draftUpdateSelectionState() {
   const step = S.draftStep;
-  const chars = S.characters?.[step];
+  const chars = ownedTierChars(step);
   if (!chars || !chars[slideIndex]) return;
   const c = chars[slideIndex];
 
@@ -11458,7 +11460,7 @@ function draftUpdateSelectionState() {
 
 document.getElementById('btn-draft-select').addEventListener('click', () => {
   const step = S.draftStep;
-  const chars = S.characters[step];
+  const chars = ownedTierChars(step);
   if (!chars || !chars[slideIndex]) return;
   const c = chars[slideIndex];
 
@@ -11684,8 +11686,8 @@ document.querySelectorAll('.slide-preview-tab').forEach(tab => {
     slidePreviewMode = tab.dataset.mode;
     // 그리드만 부분 갱신 (다른 정보는 그대로)
     const step = S.draftStep;
-    if (S.characters && S.characters[step]) {
-      const chars = S.characters[step];
+    const chars = ownedTierChars(step);
+    if (chars && chars.length) {
       const c = chars[slideIndex];
       if (c) updateDraftPreview(c);
     }
@@ -12034,9 +12036,12 @@ document.getElementById('btn-draft-confirm').addEventListener('click', () => {
 // ── 랜덤 선택 (슬롯 채우기) ──
 document.getElementById('btn-draft-random').addEventListener('click', () => {
   if (!S.characters) return;
-  const t1 = S.characters[1][Math.floor(Math.random() * S.characters[1].length)];
-  const t2 = S.characters[2][Math.floor(Math.random() * S.characters[2].length)];
-  const t3 = S.characters[3][Math.floor(Math.random() * S.characters[3].length)];
+  // 보유 캐릭터 내에서만 랜덤 (미보유 제외)
+  const p1 = ownedTierChars(1), p2 = ownedTierChars(2), p3 = ownedTierChars(3);
+  if (!p1.length || !p2.length || !p3.length) return;
+  const t1 = p1[Math.floor(Math.random() * p1.length)];
+  const t2 = p2[Math.floor(Math.random() * p2.length)];
+  const t3 = p3[Math.floor(Math.random() * p3.length)];
   S._randomPick = { t1: t1.type, t2: t2.type, t3: t3.type };
 
   const modal = document.getElementById('random-confirm-modal');
@@ -12127,7 +12132,11 @@ const RECOMMENDED_COMBOS = [
 document.getElementById('btn-draft-recommend').addEventListener('click', () => {
   const modal = document.getElementById('recommend-modal');
   const body = document.getElementById('recommend-body');
-  body.innerHTML = RECOMMENDED_COMBOS.map((combo, ci) => {
+  // 보유 캐릭터로 3티어 모두 완성 가능한 추천 조합만 노출
+  const _owned = window.CaligoAuth && window.CaligoAuth.ownedSet;
+  const _comboOwned = (combo) => !_owned || !_owned.size || combo.picks.every(p => _owned.has(p.type));
+  const rows = RECOMMENDED_COMBOS.map((combo, ci) => {
+    if (!_comboOwned(combo)) return '';
     const findChar = (type) => {
       for (const tier of [1,2,3]) {
         const c = (S.characters || {})[tier]?.find(ch => ch.type === type);
@@ -12156,6 +12165,7 @@ document.getElementById('btn-draft-recommend').addEventListener('click', () => {
       </div>
     `;
   }).join('');
+  body.innerHTML = rows || '<div style="padding:24px;color:var(--muted);text-align:center;line-height:1.6">보유한 캐릭터로 완성 가능한 추천 조합이 없습니다.<br>가챠로 캐릭터를 모아보세요.</div>';
 
   // "이 조합 적용" 버튼
   body.querySelectorAll('.recommend-apply-btn').forEach(btn => {
@@ -12176,6 +12186,19 @@ document.getElementById('btn-draft-recommend').addEventListener('click', () => {
 document.getElementById('recommend-close').addEventListener('click', () => {
   document.getElementById('recommend-modal').classList.add('hidden');
 });
+
+// ── 보유 캐릭터 변경(로그인/가챠) 시 덱빌더 즉시 갱신 ──
+//   로그인하면 가챠 보유분이 들어오고, 가챠로 뽑으면 새 캐릭터가 즉시 카루셀에 추가돼야 함.
+if (window.CaligoAuth && typeof window.CaligoAuth.onWallet === 'function') {
+  window.CaligoAuth.onWallet(() => {
+    try {
+      const draft = document.getElementById('screen-draft');
+      if (draft && draft.classList.contains('active') && !S.teamDraftMode && typeof buildDraftStepUI === 'function') {
+        buildDraftStepUI();
+      }
+    } catch (e) {}
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ── HP 분배 UI ──────────────────────────────────────────────
@@ -25668,7 +25691,12 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   let dictPreviewMode = 'attack';
 
   function getChars(tier) {
-    return (S.characters || S.specCharacters || {})[tier] || [];
+    const list = (S.characters || S.specCharacters || {})[tier] || [];
+    // 캐릭터 북 = 보유분만 (기본9 ∪ 가챠보유). 세트 미준비 시 전부(안전).
+    const A = window.CaligoAuth;
+    const set = A && A.ownedSet;
+    if (!set || !set.size) return list;
+    return list.filter(c => set.has(c.type));
   }
 
   // dict-preview-board 5x5 그리드 빌드 (한 번만) — 드래프트 미리보기와 동일 사이즈
@@ -25780,10 +25808,9 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     let target = charType;
     if (target === 'dragon') target = 'dragonTamer';
     if (target === 'twins_elder' || target === 'twins_younger') target = 'twins';
-    const characters = S.characters || S.specCharacters || {};
     let foundTier = null, foundIdx = -1;
     for (const tier of [1, 2, 3]) {
-      const arr = characters[tier] || [];
+      const arr = getChars(tier);   // 게이팅 리스트와 인덱스 일치 (미보유는 직행 불가)
       const idx = arr.findIndex(c => c && c.type === target);
       if (idx >= 0) { foundTier = tier; foundIdx = idx; break; }
     }

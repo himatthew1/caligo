@@ -6,15 +6,31 @@
 // 전역 window.CaligoAuth 로 상태/메서드 노출.
 // ═══════════════════════════════════════════════════════════════
 (function () {
+  // 로그인 없이도 항상 보유하는 기본 9종 (서버 /api/config.base 를 우선 사용, 실패 시 이 폴백)
+  const DEFAULT_BASE = ['spearman', 'manhunter', 'herbalist', 'knight', 'shadowAssassin', 'wizard', 'prince', 'slaughterHero', 'dragonTamer'];
+
   const Auth = {
     enabled: false,    // 로그인 기능 사용 가능 여부 (공개설정 존재)
     sb: null,          // supabase 클라이언트
     user: null,        // { id, email, name, avatar }
     token: null,       // access_token (JWT) — 소켓 인증용
     ready: false,
+    // ── 지갑/보유 ──
+    base: DEFAULT_BASE.slice(),   // 기본 공개 9종
+    owned: [],                    // 가챠로 획득한 type 목록 (로그인 시만 채워짐)
+    credits: 0,
+    tierCost: { 1: 10, 2: 20, 3: 30 },
+    ownedSet: new Set(DEFAULT_BASE),   // 유효 보유 = base ∪ owned (게이팅 기준)
     _listeners: [],
+    _walletListeners: [],
     onChange(fn) { this._listeners.push(fn); if (this.ready) { try { fn(this.user); } catch (e) {} } },
     _emit() { this._listeners.forEach(fn => { try { fn(this.user); } catch (e) {} }); },
+    // 지갑 변경 구독 (덱빌더/딕셔너리/가챠 UI 갱신용)
+    onWallet(fn) { this._walletListeners.push(fn); try { fn(this.wallet()); } catch (e) {} },
+    _emitWallet() { const w = this.wallet(); this._walletListeners.forEach(fn => { try { fn(w); } catch (e) {} }); },
+    wallet() { return { credits: this.credits, owned: this.owned.slice(), base: this.base.slice(), ownedSet: this.ownedSet, loggedIn: !!this.user }; },
+    isOwned(type) { return this.ownedSet.has(type); },
+    _recompute() { this.ownedSet = new Set([...this.base, ...this.owned]); this._emitWallet(); },
   };
   window.CaligoAuth = Auth;
 
@@ -91,7 +107,15 @@
     window.socket.emit('account_load');
   }
   function onAccountData(msg) {
-    if (!msg || !msg.ok || !msg.account) return;
+    if (!msg) return;
+    if (Array.isArray(msg.base) && msg.base.length) Auth.base = msg.base;
+    // 지갑(크레딧+보유) 반영 — 로그인 계정이면 account 에 실려옴
+    if (msg.account) {
+      Auth.credits = (typeof msg.account.credits === 'number') ? msg.account.credits : Auth.credits;
+      Auth.owned = Array.isArray(msg.account.owned) ? msg.account.owned : Auth.owned;
+    }
+    Auth._recompute();
+    if (!msg.ok || !msg.account) return;
     const acc = msg.account;
     // 계정에 덱이 없으면 = 첫 로그인 → 이 기기 게스트 데이터(덱+닉네임) 흡수.
     // 덱이 있으면 = 계정이 소스 → 로컬에 풀.
@@ -106,7 +130,11 @@
     let cfg = null;
     try {
       const r = await fetch('/api/config');
-      cfg = (await r.json()).supabase;
+      const j = await r.json();
+      cfg = j.supabase;
+      if (Array.isArray(j.base) && j.base.length) Auth.base = j.base;   // 서버 기준 기본9
+      if (j.tierCost) Auth.tierCost = j.tierCost;
+      Auth._recompute();   // 게스트 기본: ownedSet = base
     } catch (e) { /* 서버 응답 없음 → 게스트 */ }
 
     if (!cfg || !cfg.url || !cfg.anonKey || !window.supabase) {
@@ -145,6 +173,7 @@
     } else {
       Auth.user = null;
       Auth.token = null;
+      Auth.owned = []; Auth.credits = 0; Auth._recompute();   // 로그아웃 → 기본9만
     }
     Auth.ready = true;
     renderBar();
@@ -171,6 +200,22 @@
     s.on('connect', () => { _lastPushedToken = undefined; pushAuthToSocket(); });  // 재연결 시 강제 재전송
     s.on('auth_ok', (d) => { if (d && d.userId) syncOnLogin(d.userId); });
     s.on('account_data', onAccountData);
+    // ── 지갑 상태 중앙 갱신 (게이팅/가챠 UI 는 onWallet 구독) ──
+    s.on('wallet_data', (d) => {
+      if (!d) return;
+      if (typeof d.credits === 'number') Auth.credits = d.credits;
+      if (Array.isArray(d.owned)) Auth.owned = d.owned;
+      if (Array.isArray(d.base) && d.base.length) Auth.base = d.base;
+      Auth._recompute();
+    });
+    s.on('gacha_result', (d) => {
+      if (!d) return;
+      if (typeof d.credits === 'number') Auth.credits = d.credits;
+      if (d.ok && d.drawn && Auth.owned.indexOf(d.drawn) < 0) Auth.owned.push(d.drawn);
+      Auth._recompute();   // 새 캐릭터 즉시 보유 반영 (덱빌더/딕셔너리 갱신)
+    });
+    s.on('credit_reward', (d) => { if (d && typeof d.credits === 'number') { Auth.credits = d.credits; Auth._emitWallet(); } });
+    s.on('attendance_result', (d) => { if (d && d.ok && typeof d.credits === 'number') { Auth.credits = d.credits; Auth._emitWallet(); } });
   }
 
   Auth.signIn = async function () {
