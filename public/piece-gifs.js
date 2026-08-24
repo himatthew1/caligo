@@ -62,7 +62,7 @@
     undead:         '/art/undead_idle.gif',
     hero:           '/art/hero_idle.gif',
     oberon:         '/art/oberon_idle.gif',
-    fairy:          '/art/fairy_idle.gif',
+    fairy:          '/art/fairy_idle.gif?v=20260824',
     mercenary:      '/art/mercenary_idle.gif',
     windSurfer:     '/art/windSurfer_idle.gif',
     unicorn:        '/art/unicorn_idle.gif',
