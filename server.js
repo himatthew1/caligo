@@ -5959,6 +5959,9 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
         for (let _ffPi = 0; _ffPi < allyPlayer.pieces.length; _ffPi++) {
           const allyPiece = allyPlayer.pieces[_ffPi];
           if (allyPiece.alive && allyPiece !== atkPiece && allyPiece.col === cell.col && allyPiece.row === cell.row) {
+            // ★ 그림자 상태 아군은 오사(friendly-fire)도 면역 — 데미지·피격판정·트리거 없음
+            //   (resolveDamage Step4: shadow => damage 0 과 동일. 오사는 그 경로를 안 타서 raw 감산했던 버그.)
+            if ((allyPiece.statusEffects || []).some(e => e.type === 'shadow')) continue;
             allyPiece.hp = Math.max(0, allyPiece.hp - 1);
             room._attackerFriendlyFireCount++;
             const whose = aIdx === attackerIdx ? '' : `${allyPlayer.name}의 `;
