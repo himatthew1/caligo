@@ -46,6 +46,12 @@
   };
   window.CaligoAuth = Auth;
 
+  // 크레딧 변동 시 로비 계정 옆 배지 실시간 갱신 (로그인 시에만 존재)
+  Auth.onWallet(function () {
+    const el = document.getElementById('auth-credit');
+    if (el) el.textContent = '✦ ' + Auth.credits;
+  });
+
   // ── 계정 동기화 (localStorage ↔ DB) ──────────────────────────
   const SYNC_KEYS = ['caligo_nickname', 'caligo_my_deck', 'caligo_deck_list', 'caligo_chat_muted'];
   let _suppressSync = false;   // 서버→로컬 적용 중엔 푸시 안 함
@@ -253,7 +259,8 @@
         ? `<img class="auth-avatar" src="${esc(Auth.user.avatar)}" alt="" referrerpolicy="no-referrer">`
         : `<span class="auth-avatar auth-avatar-blank">${esc((Auth.user.name[0] || '?').toUpperCase())}</span>`;
       bar.innerHTML =
-        `<div class="auth-user">${av}<span class="auth-name">${esc(Auth.user.name)}</span></div>` +
+        `<div class="auth-user">${av}<span class="auth-name">${esc(Auth.user.name)}</span>` +
+          `<span class="auth-credit" id="auth-credit" title="보유 크레딧">✦ ${Auth.credits}</span></div>` +
         `<button id="auth-signout" class="btn-auth-out" type="button">로그아웃</button>`;
       const out = document.getElementById('auth-signout');
       if (out) out.onclick = () => Auth.signOut();
