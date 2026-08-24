@@ -751,6 +751,7 @@ function updateLobbyDeckButton() {
   preview.classList.remove('hidden');
   const factionCls = (tag) => tag === 'royal' ? 'faction-royal'
                             : tag === 'villain' ? 'faction-villain'
+                            : tag === 'spirit' ? 'faction-spirit'
                             : 'faction-none';
   const iconsHtml = [['t1',1],['t2',2],['t3',3]].map(([k, tier]) => {
     if (!deckReady || !hasChars) {
@@ -859,6 +860,7 @@ function renderDeckList() {
       // 팩션별 원 배경색 (왕실=노랑 / 악인=보라 / 무소속=회색)
       const factionCls = (tag) => tag === 'royal' ? 'faction-royal'
                                 : tag === 'villain' ? 'faction-villain'
+                                : tag === 'spirit' ? 'faction-spirit'
                                 : 'faction-none';
       const iconsHtml = chars.map(c => c
         ? `<span class="deck-list-icon ${factionCls(c.tag)}" title="${c.name}">${pieceIconHtml(c.icon, {size:'1.2em'})}</span>`

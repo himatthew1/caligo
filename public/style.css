@@ -749,6 +749,7 @@ body {
 /* 빈 슬롯(기본)은 주황, 덱 선택되면 진영별 프레임 — 덱 슬롯과 통일 */
 .deck-preview-icon.faction-royal   { background: #7a5b1a; border-color: #f0c040; }
 .deck-preview-icon.faction-villain { background: #4a2570; border-color: #a855f4; }
+.deck-preview-icon.faction-spirit  { background: #1f5a34; border-color: #6fe08c; }
 .deck-preview-icon.faction-none    { background: #3a3f4a; border-color: #9ca3af; }
 .deck-preview-icon.empty {
   background: #0e1220;
@@ -1638,6 +1639,7 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 /* 팩션 컬러 — 왕실=노랑, 악인=보라, 무소속=회색 (불투명 꽉 채움) */
 .deck-list-icon.faction-royal   { background: #7a5b1a; border-color: #f0c040; }
 .deck-list-icon.faction-villain { background: #4a2570; border-color: #a855f4; }
+.deck-list-icon.faction-spirit  { background: #1f5a34; border-color: #6fe08c; }
 .deck-list-icon.faction-none    { background: #3a3f4a; border-color: #9ca3af; }
 .deck-list-name {
   flex: 1; font-size: 0.82rem; font-weight: 600; color: var(--text);
