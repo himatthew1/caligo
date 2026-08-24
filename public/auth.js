@@ -6,6 +6,18 @@
 // 전역 window.CaligoAuth 로 상태/메서드 노출.
 // ═══════════════════════════════════════════════════════════════
 (function () {
+  // ── 1회성 덱 리셋 (가챠/소유권 도입) ──
+  //   기존 덱이 새 보유 시스템과 헷갈릴 수 있어 로컬 저장 덱을 한 번 비운다.
+  //   (서버 덱은 별도로 정리됨.) 브라우저당 1회만 — 플래그로 반복 방지.
+  //   ★ setItem 프록시 정의 전에 실행 → 동기화 트리거 없음.
+  try {
+    if (!localStorage.getItem('caligo_deck_reset_v1')) {
+      localStorage.removeItem('caligo_my_deck');
+      localStorage.removeItem('caligo_deck_list');
+      localStorage.setItem('caligo_deck_reset_v1', '1');
+    }
+  } catch (e) {}
+
   // 로그인 없이도 항상 보유하는 기본 9종 (서버 /api/config.base 를 우선 사용, 실패 시 이 폴백)
   const DEFAULT_BASE = ['spearman', 'manhunter', 'herbalist', 'knight', 'shadowAssassin', 'wizard', 'prince', 'slaughterHero', 'dragonTamer'];
 
