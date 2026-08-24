@@ -55,7 +55,9 @@ function _markIdleCenter(cell, size, markOffY) {
     host.style.position = 'relative';
     const probe = document.createElement('img');
     probe.className = 'mark-board-layer';
-    probe.style.cssText = `visibility:hidden;animation:none;width:${size}px;height:${size}px;transform:translate(-50%,11px);`;
+    // ★ idle 은 markBoardBob(9~11px)로 진동 → 시각 평균 ≈10.3px. 프로브를 그 평균에 맞춰
+    //   iron/불꽃/파괴가 idle 정중앙에 정렬(측정: ty=10.3 일 때 idle 평균과 오차 0).
+    probe.style.cssText = `visibility:hidden;animation:none;width:${size}px;height:${size}px;transform:translate(-50%,10.3px);`;
     host.appendChild(probe);
     const prb = probe.getBoundingClientRect();
     markCx = prb.left + prb.width / 2 - cr.left;
@@ -147,17 +149,32 @@ function _markBrandOne(board, col, row, opts) {
   }, impactMs);
 
   // ── 생성 GIF (1회) → 끝나면 idle 레이어 인계 ──
+  //   ★ 생성 오버레이를 처음부터 idle 과 같은 '.mark-board-layer' 로 host(piece-marker) 자식에 배치.
+  //     idle 과 동일한 CSS 위치(left:50%/bottom:100%/translate)·크기·bob 애니를 그대로 공유하므로
+  //     생성→idle 인계 시 위치 점프 0. (이전엔 셀-절대좌표+margin 으로 배치 → 서브픽셀 반올림으로
+  //     idle 보다 세로 ~1.8px·가로 ~1px 아래로 찍혀 인계 순간 튀었음. 사용자 지적 = 이 이격.)
+  const summonHost = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
   const summonImg = document.createElement('img');
-  summonImg.className = 'mark-summon-anim'; summonImg.alt = '';
-  summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
-    `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
-    `image-rendering:pixelated;object-fit:contain;filter:` +
-    `drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) ` +
-    `drop-shadow(0 0 2px rgba(168,116,231,0.7));`;
+  summonImg.alt = '';
+  const _summonGlow = 'drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 0.5px #000) drop-shadow(0 0 2px rgba(168,116,231,0.7))';
   let blobUrl = null;
   setTimeout(() => {
     _summonBlobP.then(bu => {                     // ★ 이미 준비된 blob → 즉시 표시(인두와 동시)
-      blobUrl = bu; summonImg.src = bu; cell.appendChild(summonImg);
+      blobUrl = bu; summonImg.src = bu;
+      if (summonHost) {
+        // idle 과 동일 좌표계(host 자식 .mark-board-layer) — 위치/크기/bob 은 CSS, 여기선 크기·z·글로우만.
+        summonImg.className = 'mark-board-layer mark-summon-anim';
+        summonImg.style.width = _size + 'px'; summonImg.style.height = _size + 'px';
+        summonImg.style.zIndex = '6'; summonImg.style.pointerEvents = 'none'; summonImg.style.filter = _summonGlow;
+        summonHost.style.position = 'relative'; summonHost.appendChild(summonImg);
+      } else {
+        // 캐러셀 등 host 없는 셀 — 기존 셀-절대좌표 방식 유지(폴백).
+        summonImg.className = 'mark-summon-anim';
+        summonImg.style.cssText = `position:absolute;left:${markCx}px;top:${markCy}px;width:${_size}px;height:${_size}px;` +
+          `margin-left:${-_size / 2}px;margin-top:${-_size / 2}px;z-index:6;pointer-events:none;` +
+          `image-rendering:pixelated;object-fit:contain;filter:${_summonGlow};`;
+        cell.appendChild(summonImg);
+      }
       setTimeout(() => {
         // ★ 생성 GIF 끝 → 생성 오버레이를 '그 자리에서' 표식 idle 레이어로 전환(끊김 0).
         //   renderGameBoard 로 셀을 재구축하면 오버레이 파괴+새 idle 디코드 사이 공백/소멸이 생겨
@@ -165,16 +182,16 @@ function _markBrandOne(board, col, row, opts) {
         window._markSummoning.delete(key);
         cell.classList.remove('mark-brand-host');
         try {
-          summonImg.src = (window.MARK_GIFS && window.MARK_GIFS.idle) || '/art/mark/mark_idle.gif';
-          summonImg.className = 'mark-board-layer';     // CSS 가 정수리 위 위치/크기/글로우/bob 담당
-          summonImg.removeAttribute('style');
           const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
           if (host) {
-            cell.querySelectorAll('.mark-board-layer').forEach(el => { if (el !== summonImg) el.remove(); });  // 기존/숨김 잔재 제거 — 중복 방지
-            host.style.position = 'relative'; host.appendChild(summonImg);
+            // 같은 자리(host 자식)에서 src 만 idle 로 교체 — 위치/크기/애니 그대로라 끊김 0.
+            cell.querySelectorAll('.mark-board-layer').forEach(el => { if (el !== summonImg) el.remove(); });  // 기존/숨김 잔재 제거
+            summonImg.src = (window.MARK_GIFS && window.MARK_GIFS.idle) || '/art/mark/mark_idle.gif';
+            summonImg.className = 'mark-board-layer';     // CSS 가 정수리 위 위치/크기/글로우/bob 담당
+            summonImg.removeAttribute('style');           // 크기/z/글로우 오버라이드 제거 → 순수 idle
+            if (summonImg.parentNode !== host) { host.style.position = 'relative'; host.appendChild(summonImg); }
           } else {
-            // ★ 캐러셀 셀 — .piece-marker 호스트가 없어 idle 인계 불가. 소환 종료(+_markSummoning 해제) 후
-            //   재렌더해 캐러셀 슬롯이 표식 idle 레이어를 '그 턴에 바로' 그리게 함 (이전엔 다음 턴까지 표식 미표시).
+            // ★ 캐러셀 셀 — .piece-marker 호스트가 없어 idle 인계 불가. 소환 종료 후 재렌더로 표식 idle 그림.
             summonImg.remove();
             try { if (typeof window.renderGameBoard === 'function') window.renderGameBoard(); } catch (e) {}
           }
