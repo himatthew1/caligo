@@ -6,7 +6,7 @@
        position:fixed 이펙트(드래곤 소환·SP 오브 등) 위치가 깨지므로 줌 자체를 막는다. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CALIGO - 칼리고</title>
-  <link rel="stylesheet" href="style.css?v=20260824c">
+  <link rel="stylesheet" href="style.css?v=20260824d">
   <style>
     /* ── 로딩 오버레이 ── */
     #loading-overlay {
@@ -1072,6 +1072,18 @@
   </div>
 </div>
 
+<!-- ── 크레딧 정산 (게임 종료 후, 승리/패배 화면 다음에 표시) ── -->
+<div id="credit-settle-overlay" class="credit-settle-overlay hidden" aria-hidden="true">
+  <div class="credit-settle-panel">
+    <div class="cs-title">크레딧 정산</div>
+    <div class="cs-result" id="cs-result">승리</div>
+    <div class="cs-rows" id="cs-rows"></div>
+    <div class="cs-total-row"><span>총 획득</span><span class="cs-total-amt" id="cs-total-amt">+0</span></div>
+    <div class="cs-balance">보유 크레딧 <span id="cs-balance">0</span></div>
+    <button id="cs-confirm" class="cs-confirm" type="button">확인</button>
+  </div>
+</div>
+
 <!-- ── 가챠 오버레이 ── -->
 <div id="gacha-overlay" class="gacha-overlay hidden" aria-hidden="true">
   <div class="gacha-panel">
@@ -1096,7 +1108,7 @@
 <script src="mark-anim.js?v=20260824a"></script>
 <script src="nightmare-anim.js?v=20260706a"></script>
 <script src="piece-gifs.js?v=20260824a"></script>
-<script src="game.js?v=20260824d"></script>
+<script src="game.js?v=20260824e"></script>
 <script src="tutorial-interactive.js?v=20260707a"></script>
 
 <!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->

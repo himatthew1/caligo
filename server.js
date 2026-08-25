@@ -6990,12 +6990,13 @@ async function _awardCredits(room, playerIdx, amount, meta) {
 // 1v1 / AI 종료 보상 (무승부는 호출 안 함)
 function grantSoloCredits(room, winnerIdx) {
   if (!supa.enabled() || winnerIdx == null) return;
-  const R = gacha.REWARDS, isAI = !!room.isAI;
+  const R = gacha.REWARDS, isAI = !!room.isAI, mode = isAI ? 'ai' : 'pvp';
   const winPerfect = _sidePerfect([room.players[winnerIdx]]);
-  const winAmt = (isAI ? R.aiWin : R.pvpWin) + (winPerfect ? R.perfectBonus : 0);
+  const winBase = isAI ? R.aiWin : R.pvpWin;
+  const bonus = winPerfect ? R.perfectBonus : 0;
   const loseAmt = isAI ? R.aiLoss : R.pvpLoss;
-  _awardCredits(room, winnerIdx, winAmt, { result: 'win', mode: isAI ? 'ai' : 'pvp', perfect: winPerfect });
-  _awardCredits(room, 1 - winnerIdx, loseAmt, { result: 'loss', mode: isAI ? 'ai' : 'pvp' });
+  _awardCredits(room, winnerIdx, winBase + bonus, { result: 'win', mode, perfect: winPerfect, base: winBase, bonus });
+  _awardCredits(room, 1 - winnerIdx, loseAmt, { result: 'loss', mode, perfect: false, base: loseAmt, bonus: 0 });
 }
 // 2v2 종료 보상 (팀원 각자, 퍼펙트=승리팀 전원 무사망)
 function grantTeamCredits(room, winnerTeamId) {
@@ -7004,9 +7005,9 @@ function grantTeamCredits(room, winnerTeamId) {
   const winIdxs = room.teams[winnerTeamId] || [];
   const loseIdxs = room.teams[1 - winnerTeamId] || [];
   const teamPerfect = _sidePerfect(winIdxs.map(i => room.players[i]).filter(Boolean));
-  const winAmt = R.teamWin + (teamPerfect ? R.perfectBonus : 0);
-  winIdxs.forEach(i => _awardCredits(room, i, winAmt, { result: 'win', mode: 'team', perfect: teamPerfect }));
-  loseIdxs.forEach(i => _awardCredits(room, i, R.teamLoss, { result: 'loss', mode: 'team' }));
+  const bonus = teamPerfect ? R.perfectBonus : 0;
+  winIdxs.forEach(i => _awardCredits(room, i, R.teamWin + bonus, { result: 'win', mode: 'team', perfect: teamPerfect, base: R.teamWin, bonus }));
+  loseIdxs.forEach(i => _awardCredits(room, i, R.teamLoss, { result: 'loss', mode: 'team', perfect: false, base: R.teamLoss, bonus: 0 }));
 }
 
 function endTeamGame(room, winnerTeamId, reason) {

@@ -26639,11 +26639,32 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
         if (creditVal) creditVal.textContent = creditsNow();
       }
     });
+    // 게임 종료 크레딧 보상 → 승리/패배 화면 다음에 '정산 화면'으로 표시 (사용자 요청)
     window.socket.on('credit_reward', (d) => {
-      if (d && typeof d.amount === 'number' && typeof showSkillToast === 'function') {
-        showSkillToast((d.perfect ? '퍼펙트! +' : '+') + d.amount + ' 크레딧', false, undefined, 'event');
-      }
+      if (!d || typeof d.amount !== 'number') return;
+      setTimeout(() => showCreditSettlement(d), 1800);   // 승패 화면 먼저 보이도록 지연
     });
+  }
+
+  function showCreditSettlement(d) {
+    const ov = document.getElementById('credit-settle-overlay');
+    if (!ov) return;
+    const isWin = d.result === 'win';
+    const resEl = document.getElementById('cs-result');
+    resEl.textContent = isWin ? '승리' : '패배';
+    resEl.className = 'cs-result ' + (isWin ? 'win' : 'loss');
+    const modeLabel = d.mode === 'ai' ? 'AI 대전' : d.mode === 'team' ? '2v2 팀전' : '1v1 대전';
+    const bonus = d.bonus || 0;
+    const base = (typeof d.base === 'number') ? d.base : (d.amount - bonus);
+    const rows = ['<div class="cs-row"><span>' + modeLabel + ' ' + (isWin ? '승리' : '패배') + ' 보상</span><span class="cs-amt">+' + base + '</span></div>'];
+    if (bonus > 0) rows.push('<div class="cs-row bonus"><span>✦ 퍼펙트 보너스 (무사망)</span><span class="cs-amt">+' + bonus + '</span></div>');
+    document.getElementById('cs-rows').innerHTML = rows.join('');
+    document.getElementById('cs-total-amt').textContent = '+' + d.amount;
+    document.getElementById('cs-balance').textContent = (typeof d.credits === 'number') ? d.credits : '';
+    ov.classList.remove('hidden');
+    ov.setAttribute('aria-hidden', 'false');
+    const ok = document.getElementById('cs-confirm');
+    if (ok) ok.onclick = () => { ov.classList.add('hidden'); ov.setAttribute('aria-hidden', 'true'); };
   }
 
   function claimAttendance() {

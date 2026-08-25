@@ -9787,3 +9787,51 @@ html, body { touch-action: manipulation; }
 .gacha-reveal-close:hover { filter: brightness(1.08); }
 @keyframes gachaPop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes gachaGlow { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   크레딧 정산 (게임 종료 후 · 승리/패배 화면 다음)
+   ═══════════════════════════════════════════════════════════════ */
+.credit-settle-overlay {
+  position: fixed; inset: 0; z-index: 320;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 6, 16, 0.86); backdrop-filter: blur(3px);
+  padding: 20px; animation: csFade 0.35s ease both;
+}
+.credit-settle-overlay.hidden { display: none; }
+.credit-settle-panel {
+  width: min(420px, 94vw);
+  background: #17121f; border: 1px solid #5a4b7a; border-radius: 16px;
+  padding: 24px 24px 22px; text-align: center;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+  animation: csPop 0.4s cubic-bezier(.2,1.25,.5,1) both;
+}
+.cs-title { font-size: 13px; letter-spacing: 3px; color: #a89fb8; text-transform: uppercase; margin-bottom: 6px; }
+.cs-result { font-size: 26px; font-weight: 800; margin-bottom: 18px; }
+.cs-result.win  { color: #ffd75e; }
+.cs-result.loss { color: #9aa0b5; }
+.cs-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.cs-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #211a30; border: 1px solid #3d3355; border-radius: 9px;
+  padding: 9px 14px; font-size: 14px; color: #cbb6ee;
+}
+.cs-row.bonus { border-color: #6a5ba0; background: #2a2142; }
+.cs-row .cs-amt { font-weight: 700; color: #ffe08a; font-variant-numeric: tabular-nums; }
+.cs-row.bonus .cs-amt { color: #ffd75e; }
+.cs-total-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; margin-bottom: 12px;
+  border-top: 1px solid #3d3355; font-size: 15px; font-weight: 700; color: #ede9f0;
+}
+.cs-total-amt { font-size: 22px; font-weight: 800; color: #ffd75e; font-variant-numeric: tabular-nums;
+  animation: csGlow 1.4s ease-in-out infinite; }
+.cs-balance { font-size: 13px; color: #9a8fb0; margin-bottom: 18px; }
+.cs-balance span { color: #cbb6ee; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cs-confirm {
+  background: linear-gradient(135deg,#7c3aed,#a371f7); border: 1px solid #c9a3ff; color: #fff;
+  font-weight: 700; border-radius: 10px; padding: 11px 34px; cursor: pointer; font-size: 15px;
+}
+.cs-confirm:hover { filter: brightness(1.08); }
+@keyframes csFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes csPop { from { transform: scale(0.6) translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes csGlow { 0%,100% { opacity: 0.75; } 50% { opacity: 1; } }
