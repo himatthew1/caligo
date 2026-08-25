@@ -16028,6 +16028,11 @@ window._crDotIcon = function(pc) {
   //   따라서 type→PNG 를 먼저 쓰고, .icon 은 실제 이미지 경로일 때만 폴백.
   const byType = (window.getPieceIconUrl && _pc.type) ? window.getPieceIconUrl(_pc.type) : '';
   if (byType) return byType;
+  // ★ 아이콘 PNG 없는 타입(그리폰·인어·유니콘·요정·용병·언데드 등 32종) → idle GIF 로 폴백.
+  //   이들은 getPieceIconUrl=null 이라 도트가 공란이 됐음(내 유닛이 이 타입이면 "내 유닛만 실종"으로 보임).
+  //   PIECE_GIFS 엔 전 타입 존재 → 항상 채워짐. (메인 슬롯 getPieceGifHtml 과 동일 소스.)
+  const gif = (window.PIECE_GIFS && _pc.type) ? window.PIECE_GIFS[_pc.type] : '';
+  if (gif) return gif;
   const ic = _pc.icon;
   if (typeof ic === 'string' && /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(ic)) return ic;
   return '';
