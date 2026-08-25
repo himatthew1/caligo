@@ -440,7 +440,10 @@ function applyPoisonTick(room, piece, ownerIdx) {
 }
 // 중독 틱 배선 — 중독 유닛이 '행동(이동/공격/행동소비스킬)을 완료한 직후' 호출.
 //   데미지 적용 + 클라 이벤트 + 사망 처리(호출부가 startPhase 컨텍스트에서 호출해야 사망 시퀀스 정상).
-function tickActorPoison(room, actor, ownerIdx) {
+function tickActorPoison(room, actor, ownerIdx, turnPhase) {
+  // ★ 중독 개편(사용자 요청): 행동-기반 틱 폐지 → '매턴 시작' 틱(저주처럼)만 유효.
+  //   기존 행동 완료 지점의 호출(turnPhase 미전달)은 전부 무효 → 턴시작 중독 페이즈만 데미지.
+  if (!turnPhase) return 0;
   if (!actor || !actor.alive) return 0;
   const dmg = applyPoisonTick(room, actor, ownerIdx);
   if (dmg <= 0) return 0;
@@ -6408,6 +6411,11 @@ function processTurnStart(room) {
   const continueTurnStart = () => {
     // 지연 실행 중 다른 플레이어 턴으로 넘어갔으면 저주 틱 스킵 (타이머 만료+즉시 턴 종료 경쟁 방지)
     if (!rooms[room.id] || room.phase !== 'game' || room.currentPlayerIdx !== idx) return;
+    // ★ 중독 페이즈 — 저주보다 먼저(사용자 요청: 중독 → 저주 → 턴 진행).
+    //   매턴 시작 시 이 플레이어의 중독 유닛에 지속 피해(행동 여부 무관, 저주처럼).
+    for (const p of player.pieces) {
+      if (p.alive && statusStacks(p, 'poison') > 0) tickActorPoison(room, p, idx, true);
+    }
     // Process curse damage at the start of this player's turn
     for (const p of player.pieces) {
       if (p.alive) {
