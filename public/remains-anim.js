@@ -153,27 +153,29 @@
     if (!gifUrl) { settle(); return; }           // GIF 누락 폴백 — 즉시 정착
 
     _oneShotBlobUrl(gifUrl).then(blobUrl => {
-      // ★ 겹침 0 보장: GIF 재생 동안 뒤의 정적 PNG 를 완전히 숨긴다.
-      //   (GIF 스프라이트의 투명 영역으로 뒤의 PNG 가 비치는 것까지 차단 — 단 한 프레임도 겹치지 않음)
-      //   같은 동기 tick 안에서 [정적 숨김]+[GIF 추가] 처리 → 그 사이 paint 없음.
-      staticEl.style.opacity = '0';
-      if (!destroyed && resultPng) staticEl.src = resultPng;  // 숨긴 채 결과 PNG 미리 적재(디코드)
-
       const gif = document.createElement('img');
       gif.className = 'remains-marker remains-hit-gif';   // 동일 사이즈/스타일 + 위 레이어
       gif.alt = '';
       gif.style.zIndex = '6';                             // 정적 유해(z 2) 위
       if (facingLeft) gif.style.transform = _facingTransform(true);
       gif.src = blobUrl;
-      cell.appendChild(gif);
 
-      setTimeout(() => {
-        // ★ [정적 노출/제거]와 [GIF 제거]를 같은 동기 tick 에 → 둘이 동시에 보이는 프레임 0,
-        //   빈 프레임도 0 (비파괴: GIF 마지막 프레임 ≈ 결과 PNG 라 매끄럽게 교대).
-        settle();
-        if (gif.parentNode) gif.remove();
-        URL.revokeObjectURL(blobUrl);
-      }, gifDur + 80);
+      // ★ 도입 프레임 누락 방지 — 첫 프레임 디코드 완료 후에 [정적 숨김]+[GIF 부착]을 같은 tick 에.
+      //   uid 로 매번 새 바이너리라 디코드 캐시가 없어, 부착 즉시 재생 시 디코드 지연 동안 도입 프레임이
+      //   빈 채로 지나갔음(2회차+). decode() 로 프레임0 준비 후 부착 → 항상 처음부터, 빈 프레임 0.
+      const _startGif = () => {
+        staticEl.style.opacity = '0';
+        if (!destroyed && resultPng) staticEl.src = resultPng;  // 숨긴 채 결과 PNG 미리 적재(디코드)
+        cell.appendChild(gif);
+        setTimeout(() => {
+          // ★ [정적 노출/제거]와 [GIF 제거]를 같은 동기 tick 에 → 둘이 동시에 보이는 프레임 0.
+          settle();
+          if (gif.parentNode) gif.remove();
+          URL.revokeObjectURL(blobUrl);
+        }, gifDur + 80);
+      };
+      if (gif.decode) gif.decode().then(_startGif).catch(_startGif);
+      else { gif.onload = _startGif; }
     }).catch(() => { settle(); });
   };
 })();

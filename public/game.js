@@ -15238,7 +15238,12 @@ function renderGameBoard() {
         const tmDisplayIcon = otherTwin ? (window.PIECE_ICONS && window.PIECE_ICONS.twins || tmPc.icon) : tmPc.icon;
         const _tmGifHtml = typeof getPieceGifHtml === 'function'
           ? getPieceGifHtml(tmPc.type, tmPc.subUnit, !!otherTwin) : null;
-        const _tmIconContent = _tmGifHtml || pieceIconHtml(tmDisplayIcon, {size:'1.2em'});
+        // ★ 아군 아이콘 미출력 방지 — GIF 로드 실패/미존재 시 캐릭터 아이콘(타입 PNG)로 폴백(캐러셀과 동일 견고화).
+        const _tmTypePng = (window.PIECE_ICONS && window.PIECE_ICONS[tmPc.type]) ? `<img class="piece-icon-img" src="${window.PIECE_ICONS[tmPc.type]}" alt="">` : '';
+        const _tmFb = pieceIconHtml(tmDisplayIcon, {size:'1.2em'}) || _tmTypePng || '?';
+        const _tmIconContent = _tmGifHtml
+          ? _tmGifHtml.replace('<img ', `<img onerror="this.onerror=null;this.outerHTML=this.dataset.fb||'?'" data-fb="${_tmFb.replace(/"/g, '&quot;')}" `)
+          : _tmFb;
         const tmHpText = otherTwin
           ? `${_hp(tmPc.hp + otherTwin.hp)}/${tmPc.maxHp + otherTwin.maxHp}`
           : `${_hp(tmPc.hp)}/${tmPc.maxHp}`;
@@ -22093,7 +22098,7 @@ function playDeathAnimations(deaths, callback) {
     if (d.facingLeft) img.style.transform = 'scaleX(-1)';
 
     overlay.appendChild(img);
-    cell.appendChild(overlay);
+    // ★ overlay 는 첫 프레임 디코드 완료 후 부착(도입 프레임 누락 방지) — 아래 _startPlayback 에서.
 
     // Blob URL 로 fresh 재생 — ★ NETSCAPE 블록 제거하여 정확히 1회만 재생
     // GIF 스펙: loop=0 무한, loop=1 은 초기+1반복=2회. 1회만 재생하려면 NETSCAPE 블록 자체 제거.
@@ -22142,8 +22147,6 @@ function playDeathAnimations(deaths, callback) {
           _dfn.set(patched.subarray(_dia), _dia + _dcb.length);
           const patchedBlob = new Blob([_dfn], { type: 'image/gif' });
           const blobUrl = URL.createObjectURL(patchedBlob);
-          // ★ GIF 첫 프레임 로드 완료 후 공존 아군 마커만 딤 (사망 마커는 이미 display:none)
-          img.onload = () => { if (aliveMarker) { aliveMarker.style.opacity = '0.3'; aliveMarker.style.transition = 'opacity 0.15s'; } };
           img.src = blobUrl;
 
           // GIF 재생 시간 파싱
@@ -22152,24 +22155,25 @@ function playDeathAnimations(deaths, callback) {
             ? Promise.resolve(cachedDur)
             : (typeof _fetchGifDuration === 'function' ? _fetchGifDuration(url) : Promise.resolve(800));
 
-          durPromise.then(dur => {
-            const totalMs = (dur || 800) + DEATH_ANIM_EXTRA_MS;
-            setTimeout(() => {
-              URL.revokeObjectURL(blobUrl);
-              if (overlay.parentNode) overlay.remove();
-              // ★ 딤 해제만. 죽은 유닛 idle 마커는 복원하지 않음 — done()→renderGameBoard 가
-              //   셀을 유해로 재구축할 때까지 숨김 유지(다중 사망 시 콜백 지연 동안 idle 잔상 방지).
-              if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
-              done();
-            }, totalMs);
-          }).catch(() => {
-            setTimeout(() => {
-              URL.revokeObjectURL(blobUrl);
-              if (overlay.parentNode) overlay.remove();
-              if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
-              done();
-            }, 900);
-          });
+          const _finish = (ms) => setTimeout(() => {
+            URL.revokeObjectURL(blobUrl);
+            if (overlay.parentNode) overlay.remove();
+            // ★ 딤 해제만. 죽은 유닛 idle 마커는 복원하지 않음 — done()→renderGameBoard 가
+            //   셀을 유해로 재구축할 때까지 숨김 유지(다중 사망 시 콜백 지연 동안 idle 잔상 방지).
+            if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
+            done();
+          }, ms);
+
+          // ★ 도입 프레임 누락 방지 — 첫 프레임 디코드 완료 후 셀에 부착(그때부터 프레임0 재생).
+          //   uid 로 매번 새 바이너리라 디코드 캐시가 없어, 부착 즉시 재생 시 디코드 지연 동안
+          //   도입 프레임이 빈 채로 지나갔음(1회차만 캐시 존재→정상, 2회차+ 누락). decode() 로 해결.
+          const _startPlayback = () => {
+            if (!overlay.parentNode) cell.appendChild(overlay);
+            if (aliveMarker) { aliveMarker.style.opacity = '0.3'; aliveMarker.style.transition = 'opacity 0.15s'; }
+            durPromise.then(dur => _finish((dur || 800) + DEATH_ANIM_EXTRA_MS)).catch(() => _finish(900));
+          };
+          if (img.decode) img.decode().then(_startPlayback).catch(_startPlayback);
+          else { img.onload = _startPlayback; }
         });
       }).catch(() => {
         if (aliveMarker) { aliveMarker.style.opacity = ''; aliveMarker.style.transition = ''; }
