@@ -17142,7 +17142,15 @@ function getNameLengthClass(name) {
 }
 
 function renderStatusBadges(pc) {
-  if (!pc.statusEffects || pc.statusEffects.length === 0) return '';
+  // ★ 그리폰 격노 활성/비활성 표시 — 상태이상과 별개(pc.rageActive 플래그). 내/상대/팀/관전 프로필 공통,
+  //   양측·관전자 모두 확인 가능(서버가 rageActive 를 전 요약에 노출). 피격 시 ON, 격노 스킬 사용 시 OFF.
+  let rageBadge = '';
+  if (pc.type === 'griffin' && pc.alive) {
+    rageBadge = pc.rageActive
+      ? '<span class="status-badge rage-on" title="격노 활성 — 격노 스킬 시전 가능"><i class="sb-ic">🔥</i><span class="sb-label">격노 활성</span></span>'
+      : '<span class="status-badge rage-off" title="격노 비활성 — 피해를 받아야 활성화(스킬 시전 불가)"><i class="sb-ic">💤</i><span class="sb-label">격노 비활성</span></span>';
+  }
+  if ((!pc.statusEffects || pc.statusEffects.length === 0) && !rageBadge) return '';
   // ★ #9 이모지(마커)와 라벨을 분리 → 모바일에서 라벨만 숨겨 컴팩트 이모지 마커로 표시
   //   (좁은 프로필 카드에서도 가로 우선 유지, 자리 부족시 둘째 줄). 데스크탑은 이모지+텍스트 그대로.
   const labels = { curse: ['☠', '저주'], shadow: ['👻', '그림자'], mark: ['🎯', '표식'], poison: ['☣', '중독'], rally: ['📋', '사기증진'], betray: ['🗡', '배신'], executed: ['⛓', '처형'], frog: ['🐸', '개구리'], luck: ['🍀', '행운'], misfortune: ['🐦‍⬛', '불행'] };
@@ -17150,8 +17158,8 @@ function renderStatusBadges(pc) {
   //   영속 키맵(S._stageSeen)에 마지막 표시 단계를 저장해, 다른 동작으로 재렌더돼도 범핑 안 함.
   if (!S._stageSeen) S._stageSeen = {};
   const _pkey = (pc.ownerIdx != null ? pc.ownerIdx : 'me') + ':' + (pc.type || '') + ':' + (pc.subUnit || '') + ':' + (pc.index != null ? pc.index : '');
-  let html = '<div class="status-badges">';
-  for (const e of pc.statusEffects) {
+  let html = '<div class="status-badges">' + rageBadge;
+  for (const e of (pc.statusEffects || [])) {
     const cls = e.type;
     const lab = labels[e.type] || [e.type, ''];
     // ★ 스택형 상태이상(중독·불행·행운)은 "N단계"로 노출. 단계 상승(첫 부여 포함) 시에만 바운스+글로우.
@@ -17996,9 +18004,9 @@ function openSkillModal(targetPieceIdx) {
       if (pc.skillId === 'spread' && (!S.fungus || S.fungus.length === 0)) {
         singleDisabled = true; singleNote = ' (확산할 진균 없음)';
       }
-      // 그리폰 격노: 피해를 받아야 활성화 — 비활성 상태면 잠금(사유: 비활성화).
+      // 그리폰 격노: 피해를 받아야 활성화 — 비활성 상태면 잠금 + 불가 사유 명시.
       if (pc.type === 'griffin' && pc.skillId === 'rage' && !pc.rageActive) {
-        singleDisabled = true; singleNote = ' (비활성화)';
+        singleDisabled = true; singleNote = ' (격노 비활성 · 피해를 받아야 활성화)';
       }
       // 드래곤 조련사: 드래곤이 이미 존재하면 비활성화
       if (pc.type === 'dragonTamer') {
