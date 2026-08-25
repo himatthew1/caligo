@@ -9835,3 +9835,10 @@ html, body { touch-action: manipulation; }
 @keyframes csFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes csPop { from { transform: scale(0.6) translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes csGlow { 0%,100% { opacity: 0.75; } 50% { opacity: 1; } }
+
+/* 미보유 캐릭터 단일 열람 배지 (딕셔너리 프로필 직행) */
+.dict-unowned-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 8px;
+  background: #3a3f4a; border: 1px solid #6b7280; border-radius: 999px;
+  font-size: 0.68rem; font-weight: 700; color: #c3c9d4; vertical-align: middle;
+}

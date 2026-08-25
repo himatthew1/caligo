@@ -25691,6 +25691,7 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   let dictTier = 1;
   let dictIdx = 0;
   let dictPreviewMode = 'attack';
+  let dictOverride = null;   // 미보유 캐릭터 단일 열람(프로필 클릭) — 딕셔너리엔 미추가
 
   function getChars(tier) {
     const list = (S.characters || S.specCharacters || {})[tier] || [];
@@ -25736,22 +25737,32 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   }
 
   function renderDictSlide() {
-    const chars = getChars(dictTier);
-    if (chars.length === 0) return;
-    if (dictIdx < 0) dictIdx = chars.length - 1;
-    if (dictIdx >= chars.length) dictIdx = 0;
-    const c = chars[dictIdx];
+    let c;
+    if (dictOverride) {
+      c = dictOverride;   // 미보유 단일 열람
+    } else {
+      const chars = getChars(dictTier);
+      if (chars.length === 0) return;
+      if (dictIdx < 0) dictIdx = chars.length - 1;
+      if (dictIdx >= chars.length) dictIdx = 0;
+      c = chars[dictIdx];
+    }
     dictPreviewMode = 'attack';
 
     // 공유 헬퍼 — 드래프트(=내 덱) 슬라이드와 동일 콘텐츠 렌더
     populateSlideContent(c, 'dict-slide');
+    // 미보유 열람이면 이름 옆에 배지 (딕셔너리에 추가되는 것 아님을 명시)
+    if (dictOverride) {
+      const nm = document.getElementById('dict-slide-name');
+      if (nm) nm.insertAdjacentHTML('beforeend', '<span class="dict-unowned-badge">미보유</span>');
+    }
 
     ensureDictBoard();
     updateDictPreview(c);
 
-    // 아이콘 인덱스 활성 상태
+    // 아이콘 인덱스 활성 상태 (override 면 활성 없음)
     overlay.querySelectorAll('#dict-icon-index .icon-index-btn').forEach((btn, i) => {
-      btn.classList.toggle('active', i === dictIdx);
+      btn.classList.toggle('active', !dictOverride && i === dictIdx);
     });
     // 스텝 인디케이터 활성/완료 상태
     overlay.querySelectorAll('#dict-step-indicator .dict-bookmark').forEach(el => {
@@ -25770,13 +25781,14 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
       btn.className = 'icon-index-btn';
       btn.title = c.name;
       btn.innerHTML = `<span class="icon-index-emoji">${pieceIconHtml(c.icon, {size:'1.1em'})}</span>`;
-      btn.addEventListener('click', () => { dictIdx = i; renderDictSlide(); });
+      btn.addEventListener('click', () => { dictOverride = null; dictIdx = i; renderDictSlide(); });
       wrap.appendChild(btn);
     });
   }
 
   function setTier(tier) {
     if (!getChars(tier).length) return;
+    dictOverride = null;   // 티어 이동 = 보유 브라우징 복귀
     dictTier = tier;
     dictIdx = 0;
     buildIconIndex();
@@ -25784,7 +25796,7 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   }
 
   function openDict() {
-    if (!getChars(dictTier).length) {
+    if (!dictOverride && !getChars(dictTier).length) {
       // 캐릭터 데이터가 아직 없으면 1티어부터 다시 시도 — 게임 시작 후 항상 채워짐
       dictTier = 1;
     }
@@ -25798,7 +25810,7 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     overlay.setAttribute('aria-hidden', 'true');
   }
 
-  btnOpen.addEventListener('click', openDict);
+  btnOpen.addEventListener('click', () => { dictOverride = null; openDict(); });   // 메뉴로 열면 보유 브라우징
   if (btnClose) btnClose.addEventListener('click', closeDict);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDict(); });
 
@@ -25810,16 +25822,18 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
     let target = charType;
     if (target === 'dragon') target = 'dragonTamer';
     if (target === 'twins_elder' || target === 'twins_younger') target = 'twins';
-    let foundTier = null, foundIdx = -1;
+    // 1) 보유(게이팅 리스트)에 있으면 정상 인덱스 브라우징
     for (const tier of [1, 2, 3]) {
-      const arr = getChars(tier);   // 게이팅 리스트와 인덱스 일치 (미보유는 직행 불가)
+      const arr = getChars(tier);
       const idx = arr.findIndex(c => c && c.type === target);
-      if (idx >= 0) { foundTier = tier; foundIdx = idx; break; }
+      if (idx >= 0) { dictOverride = null; dictTier = tier; dictIdx = idx; openDict(); return; }
     }
-    if (foundTier == null) return;
-    dictTier = foundTier;
-    dictIdx = foundIdx;
-    openDict();
+    // 2) 미보유 — 전체 로스터에서 찾아 '단일 열람'으로 표시 (딕셔너리엔 추가 안 됨, 사용자 요청)
+    const full = S.characters || S.specCharacters || {};
+    for (const tier of [1, 2, 3]) {
+      const c = (full[tier] || []).find(x => x && x.type === target);
+      if (c) { dictOverride = c; dictTier = tier; openDict(); return; }
+    }
   };
 
   // 튜토리얼 전용: 게임 외부에서 specCharacters 를 주입할 수 있도록 노출
@@ -25831,12 +25845,14 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   const prevBtn = document.getElementById('dict-slide-prev');
   const nextBtn = document.getElementById('dict-slide-next');
   if (prevBtn) prevBtn.addEventListener('click', () => {
+    dictOverride = null;
     const chars = getChars(dictTier);
     if (chars.length === 0) return;
     dictIdx = ((dictIdx - 1) % chars.length + chars.length) % chars.length;
     renderDictSlide();
   });
   if (nextBtn) nextBtn.addEventListener('click', () => {
+    dictOverride = null;
     const chars = getChars(dictTier);
     if (chars.length === 0) return;
     dictIdx = (dictIdx + 1) % chars.length;

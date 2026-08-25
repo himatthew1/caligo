@@ -6988,8 +6988,13 @@ async function _awardCredits(room, playerIdx, amount, meta) {
   } catch (e) { console.error('[credit] award:', e.message); }
 }
 // 1v1 / AI 종료 보상 (무승부는 호출 안 함)
-function grantSoloCredits(room, winnerIdx) {
+// ★ 15턴 이전 기권 종료는 어떤 게임이든 크레딧 미지급(빠른 기권 크레딧 파밍 방지, 사용자 요청).
+function _rewardSkipEarlySurrender(room, reason) {
+  return reason === 'surrender' && (room.turnNumber || 0) < 15;
+}
+function grantSoloCredits(room, winnerIdx, reason) {
   if (!supa.enabled() || winnerIdx == null) return;
+  if (_rewardSkipEarlySurrender(room, reason)) return;
   const R = gacha.REWARDS, isAI = !!room.isAI, mode = isAI ? 'ai' : 'pvp';
   const winPerfect = _sidePerfect([room.players[winnerIdx]]);
   const winBase = isAI ? R.aiWin : R.pvpWin;
@@ -6999,8 +7004,9 @@ function grantSoloCredits(room, winnerIdx) {
   _awardCredits(room, 1 - winnerIdx, loseAmt, { result: 'loss', mode, perfect: false, base: loseAmt, bonus: 0 });
 }
 // 2v2 종료 보상 (팀원 각자, 퍼펙트=승리팀 전원 무사망)
-function grantTeamCredits(room, winnerTeamId) {
+function grantTeamCredits(room, winnerTeamId, reason) {
   if (!supa.enabled() || winnerTeamId == null) return;
+  if (_rewardSkipEarlySurrender(room, reason)) return;
   const R = gacha.REWARDS;
   const winIdxs = room.teams[winnerTeamId] || [];
   const loseIdxs = room.teams[1 - winnerTeamId] || [];
@@ -7046,7 +7052,7 @@ function endTeamGame(room, winnerTeamId, reason) {
     winTeamLabel, loseTeamLabel, winners, losers,
     reason: reasonObj, spectator: true,
   });
-  if (!isDraw) { try { grantTeamCredits(room, winnerTeamId); } catch (e) { console.error('[credit] team:', e.message); } }  // 크레딧 보상
+  if (!isDraw) { try { grantTeamCredits(room, winnerTeamId, reason); } catch (e) { console.error('[credit] team:', e.message); } }  // 크레딧 보상
   // ★ S-7: 종료된 방 자동 정리 (60초 후 메모리 해제)
   setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
 }
@@ -7276,7 +7282,7 @@ function endGame(room, winnerIdx, reason) {
     replayWinnerPieces, replayBoardObjects, replayBounds: room.boardBounds,
   });
   emitToSpectators(room, 'game_over', { win: null, winnerName: winner.name, loserName: loser.name, spectator: true, reason: reasonObj });
-  try { grantSoloCredits(room, winnerIdx); } catch (e) { console.error('[credit] solo:', e.message); }  // 크레딧 보상(1v1/AI)
+  try { grantSoloCredits(room, winnerIdx, reason); } catch (e) { console.error('[credit] solo:', e.message); }  // 크레딧 보상(1v1/AI)
   // ★ S-7: 종료된 방 자동 정리 (60초 후 메모리 해제)
   setTimeout(() => { if (rooms[room.id] && room.phase === 'ended') delete rooms[room.id]; }, 60000);
 }
