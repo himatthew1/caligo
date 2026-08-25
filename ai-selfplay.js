@@ -141,6 +141,30 @@ if (process.argv.includes('--match')) {
   process.exit(0);
 }
 
+// ── 가중치 A/B 튜닝: 후보 vs 기본 (사이드 스왑) ──
+//   node ai-selfplay.js --tune [games]
+if (process.argv.includes('--tune')) {
+  const games = parseInt(process.argv[process.argv.indexOf('--tune') + 1], 10) || 1000;
+  const DEF = S.AI_WEIGHTS_DEFAULT;
+  // 후보: 방어(위협회피) 강화 + 저신뢰 공격 억제 조합 탐색
+  const candidates = {
+    'threatMul=1.5':            { ...DEF, threatMul: 1.5 },
+    'threatMul=2.0':            { ...DEF, threatMul: 2.0 },
+    'threatMul=2.5':            { ...DEF, threatMul: 2.5 },
+    'threat2.0+aggro2.6':       { ...DEF, threatMul: 2.0, attackAggro: 2.6 },
+    'threat2.0+flee16':         { ...DEF, threatMul: 2.0, fleeBonus: 16 },
+    'threat2.5+approach3.2':    { ...DEF, threatMul: 2.5, approachMul: 3.2 },
+  };
+  console.log(`가중치 A/B (후보 vs 기본), 각 ${games}판 — 후보 승률 >52% 면 유의미:`);
+  for (const [name, w] of Object.entries(candidates)) {
+    const t0 = Date.now();
+    const r = playMatch(w, DEF, games);
+    const wr = (r.aWins / (r.aWins + r.bWins) * 100);
+    console.log(`  ${wr.toFixed(1)}% (${r.aWins}승 ${r.bWins}패 ${r.draws}무)  ${name}  [${Date.now()-t0}ms]`);
+  }
+  process.exit(0);
+}
+
 // ── 실행 (기본 셀프플레이) ──
 const N = parseInt(process.argv[2], 10) || 20;
 const verbose = process.argv.includes('--verbose');
