@@ -12641,7 +12641,8 @@ io.on('connection', (socket) => {
     room.isAI = true;
     room.aiBrain = initAiBrain();
 
-    const playerDraft = validateDeck(deck, ownedSetForSocket(socket));
+    // ★ 커스텀 모드 = 보유 무관하게 아무 캐릭터나 골라 즐기는 모드(사용자 명시) → 소유권 강제 없음.
+    const playerDraft = validateDeck(deck);
     const aiDraftCustom = validateDeck(aiDeck);
 
     const humanDeckName = (deck && typeof deck.deckName === 'string') ? deck.deckName.slice(0, 16) : '';
