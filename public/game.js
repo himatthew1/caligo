@@ -6171,7 +6171,7 @@ function spawnSpPopBurst(x, y) {
 
 // 인스턴트 SP 트레이 동기화 — count 만큼 .sp-instant-pip 유지
 // 새로 추가되는 pip 은 .sp-pip-spawn 으로 등장 애니. 줄어들 때는 spendSPAttention 측에서 별도 비행 처리.
-function syncInstantTray(trayId, count) {
+function syncInstantTray(trayId, count, spawnOnly) {
   const tray = document.getElementById(trayId);
   if (!tray) return;
   // sp-pip-pop / sp-pip-consume 진행 중인 pip 은 카운트에서 제외 (애니 후 자동 제거됨)
@@ -6183,8 +6183,8 @@ function syncInstantTray(trayId, count) {
       pip.className = 'sp-instant-pip sp-pip-spawn';
       tray.appendChild(pip);
     }
-  } else if (cur > count) {
-    // 많은 pip 제거 — 가장 안쪽(숫자 가까운) pip 부터
+  } else if (cur > count && !spawnOnly) {
+    // 많은 pip 제거 — 가장 안쪽(숫자 가까운) pip 부터. (spawnOnly=애니 중엔 소비를 spendSPAttention 에 맡김)
     const pips = tray.querySelectorAll('.sp-instant-pip:not(.sp-pip-consume):not(.sp-pip-pop)');
     const overflow = cur - count;
     for (let i = 0; i < overflow; i++) {
@@ -14188,11 +14188,10 @@ function updateSPBar() {
     if (oppNumEl) oppNumEl.style.color = '';
   }
   // 인스턴트 SP 트레이 — 숫자 옆에 작은 황금 구슬 나열 (사용 시 숫자로 빨려 들어감)
-  // 스킬 시전 애니 중에는 spendSPAttention 이 트레이의 pip 를 직접 제거 (sp-pip-consume) 하므로 sync 스킵
-  if (!skipBigNumsAndTray) {
-    syncInstantTray('sp-instant-tray-mine', leftInstant);
-    syncInstantTray('sp-instant-tray-opp', rightInstant);
-  }
+  // ★ 사용자 요청: 어느 진영이든 SP '획득'(pip 추가)은 애니 중에도 즉시 반영(상대 SP 획득도 바로 보이게).
+  //   스킬 시전 애니 중(_spAnimGuard)엔 '소비(pip 제거)'만 spendSPAttention 에 맡기고 스킵(spawnOnly).
+  syncInstantTray('sp-instant-tray-mine', leftInstant, skipBigNumsAndTray);
+  syncInstantTray('sp-instant-tray-opp', rightInstant, skipBigNumsAndTray);
 
   const myFillEl = document.getElementById('sp-my-fill');
   const oppFillEl = document.getElementById('sp-opp-fill');
@@ -25765,6 +25764,12 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
       c = chars[dictIdx];
     }
     dictPreviewMode = 'attack';
+
+    // ★ 미보유 단일 열람(override)은 캐러셀이 아니므로 좌우 화살표·아이콘 인덱스·티어 인덱스 숨김(설명만).
+    const _singleView = !!dictOverride;
+    ['dict-slide-prev', 'dict-slide-next', 'dict-icon-index', 'dict-step-indicator'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.style.display = _singleView ? 'none' : '';
+    });
 
     // 공유 헬퍼 — 드래프트(=내 덱) 슬라이드와 동일 콘텐츠 렌더
     populateSlideContent(c, 'dict-slide');

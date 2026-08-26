@@ -49,7 +49,11 @@ function _markGifTotalMs(url) {
 //    (사용자 규칙: 표식 아이들 위치가 유일 기준. 파괴/인두/최초 모두 여기에 맞춘다.) ──
 function _markIdleCenter(cell, size, markOffY) {
   const cr = cell.getBoundingClientRect();
-  const host = cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
+  // ★ 캐러셀 셀은 .piece-marker 대신 현재 보이는 슬롯 .cc-main:not(.cc-hidden) > .cc-inner 가 표식 앵커
+  //   (.cc-inner: position:relative, .mark-board-layer bottom:100%). 이걸 우선 호스트로 잡아야
+  //   인두/생성 인트로가 그 슬롯 정수리에 정렬됨(이전엔 호스트 없음→첫 p-gif=숨은 슬롯 폴백→위치 오류).
+  const host = cell.querySelector('.cc-main:not(.cc-hidden) .cc-inner')
+    || cell.querySelector('.piece-marker') || cell.querySelector('.spec-piece');
   let markCx, markCy;
   if (host) {
     host.style.position = 'relative';
