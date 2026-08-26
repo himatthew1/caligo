@@ -12359,6 +12359,11 @@ io.on('connection', (socket) => {
       if (!ALL_CHARS.find(c => c.type === type)) {
         socket.emit('err', { msg: '잘못된 선택입니다.' }); return;
       }
+      // ★ 소유권 강제 — 2v2 정규전은 보유 캐릭터만(티어 무관). 게스트=기본9.
+      //   (커스텀 2v2 는 join_team_custom_ai 별도 핸들러라 무관.)
+      if (!ownedSetForSocket(socket).has(type)) {
+        socket.emit('err', { msg: '보유하지 않은 캐릭터입니다.' }); return;
+      }
       // 팀원이 이미 선택한 캐릭터 금지
       const teammates = getTeammates(room, idx);
       for (const tIdx of teammates) {
