@@ -2224,6 +2224,8 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   score += aiCandidateCoverageBonus(brain, cells, effAtk);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(제자리)하면 페널티 (1v1 과 동일).
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
+  // ★ 딜교환 판단 (1v1 과 동일) — 머물면 치명 + 확정 처치 없음 → 공격 급감(도주 유도).
+  score = _aiDealTradeAdjust(score, brain, piece, room, idx, cells, effAtk);
   return score;
 }
 
@@ -9728,7 +9730,22 @@ function aiScoreAttack(brain, piece, room, extra) {
   score += aiCandidateCoverageBonus(brain, cells, effAtk);
   // ★ 보드축소 우선 — 곧 파괴될 칸에서 공격(=제자리 유지)하면 강한 페널티 → 안전한 이동 우선.
   score -= _aiCellDoomPenalty(room, piece.col, piece.row);
+  // ★ 딜교환 판단 (사용자 지시) — 이 유닛이 이 칸에 머물면 다음 후속타로 사망 예상(danger≥hp)인데,
+  //   이번 공격이 '확정 처치'(위협 제거·1:1 트레이드)가 아니면 공격 가치를 급감시켜 도주가 이기게 한다.
+  //   (공격으로 적을 확실히 잡아낼 수 있을 때만 반격. 못 잡고 후속타가 뻔하면 목숨 보존 = 도주.)
+  score = _aiDealTradeAdjust(score, brain, piece, room, 1, cells, effAtk);
   return score;
+}
+// ★ 딜교환 조정 — 머물면 치명(danger≥hp) + 확정 처치 없음 → 공격 급감(도주 유도). 1v1·팀 공용.
+function _aiDealTradeAdjust(score, brain, piece, room, ownerIdx, cells, effAtk) {
+  const dm = brain && brain._dangerMap;
+  const dHere = (dm && dm[piece.row]) ? (dm[piece.row][piece.col] || 0) : 0;
+  if (dHere < (piece.hp || 1)) return score;   // 머물러도 안 죽음 → 정상 공격
+  // 확정 처치 = 표식된(위치·HP 공개) 적이 사거리 내에 있고 이번 공격으로 죽는가.
+  const securesKill = (typeof aiKnownEnemies === 'function') && aiKnownEnemies(room, ownerIdx).some(e =>
+    e.marked && e.piece && e.piece.alive && (e.piece.hp || 0) <= effAtk &&
+    cells.some(c => c.col === e.col && c.row === e.row));
+  return securesKill ? score : score * 0.12;   // 처치 불가 + 치명 후속타 → 공격 가치 급감
 }
 // ★ 공격자 후보 집합(brain.lastHitCandidates = 역추론된 '공격자 가능 위치') 커버리지 보너스.
 //   후보를 많이 덮을수록(전부=확정 클립) 가산. 단 과신 금지: 최근(≤2턴) 추론일 때만, 마녀처치보다 낮게,
@@ -14692,7 +14709,7 @@ module.exports = {
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, AI_DECK_LIST, _aiDraftSynergyBad, _aiOppSpThreat, _aiSpTransferBar, _aiSpAllInstant, _aiSpBaseBar,
-  validateDeck,
+  validateDeck, _aiDealTradeAdjust,
   aiUsePreSkills, aiTeamUsePreSkills, aiTeamHpDistribute, buildTeamPieces, _aiAdvantageFallbackSkill, _aiConfidentTargetCells, _aiEscapeLethalBonus, aiProcessAttackResult,
   _aiConcentratedDeduction, _cells3x3,
   endTurn, getNextPlayerIdx, checkWin,
