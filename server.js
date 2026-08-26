@@ -2730,6 +2730,17 @@ function aiTeamUsePreSkills(room, idx) {
       }
       if (exTarget) { aiTeamExecSkill(room, idx, pi, 'exhume', { col: exTarget.col, row: exTarget.row }); return true; }
     }
+    // ★ 악령술사: 강령술 (SP2·자유시전·1회) — 보드 위 유해(유닛 없는 칸)를 악령(추가 유닛)으로 부활.
+    if (piece.skillId === 'raise') {
+      const brain2 = getTeamBrain(room, getTeamOf(room, idx));
+      const occ = (c, r) => room.players.some(pl => pl.pieces.some(p2 => p2.alive && p2.col === c && p2.row === r));
+      const cand = (room.remains || []).filter(rm => !occ(rm.col, rm.row));
+      if (cand.length) {
+        const wBelief = (c, r) => { let s = 0; for (const dr of [-1, 0, 1]) { const nr = r + dr; if (brain2.probMap && brain2.probMap[nr]) s += brain2.probMap[nr][c] || 0; } return s; };
+        cand.sort((a, b) => wBelief(b.col, b.row) - wBelief(a.col, a.row));
+        aiTeamExecSkill(room, idx, pi, 'raise', { col: cand[0].col, row: cand[0].row }); return true;
+      }
+    }
     // ★ 이야기꾼: 선동 (SP3) — 적을 배신 상태로. '정체(type)'로 선언(위치·표식 불필요, 적 정체는 공개).
     if (piece.skillId === 'incite') {
       const inciteT = getEnemyIndices(room, idx).flatMap(ei => (room.players[ei]?.pieces || []))
@@ -10344,6 +10355,18 @@ function aiUsePreSkills(room) {
         if (finishable.length) target = finishable.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
         else if (piece.hp <= 1) target = enemies.slice().sort((a, b) => aiUnitValue(b) - aiUnitValue(a))[0];
         if (target) _tryExec(pidx, 'rage', { targetName: target.type });
+        break;
+      }
+      // ★ 악령술사: 강령술(SP2·자유시전·1회) — 보드 위 유해(유닛 없는 칸)를 악령(추가 유닛)으로 부활.
+      //   유해가 있으면 거의 항상 이득(공짜 행동+추가 병력). 악령 세로3 사거리에 믿음이 큰 유해 우선.
+      case 'necromancer': {
+        const occ = (c, r) => room.players.some(pl => pl.pieces.some(p2 => p2.alive && p2.col === c && p2.row === r));
+        const cand = (room.remains || []).filter(rm => !occ(rm.col, rm.row));
+        if (cand.length) {
+          const wBelief = (c, r) => { let s = 0; for (const dr of [-1, 0, 1]) { const nr = r + dr; if (brain.probMap[nr]) s += brain.probMap[nr][c] || 0; } return s; };
+          cand.sort((a, b) => wBelief(b.col, b.row) - wBelief(a.col, a.row));
+          _tryExec(pidx, 'raise', { col: cand[0].col, row: cand[0].row });
+        }
         break;
       }
       // 궁수/무기상: 대안 공격범위가 더 좋으면 토글 (SP 1 — 자유롭게)
