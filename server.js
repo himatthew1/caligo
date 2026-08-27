@@ -13515,6 +13515,7 @@ io.on('connection', (socket) => {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
               fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
+              friendlyFireHits: room._friendlyFireHits || [],   // ★ 공격자 오사 정보 상대에게 공유
               hitPieces: hits.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
                 return {
@@ -13546,6 +13547,7 @@ io.on('connection', (socket) => {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
               fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
+              friendlyFireHits: room._friendlyFireHits || [],   // ★ 공격자 오사 정보 상대에게 공유(위치·도장·사망)
               hitPieces: hitResults.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
                 return {

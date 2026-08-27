@@ -5171,7 +5171,9 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         for (const ff of friendlyFireHits) {
           _ffHitCells.push({ col: ff.col, row: ff.row });
           if (ff.destroyed) {
-            _ffDeadCells.push({ col: ff.col, row: ff.row, type: ff.type });
+            // ★ defPieceIdx/ownerIdx 포함 — _detectDeaths 가 권위 인덱스로 오사 사망 유닛을 정확히 지목.
+            //   (좌표 lookup 폴백은 같은 칸 잔류 사망자와 충돌 → 사망 GIF/유해 누락·오작동. #13 동일 원인.)
+            _ffDeadCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx, defOwnerIdx: ff.ownerIdx });
           }
         }
       } else if (yourPieces) {
