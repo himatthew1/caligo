@@ -3445,7 +3445,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
       atkCells,
       attackerImpactedAnything,
       fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
-      friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(AI 공격자) 오사 피해 실시간 공유
+      friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ #6 적(AI 공격자) 오사 피해 실시간 공유
       hitPieces: hits.map(h => {
         // ★ 합류 쌍둥이 버그 수정: col/row 기반 find 는 같은 칸의 첫 매치(누나)만 반환 → 동생 hit 도 누나 이름/도장으로 잘못 매핑.
         //   대신 defPieceIdx 로 정확히 해당 piece 를 찾고, 클라에 defPieceIdx 도 함께 전달.
@@ -3470,7 +3470,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         atkCells, attackerImpactedAnything,
         hitPieces: [],
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(진균은 공개 보드상태)
-        friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
+        friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ #6 적 오사 피해 실시간 공유
         yourPieces: pieceSummary(en.pieces, room),
       });
     }
@@ -3502,6 +3502,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
           col: ff.col, row: ff.row, damage: ff.damage, destroyed: ff.destroyed,
           defOwnerIdx: ff.ownerIdx, defPieceIdx: ff.defPieceIdx,
         })),
+        friendlyFireRats: room._friendlyFireRats || [],
       };
       for (const aIdx of casterAllyIdxs) {
         const ally = room.players[aIdx];
@@ -5966,6 +5967,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   room._attackerFriendlyFireCount = 0;
   room._attackerOwnRatsDestroyedCount = 0;
   room._friendlyFireHits = [];                 // ★ 아군 피격 상세 데이터 수집
+  room._friendlyFireRats = [];                 // ★ 오사된 아군 쥐 셀(위치 공유+사망 애니용)
   if (atkPiece.type === 'slaughterHero') {
     const attackerName = room.players[attackerIdx].name;
     const allyIndices = (room.mode === 'team') ? getAllyIndices(room, attackerIdx) : [attackerIdx];
@@ -6005,14 +6007,18 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
       if (room._attackPassivesFired) room._attackPassivesFired.add('betrayer');
     }
     // 배반자 — 아군 쥐도 격파 (피격 유효)
+    //   ★ 사용자 요청: 오사된 쥐도 오사 유닛과 '동일하게' 즉시 위치 공유 + 사망 애니.
+    //     제거된 아군 쥐 셀을 room._friendlyFireRats 에 수집 → being_attacked/attack_result 로 상대에게 전달.
     for (const cell of atkCells) {
       for (const aIdx of allyIndices) {
         const before = (room.rats[aIdx] || []).length;
+        const _killedRats = (room.rats[aIdx] || []).filter(r => r.col === cell.col && r.row === cell.row);
         room.rats[aIdx] = (room.rats[aIdx] || []).filter(
           r => !(r.col === cell.col && r.row === cell.row)
         );
         if (room.rats[aIdx].length < before) {
           room._attackerOwnRatsDestroyedCount += (before - room.rats[aIdx].length);
+          for (const _kr of _killedRats) room._friendlyFireRats.push({ col: cell.col, row: cell.row, ownerIdx: aIdx });
           // 배반자로 아군 쥐 격파 — 토스트·로그 출력 제거 (사용자 요청)
         }
       }
@@ -10837,15 +10843,16 @@ function aiTryDecree(room) {
   if (human && human.socketId && human.socketId !== 'AI') {
     io.to(human.socketId).emit('being_attacked', {
       atkCells: best.cells, fungus: room.fungus || [],
-      attackerImpactedAnything: hits.length > 0,
+      attackerImpactedAnything: hits.length > 0 || (room._friendlyFireHits || []).length > 0 || (room._friendlyFireRats || []).length > 0,
       hitPieces: hits.map(h => { const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
         return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, name: dp?.name, icon: dp?.icon, defPieceIdx: h.defPieceIdx, redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false }; }),
       yourPieces: pieceSummary(human.pieces, room),
+      friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ 적 AI 광전사 오사 — 위치 공유+도장+사망(쥐 포함)
     });
   }
   emitToSpectators(room, 'spectator_attack_anim', { atkCells: best.cells, atkCol: best.rp.col, atkRow: best.rp.row, atkType: best.rp.type, atkSubUnit: best.rp.subUnit || null,
     hits: hits.map(h => ({ col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed, defPieceIdx: h.defPieceIdx, defOwnerIdx: 0 })) });
-  room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
+  room._friendlyFireHits = []; room._friendlyFireRats = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
   emitSPUpdate(room);
   flushPhase(room, () => { if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room); });
   return true;
@@ -11446,9 +11453,13 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
       stepCells = cells; stepHits = hits || [];
     }
     if (!stepCells) continue;
+    // ★ 오사(광전사) 정보 — 이 유닛 공격 직후 스냅샷. steps 는 지연 emit 이고 room._friendlyFire* 는
+    //   스케줄 후 리셋되므로 반드시 여기서 복사해 step 에 담아야 오사 위치/도장/사망이 상대에게 전달됨.
+    const stepFfHits = (room._friendlyFireHits || []).slice();
+    const stepFfRats = (room._friendlyFireRats || []).slice();
     // 진행 스냅샷(이 유닛 공격 직후의 인간 말 상태 = 누적 HP) — 순차 emit 시 단계별 HP 표시용.
     const snap = humanOk ? JSON.parse(JSON.stringify(pieceSummary(human.pieces, room))) : null;
-    steps.push({ ui, atkCol: p.col, atkRow: p.row, atkType: stepType, atkCells: stepCells, hits: stepHits, snap });
+    steps.push({ ui, atkCol: p.col, atkRow: p.row, atkType: stepType, atkCells: stepCells, hits: stepHits, snap, ffHits: stepFfHits, ffRats: stepFfRats });
   }
   player._troopQueue = null;
 
@@ -11494,7 +11505,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
         io.to(human.socketId).emit('being_attacked', {
           atkCells: st.atkCells,
           fungus: room.fungus || [],
-          attackerImpactedAnything: st.hits.length > 0,
+          attackerImpactedAnything: st.hits.length > 0 || (st.ffHits || []).length > 0 || (st.ffRats || []).length > 0,
           hitPieces: st.hits.map(h => {
             const dp = (typeof h.defPieceIdx === 'number') ? human.pieces[h.defPieceIdx] : null;
             return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -11502,6 +11513,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
               redirectedToBodyguard: h.redirectedToBodyguard || false, bodyguardRedirect: h.bodyguardRedirect || false };
           }),
           yourPieces: st.snap,
+          friendlyFireHits: st.ffHits || [], friendlyFireRats: st.ffRats || [],   // ★ 적 AI 팀 광전사 오사 — 위치/도장/사망(쥐 포함)
         });
       }
       emitToSpectators(room, 'spectator_attack_anim', {
@@ -11514,7 +11526,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
   setTimeout(() => { if (rooms[room.id]) _emitHL(-1, -1, false); }, CAST_LEAD + steps.length * PER_UNIT);
 
   // 데미지·phase·게임종료는 동기(원본대로) — 지연 시 stale-phase/헤드리스 회귀 위험. 턴 종료만 애니 후로 미룸.
-  room._friendlyFireHits = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
+  room._friendlyFireHits = []; room._friendlyFireRats = []; room._attackerFriendlyFireCount = 0; room._attackerOwnRatsDestroyedCount = 0; room._destroyedEnemyRatsCount = 0;
   emitSPUpdate(room);
   room._aiEndTurnEarliest = Math.max(room._aiEndTurnEarliest || 0, Date.now() + totalMs + 400);
   room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + totalMs);
@@ -13497,7 +13509,7 @@ io.on('connection', (socket) => {
             pieceIdx, cellResults, anyHit: hitResults.length > 0,
             attackerImpactedAnything: attackerImpactedAnything2,
             yourPieces: pieceSummary(player.pieces, room),
-            friendlyFireHits: room._friendlyFireHits || [],
+            friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
             bodyguardHits,
             fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
           });
@@ -13515,7 +13527,7 @@ io.on('connection', (socket) => {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
               fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
-              friendlyFireHits: room._friendlyFireHits || [],   // ★ 공격자 오사 정보 상대에게 공유
+              friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ 공격자 오사 정보 상대에게 공유
               hitPieces: hits.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
                 return {
@@ -13537,7 +13549,7 @@ io.on('connection', (socket) => {
             attackerImpactedAnything: attackerImpactedAnything2,
             oppPieces: oppPieceSummary(room.players[1 - idx].pieces, room),
             yourPieces: pieceSummary(player.pieces, room),
-            friendlyFireHits: room._friendlyFireHits || [],
+            friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
             bodyguardHits,
             fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(공격자 시점)
           });
@@ -13547,7 +13559,7 @@ io.on('connection', (socket) => {
               atkCells,
               attackerImpactedAnything: attackerImpactedAnything2,
               fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
-              friendlyFireHits: room._friendlyFireHits || [],   // ★ 공격자 오사 정보 상대에게 공유(위치·도장·사망)
+              friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ 공격자 오사 정보 상대에게 공유(위치·도장·사망)
               hitPieces: hitResults.map(h => {
                 const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
                 return {
@@ -13741,7 +13753,7 @@ io.on('connection', (socket) => {
         pieceIdx, cellResults, anyHit: hitResults.length > 0,
         attackerImpactedAnything,
         yourPieces: pieceSummary(player.pieces, room),
-        friendlyFireHits: room._friendlyFireHits || [],
+        friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
         bodyguardHits,
         decreeUnit: player._decreeUnit || null, crossDecree: _decreeCrossA || undefined,   // ★ 칙명(팀전) 종료/크로스 알림
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐(팀전에서도 다음 유닛 조작되도록)
@@ -13761,7 +13773,7 @@ io.on('connection', (socket) => {
           atkCells,
           attackerImpactedAnything,
           fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 공유(피격자 시점)
-          friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
+          friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
           hitPieces: hits.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
@@ -13789,7 +13801,7 @@ io.on('connection', (socket) => {
             atkCells,
             attackerImpactedAnything,
             hitPieces: [],
-            friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적 오사 피해 실시간 공유
+            friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ #6 적 오사 피해 실시간 공유
             yourPieces: pieceSummary(en.pieces, room),
           });
         }
@@ -13852,6 +13864,7 @@ io.on('connection', (socket) => {
             col: ff.col, row: ff.row, damage: ff.damage, destroyed: ff.destroyed,
             defOwnerIdx: ff.ownerIdx, defPieceIdx: ff.defPieceIdx,
           })),
+          friendlyFireRats: room._friendlyFireRats || [],
         };
         for (const aIdx of casterAllyIdxs) {
           const ally = room.players[aIdx];
@@ -13865,7 +13878,7 @@ io.on('connection', (socket) => {
         attackerImpactedAnything,
         oppPieces: oppPieceSummary(defender.pieces, room),
         yourPieces: pieceSummary(player.pieces, room),
-        friendlyFireHits: room._friendlyFireHits || [],
+        friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
         bodyguardHits,
         decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
@@ -13874,7 +13887,7 @@ io.on('connection', (socket) => {
         io.to(defender.socketId).emit('being_attacked', {
           atkCells,
           attackerImpactedAnything,
-          friendlyFireHits: room._friendlyFireHits || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
+          friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ #6 적(공격자) 오사 피해 실시간 공유
           hitPieces: hitResults.map(h => {
             // ★ 합류 쌍둥이 — defPieceIdx 로 정확한 piece 매핑.
             const dp = (typeof h.defPieceIdx === 'number') ? defender.pieces[h.defPieceIdx] : null;
@@ -13909,7 +13922,7 @@ io.on('connection', (socket) => {
         redirectedToBodyguard: h.redirectedToBodyguard || false,
         bodyguardRedirect: h.bodyguardRedirect || false,
       })),
-      friendlyFireHits: room._friendlyFireHits || [],
+      friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
     });
 
     // ★ 표식 공격 모션 공유 — 표식된 적이 공격하면 표식 부여자(mark source)에게 공격 셀 + hit 정보 전송.

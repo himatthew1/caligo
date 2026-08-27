@@ -5027,7 +5027,7 @@ socket.on('opp_moved', ({ msg, prevCol, prevRow, col, row }) => {
 });
 
 // ── 공격 결과 ──
-socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, bodyguardHits, troopQueue, decreeRoyalMoves, decreeUnit, crossDecree, fungus }) => {
+socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAnything, oppPieces, yourPieces, friendlyFireHits, friendlyFireRats, bodyguardHits, troopQueue, decreeRoyalMoves, decreeUnit, crossDecree, fungus }) => {
   // ★ 칙명 팀원 크로스 공격 — pieceIdx/yourPieces 는 조작자 것이 아니므로 내 말 공격 애니 파이프라인을
   //   타면 엉뚱한 말을 애니한다. 피격/사망/HP 연출은 broadcastTeamGameState + being_attacked 가 처리하므로
   //   여기선 칙명 페이즈만 종료. (공격자 GIF 는 팀 동기화로 갈음.)
@@ -5416,6 +5416,18 @@ socket.on('attack_result', ({ pieceIdx, cellResults, anyHit, attackerImpactedAny
         addLog(msg, 'hit');
         animateRatDestruction(destroyedRats, false);
       }
+      // ★ 내 광전사 오사로 파괴된 '내 측 쥐' — 검은쥐 사망 GIF (오사 유닛과 동일 타이밍).
+      if (Array.isArray(friendlyFireRats) && friendlyFireRats.length > 0) {
+        const _ffRatMine = [], _ffRatEnemy = [];
+        for (const r of (friendlyFireRats || [])) {
+          if (r == null || r.col == null) continue;
+          const _mine = (r.ownerIdx === S.playerIdx) || (S.isTeamMode && r.ownerIdx === S.teammateIdx);
+          (_mine ? _ffRatMine : _ffRatEnemy).push({ col: r.col, row: r.row });
+          if (S.boardObjects) S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.col === r.col && o.row === r.row && o.owner === r.ownerIdx));
+        }
+        if (_ffRatMine.length) animateRatDestruction(_ffRatMine, true);
+        if (_ffRatEnemy.length) animateRatDestruction(_ffRatEnemy, false);
+      }
     }, _impactDelay);
   });
 });
@@ -5562,7 +5574,7 @@ socket.on('profile_highlight', ({ ownerIdx, pieceIdx, on }) => {
 });
 // 턴 전환 시 강조 잔재 정리(공유 강조라 안전망).
 ['your_turn', 'opp_turn', 'game_over'].forEach(ev => { try { socket.on(ev, () => { S._profileHL = null; _stopProfileHLObserver(); try { _applyProfileHL(); } catch (e) {} }); } catch (e) {} });
-socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, fungus }) => {
+socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpactedAnything, friendlyFireHits, friendlyFireRats, fungus }) => {
   if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }   // ★ 포자살포 진균 즉시 반영(그 턴에 바로 표시)
   // ★ 피격 애니 시작 — sp_update 큐잉 활성화
   _attackAnimDeferred = true;
@@ -5795,6 +5807,20 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
       showSkillToast(msg, true);
       addLog(msg, 'hit');
       animateRatDestruction(myDestroyedRats, true);
+    }
+    // ★ 적(공격자) 광전사 오사로 파괴된 '공격자 측 쥐' — 오사 유닛과 동일하게 위치 공유 + 사망 애니.
+    //   내가 적을 공격해 적 쥐를 잡았을 때(attack_result)와 같은 흰쥐 사망 GIF 를 그 칸에서 재생.
+    if (Array.isArray(friendlyFireRats) && friendlyFireRats.length > 0) {
+      const _ffRatMine = [], _ffRatEnemy = [];
+      for (const r of (friendlyFireRats || [])) {
+        if (r == null || r.col == null) continue;
+        const _mine = (r.ownerIdx === S.playerIdx) || (S.isTeamMode && r.ownerIdx === S.teammateIdx);
+        (_mine ? _ffRatMine : _ffRatEnemy).push({ col: r.col, row: r.row });
+        // 보드오브젝트에 있으면 즉시 제거(상태 동기)
+        if (S.boardObjects) S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.col === r.col && o.row === r.row && o.owner === r.ownerIdx));
+      }
+      if (_ffRatEnemy.length) animateRatDestruction(_ffRatEnemy, false);
+      if (_ffRatMine.length) animateRatDestruction(_ffRatMine, true);
     }
   }, ATTACK_IMPACT_DELAY);
 });
@@ -22793,7 +22819,7 @@ socket.on('team_ally_hit', ({ atkCells, victimIdx, victimName, hitPieces }) => {
 //     셀 마크 (💥/·) / 빗나감·격파 토스트·로그 / 적 프로필 피격 애니 / 자동 추리토큰.
 //   ★ "공격했습니다!" 같은 별도 토스트 (= being_attacked 의 알림) 만 X.
 let _teamAllyAttackedSeq = 0;
-socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atkCol, atkRow, atkPieceType, atkPieceSubUnit, friendlyFireHits }) => {
+socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atkCol, atkRow, atkPieceType, atkPieceSubUnit, friendlyFireHits, friendlyFireRats }) => {
   // ★ 공격 SFX 즉시 (휘두름). 셀 이펙트 + 피격 판정은 ATTACK_IMPACT_DELAY 후 동기화.
   try { playSfx('attack'); } catch (e) {}
   // ★ FIX (팀원 공격 모션 부재): 공격자(팀원) 칸에 공격 GIF 를 즉시 재생 — 1v1 공격자 시점(attack_result
@@ -22844,6 +22870,18 @@ socket.on('team_ally_attacked', ({ atkCells, hits, attackerImpactedAnything, atk
         const card = document.querySelector(`.team-profile-block[data-player-idx="${ff.defOwnerIdx}"] [data-piece-idx="${ff.defPieceIdx}"]`);
         if (card) applyHitFlashWithBrighten(card);
       }
+    }
+    // ★ 오사된 쥐 — 팀원(=검은쥐)/적(=흰쥐) 소유별 사망 애니 + 상태 제거.
+    if (Array.isArray(friendlyFireRats) && friendlyFireRats.length > 0) {
+      const _ffRatMine = [], _ffRatEnemy = [];
+      for (const r of (friendlyFireRats || [])) {
+        if (r == null || r.col == null) continue;
+        const _mine = (r.ownerIdx === S.playerIdx) || (S.isTeamMode && r.ownerIdx === S.teammateIdx);
+        (_mine ? _ffRatMine : _ffRatEnemy).push({ col: r.col, row: r.row });
+        if (S.boardObjects) S.boardObjects = S.boardObjects.filter(o => !(o.type === 'rat' && o.col === r.col && o.row === r.row && o.owner === r.ownerIdx));
+      }
+      if (_ffRatMine.length) animateRatDestruction(_ffRatMine, true);
+      if (_ffRatEnemy.length) animateRatDestruction(_ffRatEnemy, false);
     }
     if (typeof renderTeamProfiles === 'function') renderTeamProfiles();
     // 적 프로필 피격 애니메이션
