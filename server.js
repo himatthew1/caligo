@@ -3608,6 +3608,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
         io.to(defPlayer.socketId).emit('being_attacked', {
           atkCells: extra2Cells,
           fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(피격자 시점)
+          friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
           hitPieces: hits.map(h => {
             const dp = (typeof h.defPieceIdx === 'number') ? defPlayer.pieces[h.defPieceIdx] : null;
             return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -11291,9 +11292,49 @@ function aiTakeTurn(room) {
     });
   } catch (e) {}
 
+  // ★ STEP 3.5: 개시 색적(opening scan) — 아직 아무 단서도 없으면(표식·확정명중·집중추론 0) 이동/대기로
+  //   턴을 날리지 말고, '공격범위가 가장 넓은(=신규 커버 최대)' 유닛으로 블라인드 공격해 숨은 적을
+  //   클립·노출시킨다(사용자 지시: "첫 행동은 색적. 단서를 기다리는 건 턴 하나를 통으로 날리는 것").
+  //   제외: 질주 전용(기마병)·단일타깃(암살자/마녀/투석기)·effAtk0·머물면 죽는(danger≥hp, 도주 우선) 유닛.
+  //   이미 훑은 칸(brain._scannedCells)만 덮는 유닛도 제외 → 새로 훑을 게 없으면 일반 로직(이동 재배치)에 위임.
+  let _openingScan = null;
+  {
+    const _hasClue = aiKnownEnemies(room, 1).some(e => e.marked)
+      || !!brain._confirmedHit
+      || _aiConfidentTargetCells(room, 1, brain).size > 0;
+    if (_hasClue) {
+      brain._scannedCells = null;   // 단서 확보 → 색적 기록 리셋(다음 블라인드기에 새로 훑도록)
+    } else {
+      if (!brain._scannedCells) brain._scannedCells = new Set();
+      const _SINGLE = new Set(['shadowAssassin', 'witch', 'catapult']);
+      let _bestNew = 0;
+      for (const piece of alivePieces) {
+        if (piece.type === 'cavalry' || _SINGLE.has(piece.type)) continue;
+        if (_effectiveAtkForAi(piece, room, 1) <= 0) continue;
+        // ※ danger 로 제외하지 않는다: 색적은 '단서 0'일 때만 발동하므로 이 시점 dangerMap 은 전부
+        //   투기적(균일 믿음 기반). 실제 위협이 있으면 표식/확정명중이 생겨 _hasClue=true 로 색적이 꺼짐.
+        //   → 넓은 색적 유닛이 중앙(투기적 danger 높음)이라고 배제하면 색적 취지가 무너짐(사용자 지시).
+        const _ex = piece.toggleState ? { toggleState: piece.toggleState } : {};
+        const cs = getAttackCells(piece.type, piece.col, piece.row, bounds, _ex)
+          .filter(c => inBounds(c.col, c.row, bounds));
+        let _new = 0;
+        for (const c of cs) if (!brain._scannedCells.has(`${c.col},${c.row}`)) _new++;
+        if (_new > _bestNew) {
+          _bestNew = _new;
+          _openingScan = { piece, pieceIdx: aiPlayer.pieces.indexOf(piece), extra: _ex, cells: cs };
+        }
+      }
+    }
+  }
+  if (_openingScan) {
+    for (const c of _openingScan.cells) brain._scannedCells.add(`${c.col},${c.row}`);
+    bestAction = { type: 'attack', piece: _openingScan.piece, pieceIdx: _openingScan.pieceIdx, score: 999, extra: _openingScan.extra };
+  }
+
   // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때
   //   타락·강탈로 소소한 이득 확보(블라인드 난사보다 확정 이득 우선, 사용자 요청).
-  {
+  //   단, 개시 색적(_openingScan)이 잡혔으면 색적 공격을 우선(스킬 이득보다 정보 획득 먼저 — 사용자).
+  if (!_openingScan) {
     const _conf = _aiConfidentTargetCells(room, 1, brain);   // 표식 + 명중확정 + 추리 단일후보
     let _confidentTarget = false;
     if (_conf.size) {
@@ -11568,6 +11609,7 @@ function aiExecuteAttack(room, action) {
         bodyguardRedirect: h.bodyguardRedirect || false };
     }),
     yourPieces: pieceSummary(humanPlayer.pieces, room),
+    friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],   // ★ 적 AI 광전사 오사 — 위치 공유+도장+사망(유닛·쥐)
   });
   // ★ FIX (표식 적 공격 모션 누락 — 1v1 AI 경로): AI 의 *표식된* 말이 공격하면 표식 부여자에게
   //   공격 캐릭터 모션 전송(인간 attack 핸들러 10160-10176, 팀 AI 2521 과 동일 패턴). 이게 없어
@@ -11645,6 +11687,7 @@ function aiExecuteAttack(room, action) {
       emitToPlayer(room, 0, 'being_attacked', {
         atkCells: extraCells,
         fungus: room.fungus || [],   // ★ 머쉬킨 포자살포 즉시 반영(AI 쌍검무 2타 시점)
+        friendlyFireHits: room._friendlyFireHits || [], friendlyFireRats: room._friendlyFireRats || [],
         hitPieces: extraHits.map(h => {
           const dp = (typeof h.defPieceIdx === 'number') ? humanPlayer.pieces[h.defPieceIdx] : null;
           return { col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
