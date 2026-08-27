@@ -5649,12 +5649,11 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
         else if (!h.destroyed) addProtectedHit(_selfStampKey(pieceIdx));
       }
     }
-    // ★ #6 적 학살영웅(학살) 오사 — 실시간 공유. 도장 + 프로필 피격 애니만.
-    //   ★ FIX (사용자 보고): 상대 유닛의 '보드 그래픽'은 1v1·팀전 불문 '표식' 상태일 때만 공개된다.
-    //     오사된 순간에도 보드에는 상대 모습을 보이지 않는다 → 보드 공개/보드 피격 플래시/보드 사망 GIF 전부 제거.
-    //     대신 프로필 카드에만: 데미지 도장 + 흔들림(피격) + 밝힘. HP/사망/유해는 서버 상태갱신이 반영.
-    const _ffAnimCells = [];       // (오사 대상은 보드 비공개 → 항상 빈 배열 유지)
-    const _ffDeadDefCells = [];    // (오사 대상 보드 사망 GIF 없음 → 항상 빈 배열 유지)
+    // ★ 적 학살영웅(학살) 오사 — 내가 적을 공격했을 때와 '동일하게' 처리(사용자 재정의):
+    //   위치 공유(보드 피격 플래시) + 자동 추리토큰(1명 확정 시) + 프로필 도장/피격 애니 + 사망 GIF/유해,
+    //   전부 '공격 시점'에 내 유닛 피격과 동기화. (살아있는 idle 모습만 비공개 — 플래시/사망GIF 는 일회성 위치노출.)
+    const _ffAnimCells = [];       // 오사 대상 칸 — 보드 피격 플래시(위치 공유)
+    const _ffDeadDefCells = [];    // 오사 사망 대상 — 사망 GIF/유해
     const _ffTeamProfileHits = [];   // (팀전) 오사 대상 상대 유닛 — 프로필 피격 애니
     const _ffOppProfileHits = [];    // (1v1) 오사 대상 상대 유닛 pieceIdx — 프로필 피격 애니
     if (Array.isArray(friendlyFireHits)) {
@@ -5666,9 +5665,33 @@ socket.on('being_attacked', ({ atkCells, hitPieces, yourPieces, attackerImpacted
         const _prot = (_ffDmg === 0 && !ff.destroyed);
         if (_ffDmg > 0) addBodyDamage(_ffKey, _ffDmg);
         else if (!ff.destroyed) addProtectedHit(_ffKey);
-        // 프로필 피격 애니 대상 수집(보드는 건드리지 않음).
+        // 위치 공유(보드 플래시) + 사망 시 사망 GIF/유해 대상 수집.
+        if (ff.col != null) _ffAnimCells.push({ col: ff.col, row: ff.row });
+        if (ff.destroyed && ff.col != null) _ffDeadDefCells.push({ col: ff.col, row: ff.row, type: ff.type, defPieceIdx: ff.defPieceIdx, defOwnerIdx: _ffOwn });
+        // 프로필 피격 애니 대상.
         if (S.isTeamMode) _ffTeamProfileHits.push({ ownerIdx: _ffOwn, pieceIdx: ff.defPieceIdx, protected: _prot });
         else _ffOppProfileHits.push({ pieceIdx: ff.defPieceIdx, protected: _prot });
+      }
+      // ★ 자동 추리토큰 — 오사 생존 대상이 정확히 1명이면 그 칸이 '확정 적 위치'(내 공격 명중과 동일 규칙).
+      const _ffTok = friendlyFireHits.filter(ff => ff.col != null && !ff.destroyed && ff.defPieceIdx != null);
+      if (_ffTok.length === 1) {
+        const ff = _ffTok[0];
+        const _own = (ff.defOwnerIdx != null ? ff.defOwnerIdx : ff.ownerIdx);
+        let piece = null, pieceKey = null;
+        if (S.isTeamMode) {
+          const owner = (S.teamGamePlayers || []).find(p => p.idx === _own);
+          piece = owner && owner.pieces && owner.pieces[ff.defPieceIdx];
+          if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}@${_own}`;
+        } else {
+          piece = S.oppPieces && S.oppPieces[ff.defPieceIdx];
+          if (piece) pieceKey = `${piece.type}:${piece.subUnit || ''}`;
+        }
+        if (piece && pieceKey) {
+          try {
+            S.deductionTokens = (S.deductionTokens || []).filter(t => t.pieceKey !== pieceKey && !(t.col === ff.col && t.row === ff.row));
+            S.deductionTokens.push({ pieceKey, icon: piece.icon, name: piece.name, col: ff.col, row: ff.row });
+          } catch (e) {}
+        }
       }
     }
     // ★ 오사 상대 사망정보(적 소유 → isDefending=false) — 내 말 사망(_deathInfos)과 병합해 함께 연출.
