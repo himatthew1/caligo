@@ -3591,7 +3591,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
   }
   // ★ 관전자 일반 공격 애니메이션 — 팀모드. defOwnerIdx 포함 hits.
   emitToSpectators(room, 'spectator_attack_anim', {
-    atkCells,
+    atkCells: _gpDispCells(piece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시
     atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
     hits: hitResults.map(h => ({
       col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -3615,7 +3615,7 @@ function aiTeamExecuteAttack(room, idx, pieceIdx, extra) {
     // ★ 표식 부여자 팀 전체에 공유 (같은 편이면 표식 적 위치를 알므로 공격 모션도 봄)
     const _viewers = (room.mode === 'team') ? getAllyIndices(room, _moIdx) : [_moIdx];
     const _mePayload = {
-      atkCells,
+      atkCells: _gpDispCells(piece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시(표식 관점)
       hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
       attacker: markedAttackerMotion(piece, p.pieces),
     };
@@ -5845,6 +5845,15 @@ function detonateBomb(room, ownerIdx, bomb, options) {
   return hits;
 }
 
+// ★ 화약상 표시용 셀 — 상대(표식)·관전자에게 보내는 atkCells 를 '실제 명중 랜덤 2칸'으로 축소.
+//   (사용자 요청: 공격한 셀 표시는 실제 들어간 2칸에만 — 공격자/상대/관전자 모두 일관.)
+//   room._effAtkCells 는 직전 processAttack 이 세팅. 화약상이 아니면 원본 범위 그대로.
+function _gpDispCells(atkPiece, room, atkCells) {
+  if (atkPiece && atkPiece.type === 'gunpowder' && Array.isArray(room._effAtkCells) && room._effAtkCells.length) {
+    return room._effAtkCells.map(c => ({ col: c.col, row: c.row }));
+  }
+  return atkCells;
+}
 function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts) {
   const attacker = room.players[attackerIdx];
   // ★ Phase 3 리워크: 화약상 — 주변 8칸(잠재 범위) 중 랜덤 2칸만 실제 타격. 나머지 로직은 축소된 셀 기준.
@@ -11831,7 +11840,7 @@ function aiExecuteAttack(room, action) {
       const _v = room.players[_markEffect.source];
       if (_v && _v.socketId && _v.socketId !== 'AI') {
         io.to(_v.socketId).emit('marked_enemy_attack', {
-          atkCells,
+          atkCells: _gpDispCells(piece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시(표식 관점)
           hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
           attacker: markedAttackerMotion(piece, aiPlayer.pieces),
         });
@@ -11843,7 +11852,7 @@ function aiExecuteAttack(room, action) {
   room._friendlyFireHits = [];
   // ★ 관전자 일반 공격 애니 (1v1 AI 공격) — defOwnerIdx 0 (인간 = p0)
   emitToSpectators(room, 'spectator_attack_anim', {
-    atkCells,
+    atkCells: _gpDispCells(piece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시
     atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
     hits: hitResults.map(h => ({
       col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -13830,7 +13839,7 @@ io.on('connection', (socket) => {
         }
         // ★ 관전자 — 쌍검무 추가 공격 (1v1·팀전 공통)
         emitToSpectators(room, 'spectator_attack_anim', {
-          atkCells,
+          atkCells: _gpDispCells(piece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시
           atkCol: piece.col, atkRow: piece.row, atkType: piece.type, atkSubUnit: piece.subUnit || null,  // ★ 관전자 공격 모션
           hits: hitResults.map(h => ({
             col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -14167,7 +14176,7 @@ io.on('connection', (socket) => {
     //   defOwnerIdx 가 hits 에 들어있어 클라가 패널 매핑 가능.
     //   ★ FIX (관전자 공격 모션): 공격자 위치/타입 — 관전자가 공격자 칸에 공격 GIF 재생용.
     emitToSpectators(room, 'spectator_attack_anim', {
-      atkCells,
+      atkCells: _gpDispCells(atkPiece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시
       atkCol: atkPiece.col, atkRow: atkPiece.row, atkType: atkPiece.type, atkSubUnit: atkPiece.subUnit || null,
       hits: hitResults.map(h => ({
         col: h.col, row: h.row, damage: h.damage, newHp: h.newHp, destroyed: h.destroyed,
@@ -14188,7 +14197,7 @@ io.on('connection', (socket) => {
       //   (이전엔 부여자 1명에게만 → 팀전에서 같은 팀 다른 멤버/피격 당사자가 모션을 못 받았음.)
       const _viewers = (room.mode === 'team') ? getAllyIndices(room, _markOwnerIdx) : [_markOwnerIdx];
       const _mePayload = {
-        atkCells,
+        atkCells: _gpDispCells(atkPiece, room, atkCells),   // ★ 화약상: 실제 명중 2칸만 표시(표식 관점)
         hitCells: hitResults.map(h => ({ col: h.col, row: h.row, damage: h.damage, destroyed: h.destroyed })),
         attacker: markedAttackerMotion(atkPiece, attacker.pieces),
       };

@@ -15694,6 +15694,10 @@ function renderGameBoard() {
           if (sealedKeys.has(_akey)) {
             cell.classList.add('dark-veil-sealed');   // 검게 봉인(attack-range 미부여 = 실제로 타격 안 됨)
             cell.setAttribute('data-veil-tip', '어둠의 장막 : 봉인됨');
+          } else if (selPc.type === 'gunpowder') {
+            // ★ 화약상: 전체 범위(주변8칸)는 '범위후보'(어두운 주황)로만 표시 — 실제 명중은 그 중 랜덤 2칸.
+            //   밝은 점멸(gunpowder-flash)은 _ensureGunpowderFlash 인터벌이 매 틱 랜덤 2칸에 부여.
+            cell.classList.add('gunpowder-range-candidate');
           } else {
             cell.classList.add('attack-range');
             if (grownKeys.has(_akey)) cell.classList.add('attack-grown');   // 주황 성장칸
@@ -18956,6 +18960,15 @@ function _placeAttackConfirmBtn(pc, targetParams) {
   btn.innerHTML = '<span class="lbl">공격 확정</span>';
   btn.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
   btn.style.top = cellEl.offsetTop + 'px';
+  // ★ 화약상: 공격 확정 버튼 위 캡션 '[해당 범위 중 2칸 랜덤 타겟]' (사용자 요청).
+  if (pc.type === 'gunpowder') {
+    const cap = document.createElement('div');
+    cap.className = 'attack-confirm-caption';
+    cap.textContent = '해당 범위 중 2칸 랜덤 타겟';
+    cap.style.left = (cellEl.offsetLeft + cellEl.offsetWidth / 2) + 'px';
+    cap.style.top = (cellEl.offsetTop - 40) + 'px';   // 공격 확정 버튼(≈위 36px) 보다 더 위에 배치
+    board.appendChild(cap);
+  }
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
     if (S.action !== 'attack' || S.selectedPiece == null) return;
@@ -18985,6 +18998,33 @@ function _placeAttackConfirmBtn(pc, targetParams) {
 }
 function _clearAttackConfirmBtns() {
   document.querySelectorAll('.attack-confirm-btn').forEach(b => b.remove());
+  document.querySelectorAll('.attack-confirm-caption').forEach(b => b.remove());
+}
+
+// ── 화약상 공격 확정 프리뷰 — 범위후보(어두운 주황) 위에 랜덤 2칸 교대 점멸 ──
+//   서버 processAttack 과 동일하게 '주변 8칸 중 랜덤 2칸'만 실제 명중함을 시각화(공격자 확정 메뉴 전용).
+//   renderGameBoard 마다 후보 클래스가 재부여되므로, 인터벌은 현재 후보 셀을 매 틱 조회해 2칸을 밝힌다.
+let _gunpowderFlashTimer = null;
+function _gunpowderFlashTick() {
+  const board = document.getElementById('game-board');
+  if (!board) return;
+  board.querySelectorAll('.cell.gunpowder-flash').forEach(c => c.classList.remove('gunpowder-flash'));
+  const cands = [...board.querySelectorAll('.cell.gunpowder-range-candidate')];
+  if (cands.length === 0) return;
+  const pool = cands.slice();
+  for (let n = 0; n < 2 && pool.length; n++) {
+    const j = Math.floor(Math.random() * pool.length);
+    pool.splice(j, 1)[0].classList.add('gunpowder-flash');
+  }
+}
+function _ensureGunpowderFlash() {
+  if (_gunpowderFlashTimer) return;   // 이미 구동 중(렌더마다 재시작 방지 = 깜빡임 방지)
+  _gunpowderFlashTick();
+  _gunpowderFlashTimer = setInterval(_gunpowderFlashTick, 480);
+}
+function _stopGunpowderFlash() {
+  if (_gunpowderFlashTimer) { clearInterval(_gunpowderFlashTimer); _gunpowderFlashTimer = null; }
+  document.querySelectorAll('.cell.gunpowder-flash').forEach(c => c.classList.remove('gunpowder-flash'));
 }
 // ── 부대공격(장군) 자동 진행 ─────────────────────────────────────────────
 //   리디자인: 저티어 왕실부터 하나씩, 각 유닛마다 '공격 확정' 1번만 누르면 자동으로 다음 유닛으로.
@@ -19288,6 +19328,10 @@ function exitDecreePhase() {
 }
 // 공격 모드 진입 후 보드 재렌더 시 — 버튼 좌표 갱신 (셀 위치 변화 대응)
 function refreshAttackConfirmBtn() {
+  // ★ 화약상 점멸 관리 — 렌더마다 호출되므로 여기서 시작/정지(진입점 무관 견고).
+  const _gpSel = (S.action === 'attack' && S.selectedPiece != null && !S.targetSelectMode) ? (S.myPieces && S.myPieces[S.selectedPiece]) : null;
+  if (_gpSel && _gpSel.alive && _gpSel.type === 'gunpowder') _ensureGunpowderFlash();
+  else _stopGunpowderFlash();
   if (S.action !== 'attack' || S.selectedPiece == null) {
     _clearAttackConfirmBtns();
     return;
