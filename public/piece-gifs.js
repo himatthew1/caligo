@@ -42,7 +42,7 @@
     count:          '/art/count_idle.gif',
     // ── 소환 유닛 ────────────────────────────
     dragon:         '/art/dragon_idle.gif',
-    // ── 신규 캐릭터 (아이들만 준비됨 · 피격/이동 미제작) ──────────
+    // ── 신규 캐릭터 (아이들·피격 준비됨 · 이동 미제작) ──────────
     hookKiller:     '/art/hookKiller_idle.gif',
     gladiator:      '/art/gladiator_idle.gif',
     golem:          '/art/golem_idle.gif',
@@ -115,6 +115,37 @@
     count:          '/art/count_hit.gif',
     // ── 소환 유닛 ────────────────────────────
     dragon:         '/art/dragon_hit.gif',
+    // ── 신규 캐릭터 (피격 모션 추가) ──────────
+    hookKiller:     '/art/hookKiller_hit.gif',
+    gladiator:      '/art/gladiator_hit.gif',
+    golem:          '/art/golem_hit.gif',
+    siegeBreaker:   '/art/siegeBreaker_hit.gif',
+    courtier:       '/art/courtier_hit.gif',
+    griffin:        '/art/griffin_hit.gif',
+    thief:          '/art/thief_hit.gif',
+    poisoner:       '/art/poisoner_hit.gif',
+    dryad:          '/art/dryad_hit.gif',
+    demonKing:      '/art/demonKing_hit.gif',
+    mushkin:        '/art/mushkin_hit.gif',
+    gravekeeper:    '/art/gravekeeper_hit.gif',
+    militia:        '/art/militia_hit.gif',
+    wanderer:       '/art/wanderer_hit.gif',
+    mermaid:        '/art/mermaid_hit.gif',
+    necromancer:    '/art/necromancer_hit.gif',
+    undead:         '/art/undead_hit.gif',
+    hero:           '/art/hero_hit.gif',
+    oberon:         '/art/oberon_hit.gif',
+    fairy:          '/art/fairy_hit.gif',
+    mercenary:      '/art/mercenary_hit.gif',
+    windSurfer:     '/art/windSurfer_hit.gif',
+    unicorn:        '/art/unicorn_hit.gif',
+    heretic:        '/art/heretic_hit.gif',
+    storyteller:    '/art/storyteller_hit.gif',
+    executioner:    '/art/executioner_hit.gif',
+    ironman:        '/art/ironman_hit.gif',
+    catapult:       '/art/catapult_hit.gif',
+    fortuneTeller:  '/art/fortuneTeller_hit.gif',
+    homunculus:     '/art/homunculus_hit.gif',
   };
 
   /**
