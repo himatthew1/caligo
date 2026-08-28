@@ -18987,6 +18987,7 @@ function _placeAttackConfirmBtn(pc, targetParams) {
     S.selectedPiece = null;
     S.targetSelectMode = false;
     S.targetCol = undefined; S.targetRow = undefined;
+    _stopGunpowderFlash();   // ★ 화약상: 확정 즉시 점멸/범위후보 잔상 제거(다음 렌더 대기 X)
     _clearAttackConfirmBtns();
     document.querySelectorAll('#game-board .cell.target-locked-cell').forEach(c => c.classList.remove('target-locked-cell'));
     if (typeof setActionButtonMode === 'function') setActionButtonMode(null);
@@ -19024,7 +19025,9 @@ function _ensureGunpowderFlash() {
 }
 function _stopGunpowderFlash() {
   if (_gunpowderFlashTimer) { clearInterval(_gunpowderFlashTimer); _gunpowderFlashTimer = null; }
+  // 점멸 + 범위후보(어두운 주황) 모두 즉시 제거 — 확정 직후 잔상 방지.
   document.querySelectorAll('.cell.gunpowder-flash').forEach(c => c.classList.remove('gunpowder-flash'));
+  document.querySelectorAll('.cell.gunpowder-range-candidate').forEach(c => c.classList.remove('gunpowder-range-candidate'));
 }
 // ── 부대공격(장군) 자동 진행 ─────────────────────────────────────────────
 //   리디자인: 저티어 왕실부터 하나씩, 각 유닛마다 '공격 확정' 1번만 누르면 자동으로 다음 유닛으로.
