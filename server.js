@@ -2940,6 +2940,18 @@ function aiTeamTakeTurn(room, idx) {
     }
   }
 
+  // ★ STEP 1.45: 다중피격 대응 프로토콜 (사용자 절대규칙) — 한 공격에 2+ 유닛 피격 시 일반 도주보다 우선.
+  //   공격자 특정→사망유력 유닛 외곽 대피(유황범람 예외)→확정 처치 반격. 1v1 aiMultiHitResponse 공용.
+  if (!p.actionDone) {
+    const _mhBrain = getTeamBrain(room, getTeamOf(room, idx));
+    const mh = aiMultiHitResponse(room, idx, _mhBrain);
+    if (mh) {
+      if (mh.kind === 'attack') aiTeamExecuteAttack(room, idx, mh.pieceIdx, mh.extra || {});
+      else aiTeamExecuteMove(room, idx, mh.pieceIdx, mh.col, mh.row);
+      return;
+    }
+  }
+
   // ★ STEP 1.5 (FIX: 피격 후 제자리 멍청한 짓): 도주 vs 반격 — 1v1 STEP2(server 7407) 동등.
   //   행동대체 스킬(덫 등, 아래 STEP 2)보다 먼저 평가해, 위험한 자리에서 덫만 깔지 않도록 한다.
   //   팀 브레인(getTeamBrain)의 hitMemory 를 공유하므로 최근 피격 위치를 안다(치팅 아님).
@@ -9572,6 +9584,26 @@ function aiObserveEnemyAttack(brain, room, ownPieces, attackerPieces, atkCells, 
       }
     }
   }
+  // ── ★ 다중피격 감지 (사용자 절대규칙) — 한 공격에 내 유닛 2+ 피격 시 대피 프로토콜 트리거 기록.
+  //   유닛 예시(유황솥·파수꾼·요정·광전사)와 무관하게 '한 공격에 2+ 유닛 피격'이면 무조건 대상.
+  //   여기서 셀·공격범위(후속타 위협존)·추정 공격자 후보를 박제 → aiMultiHitResponse 가 다음 턴에 소비.
+  {
+    const _ownHitCells = [];
+    const _seen = new Set();
+    for (const h of hitResults) {
+      const k = `${h.col},${h.row}`;
+      if (_seen.has(k)) continue;
+      if (ownPieces.some(p => p.col === h.col && p.row === h.row)) { _seen.add(k); _ownHitCells.push({ col: h.col, row: h.row }); }
+    }
+    if (_ownHitCells.length >= 2) {
+      brain._multiHit = {
+        turn: brain.turnCount,
+        cells: _ownHitCells,
+        atkCells: (atkCells || []).map(c => ({ col: c.col, row: c.row })),   // 후속타 위협존
+        candidates: brain.lastHitCandidates ? [...brain.lastHitCandidates] : [],   // 추정 공격자 후보(교집합 정제됨)
+      };
+    }
+  }
 }
 
 // ══ ★ Phase 1: 정규 유효 공격력 헬퍼 (동적항 프레임워크) ═══════════════════
@@ -10789,6 +10821,136 @@ function aiFindEvacuation(room) {
 }
 
 // AI가 피격 후 도망해야 하는 말 찾기
+// ★ 다중피격 대응 프로토콜 (사용자 절대규칙) — 한 공격에 내 유닛 2+ 피격 시(유닛 종류 무관):
+//   1) 공격자 위치 특정 → 2) 남은 유닛 HP 확인 → 3) 빈사/후속타 사망 유력 유닛 선별 →
+//   4) 사망유력 유닛부터 대피 → 5) 대피=추정위치 반대(외곽/테두리), 광역이면 최외곽 이상적. 단 적
+//      유황솥+범람SP 있으면 테두리 위험(범람 생존 가능/반격목적이면 허용) → 6~8) 이동 불가/안 하고
+//      '확정·유의미 처치'(공격자 HP 초과 effAtk 로 추정칸 타격/이동접근) 가능하면 공격.
+//   1v1(ownerIdx=1)·팀(ownerIdx=idx) 공용. 반환: {kind:'move',pieceIdx,col,row} | {kind:'attack',pieceIdx,extra} | null.
+function aiMultiHitResponse(room, ownerIdx, brain) {
+  if (!brain || !brain._multiHit) return null;
+  if ((brain.turnCount - brain._multiHit.turn) > 1) return null;   // 최근(직전 적 턴) 다중피격만 대응
+  const player = room.players[ownerIdx];
+  if (!player) return null;
+  const bounds = room.boardBounds;
+  const enemyIdxs = getEnemyIndices(room, ownerIdx);
+  const enemyPieces = [];
+  for (const ei of enemyIdxs) for (const p of (room.players[ei] && room.players[ei].pieces) || []) if (p.alive) enemyPieces.push(p);
+  if (enemyPieces.length === 0) return null;
+
+  // ── 1) 공격자 추정 위치(estSet) — 최고 확신 소스부터(확정칸→명중확정→다중피격 후보→최근 후보). ──
+  let estSet = new Set();
+  if (brain._deducedCells) for (const k in brain._deducedCells) if ((brain.turnCount - brain._deducedCells[k]) <= 3) estSet.add(k);
+  if (brain._confirmedHit) estSet.add(`${brain._confirmedHit.col},${brain._confirmedHit.row}`);
+  if (estSet.size === 0 && Array.isArray(brain._multiHit.candidates)) for (const k of brain._multiHit.candidates) estSet.add(k);
+  if (estSet.size === 0 && brain.lastHitCandidates) for (const k of brain.lastHitCandidates) estSet.add(k);
+  if (estSet.size === 0) {   // 폴백 — 위협존(atkCells) 중 최고 probMap 칸
+    let peak = -1, pk = null;
+    for (const c of (brain._multiHit.atkCells || [])) { const v = (brain.probMap[c.row] && brain.probMap[c.row][c.col]) || 0; if (v > peak) { peak = v; pk = c; } }
+    if (pk) estSet.add(`${pk.col},${pk.row}`);
+  }
+  if (estSet.size === 0) return null;   // 위치 특정 실패 → 일반 로직 위임
+  const estCells = [...estSet].map(k => { const i = k.indexOf(','); return { col: +k.slice(0, i), row: +k.slice(i + 1) }; });
+  const estCenter = { col: estCells.reduce((s, c) => s + c.col, 0) / estCells.length, row: estCells.reduce((s, c) => s + c.row, 0) / estCells.length };
+
+  const threatZone = new Set((brain._multiHit.atkCells || []).map(c => `${c.col},${c.row}`));
+  const wideAttacker = threatZone.size >= 6;   // 유황/파수꾼/광전사 등 광역 → 최외곽 대피 이상적
+  const enemyHasSulfur = enemyPieces.some(p => p.type === 'sulfurCauldron');
+  let enemyMaxSP = 0;
+  for (const ei of enemyIdxs) enemyMaxSP = Math.max(enemyMaxSP, ((room.sp && room.sp[ei]) || 0) + ((room.instantSp && room.instantSp[ei]) || 0));
+  const sulfurThreat = enemyHasSulfur && enemyMaxSP >= 3;   // 유황범람 cost 3
+  const borderSet = new Set(getBorderCells(bounds).map(c => `${c.col},${c.row}`));
+
+  const dm = brain._dangerMap;
+  const dangerAt = (c, r) => (dm && dm[r]) ? (dm[r][c] || 0) : 0;
+  const hitCellSet = new Set(brain._multiHit.cells.map(c => `${c.col},${c.row}`));
+  const mhTurn = brain._multiHit.turn;
+
+  // ── 2~3) 이번 공격에 맞은 '생존' 내 유닛 + 사망유력도. ──
+  const victims = player.pieces.filter(p => {
+    if (!p.alive) return false;
+    const mem = brain.hitMemory[p.type];
+    return (mem && mem.turn === mhTurn) || hitCellSet.has(`${p.col},${p.row}`);
+  });
+  if (victims.length === 0) return null;
+  const deathRisk = (p) => {
+    const d = dangerAt(p.col, p.row);
+    let s = 0;
+    if (d >= p.hp) s += 100;               // 머물면 후속타로 사망
+    s += Math.max(0, 4 - p.hp) * 10;       // HP 낮을수록 빈사
+    s += d;
+    return s;
+  };
+  victims.sort((a, b) => deathRisk(b) - deathRisk(a));
+
+  // ── 6~8) 확정·유의미 처치 반격 후보 평가(전 유닛). 공격자 HP=추정칸 가능 적의 '최대' HP(무엇이든 확실 처치). ──
+  const plausibleAttackers = enemyPieces.filter(ep => {
+    const ex = ep.toggleState ? { toggleState: ep.toggleState } : {};
+    return estCells.some(ec => {
+      let cs; try { cs = getAttackCells(ep.type, ec.col, ec.row, bounds, ex); } catch (e) { return false; }
+      const cset = new Set(cs.map(x => `${x.col},${x.row}`));
+      return brain._multiHit.cells.every(h => cset.has(`${h.col},${h.row}`));
+    });
+  });
+  const killHP = plausibleAttackers.length ? Math.max(...plausibleAttackers.map(p => p.hp || 1)) : Infinity;
+  const isConfident = estCells.length <= 2 && (
+    (brain._deducedCells && Object.keys(brain._deducedCells).length) || brain._confirmedHit ||
+    (brain.lastHitCandidates && brain.lastHitCandidates.size <= 2));
+  let counterAttack = null, approachKill = null;
+  if (isFinite(killHP) && isConfident) {
+    for (const p of player.pieces) {   // (a) 제자리 추정칸 타격 + effAtk≥killHP = 확정 처치
+      if (!p.alive || p.type === 'cavalry') continue;
+      if (_effectiveAtkForAi(p, room, ownerIdx) < killHP) continue;
+      const ex = p.toggleState ? { toggleState: p.toggleState } : {};
+      let cs; try { cs = getAttackCells(p.type, p.col, p.row, bounds, ex); } catch (e) { continue; }
+      if (cs.some(c => estSet.has(`${c.col},${c.row}`))) { counterAttack = { kind: 'attack', pieceIdx: player.pieces.indexOf(p), extra: ex }; break; }
+    }
+    if (!counterAttack) for (const p of player.pieces) {   // (b) 고ATK 유닛 접근 이동(다음 턴 처치 준비)
+      if (!p.alive || p.type === 'cavalry') continue;
+      let done = false;
+      for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+        const nc = p.col + dc, nr = p.row + dr;
+        if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, p, nc, nr)) continue;
+        if (_effectiveAtkAtCellForAi(p, room, ownerIdx, nc, nr) < killHP) continue;
+        const ex = p.toggleState ? { toggleState: p.toggleState } : {};
+        let cs; try { cs = getAttackCells(p.type, nc, nr, bounds, ex); } catch (e) { continue; }
+        if (cs.some(c => estSet.has(`${c.col},${c.row}`))) { approachKill = { kind: 'move', pieceIdx: player.pieces.indexOf(p), col: nc, row: nr }; done = true; break; }
+      }
+      if (done) break;
+    }
+  }
+
+  // ★ 우선순위: 제자리 확정 처치(공격자 제거=전원 후속타 위협 소멸) > 사망유력 유닛 대피 > 접근 처치.
+  if (counterAttack) { brain._multiHit = null; return counterAttack; }
+
+  // ── 4~5) 사망유력 유닛부터 대피. ──
+  const centerC = (bounds.min + bounds.max) / 2;
+  const survivesFlood = (p) => (p.hp || 0) > 2;   // 범람 2피해 맞아도 생존(보수적)
+  for (const target of victims) {
+    const dHere = dangerAt(target.col, target.row);
+    const mustFlee = (dHere >= target.hp) || (target.hp <= 2 && threatZone.has(`${target.col},${target.row}`));
+    if (!mustFlee) continue;
+    let best = null, bestScore = -Infinity;
+    for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const nc = target.col + dc, nr = target.row + dr;
+      if (!inBounds(nc, nr, bounds) || !_canMoveTo(room, target, nc, nr)) continue;
+      const destBorder = borderSet.has(`${nc},${nr}`);
+      if (sulfurThreat && destBorder && !survivesFlood(target)) continue;   // 범람 사망칸 테두리 배제
+      const outOfZone = threatZone.has(`${nc},${nr}`) ? 0 : 1;
+      const distFromAtk = Math.abs(nc - estCenter.col) + Math.abs(nr - estCenter.row);
+      let score = outOfZone * 50 + distFromAtk * 8 - dangerAt(nc, nr) * 12;
+      if (wideAttacker && !sulfurThreat) score += (Math.abs(nc - centerC) + Math.abs(nr - centerC)) * 3;   // 광역→최외곽
+      if (sulfurThreat && destBorder) score -= 20;   // 범람 위협 시 테두리 비선호
+      if (score > bestScore) { bestScore = score; best = { col: nc, row: nr }; }
+    }
+    if (best) { brain._multiHit = null; return { kind: 'move', pieceIdx: player.pieces.indexOf(target), col: best.col, row: best.row }; }
+  }
+
+  // ── 6) 대피 불가/불필요 + 접근 처치 가능 → 접근. ──
+  if (approachKill) { brain._multiHit = null; return approachKill; }
+  return null;   // 프로토콜상 유효 행동 없음 → 일반 로직 위임
+}
+
 function aiFindFleeingPieces(room) {
   const brain = room.aiBrain;
   const aiPlayer = room.players[1];
@@ -11081,6 +11243,18 @@ function aiTakeTurn(room) {
     const cav = aiCavalryDashDecision(room, 1);
     if (cav && !aiPlayer.actionDone) {
       if (aiRunCavalryDash(room, 1, cav)) { aiTrackToast(room, 'attack'); aiEndTurn(room); return; }
+    }
+  }
+
+  // ★ STEP 1.95: 다중피격 대응 프로토콜 (사용자 절대규칙) — 한 공격에 2+ 유닛 피격 시, 일반 도주(STEP2)
+  //   보다 우선. 공격자 특정→사망유력 유닛 외곽 대피(유황범람 예외)→확정 처치 반격.
+  if (!aiPlayer.actionDone) {
+    const mh = aiMultiHitResponse(room, 1, brain);
+    if (mh) {
+      const _mp = aiPlayer.pieces[mh.pieceIdx];
+      if (mh.kind === 'attack') { aiTrackToast(room, 'attack'); aiExecuteAttack(room, { piece: _mp, pieceIdx: mh.pieceIdx, extra: mh.extra || {} }); }
+      else { aiExecuteMove(room, { piece: _mp, pieceIdx: mh.pieceIdx, col: mh.col, row: mh.row }); }
+      return;
     }
   }
 
@@ -14805,7 +14979,7 @@ module.exports = {
   handleDeath, setKillInfo, checkCurseRemoval, detectStalemateShrink, applyDamageTriggers, isFaction, doCavalryDash, triggerPendingTrap, bestCavalryDash, aiCavalryDashDecision, aiRunTroopAttack, aiTryDecree, _aiPickRingPlay,
   // ★ 헤드리스 셀프플레이용
   createRoom, createPiece, initAiBrain, getTeamBrain,
-  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange,
+  aiTeamTakeTurn, aiTakeTurn, aiScoreAttack, aiObserveEnemyAttack, aiObserveEnemyMove, aiCandidateCoverageBonus, aiDecideAction, aiDecideExchange, aiMultiHitResponse,
   aiPlacePieces, aiEnemyThreatProfile, aiPlacementCellScore, aiInjectMarkedEnemies,
   aiClearOwnCells, aiSpreadProbability, aiProcessAttackResult, aiBestTargetCell,
   aiSelectPieces, AI_DECK_LIST, _aiDraftSynergyBad, _aiOppSpThreat, _aiSpTransferBar, _aiSpAllInstant, _aiSpBaseBar,
