@@ -3138,8 +3138,45 @@ function aiTeamTakeTurn(room, idx) {
     }
   }
 
+  // ★ STEP 3.5(팀): 개시 색적 — 1v1 aiTakeTurn 과 동일 원리. 단서 0 이면 이동/대기 대신 '신규 커버
+  //   최대' 유닛으로 블라인드 공격해 숨은 적 노출(사용자 지시: 첫 행동은 색적). _scannedCells 로 회전.
+  let _openingScan = null;
+  if (!dualPiece) {   // 쌍검무 강제공격 중이면 색적으로 덮지 않음
+    const _sBrain = getTeamBrain(room, getTeamOf(room, idx));
+    const _hasClue = aiKnownEnemies(room, idx).some(e => e.marked)
+      || !!_sBrain._confirmedHit
+      || _aiConfidentTargetCells(room, idx, _sBrain).size > 0;
+    if (_hasClue) {
+      _sBrain._scannedCells = null;
+    } else {
+      if (!_sBrain._scannedCells) _sBrain._scannedCells = new Set();
+      const _SINGLE = new Set(['shadowAssassin', 'witch', 'catapult']);
+      let _bestNew = 0;
+      for (const piece of myAlive) {
+        if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;   // 그림자=제외(팀 루프 규칙 일치)
+        if (piece.type === 'cavalry' || _SINGLE.has(piece.type)) continue;
+        if (_effectiveAtkForAi(piece, room, idx) <= 0) continue;
+        // danger 로 배제하지 않음(색적기 dangerMap 은 전부 투기적) — 1v1 과 동일.
+        const _ex = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms };
+        const cs = getAttackCells(piece.type, piece.col, piece.row, bounds, _ex)
+          .filter(c => inBounds(c.col, c.row, bounds));
+        let _new = 0;
+        for (const c of cs) if (!_sBrain._scannedCells.has(`${c.col},${c.row}`)) _new++;
+        if (_new > _bestNew) {
+          _bestNew = _new;
+          _openingScan = { piece, pieceIdx: p.pieces.indexOf(piece), extra: _ex, cells: cs, brain: _sBrain };
+        }
+      }
+    }
+  }
+  if (_openingScan) {
+    for (const c of _openingScan.cells) _openingScan.brain._scannedCells.add(`${c.col},${c.row}`);
+    bestAction = { type: 'attack', piece: _openingScan.piece, pieceIdx: _openingScan.pieceIdx, score: 999, extra: _openingScan.extra };
+  }
+
   // ★ 무행동/블라인드 폴백 — 위치 아는(표식) 적이 사거리에 없으면(=확실한 공격 없음) 안전할 때 타락·강탈로 이득.
-  {
+  //   단, 개시 색적이 잡혔으면 색적 우선(정보 획득 먼저 — 사용자).
+  if (!_openingScan) {
     const _fbBrain = getTeamBrain(room, getTeamOf(room, idx));
     const _conf = _aiConfidentTargetCells(room, idx, _fbBrain);   // 표식 + 명중확정 + 추리 단일후보
     let _confidentTarget = false;
@@ -11298,7 +11335,7 @@ function aiTakeTurn(room) {
   //   제외: 질주 전용(기마병)·단일타깃(암살자/마녀/투석기)·effAtk0·머물면 죽는(danger≥hp, 도주 우선) 유닛.
   //   이미 훑은 칸(brain._scannedCells)만 덮는 유닛도 제외 → 새로 훑을 게 없으면 일반 로직(이동 재배치)에 위임.
   let _openingScan = null;
-  {
+  if (!dualPiece) {   // ★ 쌍검무 강제공격 중이면 색적으로 덮지 않음(그 유닛이 반드시 재공격).
     const _hasClue = aiKnownEnemies(room, 1).some(e => e.marked)
       || !!brain._confirmedHit
       || _aiConfidentTargetCells(room, 1, brain).size > 0;
