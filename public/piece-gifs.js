@@ -42,7 +42,7 @@
     count:          '/art/count_idle.gif',
     // ── 소환 유닛 ────────────────────────────
     dragon:         '/art/dragon_idle.gif',
-    // ── 신규 캐릭터 (아이들·피격 준비됨 · 이동 미제작) ──────────
+    // ── 신규 캐릭터 (아이들·피격·이동 모두 준비됨) ──────────
     hookKiller:     '/art/hookKiller_idle.gif',
     gladiator:      '/art/gladiator_idle.gif',
     golem:          '/art/golem_idle.gif',
@@ -330,6 +330,37 @@
     count:          '/art/count_move.png',
     // ── 소환 유닛 ────────────────────────────
     dragon:         '/art/dragon_move.png',
+    // ── 신규 캐릭터 (이동 모션 추가) ──────────
+    hookKiller:     '/art/hookKiller_move.png',
+    gladiator:      '/art/gladiator_move.png',
+    golem:          '/art/golem_move.png',
+    siegeBreaker:   '/art/siegeBreaker_move.png',
+    courtier:       '/art/courtier_move.png',
+    griffin:        '/art/griffin_move.png',
+    thief:          '/art/thief_move.png',
+    poisoner:       '/art/poisoner_move.png',
+    dryad:          '/art/dryad_move.png',
+    demonKing:      '/art/demonKing_move.png',
+    mushkin:        '/art/mushkin_move.png',
+    gravekeeper:    '/art/gravekeeper_move.png',
+    militia:        '/art/militia_move.png',
+    wanderer:       '/art/wanderer_move.png',
+    mermaid:        '/art/mermaid_move.png',
+    necromancer:    '/art/necromancer_move.png',
+    undead:         '/art/undead_move.png',
+    hero:           '/art/hero_move.png',
+    oberon:         '/art/oberon_move.png',
+    fairy:          '/art/fairy_move.png',
+    mercenary:      '/art/mercenary_move.png',
+    windSurfer:     '/art/windSurfer_move.png',
+    unicorn:        '/art/unicorn_move.png',
+    heretic:        '/art/heretic_move.png',
+    storyteller:    '/art/storyteller_move.png',
+    executioner:    '/art/executioner_move.png',
+    ironman:        '/art/ironman_move.png',
+    catapult:       '/art/catapult_move.png',
+    fortuneTeller:  '/art/fortuneTeller_move.png',
+    homunculus:     '/art/homunculus_move.png',
   };
 
   // ── 드래곤 착지(강림) 에셋 ────────────────────────────
