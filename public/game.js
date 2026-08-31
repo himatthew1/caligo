@@ -11957,7 +11957,10 @@ function renderDraftSlots() {
     if (!slot) continue;
     const selectedType = S.draftSelected[tier];
     const chars = S.characters?.[tier];
-    const c = chars?.find(ch => ch.type === selectedType);
+    let c = chars?.find(ch => ch.type === selectedType);
+    // ★ 용병 등 자유배치 — 이 슬롯 티어에 정의가 없으면(용병=3티어를 1/2티어 슬롯에) 전 티어 탐색으로
+    //   실제 정의(이모지 아이콘) 확보. 안 그러면 슬롯이 filled 로 안 잡혀 아이콘이 일시적으로 깨짐.
+    if (!c && selectedType) { for (const t of [1, 2, 3]) { const f = (S.characters?.[t] || []).find(ch => ch.type === selectedType); if (f) { c = f; break; } } }
 
     // 기존 툴팁 제거
     const oldTip = slot.querySelector('.piece-tooltip');
@@ -12950,8 +12953,11 @@ function showFinalConfirmButton() {
 
 function findLocalChar(type, tier) {
   const charData = S.characters;
-  if (!charData || !charData[tier]) return { type, name: type, icon: '?', tier };
-  const ch = charData[tier].find(c => c.type === type);
+  if (!charData) return { type, name: type, icon: '?', tier };
+  let ch = charData[tier] && charData[tier].find(c => c.type === type);
+  // ★ 용병 등 자유배치(FREE_TIER) — 정의된 티어(예: 용병=3)가 아닌 슬롯에 있으면 tier 스코프 조회가
+  //   실패해 icon='?'(→깨짐)이 됨. 전 티어를 탐색해 실제 정의(이모지 아이콘)를 확보한다.
+  if (!ch) { for (const t of [1, 2, 3]) { const c = charData[t] && charData[t].find(x => x.type === type); if (c) { ch = c; break; } } }
   if (!ch) return { type, name: type, icon: '?', tier };
   return { ...ch, tier };
 }
@@ -20521,7 +20527,10 @@ function renderSpectatorDraft() {
       // 브라우징 중이면 실시간 선택, 확정이면 확정 데이터
       const typeKey = isDone && confirmed ? confirmed[`t${tier}`] : (browse[tier] || browse[String(tier)] || null);
       const charList = chars[tier] || [];
-      const c = typeKey ? charList.find(ch => ch.type === typeKey) : null;
+      let c = typeKey ? charList.find(ch => ch.type === typeKey) : null;
+      // ★ 용병 등 자유배치 — 이 슬롯의 티어에 정의가 없으면(예: 용병=3티어를 1티어 슬롯에) 전 티어 탐색으로
+      //   실제 정의(이모지 아이콘) 확보. 안 그러면 아이콘이 일시적으로 깨짐(빈/폴백 PNG).
+      if (!c && typeKey) { for (const t of [1, 2, 3]) { const f = (chars[t] || []).find(ch => ch.type === typeKey); if (f) { c = f; break; } } }
       if (c) {
         slot.className = `draft-slot filled ${isDone ? 'confirmed' : 'browsing'}`;
         const tagHtml = tagBadgeHtml(c.tag);
