@@ -16149,6 +16149,14 @@ window._crSyncIndex = function(csKey) {
       el.dataset.rem = '1'; el.removeAttribute('data-type'); el.innerHTML = skull;
       el.classList.add('death');
       setTimeout(() => el.classList.remove('death'), 520);
+    } else if (!isRem) {
+      // ★ 기존 유닛 dot 아이콘 자가복구 — 다음 턴부터 첫 유닛(내 유닛) 아이콘이 공란으로 굳는 버그 방지.
+      //   key 로 재사용되는 dot 은 생성 시점 src 를 유지하는데, 그때 비었으면(또는 유실) 영영 공란.
+      //   매 sync 마다 현재 아이콘으로 보정하되, src 가 동일하면 재설정 안 함(GIF 애니 재시작 방지).
+      let _img = el.querySelector('img.cc-dot-ic');
+      const _url = window._crDotIcon(pc);
+      if (!_img) { el.innerHTML = `<img class="cc-dot-ic" src="${_url}" alt="">`; }
+      else if (_url && _img.getAttribute('src') !== _url) { _img.setAttribute('src', _url); }
     }
     el.onclick = (e) => { e.stopPropagation(); try { window._crSlideTo(csKey, i); } catch (_) {} };
   });
