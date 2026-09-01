@@ -1916,6 +1916,26 @@ function aiEnemyThreatProfile(room, enemyIdxs, bounds) {
 // 배치 후보 셀 점수. ctx: { room, bounds, occupied(Set), enemyAttackCells(Set),
 //   futureShrinkBounds(array), teamId, friendlyIdxs(시너지 대상=자기+팀원),
 //   teammateIdxs(밀집 회피 대상) }
+// ★ 이미 배치된 아군의 공격범위 커버리지 집합(selfPiece 제외) — 배치 시 '사거리 중복 최소·보드 전체 리치' 판단용.
+//   ctx 에 배치-아군-수 기준으로 메모(같은 piece 의 셀 스캔 동안 불변)해 재계산 최소화.
+function _aiAllyAttackCoverage(room, friendlyIdxs, selfPiece, bounds) {
+  const cov = new Set();
+  for (const tIdx of (friendlyIdxs || [])) {
+    const tp = room.players[tIdx]; if (!tp) continue;
+    for (const tpc of (tp.pieces || [])) {
+      if (!tpc.alive || tpc.col < 0 || tpc === selfPiece || !aiIsAggressivePiece(tpc)) continue;
+      let cells; try { cells = getAttackCells(tpc.type, tpc.col, tpc.row, bounds, { toggleState: tpc.toggleState, growth: tpc._rangeGrowth || 0, growthArms: tpc._growthArms }); } catch (e) { continue; }
+      for (const ac of cells) if (inBounds(ac.col, ac.row, bounds)) cov.add(`${ac.col},${ac.row}`);
+    }
+  }
+  return cov;
+}
+// 넓은 사거리 공격수(파수꾼·창병·기병·광전사·왕자/공주 등) — 지휘관 +1 시너지가 특히 큰 대상.
+function _aiIsWideRangeAttacker(piece, bounds) {
+  if (!aiIsAggressivePiece(piece)) return false;
+  try { return getAttackCells(piece.type, (bounds.min+bounds.max)>>1, (bounds.min+bounds.max)>>1, bounds, { toggleState: piece.toggleState }).length >= 3; }
+  catch (e) { return false; }
+}
 function aiPlacementCellScore(piece, c, r, ctx) {
   const { room, bounds, occupied, enemyAttackCells, futureShrinkBounds, teamId, friendlyIdxs, teammateIdxs } = ctx;
   if (occupied.has(`${c},${r}`)) return -Infinity;
@@ -1935,13 +1955,18 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   // 3. 가장자리 + 보드 축소 회피
   if (c === bounds.min || c === bounds.max) score -= 6;
   if (r === bounds.min || r === bounds.max) score -= 4;
+  // ★ 사용자 피드백: 축소 페널티가 과해(-40) 유닛을 항상 중앙으로 몰아 '보드 전체 리치'가 안 됐음.
+  //   축소는 한참 뒤(1v1 턴50~) → 그때까진 이동하므로, 초반 배치는 전 보드를 쓰도록 페널티를 크게 낮춤
+  //   (여전히 곧 사라질 최외곽은 소폭 회피). 커버리지/지휘관 시너지가 배치를 주도.
   for (let sIdx = 0; sIdx < futureShrinkBounds.length; sIdx++) {
     const sB = futureShrinkBounds[sIdx];
-    if (c < sB.min || c > sB.max || r < sB.min || r > sB.max) score -= sIdx === 0 ? 40 : 15;
+    if (c < sB.min || c > sB.max || r < sB.min || r > sB.max) score -= sIdx === 0 ? 10 : 4;
   }
   const centerC = (bounds.min + bounds.max) / 2;
   const centerR = (bounds.min + bounds.max) / 2;
-  score -= (Math.abs(c - centerC) + Math.abs(r - centerR)) * 0.8;
+  // ★ 사용자 피드백: 중앙 편향이 강해 '중앙 밀집' 배치를 선호했음 → 중앙 인력을 크게 완화.
+  //   실제 배치 방향은 아래 '사거리 커버리지'(잘림 회피·보드 전체 리치)와 분산이 결정하게 한다.
+  score -= (Math.abs(c - centerC) + Math.abs(r - centerR)) * 0.3;
   // 4. 밀집 회피 (AoE/덫에 휘말리지 않게) — 호위무사 예외
   //   ★ 상대 위협 프로파일에 따라 분산 강도 동적 조절: 광역 부대가 많을수록 더 퍼뜨리고,
   //     광역이 전무하면(aoeMul 0.5) 아군 시너지 위해 밀집 허용. (사용자: 뭉칠지/퍼트릴지 결정)
@@ -1969,25 +1994,32 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   if (et.borderThreat && (c === bounds.min || c === bounds.max || r === bounds.min || r === bounds.max)) {
     score -= aiIsFragilePiece(piece) ? 10 : 6;
   }
-  // 5. commander 사기증진 시너지
+  // 5. commander 사기증진 시너지 (사용자 요청 #3: 지휘관 인접배치를 적극 활용해 아군 공격력 펌핑.
+  //    특히 버프 대상이 '넓은 사거리 공격수'(파수꾼 1→1.5 등)면 압도적 우위 → 훨씬 강하게 선호.)
   if (piece.type !== 'commander') {
     for (const tIdx of friendlyIdxs) {
       const tp = room.players[tIdx]; if (!tp) continue;
       for (const tpc of (tp.pieces || [])) {
         if (tpc.type === 'commander' && tpc.col >= 0 &&
-            Math.abs(tpc.col - c) + Math.abs(tpc.row - r) === 1) score += 10;
+            Math.abs(tpc.col - c) + Math.abs(tpc.row - r) === 1) {
+          // 넓은 사거리 공격수는 +1 ATK 가치가 매우 큼 → 강한 보너스로 '지휘관 인접 스타트'를 유도.
+          score += _aiIsWideRangeAttacker(piece, bounds) ? 22 : (aiIsAggressivePiece(piece) ? 15 : 9);
+        }
       }
     }
   } else {
-    let adjCount = 0;
+    // 지휘관 본인 — 인접 아군 중 '넓은 사거리 공격수'를 최대한 많이 끼도록 배치.
+    let wide = 0, other = 0;
     for (const tIdx of friendlyIdxs) {
       const tp = room.players[tIdx]; if (!tp) continue;
       for (const tpc of (tp.pieces || [])) {
         if (tpc.type === 'commander' || !tpc.alive || tpc.col < 0) continue;
-        if (Math.abs(tpc.col - c) + Math.abs(tpc.row - r) === 1) adjCount++;
+        if (Math.abs(tpc.col - c) + Math.abs(tpc.row - r) === 1) {
+          if (_aiIsWideRangeAttacker(tpc, bounds)) wide++; else other++;
+        }
       }
     }
-    score += adjCount * 6;
+    score += wide * 12 + other * 5;
   }
   // 6. 약한/royal — 호위무사 인접 보너스
   if (aiIsFragilePiece(piece) || piece.tag === 'royal') {
@@ -2028,16 +2060,20 @@ function aiPlacementCellScore(piece, c, r, ctx) {
     }
     score += coverage * 4;
   }
-  // 8. 공격형 — 자기 공격범위가 중앙 3x3 커버
+  // 8. 공격형 — 자기 공격범위의 '보드 커버리지'(사용자 요청 #1: 사거리가 잘리지 않고 보드 전체에 고루 분포,
+  //    아군과 겹치거나 손해보는 구간 최소화).
   if (aiIsAggressivePiece(piece)) {
     try {
       const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
-      let coverCenter = 0;
-      for (const ac of attackCells) {
-        if (!inBounds(ac.col, ac.row, bounds)) continue;
-        if (Math.abs(ac.col - centerC) <= 1 && Math.abs(ac.row - centerR) <= 1) coverCenter++;
-      }
-      score += coverCenter * 1.2;
+      // (a) 클리핑 회피 — in-bounds 유효 사거리 최대화(보드 밖으로 잘리면 그만큼 손해).
+      let inb = 0; const myCov = [];
+      for (const ac of attackCells) { if (inBounds(ac.col, ac.row, bounds)) { inb++; myCov.push(`${ac.col},${ac.row}`); } }
+      score += inb * 1.6;
+      // (b) 아군 사거리와 중복 최소 + 새 칸 커버(보드 전체 리치) — 겹치면 손해, 새 영역이면 이득.
+      const allyCov = _aiAllyAttackCoverage(room, friendlyIdxs, piece, bounds);
+      let overlap = 0, fresh = 0;
+      for (const k of myCov) { if (allyCov.has(k)) overlap++; else fresh++; }
+      score += fresh * 1.4 - overlap * 1.1;
     } catch (e) {}
   }
   // 9. 동점 미세 분산
