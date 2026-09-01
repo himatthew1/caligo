@@ -4921,8 +4921,11 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
   if (!victim) return;
   opts = opts || {};
   const passives = victim.passives || [];
+  // ★ 참수(처형) — 피격자의 '패시브'가 전면 봉인되면 피격 반응 패시브도 발동하지 않음(유니콘=면역이라 애초에 executed 안 걸림).
+  //   isPassiveActive 는 executed/frog 시 false. (오베론 카운터는 '아군 오베론'의 패시브라 아래에서 개별 게이팅.)
+  const _vpa = (id) => (typeof isPassiveActive !== 'function') || isPassiveActive(victim, id);
   // [마법사] 인스턴트 매직 — instant SP +1 (스펙: 0 데미지도 발동)
-  if (passives.includes('instantMagic')) {
+  if (passives.includes('instantMagic') && _vpa('instantMagic')) {
     const slot = teamSlotIdx(room, ownerIdx);
     room.instantSp[slot] = (room.instantSp[slot] || 0) + 1;
     const mode = opts.spUpdate || 'always';
@@ -4932,13 +4935,13 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     emitToSpectators(room, 'spectator_log', { msg: `인스턴트 매직 : SP 획득`, type: 'passive', playerIdx: ownerIdx });
   }
   // [그리폰] 격노 — 피해 받으면 스킬 활성.
-  if (passives.includes('rage')) {
+  if (passives.includes('rage') && _vpa('rage')) {
     const _wasActive = victim._rageActive;
     victim._rageActive = true;
     if (!_wasActive) emitToBoth(room, 'passive_alert', { type: 'griffin', playerIdx: ownerIdx, msg: `격노 : 활성화` });   // 발동 표시(최초 활성 시)
   }
   // [드라이어드] 생장 — 피해 받을 때마다 사거리 +1.
-  if (passives.includes('growth')) {
+  if (passives.includes('growth') && _vpa('growth')) {
     // ★ 생장 리워크: 상하좌우 중 한 방향의 arm 을 1칸 늘림(가로 고정 아님).
     //   단, 사용자 요청 — '새로 생기는 칸이 보드(화면) 안'인 방향만 후보로 골라 성장.
     //   (보드 밖으로 뻗는 방향은 클리핑돼 눈에 안 보이는 헛성장이 되므로 배제.)
@@ -4960,13 +4963,13 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     emitToBoth(room, 'passive_alert', { type: 'dryad', playerIdx: ownerIdx, msg: `생장 : 사거리 +1` });   // 발동 표시
   }
   // [이야기꾼] 피해 받으면 그가 건 배신(선동) 모두 해제.
-  if (victim.type === 'storyteller' && dmg > 0) {
+  if (victim.type === 'storyteller' && dmg > 0 && _vpa('storyteller')) {
     for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
       if (p.statusEffects) p.statusEffects = p.statusEffects.filter(e => !(e.type === 'betray' && e.source === ownerIdx));
     }
   }
   // [마녀] ★ PPT 리워크: 마녀가 '피격'되면(0 데미지 피격 포함) 그가 건 저주·개구리 모두 해제(채널링 중단).
-  if (victim.type === 'witch') {
+  if (victim.type === 'witch' && _vpa('witch')) {
     for (const pl of (room.players || [])) for (const p of (pl.pieces || [])) {
       if (!p.statusEffects) continue;
       const hadCurse = p.statusEffects.some(e => e.type === 'curse' && e.source === ownerIdx);
@@ -4984,7 +4987,7 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, ownerIdx) : [ownerIdx];
     for (const ai of allyIdxs) {
       for (const p of (room.players[ai] && room.players[ai].pieces || [])) {
-        if (p.alive && p.type === 'oberon') {
+        if (p.alive && p.type === 'oberon' && ((typeof isPassiveActive !== 'function') || isPassiveActive(p, 'oberon'))) {   // ★ 처형된 오베론은 카운트 안 함
           p._oberonCounter = (p._oberonCounter || 0) + 1;   // 팀 내 모든 오베론 각각 +1
           emitToBoth(room, 'passive_alert', { type: 'oberon', playerIdx: ai, msg: `요정왕 : 카운터 +1 (${p._oberonCounter})` });   // 발동 표시
         }
@@ -4992,7 +4995,7 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     }
   }
   // [머쉬킨] 포자살포(패시브) — 머쉬킨이 피격당하면(피해>0) 랜덤한 맵 두 곳이 진균지대가 된다.
-  if (victim.type === 'mushkin' && dmg > 0) {
+  if (victim.type === 'mushkin' && dmg > 0 && _vpa('mushkin')) {
     if (!room.fungus) room.fungus = [];
     const bounds = room.boardBounds;
     const empty = [];
@@ -5041,7 +5044,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
       ? getAllyIndices(room, attackerIdx).flatMap(i => room.players[i].pieces)
       : attacker.pieces;
     for (const p of commanderSources) {
-      if (p.alive && p.type === 'commander' && p !== attackerPiece) {
+      if (p.alive && p.type === 'commander' && p !== attackerPiece
+          && ((typeof isPassiveActive !== 'function') || isPassiveActive(p, 'wrath'))) {   // ★ 처형된 지휘관은 버프 안 줌
         const dc = Math.abs(p.col - attackerPiece.col);
         const dr = Math.abs(p.row - attackerPiece.row);
         if ((dc === 0 && dr === 1) || (dc === 1 && dr === 0)) {
@@ -5053,7 +5057,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
   }
 
   // Step 3: Monk attacking villain => damage = 3
-  if (attackerPiece.type === 'monk' && defenderPiece.tag === 'villain') {
+  if (attackerPiece.type === 'monk' && defenderPiece.tag === 'villain'
+      && ((typeof isPassiveActive !== 'function') || isPassiveActive(attackerPiece, 'grace'))) {   // ★ 처형된 수도승은 가호 무효
     dmg = 3;
     if (room._attackPassivesFired && !room._attackPassivesFired.has('monk_attack')) {
       emitToBoth(room, 'passive_alert', { type: 'monk_attack', playerIdx: attackerIdx, msg: `가호: 악인 공격 시 3 피해` });
@@ -5085,7 +5090,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
   }
 
   // Step 5: ArmoredWarrior iron skin: -0.5 (not status dmg)
-  if (defenderPiece.type === 'armoredWarrior') {
+  if (defenderPiece.type === 'armoredWarrior'
+      && ((typeof isPassiveActive !== 'function') || isPassiveActive(defenderPiece, 'ironSkin'))) {   // ★ 처형된 갑주무사는 아이언스킨 무효
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
@@ -5098,7 +5104,8 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
   }
 
   // Step 6: Monk being attacked by villain => damage = 0.5
-  if (defenderPiece.type === 'monk' && attackerPiece.tag === 'villain') {
+  if (defenderPiece.type === 'monk' && attackerPiece.tag === 'villain'
+      && ((typeof isPassiveActive !== 'function') || isPassiveActive(defenderPiece, 'grace'))) {   // ★ 처형된 수도승은 가호 무효
     dmg = 0.5;
     if (room._attackPassivesFired && !room._attackPassivesFired.has('monk')) {
       emitToBoth(room, 'passive_alert', { type: 'monk', playerIdx: defenderIdx, msg: `가호: 악인 공격 피해 0.5로 감소` });
@@ -5108,7 +5115,7 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
   }
 
   // Step 7: Count hit by tier 1 or 2 => -0.5 (★ 폭정 패시브 보유 시에만 — 백작 리워크로 폭정 제거되면 미발동)
-  if ((defenderPiece.passives || []).includes('tyranny') && (attackerPiece.tier === 1 || attackerPiece.tier === 2)) {
+  if ((defenderPiece.passives || []).includes('tyranny') && isPassiveActive(defenderPiece, 'tyranny') && (attackerPiece.tier === 1 || attackerPiece.tier === 2)) {
     const before = dmg;
     dmg = Math.max(0, dmg - 0.5);
     if (before !== dmg) {
@@ -5130,7 +5137,9 @@ function _resolveDamageRaw(room, attackerPiece, defenderPiece, attackerIdx, base
     // 호위무사 탐색 (가장 먼저 찾은 것)
     let bodyguardPiece = null, bodyguardOwnerIdx = null;
     for (const bIdx of defenderTeamIdx) {
-      const bg = room.players[bIdx].pieces.find(p => p.type === 'bodyguard' && p.alive);
+      // ★ 처형된 호위무사는 충성(가로채기) 무효 — 왕실이 온전히 피해를 받음.
+      const bg = room.players[bIdx].pieces.find(p => p.type === 'bodyguard' && p.alive
+        && ((typeof isPassiveActive !== 'function') || isPassiveActive(p, 'loyalty')));
       if (bg) { bodyguardPiece = bg; bodyguardOwnerIdx = bIdx; break; }
     }
     if (bodyguardPiece) {
@@ -5958,8 +5967,16 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
               room._boardShrinkDeaths = true;
               handleDeath(room, defPiece, defIdx, 'behead');
               room._boardShrinkDeaths = _prevBS;
+              // ★ 참수 발동 말풍선(언데드 즉시 소멸).
+              emitToBoth(room, 'passive_alert', { type: 'behead', playerIdx: attackerIdx, msg: `참수: 처형` });
+              emitToSpectators(room, 'spectator_log', { msg: `참수: ${defPiece.name} 처형`, type: 'passive', playerIdx: attackerIdx });
             } else if (defPiece.alive) {
-              addStatus(defPiece, 'executed', {}, room);   // ★ 유니콘 백은의 뿔이면 참수(상태이상) 무시 + 말풍선
+              const _executed = addStatus(defPiece, 'executed', {}, room);   // ★ 유니콘 백은의 뿔이면 무시 + 백은뿔 말풍선(false)
+              if (_executed) {
+                // ★ 참수 발동 말풍선 — 처형 부여(모든 패시브 봉인) 성공 시.
+                emitToBoth(room, 'passive_alert', { type: 'behead', playerIdx: attackerIdx, msg: `참수: 패시브 봉인` });
+                emitToSpectators(room, 'spectator_log', { msg: `참수: ${defPiece.name} 패시브 봉인`, type: 'passive', playerIdx: attackerIdx });
+              }
             }
           }
           // 일반 사망 — 언데드가 아닌 유닛만 HP0 로 소멸. 언데드는 위 참수/후속 파괴로만 alive=false.
@@ -5987,7 +6004,8 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
 
           // Post-damage: torturer 표식 — 큐에 push (즉시 적용/emit 안 함).
           //   flushMarkPhase 가 cast intro + 적용 + brand 시퀀스를 최후반에 처리.
-          if (atkPiece.type === 'torturer' && !destroyed) {
+          //   ★ 처형된 고문관은 표식(패시브) 무효.
+          if (atkPiece.type === 'torturer' && !destroyed && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'markPassive'))) {
             let markTarget = defPiece;
             // 호위무사 패시브: 왕실 아군 상태이상도 대신 받음
             if (defPiece.tag === 'royal' && defPiece.type !== 'bodyguard') {
@@ -6027,7 +6045,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
   room._attackerOwnRatsDestroyedCount = 0;
   room._friendlyFireHits = [];                 // ★ 아군 피격 상세 데이터 수집
   room._friendlyFireRats = [];                 // ★ 오사된 아군 쥐 셀(위치 공유+사망 애니용)
-  if (atkPiece.type === 'slaughterHero') {
+  if (atkPiece.type === 'slaughterHero' && (typeof isPassiveActive !== 'function' || isPassiveActive(atkPiece, 'betrayer'))) {   // ★ 처형된 광전사는 학살(오사) 무효
     const attackerName = room.players[attackerIdx].name;
     const allyIndices = (room.mode === 'team') ? getAllyIndices(room, attackerIdx) : [attackerIdx];
     for (const cell of atkCells) {
@@ -9660,6 +9678,7 @@ function getEffectiveAtk(piece, room, ownerIdx, opts) {
   for (const ai of allyIdxs) {
     for (const cmd of (room.players[ai]?.pieces || [])) {
       if (!cmd.alive || cmd === piece || cmd.type !== 'commander' || cmd.col == null) continue;
+      if ((typeof isPassiveActive === 'function') && !isPassiveActive(cmd, 'wrath')) continue;   // ★ 처형된 지휘관은 버프 무효
       if ((Math.abs(cmd.col - col) === 1 && cmd.row === row) ||
           (Math.abs(cmd.row - row) === 1 && cmd.col === col)) {
         return base + 1;
