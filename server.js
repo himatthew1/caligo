@@ -4424,10 +4424,13 @@ function transitionToExchangeDraft(room) {
         console.log(`[transitionToExchangeDraft] NO side waitMs=${remainingMs}${aiYes ? ` (AI internal think=${aiThinkMs}ms)` : ''}`);
       } else {
         const available = {};
+        // ★ 사용자 요청: 교환 드래프트도 '내가 보유한 캐릭터'만 후보로. (base9 ∪ 가챠보유)
+        const _exSock = io.sockets.sockets.get(p.socketId);
+        const _exOwned = ownedSetForSocket(_exSock);
         for (const tier of [1, 2, 3]) {
           const myType = tier === 1 ? p.draft.t1 : tier === 2 ? p.draft.t2 : p.draft.t3;
           available[tier] = CHARACTERS[tier]
-            .filter(c => c.type !== myType)
+            .filter(c => c.type !== myType && _exOwned.has(c.type))
             .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range, isTwin: !!c.isTwin, skills: c.skills, passives: c.passives }));
         }
         io.to(p.socketId).emit('exchange_draft_phase', {
@@ -12230,10 +12233,11 @@ io.on('connection', (socket) => {
       socket.emit('initial_reveal_phase', { myDraft: player.draft, oppChars, alreadyDecided: !!room.initialRevealDone[idx] });
     } else if (phase === 'exchange_draft') {
       const available = {};
+      const _exOwned = ownedSetForSocket(socket);   // ★ 보유분만(재접속 경로)
       for (const tier of [1, 2, 3]) {
         const myType = tier === 1 ? player.draft.t1 : tier === 2 ? player.draft.t2 : player.draft.t3;
         available[tier] = CHARACTERS[tier]
-          .filter(c => c.type !== myType)
+          .filter(c => c.type !== myType && _exOwned.has(c.type))
           .map(c => ({ type: c.type, name: c.name, icon: c.icon, desc: c.desc, tag: c.tag, atk: c.atk, range: c.range }));
       }
       socket.emit('exchange_draft_phase', {
