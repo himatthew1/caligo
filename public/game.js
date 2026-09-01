@@ -2129,8 +2129,11 @@ socket.on('team_hp_browse', ({ playerIdx, hps }) => {
 // 1v1 screen-hp에 팀전 2슬롯 HP UI를 렌더
 function buildTeamHpUIOnSharedScreen() {
   const draft = S.teamDraft;
-  S.hpValues = [5, 5];  // 2슬롯 합 10
   const types = [draft.pick1, draft.pick2];
+  // ★ 사용자 요청: 자동 부여(5/5) 폐지 — 총 10을 전부 직접 배분. 기본 0. 언데드 슬롯은 항상 0.
+  S._teamUndeadSlots = new Set();
+  types.forEach((t, i) => { if (t === 'undead') S._teamUndeadSlots.add(i); });
+  S.hpValues = [0, 0];
   const container = document.getElementById('hp-pieces');
   container.innerHTML = '';
   const rows = document.createElement('div');
@@ -2168,13 +2171,12 @@ function buildTeamHpUIOnSharedScreen() {
 }
 
 function adjustTeamHp(idx, delta) {
+  if (S._teamUndeadSlots && S._teamUndeadSlots.has(idx)) return;   // 언데드 슬롯 조정 불가
   const next = S.hpValues[idx] + delta;
-  if (next < 1 || next > 9) return;
+  // ★ 전량 수동 — 조정 중 0까지 허용(최소 부여는 확정 시 검증). 상한 9, 총합 10.
+  if (next < 0 || next > 9) return;
   const total = S.hpValues.reduce((a, b) => a + b, 0);
   if (delta > 0 && total >= 10) return;
-  // 쌍둥이: 해당 슬롯 최소 2
-  const types = [S.teamDraft.pick1, S.teamDraft.pick2];
-  if (types[idx] === 'twins' && next < 2) return;
   S.hpValues[idx] = next;
   updateTeamHpUIShared();
   socket.emit('team_hp_browse', { hps: [...S.hpValues] });
@@ -2188,7 +2190,15 @@ function updateTeamHpUIShared() {
   const total = S.hpValues.reduce((a, b) => a + b, 0);
   const remEl = document.getElementById('hp-remaining');
   if (remEl) remEl.textContent = 10 - total;
-  document.getElementById('btn-hp-confirm').disabled = total !== 10;
+  // ★ 확정 조건: 총 10 + 각 비언데드 슬롯 최소(쌍둥이=2, 그 외=1).
+  const _types = [S.teamDraft.pick1, S.teamDraft.pick2];
+  let _minOk = true;
+  for (let i = 0; i < 2; i++) {
+    if (S._teamUndeadSlots && S._teamUndeadSlots.has(i)) continue;
+    const _need = (_types[i] === 'twins') ? 2 : 1;
+    if ((S.hpValues[i] || 0) < _need) { _minOk = false; break; }
+  }
+  document.getElementById('btn-hp-confirm').disabled = !(total === 10 && _minOk);
 }
 
 function buildTeammateHpPanel() {
@@ -12264,23 +12274,16 @@ if (window.CaligoAuth && typeof window.CaligoAuth.onWallet === 'function') {
 function buildHpUI() {
   renderProgressStepper('screen-hp', 'hp');
   const draft = S.myDraft;
-  // ★ 재접속 복원값이 있으면 사용(이미 분배한 HP), 없으면 기본 4/3/3. 1회 사용 후 해제.
-  S.hpValues = (Array.isArray(S._restoredHpDist) && S._restoredHpDist.length === 3) ? S._restoredHpDist.slice() : [4, 3, 3];
-  S._restoredHpDist = null;
   const types = [draft.t1, draft.t2, draft.t3];
   const tierLabels = ['1티어', '2티어', '3티어'];
-  // ★ 언데드: HP 부여 불가(HP0 시작) → 해당 티어 제외, 나머지 티어에 10 분배.
+  // ★ 언데드: HP 부여 불가(HP0 시작) → 조정 잠금.
   S._undeadHpTiers = new Set();
   types.forEach((t, i) => { if (t === 'undead') S._undeadHpTiers.add(i); });
-  if (S._undeadHpTiers.size) {
-    const nonU = [0, 1, 2].filter(i => !S._undeadHpTiers.has(i));
-    const base = [0, 0, 0];
-    let rem = 10;
-    nonU.forEach((i, k) => { const v = (k === nonU.length - 1) ? rem : Math.min(8, Math.round(10 / nonU.length)); base[i] = v; rem -= v; });
-    if (rem !== 0 && nonU.length) base[nonU[0]] = Math.max(1, Math.min(8, base[nonU[0]] + rem));
-    S.hpValues = base;
-    S._undeadHpTiers.forEach(i => { S.hpValues[i] = 0; });
-  }
+  // ★ 사용자 요청: 자동 부여(4/3/3) 폐지 — 총 10을 전부 직접 배분. 기본 0에서 시작.
+  //   (재접속 복원값이 있으면 그대로 사용.) 언데드 티어는 항상 0.
+  S.hpValues = (Array.isArray(S._restoredHpDist) && S._restoredHpDist.length === 3) ? S._restoredHpDist.slice() : [0, 0, 0];
+  S._restoredHpDist = null;
+  S._undeadHpTiers.forEach(i => { S.hpValues[i] = 0; });
   const container = document.getElementById('hp-pieces');
   container.innerHTML = '';
   const rows = document.createElement('div');
@@ -12329,10 +12332,9 @@ function adjustHp(idx, delta) {
   if (S._undeadHpTiers && S._undeadHpTiers.has(idx)) return;   // ★ 언데드 티어는 조정 불가
   const next = S.hpValues[idx] + delta;
   const total = S.hpValues.reduce((a, b) => a + b, 0);
-  if (next < 1 || next > 8) return;
+  // ★ 전량 수동 배분 — 조정 중에는 0까지 허용(최소 부여는 '확정' 시 검증). 상한 8, 총합 10.
+  if (next < 0 || next > 8) return;
   if (delta > 0 && total >= 10) return;
-  // 쌍둥이: 1티어 최소 2
-  if (S.hasTwins && idx === 0 && next < 2) return;
   S.hpValues[idx] = next;
   updateHpUI();
   // 관전자에게 실시간 HP 조정 전송
@@ -12346,7 +12348,14 @@ function updateHpUI() {
   }
   const total = S.hpValues.reduce((a, b) => a + b, 0);
   document.getElementById('hp-remaining').textContent = 10 - total;
-  document.getElementById('btn-hp-confirm').disabled = total !== 10;
+  // ★ 확정 조건: 총 10 + 각 비언데드 유닛 최소 부여(쌍둥이 1티어=2, 그 외=1). 0인 유닛이 있으면 확정 불가.
+  let _minOk = true;
+  for (let i = 0; i < 3; i++) {
+    if (S._undeadHpTiers && S._undeadHpTiers.has(i)) continue;
+    const _need = (S.hasTwins && i === 0) ? 2 : 1;
+    if ((S.hpValues[i] || 0) < _need) { _minOk = false; break; }
+  }
+  document.getElementById('btn-hp-confirm').disabled = !(total === 10 && _minOk);
 }
 
 function showTwinSplit(twinTierHp) {
