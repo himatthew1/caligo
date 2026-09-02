@@ -2065,15 +2065,17 @@ function aiPlacementCellScore(piece, c, r, ctx) {
   if (aiIsAggressivePiece(piece)) {
     try {
       const attackCells = getAttackCells(piece.type, c, r, bounds, { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms });
-      // (a) 클리핑 회피 — in-bounds 유효 사거리 최대화(보드 밖으로 잘리면 그만큼 손해).
+      // (a) 클리핑 회피(소폭) — in-bounds 유효 사거리. (5×5 는 거의 안 잘리나 7×7/팀은 유의미.)
       let inb = 0; const myCov = [];
       for (const ac of attackCells) { if (inBounds(ac.col, ac.row, bounds)) { inb++; myCov.push(`${ac.col},${ac.row}`); } }
-      score += inb * 1.6;
-      // (b) 아군 사거리와 중복 최소 + 새 칸 커버(보드 전체 리치) — 겹치면 손해, 새 영역이면 이득.
+      score += inb * 0.4;
+      // (b) 아군 사거리와 중복 최소 + 새 칸 커버(보드 전체 리치).
+      //   ★ 중요: 겹침칸 '순가중'이 반드시 음수여야 실제로 분산됨(이전엔 inb 보너스가 커 겹침이 +0.5 순보상
+      //     → 안 줄었음). fresh 는 강하게 보상, overlap 은 강하게 페널티.
       const allyCov = _aiAllyAttackCoverage(room, friendlyIdxs, piece, bounds);
       let overlap = 0, fresh = 0;
       for (const k of myCov) { if (allyCov.has(k)) overlap++; else fresh++; }
-      score += fresh * 1.4 - overlap * 1.1;
+      score += fresh * 2.6 - overlap * 2.2;
     } catch (e) {}
   }
   // 9. 동점 미세 분산
