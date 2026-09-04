@@ -1272,7 +1272,8 @@
       window.setSpecCharactersForTutorial(TUT_CHARS_DATA);
     }
     if (typeof window.openCharDictAt === 'function') {
-      window.openCharDictAt(charType);
+      // ★ 사용자 요청: 캐릭터 설명 시 다른 캐릭터 인덱스는 모두 숨기고 설명 대상만 단일 열람.
+      window.openCharDictAt(charType, true);
     }
   }
 
@@ -1384,13 +1385,24 @@
     if (cell) cell.classList.add('tut-move-target');
   }
 
+  // ★ 실제 게임과 동일한 공격범위 — 인게임 전역 getAttackCells(type,col,row) 사용(하드코딩 십자5 폐지).
+  //   유닛 타입별 실제 사거리(창병=세로열·궁수=대각선·파수꾼=주변8 등)를 그대로 하이라이트한다.
+  function tutAttackCellsAt(col, row) {
+    const pc = S.pieces.find(p => p.alive && p.col === col && p.row === row);
+    const type = pc ? (pc.type || (pc.char && pc.char.type)) : null;
+    if (type && typeof window.getAttackCells === 'function') {
+      try {
+        const cells = window.getAttackCells(type, col, row, { toggleState: pc.toggleState });
+        if (Array.isArray(cells) && cells.length) return cells.filter(c => c.col >= 0 && c.col <= 4 && c.row >= 0 && c.row <= 4);
+      } catch (e) {}
+    }
+    // 폴백(타입 불명): 십자 5칸
+    return [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].map(([dc, dr]) => ({ col: col + dc, row: row + dr }))
+      .filter(c => c.col >= 0 && c.col <= 4 && c.row >= 0 && c.row <= 4);
+  }
   function highlightAttackTargetsAt(col, row) {
-    // general + commander: cross 5 cells
-    const offsets = [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]];
-    for (const [dc, dr] of offsets) {
-      const c = col + dc, r = row + dr;
-      if (c < 0 || c > 4 || r < 0 || r > 4) continue;
-      const cell = document.querySelector(boardCellSel(c, r));
+    for (const c of tutAttackCellsAt(col, row)) {
+      const cell = document.querySelector(boardCellSel(c.col, c.row));
       if (cell) cell.classList.add('tut-attack-target');
     }
   }
@@ -1892,32 +1904,20 @@
     }
   }
 
-  // ── 자유 진행 — 캐릭터 타입별 공격 범위 반환 ────────────────────────────
+  // ── 자유 진행 — 캐릭터 타입별 공격 범위 (★ 실제 게임 getAttackCells 사용, 하드코딩 폐지) ──
   function getFreePlayAttackCells(pc) {
     const col = pc.col, row = pc.row;
     const type = (pc.char && pc.char.type) || pc.type || '';
-    const cells = [];
-    const add = (c, r) => { if (c >= 0 && c <= 4 && r >= 0 && r <= 4) cells.push([c, r]); };
-    switch (type) {
-      case 'spearman':
-        // 세로열 전체 (자신 제외)
-        for (let r = 0; r <= 4; r++) { if (r !== row) add(col, r); }
-        break;
-      case 'archer':
-        // 상하좌우 2칸
-        for (let i = 1; i <= 2; i++) { add(col, row - i); add(col, row + i); add(col - i, row); add(col + i, row); }
-        break;
-      case 'princess':
-        // 십자 1칸 (자신 제외)
-        add(col, row - 1); add(col, row + 1); add(col - 1, row); add(col + 1, row);
-        break;
-      default:
-        // 기본 십자 5칸 (자신 포함)
-        add(col, row); add(col, row - 1); add(col, row + 1); add(col - 1, row); add(col + 1, row);
-        break;
+    if (type && typeof window.getAttackCells === 'function') {
+      try {
+        const cells = window.getAttackCells(type, col, row, { toggleState: pc.toggleState });
+        if (Array.isArray(cells) && cells.length) return cells.filter(c => c.col >= 0 && c.col <= 4 && c.row >= 0 && c.row <= 4).map(c => [c.col, c.row]);
+      } catch (e) {}
     }
-    return cells;
+    const out = []; for (let r = 0; r <= 4; r++) if (r !== row) out.push([col, r]); return out;   // 폴백=세로열
   }
+  // 단일 타깃(그 칸만 명중) 유닛 — 그 외는 사거리 전체 타격(실제 게임 규칙).
+  const TUT_SINGLE_TARGET = new Set(['shadowAssassin', 'witch', 'catapult']);
 
   function freePlayHighlightAttackTargets(pc) {
     const cells = getFreePlayAttackCells(pc);
@@ -1982,31 +1982,27 @@
     _freePlaySelectedPiece = null;
     if (!pc) return;
 
-    // Find target
-    const target = S.pieces.find(p => p.alive && p.col === col && p.row === row && p.owner === 'opp');
+    // ★ 실제 게임 규칙 — 사거리 '전체' 타격(단일타깃 유닛만 클릭 칸). 클릭 칸은 대표 애니용.
+    const type = (pc.char && pc.char.type) || pc.type || '';
+    const hitCells = TUT_SINGLE_TARGET.has(type) ? [[col, row]] : getFreePlayAttackCells(pc);
     await animateAttackOnCell(col, row);
-    if (target) {
-      const dmg = pc.atk + (isCommanderAdjacent(pc) ? 1 : 0);
-      target.hp = Math.max(0, target.hp - dmg);
-      target.hidden = false;
-      animateBoardPieceHit(col, row);
-      flashCard('opp', target.id);
-      if (typeof playSfx === 'function') { try { playSfx(target.hp <= 0 ? 'kill' : 'hit'); } catch(e) {} }
-      addLog(`${pc.name} → ${target.name} 명중 (ATK ${dmg})`, 'hit');
-      if (target.hp <= 0) {
-        target.alive = false;
-        target.col = -1; target.row = -1;
-        addLog(`${target.name} 격파!`, 'hit');
-      }
-    } else {
-      if (typeof playSfx === 'function') { try { playSfx('miss'); } catch(e) {} }
-      addLog(`${pc.name} 공격 — 빗나감`, 'miss');
+    const dmg = pc.atk + (isCommanderAdjacent(pc) ? 1 : 0);
+    let hitAny = false, kills = 0;
+    for (const [c, r] of hitCells) {
+      const t = S.pieces.find(p => p.alive && p.col === c && p.row === r && p.owner === 'opp');
+      if (!t) continue;
+      hitAny = true;
+      t.hp = Math.max(0, t.hp - dmg); t.hidden = false;
+      animateBoardPieceHit(c, r); flashCard('opp', t.id);
+      addLog(`${pc.name} → ${t.name} 명중 (ATK ${dmg})`, 'hit');
+      if (t.hp <= 0) { t.alive = false; t.col = -1; t.row = -1; addLog(`${t.name} 격파!`, 'hit'); kills++; }
     }
+    if (typeof playSfx === 'function') { try { playSfx(kills > 0 ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
+    if (!hitAny) addLog(`${pc.name} 공격 — 빗나감`, 'miss');
     _freePlayPieceActed.add(pc.id);
     updateUI();
     clearHint();
     setHint('다른 말을 행동시키거나 턴 종료를 누르세요');
-    // Check win
     checkFreePlayWin();
   }
 

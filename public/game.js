@@ -25976,13 +25976,14 @@ document.getElementById('btn-tut-next')?.addEventListener('click', () => {
   // ★ 사용자 요청: 프로필 더블클릭 → 딕셔너리 해당 캐릭터 페이지로 직행.
   //   드래곤 → 드래곤 조련사 / 쌍둥이 누나·동생 → 쌍둥이 강도 매핑.
   //   특정 type 으로 딕셔너리를 열어 해당 캐릭터를 활성 슬라이드로 표시.
-  window.openCharDictAt = function (charType) {
+  window.openCharDictAt = function (charType, forceSingle) {
     if (!charType) return;
     let target = charType;
     if (target === 'dragon') target = 'dragonTamer';
     if (target === 'twins_elder' || target === 'twins_younger') target = 'twins';
-    // 1) 보유(게이팅 리스트)에 있으면 정상 인덱스 브라우징
-    for (const tier of [1, 2, 3]) {
+    // 1) 보유(게이팅 리스트)에 있으면 정상 인덱스 브라우징.
+    //    ★ forceSingle(튜토리얼 캐릭터 설명): 다른 캐릭터 인덱스/이전·다음을 전부 숨긴 '단일 열람'으로 강제.
+    if (!forceSingle) for (const tier of [1, 2, 3]) {
       const arr = getChars(tier);
       const idx = arr.findIndex(c => c && c.type === target);
       if (idx >= 0) { dictOverride = null; dictTier = tier; dictIdx = idx; openDict(); return; }
