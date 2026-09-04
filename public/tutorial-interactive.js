@@ -126,6 +126,7 @@
     selectedPiece: null,
     freePlay: false,
     actionDone: false,
+    remains: [],   // ★ 유해 — 실제 게임처럼 사망 자리에 유해 잔류 {col,row,type}
   };
   window.tutorialInteractive = S;
 
@@ -1570,6 +1571,18 @@
             }
           }
         }
+        // ★ 유해 — 살아있는 말이 없는 사망 자리에 잔류(실제 게임 .remains-marker/.has-remains 재사용).
+        if (!pc) {
+          const rem = (S.remains || []).find(x => x.col === c && x.row === r);
+          if (rem) {
+            cell.classList.add('has-remains');
+            const rimg = document.createElement('img');
+            rimg.className = 'remains-marker';
+            rimg.alt = '';
+            rimg.src = window.REMAINS_IMG || '/art/remains.png';
+            cell.appendChild(rimg);
+          }
+        }
         // 추리 토큰
         const token = (S.deductionTokens || []).find(t => t.col === c && t.row === r);
         if (token) {
@@ -1692,22 +1705,57 @@
   async function animateAttackOnCell(col, row) {
     const cell = document.querySelector(boardCellSel(col, row));
     if (!cell) return;
-    cell.classList.add('tut-attack-flash');
-    setTimeout(() => cell.classList.remove('tut-attack-flash'), 600);
+    cell.classList.add('attack-cell-effect');
+    setTimeout(() => cell.classList.remove('attack-cell-effect'), 600);
     await sleep(400);
   }
 
+  // ★ 실제 게임과 동일 — 피격 시 흔들림 + idle→피격 GIF 스왑(PIECE_HIT_GIFS). 지속시간 반환(호출부 대기용).
   function animateBoardPieceHit(col, row) {
     const cell = document.querySelector(boardCellSel(col, row));
-    if (!cell) return;
-    const icon = cell.querySelector('.piece-marker .p-icon');
-    if (icon) {
-      icon.classList.remove('tut-p-icon-hit');
-      void icon.offsetWidth;
-      icon.classList.add('tut-p-icon-hit');
-      setTimeout(() => icon.classList.remove('tut-p-icon-hit'), 700);
-    }
+    if (!cell) return 0;
+    const marker = cell.querySelector('.piece-marker');
+    const icon = marker && marker.querySelector('.p-icon');
+    if (!icon) return 0;
+    icon.classList.remove('tut-p-icon-hit'); void icon.offsetWidth; icon.classList.add('tut-p-icon-hit');
+    setTimeout(() => icon.classList.remove('tut-p-icon-hit'), 700);
+    // 피격 GIF 스왑 — idle src 의 type 을 뽑아 _hit.gif 로 교체, 지속 후 idle 복원(셀 재조회로 재렌더 생존).
+    const idleImg = icon.querySelector('img.p-gif');
+    if (!idleImg || !window.PIECE_HIT_GIFS) return 400;
+    const m = (idleImg.getAttribute('src') || '').match(/\/([^/]+)_idle\.gif/);
+    const hitUrl = m ? window.PIECE_HIT_GIFS[m[1]] : null;
+    if (!hitUrl) return 400;
+    const idleSrc = idleImg.getAttribute('src');
+    idleImg.setAttribute('src', hitUrl);
+    idleImg.dataset.hitgif = '1';
+    const dur = (window._gifDurationCache && window._gifDurationCache[hitUrl]) || 650;
+    setTimeout(() => {
+      const c2 = document.querySelector(boardCellSel(col, row));
+      const img2 = c2 && c2.querySelector('.piece-marker .p-icon img.p-gif[data-hitgif]');
+      if (img2) { img2.setAttribute('src', idleSrc); delete img2.dataset.hitgif; }
+    }, dur + 80);
+    return dur;
   }
+
+  // ★ 실제 게임과 동일 — 사망 GIF 오버레이(1회 재생) 후 그 자리에 유해 잔류. 지속시간 반환.
+  function tutPlayDeathGif(col, row, type, facingLeft) {
+    const cell = document.querySelector(boardCellSel(col, row));
+    if (!cell) return 300;
+    const url = (window.getPieceDeathGifUrl && window.getPieceDeathGifUrl(type))
+      || (window.PIECE_DEATH_GIFS && window.PIECE_DEATH_GIFS._common);
+    if (!url) return 300;
+    const ov = document.createElement('div');
+    ov.className = 'death-anim-overlay';
+    const img = document.createElement('img');
+    img.className = 'death-gif'; img.alt = ''; img.src = url;
+    if (facingLeft) img.style.transform = 'scaleX(-1)';
+    ov.appendChild(img); cell.appendChild(ov);
+    const dur = (window._gifDurationCache && window._gifDurationCache[url]) || 700;
+    setTimeout(() => { try { ov.remove(); } catch (e) {} }, dur + 150);
+    return dur;
+  }
+  // 유해 없는 타입(실제 게임과 동일): 드래곤/유황솥/쥐.
+  const TUT_NO_REMAINS = new Set(['dragon', 'sulfurCauldron', 'rat']);
 
   function flashCard(side, pieceId) {
     const sel = side === 'my'
@@ -1988,23 +2036,34 @@
     // 사거리 '전체' 플래시(실제 게임의 공격범위 효과) — 클릭 1칸만이 아니라 타격 범위 전부.
     for (const [c, r] of hitCells) {
       const fc = document.querySelector(boardCellSel(c, r));
-      if (fc) { fc.classList.add('tut-attack-flash'); setTimeout(() => fc.classList.remove('tut-attack-flash'), 600); }
+      if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); }
     }
     if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
     await sleep(400);
     const dmg = pc.atk + (isCommanderAdjacent(pc) ? 1 : 0);
-    let hitAny = false, kills = 0;
+    let hitAny = false, maxDur = 0; const deaths = [];
     for (const [c, r] of hitCells) {
       const t = S.pieces.find(p => p.alive && p.col === c && p.row === r && p.owner === 'opp');
       if (!t) continue;
       hitAny = true;
       t.hp = Math.max(0, t.hp - dmg); t.hidden = false;
-      animateBoardPieceHit(c, r); flashCard('opp', t.id);
+      const d = animateBoardPieceHit(c, r); if (d > maxDur) maxDur = d;   // 피격 GIF
+      flashCard('opp', t.id);
       addLog(`${pc.name} → ${t.name} 명중 (ATK ${dmg})`, 'hit');
-      if (t.hp <= 0) { t.alive = false; t.col = -1; t.row = -1; addLog(`${t.name} 격파!`, 'hit'); kills++; }
+      if (t.hp <= 0) deaths.push({ t, c, r, type: (t.char && t.char.type) || t.type });
     }
-    if (typeof playSfx === 'function') { try { playSfx(kills > 0 ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
+    if (typeof playSfx === 'function') { try { playSfx(deaths.length ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
     if (!hitAny) addLog(`${pc.name} 공격 — 빗나감`, 'miss');
+    // 피격 GIF 재생 대기 → 사망 GIF + 유해 → 재렌더(실제 게임 순서와 동일).
+    if (hitAny) await sleep(Math.max(300, maxDur));
+    let deathDur = 0;
+    for (const d of deaths) {
+      d.t.alive = false; d.t.col = -1; d.t.row = -1;
+      const dd = tutPlayDeathGif(d.c, d.r, d.type); if (dd > deathDur) deathDur = dd;
+      if (!TUT_NO_REMAINS.has(d.type)) S.remains.push({ col: d.c, row: d.r, type: d.type });
+      addLog(`${d.t.name} 격파!`, 'hit');
+    }
+    if (deaths.length) await sleep(deathDur + 150);
     _freePlayActionDone = true;
     updateUI();
     clearHint();
@@ -2097,22 +2156,30 @@
       const oppCells = TUT_SINGLE_TARGET.has(oppType) ? [[nearest.col, nearest.row]] : attackCells;
       const oppDmg = best.atk + (isOppCommanderAdjacent(best) ? 1 : 0);
       // 사거리 전체 플래시
-      for (const [c, r] of oppCells) { const fc = document.querySelector(boardCellSel(c, r)); if (fc) { fc.classList.add('tut-attack-flash'); setTimeout(() => fc.classList.remove('tut-attack-flash'), 600); } }
+      for (const [c, r] of oppCells) { const fc = document.querySelector(boardCellSel(c, r)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
       if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
       await sleep(400);
-      let hitAny = false, kills = 0;
+      let hitAny = false, maxDur = 0; const deaths = [];
       for (const [c, r] of oppCells) {
         const t = myPieces.find(p => p.alive && p.col === c && p.row === r);
         if (!t) continue;
         hitAny = true;
         t.hp = Math.max(0, t.hp - oppDmg);
-        animateBoardPieceHit(c, r); flashCard('my', t.id);
+        const d = animateBoardPieceHit(c, r); if (d > maxDur) maxDur = d;
+        flashCard('my', t.id);
         addLog(`${best.name} → ${t.name} 명중 (ATK ${oppDmg})`, 'hit');
-        if (t.hp <= 0) { t.alive = false; t.col = -1; t.row = -1; addLog(`${t.name} 격파!`, 'hit'); kills++; }
+        if (t.hp <= 0) deaths.push({ t, c, r, type: (t.char && t.char.type) || t.type });
       }
-      if (typeof playSfx === 'function') { try { playSfx(kills > 0 ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
-      if (hitAny) addToast('공격받았습니다!', true);
-      await sleep(900);
+      if (typeof playSfx === 'function') { try { playSfx(deaths.length ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
+      if (hitAny) { addToast('공격받았습니다!', true); await sleep(Math.max(300, maxDur)); }
+      let deathDur = 0;
+      for (const d of deaths) {
+        d.t.alive = false; d.t.col = -1; d.t.row = -1;
+        const dd = tutPlayDeathGif(d.c, d.r, d.type); if (dd > deathDur) deathDur = dd;
+        if (!TUT_NO_REMAINS.has(d.type)) S.remains.push({ col: d.c, row: d.r, type: d.type });
+        addLog(`${d.t.name} 격파!`, 'hit');
+      }
+      if (deaths.length) await sleep(deathDur + 150); else if (hitAny) await sleep(500);
     } else {
       // 이동 (최대 1칸, 가장 가까운 아군 방향)
       await sleep(300);
