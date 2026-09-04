@@ -1818,12 +1818,12 @@
   // ─────────────────────────────────────────────────────────────────────────
   let _freePlaySelectedPiece = null;
   let _freePlayPhase = 'none'; // 'none' | 'move-targets' | 'attack-targets'
-  let _freePlayPieceActed = new Set(); // ids of pieces that acted this turn
+  let _freePlayActionDone = false; // 턴당 1행동 — 이번 턴에 한 말이라도 행동했는지
 
   function enterFreePlay() {
     _freePlaySelectedPiece = null;
     _freePlayPhase = 'none';
-    _freePlayPieceActed = new Set();
+    _freePlayActionDone = false;
     // Reveal everything
     revealAll();
     updateUI();
@@ -1885,8 +1885,8 @@
     // Select a piece
     const pc = S.pieces.find(p => p.alive && p.owner === 'me' && p.col === col && p.row === row);
     if (pc) {
-      if (_freePlayPieceActed.has(pc.id)) {
-        addToast('이미 행동한 말입니다.');
+      if (_freePlayActionDone) {
+        addToast('한 턴에는 한 유닛만 행동할 수 있습니다. 턴 종료를 누르세요.');
         return;
       }
       _freePlaySelectedPiece = pc;
@@ -1952,11 +1952,11 @@
     if (!pc) return;
     await animatePieceSlide(pc, toCol, toRow, 350);
     if (typeof playSfx === 'function') { try { playSfx('move'); } catch(e) {} }
-    _freePlayPieceActed.add(pc.id);
+    _freePlayActionDone = true;
     addLog(`${pc.name} 이동`, 'move');
     updateUI();
     clearHint();
-    setHint('다른 말을 행동시키거나 턴 종료를 누르세요');
+    setHint('이번 턴 행동 완료 — 턴 종료를 누르세요.');
   }
 
   function freePlaySelectAttackTarget(col, row) {
@@ -1985,7 +1985,13 @@
     // ★ 실제 게임 규칙 — 사거리 '전체' 타격(단일타깃 유닛만 클릭 칸). 클릭 칸은 대표 애니용.
     const type = (pc.char && pc.char.type) || pc.type || '';
     const hitCells = TUT_SINGLE_TARGET.has(type) ? [[col, row]] : getFreePlayAttackCells(pc);
-    await animateAttackOnCell(col, row);
+    // 사거리 '전체' 플래시(실제 게임의 공격범위 효과) — 클릭 1칸만이 아니라 타격 범위 전부.
+    for (const [c, r] of hitCells) {
+      const fc = document.querySelector(boardCellSel(c, r));
+      if (fc) { fc.classList.add('tut-attack-flash'); setTimeout(() => fc.classList.remove('tut-attack-flash'), 600); }
+    }
+    if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
+    await sleep(400);
     const dmg = pc.atk + (isCommanderAdjacent(pc) ? 1 : 0);
     let hitAny = false, kills = 0;
     for (const [c, r] of hitCells) {
@@ -1999,10 +2005,10 @@
     }
     if (typeof playSfx === 'function') { try { playSfx(kills > 0 ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
     if (!hitAny) addLog(`${pc.name} 공격 — 빗나감`, 'miss');
-    _freePlayPieceActed.add(pc.id);
+    _freePlayActionDone = true;
     updateUI();
     clearHint();
-    setHint('다른 말을 행동시키거나 턴 종료를 누르세요');
+    setHint('이번 턴 행동 완료 — 턴 종료를 누르세요.');
     checkFreePlayWin();
   }
 
@@ -2019,7 +2025,7 @@
     hideAttackConfirmBtn();
     _freePlaySelectedPiece = null;
     _freePlayPhase = 'none';
-    _freePlayPieceActed = new Set();
+    _freePlayActionDone = false;
     clearHint();
 
     S.turn++;
@@ -2042,7 +2048,7 @@
     S.turn++;
     S.whose = 'me';
     S.actionDone = false;
-    _freePlayPieceActed = new Set(); // 새 턴 — 행동 가능 초기화
+    _freePlayActionDone = false; // 새 턴 — 행동 가능 초기화
     updateUI();
     addLog(`${S.turn}턴 : 내 차례`, 'system');
     addToast('내 차례');
@@ -2508,7 +2514,7 @@
     S.selectedPiece = null;
     _freePlaySelectedPiece = null;
     _freePlayPhase = 'none';
-    _freePlayPieceActed = new Set();
+    _freePlayActionDone = false;
 
     const logEl = document.getElementById('tut-game-log');
     if (logEl) logEl.innerHTML = '';
@@ -2546,7 +2552,7 @@
     S.selectedPiece = null;
     _freePlaySelectedPiece = null;
     _freePlayPhase = 'none';
-    _freePlayPieceActed = new Set();
+    _freePlayActionDone = false;
     hideBubbleTemporarily();
     clearClickGuard();
     clearSpotlights();
