@@ -393,11 +393,20 @@
   // [33] animate: attack + hit
   SCENARIO.push({
     kind: 'animate', run: async () => {
+      const gen = findPiece('me-general');
       const sp = findPiece('op-sp');
+      // ★ 공격 유닛 모션 GIF + 사거리 전체 플래시(실제 게임과 동일).
+      if (gen) {
+        tutAttackGif(gen.col, gen.row, 'general', !!gen._facingLeft);
+        for (const c of tutAttackCellsAt(gen.col, gen.row)) { const fc = document.querySelector(boardCellSel(c.col, c.row)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
+      }
+      if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
+      await sleep(420);
       if (sp) {
-        await animateAttackOnCell(sp.col, sp.row);
         if (typeof playSfx === 'function') playSfx('hit');
         animateBoardPieceHit(sp.col, sp.row);
+        tutAddDamage(sp, 2);              // 데미지 도장
+        if (S.visibleOppIds) S.visibleOppIds.add('op-sp');   // 피격으로 프로필 노출
         flashCard('opp', 'op-sp');
       }
       updateUI();
@@ -902,11 +911,19 @@
   // [93] animate: attack + hit
   SCENARIO.push({
     kind: 'animate', run: async () => {
+      const gen = findPiece('me-general');
       const sp = findPiece('op-sp');
+      if (gen) {
+        tutAttackGif(gen.col, gen.row, 'general', !!gen._facingLeft);
+        for (const c of tutAttackCellsAt(gen.col, gen.row)) { const fc = document.querySelector(boardCellSel(c.col, c.row)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
+      }
+      if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
+      await sleep(420);
       if (sp) {
-        await animateAttackOnCell(sp.col, sp.row);
         if (typeof playSfx === 'function') playSfx('hit');
         animateBoardPieceHit(sp.col, sp.row);
+        tutAddDamage(sp, 2);
+        if (S.visibleOppIds) S.visibleOppIds.add('op-sp');
         flashCard('opp', 'op-sp');
         updateUI();
       }
@@ -1619,24 +1636,47 @@
     }
   }
 
+  // ★ 지휘관 사기증진 버프 반영한 실효 공격력(실시간 프로필 표시용).
+  function tutEffAtk(pc) {
+    const buffed = pc.alive && (pc.owner === 'me' ? isCommanderAdjacent(pc) : isOppCommanderAdjacent(pc));
+    return { atk: (pc.atk || 0) + (buffed ? 1 : 0), buff: buffed ? 1 : 0 };
+  }
+  // ★ 프로필 카드 공통 조각 — 상태 배지 + 데미지 도장(이번 턴 누적, 실제 게임 .dmg-stamp) + 버프 ATK.
+  function _tutCardStatusHTML(pc) {
+    let s = '';
+    try { if (typeof getBoardStatusIcons === 'function') s = getBoardStatusIcons(buildTutPieceLike(pc)) || ''; } catch (e) {}
+    return s;
+  }
+  function _tutCardStampHTML(pc) {
+    const d = pc._turnDmg || 0;
+    if (!(d > 0)) return '';
+    const txt = (Number.isInteger(d) ? d : d.toFixed(1)) + ' 데미지';
+    return `<div class="dmg-stamp">${txt}</div>`;
+  }
+  function _tutAtkHTML(pc) {
+    const e = tutEffAtk(pc);
+    return `<span class="piece-stat-atk"><span class="stat-label">ATK</span> ${e.atk}${e.buff ? ` <span class="atk-buff">(+${e.buff})</span>` : ''}</span>`;
+  }
+
   function buildMyCardHTML(pc) {
     const hpPct = pc.alive ? (pc.hp / pc.maxHp) * 100 : 0;
     const deadCls = pc.alive ? '' : ' card-dead';
     return `
-      <div class="my-piece-card${deadCls}" data-my-id="${pc.id}">
+      <div class="my-piece-card${deadCls}" data-my-id="${pc.id}" style="position:relative">
         <div class="my-piece-header">
           <span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.3em'})}</span>
           <strong>${pc.name}</strong>
-          <span class="tier-badge">${pc.tier}T</span>
+          <span class="tier-badge">${pc.tier}T</span>${_tutCardStatusHTML(pc)}
         </div>
         <div class="hp-bar-bg hp-bar-with-text">
           <div class="hp-bar" style="width:${hpPct}%"></div>
           <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
         </div>
         <div class="piece-stat-row">
-          <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
+          ${_tutAtkHTML(pc)}
           <span class="my-piece-pos">${pc.alive ? coord(pc.col, pc.row) : '격파됨'}</span>
         </div>
+        ${_tutCardStampHTML(pc)}
       </div>`;
   }
 
@@ -1648,20 +1688,21 @@
     if (token) badgeHTML = `<span class="deduction-badge">📌${coord(token.col, token.row)}</span>`;
     const posLabel = !pc.alive ? '격파됨' : (pc.hidden ? '🌫 위치 불명' : coord(pc.col, pc.row));
     return `
-      <div class="opp-piece-card${deadCls}" data-opp-id="${pc.id}">
+      <div class="opp-piece-card${deadCls}" data-opp-id="${pc.id}" style="position:relative">
         <div class="my-piece-header">
           <span class="p-icon">${pieceIconHtml(pc.icon, {size:'1.3em'})}</span>
           <strong>${pc.name}</strong>
-          <span class="tier-badge">${pc.tier}T</span>${badgeHTML}
+          <span class="tier-badge">${pc.tier}T</span>${badgeHTML}${_tutCardStatusHTML(pc)}
         </div>
         <div class="hp-bar-bg hp-bar-with-text">
           <div class="hp-bar" style="width:${hpPct}%"></div>
           <span class="hp-bar-text">${pc.alive ? pc.hp : 0}/${pc.maxHp}</span>
         </div>
         <div class="piece-stat-row">
-          <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${pc.atk}</span>
+          ${_tutAtkHTML(pc)}
           <span class="my-piece-pos">${posLabel}</span>
         </div>
+        ${_tutCardStampHTML(pc)}
       </div>`;
   }
 
@@ -1766,17 +1807,53 @@
   // 유해 없는 타입(실제 게임과 동일): 드래곤/유황솥/쥐.
   const TUT_NO_REMAINS = new Set(['dragon', 'sulfurCauldron', 'rat']);
 
+  // ★ 공격 모션 GIF — 실제 게임 animateAttackGif 로직 이식(PIECE_ATTACK_GIFS + 방향). 지속시간 반환.
+  //   공격 유닛 셀 위에 2배 크기 GIF 오버레이(idle 잠시 숨김). 안개 속 적(미표시)에는 호출하지 않음.
+  function tutAttackGif(col, row, type, facingLeft) {
+    const map = window.PIECE_ATTACK_GIFS;
+    const url = map && map[type];
+    const board = document.getElementById('tut-game-board');
+    const cell = board && board.querySelector(`.cell[data-col="${col}"][data-row="${row}"]`);
+    if (!url || !cell) return 350;
+    const size = (cell.offsetWidth || 44) * 2;
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = url;
+    img.style.cssText =
+      `position:absolute;width:${size}px;height:${size}px;` +
+      `left:${cell.offsetLeft + cell.offsetWidth / 2 - size / 2}px;top:${cell.offsetTop + cell.offsetHeight / 2 - size / 2}px;` +
+      `z-index:50;pointer-events:none;image-rendering:pixelated;` +
+      `filter:drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1));` +
+      (facingLeft ? 'transform:scaleX(-1);transform-origin:center center;' : '');
+    const idle = cell.querySelector('.piece-marker .p-icon img.p-gif');
+    if (idle) idle.style.visibility = 'hidden';
+    board.appendChild(img);
+    const dur = (window._gifDurationCache && window._gifDurationCache[url]) || 650;
+    setTimeout(() => {
+      try { img.remove(); } catch (e) {}
+      const b2 = document.getElementById('tut-game-board');
+      const i2 = b2 && b2.querySelector(`.cell[data-col="${col}"][data-row="${row}"] .piece-marker .p-icon img.p-gif`);
+      if (i2) i2.style.visibility = '';
+    }, dur + 100);
+    return dur;
+  }
+
   function flashCard(side, pieceId) {
     const sel = side === 'my'
       ? `${SCOPE} .my-piece-card[data-my-id="${pieceId}"]`
       : `${SCOPE} .opp-piece-card[data-opp-id="${pieceId}"]`;
     const card = document.querySelector(sel);
     if (!card) return;
+    // ★ 실제 게임 프로필 피격 애니(.profile-hit + turn-bright) 그대로 이식.
+    try { if (typeof applyHitFlashWithBrighten === 'function') applyHitFlashWithBrighten(card); } catch (e) {}
     card.classList.remove('tut-card-hit');
     void card.offsetWidth;
     card.classList.add('tut-card-hit');
     setTimeout(() => card.classList.remove('tut-card-hit'), 800);
   }
+  // ★ 데미지 도장 누적(이번 턴) — 프로필 .dmg-stamp 로 표시(renderCards 가 pc._turnDmg 로 렌더).
+  function tutAddDamage(pc, dmg) { if (pc && dmg > 0) pc._turnDmg = (pc._turnDmg || 0) + dmg; }
+  function tutClearTurnDamage() { for (const p of S.pieces) delete p._turnDmg; }
 
   // ── 부채꼴 메뉴 ──────────────────────────────────────────────────────────
   function openTutRadial(col, row, opts) {
@@ -2044,6 +2121,8 @@
     // ★ 실제 게임 규칙 — 사거리 '전체' 타격(단일타깃 유닛만 클릭 칸). 클릭 칸은 대표 애니용.
     const type = (pc.char && pc.char.type) || pc.type || '';
     const hitCells = TUT_SINGLE_TARGET.has(type) ? [[col, row]] : getFreePlayAttackCells(pc);
+    // ★ 공격 유닛 모션 GIF(실제 게임과 동일) — 방향 반영.
+    tutAttackGif(pc.col, pc.row, type, !!pc._facingLeft);
     // 사거리 '전체' 플래시(실제 게임의 공격범위 효과) — 클릭 1칸만이 아니라 타격 범위 전부.
     for (const [c, r] of hitCells) {
       const fc = document.querySelector(boardCellSel(c, r));
@@ -2058,8 +2137,9 @@
       if (!t) continue;
       hitAny = true;
       t.hp = Math.max(0, t.hp - dmg); t.hidden = false;
+      tutAddDamage(t, dmg);   // 데미지 도장 누적
       const d = animateBoardPieceHit(c, r); if (d > maxDur) maxDur = d;   // 피격 GIF
-      flashCard('opp', t.id);
+      flashCard('opp', t.id);   // 프로필 피격 애니(.profile-hit)
       addLog(`${pc.name} → ${t.name} 명중 (ATK ${dmg})`, 'hit');
       if (t.hp <= 0) deaths.push({ t, c, r, type: (t.char && t.char.type) || t.type });
     }
@@ -2124,6 +2204,7 @@
     S.whose = 'me';
     S.actionDone = false;
     _freePlayActionDone = false; // 새 턴 — 행동 가능 초기화
+    tutClearTurnDamage();        // ★ 새 라운드 — 데미지 도장 초기화(실제 게임과 동일)
     updateUI();
     addLog(`${S.turn}턴 : 내 차례`, 'system');
     addToast('내 차례');
@@ -2176,8 +2257,9 @@
         if (!t) continue;
         hitAny = true;
         t.hp = Math.max(0, t.hp - oppDmg);
+        tutAddDamage(t, oppDmg);   // 데미지 도장 누적
         const d = animateBoardPieceHit(c, r); if (d > maxDur) maxDur = d;
-        flashCard('my', t.id);
+        flashCard('my', t.id);   // 프로필 피격 애니
         addLog(`${best.name} → ${t.name} 명중 (ATK ${oppDmg})`, 'hit');
         if (t.hp <= 0) deaths.push({ t, c, r, type: (t.char && t.char.type) || t.type });
       }
