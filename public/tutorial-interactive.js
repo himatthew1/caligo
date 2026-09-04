@@ -2247,8 +2247,8 @@
       const oppType = (best.char && best.char.type) || best.type || '';
       const oppCells = TUT_SINGLE_TARGET.has(oppType) ? [[nearest.col, nearest.row]] : attackCells;
       const oppDmg = best.atk + (isOppCommanderAdjacent(best) ? 1 : 0);
-      // 사거리 전체 플래시
-      for (const [c, r] of oppCells) { const fc = document.querySelector(boardCellSel(c, r)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
+      // ★ 실제 게임: 상대(안개)의 '공격 칸'은 보여주지 않음 — 공격범위 플래시 없음.
+      //   내 유닛이 맞았는지/누가 맞았는지만 표시(아래 피격 애니). 공격 SFX 만 재생.
       if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
       await sleep(400);
       let hitAny = false, maxDur = 0; const deaths = [];
