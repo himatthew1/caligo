@@ -365,10 +365,10 @@
     onClick: () => {
       closeTutRadial();
       clearSpotlights();
+      // ★ 실제 게임처럼 '사거리 전체'를 강조(한 칸만 빨갛게 지정하지 않음 — 범위 전체가 타격됨).
       highlightAttackTargetsAt(2, 3);
-      selectAttackTarget(2, 2);
-      showAttackConfirmBtn(2, 2);
-      setHint('공격 확정 버튼을 누르세요');
+      showAttackConfirmBtn(2, 3);   // 확정 버튼은 공격 유닛 위
+      setHint('사거리 전체가 타격됩니다 — 공격 확정 버튼을 누르세요');
     }
   });
 
@@ -876,10 +876,10 @@
     onClick: () => {
       closeTutRadial();
       clearSpotlights();
+      // ★ 사거리 전체 강조(한 칸만 빨갛게 X — 범위 전체 타격). 확정 버튼은 공격 유닛 위.
       highlightAttackTargetsAt(1, 2);
-      selectAttackTarget(2, 2);
-      showAttackConfirmBtn(2, 2);
-      setHint('공격 확정 버튼을 누르세요');
+      showAttackConfirmBtn(1, 2);
+      setHint('사거리 전체가 타격됩니다 — 공격 확정 버튼을 누르세요');
     }
   });
 
@@ -1540,6 +1540,8 @@
           let _statusIcons = '';
           try { if (typeof getBoardStatusIcons === 'function') _statusIcons = getBoardStatusIcons(buildTutPieceLike(pc)) || ''; } catch (e) {}
           marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pieceIconHtml(pc.icon, {size:'1.3em'})}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>${_statusIcons}`;
+          // ★ 이동으로 정해진 바라보는 방향(scaleX) 을 idle GIF 에 유지 — 실제 게임과 동일.
+          if (pc._facingLeft) { const _g = marker.querySelector('.p-icon img'); if (_g) _g.style.transform = 'scaleX(-1)'; }
           // 호버 툴팁 — 인게임 buildPieceTooltip() 재사용
           if (typeof buildPieceTooltip === 'function') {
             try {
@@ -1676,6 +1678,10 @@
       piece.col = toCol; piece.row = toRow;
       updateUI(); return;
     }
+    // ★ 이동 방향 좌우 반전 — 실제 게임 규칙(toCol<fromCol=left=scaleX(-1), 수직이동은 이전 방향 유지, 기본=우향).
+    if (toCol < piece.col) piece._facingLeft = true;
+    else if (toCol > piece.col) piece._facingLeft = false;
+    const _flip = piece._facingLeft ? ' scaleX(-1)' : '';
     const fr = fromCell.getBoundingClientRect();
     const tr = toCell.getBoundingClientRect();
     const sprite = document.createElement('div');
@@ -1689,7 +1695,7 @@
     sprite.style.cssText = `
       position:fixed; z-index:5000; width:2.5rem; height:2.5rem; pointer-events:none;
       left:${fr.left + fr.width / 2}px; top:${fr.top + fr.height / 2}px;
-      transform:translate(-50%,-50%);
+      transform:translate(-50%,-50%)${_flip};
       transition: left ${dur}ms cubic-bezier(0.4,0,0.2,1), top ${dur}ms cubic-bezier(0.4,0,0.2,1);
       filter: drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 1px rgba(0,0,0,1)) drop-shadow(0 0 8px rgba(82,183,136,0.85));`;
     document.body.appendChild(sprite);
@@ -2012,11 +2018,13 @@
 
   function freePlaySelectAttackTarget(col, row) {
     _freePlayPhase = 'none';
-    selectAttackTarget(col, row);
     const pc = _freePlaySelectedPiece;
     if (!pc) { clearMoveHighlights(); return; }
-    showAttackConfirmBtn(col, row);
-    setHint('공격 확정 버튼을 누르세요');
+    // ★ 단일타깃만 그 칸을 지정, 그 외는 '사거리 전체'가 타격되므로 범위 전체 강조 유지(한 칸만 빨갛게 오해 방지).
+    const _t = (pc.char && pc.char.type) || pc.type || '';
+    if (TUT_SINGLE_TARGET.has(_t)) selectAttackTarget(col, row);
+    showAttackConfirmBtn(pc.col, pc.row);
+    setHint(TUT_SINGLE_TARGET.has(_t) ? '공격 확정 버튼을 누르세요' : '사거리 전체가 타격됩니다 — 공격 확정을 누르세요');
     // Wire confirm button
     setTimeout(() => {
       const confirmBtn = document.getElementById('tut-attack-confirm-btn');
