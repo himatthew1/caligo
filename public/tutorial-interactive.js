@@ -1536,7 +1536,10 @@
           }
           const _tutGifHtml = typeof getPieceGifHtml === 'function'
             ? getPieceGifHtml(pc.type || (pc.char && pc.char.type), pc.subUnit, false) : null;
-          marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pieceIconHtml(pc.icon, {size:'1.3em'})}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>`;
+          // ★ 상태 배지 — 실제 게임 getBoardStatusIcons 재사용(상태이상 있을 때만 표시).
+          let _statusIcons = '';
+          try { if (typeof getBoardStatusIcons === 'function') _statusIcons = getBoardStatusIcons(buildTutPieceLike(pc)) || ''; } catch (e) {}
+          marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pieceIconHtml(pc.icon, {size:'1.3em'})}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>${_statusIcons}`;
           // 호버 툴팁 — 인게임 buildPieceTooltip() 재사용
           if (typeof buildPieceTooltip === 'function') {
             try {
