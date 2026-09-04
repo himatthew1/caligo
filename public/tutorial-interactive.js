@@ -2017,6 +2017,11 @@
     if (!cmd) return false;
     return Math.abs(cmd.col - pc.col) + Math.abs(cmd.row - pc.row) === 1;
   }
+  function isOppCommanderAdjacent(pc) {
+    const cmd = S.pieces.find(p => p.alive && p.owner === 'opp' && ((p.char && p.char.type === 'commander') || p.type === 'commander'));
+    if (!cmd) return false;
+    return Math.abs(cmd.col - pc.col) + Math.abs(cmd.row - pc.row) === 1;
+  }
 
   async function freePlayEndTurn() {
     if (S.whose !== 'me') return;
@@ -2085,22 +2090,28 @@
     const canAttack = attackCells.some(([c, r]) => c === nearest.col && r === nearest.row);
 
     if (canAttack) {
-      // 공격
+      // ★ 공격 — 실제 게임 규칙: 랜덤 빗나감 없음(사거리 내 유닛은 반드시 피격), 사거리 '전체' 타격
+      //   (단일타깃 유닛만 대표칸). 상대 지휘관 인접 버프도 반영.
       await sleep(400);
-      await animateAttackOnCell(nearest.col, nearest.row);
-      const hit = Math.random() > 0.2;
-      if (hit) {
-        nearest.hp -= best.atk;
-        if (nearest.hp <= 0) { nearest.hp = 0; nearest.alive = false; nearest.col = -1; nearest.row = -1; }
-        animateBoardPieceHit(nearest.col >= 0 ? nearest.col : 0, nearest.row >= 0 ? nearest.row : 0);
-        flashCard('my', nearest.id);
-        if (typeof playSfx === 'function') { try { playSfx(nearest.hp <= 0 ? 'kill' : 'hit'); } catch(e) {} }
-        addLog(`${best.name} → ${nearest.name} 명중 (ATK ${best.atk})`, 'hit');
-        addToast('공격받았습니다!', true);
-      } else {
-        if (typeof playSfx === 'function') { try { playSfx('miss'); } catch(e) {} }
-        addLog(`${best.name} 공격 — 빗나감`, 'miss');
+      const oppType = (best.char && best.char.type) || best.type || '';
+      const oppCells = TUT_SINGLE_TARGET.has(oppType) ? [[nearest.col, nearest.row]] : attackCells;
+      const oppDmg = best.atk + (isOppCommanderAdjacent(best) ? 1 : 0);
+      // 사거리 전체 플래시
+      for (const [c, r] of oppCells) { const fc = document.querySelector(boardCellSel(c, r)); if (fc) { fc.classList.add('tut-attack-flash'); setTimeout(() => fc.classList.remove('tut-attack-flash'), 600); } }
+      if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
+      await sleep(400);
+      let hitAny = false, kills = 0;
+      for (const [c, r] of oppCells) {
+        const t = myPieces.find(p => p.alive && p.col === c && p.row === r);
+        if (!t) continue;
+        hitAny = true;
+        t.hp = Math.max(0, t.hp - oppDmg);
+        animateBoardPieceHit(c, r); flashCard('my', t.id);
+        addLog(`${best.name} → ${t.name} 명중 (ATK ${oppDmg})`, 'hit');
+        if (t.hp <= 0) { t.alive = false; t.col = -1; t.row = -1; addLog(`${t.name} 격파!`, 'hit'); kills++; }
       }
+      if (typeof playSfx === 'function') { try { playSfx(kills > 0 ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
+      if (hitAny) addToast('공격받았습니다!', true);
       await sleep(900);
     } else {
       // 이동 (최대 1칸, 가장 가까운 아군 방향)
