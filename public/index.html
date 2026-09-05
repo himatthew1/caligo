@@ -113,6 +113,18 @@
   </div>
 </div>
 
+<!-- ── 튜토리얼 확인 모달 (인게임 스타일 — window.confirm 대체: 음악·타이머 끊김 방지) ── -->
+<div id="tut-confirm-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3 id="tut-confirm-title"></h3>
+    <p id="tut-confirm-body" style="color:var(--text-dim); margin:12px 0; white-space:pre-line;"></p>
+    <div class="modal-btn-row">
+      <button id="tut-confirm-ok" class="btn btn-primary"></button>
+      <button id="tut-confirm-cancel" class="btn btn-muted"></button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 커스텀 모드 (히든) — 타이틀 로고 클릭 시 진입 ── -->
 <div id="custom-mode-modal" class="modal hidden">
   <div class="modal-content custom-mode-content">
@@ -1109,7 +1121,7 @@
 <script src="nightmare-anim.js?v=20260706a"></script>
 <script src="piece-gifs.js?v=20260824c"></script>
 <script src="game.js?v=20260824v"></script>
-<script src="tutorial-interactive.js?v=20260707o"></script>
+<script src="tutorial-interactive.js?v=20260905a"></script>
 
 <!-- ── 로딩 오버레이 초기화 — 모든 스크립트 이후 실행 ── -->
 <script>

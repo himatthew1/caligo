@@ -39,7 +39,7 @@
     commander: { desc: '패시브: 인접 아군 ATK +1 (사기증진)', passiveDesc: '스킬: 없음' },
     princess:  { desc: '공격 범위: 십자 3칸 (강력)', passiveDesc: '공격력: 3' },
     ratcatcher:{ desc: '스킬: 쥐 소환 — 보드에 쥐 배치해 공격 범위 확장', passiveDesc: '공격력: 1' },
-    general:   { desc: '공격 범위: 상하좌우 + 자기 셀 (십자 5칸)', passiveDesc: '공격력: 2' },
+    general:   { desc: '공격 범위: 좌우 + 하단 (자기 셀 제외)', passiveDesc: '공격력: 2' },
     archer:    { desc: '공격 범위: 상하좌우 2칸 (장거리)', passiveDesc: '공격력: 1' },
   };
 
@@ -254,11 +254,11 @@
   // [NEW] dialog: 이동 규칙
   SCENARIO.push({ kind: 'dialog', text: '<p>잘하셨습니다. 이동은 한 턴에 상하좌우 단 한 칸이 원칙입니다.</p>' });
 
-  // [18] animate: opp spearman appears at C3 (hidden)
+  // [18] animate: opp spearman appears (hidden) — 이후 장군 하단(2,4)으로 1칸 접근하기 위해 (1,4)에 등장
   SCENARIO.push({
     kind: 'animate', run: async () => {
       await sleep(1000);
-      addOppPiece('op-sp', CHARS.spearman, 2, 1, CHARS.spearman.baseHp, CHARS.spearman.baseHp, true);
+      addOppPiece('op-sp', CHARS.spearman, 1, 4, CHARS.spearman.baseHp, CHARS.spearman.baseHp, true);
       S.visibleOppIds.add('op-sp');
       updateUI();
       await sleep(600);
@@ -301,11 +301,11 @@
   // [24] dialog: 상대 차례
   SCENARIO.push({ kind: 'dialog', text: '<p>상대도 움직이려 합니다!</p>' });
 
-  // [25] animate: 창병 B3→C3 이동 (안개전쟁 — 적 이동 아이콘 숨김, 위치만 갱신)
+  // [25] animate: 창병 접근 이동 → 장군(2,3) 바로 아래(2,4) (안개전쟁 — 적 이동 아이콘 숨김, 위치만 갱신)
   SCENARIO.push({
     kind: 'animate', run: async () => {
       const sp = findPiece('op-sp');
-      if (sp) { sp.col = 2; sp.row = 2; }   // 애니메이션 없이 위치만 갱신 (인게임 opp_moved 처리와 동일)
+      if (sp) { sp.col = 2; sp.row = 4; }   // (1,4)→(2,4) 1칸 이동. 장군의 실제 사거리(좌우+하단)에 들어옴
       if (typeof playSfx === 'function') playSfx('move');
       updateUI();
       addLog('상대가 이동했습니다.', 'move');
@@ -659,14 +659,14 @@
 
   // === ALLIES APPEAR ===
 
-  // [63] animate: herbalist + commander appear (C1=col:0,row:2 and C2=col:1,row:2)
+  // [63] animate: herbalist + commander appear (약초전문가=(0,2), 지휘관=(1,4) — 장군(1,3) 인접 버프 + 창병(2,4) 사정권)
   SCENARIO.push({
     kind: 'animate', run: async () => {
       addMyPiece('me-herbalist', CHARS.herbalist, 0, 2, 2, 2);
       popAnimation('me-herbalist');
       updateUI();
       await sleep(1500);
-      addMyPiece('me-commander', CHARS.commander, 1, 2, 3, 4);
+      addMyPiece('me-commander', CHARS.commander, 1, 4, 3, 4);
       popAnimation('me-commander');
       updateUI();
       await sleep(800);
@@ -773,13 +773,18 @@
     }
   });
 
-  // [79] animate: heal animations
+  // [79] animate: heal animations — [78]에서 실제 치유된(약초전문가 주변 8칸 아군) 유닛에만 힐 이펙트.
   SCENARIO.push({
     kind: 'animate', run: async () => {
       const gen = findPiece('me-general');
-      const cmd = findPiece('me-commander');
-      if (gen) healFlash(gen.col, gen.row);
-      if (cmd) healFlash(cmd.col, cmd.row);
+      const herb = findPiece('me-herbalist');
+      // 실제 회복 대상과 동일 조건으로 힐 플래시(위치가 바뀌어도 항상 정합).
+      S.pieces.forEach(p => {
+        if (p.owner !== 'me' || !p.alive) return;
+        if (herb && p.id === herb.id) return;
+        if (herb && !(Math.abs(p.col - herb.col) <= 1 && Math.abs(p.row - herb.row) <= 1)) return;
+        healFlash(p.col, p.row);
+      });
       if (gen) flashCard('my', 'me-general');
       addLog('약초학 시전', 'skill');
       addLog('장군 HP 1→2 (+1 회복)', 'skill');
@@ -863,18 +868,18 @@
   SCENARIO.push({
     kind: 'animate', run: async () => {
       setHint('지휘관의 아이콘을 눌러 행동하세요');
-      spotlightCell(1, 2);
+      spotlightCell(1, 4);
       await sleep(200);
     }
   });
 
-  // [90] require(hintMode): click commander at C2 (col:1,row:2)
+  // [90] require(hintMode): click commander at (col:1,row:4)
   SCENARIO.push({
     kind: 'require', hintMode: true,
-    anchor: () => boardCellSel(1, 2) + ' .piece-marker', side: 'top',
+    anchor: () => boardCellSel(1, 4) + ' .piece-marker', side: 'top',
     onClick: () => {
       S.selectedPiece = findPiece('me-commander');
-      openTutRadial(1, 2, { moveDisabled: true, skillDisabled: true, hideSkill: true });
+      openTutRadial(1, 4, { moveDisabled: true, skillDisabled: true, hideSkill: true });
     }
   });
 
@@ -886,8 +891,8 @@
       closeTutRadial();
       clearSpotlights();
       // ★ 사거리 전체 강조(한 칸만 빨갛게 X — 범위 전체 타격). 확정 버튼은 공격 유닛 위.
-      highlightAttackTargetsAt(1, 2);
-      showAttackConfirmBtn(1, 2);
+      highlightAttackTargetsAt(1, 4);
+      showAttackConfirmBtn(1, 4);
       setHint('사거리 전체가 타격됩니다 — 공격 확정 버튼을 누르세요');
     }
   });
@@ -908,14 +913,14 @@
     }
   });
 
-  // [93] animate: attack + hit
+  // [93] animate: attack + hit — ★ 공격 주체는 지휘관(me-commander). (이전엔 잘못 me-general 모션을 재생했음)
   SCENARIO.push({
     kind: 'animate', run: async () => {
-      const gen = findPiece('me-general');
+      const cmd = findPiece('me-commander');
       const sp = findPiece('op-sp');
-      if (gen) {
-        tutAttackGif(gen.col, gen.row, 'general', !!gen._facingLeft);
-        for (const c of tutAttackCellsAt(gen.col, gen.row)) { const fc = document.querySelector(boardCellSel(c.col, c.row)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
+      if (cmd) {
+        tutAttackGif(cmd.col, cmd.row, 'commander', !!cmd._facingLeft);
+        for (const c of tutAttackCellsAt(cmd.col, cmd.row)) { const fc = document.querySelector(boardCellSel(c.col, c.row)); if (fc) { fc.classList.add('attack-cell-effect'); setTimeout(() => fc.classList.remove('attack-cell-effect'), 600); } }
       }
       if (typeof playSfx === 'function') { try { playSfx('attack'); } catch (e) {} }
       await sleep(420);
@@ -1550,15 +1555,8 @@
           marker.innerHTML = `<span class="p-icon">${_tutGifHtml || pieceIconHtml(pc.icon, {size:'1.3em'})}</span><span class="p-hp">${pc.hp}/${pc.maxHp}</span>${_statusIcons}`;
           // ★ 이동으로 정해진 바라보는 방향(scaleX) 을 idle GIF 에 유지 — 실제 게임과 동일.
           if (pc._facingLeft) { const _g = marker.querySelector('.p-icon img'); if (_g) _g.style.transform = 'scaleX(-1)'; }
-          // 호버 툴팁 — 인게임 buildPieceTooltip() 재사용
-          if (typeof buildPieceTooltip === 'function') {
-            try {
-              const pieceLike = buildTutPieceLike(pc);
-              const tipSide = c <= 1 ? 'right' : 'left';
-              const tip = buildPieceTooltip(pieceLike, tipSide);
-              marker.appendChild(tip);
-            } catch (e) { /* tooltip 오류 무시 */ }
-          }
+          // ★ 실제 게임과 동일 — 보드 유닛(캐릭터 그래픽)에는 호버 팝업을 붙이지 않는다(인게임 renderGameBoard 도
+          //   마커에 tooltip 없음). 셀 속에 파묻힌 말풍선 꼬리 제거. 팝업은 프로필 카드에서만(renderCards).
           cell.classList.add('has-piece');
           cell.appendChild(marker);
           // morale particles
@@ -1619,12 +1617,34 @@
     if (myCont) {
       const my = S.pieces.filter(p => p.owner === 'me');
       myCont.innerHTML = my.map(buildMyCardHTML).join('');
+      _attachTutCardTooltips(myCont, my, 'left');
     }
     const oppCont = document.getElementById('tut-opp-pieces-info');
     if (oppCont) {
       const opp = S.pieces.filter(p => p.owner === 'opp' && S.visibleOppIds.has(p.id));
       oppCont.innerHTML = opp.length ? opp.map(buildOppCardHTML).join('') : '<div class="tut-opp-empty">— 아직 적이 나타나지 않음 —</div>';
+      _attachTutCardTooltips(oppCont, opp, 'right');
     }
+  }
+  // ★ 프로필 카드에 '실제 인게임' 호버 팝업(buildPieceTooltip) + 클릭 정보열람(openCharDictAt) 이식.
+  //   진행과 무관하게 언제나 동작. 보드 유닛(캐릭터 그래픽)엔 팝업 없음(위 renderBoard).
+  function _attachTutCardTooltips(container, pieces, side) {
+    const cards = container.querySelectorAll('.my-piece-card, .opp-piece-card');
+    cards.forEach((card, idx) => {
+      const pc = pieces[idx];
+      if (!pc) return;
+      // 호버 팝업 — 인게임 buildPieceTooltip 그대로(그래픽·동작 동일).
+      if (typeof buildPieceTooltip === 'function') {
+        try { card.appendChild(buildPieceTooltip(buildTutPieceLike(pc), side)); } catch (e) {}
+      }
+      // 클릭 → 캐릭터 정보 열람(인게임 사전 오버레이, 단일뷰). 진행과 무관하게 항상 가능.
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const type = (pc.char && pc.char.type) || pc.type;
+        if (type) showCharDict(type);
+      });
+    });
   }
 
   // ★ 지휘관 사기증진 버프 반영한 실효 공격력(실시간 프로필 표시용).
@@ -2793,10 +2813,39 @@
     }
   }
 
+  // ★ 인게임 스타일 확인 모달 — window.confirm 대체(동기 blocking 으로 배경음악·타이머가 끊기던 문제 해결).
+  //   기권/턴종료 등 실제 게임 모달과 동일한 .modal/.modal-content 마크업 재사용.
+  function tutConfirm(opts) {
+    opts = opts || {};
+    return new Promise((resolve) => {
+      const modal = document.getElementById('tut-confirm-modal');
+      const okBtn = document.getElementById('tut-confirm-ok');
+      const cancelBtn = document.getElementById('tut-confirm-cancel');
+      if (!modal || !okBtn || !cancelBtn) { resolve(window.confirm(opts.body || '')); return; }
+      const titleEl = document.getElementById('tut-confirm-title');
+      const bodyEl = document.getElementById('tut-confirm-body');
+      if (titleEl) titleEl.textContent = opts.title || '';
+      if (bodyEl) bodyEl.textContent = opts.body || '';
+      okBtn.textContent = opts.okText || '확인';
+      cancelBtn.textContent = opts.cancelText || '취소';
+      modal.classList.remove('hidden');
+      function cleanup(val) {
+        modal.classList.add('hidden');
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        resolve(val);
+      }
+      function onOk() { cleanup(true); }
+      function onCancel() { cleanup(false); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
+  }
+
   function wireUp() {
     const btnTut = document.getElementById('btn-tutorial');
     if (btnTut) {
-      btnTut.addEventListener('click', (e) => {
+      btnTut.addEventListener('click', async (e) => {
         e.stopImmediatePropagation();
         // ★ 사용자 요청: 튜토리얼은 로그인 후에만(진행상황·보상 캐릭터 저장). 로그인 기능이 켜진 경우 강제.
         const A = window.CaligoAuth;
@@ -2805,10 +2854,15 @@
           try { if (typeof A.signIn === 'function') A.signIn(); } catch (e2) {}
           return;
         }
-        // ★ 저장된 진행이 있으면 이어하기/처음부터 선택.
+        // ★ 저장된 진행이 있으면 이어하기/처음부터 선택 (인게임 모달 — window.confirm 은 음악·타이머를 끊음).
         let saved = 0; try { saved = parseInt(localStorage.getItem(TUT_PROGRESS_KEY) || '0', 10) || 0; } catch (e2) {}
         if (saved > 3 && saved < SCENARIO.length) {
-          const resume = window.confirm('이전에 진행하던 튜토리얼이 있습니다.\n\n[확인] 이어서 하기\n[취소] 처음부터 다시');
+          const resume = await tutConfirm({
+            title: '튜토리얼 이어하기',
+            body: '이전에 진행하던 튜토리얼이 있습니다.\n이어서 진행할까요?',
+            okText: '이어서 하기',
+            cancelText: '처음부터',
+          });
           if (resume) { startTutorial(saved); return; }
           try { localStorage.removeItem(TUT_PROGRESS_KEY); } catch (e2) {}
         }
@@ -2816,9 +2870,14 @@
       }, true);
     }
     // ★ 퇴장 시 확인 + 진행 저장(이어하기 가능).
-    document.getElementById('tut-mock-back')?.addEventListener('click', () => {
+    document.getElementById('tut-mock-back')?.addEventListener('click', async () => {
       if (S._handedOff) { exitTutorial(); return; }
-      const ok = window.confirm('튜토리얼을 나가시겠습니까?\n진행 상황이 저장되어 다음에 이어서 할 수 있습니다.');
+      const ok = await tutConfirm({
+        title: '튜토리얼 나가기',
+        body: '튜토리얼을 나가시겠습니까?\n진행 상황이 저장되어 다음에 이어서 할 수 있습니다.',
+        okText: '나가기',
+        cancelText: '취소',
+      });
       if (!ok) return;
       try { if (S.sceneIdx > 0) localStorage.setItem(TUT_PROGRESS_KEY, String(S.sceneIdx)); } catch (e2) {}
       exitTutorial();
