@@ -2772,10 +2772,25 @@
     clearHint();
     if (typeof showScreen === 'function') showScreen('screen-tutorial-interactive');
     // ★ 이어하기 — 저장 지점까지 고속재생.
-    if (typeof resumeIdx === 'number' && resumeIdx > 0 && resumeIdx < SCENARIO.length) {
-      S._fastForward = true; S._ffTarget = resumeIdx;
+    const _isResume = (typeof resumeIdx === 'number' && resumeIdx > 0 && resumeIdx < SCENARIO.length);
+    if (_isResume) { S._fastForward = true; S._ffTarget = resumeIdx; }
+    // ★ 사용자 요청: 도입을 서서히 긴 시간에 걸쳐 페이드인(갑작스러운 시작 완화). 이어하기는 즉시.
+    const _tutScreen = document.getElementById('screen-tutorial-interactive');
+    if (_tutScreen && !_isResume) {
+      _tutScreen.style.transition = 'none';
+      _tutScreen.style.opacity = '0';
+      // reflow 후 긴 페이드인
+      void _tutScreen.offsetWidth;
+      requestAnimationFrame(() => {
+        _tutScreen.style.transition = 'opacity 2.2s ease';
+        _tutScreen.style.opacity = '1';
+        setTimeout(() => { _tutScreen.style.transition = ''; _tutScreen.style.opacity = ''; }, 2400);
+      });
+      // 첫 씬(인트로 대사)은 페이드가 어느 정도 진행된 뒤 등장 → 더 부드러운 도입.
+      setTimeout(() => { requestAnimationFrame(loadScene); }, 900);
+    } else {
+      requestAnimationFrame(() => requestAnimationFrame(loadScene));
     }
-    requestAnimationFrame(() => requestAnimationFrame(loadScene));
   }
 
   function wireUp() {
