@@ -1057,31 +1057,22 @@
     }
   });
 
-  // [109] dialog: 자유 플레이 안내
-  SCENARIO.push({ kind: 'dialog', text: '<p>이제부터는 진짜 게임처럼 자유롭게 진행해보세요!</p>' });
+  // [109] dialog: 실전 안내
+  SCENARIO.push({ kind: 'dialog', text: '<p>기본기는 충분히 익혔습니다. 이제 <strong>실제 AI</strong>와 한 판 겨뤄볼 차례입니다!</p>' });
 
-  // [110] dialog: 목표
-  SCENARIO.push({ kind: 'dialog', text: '<p>남은 적 — 창병(HP 1), 공주(HP 3), 쥐장수(HP 3) — 모두 처치하면 승리입니다.</p>' });
+  // [110] dialog: 핸드오프 안내
+  SCENARIO.push({ kind: 'dialog', text: '<p>지금부터는 실제 게임 그대로 — 셋업(공개·HP 분배·배치)부터 전투까지 직접 진행합니다. 방금 배운 것을 마음껏 써보세요.</p>' });
 
-  // === FREE PLAY MODE ===
-
-  // [111] animate: enter free play
+  // === 실제 AI 게임으로 핸드오프 (자체 freePlay 폐지) ===
+  // [111] animate: 실제 AI 연습 게임 시작
   SCENARIO.push({
     kind: 'animate', run: async () => {
-      S.freePlay = true;
       setHint('');
       hideBubbleTemporarily();
-      enterFreePlay();
-      await sleep(300);
+      handoffToRealAIGame();   // → 실제 엔진/AI/그래픽으로 전환 (튜토리얼 종료)
+      await sleep(200);
     }
   });
-
-  // Victory (reached by enterFreePlay's win detection):
-  // [112] dialog: 승리
-  SCENARIO.push({ kind: 'dialog', text: '<p>🎉 <strong>승리!</strong> 장군이 폐허에서 무사히 살아남았습니다.</p>' });
-
-  // [113] dialog: 마무리
-  SCENARIO.push({ kind: 'dialog', text: '<p>CALIGO의 제왕으로 거듭나세요.</p>' });
 
   // [114] animate: exit
   SCENARIO.push({
@@ -2652,6 +2643,7 @@
   }
 
   function advance() {
+    if (S._handedOff) return;   // ★ 실제 AI 게임으로 핸드오프됨 — 튜토리얼 러너 정지(로비 복귀 방지).
     if (S.freePlay) return; // Free play manages its own flow
     if (S.sceneIdx >= SCENARIO.length - 1) {
       exitTutorial();
@@ -2665,6 +2657,32 @@
     if (S.sceneIdx <= 0) return;
     S.sceneIdx--;
     setTimeout(loadScene, 80);
+  }
+
+  // ★ 자유 플레이 = 실제 AI 게임 핸드오프 — 자체 freePlay 엔진 대신 실제 게임 엔진/AI/그래픽으로 진행.
+  //   내러티브 인트로(장군 이야기)로 기본기를 익힌 뒤, 실제 AI 연습 게임을 시작한다 → 스킬 연출·쥐·AI·
+  //   도장·툴팁 등 모든 디테일이 실제 게임과 100% 일치(항목별 이식 불필요).
+  function handoffToRealAIGame() {
+    S._handedOff = true;   // 러너 정지 플래그(advance 가 exitTutorial→로비로 되돌리지 않도록)
+    // 튜토리얼 UI 정리(로비 이동은 생략 — 곧 실제 게임 화면으로 전환).
+    try { clearClickGuard(); } catch (e) {}
+    try { clearSpotlights(); } catch (e) {}
+    try { closeTutRadial(); } catch (e) {}
+    try { hideBubbleTemporarily(); } catch (e) {}
+    try { hideCharDict(); } catch (e) {}
+    try { hideAttackConfirmBtn(); } catch (e) {}
+    try { hideSkillTab(); } catch (e) {}
+    try { clearHint(); } catch (e) {}
+    for (const t of (S._animTimers || [])) { try { clearTimeout(t); } catch (e) {} }
+    S._animTimers = [];
+    S.freePlay = false; _freePlaySelectedPiece = null; _freePlayPhase = 'none'; _freePlayActionDone = false;
+    const gameLayout = document.querySelector(`${SCOPE} .game-layout`);
+    if (gameLayout) gameLayout.style.display = 'none';
+    // 닉네임 보장 + 기본 덱(튜토리얼에서 배운 개념을 쓸 base 보유 유닛). AI 게임 시작.
+    try { const ni = document.getElementById('input-name'); if (ni && !ni.value.trim()) ni.value = '수련생'; } catch (e) {}
+    try { localStorage.setItem('caligo_my_deck', JSON.stringify({ t1: 'spearman', t2: 'knight', t3: 'prince' })); } catch (e) {}
+    const btn = document.getElementById('btn-ai');
+    if (btn) btn.click();   // → socket.emit('join_ai') → 실제 셋업/게임 화면 전환(튜토리얼 화면은 showScreen 이 숨김)
   }
 
   function exitTutorial() {
@@ -2721,6 +2739,8 @@
     S.spMy = 0; S.spOpp = 0;
     S._postClickDelay = 0;
     S._requirePending = null;
+    S._handedOff = false;   // ★ 재시작 시 핸드오프 플래그 리셋
+    S.remains = [];
     S.freePlay = false;
     S.selectedPiece = null;
     _freePlaySelectedPiece = null;
