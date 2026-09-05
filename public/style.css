@@ -2145,6 +2145,12 @@ body.twin-phase-active #game-board .cell.has-piece:not(:has(.twin-piece)):hover 
 .hp-btn { width: 30px; height: 30px; border-radius: 50%; border: none; background: var(--border); color: var(--text); font-size: 1.1rem; cursor: pointer; transition: background 0.1s; }
 .hp-btn:hover { background: var(--accent); color: #1a1000; }
 .hp-value { font-size: 1.4rem; font-weight: 800; color: var(--accent); min-width: 30px; text-align: center; }
+/* ── HP 하트 표시(숫자 대신) — 부여량/잔여량 ── */
+.hp-hearts { display: inline-flex; flex-wrap: wrap; gap: 1px; align-items: center; min-width: 60px; justify-content: center; }
+.hp-remaining-hearts { display: inline-flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.hp-heart { font-size: 0.95rem; line-height: 1; }
+.hp-heart-empty { opacity: 0.55; }
+.hp-heart-gray { filter: grayscale(1) brightness(0.85); }
 .hp-total-bar { font-size: 1rem; color: var(--text-dim); margin-bottom: 16px; }
 /* 쌍둥이 HP 분배 중 — 메인 HP UI 잠금 (시각적으로 흐림 + 클릭 불가) */
 .hp-locked-during-twin {

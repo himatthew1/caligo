@@ -13240,10 +13240,15 @@ io.on('connection', (socket) => {
     {
       const dd = player.draft;
       const undeadIdx = [dd.t1, dd.t2, dd.t3].map((t, i) => t === 'undead' ? i : -1).filter(i => i >= 0);
-      const badRange = hps.some((h, i) => undeadIdx.includes(i) ? (h !== 0) : (h < 1 || h > 8));
+      const golemIdx = [dd.t1, dd.t2, dd.t3].map((t, i) => t === 'golem' ? i : -1).filter(i => i >= 0);   // ★ 골렘 최소 3(낡은 심장)
+      const badRange = hps.some((h, i) => {
+        if (undeadIdx.includes(i)) return h !== 0;
+        const _min = golemIdx.includes(i) ? 3 : 1;
+        return h < _min || h > 8;
+      });
       if (!Array.isArray(hps) || hps.length !== 3 ||
           hps.reduce((a, b) => a + b, 0) !== 10 || badRange) {
-        socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1 최대 8 (언데드 제외) · 3개 필요' }); return;
+        socket.emit('err', { msg: 'HP 합계는 10, 각 유닛 최소 1(골렘 3·언데드 0) 최대 8 · 3개 필요' }); return;
       }
     }
 

@@ -12291,9 +12291,10 @@ function buildHpUI() {
   const draft = S.myDraft;
   const types = [draft.t1, draft.t2, draft.t3];
   const tierLabels = ['1티어', '2티어', '3티어'];
-  // ★ 언데드: HP 부여 불가(HP0 시작) → 조정 잠금.
+  // ★ 언데드: HP 부여 불가(HP0 시작) → 조정 잠금. 골렘: '낡은 심장'(첫 2 HP 비활성) → 최소 3(첫 2칸 회색).
   S._undeadHpTiers = new Set();
-  types.forEach((t, i) => { if (t === 'undead') S._undeadHpTiers.add(i); });
+  S._golemHpTiers = new Set();
+  types.forEach((t, i) => { if (t === 'undead') S._undeadHpTiers.add(i); if (t === 'golem') S._golemHpTiers.add(i); });
   // ★ 사용자 요청: 자동 부여(4/3/3) 폐지 — 총 10을 전부 직접 배분. 기본 0에서 시작.
   //   (재접속 복원값이 있으면 그대로 사용.) 언데드 티어는 항상 0.
   S.hpValues = (Array.isArray(S._restoredHpDist) && S._restoredHpDist.length === 3) ? S._restoredHpDist.slice() : [0, 0, 0];
@@ -12313,10 +12314,10 @@ function buildHpUI() {
     row.className = 'hp-piece-row' + (isUndead ? ' hp-row-dimmed' : '');
     const tagHtml = tagBadgeHtml(charData.tag);
     const controls = isUndead
-      ? `<div class="hp-input-group"><span class="hp-undead-note">HP 부여 불가</span></div>`
+      ? `<div class="hp-input-group"><span class="hp-undead-note">HP 부여 불가 (언데드)</span></div>`
       : `<div class="hp-input-group">
         <button class="hp-btn" data-i="${i}" data-delta="-1">−</button>
-        <span class="hp-value" id="hp-val-${i}">${S.hpValues[i]}</span>
+        <span class="hp-hearts" id="hp-hearts-${i}">${_hpHeartsHTML(S.hpValues[i], i)}</span>
         <button class="hp-btn" data-i="${i}" data-delta="1">+</button>
       </div>`;
     row.innerHTML = `
@@ -12356,20 +12357,40 @@ function adjustHp(idx, delta) {
   socket.emit('hp_browse', { hps: [...S.hpValues] });
 }
 
+// ★ 유닛별 최소 HP — 언데드 0 / 골렘 3(낡은 심장, 첫 2칸 비활성) / 쌍둥이 1티어 2 / 그 외 1.
+function _hpMinForTier(i) {
+  if (S._undeadHpTiers && S._undeadHpTiers.has(i)) return 0;
+  if (S._golemHpTiers && S._golemHpTiers.has(i)) return 3;
+  if (S.hasTwins && i === 0) return 2;
+  return 1;
+}
+// ★ 부여된 HP 를 하트로 — 골렘은 첫 2칸 회색(비활성). 0이면 빈 하트 하나(자리표시).
+function _hpHeartsHTML(val, i) {
+  const isGolem = S._golemHpTiers && S._golemHpTiers.has(i);
+  if (!val) return '<span class="hp-heart hp-heart-empty">🤍</span>';
+  let h = '';
+  for (let k = 0; k < val; k++) {
+    const gray = isGolem && k < 2;
+    h += `<span class="hp-heart${gray ? ' hp-heart-gray' : ''}">${gray ? '🩶' : '❤️'}</span>`;
+  }
+  return h;
+}
 function updateHpUI() {
   for (let i = 0; i < 3; i++) {
-    const el = document.getElementById(`hp-val-${i}`);
-    if (el) el.textContent = S.hpValues[i];
+    const el = document.getElementById(`hp-hearts-${i}`);
+    if (el) el.innerHTML = _hpHeartsHTML(S.hpValues[i], i);
   }
   const total = S.hpValues.reduce((a, b) => a + b, 0);
-  document.getElementById('hp-remaining').textContent = 10 - total;
-  // ★ 확정 조건: 총 10 + 각 비언데드 유닛 최소 부여(쌍둥이 1티어=2, 그 외=1). 0인 유닛이 있으면 확정 불가.
-  let _minOk = true;
-  for (let i = 0; i < 3; i++) {
-    if (S._undeadHpTiers && S._undeadHpTiers.has(i)) continue;
-    const _need = (S.hasTwins && i === 0) ? 2 : 1;
-    if ((S.hpValues[i] || 0) < _need) { _minOk = false; break; }
+  // ★ 잔여 풀 — 10 하트(사용=❤️, 잔여=🤍) + 남은 수. 숫자만이 아닌 하트로.
+  const remEl = document.getElementById('hp-remaining');
+  if (remEl) {
+    let rh = '';
+    for (let k = 0; k < 10; k++) rh += `<span class="hp-heart${k < total ? '' : ' hp-heart-empty'}">${k < total ? '❤️' : '🤍'}</span>`;
+    remEl.innerHTML = `<span class="hp-remaining-hearts">${rh}</span>`;
   }
+  // ★ 확정 조건: 총 10 + 각 유닛 최소(언데드0/골렘3/쌍둥이2/그외1).
+  let _minOk = true;
+  for (let i = 0; i < 3; i++) { if ((S.hpValues[i] || 0) < _hpMinForTier(i)) { _minOk = false; break; } }
   document.getElementById('btn-hp-confirm').disabled = !(total === 10 && _minOk);
 }
 
