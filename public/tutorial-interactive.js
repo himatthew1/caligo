@@ -1660,7 +1660,7 @@
 
   function buildMyCardHTML(pc) {
     const hpPct = pc.alive ? (pc.hp / pc.maxHp) * 100 : 0;
-    const deadCls = pc.alive ? '' : ' card-dead';
+    const deadCls = pc.alive ? '' : ' dead';   // ★ 실제 게임 사망 카드 클래스(.dead) 통일
     return `
       <div class="my-piece-card${deadCls}" data-my-id="${pc.id}" style="position:relative">
         <div class="my-piece-header">
@@ -1682,11 +1682,13 @@
 
   function buildOppCardHTML(pc) {
     const hpPct = pc.alive ? (pc.hp / pc.maxHp) * 100 : 0;
-    const deadCls = pc.alive ? '' : ' card-dead';
+    const deadCls = pc.alive ? '' : ' dead';   // ★ 실제 게임 사망 카드 클래스(.dead) 통일
     const token = (S.deductionTokens || []).find(t => t.pieceKey === pc.id);
     let badgeHTML = '';
     if (token) badgeHTML = `<span class="deduction-badge">📌${coord(token.col, token.row)}</span>`;
-    const posLabel = !pc.alive ? '격파됨' : (pc.hidden ? '🌫 위치 불명' : coord(pc.col, pc.row));
+    // ★ 실제 게임과 동일 — 적 위치는 안개(표식/추리 확정 전엔 비공개). 프로필엔 '생존'/'격파됨'만,
+    //   추리토큰이 있을 때만 그 좌표를 표식(📍)으로 노출.
+    const posLabel = !pc.alive ? '격파됨' : (token ? `📍${coord(token.col, token.row)}` : '생존');
     return `
       <div class="opp-piece-card${deadCls}" data-opp-id="${pc.id}" style="position:relative">
         <div class="my-piece-header">
@@ -2260,7 +2262,7 @@
         tutAddDamage(t, oppDmg);   // 데미지 도장 누적
         const d = animateBoardPieceHit(c, r); if (d > maxDur) maxDur = d;
         flashCard('my', t.id);   // 프로필 피격 애니
-        addLog(`${best.name} → ${t.name} 명중 (ATK ${oppDmg})`, 'hit');
+        addLog(`${t.name} 피격 (${oppDmg} 데미지)`, 'hit');   // ★ 안개 — 공격자(적) 미공개, 내 피격만
         if (t.hp <= 0) deaths.push({ t, c, r, type: (t.char && t.char.type) || t.type });
       }
       if (typeof playSfx === 'function') { try { playSfx(deaths.length ? 'kill' : (hitAny ? 'hit' : 'miss')); } catch (e) {} }
@@ -2283,7 +2285,7 @@
       const blocked = S.pieces.some(p => p.alive && p.col === nc && p.row === nr);
       if (!blocked) { best.col = nc; best.row = nr; }
       if (typeof playSfx === 'function') { try { playSfx('move'); } catch(e) {} }
-      addLog(`${best.name} 이동`, 'move');
+      addLog(`상대가 이동했습니다`, 'move');   // ★ 안개 — 어떤 적이 이동했는지 미공개
       await sleep(600);
     }
     updateUI();

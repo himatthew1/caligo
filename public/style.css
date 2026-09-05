@@ -9171,24 +9171,24 @@ body.tut-darkness #screen-tutorial-interactive {
 }
 
 /* 내 차례: 내 카드 파랑 강조 */
-#screen-tutorial-interactive .left-panel.turn-active .my-piece-card:not(.card-dead) {
+#screen-tutorial-interactive .left-panel.turn-active .my-piece-card:not(.dead) {
   background: rgba(59,130,246,0.10);
   border: 1px solid rgba(59,130,246,0.55);
   box-shadow: 0 0 8px rgba(59,130,246,0.18);
 }
 /* 내 차례: 상대 카드 딤 */
-#screen-tutorial-interactive .right-panel:not(.turn-active) .opp-piece-card:not(.card-dead) {
+#screen-tutorial-interactive .right-panel:not(.turn-active) .opp-piece-card:not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
 }
 
 /* 상대 차례: 내 카드 딤 */
-#screen-tutorial-interactive .left-panel:not(.turn-active) .my-piece-card:not(.card-dead) {
+#screen-tutorial-interactive .left-panel:not(.turn-active) .my-piece-card:not(.dead) {
   opacity: 0.62;
   filter: saturate(0.7) brightness(0.85);
 }
 /* 상대 차례: 상대 카드 강조 (빨강) */
-#screen-tutorial-interactive .right-panel.turn-active .opp-piece-card:not(.card-dead) {
+#screen-tutorial-interactive .right-panel.turn-active .opp-piece-card:not(.dead) {
   background: rgba(239,68,68,0.10);
   border: 1px solid rgba(239,68,68,0.55);
   box-shadow: 0 0 8px rgba(239,68,68,0.18);
