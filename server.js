@@ -12081,6 +12081,14 @@ io.on('connection', (socket) => {
     socket.emit('gacha_result', r);
   });
 
+  // ── 튜토리얼 완료(승리) 보상 — 장군·지휘관 지급(가챠 미출현, 튜토리얼 클리어 전용). 로그인 필수. ──
+  socket.on('claim_tutorial_reward', async () => {
+    if (!socket.data.user) { socket.emit('tutorial_reward_result', { ok: false, reason: 'login_required' }); return; }
+    const r = await accountData.grantCharacters(socket.data.user.id, gacha.TUTORIAL_REWARD_TYPES);
+    if (r && r.ok && Array.isArray(r.owned)) socket.data.owned = r.owned;
+    socket.emit('tutorial_reward_result', { ok: !!(r && r.ok), granted: !!(r && r.granted), owned: (r && r.owned) || [], types: gacha.TUTORIAL_REWARD_TYPES });
+  });
+
   // ── 일일 출석 ── 클라가 자국 로컬 날짜('YYYY-MM-DD')를 보냄(자정 기준 하루1회).
   socket.on('attendance_claim', async ({ localDate } = {}) => {
     if (!socket.data.user) { socket.emit('attendance_result', { ok: false, reason: 'login_required' }); return; }

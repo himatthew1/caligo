@@ -14,6 +14,10 @@ const BASE_TYPES = [
 ];
 const BASE_SET = new Set(BASE_TYPES);
 
+// ── 튜토리얼 완료(승리) 보상 캐릭터 — 가챠 풀에서 제외, 튜토리얼 클리어 시에만 지급 ──
+const TUTORIAL_REWARD_TYPES = ['general', 'commander'];
+const TUTORIAL_REWARD_SET = new Set(TUTORIAL_REWARD_TYPES);
+
 // ── 티어별 뽑기 비용 (크레딧) ──
 const TIER_COST = { 1: 10, 2: 20, 3: 30 };
 
@@ -31,7 +35,8 @@ const REWARDS = {
 //   summon 전용 유닛(드래곤·쥐 등)은 CHARACTERS 에 없으므로 자동 제외됨.
 function poolForTier(CHARACTERS, tier) {
   const list = (CHARACTERS && CHARACTERS[tier]) || [];
-  return list.map(c => c.type).filter(t => !BASE_SET.has(t));
+  // 기본 9종 + 튜토리얼 보상(장군·지휘관)은 가챠 풀에서 제외.
+  return list.map(c => c.type).filter(t => !BASE_SET.has(t) && !TUTORIAL_REWARD_SET.has(t));
 }
 
 // 유효 보유 목록 = 기본 9 ∪ 가챠 획득분. (base 는 저장 안 하고 항상 포함)
@@ -41,4 +46,4 @@ function effectiveOwned(gachaOwned) {
   return set;
 }
 
-module.exports = { BASE_TYPES, BASE_SET, TIER_COST, REWARDS, poolForTier, effectiveOwned };
+module.exports = { BASE_TYPES, BASE_SET, TUTORIAL_REWARD_TYPES, TUTORIAL_REWARD_SET, TIER_COST, REWARDS, poolForTier, effectiveOwned };

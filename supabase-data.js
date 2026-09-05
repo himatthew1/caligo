@@ -54,6 +54,24 @@ async function saveAccount(userId, payload) {
   }
 }
 
+// ── 캐릭터 지급(보상) — profiles.owned 에 types 추가(중복 제외). 반환 { ok, owned, granted } ──
+async function grantCharacters(userId, types) {
+  const admin = supa.admin;
+  if (!admin || !userId || !Array.isArray(types) || !types.length) return { ok: false, owned: [] };
+  try {
+    const { data, error: e1 } = await admin.from('profiles').select('owned').eq('id', userId).maybeSingle();
+    if (e1) { console.error('[data] grantCharacters load:', e1.message); return { ok: false, owned: [] }; }
+    const owned = (data && Array.isArray(data.owned)) ? data.owned.slice() : [];
+    let granted = false;
+    for (const t of types) { if (owned.indexOf(t) < 0) { owned.push(t); granted = true; } }
+    if (granted) {
+      const { error: e2 } = await admin.from('profiles').upsert({ id: userId, owned, updated_at: nowIso() }, { onConflict: 'id' });
+      if (e2) { console.error('[data] grantCharacters save:', e2.message); return { ok: false, owned }; }
+    }
+    return { ok: true, owned, granted };
+  } catch (e) { console.error('[data] grantCharacters:', e.message); return { ok: false, owned: [] }; }
+}
+
 // 전적 1 증가 (result: 'win' | 'loss' | 'draw')
 async function bumpStats(userId, result) {
   const admin = supa.admin;
@@ -125,4 +143,4 @@ async function claimAttendance(userId, localDate, amount) {
   } catch (e) { console.error('[data] claimAttendance:', e.message); return { ok: false }; }
 }
 
-module.exports = { loadAccount, saveAccount, bumpStats, loadWallet, gachaDraw, addCredits, claimAttendance };
+module.exports = { loadAccount, saveAccount, bumpStats, loadWallet, gachaDraw, addCredits, claimAttendance, grantCharacters };

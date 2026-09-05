@@ -2677,6 +2677,8 @@
     S._handedOff = true;   // 러너 정지 플래그(advance 가 exitTutorial→로비로 되돌리지 않도록)
     try { localStorage.removeItem('caligo_tut_progress'); } catch (e) {}   // 인트로 완료 → 저장 진행 삭제
     S._fastForward = false;
+    // ★ 이 실제 AI 게임을 '튜토리얼 게임'으로 표시 — 승리 시 장군·지휘관 보상 지급.
+    window._caligoTutorialReward = true;
     // 튜토리얼 UI 정리(로비 이동은 생략 — 곧 실제 게임 화면으로 전환).
     try { clearClickGuard(); } catch (e) {}
     try { clearSpotlights(); } catch (e) {}
@@ -2781,6 +2783,13 @@
     if (btnTut) {
       btnTut.addEventListener('click', (e) => {
         e.stopImmediatePropagation();
+        // ★ 사용자 요청: 튜토리얼은 로그인 후에만(진행상황·보상 캐릭터 저장). 로그인 기능이 켜진 경우 강제.
+        const A = window.CaligoAuth;
+        if (A && A.enabled && !A.user) {
+          if (typeof showSkillToast === 'function') showSkillToast('튜토리얼은 로그인 후 이용할 수 있습니다. (진행상황·보상 저장)', false, undefined, 'event');
+          try { if (typeof A.signIn === 'function') A.signIn(); } catch (e2) {}
+          return;
+        }
         // ★ 저장된 진행이 있으면 이어하기/처음부터 선택.
         let saved = 0; try { saved = parseInt(localStorage.getItem(TUT_PROGRESS_KEY) || '0', 10) || 0; } catch (e2) {}
         if (saved > 3 && saved < SCENARIO.length) {

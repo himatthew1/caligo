@@ -10300,12 +10300,27 @@ socket.on('spectator_remains_update', ({ remains, hits }) => {
 });
 
 // ── 게임 오버 ──
+// ★ 튜토리얼 완료 보상 결과 — 장군·지휘관을 보유에 반영 + 알림.
+socket.on('tutorial_reward_result', ({ ok, granted, owned }) => {
+  if (!ok) return;
+  try {
+    const A = window.CaligoAuth;
+    if (A) { if (Array.isArray(owned)) A.owned = owned; if (typeof A._recompute === 'function') A._recompute(); }
+  } catch (e) {}
+  try { showSkillToast('🎁 튜토리얼 보상 획득 — 장군 · 지휘관!', false, undefined, 'event'); } catch (e) {}
+});
+
 socket.on('game_over', ({ win, draw, opponentName, winnerName, loserName, spectator, reason, replayWinnerPieces, replayBoardObjects, replayBounds }) => {
   // 게임 간 stale 데이터 차단 — 다음 게임의 교환 배지 오탐 방지
   S.oppRevealChars = null;
   // 무승부 시에도 타이머 절대 재가동 안 되게 차단
   S._gameEnded = true;
   stopClientTimer();
+  // ★ 튜토리얼 게임 승리 → 장군·지휘관 보상 청구(핸드오프가 표시한 게임에서만).
+  if (win && !spectator && window._caligoTutorialReward) {
+    window._caligoTutorialReward = false;
+    try { socket.emit('claim_tutorial_reward'); } catch (e) {}
+  }
   // 세팅 단계 기권: 즉시 + 페이드 없음 / 게임 중: 마지막 연출(사망 GIF·유해 / 보드 파괴)이
   // 완료된 뒤 1초 텀을 두고 결과 화면 표시. (scheduleGameOverReveal 가 연출 종료를 감지)
   const inGame = _isInGameScreen();
