@@ -1700,7 +1700,7 @@
   }
 
   // ── 애니메이션 헬퍼 ──────────────────────────────────────────────────────
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function sleep(ms) { return new Promise(r => setTimeout(r, S._fastForward ? 0 : ms)); }
 
   async function animatePieceSlide(piece, toCol, toRow, dur) {
     if (!piece) return;
@@ -2484,6 +2484,16 @@
     if (!scene) return;
     updateProgress();
 
+    // ★ 이어하기 고속재생 — 저장 지점까지 애니/상호작용 없이 상태만 빠르게 재생(sleep=0). 도달 시 정상 렌더.
+    if (S._fastForward) {
+      if (S.sceneIdx >= (S._ffTarget || 0)) { S._fastForward = false; }
+      else {
+        if (scene.kind === 'dialog') { advance(); return; }
+        if (scene.kind === 'require') { try { if (scene.onClick) scene.onClick(null); } catch (e) {} advance(); return; }
+        // enter/reveal/animate: 아래 정상 처리(자동 advance) — sleep=0 로 빠름.
+      }
+    }
+
     if (scene.kind === 'enter') {
       currentPhase = scene.phase;
       if (scene.phase === 'game') {
@@ -2638,8 +2648,9 @@
   }
 
   function updateProgress() {
+    // ★ 사용자 요청: 남은 페이지 수 표시는 피로를 유발하므로 숨김.
     const el = document.getElementById('tut-mock-progress');
-    if (el) el.textContent = `${S.sceneIdx + 1} / ${SCENARIO.length}`;
+    if (el) el.style.display = 'none';
   }
 
   function advance() {
@@ -2650,7 +2661,7 @@
       return;
     }
     S.sceneIdx++;
-    setTimeout(loadScene, 80);
+    setTimeout(loadScene, S._fastForward ? 0 : 80);
   }
 
   function rewind() {
@@ -2664,6 +2675,8 @@
   //   도장·툴팁 등 모든 디테일이 실제 게임과 100% 일치(항목별 이식 불필요).
   function handoffToRealAIGame() {
     S._handedOff = true;   // 러너 정지 플래그(advance 가 exitTutorial→로비로 되돌리지 않도록)
+    try { localStorage.removeItem('caligo_tut_progress'); } catch (e) {}   // 인트로 완료 → 저장 진행 삭제
+    S._fastForward = false;
     // 튜토리얼 UI 정리(로비 이동은 생략 — 곧 실제 게임 화면으로 전환).
     try { clearClickGuard(); } catch (e) {}
     try { clearSpotlights(); } catch (e) {}
@@ -2726,8 +2739,10 @@
     if (typeof showScreen === 'function') showScreen('screen-lobby');
   }
 
-  function startTutorial() {
+  const TUT_PROGRESS_KEY = 'caligo_tut_progress';
+  function startTutorial(resumeIdx) {
     S.sceneIdx = 0;
+    S._fastForward = false; S._ffTarget = 0;
     S.drafted = { t1: null, t2: null, t3: null };
     S.placedCount = 0;
     S.pieces = [];
@@ -2754,6 +2769,10 @@
     hideSkillTab();
     clearHint();
     if (typeof showScreen === 'function') showScreen('screen-tutorial-interactive');
+    // ★ 이어하기 — 저장 지점까지 고속재생.
+    if (typeof resumeIdx === 'number' && resumeIdx > 0 && resumeIdx < SCENARIO.length) {
+      S._fastForward = true; S._ffTarget = resumeIdx;
+    }
     requestAnimationFrame(() => requestAnimationFrame(loadScene));
   }
 
@@ -2762,10 +2781,24 @@
     if (btnTut) {
       btnTut.addEventListener('click', (e) => {
         e.stopImmediatePropagation();
+        // ★ 저장된 진행이 있으면 이어하기/처음부터 선택.
+        let saved = 0; try { saved = parseInt(localStorage.getItem(TUT_PROGRESS_KEY) || '0', 10) || 0; } catch (e2) {}
+        if (saved > 3 && saved < SCENARIO.length) {
+          const resume = window.confirm('이전에 진행하던 튜토리얼이 있습니다.\n\n[확인] 이어서 하기\n[취소] 처음부터 다시');
+          if (resume) { startTutorial(saved); return; }
+          try { localStorage.removeItem(TUT_PROGRESS_KEY); } catch (e2) {}
+        }
         startTutorial();
       }, true);
     }
-    document.getElementById('tut-mock-back')?.addEventListener('click', exitTutorial);
+    // ★ 퇴장 시 확인 + 진행 저장(이어하기 가능).
+    document.getElementById('tut-mock-back')?.addEventListener('click', () => {
+      if (S._handedOff) { exitTutorial(); return; }
+      const ok = window.confirm('튜토리얼을 나가시겠습니까?\n진행 상황이 저장되어 다음에 이어서 할 수 있습니다.');
+      if (!ok) return;
+      try { if (S.sceneIdx > 0) localStorage.setItem(TUT_PROGRESS_KEY, String(S.sceneIdx)); } catch (e2) {}
+      exitTutorial();
+    });
     document.getElementById('tut-mock-bubble-next')?.addEventListener('click', () => {
       const scene = SCENARIO[S.sceneIdx];
       if (!scene) return;
