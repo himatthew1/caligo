@@ -5839,6 +5839,38 @@ body.team-mode .placement-opp-panel {
   100% { opacity: 0; transform: scale(0.9); filter: blur(8px); }
 }
 
+/* 지속 피해 페이즈 문구 — 1대1 대치 톤. 중독=녹색, 저주=보라 */
+.dot-phase-overlay .game-start-title {
+  font-size: clamp(1.8rem, 6vw, 3.4rem);
+  letter-spacing: 6px;
+  text-align: center;
+  padding: 0 16px;
+  margin-bottom: 0;
+}
+.dot-phase-overlay.active {
+  animation: stalemateIn 2.2s cubic-bezier(.17,.67,.32,1.28) both;
+}
+.dot-phase-overlay.dot-poison { background: radial-gradient(ellipse at center, rgba(20,83,45,0.7), rgba(0,0,0,0.75)); }
+.dot-phase-overlay.dot-poison .game-start-title {
+  color: #4ade80;
+  text-shadow: 0 0 40px rgba(34,197,94,0.95), 0 4px 12px rgba(0,0,0,0.9);
+}
+.dot-phase-overlay.dot-curse { background: radial-gradient(ellipse at center, rgba(59,7,100,0.72), rgba(0,0,0,0.78)); }
+.dot-phase-overlay.dot-curse .game-start-title {
+  color: #c084fc;
+  text-shadow: 0 0 40px rgba(168,85,247,0.95), 0 4px 12px rgba(0,0,0,0.9);
+}
+/* 지속 피해 페이즈 강제 시청 — 화면 전체 입력 차단 레이어(서버도 차단) */
+#dot-input-blocker {
+  position: fixed; inset: 0;
+  z-index: 2147483000;   /* 모든 UI(토스트·채팅·메뉴) 위 — 투명이라 연출은 그대로 보임 */
+  background: transparent;
+  cursor: wait;
+  touch-action: none;
+}
+body.dot-phase-active { overflow: hidden; }
+body.dot-phase-active #action-bar { filter: grayscale(0.6) brightness(0.75); }
+
 /* 힐 플래시 — 2초간 초록 빛 (내 카드/상대 카드 양쪽) */
 .my-piece-card.heal-flash,
 .opp-piece-card.heal-flash {
@@ -7078,6 +7110,8 @@ body.team-mode .placement-opp-panel {
 .log-entry.move   { border-left: 3px solid var(--success); }
 .log-entry.system { border-left: 3px solid var(--accent); color: var(--accent); }
 .log-entry.skill  { border-left: 3px solid #7c3aed; color: #c4b5fd; }
+.log-entry.dot-poison { border-left: 3px solid #22c55e; color: #86efac; }
+.log-entry.dot-curse  { border-left: 3px solid #a855f7; color: #d8b4fe; }
 .log-entry.skill-enemy { border-left: 3px solid var(--danger); color: #fca5a5; background: rgba(220,50,50,0.08); }
 .log-entry.shrink { border-left: 3px solid var(--danger); color: var(--danger); font-weight: 600; }
 .log-entry .turn-num { color: var(--muted); font-size: 0.7rem; }

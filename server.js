@@ -1669,8 +1669,8 @@ function placementTimeout(room) {
 // 턴 타임아웃: 현재 턴 강제 종료
 function turnTimeout(room) {
   if (room.phase !== 'game') return;
-  // ★ 폭발 체인/표식 페이즈 처리 중 타이머 만료 → 짧은 지연 후 재시도 (chain이 끝나야 endTurn 가능)
-  if (room._phaseDeferredGameEndCheck) {
+  // ★ 폭발 체인/표식 페이즈·지속 피해 페이즈 처리 중 타이머 만료 → 짧은 지연 후 재시도 (chain이 끝나야 endTurn 가능)
+  if (room._phaseDeferredGameEndCheck || room._dotPhaseActive) {
     room._turnTimeoutRetries = (room._turnTimeoutRetries || 0) + 1;
     if (room._turnTimeoutRetries >= 20) {
       // 최대 재시도 초과 (10초) — 플래그 강제 해제 후 진행
@@ -2873,6 +2873,11 @@ function aiTeamFindEvacuation(room, idx) {
 
 // ── 팀전 AI 메인 턴 — 1v1과 동일한 STEP 구조 ──
 function aiTeamTakeTurn(room, idx) {
+  // ★ 지속 피해 페이즈 진행 중이면 끝날 때까지 대기.
+  if (room._dotPhaseActive) {
+    setTimeout(() => { if (rooms[room.id] && room.phase === 'game' && room.currentPlayerIdx === idx) aiTeamTakeTurn(room, idx); }, 500);
+    return;
+  }
  try {
   if (!room || room.phase !== 'game') return;
   if (room.currentPlayerIdx !== idx) return;
@@ -4015,6 +4020,7 @@ function teamPlacementTimeout(room) {
 
 // 팀전 게임 시작 — A1 먼저
 function startTeamGameFromRoom(room) {
+  room._dotPhaseActive = false;   // 지속 피해 페이즈 잔재 초기화
   clearTimer(room);
   room.phase = 'game';
   // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 '전' HP 스냅샷(1v1 startGameFromRoom 과 동일).
@@ -4705,6 +4711,7 @@ function transitionToPlacement(room) {
 
 function startGameFromRoom(room) {
   clearTimer(room);
+  room._dotPhaseActive = false;   // 지속 피해 페이즈 잔재 초기화
   room.phase = 'game';
   // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 전 HP 스냅샷.
   const _setupBefore = room.players.map(pl => (pl.pieces || []).map(p => ({ hp: p.hp, maxHp: p.maxHp })));
@@ -5251,6 +5258,190 @@ function checkCurseRemoval(room, piece, ownerIdx) {
       witchOwner._curseHistory[key] = (witchOwner._curseHistory[key] || 0) + 1;
     }
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ── 지속 피해 페이즈 (중독 → 저주) ─────────────────────────────────
+// 턴 시작 시 현재 플레이어 유닛의 중독·저주 고정 데미지를 페이즈 문구 후 저티어부터 한 유닛씩 적용.
+// 각 유닛의 피격/사망 부가효과(applyDamageTriggers·handleDeath→사망기폭)는 다음 유닛 데미지 전에 처리.
+// ══════════════════════════════════════════════════════════════════
+const DOT_BLOCKED_EVENTS = new Set(['move_piece', 'attack', 'use_skill', 'detonate_bomb', 'skip_twin_move', 'request_ai_move', 'cancel_decree', 'end_turn', 'surrender']);
+const DOT_BANNER_MS = 2400;      // 클라 페이즈 문구 오버레이(2.2s) + 여유
+const DOT_STEP_MS = 1500;        // 피격 모션 + 도장 인지
+const DOT_DEATH_STEP_MS = 2700;  // 피격 + 사망 GIF + 유해 생성
+const DOT_ALERT_GAP_MS = 850;    // 클라 패시브 말풍선 체인 간격(CHAIN_ALERT_GAP)
+
+function _dotHasCurse(p) { return !!(p && p.statusEffects && p.statusEffects.some(e => e.type === 'curse')); }
+function _dotCurseWitchAlive(room, p) {
+  const curse = p.statusEffects.find(e => e.type === 'curse');
+  if (!curse) return false;
+  return !!room.players[curse.source]?.pieces.find(pc => pc.type === 'witch' && pc.alive);
+}
+// 페이즈 대상 — 현재 플레이어의 살아있는 중독/저주 유닛, 저티어 → 배치 순.
+function _dotVictims(room, idx, kind) {
+  const pl = room.players[idx];
+  const list = [];
+  (pl && pl.pieces || []).forEach((p, i) => {
+    if (!p || !p.alive || !(p.hp > 0)) return;
+    if (kind === 'poison' ? statusStacks(p, 'poison') > 0 : (_dotHasCurse(p) && _dotCurseWitchAlive(room, p))) list.push({ p, i });
+  });
+  list.sort((a, b) => ((a.p.tier || 9) - (b.p.tier || 9)) || (a.i - b.i));
+  return list;
+}
+function _dotDamageOf(p, kind) {
+  if (kind === 'poison') return Math.round(Math.round(statusStacks(p, 'poison')) * 0.1 * 10) / 10;
+  return 0.5;
+}
+// 이 유닛 피격 시 발동할 말풍선 패시브 수(연출 대기시간 산정용 — applyDamageTriggers 와 동일 조건).
+function _dotAlertCount(room, idx, p) {
+  const pa = p.passives || [];
+  const act = (id) => (typeof isPassiveActive !== 'function') || isPassiveActive(p, id);
+  let n = 0;
+  if (pa.includes('instantMagic') && act('instantMagic')) n++;
+  if (pa.includes('rage') && act('rage') && !p._rageActive) n++;
+  if (pa.includes('growth') && act('growth')) n++;
+  if (p.type === 'mushkin' && act('mushkin')) n++;
+  if (typeof isFaction === 'function' && isFaction(p, 'spirit')) {
+    const allyIdxs = (typeof getAllyIndices === 'function') ? getAllyIndices(room, idx) : [idx];
+    for (const ai of allyIdxs) for (const o of (room.players[ai] && room.players[ai].pieces || [])) {
+      if (o.alive && o.type === 'oberon' && ((typeof isPassiveActive !== 'function') || isPassiveActive(o, 'oberon'))) n++;
+    }
+  }
+  return n;
+}
+function _dotStepMs(room, idx, p, dying) {
+  return (dying ? DOT_DEATH_STEP_MS : DOT_STEP_MS) + DOT_ALERT_GAP_MS * Math.max(0, _dotAlertCount(room, idx, p) - 1);
+}
+// AI 턴 지연·페이즈 종료 예상용 대략 길이(사망기폭 체인은 flushPhase 가 _animPhaseEndsAt 을 추가 연장).
+function estimateDotPhaseMs(room, idx) {
+  let total = 0;
+  const hp = new Map();
+  for (const kind of ['poison', 'curse']) {
+    const v = _dotVictims(room, idx, kind);
+    if (!v.length) continue;
+    total += DOT_BANNER_MS;
+    for (const { p } of v) {
+      const cur = hp.has(p) ? hp.get(p) : p.hp;
+      if (cur <= 0) continue;
+      const next = cur - _dotDamageOf(p, kind);
+      hp.set(p, next);
+      total += _dotStepMs(room, idx, p, next <= 0);
+    }
+  }
+  return total;
+}
+// 마녀 사망으로 주인을 잃은 저주 해제(저주 페이즈 시작 시).
+function _dotReleaseOrphanCurses(room, idx) {
+  for (const p of (room.players[idx].pieces || [])) {
+    if (!p.alive || !_dotHasCurse(p) || _dotCurseWitchAlive(room, p)) continue;
+    p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
+    emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, targetName: p.name, msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제` });
+    emitToSpectators(room, 'spectator_log', { msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제`, type: 'passive', playerIdx: idx });
+  }
+}
+// 한 유닛 지속 피해 적용 + 이벤트. 반환: 데미지(0=적용 안 됨).
+function _dotApplyDamage(room, idx, p, pieceIdx, kind) {
+  const dmg = _dotDamageOf(p, kind);
+  if (!(dmg > 0)) return 0;
+  p.hp = Math.max(0, Math.round((p.hp - dmg) * 10) / 10);
+  const destroyed = p.hp <= 0;
+  if (room._headless) return dmg;
+  if (kind === 'poison') {
+    emitToBoth(room, 'poison_tick', { col: p.col, row: p.row, damage: dmg, newHp: p.hp, destroyed, ownerIdx: idx, pieceIdx, type: p.type, name: p.name, tier: p.tier });
+    emitToSpectators(room, 'spectator_log', { msg: `중독: ${p.name} 지속 피해 ${dmg}`, type: 'passive', playerIdx: idx });
+  } else {
+    emitToBoth(room, 'curse_tick', { playerIdx: idx, targetName: p.name, damage: dmg, newHp: p.hp, col: p.col, row: p.row, pieceIdx, destroyed, type: p.type });
+    emitToSpectators(room, 'spectator_curse_tick', { playerIdx: idx, targetName: p.name, col: p.col, row: p.row, damage: dmg, newHp: p.hp });
+  }
+  return dmg;
+}
+function runDotPhaseSync(room, idx) {
+  for (const kind of ['poison', 'curse']) {
+    if (kind === 'curse') _dotReleaseOrphanCurses(room, idx);
+    for (const { p, i } of _dotVictims(room, idx, kind)) {
+      if (!p.alive || !(p.hp > 0)) continue;
+      const dmg = _dotApplyDamage(room, idx, p, i, kind);
+      if (!dmg) continue;
+      try { aiLogDmg(room, p, idx, dmg, true, null, null); } catch (e) {}
+      try { applyDamageTriggers(room, p, idx, dmg, { spUpdate: 'always' }); } catch (e) {}
+      if (p.hp <= 0) handleDeath(room, p, idx, kind);
+      else if (kind === 'curse') checkCurseRemoval(room, p, idx);
+    }
+  }
+}
+// 페이즈 종료 상태 동기화 — 패시브로 바뀐 값(생장 arm·격노·요정왕 카운터·진균 등)과 유해를 반영.
+function _emitDotSync(room) {
+  if (room.mode === 'team') {
+    broadcastTeamGameState(room, { turnNumber: room.turnNumber, sp: room.sp, instantSp: room.instantSp, skillPoints: room.sp, boardBounds: room.boardBounds });
+  } else {
+    for (let i = 0; i < room.players.length; i++) {
+      emitToPlayer(room, i, 'dot_sync', {
+        yourPieces: pieceSummary(room.players[i].pieces, room),
+        oppPieces: oppPieceSummary(room.players[1 - i].pieces, room),
+        boardObjects: boardObjectsSummary(room, i),
+        remains: room.remains || [], fungus: room.fungus || [],
+        sp: room.sp, instantSp: room.instantSp,
+      });
+    }
+  }
+  emitToSpectators(room, 'spectator_update', getSpectatorGameState(room));
+}
+function runDotPhase(room, idx) {
+  let hadSteps = false;
+  const stillOn = () => rooms[room.id] && room.phase === 'game' && room.currentPlayerIdx === idx;
+  const finish = () => {
+    room._dotPhaseActive = false;
+    if (!rooms[room.id] || room.phase !== 'game') return;
+    if (hadSteps) {
+      emitToBoth(room, 'dot_phase_end', {});
+      _emitDotSync(room);
+      // 페이즈 동안 흐른 시간을 돌려줌 — 턴 타이머는 페이즈 종료 시점부터 다시 90초.
+      if (room.currentPlayerIdx === idx) startTimer(room, 'game', () => turnTimeout(room));
+    }
+  };
+  const endByGameOver = (waitMs) => {
+    setTimeout(() => {
+      room._dotPhaseActive = false;
+      if (rooms[room.id] && room.phase === 'game') checkGameEndAfterPhase(room);
+    }, waitMs);
+  };
+  const runKind = (kind, next) => {
+    if (!stillOn()) return finish();
+    if (kind === 'curse') _dotReleaseOrphanCurses(room, idx);
+    const victims = _dotVictims(room, idx, kind);
+    if (!victims.length) return next();
+    hadSteps = true;
+    const msg = kind === 'poison' ? '중독이 진행됩니다' : '저주의 그림자가 드리웁니다';
+    emitToBoth(room, 'turn_event', { type: kind === 'poison' ? 'poison_phase' : 'curse_phase', msg });
+    emitToSpectators(room, 'spectator_log', { msg, type: 'event' });
+    let k = 0;
+    const step = () => {
+      if (!stillOn()) return finish();
+      if (k >= victims.length) return next();
+      const { p, i } = victims[k++];
+      if (!p.alive || !(p.hp > 0)) return step();
+      if (kind === 'curse' && !(_dotHasCurse(p) && _dotCurseWitchAlive(room, p))) return step();   // 앞 단계에서 해제됨
+      const stepMs = _dotStepMs(room, idx, p, p.hp - _dotDamageOf(p, kind) <= 0);
+      const dmg = _dotApplyDamage(room, idx, p, i, kind);
+      if (!dmg) return step();
+      try { aiLogDmg(room, p, idx, dmg, true, null, null); } catch (e) {}
+      startPhase(room);
+      try { applyDamageTriggers(room, p, idx, dmg, { spUpdate: 'always' }); } catch (e) { console.error('[dot] trigger', e); }
+      if (p.hp <= 0) handleDeath(room, p, idx, kind);
+      else if (kind === 'curse') checkCurseRemoval(room, p, idx);
+      const hadDetonation = !!(room._currentPhase && room._currentPhase.pendingDeathDetonations.length);
+      if (room.mode === 'team') broadcastTeamGameState(room, { turnNumber: room.turnNumber, sp: room.sp, instantSp: room.instantSp, skillPoints: room.sp, boardBounds: room.boardBounds });
+      // 사망기폭 체인은 flushPhase 가 사망 GIF 이후로 순차 재생 — 끝난 뒤 다음 유닛.
+      flushPhase(room, () => {
+        if (!rooms[room.id] || room.phase !== 'game') return;
+        const wait = hadDetonation ? 600 : stepMs;
+        if (isGameEndingState(room)) return endByGameOver(wait);
+        setTimeout(step, wait);
+      });
+    };
+    setTimeout(step, DOT_BANNER_MS);
+  };
+  runKind('poison', () => runKind('curse', finish));
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -6544,53 +6735,26 @@ function processTurnStart(room) {
   // 레거시 호환
   room._spGrantBlockedUntil = room._animPhaseEndsAt || 0;
 
-  // 저주 틱·축소 처리는 애니메이션 페이즈 이후로 미룸
-  const continueTurnStart = () => {
-    // 지연 실행 중 다른 플레이어 턴으로 넘어갔으면 저주 틱 스킵 (타이머 만료+즉시 턴 종료 경쟁 방지)
-    if (!rooms[room.id] || room.phase !== 'game' || room.currentPlayerIdx !== idx) return;
-    // ★ 중독 페이즈 — 저주보다 먼저(사용자 요청: 중독 → 저주 → 턴 진행).
-    //   매턴 시작 시 이 플레이어의 중독 유닛에 지속 피해(행동 여부 무관, 저주처럼).
-    for (const p of player.pieces) {
-      if (p.alive && statusStacks(p, 'poison') > 0) tickActorPoison(room, p, idx, true);
-    }
-    // Process curse damage at the start of this player's turn
-    for (const p of player.pieces) {
-      if (p.alive) {
-        const curse = p.statusEffects.find(e => e.type === 'curse');
-        if (curse) {
-          const sourceIdx = curse.source;
-          const sourceWitch = room.players[sourceIdx]?.pieces.find(pc => pc.type === 'witch' && pc.alive);
-          // ★ PPT 리워크: 저주는 '마녀 피격 시' 해제(그 처리는 applyDamageTriggers). 여기선 마녀 사망만 해제.
-          //   대상 HP≤1 해제(구버전) 제거 → 저주 지속 피해가 대상을 죽일 수 있음.
-          if (!sourceWitch) {
-            p.statusEffects = p.statusEffects.filter(e => e.type !== 'curse');
-            emitToBoth(room, 'passive_alert', { type: 'curse_removed', playerIdx: idx, targetName: p.name, msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제` });
-            emitToSpectators(room, 'spectator_log', { msg: `저주: 마녀가 사망해 ${p.name}의 저주 해제`, type: 'passive', playerIdx: idx });
-          } else {
-            p.hp = Math.max(0, p.hp - 0.5);
-            emitToBoth(room, 'curse_tick', { playerIdx: idx, targetName: p.name, damage: 0.5, newHp: p.hp });
-            // 관전자에게도 저주 데미지 모션 공유 — col/row 직접 전달(이름 역조회 불필요). 1v1·팀 모두 동일 처리.
-            emitToSpectators(room, 'spectator_curse_tick', { playerIdx: idx, targetName: p.name, col: p.col, row: p.row, damage: 0.5, newHp: p.hp });
-            if (p.hp <= 0) {
-              handleDeath(room, p, idx);
-            } else {
-              checkCurseRemoval(room, p, idx);
-            }
-          }
-        }
-      }
-    }
-  };
-  // continueTurnStart — 저주 틱 + 후속 처리. 애니메이션 페이즈가 있으면 그 종료 + 짧은 버퍼 후 실행.
-  // ★ 사용자 요청: 1500ms 버퍼 → 200ms 로 단축 (애니 종료 직후 곧바로 저주 데미지 발동).
+  // ★ 지속 피해 페이즈(중독 → 저주) — 사용자 요청: 턴 시작 고정 데미지를 별도 진행 페이즈로 분리.
+  //   이전엔 your_turn 전송 *전에* 동기 적용 → 클라가 이미 죽은/깎인 상태를 먼저 받아 사망 애니·마법구가
+  //   유실됐다. 이제 setTimeout 으로 your_turn/opp_turn 전송 *이후* 시작해, 틱 이벤트마다 한 유닛씩
+  //   (저티어부터) 피격 → 피격/사망 부가효과(격노·인스턴트매직·요정왕·사망기폭 등) → 다음 유닛 순으로 진행.
+  //   헤드리스(셀프플레이)는 연출 없이 즉시 동기 처리.
   const _phaseDelay = animTotalMs > 0 ? (animTotalMs + ANIM_PHASE_TAIL_BUFFER) : 0;
-  if (_phaseDelay > 0) {
-    setTimeout(() => {
-      if (!rooms[room.id] || room.phase !== 'game') return;
-      continueTurnStart();
-    }, _phaseDelay);
+  if (room._headless) {
+    runDotPhaseSync(room, idx);
   } else {
-    continueTurnStart();
+    const _dotEst = estimateDotPhaseMs(room, idx);
+    room._dotEstMs = _dotEst;
+    if (_dotEst > 0) {
+      room._dotPhaseActive = true;   // 페이즈 대기 구간부터 행동·턴종료 차단
+      room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, Date.now() + _phaseDelay + _dotEst);
+      room._spGrantBlockedUntil = room._animPhaseEndsAt;
+    }
+    setTimeout(() => {
+      if (!rooms[room.id] || room.phase !== 'game' || room.currentPlayerIdx !== idx) { room._dotPhaseActive = false; return; }
+      runDotPhase(room, idx);
+    }, _phaseDelay);
   }
   room._spGrantedThisTurn = spGrantedThisTurn;  // endTurn 측 AI 트리거 지연용 (레거시)
 
@@ -6889,6 +7053,7 @@ function endTurn(room, opts) {
     skillPoints: room.sp,
     boardBounds: room.boardBounds,
     preCurseHps: room._preCurseHpsSnap || null,   // 저주 보라 도장 표시용 (curse 적용 전 HP)
+    dotPending: !!room._dotPhaseActive,           // ★ 곧 지속 피해 페이즈 — 클라는 턴 시작부터 입력 잠금(강제 시청)
   };
 
   // ── 팀 모드 분기 ──
@@ -6901,7 +7066,7 @@ function endTurn(room, opts) {
       const phaseRemain = Math.max(0, (room._animPhaseEndsAt || 0) - Date.now());
       // ★ #6: 턴 시작 지연 2500→2000 단축. ★ 상한 7000 — 폭탄 체인 등으로 _animPhaseEndsAt 가
       //   먼 미래로 누적돼 AI 턴 시작이 수십 초 지연(=프리징 체감)되는 것 방지(정상 페이즈는 7s 이내).
-      const aiDelay = Math.min(7000, Math.max(2000, phaseRemain));
+      const aiDelay = Math.min(7000 + (room._dotEstMs || 0), Math.max(2000, phaseRemain));
       // ★ epoch 토큰 — 동일 슬롯 재진입/중복 스케줄 시 stale 콜백이 aiTeamTakeTurn 을 중복 실행하지 못하게 차단.
       const _epoch = (room._aiSchedEpoch = (room._aiSchedEpoch || 0) + 1);
       setTimeout(() => {
@@ -11173,6 +11338,11 @@ function _canMoveTo(room, piece, nc, nr) {
 }
 
 function aiTakeTurn(room) {
+  // ★ 지속 피해 페이즈 진행 중이면 끝날 때까지 대기.
+  if (room._dotPhaseActive) {
+    setTimeout(() => { if (rooms[room.id] && room.phase === 'game' && room.currentPlayerIdx === 1) aiTakeTurn(room); }, 500);
+    return;
+  }
   const aiPlayer = room.players[1];
   const humanPlayer = room.players[0];
   const brain = room.aiBrain;
@@ -12007,6 +12177,17 @@ function aiExecuteAttack(room, action) {
 // ══════════════════════════════════════════════════════════════════
 
 io.on('connection', (socket) => {
+  // ★ 지속 피해 페이즈(중독·저주) 진행 중엔 모든 플레이어의 조작 차단(강제 시청) — 페이즈가 끝난 뒤 행동.
+  socket.use(([event], next) => {
+    if (DOT_BLOCKED_EVENTS.has(event)) {
+      const room = rooms[socket.data.roomId];
+      if (room && room._dotPhaseActive && room.phase === 'game') {
+        socket.emit('err', { msg: '지속 피해 처리 중입니다. 잠시 후 다시 시도하세요.' });
+        return;
+      }
+    }
+    next();
+  });
 
   // 소켓 이벤트 안전 래퍼 (에러 시 서버 크래시 방지)
   const _on = socket.on.bind(socket);
@@ -14416,7 +14597,7 @@ io.on('connection', (socket) => {
     }
     // ★ 폭발 체인/표식 페이즈 처리 중 end_turn 차단 — 타이머로 예약된 bomb_detonated emit 들이
     //   다음 턴에 잘못 발동되는 현상(상태 desync) 방지.
-    if (room._phaseDeferredGameEndCheck) {
+    if (room._phaseDeferredGameEndCheck || room._dotPhaseActive) {
       socket.emit('err', { msg: '효과 처리 중입니다. 잠시 후 다시 시도하세요.' }); return;
     }
     // ★ 트랩 지연 발동 중 end_turn 차단 — 700ms setTimeout 트랩이 완료되기 전 턴 종료 방지
@@ -15075,6 +15256,8 @@ module.exports = {
   AI_WEIGHTS_DEFAULT, getAiWeights: () => AI_WEIGHTS, setAiWeights: (w) => { AI_WEIGHTS = { ...AI_WEIGHTS_DEFAULT, ...w }; },
   // ★ 헤드리스 검증용 — 기마병 질주·유해 피격·중독 틱·아군 인덱스
   doCavalryDash, processRemainsHits, tickActorPoison, getAllyIndices, addStatus,
+  // ★ 지속 피해 페이즈(중독·저주) 검증용
+  runDotPhase, runDotPhaseSync, estimateDotPhaseMs,
   // ★ 게임 시작 안내 페이즈 검증용
   initPatronBonus, initUndeadState, buildSetupAnnouncements,
   // ★ 스킬 실행 검증용

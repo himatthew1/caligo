@@ -5498,64 +5498,127 @@ function _brightenPoisonCard(ownerIdx, mine, teammate, i) {
     }
   } catch (e) {}
 }
-// ★ 중독 데미지 페이즈 — 행동(이동/공격)을 하자마자 격발되지 않고, 행동 처리 이후에
-//   큐에 쌓아 하나씩 순차적으로 재생(받아들이기 편하게). 저주 지속뎀처럼 위치 공개·추리토큰 없음.
-socket.on('poison_tick', (payload) => {
-  if (!payload || payload.col == null) return;
-  if (!S._poisonTickQueue) S._poisonTickQueue = [];
-  S._poisonTickQueue.push(payload);
-  _schedulePoisonFlush();
-});
-function _schedulePoisonFlush() {
-  if (S._poisonFlushTimer) return;
-  const INITIAL = 650;   // 행동 애니가 마무리될 시간
-  const GAP = 750;       // 틱 사이 간격 — 하나씩 순차 인지
-  const step = () => {
-    const p = (S._poisonTickQueue || []).shift();
-    if (!p) { S._poisonFlushTimer = null; return; }
-    try { _renderPoisonTick(p); } catch (e) {}
-    // 이번 틱이 격파였으면 사망 연출을 위해 좀 더 대기.
-    S._poisonFlushTimer = setTimeout(step, p.destroyed ? GAP + 900 : GAP);
-  };
-  S._poisonFlushTimer = setTimeout(step, INITIAL);
-}
-function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, type, name }) {
-  if (col == null) return;
+// ★ 지속 피해 페이즈(중독·저주) — 서버가 페이즈 문구 후 저티어부터 한 유닛씩 간격을 두고 보낸다.
+//   수신 즉시 재생: 피격 모션 → 임팩트(도장·HP) → 이 유닛의 피격 패시브(인스턴트매직 마법구·격노·요정왕 등)
+//   → 사망이면 사망 GIF + 유해. 서버는 이 연출이 끝난 뒤 다음 유닛 틱을 보낸다.
+const DOT_IMPACT_MS = 380;
+// 틱 대상 해석 — pieceIdx 우선(죽은 말이 좌표에 남으므로 좌표 매칭은 폴백만).
+function _dotFindTarget(ownerIdx, pieceIdx, col, row, type) {
   const mine = (ownerIdx === S.playerIdx);
   const teammate = !mine && S.isTeamMode && Array.isArray(S.teammatePieces) && (typeof S.teammateIdx === 'number') && ownerIdx === S.teammateIdx;
-  let arr, keyOf, isDef;
-  if (mine) { arr = S.myPieces; keyOf = (i) => S.isTeamMode ? `${S.playerIdx}:${i}` : `my:${i}`; isDef = true; }
-  else if (teammate) { arr = S.teammatePieces; keyOf = (i) => `${ownerIdx}:${i}`; isDef = true; }
-  else { arr = S.oppPieces; keyOf = (i) => `opp:${i}`; isDef = false; }
-  if (!Array.isArray(arr)) return;
-  let i = arr.findIndex(p => p && p.alive && p.col === col && p.row === row && (!type || p.type === type));
+  const arr = mine ? S.myPieces : (teammate ? S.teammatePieces : S.oppPieces);
+  if (!Array.isArray(arr)) return null;
+  let i = -1;
+  if (typeof pieceIdx === 'number') {
+    if (mine || teammate) i = (arr[pieceIdx] && (!type || arr[pieceIdx].type === type)) ? pieceIdx : -1;
+    else i = arr.findIndex(p => p && p.index === pieceIdx && (p.ownerIdx == null || p.ownerIdx === ownerIdx));
+  }
+  if (i < 0) i = arr.findIndex(p => p && p.alive && p.col === col && p.row === row && (!type || p.type === type));
   if (i < 0 && !mine && !teammate) i = arr.findIndex(p => p && p.alive && (!type || p.type === type) && p.col == null);
-  if (i < 0) return;
-  const pc = arr[i];
-  pc.hp = newHp;
-  // ★ 중독 틱은 적 위치를 공개하지 않음(표식처럼 노출 금지) — 데미지 도장(카드)만 표시.
-  //   단 중독으로 사망 시엔 사망 연출·유해를 위해 그 순간에만 위치 확정.
-  if (destroyed && !mine && !teammate) { pc.col = col; pc.row = row; }
-  if (destroyed) pc.alive = false;
-  // ★ 중독 데미지: 카드엔 데미지 누적(빨강 오버레이) + 보드엔 중독 전용 녹색 ☣ 도장(가시 유닛만 — 적 위치 비공개 유지).
-  try {
-    if (damage > 0) {
-      if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
-      if (typeof _clearOtherStampTypes === 'function') _clearOtherStampTypes(keyOf(i), 'body', ['loyalty']);
-      S.bodyDamageThisTurn[keyOf(i)] = (S.bodyDamageThisTurn[keyOf(i)] || 0) + damage;
-      if ((mine || teammate) && col != null) showBoardDamageStamp(col, row, 'poison', damage);
-    }
-  } catch (e) {}
-  try { const _pd = Math.round((damage || 0) * 10) / 10; addLog(`☣ ${name || '유닛'} 중독 피해 ${_pd}`, 'hit'); } catch (e) {}
-  const rerender = () => { try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); } catch (e) {} };
-  if (destroyed && typeof scheduleDeathGif === 'function' && typeof _detectDeaths === 'function') {
-    const deaths = _detectDeaths([{ col, row, type, defPieceIdx: i }], isDef);
-    S._pendingDeathCells = new Set([`${col},${row}`]); rerender();
+  if (i < 0) return null;
+  const cardIdx = (typeof pieceIdx === 'number') ? pieceIdx : i;
+  const key = S.isTeamMode ? `${ownerIdx}:${cardIdx}` : (mine ? `my:${i}` : `opp:${i}`);
+  return { arr, i, pc: arr[i], key, cardIdx, isDef: mine || teammate, mine, teammate };
+}
+// 틱 수신 시 공통 준비 — sp_update 를 임팩트까지 보류(마법구가 pip 보다 먼저 날도록), 사망 시 game_over 조기노출 가드.
+function _dotBeginTick(destroyed, impactMs) {
+  _attackAnimDeferred = true;
+  _pendingSpUpdate = null;
+  if (destroyed) S._skillDeathGuardUntil = Date.now() + impactMs + 2600;
+  if (S.isTeamMode) S._teamRenderGateUntil = Math.max(S._teamRenderGateUntil || 0, Date.now() + impactMs + 60);
+}
+// 임팩트 이후 — 보류했던 SP 갱신 + 이 유닛 피격 패시브 말풍선/마법구 재생 + 사망 연출.
+function _dotAfterImpact(t, ownerIdx, col, row, type, destroyed) {
+  try { _flushPendingSpUpdate(); } catch (e) {}
+  try { flushDefensiveAlerts(); } catch (e) {}
+  const rerender = () => { try { if (S.isTeamMode && typeof renderTeamGameSnapshot === 'function') renderTeamGameSnapshot(); else { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); } } catch (e) {} };
+  if (destroyed && t && typeof scheduleDeathGif === 'function' && typeof _detectDeaths === 'function') {
+    if (!t.isDef) { t.pc.col = col; t.pc.row = row; }   // 사망 순간에만 위치 확정(사망 연출·유해)
+    const deaths = _detectDeaths([{ col, row, type, defPieceIdx: t.cardIdx, defOwnerIdx: ownerIdx }], t.isDef);
+    t.pc.alive = false;
+    S._pendingDeathCells = new Set([`${col},${row}`]);
+    rerender();
     if (deaths.length) scheduleDeathGif(deaths, deaths, rerender); else { S._pendingDeathCells = null; rerender(); }
   } else rerender();
-  // ★ 중독 대상 딤 해제 — 데미지 받은 유닛 카드를 그 턴 밝게(사망 아닌 경우).
-  if (!destroyed && damage > 0) { try { _brightenPoisonCard(ownerIdx, mine, teammate, i); } catch (e) {} }
 }
+socket.on('poison_tick', (payload) => {
+  if (!payload || payload.col == null) return;
+  try { _renderPoisonTick(payload); } catch (e) { console.error('[poison_tick]', e); }
+});
+function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, pieceIdx, type, name }) {
+  const t = _dotFindTarget(ownerIdx, pieceIdx, col, row, type);
+  if (!t) return;
+  _dotBeginTick(destroyed, DOT_IMPACT_MS);
+  // ★ 중독 틱은 적 위치를 공개하지 않음 — 보드 모션은 보이는 유닛(내 편·표식)만.
+  const visible = t.isDef || !!t.pc.marked;
+  if (visible && typeof animateBoardIconHit === 'function') { try { animateBoardIconHit([{ col, row }], t.isDef); } catch (e) {} }
+  try { applyHitFlashWithBrighten(_findPieceCard(ownerIdx, t.cardIdx)); } catch (e) {}
+  setTimeout(() => {
+    t.pc.hp = newHp;
+    try {
+      if (damage > 0) {
+        if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
+        if (typeof _clearOtherStampTypes === 'function') _clearOtherStampTypes(t.key, 'body', ['loyalty']);
+        S.bodyDamageThisTurn[t.key] = (S.bodyDamageThisTurn[t.key] || 0) + damage;
+        if (visible && col != null) showBoardDamageStamp(col, row, 'poison', damage);
+      }
+    } catch (e) {}
+    try { playSfx('hit'); } catch (e) {}
+    try { const _pd = Math.round((damage || 0) * 10) / 10; addLog(`☣ ${name || '유닛'} 중독 피해 ${_pd}`, 'hit'); } catch (e) {}
+    if (!destroyed && damage > 0) { try { _persistTurnBright(ownerIdx, t.cardIdx); } catch (e) {} }
+    _dotAfterImpact(t, ownerIdx, col, row, type, destroyed);
+  }, DOT_IMPACT_MS);
+}
+// 지속 피해 페이즈 종료 — 패시브로 바뀐 상태(생장·격노·카운터·진균)와 유해를 서버 값으로 동기화(1v1).
+socket.on('dot_sync', ({ yourPieces, oppPieces, boardObjects, remains, fungus, sp, instantSp }) => {
+  if (S.isSpectator || S.isTeamMode) return;
+  if (yourPieces) S.myPieces = yourPieces;
+  if (oppPieces) S.oppPieces = oppPieces;
+  if (boardObjects) S.boardObjects = boardObjects;
+  if (remains) {
+    const _pend = S._pendingDeathCells;
+    S.remains = (_pend && _pend.size) ? remains.filter(r => !_pend.has(`${r.col},${r.row}`)).concat((S.remains || []).filter(r => _pend.has(`${r.col},${r.row}`))) : remains;
+    S._cellFP = null;
+  }
+  if (fungus) { S.fungus = fungus; try { _applyFungusCells(); } catch (e) {} }
+  if (sp && !_attackAnimDeferred) { S.sp = sp; if (instantSp) S.instantSp = instantSp; }
+  try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); updateSPBar(); } catch (e) {}
+});
+socket.on('dot_phase_end', () => { setDotPhaseLock(false); });
+// ★ 지속 피해 페이즈 강제 시청 — 페이즈 동안 모든 조작(클릭·터치·키보드) 차단. 내 턴/상대 턴 무관.
+//   턴 시작 이벤트의 dotPending 으로 즉시 잠그고(문구 전 대기 구간 포함), dot_phase_end 에 해제.
+function _dotBlockKeys(e) { e.stopPropagation(); e.preventDefault(); }
+function setDotPhaseLock(on) {
+  clearTimeout(S._dotPhaseSafety);
+  let blocker = document.getElementById('dot-input-blocker');
+  if (!on) {
+    document.body.classList.remove('dot-phase-active');
+    if (blocker) blocker.remove();
+    window.removeEventListener('keydown', _dotBlockKeys, true);
+    return;
+  }
+  document.body.classList.add('dot-phase-active');
+  if (!blocker) {
+    blocker = document.createElement('div');
+    blocker.id = 'dot-input-blocker';
+    ['pointerdown', 'mousedown', 'click', 'touchstart', 'wheel', 'contextmenu'].forEach(ev =>
+      blocker.addEventListener(ev, (e) => { e.stopPropagation(); e.preventDefault(); }, { passive: false }));
+    document.body.appendChild(blocker);
+  }
+  window.addEventListener('keydown', _dotBlockKeys, true);
+  // 진행 중이던 조작 정리 — 모달·부채꼴 메뉴·행동 선택 해제.
+  try { closeAllModals(); } catch (e) {}
+  try { if (typeof _closeRadialActionMenu === 'function') _closeRadialActionMenu(); } catch (e) {}
+  if (S.action || S.selectedPiece != null || S.targetSelectMode) {
+    S.action = null; S.selectedPiece = null; S.targetSelectMode = false;
+    try { if (typeof setActionButtonMode === 'function') setActionButtonMode(null); renderGameBoard(); } catch (e) {}
+  }
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { try { window.scrollTo(0, 0); } catch (e2) {} }
+  // 안전망 — 해제 이벤트 유실 시 영구 잠금 방지.
+  S._dotPhaseSafety = setTimeout(() => setDotPhaseLock(false), 45000);
+}
+['your_turn', 'opp_turn', 'team_game_update'].forEach(ev => { try { socket.on(ev, (d) => { if (d && d.dotPending && !S.isSpectator) setDotPhaseLock(true); }); } catch (e) {} });
+socket.on('game_over', () => { try { setDotPhaseLock(false); } catch (e) {} });
 // ── 프로필 강조(공유 정보) — 부대공격/칙명으로 '조작 중'인 유닛 카드를 모두가 실시간으로 봄. ──
 //   S._profileHL 에 저장 → 프로필 재렌더에도 살아남도록 _applyProfileHL() 로 재적용.
 function _profileCardOf(ownerIdx, pieceIdx) {
@@ -5960,9 +6023,32 @@ socket.on('turn_event', (payload) => {
     runFullscreenLocked(() => playSpGrantAnimation(finalSp, finalInstantSp, _capturedOldSp, _capturedOldInstantSp), 6000);
     return;
   }
+  // ★ 지속 피해 페이즈 문구 — 중독(녹색)·저주(보라). 이후 서버가 유닛별 틱을 순차 송신.
+  if (type === 'poison_phase' || type === 'curse_phase') {
+    const kind = (type === 'poison_phase') ? 'poison' : 'curse';
+    setDotPhaseLock(true);
+    addLog(msg, `dot-${kind}`);
+    runFullscreenLocked(() => playDotPhaseAlert(kind, msg), 2200);
+    return;
+  }
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
+// 지속 피해 페이즈 풀스크린 문구 — 1대1 대치와 같은 오버레이 톤, 중독=녹색·저주=보라.
+function playDotPhaseAlert(kind, msg) {
+  let overlay = document.getElementById('dot-phase-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'dot-phase-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.className = `game-start-overlay dot-phase-overlay dot-${kind}`;
+  overlay.innerHTML = `<div class="game-start-title">${msg}</div>`;
+  void overlay.offsetWidth;
+  overlay.classList.add('active');
+  try { if (kind === 'curse') playSfxCurseDamage(); else playSfxPassive(); } catch (e) {}
+  setTimeout(() => { overlay.classList.remove('active'); overlay.classList.add('hidden'); }, 2200);
+}
 
 // 스킬 시전 시 SP 차감 집중 연출 — SP 바 위에서 마법 구슬이 시전자 → 상대 숫자로 이동
 // 순서: 인스턴트 SP 먼저 소멸 → 0.5s 간격 → 일반 SP 마법구 비행
@@ -9855,8 +9941,10 @@ socket.on('bomb_detonated', function _onBombDetonated({ col, row, hits, remainsH
 // ── 저주 지속 데미지 — 토스트·로그 없음. 프로필 애니메이션 + 보라 데미지 도장 (3초)만 ──
 // 사용자 요청: 절대 토스트 출력 X. 일반 피격 애니메이션과도 구별되어야 함.
 // 그래서 다음 team_game_update 의 빨간 profile-hit 트리거를 스킵하기 위해 _recentCurseDamageKeys 마킹.
-socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
+socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp, col, row, pieceIdx, destroyed, type }) => {
   if (!targetName) return;
+  // ★ 지속 피해 페이즈 — sp_update 보류 + 사망 시 game_over 조기노출 가드(임팩트·사망 GIF 이후 판정).
+  _dotBeginTick(destroyed, 1100);
   // 일반 피격 애니가 후속 team_game_update 에서 중복 발동되지 않게 마킹 (임팩트까지 커버하도록 길게)
   if (!S._recentCurseDamageKeys) S._recentCurseDamageKeys = new Set();
   const key = `${playerIdx}:${targetName}`;
@@ -9870,11 +9958,17 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
   // ★ 저주 데미지를 "공격 모션"처럼 — 아래에서 대상만 해석하고, 실제 효과(피격모션·토스트·로그·HP)는
   //   저주 데미지 GIF 4번째 프레임(임팩트) 시점에 동기. (일반 공격과 동일 타이밍.)
   let _ctPc = null, _ctCol = null, _ctRow = null, _ctStamp = null, _ctDef = true, _ctBO = playerIdx, _ctBI = -1, _ctOn = false;
+  // ★ pieceIdx(권위 인덱스) 우선 — 같은 이름 유닛·좌표 잔류 사망자와 혼동 없음. 없으면 아래 이름 매칭.
+  const _ctT = (typeof pieceIdx === 'number') ? _dotFindTarget(playerIdx, pieceIdx, col, row, type) : null;
+  if (_ctT) {
+    _ctPc = _ctT.pc; _ctCol = (col != null ? col : _ctPc.col); _ctRow = (row != null ? row : _ctPc.row);
+    _ctStamp = _ctT.key; _ctDef = _ctT.isDef; _ctBO = playerIdx; _ctBI = _ctT.cardIdx; _ctOn = _ctT.isDef || !!_ctPc.marked;
+  }
 
   // 1v1: playerIdx 로 피해 대상 플레이어를 특정 — 양쪽에 이름이 같은 말이 있어도 혼동 없음
   // ★ 이름(targetName)만으로 myPieces/oppPieces 를 동시 탐색하면 마녀 vs 마녀처럼
   //   같은 캐릭터명이 양쪽에 있을 때 상대 말에도 HP 변경 + 도장이 잘못 적용되는 버그 발생.
-  if (!S.isTeamMode) {
+  if (!_ctPc && !S.isTeamMode) {
     if (playerIdx === S.playerIdx) {
       const myIdx = S.myPieces?.findIndex(p => p.alive && p.name === targetName) ?? -1;
       if (myIdx >= 0) { _ctPc=S.myPieces[myIdx]; _ctCol=_ctPc.col; _ctRow=_ctPc.row; _ctStamp=`my:${myIdx}`; _ctDef=true; _ctBO=S.playerIdx; _ctBI=myIdx; _ctOn=true; }
@@ -9884,7 +9978,7 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
     }
   }
   // 팀모드: playerIdx 가 일치하는 플레이어만 업데이트
-  if (S.isTeamMode) {
+  if (!_ctPc && S.isTeamMode) {
     for (const pl of (S.teamGamePlayers || [])) {
       if (pl.idx !== playerIdx) continue;
       const idxInPl = (pl.pieces || []).findIndex(p => p.alive && p.name === targetName);
@@ -9894,7 +9988,7 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
       break;
     }
   }
-  if (!_ctPc) return;
+  if (!_ctPc) { try { _flushPendingSpUpdate(); flushDefensiveAlerts(); } catch (e) {} return; }
   const _ctDmgStr = Number.isInteger(damage) ? `${damage}` : `${damage.toFixed(1)}`;
   // ── 임팩트 — 저주 데미지 GIF 4번째 프레임 시점: 피격모션 + 토스트 + 로그 + 실제 데미지(도장/HP) 동기 ──
   const _ctImpact = () => {
@@ -9907,6 +10001,8 @@ socket.on('curse_tick', ({ playerIdx, targetName, damage, newHp }) => {
     try { if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles(); else { renderMyPieces(); renderOppPieces(); } } catch (e) {}
     // dim 해제(turn-bright) persist — 후속 render 에서 wipe 방지
     if (_ctBI >= 0) { try { _persistTurnBright(_ctBO, _ctBI); const _c = _findPieceCard(_ctBO, _ctBI); if (_c) _c.classList.add('turn-bright'); } catch (e) {} }
+    // ★ 이 유닛의 피격 패시브(인스턴트매직 마법구 등) + 저주로 사망 시 사망 GIF·유해.
+    _dotAfterImpact({ pc: _ctPc, i: _ctBI, cardIdx: _ctBI, isDef: _ctDef }, playerIdx, _ctCol, _ctRow, type || _ctPc.type, !!destroyed);
   };
   // ── 모션 시작(턴 시작 렌더 settle 후) → 저주 데미지 GIF 재생 → 4번째 프레임(frame4)에 임팩트 ──
   //   타이밍은 일반 공격과 동일: _fetchGifFrameTimings 의 frameDelays[3] (없으면 ATTACK_IMPACT_DELAY).
