@@ -5584,6 +5584,35 @@ socket.on('dot_sync', ({ yourPieces, oppPieces, boardObjects, remains, fungus, s
   if (sp && !_attackAnimDeferred) { S.sp = sp; if (instantSp) S.instantSp = instantSp; }
   try { renderGameBoard(); renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); updateSPBar(); } catch (e) {}
 });
+// ★ 중독 심화 — 독니(공격)·맹독구름·진균지대로 중독 스택이 오른 순간. 저티어부터 한 유닛씩
+//   프로필에 성게 도장 + 중독 배지 단계 상승(sb-stack-bump) + 로그. 팝업(토스트)은 없음.
+const POISON_UP_GAP_MS = 650;
+socket.on('poison_stack_up', ({ cause, sourceName, targets }) => {
+  if (!Array.isArray(targets) || !targets.length) return;
+  const why = cause === 'fang' ? `${sourceName || '독살꾼'}의 공격에 의해`
+    : cause === 'cloud' ? `${sourceName || '독살꾼'}의 맹독구름에 의해`
+    : '진균지대에 노출되어';
+  targets.forEach((tg, n) => setTimeout(() => {
+    try { addLog(`${why} ${tg.name}의 중독단계 상승`, 'dot-poison'); } catch (e) {}
+    if (S.isSpectator) return;
+    const setStacks = (pc) => {
+      if (!pc) return;
+      pc.statusEffects = pc.statusEffects || [];
+      const e = pc.statusEffects.find(x => x.type === 'poison');
+      if (e) e.stacks = tg.stacks; else pc.statusEffects.push({ type: 'poison', stacks: tg.stacks });
+    };
+    const t = _dotFindTarget(tg.ownerIdx, tg.pieceIdx, null, null, tg.type);
+    if (t) setStacks(t.pc);
+    if (S.isTeamMode) setStacks(((S.teamGamePlayers || []).find(p => p.idx === tg.ownerIdx)?.pieces || [])[tg.pieceIdx]);
+    if (!S.poisonUpThisTurn) S.poisonUpThisTurn = {};
+    const key = S.isTeamMode ? `${tg.ownerIdx}:${tg.pieceIdx}` : (t ? t.key : null);
+    if (key) S.poisonUpThisTurn[key] = true;
+    try {
+      if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
+      else { renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); }
+    } catch (e) {}
+  }, n * POISON_UP_GAP_MS));
+});
 socket.on('dot_phase_end', () => { setDotPhaseLock(false); });
 // ★ 지속 피해 페이즈 강제 시청 — 페이즈 동안 모든 조작(클릭·터치·키보드) 차단. 내 턴/상대 턴 무관.
 //   턴 시작 이벤트의 dotPending 으로 즉시 잠그고(문구 전 대기 구간 포함), dot_phase_end 에 해제.
@@ -16883,6 +16912,7 @@ function snapshotTurnStartHps(preCurseHps) {
   S.bodyDamageThisTurn = {};   // 본체 직접 피해 — 매 턴 초기화
   S.healThisTurn = {};         // 회복 — 매 턴 초기화 (녹색 도장 + HP 바 녹색 오버레이)
   S.protectedHitsThisTurn = {}; // 보호 피격 (데미지 0) — 매 턴 초기화
+  S.poisonUpThisTurn = {};      // 중독 심화(성게 도장) — 매 턴 초기화
   // ★ 사용자 요청: 도장 애니메이션은 해당 턴에 최초 1회만. 매 턴 시작 시 추적 셋 초기화 →
   //   buildDamageOverlay 가 한번 도장 렌더하면 셋에 등록, 다음 재렌더부터 no-anim 클래스 부여.
   S._stampAnimationsSeen = {};
@@ -17134,6 +17164,13 @@ function buildDamageOverlay(key, hp, maxHp) {
                    : '';   // hasMidStamp 만 있으면 top:6 비어있어 기본 위치 OK
     stamp += `<div class="dmg-stamp heal${seenCls('heal')}${stackCls}">${fmtHeal(healAmt)}</div>`;
     markSeen('heal');
+  }
+  // ★ 중독 심화 — 독니·맹독구름·진균지대로 중독 단계가 오른 턴. 원형 성게 말풍선, 다른 도장 아래 빈 슬롯에.
+  if (S.poisonUpThisTurn && S.poisonUpThisTurn[key]) {
+    const used = (bodyDmg > 0 || curseDmg > 0 || isProtected ? 1 : 0) + (loyaltyDmg > 0 ? 1 : 0) + (healAmt > 0 ? 1 : 0);
+    const slotCls = used >= 2 ? ' stack-3' : used === 1 ? ' stack-2' : '';
+    stamp += `<div class="dmg-stamp poison-up${seenCls('poisonUp')}${slotCls}">${window.POISON_URCHIN_SVG || ''}<span>중독<br>심화</span></div>`;
+    markSeen('poisonUp');
   }
   // HP 바 표시 로직 (사용자 요청):
   //   기본 HP 바 자체는 *시작 HP 와 현재 HP 중 더 작은 쪽*에 머물러 있음.

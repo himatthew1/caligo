@@ -6240,6 +6240,34 @@ body.dot-phase-active #action-bar { filter: grayscale(0.6) brightness(0.75); }
   50%  { opacity: 1; transform: rotate(-8deg)  scale(0.92); }
   100% { opacity: 1; transform: rotate(-12deg) scale(1); }
 }
+/* 중독 심화 도장 — 원형 성게 말풍선(독액 녹색). 윤곽은 poison-urchin.js 의 SVG(52×52 정원, 등폭·등길이 가시). 글자 두 줄.
+   다른 도장이 있으면 그 아래 빈 슬롯(stack-2/3)에 붙음. */
+.dmg-stamp.poison-up {
+  top: 2px; right: 2px;
+  width: 52px; height: 52px;
+  padding: 0;
+  font-size: 0.66rem; line-height: 1.08; text-align: center; white-space: normal;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none; box-shadow: none;
+  color: #ecfccb;
+  transform: rotate(-8deg);
+  animation: poison-up-in 0.45s ease-out 1;
+}
+.dmg-stamp.poison-up.stack-2 { top: 28px; }
+.dmg-stamp.poison-up.stack-3 { top: 54px; }
+.dmg-stamp.poison-up .urchin {
+  position: absolute; inset: 0;
+  overflow: visible; z-index: -1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 5px rgba(163, 230, 53, 0.55));
+}
+.dmg-stamp.poison-up .urchin path { fill: url(#poisonUrchinFill); stroke: #a3e635; stroke-width: 1.5; stroke-linejoin: round; }
+.dmg-stamp.poison-up > span { position: relative; }
+.dmg-stamp.poison-up.no-anim { animation: none !important; }
+@keyframes poison-up-in {
+  0%   { opacity: 0; transform: rotate(-24deg) scale(1.5); }
+  55%  { opacity: 1; transform: rotate(-4deg)  scale(0.92); }
+  100% { opacity: 1; transform: rotate(-8deg)  scale(1); }
+}
 /* ★ 사용자 요청: 도장 애니메이션은 해당 턴 최초 1회만. 이후 재렌더에는 no-anim 클래스가 붙어
    pop-in 애니메이션 없이 그 자리에 그대로 고정 표시 (이동/공격 시 도장 깜빡임 방지). */
 .dmg-stamp.no-anim,

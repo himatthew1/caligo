@@ -426,6 +426,24 @@ function effectiveAttackType(piece) {
   if (!piece) return null;
   return isFrog(piece) ? 'frog' : piece.type;
 }
+// ★ 중독 심화 알림 — 독니·맹독구름·진균지대로 중독 스택이 오른 순간 클라에 '중독 심화' 도장 + 로그.
+//   같은 원인의 동시 부여는 한 이벤트로 묶어, 그 원인의 연출(피격 도장·스킬 마법구·턴 전환) 뒤에 보낸다.
+const POISON_UP_DELAY = { fang: 1100, cloud: 2100, fungus: 500 };
+function queuePoisonUp(room, cause, sourceName, ownerIdx, pieceIdx, piece) {
+  if (!room || room._headless || !piece) return;
+  if (!room._poisonUpBatch) room._poisonUpBatch = {};
+  let b = room._poisonUpBatch[cause];
+  if (!b) {
+    b = room._poisonUpBatch[cause] = { cause, sourceName, targets: [] };
+    setTimeout(() => {
+      if (room._poisonUpBatch) delete room._poisonUpBatch[cause];
+      if (!rooms[room.id] || room.phase !== 'game') return;
+      b.targets.sort((x, y) => (x.tier - y.tier) || (x.ownerIdx - y.ownerIdx) || (x.pieceIdx - y.pieceIdx));
+      emitToBoth(room, 'poison_stack_up', b);
+    }, POISON_UP_DELAY[cause] || 800);
+  }
+  b.targets.push({ ownerIdx, pieceIdx, name: piece.name, type: piece.type, tier: piece.tier || 9, stacks: statusStacks(piece, 'poison') });
+}
 // 중독 틱 — 중독 유닛이 '이동·공격·행동소비 스킬을 완료한 직후'(판정 최후반) 0.1×스택 데미지.
 //   상태이상 지속뎀이라 아이언스킨/폭정 등 감경 미적용(파이프라인 우회). 원천 사망 후에도 유지.
 //   ★ Phase 3 배선 예정: move/attack/행동소비스킬 핸들러의 최종 완료 지점(플레이어+AI)에서 호출.
@@ -6176,6 +6194,7 @@ function processAttack(room, attackerIdx, atkPiece, atkCells, extraDamage, opts)
           if (!willDie && typeof addStatus === 'function'
               && (atkPiece.passives || []).includes('venomFang') && isPassiveActive(atkPiece, 'venomFang')) {
             const _poisoned = addStatus(defPiece, 'poison', { stacks: 1 }, room);
+            if (_poisoned) queuePoisonUp(room, 'fang', atkPiece.name, defIdx, dpi, defPiece);
             // ★ 독니 발동 말풍선 — 공격당 1회만(기존 패시브들과 동일 연출). 실제 중독이 걸린 경우만.
             if (_poisoned && room._attackPassivesFired && !room._attackPassivesFired.has('venomFang')) {
               emitToBoth(room, 'passive_alert', { type: 'poisoner', playerIdx: attackerIdx, msg: `독니 : 중독` });
@@ -6987,11 +7006,11 @@ function endTurn(room, opts) {
   // ★ Phase 3: 머쉬킨 진균 — 진균 지대에서 턴을 마친 유닛(아/적 무관)은 중독 스택 1 축적.
   //   "턴을 마친 유닛" = 방금 턴을 끝낸 플레이어의 살아있는 유닛 중 진균칸 위에 선 것.
   if (room.fungus && room.fungus.length && prevPlayer && prevPlayer.pieces) {
-    for (const p of prevPlayer.pieces) {
+    prevPlayer.pieces.forEach((p, pi) => {
       if (p.alive && p.col != null && room.fungus.some(f => f.col === p.col && f.row === p.row)) {
-        addStatus(p, 'poison', {}, room);
+        if (addStatus(p, 'poison', {}, room)) queuePoisonUp(room, 'fungus', null, prevPlayerIdx, pi, p);
       }
-    }
+    });
   }
 
   room.currentPlayerIdx = getNextPlayerIdx(room);
@@ -8086,7 +8105,10 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
           if (!t.alive || t.col == null) continue;
           if (!pcellSet.has(`${t.col},${t.row}`)) continue;
           if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
-          if (addStatus(t, 'poison', { stacks: 1 }, room)) poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
+          if (addStatus(t, 'poison', { stacks: 1 }, room)) {
+            poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
+            queuePoisonUp(room, 'cloud', piece.name, owi, dpi, t);
+          }
         }
       }
       result.msg = `맹독 구름: 범위 내 ${poisonedHits.length}명 중독`;
