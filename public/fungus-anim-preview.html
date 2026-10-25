@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>진균지대 연출</title>
+<!-- 인게임과 같은 파일만 사용: 보드·카드·도장·로그 = style.css, 진균 연출 = fungus-anim.js, 성게 도장 = poison-urchin.js -->
+<link rel="stylesheet" href="style.css?v=20261025i">
+<script src="poison-urchin.js?v=20261025i"></script>
+<script src="fungus-anim.js?v=20261025i"></script>
+<style>
+  /* 프리뷰 레이아웃 전용 */
+  body { background: var(--bg, #0f0f1a); margin: 0; padding: 14px 16px; overflow-x: hidden; display: block !important; min-height: 0 !important; }
+  .pv-head { text-align: center; margin-bottom: 10px; }
+  .pv-head h1 { margin: 0 0 4px; font-size: 1.15rem; color: var(--accent); letter-spacing: 0.04em; }
+  .pv-head p { margin: 0 auto; max-width: 760px; font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+  .pv-ctrl { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 6px 0 14px; }
+  .pv-ctrl button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 7px 12px; font-size: 0.8rem; cursor: pointer; }
+  .pv-ctrl button.main { border-color: #4d7c0f; color: #d9f99d; background: #1a2e05; }
+  .pv-main { display: flex; gap: 22px; justify-content: center; align-items: flex-start; flex-wrap: wrap; }
+  .pv-board-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .pv-note { font-size: 0.72rem; color: var(--muted); text-align: center; max-width: 300px; line-height: 1.45; }
+  .pv-side { width: 240px; }
+  .pv-side h3 { margin: 0 0 6px; }
+  .pv-log { margin-top: 6px; max-height: 150px; overflow: hidden; }
+  .pv-log .log-entry { font-size: 0.72rem; }
+</style>
+</head>
+<body>
+  <div class="pv-head">
+    <h1>진균지대 연출</h1>
+    <p>포자살포·확산의 진균지대 생성, 머쉬킨 페이즈의 스와이프 글로우, 진균지대 기본 아이들입니다. 보드·카드·도장·로그는 인게임 그대로이고, 연출은 게임과 같은 fungus-anim.js 를 그대로 실행합니다.</p>
+  </div>
+  <div class="pv-ctrl">
+    <button class="main" id="b-spore">① 포자살포 — 랜덤 2곳 곰팡이 발생</button>
+    <button class="main" id="b-spread">② 확산 — 기존 진균에서 번짐</button>
+    <button class="main" id="b-phase">③ 머쉬킨 페이즈 — 턴 종료</button>
+    <button id="b-reset">초기화</button>
+  </div>
+  <div class="pv-main">
+    <div class="pv-board-wrap">
+      <div class="center-panel"><div id="game-board" class="board"></div></div>
+      <div class="pv-note" id="pv-note">버튼을 눌러 재생하세요.</div>
+    </div>
+    <div class="pv-side side-panel left-panel">
+      <h3>테스터의 말</h3>
+      <div id="my-pieces-info"></div>
+      <div class="pv-log center-log-wrap"><div id="game-log"></div></div>
+    </div>
+  </div>
+
+<script>
+// ── 인게임 renderGameBoard / renderMyPieces 출력 마크업과 동일한 템플릿(실게임 캡처 기준) ──
+const COLS = 'ABCDE';
+const UNITS = [
+  { type: 'spearman', name: '창병', tier: 1, faction: 'royal', passive: '', hp: 4, maxHp: 4, atk: 1, col: 1, row: 1, stack: 1 },
+  { type: 'mushkin', name: '머쉬킨', tier: 3, faction: 'spirit', passive: '포자살포', hp: 3, maxHp: 3, atk: 1, col: 0, row: 3, stack: 0 },
+  { type: 'prince', name: '왕자', tier: 3, faction: 'royal', passive: '계승자', hp: 3, maxHp: 3, atk: 2, col: 3, row: 3, stack: 2 },
+];
+const INIT_FUNGUS = [{ col: 1, row: 1 }, { col: 2, row: 2 }, { col: 3, row: 3 }];
+let fungus = [];
+const FACTION = { royal: '왕실', spirit: '정령', villain: '악인' };
+const posName = (c, r) => `${COLS[r]}${c + 1}`;
+
+function renderBoard() {
+  const b = document.getElementById('game-board');
+  b.style.cssText = 'grid-template-columns: repeat(5, 56px); grid-template-rows: repeat(5, 56px); transition: border-color 0.5s, box-shadow 0.5s; border-color: rgb(59, 130, 246); border-width: 3px; box-shadow: rgba(59, 130, 246, 0.3) 0px 0px 15px, rgba(59, 130, 246, 0.05) 0px 0px 10px inset;';
+  let h = '';
+  for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
+    const u = UNITS.find(x => x.col === c && x.row === r);
+    const fz = fungus.some(f => f.col === c && f.row === r) ? ' cell-fungus' : '';
+    h += `<div class="cell${u ? ' has-piece' : ''}${fz}" data-col="${c}" data-row="${r}" style="width: 56px; height: 56px;"><span class="coord-label">${posName(c, r)}</span>`;
+    if (u) h += `
+        <div class="piece-marker ">
+          <span class="p-icon"><img class="p-gif" src="/art/${u.type}_idle.gif" alt=""></span>
+          <span class="p-hp">${u.hp}/${u.maxHp}</span>
+        </div>`;
+    h += `</div>`;
+  }
+  b.innerHTML = h;
+  FungusAnim.idle(b, fungus);   // 게임과 같이 렌더 후 아이들 동기화
+}
+// 게임과 같은 1회 재생 규칙 — 도장은 buildDamageOverlay 의 _stampAnimationsSeen(no-anim),
+//   단계 배지는 statusBadgesHtml 의 _stageSeen(단계가 실제로 오른 순간에만 sb-stack-bump).
+const stampSeen = new Set();
+const stageSeen = {};
+function cardHtml(u, stamped) {
+  let bump = '';
+  if (u.stack > 0) { if (u.stack > (stageSeen[u.type] || 0)) bump = ' sb-stack-bump'; stageSeen[u.type] = u.stack; }
+  const badge = u.stack > 0 && u.type !== 'mushkin'
+    ? `<div class="status-badges"><span class="status-badge poison"><i class="sb-ic">☣</i><span class="sb-label">중독</span> <i class="sb-stack${bump}">${u.stack}단계</i></span></div>` : '';
+  const noAnim = stampSeen.has(u.type) ? ' no-anim' : '';
+  if (stamped) stampSeen.add(u.type);
+  const stamp = stamped ? `<div class="dmg-stamp poison-up${noAnim}">${window.POISON_URCHIN_SVG}<span>중독<br>심화</span></div>` : '';
+  return `<div class="my-piece-card ${u.stack > 0 && u.type !== 'mushkin' ? 'poison-active' : ''} ${stamped ? 'turn-bright' : ''}" style="position: relative;">
+      ${stamp}
+      <div class="my-piece-header">
+        <span class="p-icon"><img src="/assets/icons/${u.type}.png" alt="" class="piece-icon-img " style="width:1.3em;height:1.3em;vertical-align:middle;object-fit:contain;" draggable="false"></span>
+        <strong class="">${u.name}</strong>
+        <span class="tier-badge">${u.tier}T</span>
+        <span class="tag-badge ${u.faction}" title="${FACTION[u.faction]}"><img class="tag-stamp" src="/assets/factions/${u.faction}.png" alt="${FACTION[u.faction]}"></span>
+      </div>
+      ${u.passive ? `<div class="piece-mini-headers"><span class="mini-header mini-header-passive">${u.passive}</span></div>` : ''}
+      <div class="hp-bar-bg hp-bar-with-text">
+        <div class="hp-bar" style="width:${u.hp / u.maxHp * 100}%"></div>
+        <span class="hp-bar-text">${u.hp}/${u.maxHp}</span>
+      </div>
+      <div class="piece-stat-row">
+        <span class="piece-stat-atk"><span class="stat-label">ATK</span> ${u.atk}</span>
+        <span class="my-piece-pos">${posName(u.col, u.row)}</span>
+      </div>
+      ${badge}
+    </div>`;
+}
+const stampedSet = new Set();
+function renderCards() {
+  document.getElementById('my-pieces-info').innerHTML = UNITS.map(u => cardHtml(u, stampedSet.has(u.type))).join('');
+}
+function log(msg, type) {
+  const l = document.getElementById('game-log');
+  l.innerHTML = `<div class="log-entry ${type}"><span class="turn-num">T6</span> ${msg}</div>` + l.innerHTML;
+}
+const note = (t) => { document.getElementById('pv-note').textContent = t; };
+const board = () => document.getElementById('game-board');
+let busy = false;
+// 게임과 동일한 정착 처리 — .cell-fungus 부여 (+ 기존 fungus-spawn 플래시)
+function settle(c) {
+  if (!fungus.some(f => f.col === c.col && f.row === c.row)) fungus.push({ col: c.col, row: c.row });
+  const el = board().querySelector(`.cell[data-col="${c.col}"][data-row="${c.row}"]`);
+  if (el) { el.classList.add('cell-fungus'); el.classList.remove('fungus-spawn'); void el.offsetWidth; el.classList.add('fungus-spawn'); }
+  FungusAnim.idle(board(), fungus);
+}
+function reset() {
+  fungus = INIT_FUNGUS.map(f => ({ ...f }));
+  stampedSet.clear(); stampSeen.clear();
+  UNITS.forEach(u => { u.stack = u.type === 'spearman' ? 1 : u.type === 'prince' ? 2 : 0; stageSeen[u.type] = u.stack; });
+  renderBoard(); renderCards();
+  document.getElementById('game-log').innerHTML = '';
+  note('버튼을 눌러 재생하세요.');
+}
+document.getElementById('b-reset').onclick = () => { if (!busy) reset(); };
+document.getElementById('b-spore').onclick = () => {
+  if (busy) return;
+  const empty = [];
+  for (let c = 0; c < 5; c++) for (let r = 0; r < 5; r++) if (!fungus.some(f => f.col === c && f.row === r)) empty.push({ col: c, row: r });
+  const pick = [];
+  for (let n = 0; n < 2 && empty.length; n++) pick.push(empty.splice(Math.floor(Math.random() * empty.length), 1)[0]);
+  busy = true; note(`포자살포 — ${pick.map(p => posName(p.col, p.row)).join(', ')} 진균 발생`);
+  FungusAnim.spawn(board(), pick, { onSettle: settle, onDone: () => { busy = false; } });
+};
+document.getElementById('b-spread').onclick = () => {
+  if (busy) return;
+  // 서버 확산과 같은 규칙 — 기존 진균칸마다 인접(상하좌우) 비진균칸 하나로 번짐
+  const before = fungus.slice(), cells = [];
+  const has = (c, r) => fungus.some(f => f.col === c && f.row === r) || cells.some(x => x.col === c && x.row === r);
+  for (const f of before) {
+    const adj = [[f.col + 1, f.row], [f.col - 1, f.row], [f.col, f.row + 1], [f.col, f.row - 1]]
+      .filter(([c, r]) => c >= 0 && c < 5 && r >= 0 && r < 5 && !has(c, r));
+    if (!adj.length) continue;
+    const [c, r] = adj[Math.floor(Math.random() * adj.length)];
+    cells.push({ col: c, row: r, from: { col: f.col, row: f.row } });
+  }
+  if (!cells.length) { note('확산할 빈칸이 없습니다 — 초기화하세요.'); return; }
+  busy = true; note(`확산 — ${cells.map(p => posName(p.from.col, p.from.row) + '→' + posName(p.col, p.row)).join(', ')}`);
+  FungusAnim.spawn(board(), cells, { onSettle: settle, onDone: () => { busy = false; } });
+};
+document.getElementById('b-phase').onclick = () => {
+  if (busy) return;
+  busy = true; stampedSet.clear(); stampSeen.clear(); renderCards();
+  note('머쉬킨 페이즈 — 턴을 마친 플레이어 유닛 중 진균지대 위 유닛만 중독 심화');
+  FungusAnim.sweep(board(), fungus, {
+    onCellGlow: (c) => {
+      const u = UNITS.find(x => x.col === c.col && x.row === c.row && x.type !== 'mushkin');   // 머쉬킨은 중독 면역
+      if (!u) return;
+      u.stack += 1; stampedSet.add(u.type); renderCards();
+      log(`진균지대에 노출되어 ${u.name}의 중독단계 상승`, 'dot-poison');
+    },
+    onDone: () => { busy = false; },
+  });
+};
+reset();
+</script>
+</body>
+</html>

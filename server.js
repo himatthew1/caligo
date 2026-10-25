@@ -428,7 +428,7 @@ function effectiveAttackType(piece) {
 }
 // ★ 중독 심화 알림 — 독니·맹독구름·진균지대로 중독 스택이 오른 순간 클라에 '중독 심화' 도장 + 로그.
 //   같은 원인의 동시 부여는 한 이벤트로 묶어, 그 원인의 연출(피격 도장·스킬 마법구·턴 전환) 뒤에 보낸다.
-const POISON_UP_DELAY = { fang: 1100, cloud: 2100, fungus: 500 };
+const POISON_UP_DELAY = { fang: 1100, cloud: 2100 };   // 진균지대 노출은 머쉬킨 페이즈(mushkin_phase)가 담당
 function queuePoisonUp(room, cause, sourceName, ownerIdx, pieceIdx, piece) {
   if (!room || room._headless || !piece) return;
   if (!room._poisonUpBatch) room._poisonUpBatch = {};
@@ -1688,7 +1688,7 @@ function placementTimeout(room) {
 function turnTimeout(room) {
   if (room.phase !== 'game') return;
   // ★ 폭발 체인/표식 페이즈·지속 피해 페이즈 처리 중 타이머 만료 → 짧은 지연 후 재시도 (chain이 끝나야 endTurn 가능)
-  if (room._phaseDeferredGameEndCheck || room._dotPhaseActive) {
+  if (room._phaseDeferredGameEndCheck || room._dotPhaseActive || (room._fungusBusyUntil || 0) > Date.now()) {
     room._turnTimeoutRetries = (room._turnTimeoutRetries || 0) + 1;
     if (room._turnTimeoutRetries >= 20) {
       // 최대 재시도 초과 (10초) — 플래그 강제 해제 후 진행
@@ -4039,6 +4039,7 @@ function teamPlacementTimeout(room) {
 // 팀전 게임 시작 — A1 먼저
 function startTeamGameFromRoom(room) {
   room._dotPhaseActive = false;   // 지속 피해 페이즈 잔재 초기화
+  room._mushkinPhaseActive = false; room._fungusBusyUntil = 0;   // 머쉬킨 페이즈·진균 연출 잔재 초기화
   clearTimer(room);
   room.phase = 'game';
   // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 '전' HP 스냅샷(1v1 startGameFromRoom 과 동일).
@@ -4730,6 +4731,7 @@ function transitionToPlacement(room) {
 function startGameFromRoom(room) {
   clearTimer(room);
   room._dotPhaseActive = false;   // 지속 피해 페이즈 잔재 초기화
+  room._mushkinPhaseActive = false; room._fungusBusyUntil = 0;   // 머쉬킨 페이즈·진균 연출 잔재 초기화
   room.phase = 'game';
   // ★ 게임 시작 안내 페이즈용 — 세팅 효과 적용 전 HP 스냅샷.
   const _setupBefore = room.players.map(pl => (pl.pieces || []).map(p => ({ hp: p.hp, maxHp: p.maxHp })));
@@ -4983,6 +4985,35 @@ function aiLogDmg(room, victim, defIdx, dmg, isStatus, attacker, attackerIdx) {
 //   패시브(오베론 요정왕·드라이어드 생장·그리폰 격노)는 여기에만 추가하면 전 경로에서 발동.
 //   opts.spUpdate: 'always'(기본) | 'unlessSuppressed'(스킬 컨텍스트 — skill_result 가 SP 일괄전달)
 //                | 'none'. 각 호출부의 기존 emit 동작을 보존한다.
+// ══ 진균지대 연출 타이밍 — public/fungus-anim.js 의 FungusAnim.T 와 반드시 같은 값 ══
+const FZ = {
+  SPORE_START: 1100,     // 포자살포: 피격 임팩트·도장 후 ② 시작(클라 기준)
+  SPORE_CAST: 1000,      // 포자살포 ②: 암전 + 발동 말풍선 + 팝업
+  SPAWN_STAGGER: 180, SPAWN_SOURCE_LEAD: 260, SPAWN_SETTLE: 700, SPAWN_FADE: 380,
+  SWEEP_STEP: 120, SWEEP_CELL: 820,
+  SKILL_LEAD: 1000,      // 확산: 스킬 시전 마법구 비행 후 생성 시작(클라 기준)
+};
+const fzSpawnMs = (n, dir) => (dir ? FZ.SPAWN_SOURCE_LEAD : 0) + FZ.SPAWN_SETTLE + FZ.SPAWN_FADE + FZ.SPAWN_STAGGER * Math.max(0, n - 1);
+// 진균 연출 진행 중 — 턴 종료·AI 다음 행동·지속피해 다음 틱을 이 시각까지 미룸.
+function holdFungusBusy(room, ms) {
+  const until = Date.now() + ms;
+  room._fungusBusyUntil = Math.max(room._fungusBusyUntil || 0, until);
+  room._animPhaseEndsAt = Math.max(room._animPhaseEndsAt || 0, until);
+  room._aiNextActionEarliest = Math.max(room._aiNextActionEarliest || 0, until);
+  room._aiEndTurnEarliest = Math.max(room._aiEndTurnEarliest || 0, until);
+}
+function emitFungusSpawn(room, cause, ownerIdx, piece, cells, msg) {
+  if (!room || room._headless || !cells || !cells.length) return;
+  const pieceIdx = room.players[ownerIdx] ? room.players[ownerIdx].pieces.indexOf(piece) : -1;
+  emitToBoth(room, 'fungus_spawn', { cause, ownerIdx, pieceIdx, cells, msg, startIn: FZ.SPORE_START, castMs: FZ.SPORE_CAST });
+  holdFungusBusy(room, FZ.SPORE_START + FZ.SPORE_CAST + fzSpawnMs(cells.length, false) + 200);
+}
+// 머쉬킨 페이즈 스와이프 길이 — 진균칸 대각선 범위 × 단계 + 칸 글로우 + 도장 여유
+function mushkinPhaseMs(fungus) {
+  if (!fungus || !fungus.length) return 0;
+  const diags = fungus.map(f => f.col + f.row);
+  return (Math.max(...diags) - Math.min(...diags)) * FZ.SWEEP_STEP + FZ.SWEEP_CELL + 500;
+}
 function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
   if (!victim) return;
   opts = opts || {};
@@ -5080,7 +5111,9 @@ function applyDamageTriggers(room, victim, ownerIdx, dmg, opts) {
     //   ★ 사용자 지적: 메시지의 '확산' 이 액티브 스킬 '확산'(진균 인접 확장)과 헷갈림 →
     //     피격 시 새 진균 '발생' 임을 명확히(스킬명과 겹치지 않게).
     if (_spawned > 0) {
-      emitToBoth(room, 'passive_alert', { type: 'mushkin', playerIdx: ownerIdx, msg: `포자살포 : 피격 → 진균 ${_spawned}곳 발생` });
+      // ★ 포자살포 3단계 연출(사용자 요청): ① 피격(도장·모션) → ② 암전+발동 말풍선+팝업 → ③ 새 진균지대 생성 애니.
+      //   상태는 지금 확정하되, 클라는 fungus_spawn 을 받는 즉시 새 칸을 '연출 대기'로 숨겼다가 ③에서 드러낸다.
+      emitFungusSpawn(room, 'spore', ownerIdx, victim, room.fungus.slice(-_spawned), `포자살포 : 피격 → 진균 ${_spawned}곳 발생`);
       emitToSpectators(room, 'spectator_log', { msg: `포자살포 : 진균 ${_spawned}곳 발생`, type: 'passive', playerIdx: ownerIdx });
     }
   }
@@ -5452,7 +5485,7 @@ function runDotPhase(room, idx) {
       // 사망기폭 체인은 flushPhase 가 사망 GIF 이후로 순차 재생 — 끝난 뒤 다음 유닛.
       flushPhase(room, () => {
         if (!rooms[room.id] || room.phase !== 'game') return;
-        const wait = hadDetonation ? 600 : stepMs;
+        const wait = Math.max(hadDetonation ? 600 : stepMs, ((room._fungusBusyUntil || 0) - Date.now()) + 200);   // 포자살포 연출이 끝난 뒤 다음 유닛
         if (isGameEndingState(room)) return endByGameOver(wait);
         setTimeout(step, wait);
       });
@@ -6957,6 +6990,9 @@ function flushPendingTwinOppMove(room, idx) {
 }
 
 function endTurn(room, opts) {
+  // ★ 머쉬킨 페이즈 진행 중 재진입(타임아웃·중복 호출) 무시 — 페이즈가 끝나면 스스로 이어서 턴을 넘긴다.
+  if (room._mushkinPhaseActive) return;
+  const afterMushkin = !!(opts && opts._afterMushkin);
   const isTimeout = !!(opts && opts.timeout);
   // AI 워치독 정리
   if (room._aiWatchdog) {
@@ -6981,7 +7017,7 @@ function endTurn(room, opts) {
   //   3. 행동 또는 스킬 사용 + 자의 종료 → 토스트 없음 (정상 턴 종료)
   //   skillsUsedBeforeAction 만 봐서는 자유 스킬 (정찰·정비·신성 등) 누락 → _anySkillUsedThisTurn 사용.
   const prevPlayer = room.players[prevPlayerIdx];
-  if (prevPlayer && prevPlayer.alive !== false) {
+  if (!afterMushkin && prevPlayer && prevPlayer.alive !== false) {
     const usedAction = !!prevPlayer.actionDone
       || !!prevPlayer.actionUsedSkillReplace
       || prevPlayer._lastActionType === 'move'
@@ -7003,14 +7039,32 @@ function endTurn(room, opts) {
     // 자의 종료 + 행동/스킬 사용 → 토스트 없음 (정상)
   }
 
-  // ★ Phase 3: 머쉬킨 진균 — 진균 지대에서 턴을 마친 유닛(아/적 무관)은 중독 스택 1 축적.
-  //   "턴을 마친 유닛" = 방금 턴을 끝낸 플레이어의 살아있는 유닛 중 진균칸 위에 선 것.
-  if (room.fungus && room.fungus.length && prevPlayer && prevPlayer.pieces) {
+  // ★ Phase 3: 머쉬킨 진균 — 진균 지대에서 턴을 마친 유닛은 중독 스택 1 축적.
+  //   "턴을 마친 유닛" = 방금 턴을 끝낸 플레이어 '본인 소유'의 살아있는 유닛 중 진균칸 위에 선 것(보드 전체 X).
+  //   ★ 머쉬킨 페이즈(사용자 요청): 진균지대가 있으면 다음 차례 전에 페이즈 진행 — 진균칸이 왼쪽 위→오른쪽 아래로
+  //     쓸리듯 글로우되고, 그 칸이 빛나는 순간 노출 유닛에 중독 심화 도장·로그. 끝나면 정상적으로 다음 차례.
+  if (!afterMushkin && room.fungus && room.fungus.length && prevPlayer && prevPlayer.pieces) {
+    const exposed = [];
     prevPlayer.pieces.forEach((p, pi) => {
       if (p.alive && p.col != null && room.fungus.some(f => f.col === p.col && f.row === p.row)) {
-        if (addStatus(p, 'poison', {}, room)) queuePoisonUp(room, 'fungus', null, prevPlayerIdx, pi, p);
+        if (addStatus(p, 'poison', {}, room)) exposed.push({ ownerIdx: prevPlayerIdx, pieceIdx: pi, name: p.name, type: p.type, tier: p.tier || 9, stacks: statusStacks(p, 'poison'), col: p.col, row: p.row });
       }
     });
+    if (!room._headless) {
+      const ms = mushkinPhaseMs(room.fungus);
+      room._mushkinPhaseActive = true;
+      room._dotPhaseActive = true;   // 페이즈 동안 모든 조작 차단(강제 시청) — socket.use·AI 가드 공용
+      clearTimer(room);
+      emitToBoth(room, 'mushkin_phase', { playerIdx: prevPlayerIdx, fungus: room.fungus, exposed });
+      for (const e of exposed) emitToSpectators(room, 'spectator_log', { msg: `진균지대에 노출되어 ${e.name}의 중독단계 상승`, type: 'passive', playerIdx: prevPlayerIdx });
+      setTimeout(() => {
+        room._mushkinPhaseActive = false;
+        room._dotPhaseActive = false;
+        if (!rooms[room.id] || room.phase !== 'game' || room.currentPlayerIdx !== prevPlayerIdx) return;
+        endTurn(room, Object.assign({}, opts || {}, { _afterMushkin: true }));
+      }, ms);
+      return;
+    }
   }
 
   room.currentPlayerIdx = getNextPlayerIdx(room);
@@ -8608,9 +8662,15 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
         if (!adj.length) continue;
         const [c, r] = adj[Math.floor(Math.random() * adj.length)];
         room.fungus.push({ col: c, row: r });
-        newlyAdded.push({ col: c, row: r });
+        newlyAdded.push({ col: c, row: r, from: { col: f.col, row: f.row } });   // ★ 번져 나온 원래 칸(방향 연출용)
       }
       spendSP(room, playerIdx, cost);
+      result.data.fungusSpread = newlyAdded;
+      if (!room._headless && newlyAdded.length) {
+        // ★ 확산 연출 — 결과 이벤트보다 먼저 보내 클라가 새 칸을 '연출 대기'로 숨긴 뒤, 시전 마법구 후 방향 번짐.
+        emitToBoth(room, 'fungus_spawn', { cause: 'spread', ownerIdx: playerIdx, pieceIdx, cells: newlyAdded, startIn: FZ.SKILL_LEAD });
+        holdFungusBusy(room, FZ.SKILL_LEAD + fzSpawnMs(newlyAdded.length, true) + 200);
+      }
       result.msg = `확산: 진균 지대 ${newlyAdded.length}칸 증가`;
       result.oppMsg = `확산: 상대가 진균 지대 확장`;
       result.data.fungusCells = room.fungus.slice();
@@ -14422,6 +14482,7 @@ io.on('connection', (socket) => {
         bodyguardHits,
         decreeRoyalMoves: player._decreeRoyalMoves || 0, decreeUnit: player._decreeUnit || null,   // ★ 전령 칙명 잔여 행동권(칙명 공격 후 갱신)
         troopQueue: player._troopQueue ? player._troopQueue.map(q => ({ ownerIdx: q.ownerIdx, pieceIdx: q.pieceIdx, type: q.type })) : null,   // ★ 부대공격 잔여 큐
+        fungus: room.fungus || [],   // ★ 적 머쉬킨 포자살포 — 공격자 시점 진균 상태(새 칸은 fungus_spawn 연출 후 표시)
       });
       if (defender.socketId !== 'AI') {
         io.to(defender.socketId).emit('being_attacked', {
@@ -14619,7 +14680,7 @@ io.on('connection', (socket) => {
     }
     // ★ 폭발 체인/표식 페이즈 처리 중 end_turn 차단 — 타이머로 예약된 bomb_detonated emit 들이
     //   다음 턴에 잘못 발동되는 현상(상태 desync) 방지.
-    if (room._phaseDeferredGameEndCheck || room._dotPhaseActive) {
+    if (room._phaseDeferredGameEndCheck || room._dotPhaseActive || room._mushkinPhaseActive || (room._fungusBusyUntil || 0) > Date.now()) {
       socket.emit('err', { msg: '효과 처리 중입니다. 잠시 후 다시 시도하세요.' }); return;
     }
     // ★ 트랩 지연 발동 중 end_turn 차단 — 700ms setTimeout 트랩이 완료되기 전 턴 종료 방지

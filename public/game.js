@@ -4616,6 +4616,7 @@ socket.on('game_start', (data) => {
   S.pendingDemolish = data.pendingDemolish || [];  // ★ 공성파괴자 파괴 예약칸
   S.fungus = data.fungus || [];                    // ★ 머쉬킨 진균
   S._fungusShownKeys = new Set();                   // 진균 스폰 애니 추적 초기화
+  S._fungusPending = new Set();                     // 진균 생성 연출 대기 칸 초기화
   S._stageSeen = {};                                // 중독/불행 단계 애니 추적 초기화
   S._remainsFacing = {};  // 사망 GIF 방향 캐시 — 새 게임 초기화
   S.attackLog = [];
@@ -5451,7 +5452,8 @@ function _applyFungusCells() {
   try {
     const board = document.getElementById('game-board');
     if (!board) return;
-    const set = new Set((S.fungus || []).map(f => `${f.col},${f.row}`));
+    const _vis = _fungusVisible();
+    const set = new Set(_vis.map(f => `${f.col},${f.row}`));
     const prev = S._fungusShownKeys || new Set();
     board.querySelectorAll('.cell').forEach(cell => {
       const key = cell.dataset.col + ',' + cell.dataset.row;
@@ -5463,6 +5465,7 @@ function _applyFungusCells() {
       }
     });
     S._fungusShownKeys = set;
+    if (window.FungusAnim) window.FungusAnim.idle(board, _vis);   // 진균지대 기본 아이들(파티클)
   } catch (e) {}
 }
 // ★ 맹독 구름 살포 애니 — ＋ 전용 범위 각 칸에 녹색 독구름 퍼프(중앙부터 파문).
@@ -5592,7 +5595,10 @@ socket.on('poison_stack_up', ({ cause, sourceName, targets }) => {
   const why = cause === 'fang' ? `${sourceName || '독살꾼'}의 공격에 의해`
     : cause === 'cloud' ? `${sourceName || '독살꾼'}의 맹독구름에 의해`
     : '진균지대에 노출되어';
-  targets.forEach((tg, n) => setTimeout(() => {
+  targets.forEach((tg, n) => setTimeout(() => _applyPoisonUp(tg, why), n * POISON_UP_GAP_MS));
+});
+// 중독 심화 1건 — 로그 + 프로필 성게 도장 + 중독 배지 단계 상승(+ 그 턴 밝게).
+function _applyPoisonUp(tg, why) {
     try { addLog(`${why} ${tg.name}의 중독단계 상승`, 'dot-poison'); } catch (e) {}
     if (S.isSpectator) return;
     const setStacks = (pc) => {
@@ -5607,11 +5613,68 @@ socket.on('poison_stack_up', ({ cause, sourceName, targets }) => {
     if (!S.poisonUpThisTurn) S.poisonUpThisTurn = {};
     const key = S.isTeamMode ? `${tg.ownerIdx}:${tg.pieceIdx}` : (t ? t.key : null);
     if (key) S.poisonUpThisTurn[key] = true;
+    try { _persistTurnBright(tg.ownerIdx, tg.pieceIdx); } catch (e) {}   // 중독 심화된 유닛 프로필은 밝게
     try {
       if (S.isTeamMode && typeof renderTeamProfiles === 'function') renderTeamProfiles();
       else { renderMyPieces(); if (typeof renderOppPieces === 'function') renderOppPieces(); }
     } catch (e) {}
-  }, n * POISON_UP_GAP_MS));
+}
+
+// ══ 진균지대 연출 (fungus-anim.js · 프리뷰 fungus-anim-preview.html 과 동일) ══
+//   S._fungusPending: 생성 연출 대기 중인 칸 — 상태엔 있지만 연출(③)이 정착할 때까지 보드에 안 그림.
+function _fungusKey(c) { return `${c.col},${c.row}`; }
+function _fungusVisible() {
+  const pend = S._fungusPending;
+  return (S.fungus || []).filter(f => !(pend && pend.has(_fungusKey(f))));
+}
+function _fungusSettle(c) {
+  if (S._fungusPending) S._fungusPending.delete(_fungusKey(c));
+  if (!S.fungus) S.fungus = [];
+  if (!S.fungus.some(f => f.col === c.col && f.row === c.row)) S.fungus.push({ col: c.col, row: c.row });   // 상태 이벤트에 진균이 안 실려 와도 반영
+  try { _applyFungusCells(); } catch (e) {}
+}
+// 새 진균지대 생성 — 포자살포(①피격 → ②암전·발동 말풍선·팝업 → ③생성 애니) / 확산(스킬 시전 후 방향 번짐)
+socket.on('fungus_spawn', ({ cause, ownerIdx, pieceIdx, cells, msg, startIn, castMs }) => {
+  if (!Array.isArray(cells) || !cells.length) return;
+  if (!S._fungusPending) S._fungusPending = new Set();
+  for (const c of cells) S._fungusPending.add(_fungusKey(c));   // 즉시 숨김(뒤이은 상태 갱신이 먼저 그리지 않게)
+  try { _applyFungusCells(); } catch (e) {}
+  const play = () => {
+    const board = document.getElementById('game-board');
+    if (!board || !window.FungusAnim) { cells.forEach(_fungusSettle); return; }
+    window.FungusAnim.spawn(board, cells, { onSettle: _fungusSettle });
+  };
+  if (cause === 'spore') {
+    setTimeout(() => {
+      // ② 암전 + 머쉬킨 카드 스포트라이트 + 발동 말풍선 + 팝업(토스트)·로그
+      let card = null;
+      try { card = (typeof pieceIdx === 'number' && pieceIdx >= 0) ? _findPieceCard(ownerIdx, pieceIdx) : null; } catch (e) {}
+      try { startSkillCastDim(card, S.isTeamMode ? { playerIdx: ownerIdx, pieceIdx } : null); } catch (e) {}
+      try { _renderPassiveAlert({ type: 'mushkin', playerIdx: ownerIdx, msg }); } catch (e) {}
+      setTimeout(() => {
+        try { endSkillCastDim(card); } catch (e) {}
+        play();   // ③ 새 진균지대 생성
+      }, castMs || 1000);
+    }, startIn || 1100);
+  } else {
+    setTimeout(play, startIn || 1000);
+  }
+});
+// 머쉬킨 페이즈 — 턴 종료 직후 다음 차례 전. 진균칸이 왼쪽 위→오른쪽 아래로 쓸리듯 글로우,
+//   그 칸이 빛나는 순간 노출 유닛(턴을 마친 플레이어 소유)에 중독 심화. 페이즈 동안 조작 잠금.
+socket.on('mushkin_phase', ({ fungus, exposed }) => {
+  const board = document.getElementById('game-board');
+  if (!board || !window.FungusAnim) { (exposed || []).forEach(e => _applyPoisonUp(e, '진균지대에 노출되어')); return; }
+  if (!S.isSpectator) setDotPhaseLock(true);
+  const visible = (fungus || S.fungus || []).filter(f => !(S._fungusPending && S._fungusPending.has(_fungusKey(f))));
+  window.FungusAnim.sweep(board, visible, {
+    onCellGlow: (c) => {
+      for (const e of (exposed || [])) if (e.col === c.col && e.row === c.row) _applyPoisonUp(e, '진균지대에 노출되어');
+    },
+    onDone: () => { if (!S.isSpectator) setDotPhaseLock(false); },
+  });
+  // 진균 밖(연출 대기 칸 등)에 걸친 노출 유닛은 페이즈 중 한 번에 처리(유실 방지)
+  for (const e of (exposed || [])) if (!visible.some(f => f.col === e.col && f.row === e.row)) _applyPoisonUp(e, '진균지대에 노출되어');
 });
 socket.on('dot_phase_end', () => { setDotPhaseLock(false); });
 // ★ 지속 피해 페이즈 강제 시청 — 페이즈 동안 모든 조작(클릭·터치·키보드) 차단. 내 턴/상대 턴 무관.
@@ -15583,8 +15646,8 @@ function renderGameBoard() {
       cell.classList.add('cell-destroyed');
     }
     // ── 진균 지대 (머쉬킨) 렌더링 — 통행 가능, 턴 종료 시 중독 ──
-    if (S.fungus && S.fungus.some(f => f.col === col && f.row === row)) {
-      cell.classList.add('cell-fungus');
+    if (S.fungus && S.fungus.some(f => f.col === col && f.row === row) && !(S._fungusPending && S._fungusPending.has(`${col},${row}`))) {
+      cell.classList.add('cell-fungus');   // 생성 연출 대기 칸은 연출 정착 때 표시
     }
     // ── 파괴 예약칸 (공성파괴자) — 다음 시전자 턴 시작에 파괴 예정 경고 ──
     if (S.pendingDemolish && S.pendingDemolish.some(d => d.col === col && d.row === row)) {
@@ -16044,6 +16107,7 @@ function renderGameBoard() {
   }
   // ★ 오베론 카운터 구 — 지속 오버레이 갱신(위치만; 카운트 변화 시에만 구 재생성 → 공전 유지).
   if (typeof refreshOberonOrbs === 'function') { try { refreshOberonOrbs(); } catch (e) {} }
+  if (window.FungusAnim) { try { window.FungusAnim.idle(document.getElementById('game-board'), _fungusVisible()); } catch (e) {} }
   // 공격 확정 floating 버튼 재배치 — 셀 재생성 / piece 위치 변경 / 선택 변경 대응.
   if (typeof refreshAttackConfirmBtn === 'function') refreshAttackConfirmBtn();
 
