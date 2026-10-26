@@ -6011,7 +6011,7 @@ body.team-mode .placement-opp-panel {
   margin-bottom: 0;
 }
 .dot-phase-overlay.active {
-  animation: stalemateIn 2.2s cubic-bezier(.17,.67,.32,1.28) both;
+  animation: stalemateIn 1.5s cubic-bezier(.17,.67,.32,1.28) both;   /* DOT_BANNER_CLIENT_MS 와 같음 */
 }
 .dot-phase-overlay.dot-poison { background: radial-gradient(ellipse at center, rgba(20,83,45,0.7), rgba(0,0,0,0.75)); }
 .dot-phase-overlay.dot-poison .game-start-title {
@@ -6320,13 +6320,20 @@ body.dot-phase-active #action-bar { filter: grayscale(0.6) brightness(0.75); }
   border-color: rgba(245, 232, 255, 0.9);
   animation: dmg-stamp-in 0.4s ease-out 1;
 }
-.dmg-stamp.curse .curse-tag {
+.dmg-stamp.curse .curse-tag,
+.dmg-stamp.poison .curse-tag {
   display: block;
   font-size: 0.55rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   margin-top: 1px;
   opacity: 0.9;
+}
+/* 중독 피해 도장 — 녹색(보드 중독 도장 .board-dmg-stamp.poison 과 같은 색) + 작은 '중독' 태그 */
+.dmg-stamp.poison {
+  background: linear-gradient(135deg, rgba(63,98,18,0.97), rgba(132,204,22,0.97));
+  border-color: rgba(236,252,203,0.9);
+  animation: dmg-stamp-in 0.4s ease-out 1;
 }
 /* 충성(호위무사 대신 받음) 데미지 도장 — 파란색 + 작은 '충성' 태그 */
 .dmg-stamp.loyalty {
@@ -6403,13 +6410,13 @@ body.dot-phase-active #action-bar { filter: grayscale(0.6) brightness(0.75); }
   50%  { opacity: 1; transform: rotate(-8deg)  scale(0.92); }
   100% { opacity: 1; transform: rotate(-12deg) scale(1); }
 }
-/* 중독 심화 도장 — 원형 성게 말풍선(독액 녹색). 윤곽은 poison-urchin.js 의 SVG(52×52 정원, 등폭·등길이 가시). 글자 두 줄.
+/* 중독 심화 도장 — 원형 성게 말풍선(독액 녹색). 윤곽은 poison-urchin.js 의 SVG(44×44 정원, 등폭·등길이 가시). 글자 두 줄.
    다른 도장이 있으면 그 아래 빈 슬롯(stack-2/3)에 붙음. */
 .dmg-stamp.poison-up {
   top: 2px; right: 2px;
-  width: 52px; height: 52px;
+  width: 44px; height: 44px;
   padding: 0;
-  font-size: 0.66rem; line-height: 1.08; text-align: center; white-space: normal;
+  font-size: 0.58rem; line-height: 1.05; text-align: center; white-space: normal;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; box-shadow: none;
   color: #ecfccb;
@@ -6435,6 +6442,7 @@ body.dot-phase-active #action-bar { filter: grayscale(0.6) brightness(0.75); }
    pop-in 애니메이션 없이 그 자리에 그대로 고정 표시 (이동/공격 시 도장 깜빡임 방지). */
 .dmg-stamp.no-anim,
 .dmg-stamp.curse.no-anim,
+.dmg-stamp.poison.no-anim,
 .dmg-stamp.loyalty.no-anim,
 .dmg-stamp.heal.no-anim {
   animation: none !important;

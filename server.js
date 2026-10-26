@@ -205,7 +205,7 @@ const CHARACTERS = {
     { type:'mermaid', name:'샘의 인어', tier:1, atk:1, icon:'🧜', tag:'spirit', desc:'제자리와 상단',
       skills:[{id:'sirenSong', name:'사이렌 송', cost:2, replacesAction:true, desc:'자신 제외 보드 전체 0.5 피해(룰 데미지)'}] },
     { type:'poisoner', name:'독살꾼', tier:1, atk:1, icon:'🧪', tag:'villain', desc:'제자리와 X자 대각선',
-      skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'전용 범위 안의 모든 유닛을 중독시킵니다'}], passives:['venomFang'] },
+      skills:[{id:'venomCloud', name:'맹독 구름', cost:2, replacesAction:true, desc:'전용 범위 안의 적 중독 3단계 상승'}], passives:['venomFang'] },
     { type:'thief', name:'도적', tier:1, atk:1, icon:'🦹', tag:null, desc:'좌우 세로 2칸',
       skills:[{id:'steal', name:'강탈', cost:0, replacesAction:true, desc:'보유 SP가 상대 이하일 때 상대 공유 SP 1 탈취'}] },
     { type:'fortuneTeller', name:'포춘텔러', tier:1, atk:0.5, icon:'🔮', tag:null, desc:'십자',
@@ -296,7 +296,7 @@ const CHARACTERS = {
     { type:'siegeBreaker', name:'공성파괴자', tier:3, atk:2, icon:'🔨', tag:'royal', desc:'제자리와 하단 1칸',
       skills:[{id:'demolish', name:'파괴공작', cost:4, replacesAction:false, desc:'한 칸 지정 → 다음 자신의 턴 시작과 동시에 영구 파괴(그 위 유닛 소멸)'}] },
     { type:'mushkin', name:'머쉬킨', tier:3, atk:0.5, icon:'🍄', tag:'spirit', noRemains:true, desc:'자기 줄과 하단 2×3',
-      passives:['sporeSpread'],
+      passives:['sporeSpread', 'toxicBeing'],   // toxicBeing = 특성 '독성생물'(중독 면역 — addStatus 의 mushkin 분기)
       skills:[{id:'spread', name:'확산', cost:2, replacesAction:false, desc:'모든 진균지대의 인접 칸 중 하나씩 새 진균지대로 확산'}] },
     { type:'oberon', name:'오베론', tier:3, atk:1, icon:'🧝', tag:'spirit', desc:'제자리와 하단 대각 2칸',
       passives:['faeKing'],
@@ -2399,7 +2399,7 @@ function aiTeamExecSkill(room, idx, pidx, skillId, params) {
       skillUsed: {
         icon: skillPiece.icon,
         name: skillPiece.name,
-        skillName: skillPiece.skillName,
+        skillName: skillNameOf(skillPiece, skillId),
       },
       // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용 (AI 시전 경로)
       hits: result.data?.hits || null,
@@ -5317,7 +5317,7 @@ function checkCurseRemoval(room, piece, ownerIdx) {
 // 각 유닛의 피격/사망 부가효과(applyDamageTriggers·handleDeath→사망기폭)는 다음 유닛 데미지 전에 처리.
 // ══════════════════════════════════════════════════════════════════
 const DOT_BLOCKED_EVENTS = new Set(['move_piece', 'attack', 'use_skill', 'detonate_bomb', 'skip_twin_move', 'request_ai_move', 'cancel_decree', 'end_turn', 'surrender']);
-const DOT_BANNER_MS = 2400;      // 클라 페이즈 문구 오버레이(2.2s) + 여유
+const DOT_BANNER_MS = 1500;      // 문구 → 첫 피해 텀(클라 DOT_BANNER_CLIENT_MS 와 같음, 사용자 요청으로 단축)
 const DOT_STEP_MS = 1500;        // 피격 모션 + 도장 인지
 const DOT_DEATH_STEP_MS = 2700;  // 피격 + 사망 GIF + 유해 생성
 const DOT_ALERT_GAP_MS = 850;    // 클라 패시브 말풍선 체인 간격(CHAIN_ALERT_GAP)
@@ -6503,6 +6503,13 @@ function emitSPUpdate(room) {
 // ── Turn Management ─────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 
+// ★ 실제 사용한 스킬 이름 — 스킬 여러 개인 유닛(화약상·포춘텔러·마녀·악령술사·오베론)은 piece.skillName(첫 스킬)이
+//   아니라 skillId 로 찾아야 말풍선이 실제 시전 스킬과 일치한다.
+function skillNameOf(piece, skillId) {
+  if (!piece) return '';
+  const m = skillId && Array.isArray(piece.skills) ? piece.skills.find(s => s.id === skillId) : null;
+  return (m && m.name) || piece.skillName || '';
+}
 // 관전자용 스킬 메시지 빌드 — result.msg 기반으로 플레이어 이름 추가
 function buildSpectatorSkillMsg(playerName, piece, result) {
   const msg = result.msg || '';
@@ -8141,7 +8148,8 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
 
     // ── POISONER: 맹독 구름 (공격 범위 내 모든 적 중독 · 행동소비) ──
     case 'poisoner': {
-      // ★ PPT: 맹독 구름 = 전용 십자 범위(공격범위 X대각 아님) · 범위 안의 '모든 유닛'(아군/적) 중독.
+      // ★ 리워크(사용자 지시): 맹독 구름 = 전용 십자 범위(SP·이름·범위 동일) 안의 '적'만 중독 3단계 상승.
+      //   미중독 적은 3단계, 이미 중독이면 +3단계.
       spendSP(room, playerIdx, cost);
       player.actionUsedSkillReplace = true;
       player.actionDone = true;
@@ -8151,22 +8159,21 @@ function executeSkill(room, playerIdx, pieceIdx, skillId, params, crossOwnerIdx)
         .filter(c => inBounds(c.col, c.row, bounds));
       const pcellSet = new Set(cloud.map(c => `${c.col},${c.row}`));
       const poisonedHits = [];
-      for (let owi = 0; owi < room.players.length; owi++) {
+      for (const owi of getEnemyIndices(room, playerIdx)) {
         const op = room.players[owi]; if (!op) continue;
         for (let dpi = 0; dpi < op.pieces.length; dpi++) {
           const t = op.pieces[dpi];
-          if (t === piece) continue;   // ★ 시전자(독살꾼) 자신은 면역 — 발동 주체는 안전.
           if (!t.alive || t.col == null) continue;
           if (!pcellSet.has(`${t.col},${t.row}`)) continue;
           if (t.statusEffects && t.statusEffects.some(e => e.type === 'shadow')) continue;
-          if (addStatus(t, 'poison', { stacks: 1 }, room)) {
+          if (addStatus(t, 'poison', { stacks: 3 }, room)) {
             poisonedHits.push({ col: t.col, row: t.row, defPieceIdx: dpi, defOwnerIdx: owi });
             queuePoisonUp(room, 'cloud', piece.name, owi, dpi, t);
           }
         }
       }
-      result.msg = `맹독 구름: 범위 내 ${poisonedHits.length}명 중독`;
-      result.oppMsg = `맹독 구름: 중독`;
+      result.msg = `맹독 구름: 적 ${poisonedHits.length}명 중독 3단계 상승`;
+      result.oppMsg = `맹독 구름: 중독 3단계 상승`;
       result.data.poisonedCells = poisonedHits;
       result.data.atkCells = cloud;
       break;
@@ -14777,6 +14784,7 @@ io.on('connection', (socket) => {
         msg: result.skipLog ? '' : result.msg,
         data: result.data,
         success: true,
+        skillUsed: { skillName: skillNameOf(skillPiece, skillId) },   // ★ 시전자 말풍선 = 실제 사용 스킬
         effects: result.data,
         yourPieces: pieceSummary(room.players[idx].pieces, room),
         sp: room.sp,
@@ -14804,7 +14812,7 @@ io.on('connection', (socket) => {
         sp: room.sp,
         instantSp: room.instantSp,
         skillUsed: {
-          icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+          icon: skillPiece.icon, name: skillPiece.name, skillName: skillNameOf(skillPiece, skillId),
         },
         // ★ 데미지 스킬 hits — 셀 hit 애니 + 본체 도장용. defOwnerIdx + defPieceIdx 포함.
         hits: result.data?.hits || null,
@@ -14852,6 +14860,7 @@ io.on('connection', (socket) => {
         msg: result.skipLog ? '' : result.msg,
         data: result.data,
         success: true,
+        skillUsed: { skillName: skillNameOf(skillPiece, skillId) },   // ★ 시전자 말풍선 = 실제 사용 스킬
         effects: result.data,
         yourPieces: pieceSummary(room.players[idx].pieces, room),
         oppPieces: oppPieceSummary(room.players[1 - idx].pieces, room),
@@ -14879,7 +14888,7 @@ io.on('connection', (socket) => {
           remains: room.remains || [], destroyedCells: room.destroyedCells || [], fungus: room.fungus || [], pendingDemolish: room.pendingDemolish || [],
           msg: result.oppMsg || null,
           skillUsed: {
-            icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName,
+            icon: skillPiece.icon, name: skillPiece.name, skillName: skillNameOf(skillPiece, skillId),
           },
           casterPieceIdx: pieceIdx,         // 상대 시점에서 시전자 카드 spotlight 용
           // 상대 측에서도 회복 애니메이션 — 시전자 piece 인덱스 그대로 전달 (상대 oppPieces 동일 순서)
@@ -14918,7 +14927,7 @@ io.on('connection', (socket) => {
           casterPieceIdx: pieceIdx,
           sp: room.sp,
           instantSp: room.instantSp,
-          skillUsed: { icon: skillPiece.icon, name: skillPiece.name, skillName: skillPiece.skillName },
+          skillUsed: { icon: skillPiece.icon, name: skillPiece.name, skillName: skillNameOf(skillPiece, skillId) },
           // 분신 비행 애니메이션 — 좌표 정보 (있을 때만)
           twinJoin: result.data?.twinJoin || null,
           witchFly: result.data?.witchFly || null,

@@ -2,9 +2,9 @@
 //   실제 픽셀 크기(W×H) 그대로 그려 늘림 왜곡이 없다: 타원 둘레를 '호 길이' 기준으로 등분해
 //   가시 밑변 폭이 모두 같고, 가시는 둘레의 법선 방향으로 같은 길이만큼 뻗는다.
 (function () {
-  const W = 52, H = 52;          // 도장 박스 크기(px) — CSS .dmg-stamp.poison-up 와 동일(정원)
+  const W = 44, H = 44;          // 도장 박스 크기(px) — CSS .dmg-stamp.poison-up 와 동일(정원)
   const SPIKES = 12;             // 가시 수 — 성기게
-  const SPIKE_LEN = 4.5;         // 가시 길이(px) — 짧게
+  const SPIKE_LEN = 4;         // 가시 길이(px) — 짧게
   const cx = W / 2, cy = H / 2;
   const a = cx - SPIKE_LEN - 2, b = cy - SPIKE_LEN - 2;   // 몸통 타원 반지름(테두리 여유 2px)
   // 타원 둘레를 촘촘히 샘플링해 누적 호 길이 테이블 생성

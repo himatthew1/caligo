@@ -5560,9 +5560,10 @@ function _renderPoisonTick({ col, row, damage, newHp, destroyed, ownerIdx, piece
     t.pc.hp = newHp;
     try {
       if (damage > 0) {
-        if (!S.bodyDamageThisTurn) S.bodyDamageThisTurn = {};
-        if (typeof _clearOtherStampTypes === 'function') _clearOtherStampTypes(t.key, 'body', ['loyalty']);
-        S.bodyDamageThisTurn[t.key] = (S.bodyDamageThisTurn[t.key] || 0) + damage;
+        // ★ 중독 피해는 중독 전용 녹색 도장(보드 .board-dmg-stamp.poison 과 같은 색) — 빨강(본체 피해)과 분리.
+        if (!S.poisonDamageThisTurn) S.poisonDamageThisTurn = {};
+        if (typeof _clearOtherStampTypes === 'function') _clearOtherStampTypes(t.key, 'poison', ['loyalty']);
+        S.poisonDamageThisTurn[t.key] = (S.poisonDamageThisTurn[t.key] || 0) + damage;
         if (visible && col != null) showBoardDamageStamp(col, row, 'poison', damage);
       }
     } catch (e) {}
@@ -6120,13 +6121,15 @@ socket.on('turn_event', (payload) => {
     const kind = (type === 'poison_phase') ? 'poison' : 'curse';
     setDotPhaseLock(true);
     addLog(msg, `dot-${kind}`);
-    runFullscreenLocked(() => playDotPhaseAlert(kind, msg), 2200);
+    runFullscreenLocked(() => playDotPhaseAlert(kind, msg), DOT_BANNER_CLIENT_MS);
     return;
   }
   showSkillToast(`⚡ ${msg}`, false, undefined, 'event');
   addLog(`⚡ ${msg}`, 'system');
 });
 // 지속 피해 페이즈 풀스크린 문구 — 1대1 대치와 같은 오버레이 톤, 중독=녹색·저주=보라.
+//   ★ 길이는 서버 DOT_BANNER_MS(문구 → 첫 피해) 와 맞춤 — 문구가 걷히는 순간 첫 피해.
+const DOT_BANNER_CLIENT_MS = 1500;
 function playDotPhaseAlert(kind, msg) {
   let overlay = document.getElementById('dot-phase-overlay');
   if (!overlay) {
@@ -6139,7 +6142,7 @@ function playDotPhaseAlert(kind, msg) {
   void overlay.offsetWidth;
   overlay.classList.add('active');
   try { if (kind === 'curse') playSfxCurseDamage(); else playSfxPassive(); } catch (e) {}
-  setTimeout(() => { overlay.classList.remove('active'); overlay.classList.add('hidden'); }, 2200);
+  setTimeout(() => { overlay.classList.remove('active'); overlay.classList.add('hidden'); }, DOT_BANNER_CLIENT_MS);
 }
 
 // 스킬 시전 시 SP 차감 집중 연출 — SP 바 위에서 마법 구슬이 시전자 → 상대 숫자로 이동
@@ -8109,7 +8112,7 @@ function playSpStealOrb(victim) {
   setTimeout(() => { orb.remove(); }, 820);
 }
 
-socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves, decreeUnit }) => {
+socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp, boardObjects, remains, actionDone, actionUsedSkillReplace, skillsUsed, data, effects, pieceIdx, casterPieceIdx, decreeRoyalMoves, decreeUnit, skillUsed }) => {
   // ★ 스킬로 사망 발생 시 game_over 조기 노출 방지 가드 (동기 — _pendingDeathCells 세팅 전 브리지)
   _markSkillDeathIncoming(data && data.hits);
   // ★ 맹독 구름 살포 애니 — ＋ 전용 범위(data.atkCells)에 녹색 독구름. SP 비행 후 재생.
@@ -8202,7 +8205,8 @@ socket.on('skill_result', ({ msg, success, yourPieces, oppPieces, sp, instantSp,
     const matchedSkill = casterPc && lastSkillId
       ? (casterPc.skills || []).find(s => s.id === lastSkillId)
       : null;
-    const finalName = matchedSkill?.name || skName;
+    // ★ 서버가 보낸 '실제 사용 스킬'이 최우선 — 스킬 여러 개 유닛(흉조/운명변곡 등)이 첫 SP 스킬명으로 잘못 나오던 문제.
+    const finalName = skillUsed?.skillName || matchedSkill?.name || skName;
     if (finalName) {
       const stype = getSkillTypeFromPiece(casterPc, finalName);
       showSkillCastBubble(casterCard, finalName, stype);
@@ -10811,7 +10815,7 @@ const mkTraitHead = (name) => ({
 });
 // ★ 특성(=회색 미니헤더)으로 취급할 패시브 id/이름. 나머지 패시브는 스카이블루.
 //   passives 배열에 실린 특성: 질주(charge)·낡은 심장(oldHeart). 소멸/HP부여불가/자유배치는 CHAR_DETAILS 주입.
-const TRAIT_PASSIVE_KEYS = new Set(['charge', 'oldHeart', '질주', '낡은 심장', '소멸', 'HP 부여 불가', '자유 배치']);
+const TRAIT_PASSIVE_KEYS = new Set(['charge', 'oldHeart', 'toxicBeing', '질주', '낡은 심장', '독성생물', '소멸', 'HP 부여 불가', '자유 배치']);
 const isTraitPassive = (pidOrName) => TRAIT_PASSIVE_KEYS.has(pidOrName);
 const passiveHeadCls = (pidOrName) => isTraitPassive(pidOrName) ? 'mini-header-trait' : 'mini-header-passive';
 // ★ 단계(스택)형 상태이상 — "N단계"로 표기 + 단계 상승 시 바운스.
@@ -11145,8 +11149,8 @@ const CHAR_DETAILS = {
   },
   poisoner: {
     blocks: [
-      { ...mkPassiveHead('독니'), color: '#f59e0b', desc: `공격한 적을 ${stBadge('poison', '중독')}시킵니다. 중독된 적은 행동할 때마다 중첩당 0.1 피해를 받습니다.` },
-      { ...mkSkillHead('맹독 구름', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: `전용 범위 안의 모든 유닛을 ${stBadge('poison', '중독')}시킵니다.` },
+      { ...mkPassiveHead('독니'), color: '#f59e0b', desc: `공격한 적을 ${stBadge('poison', '중독')}시킵니다. 중독된 유닛은 매 차례 시작에 단계당 0.1 피해를 받습니다.` },
+      { ...mkSkillHead('맹독 구름', 'tag-action', '행동소비형'), sp: 2, color: '#a78bfa', desc: `전용 범위 안의 적을 ${stBadge('poison', '중독')} 3단계 상승시킵니다.` },
     ],
     flavor: '소리 없이 스며드는 독의 장인. 그의 손끝이 스치기만 해도 몸속에서 죽음이 퍼진다.',
   },
@@ -11159,7 +11163,7 @@ const CHAR_DETAILS = {
   },
   fortuneTeller: {
     blocks: [
-      { ...mkSkillHead('흉조', 'tag-action', '행동소비형'), sp: 1, color: '#a78bfa', desc: `무작위 유닛 1명에게 ${stBadge('misfortune', '불행')}을 겁니다. 불행한 유닛은 받는 피해가 1 늘고, 겹쳐 쌓입니다.` },
+      { ...mkSkillHead('흉조', 'tag-action', '행동소비형'), sp: 0, color: '#a78bfa', desc: `무작위 유닛 1명에게 ${stBadge('misfortune', '불행')}을 겁니다. 불행한 유닛은 받는 피해가 1 늘고, 겹쳐 쌓입니다.` },
       { ...mkSkillHead('운명변곡', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: '아군 1명의 모든 상태 이상을 적 1명에게 옮깁니다.' },
     ],
     flavor: '수정구 너머로 정해진 운명을 읽고, 때로는 그 실을 비틀어 재앙을 떠넘긴다.',
@@ -11258,6 +11262,7 @@ const CHAR_DETAILS = {
   },
   mushkin: {
     blocks: [
+      { ...mkTraitHead('독성생물'), color: '#f59e0b', desc: '머쉬킨은 중독되지 않습니다.' },
       { ...mkPassiveHead('포자살포'), color: '#f59e0b', desc: '피해를 받으면 보드의 두 칸이 진균 지대가 됩니다. 진균 지대에서 턴을 마친 유닛은 중독됩니다.' },
       { ...mkSkillHead('확산', 'tag-free', '자유시전형'), sp: 2, color: '#a78bfa', desc: '모든 진균 지대의 옆 칸으로 진균을 넓힙니다.' },
     ],
@@ -16977,6 +16982,7 @@ function snapshotTurnStartHps(preCurseHps) {
   S.healThisTurn = {};         // 회복 — 매 턴 초기화 (녹색 도장 + HP 바 녹색 오버레이)
   S.protectedHitsThisTurn = {}; // 보호 피격 (데미지 0) — 매 턴 초기화
   S.poisonUpThisTurn = {};      // 중독 심화(성게 도장) — 매 턴 초기화
+  S.poisonDamageThisTurn = {};  // 중독 피해(녹색 도장) — 매 턴 초기화
   // ★ 사용자 요청: 도장 애니메이션은 해당 턴에 최초 1회만. 매 턴 시작 시 추적 셋 초기화 →
   //   buildDamageOverlay 가 한번 도장 렌더하면 셋에 등록, 다음 재렌더부터 no-anim 클래스 부여.
   S._stampAnimationsSeen = {};
@@ -16993,6 +16999,7 @@ function _clearOtherStampTypes(key, exceptType, alsoKeep) {
   const maps = {
     body: S.bodyDamageThisTurn,
     curse: S.curseDamageThisTurn,
+    poison: S.poisonDamageThisTurn,
     heal: S.healThisTurn,
     loyalty: S.loyaltyDamageThisTurn,
     protected: S.protectedHitsThisTurn,
@@ -17189,6 +17196,7 @@ function buildDamageOverlay(key, hp, maxHp) {
   const bodyDmg    = (S.bodyDamageThisTurn    && S.bodyDamageThisTurn[key])    || 0;
   const loyaltyDmg = (S.loyaltyDamageThisTurn && S.loyaltyDamageThisTurn[key]) || 0;
   const curseDmg   = (S.curseDamageThisTurn   && S.curseDamageThisTurn[key])   || 0;
+  const poisonDmg  = (S.poisonDamageThisTurn  && S.poisonDamageThisTurn[key])  || 0;
   const healAmt    = (S.healThisTurn          && S.healThisTurn[key])          || 0;
   const isProtected = (S.protectedHitsThisTurn && S.protectedHitsThisTurn[key]) || false;
   const fmtDmg = (d) => Number.isInteger(d) ? `${d} 데미지` : `${d.toFixed(1)} 데미지`;
@@ -17203,8 +17211,11 @@ function buildDamageOverlay(key, hp, maxHp) {
     stamp += `<div class="dmg-stamp${seenCls('body')}">${fmtDmg(bodyDmg)}</div>`;
     markSeen('body');
   } else if (curseDmg > 0) {
-    stamp += `<div class="dmg-stamp curse${seenCls('curse')}">${fmtDmg(curseDmg)}<span class="curse-tag">저주</span></div>`;
+    stamp += `<div class="dmg-stamp curse${seenCls('curse')}">${fmtDmg(curseDmg)}</div>`;   // 저주 페이즈로 구분되므로 태그 없이 보라 도장만
     markSeen('curse');
+  } else if (poisonDmg > 0) {
+    stamp += `<div class="dmg-stamp poison${seenCls('poison')}">${fmtDmg(poisonDmg)}</div>`;
+    markSeen('poison');
   } else if (isProtected) {
     // ★ 사용자 요청: 갑주무사/백작 등 데미지 0 으로 줄어든 피격 — "0 데미지" 도장 (보호됨 시각화).
     stamp += `<div class="dmg-stamp protected${seenCls('protected')}">0 데미지</div>`;
@@ -17220,7 +17231,7 @@ function buildDamageOverlay(key, hp, maxHp) {
   //         heal-stack-1 (body/curse 만 있을 때) / heal-stack-2 (loyalty 만 있을 때) /
   //         heal-stack-3 (둘 다 있을 때) 클래스로 슬롯 분기.
   if (healAmt > 0) {
-    const hasTopStamp = bodyDmg > 0 || curseDmg > 0;        // top:6px 슬롯 점유
+    const hasTopStamp = bodyDmg > 0 || curseDmg > 0 || poisonDmg > 0;        // top:6px 슬롯 점유
     const hasMidStamp = loyaltyDmg > 0;                      // top:32px 슬롯 점유
     // top:6 비어있으면 기본 위치, body/curse 있으면 32 (loyalty 위 자리), 둘 다 있으면 58 (가장 아래)
     const stackCls = hasTopStamp && hasMidStamp ? ' heal-stack-3'
@@ -17231,7 +17242,7 @@ function buildDamageOverlay(key, hp, maxHp) {
   }
   // ★ 중독 심화 — 독니·맹독구름·진균지대로 중독 단계가 오른 턴. 원형 성게 말풍선, 다른 도장 아래 빈 슬롯에.
   if (S.poisonUpThisTurn && S.poisonUpThisTurn[key]) {
-    const used = (bodyDmg > 0 || curseDmg > 0 || isProtected ? 1 : 0) + (loyaltyDmg > 0 ? 1 : 0) + (healAmt > 0 ? 1 : 0);
+    const used = (bodyDmg > 0 || curseDmg > 0 || poisonDmg > 0 || isProtected ? 1 : 0) + (loyaltyDmg > 0 ? 1 : 0) + (healAmt > 0 ? 1 : 0);
     const slotCls = used >= 2 ? ' stack-3' : used === 1 ? ' stack-2' : '';
     stamp += `<div class="dmg-stamp poison-up${seenCls('poisonUp')}${slotCls}">${window.POISON_URCHIN_SVG || ''}<span>중독<br>심화</span></div>`;
     markSeen('poisonUp');
@@ -20695,7 +20706,7 @@ function getPassiveLabel(passiveId) {
     // ★ 새 팩션 패시브
     charge: '이동할 때 직선으로 1~2칸 질주하며 지나온 칸의 적에게 1 피해 · 일반 공격 불가',
     valor: '보드 위 유해 하나당 공격력 +0.5 · 유해 칸으로 이동 가능',
-    venomFang: '공격한 적을 중독시킴 · 중독된 적은 행동할 때마다 중첩만큼 피해',
+    venomFang: '공격한 적을 중독시킴 · 중독된 유닛은 매 차례 시작에 단계당 0.1 피해',
     silverHorn: '모든 상태 이상에 면역',
     rage: '피해를 받으면 활성화 · 적 1명에게 1 피해',
     growth: '피해를 받을 때마다 공격 사거리가 1칸 늘어남',
@@ -20703,6 +20714,7 @@ function getPassiveLabel(passiveId) {
     enthrall: '공격한 적을 이교단으로 만듦 · 이교단은 이단자에게 피해 불가 · 이단자가 죽으면 풀림',
     suppression: '왕실이 아닌 모든 유닛의 스킬 SP 비용 1 증가',
     oldHeart: '지급받은 체력보다 2 낮게 시작',
+    toxicBeing: '머쉬킨은 중독되지 않음',
     behead: '공격한 적을 처형해 패시브를 무력화 · 언데드는 즉시 파괴',
     patron: '게임 시작 시 모든 왕실 아군의 최대 체력 1 증가',
     successor: '살아있는 다른 왕실 하나당 공격력 +0.5 · 적 왕실도 셈',
@@ -20729,7 +20741,7 @@ function getPassiveName(passiveId) {
     growth: '생장', might: '괴력', enthrall: '현혹', suppression: '탄압',
     successor: '계승자', patron: '후원자', rottenSoul: '부패한 영혼',
     darkVeil: '어둠의 장막', sporeSpread: '포자살포', faeKing: '요정왕',
-    charge: '질주', oldHeart: '낡은 심장', behead: '참수',
+    charge: '질주', oldHeart: '낡은 심장', toxicBeing: '독성생물', behead: '참수',
   };
   return map[passiveId] || passiveId;
 }
@@ -21114,6 +21126,7 @@ function renderSpectatorGame(gs) {
     S.bodyDamageThisTurn = {};
     S.loyaltyDamageThisTurn = {};
     S.curseDamageThisTurn = {};
+    S.poisonDamageThisTurn = {};
     S.healThisTurn = {};
   }
   S._specPrevTurn = gs.turnNumber;
