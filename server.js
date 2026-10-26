@@ -721,7 +721,17 @@ function bestCavalryDash(room, ownerIdx, piece) {
   const _belief = (c, r) => (_brain && _brain.probMap && _brain.probMap[r]) ? (_brain.probMap[r][c] || 0) : 0;
   const _markedAt = (c, r) => enemyIdxs.some(ei => (room.players[ei]?.pieces || []).some(p => p.alive && p.col === c && p.row === r
     && (p.statusEffects || []).some(e => e.type === 'mark') && !(p.statusEffects || []).some(e => e.type === 'shadow')));
-  const enemyAt = (c, r) => _markedAt(c, r) || _belief(c, r) >= 6;   // 표식(확정) 또는 강한 믿음만
+  // ★ 0 데미지 회피 — 질주는 고정 1 피해. 확정 위치 적은 개별 예측, 숨은 적은 '피해 가능 비율'이 0 이면 무시.
+  const _zi = (typeof aiZeroInfo === 'function') ? aiZeroInfo(room, ownerIdx, piece, 1) : null;
+  const _zk = (c, r) => `${c},${r}`;
+  const enemyAt = (c, r) => {
+    if (_zi && _zi.knownDmg.has(_zk(c, r))) return true;
+    if (_zi && _zi.knownZero.has(_zk(c, r))) return false;          // 0 데미지만 나는 확정 적
+    if (_markedAt(c, r)) return true;
+    return (!_zi || _zi.nz > 0) && _belief(c, r) >= 6;              // 강한 믿음 + 피해 줄 수 있는 숨은 적 존재
+  };
+  // 질주 가치 — 일반 공격 점수와 같은 척도(경로 칸 믿음의 best + 0.35×나머지, 확정 적=10).
+  const cellVal = (c, r) => (_zi && _zi.knownDmg.has(_zk(c, r))) ? 10 : (enemyAt(c, r) ? _belief(c, r) * (_zi ? _zi.nz : 1) : 0);
   let best = null, bestHits = 0, bestDist = 0;
   for (const [dc, dr] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
     for (let dist = 1; dist <= 2; dist++) {
@@ -730,14 +740,42 @@ function bestCavalryDash(room, ownerIdx, piece) {
       if (isCellDestroyed(room, tc, tr)) break;
       if (allyAt(tc, tr)) continue;                       // 아군 위엔 착지 불가(그 너머 거리는 계속 시도)
       // 경로(제자리 제외 ~ 도착)의 적 수 계산
-      let hits = 0;
-      for (let s = 1; s <= dist; s++) if (enemyAt(piece.col + dc * s, piece.row + dr * s)) hits++;
+      // ★ 질주는 출발칸(자기 칸)도 타격 — 같은 칸에 0 데미지 적이 겹쳐 있으면 어떤 질주도 0 데미지 전투.
+      let hits = 0, crossesZero = !!(_zi && _zi.knownZero.has(_zk(piece.col, piece.row)) && !_zi.knownDmg.has(_zk(piece.col, piece.row)));
+      for (let s = 1; s <= dist; s++) {
+        const cc = piece.col + dc * s, rr = piece.row + dr * s;
+        if (enemyAt(cc, rr)) hits++;
+        if (_zi && _zi.knownZero.has(_zk(cc, rr)) && !_zi.knownDmg.has(_zk(cc, rr))) crossesZero = true;
+      }
+      if (crossesZero) continue;   // ★ 0 데미지만 나는 적(칸)을 지나는 질주 = 0 데미지 전투 → 금지
       if (hits > bestHits || (hits === bestHits && hits > 0 && dist > bestDist)) {
-        best = { col: tc, row: tr }; bestHits = hits; bestDist = dist;
+        let vb = 0, vs = 0, known = false;
+        for (let s2 = 1; s2 <= dist; s2++) {
+          const cc = piece.col + dc * s2, rr = piece.row + dr * s2;
+          const v = cellVal(cc, rr); vs += v; if (v > vb) vb = v;
+          if (_zi && _zi.knownDmg.has(_zk(cc, rr))) known = true;
+        }
+        best = { col: tc, row: tr, score: vb + 0.35 * (vs - vb), known }; bestHits = hits; bestDist = dist;
       }
     }
   }
   return bestHits > 0 ? best : null;   // 적을 하나도 못 때리면 질주하지 않음
+}
+// 기마병 외 아군 유닛의 이번 턴 최선 공격 점수(제자리 공격 기준) — 질주 선점 여부 판단용.
+function _aiBestOtherAttackScore(room, ownerIdx, cav) {
+  let best = -Infinity;
+  for (const p of (room.players[ownerIdx]?.pieces || [])) {
+    if (!p.alive || p === cav || p.type === 'cavalry' || p.col == null) continue;
+    if ((p.statusEffects || []).some(e => e.type === 'betray')) continue;
+    const ex = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
+    let sc = -Infinity;
+    try {
+      sc = (room.mode === 'team') ? aiTeamScoreAttack(room, ownerIdx, p, ex)
+        : (room.aiBrain ? aiScoreAttack(room.aiBrain, p, room, ex) : -Infinity);
+    } catch (e) {}
+    if (sc > best) best = sc;
+  }
+  return best;
 }
 // ★ AI 기마병 질주 결정 — 공격 우선(경로 적 타격), 없으면 표식 적으로 접근 리포지션.
 //   기마병은 일반 이동이 없으므로 이 결정이 곧 기마병의 유일한 능동 행동. 반환 {pieceIdx, col, row, offensive} 또는 null.
@@ -756,6 +794,9 @@ function aiCavalryDashDecision(room, ownerIdx) {
     const piece = p.pieces[pi];
     if (!piece.alive || piece.type !== 'cavalry' || piece.col == null) continue;
     const o = bestCavalryDash(room, ownerIdx, piece);   // 경로 적 타격 착지칸(없으면 null)
+    // ★ 기마병 편향 수정 — 질주가 다른 유닛의 최선 공격보다 나을 때만 선점(확정 위치 적 타격은 항상 허용).
+    //   이전엔 질주 판단이 모든 결정보다 먼저 돌아 '질주 가능하면 무조건 질주' → 기마병만 쓰는 편향.
+    if (o && !o.known && _aiBestOtherAttackScore(room, ownerIdx, piece) >= (o.score || 0)) continue;
     if (o) { if (!off) off = { pieceIdx: pi, col: o.col, row: o.row, offensive: true }; continue; }
     if (!known.length) continue;   // 표식 적 없음 → 리포지션 안 함(blind 질주 자제)
     let tgt = known[0], td = Infinity;
@@ -778,6 +819,13 @@ function aiCavalryDashDecision(room, ownerIdx) {
 function aiRunCavalryDash(room, ownerIdx, cav) {
   const dr = doCavalryDash(room, ownerIdx, cav.pieceIdx, cav.col, cav.row);
   if (!dr.ok) return false;
+  // ★ 기마병 편향 수정 — 질주 결과(경로 칸 명중/빗나감)를 믿음맵에 반영. 이전엔 반영이 없어 빗나간 칸의
+  //   믿음이 그대로 남아 같은 칸을 왔다갔다 질주했음. (일반 공격의 aiProcessAttackResult 와 동일.)
+  try {
+    const _b = (room.mode === 'team' && typeof getTeamBrain === 'function') ? getTeamBrain(room, getTeamOf(room, ownerIdx)) : room.aiBrain;
+    const _path = ((dr.dash && dr.dash.pathCells) || []).slice();   // 출발칸 포함(질주는 자기 칸도 타격)
+    if (_b && _path.length) aiProcessAttackResult(_b, _path, dr.hits || [], room.players[ownerIdx].pieces[cav.pieceIdx]);
+  } catch (e) {}
   const dashKilled = (dr.hits || []).filter(h => h.destroyed);
   if (dashKilled.length > 0) setKillInfo(room, 'attack', room.players[ownerIdx].pieces[cav.pieceIdx]?.name || '기마병', dashKilled.map(k => ({ name: k.revealedName })));
   if (room.mode === 'team') {
@@ -2264,11 +2312,19 @@ function aiTeamScoreAttack(room, idx, piece, extra) {
   const _undeadCells = _canBehead ? null : new Set(
     aiKnownEnemies(room, idx).filter(e => e.marked && e.piece && e.piece.type === 'undead')
       .map(e => `${e.col},${e.row}`));
+  // ★ 0 데미지 전투 회피 — 1v1 aiScoreAttack 과 동일.
+  const _zi = aiZeroInfo(room, idx, piece);
+  let _anyDamageable = false;
   for (const c of cells) {
-    if (_cultSkip && _cultSkip.has(`${c.col},${c.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
-    if (_undeadCells && _undeadCells.has(`${c.col},${c.row}`)) continue;   // ★ 확인된 언데드 칸 = 무가치
-    const p = brain.probMap[c.row]?.[c.col] || 0; sum += p; if (p > best) best = p;
+    const _k = `${c.col},${c.row}`;
+    if (_cultSkip && _cultSkip.has(_k)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
+    if (_undeadCells && _undeadCells.has(_k)) continue;   // ★ 확인된 언데드 칸 = 무가치
+    if (_zi.knownZero.has(_k) && !_zi.knownDmg.has(_k)) continue;   // ★ 0 데미지만 나는 확정 칸 = 무가치
+    if (_zi.knownDmg.has(_k) || _zi.nz > 0) _anyDamageable = true;
+    const p = (brain.probMap[c.row]?.[c.col] || 0) * (_zi.knownDmg.has(_k) ? 1 : _zi.nz);
+    sum += p; if (p > best) best = p;
   }
+  if (!_anyDamageable) return -Infinity;   // ★ 누구에게도 피해 불가 → 절대 금지
   // ★ 공격 커밋 가중(attackAggro) — 기대값(0~1)을 이동 보너스(도주/접근 등 두 자릿수)와 겨루게 상향.
   //   best 가 여전히 확률맵이라 '있을 법한' 칸에만 반응 → 블라인드 난사 아님, 날카로운 예측 공격.
   let score = (best + 0.35 * (sum - best)) * (W.attackAggro || 1);
@@ -3229,6 +3285,7 @@ function aiTeamTakeTurn(room, idx) {
         if (piece.statusEffects && piece.statusEffects.some(e => e.type === 'shadow')) continue;   // 그림자=제외(팀 루프 규칙 일치)
         if (piece.type === 'cavalry' || _SINGLE.has(piece.type)) continue;
         if (_effectiveAtkForAi(piece, room, idx) <= 0) continue;
+        if (aiNonZeroFrac(room, idx, piece) <= 0) continue;   // ★ 숨은 적 누구에게도 0 데미지 → 색적 공격 금지
         // danger 로 배제하지 않음(색적기 dangerMap 은 전부 투기적) — 1v1 과 동일.
         const _ex = { toggleState: piece.toggleState, growth: piece._rangeGrowth || 0, growthArms: piece._growthArms };
         const cs = getAttackCells(piece.type, piece.col, piece.row, bounds, _ex)
@@ -9302,6 +9359,96 @@ function aiIsMarked(piece) {
 //   때려봐야 무가치. 오직 소멸 효과(참수/파괴/도굴/종언)로만 제거된다. AI 는 언데드를 공세 유인(공격 타겟·
 //   추격·믿음맵 앵커)에서 제외하되, 위협맵(회피)에는 그대로 유지 → "죽어라 패지 말고, 위치 알면 사거리만 피함".
 //   단 일반 '공격'으로 언데드를 실제 소멸시키는 유일 경로 = 처형(behead) 패시브 → 그 유닛에겐 언데드가 고가치 타겟.
+// ══ AI '0 데미지 전투' 회피 (사용자 절대규칙) ══
+//   데미지를 0 만 줄 수 있는 공격은 무조건 피한다. ① resolveDamage 의 감쇄 규칙을 부작용 없이 그대로 따라
+//   예측(그림자·이교도→이단자·행운·아이언스킨·가호·폭정·언데드 불사·실효ATK 0 등)하고, ② 예상 못 한 0 데미지가
+//   실제로 한 번 나면 그 공격자→피격자 조합을 기억해 다시는 반복하지 않는다. 1v1·팀전 공용.
+function _aiPieceKey(room, piece) {
+  if (!room || !piece) return null;
+  for (let i = 0; i < room.players.length; i++) {
+    const j = (room.players[i].pieces || []).indexOf(piece);
+    if (j >= 0) return `${i}:${j}`;
+  }
+  return null;
+}
+// 공격자 atk 가 피격자 def 에게 줄 예상 피해(부작용 없음). base 미지정 = 실효 공격력(질주는 1 고정).
+function aiPredictDamage(room, atkIdx, atk, def, base) {
+  if (!atk || !def || !def.alive) return 0;
+  const dk = _aiPieceKey(room, def);
+  if (dk && atk._aiZeroVs && atk._aiZeroVs.has(dk)) return 0;          // ② 이미 0 데미지를 확인한 조합
+  const on = (p, id) => (typeof isPassiveActive !== 'function') || isPassiveActive(p, id);
+  const st = (p, t) => !!(p.statusEffects && p.statusEffects.some(e => e.type === t));
+  let dmg = (base != null) ? base : _effectiveAtkForAi(atk, room, atkIdx);
+  if (atk.type === 'monk' && def.tag === 'villain' && on(atk, 'grace')) dmg = 3;
+  if (st(def, 'shadow')) return 0;
+  if (atk._cultOf != null && def.type === 'heretic') return 0;
+  if (st(def, 'luck')) return 0;
+  if (typeof statusStacks === 'function') dmg += statusStacks(def, 'misfortune') || 0;
+  if (def.type === 'armoredWarrior' && on(def, 'ironSkin')) dmg -= 0.5;
+  if (def.type === 'monk' && atk.tag === 'villain' && on(def, 'grace')) dmg = 0.5;
+  if ((def.passives || []).includes('tyranny') && on(def, 'tyranny') && (atk.tier === 1 || atk.tier === 2)) dmg -= 0.5;
+  // 언데드 — 일반 피해로는 소멸하지 않음(참수만 의미 있음) → 참수 없는 공격은 0 취급.
+  if ((def.passives || []).includes('rottenSoul') && !_aiUnitDestroysUndeadOnAttack(atk)) return 0;
+  return Math.max(0, dmg);
+}
+// 이 공격자가 '위치를 모르는' 적에게 피해를 줄 수 있는 비율(0~1). 0 = 숨은 적 누구를 맞혀도 0 데미지.
+function aiNonZeroFrac(room, ownerIdx, atk, base) {
+  const hidden = aiKnownEnemies(room, ownerIdx).filter(e => !e.marked);
+  if (!hidden.length) return 0;
+  let n = 0;
+  for (const e of hidden) if (aiPredictDamage(room, ownerIdx, atk, e.piece, base) > 0) n++;
+  return n / hidden.length;
+}
+// 공격 칸 집합의 0 데미지 판정 정보 — known: 표식(위치 확정) 적 칸별 피해 가능 여부, nz: 숨은 적 피해 비율.
+const AI_ZERO_CELL_TURNS = 8;   // 0 데미지가 난 칸을 '무가치'로 기억하는 턴 수(언데드처럼 눌러앉는 적 대비)
+function aiZeroInfo(room, ownerIdx, atk, base) {
+  const knownDmg = new Set(), knownZero = new Set();
+  for (const e of aiKnownEnemies(room, ownerIdx)) {
+    if (!e.marked || e.col == null) continue;
+    (aiPredictDamage(room, ownerIdx, atk, e.piece, base) > 0 ? knownDmg : knownZero).add(`${e.col},${e.row}`);
+  }
+  const brain = (room.mode === 'team' && typeof getTeamBrain === 'function') ? getTeamBrain(room, getTeamOf(room, ownerIdx)) : room.aiBrain;
+  if (brain && brain._zeroCells && !_aiUnitDestroysUndeadOnAttack(atk)) {
+    for (const k in brain._zeroCells) {
+      if ((brain.turnCount || 0) - brain._zeroCells[k] > AI_ZERO_CELL_TURNS) { delete brain._zeroCells[k]; continue; }
+      if (!knownDmg.has(k)) knownZero.add(k);
+    }
+  }
+  return { knownDmg, knownZero, nz: aiNonZeroFrac(room, ownerIdx, atk, base) };
+}
+// 실제 공격 결과로 학습 — 맞혔는데 0 데미지(호위무사 대리피격 제외)면 그 조합을 기억해 반복 금지.
+const AI_ZERO_STATS = { zeroHits: 0, repeats: 0 };   // 검증용 계측(셀프플레이 하니스가 읽음)
+function aiLearnZeroHits(atk, hitResults, brain) {
+  if (!atk || !Array.isArray(hitResults)) return;
+  // ★ 칸 기억 — 위치를 모르는 적(언데드·그림자 등)에게 0 데미지가 난 칸은 몇 턴 동안 '0 데미지 칸'으로 취급
+  //   (같은 칸을 또 때리는 반복 방지). 그 칸에서 피해가 난 적이 있으면 기억하지 않음.
+  if (brain) {
+    if (!brain._zeroCells) brain._zeroCells = {};
+    const dmgCells = new Set(hitResults.filter(h => h && ((h.damage || 0) > 0 || h.destroyed)).map(h => `${h.col},${h.row}`));
+    for (const h of hitResults) {
+      if (!h || h.redirectedToBodyguard || h.destroyed || (h.damage || 0) > 0 || h.col == null) continue;
+      const k = `${h.col},${h.row}`;
+      if (!dmgCells.has(k)) brain._zeroCells[k] = brain.turnCount || 0;
+    }
+  }
+  {
+    const real = hitResults.filter(h => h && !h.redirectedToBodyguard && h.defOwnerIdx != null && h.defPieceIdx != null);
+    if (real.length && real.every(h => !((h.damage || 0) > 0) && !h.destroyed)) {
+      AI_ZERO_STATS.pureZero = (AI_ZERO_STATS.pureZero || 0) + 1;
+      if (atk._aiZeroVs && real.every(h => atk._aiZeroVs.has(`${h.defOwnerIdx}:${h.defPieceIdx}`))) {
+        AI_ZERO_STATS.pureRepeat = (AI_ZERO_STATS.pureRepeat || 0) + 1;
+      }
+    }
+  }
+  for (const h of hitResults) {
+    if (!h || h.redirectedToBodyguard || h.destroyed) continue;
+    if ((h.damage || 0) > 0 || h.defOwnerIdx == null || h.defPieceIdx == null) continue;
+    if (!atk._aiZeroVs) atk._aiZeroVs = new Set();
+    const k = `${h.defOwnerIdx}:${h.defPieceIdx}`;
+    AI_ZERO_STATS.zeroHits++; if (atk._aiZeroVs.has(k)) AI_ZERO_STATS.repeats++;
+    atk._aiZeroVs.add(k);
+  }
+}
 function _aiUnitDestroysUndeadOnAttack(piece) {
   return !!(piece && (piece.passives || []).includes('behead') &&
     (typeof isPassiveActive !== 'function' || isPassiveActive(piece, 'behead')));
@@ -9628,6 +9775,7 @@ function aiWrathDeduction(room, ownerIdx, brain) {
 }
 
 function aiProcessAttackResult(brain, atkCells, hitResults, attackPiece) {
+  try { aiLearnZeroHits(attackPiece, hitResults, brain); } catch (e) {}   // ★ 0 데미지 조합·칸 기억(반복 금지)
   const _sz = brain.probMap.length;
   for (const cell of atkCells) {
     // OOB 방어 — 실게임 atkCells 는 항상 보드 내(getAttackCells 클리핑)지만 안전망.
@@ -10108,14 +10256,22 @@ function aiScoreAttack(brain, piece, room, extra) {
   const _undeadCells = _canBehead ? null : new Set(
     aiKnownEnemies(room, 1).filter(e => e.marked && e.piece && e.piece.type === 'undead')
       .map(e => `${e.col},${e.row}`));
+  // ★ 0 데미지 전투 회피 — 확정 위치 적은 개별 예측, 숨은 적 칸은 '피해 줄 수 있는 적 비율'만큼만 가치.
+  const _zi = aiZeroInfo(room, 1, piece);
+  let _anyDamageable = false;
   for (const cell of cells) {
     if (inBounds(cell.col, cell.row, bounds)) {
-      if (_cultSkip && _cultSkip.has(`${cell.col},${cell.row}`)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
-      if (_undeadCells && _undeadCells.has(`${cell.col},${cell.row}`)) continue;   // ★ 확인된 언데드 칸 = 무가치
-      const p = brain.probMap[cell.row][cell.col];
+      const _k = `${cell.col},${cell.row}`;
+      if (_cultSkip && _cultSkip.has(_k)) continue;   // 이교도 공격자: 이단자 칸은 가치 0
+      if (_undeadCells && _undeadCells.has(_k)) continue;   // ★ 확인된 언데드 칸 = 무가치
+      if (_zi.knownZero.has(_k) && !_zi.knownDmg.has(_k)) continue;   // ★ 0 데미지만 나는 확정 칸 = 무가치
+      if (_zi.knownDmg.has(_k)) _anyDamageable = true;
+      else if (_zi.nz > 0) _anyDamageable = true;
+      const p = brain.probMap[cell.row][cell.col] * (_zi.knownDmg.has(_k) ? 1 : _zi.nz);
       sum += p; if (p > best) best = p;
     }
   }
+  if (!_anyDamageable) return -Infinity;   // ★ 이 공격으로는 누구에게도 피해를 줄 수 없음 → 절대 금지
   // ★ 공격 커밋 가중(attackAggro) — 팀 버전과 동일. probMap best(0~10) 를 이동 보너스(도주/접근) 스케일과
   //   겨루게 상향 → 사거리 내 확신 칸이 있으면 접근/도주 대신 실제 공격을 택함(날카로운 예측 공격).
   const _Wa = (brain && brain._weights) || AI_WEIGHTS;
@@ -11224,6 +11380,7 @@ function aiMultiHitResponse(room, ownerIdx, brain) {
     for (const p of player.pieces) {   // (a) 제자리 추정칸 타격 + effAtk≥killHP = 확정 처치
       if (!p.alive || p.type === 'cavalry') continue;
       if (_effectiveAtkForAi(p, room, ownerIdx) < killHP) continue;
+      if (!plausibleAttackers.some(ep => aiPredictDamage(room, ownerIdx, p, ep) > 0)) continue;   // ★ 0 데미지 반격 금지
       const ex = p.toggleState ? { toggleState: p.toggleState } : {};
       let cs; try { cs = getAttackCells(p.type, p.col, p.row, bounds, ex); } catch (e) { continue; }
       if (cs.some(c => estSet.has(`${c.col},${c.row}`))) { counterAttack = { kind: 'attack', pieceIdx: player.pieces.indexOf(p), extra: ex }; break; }
@@ -11850,6 +12007,7 @@ function aiTakeTurn(room) {
       for (const piece of alivePieces) {
         if (piece.type === 'cavalry' || _SINGLE.has(piece.type)) continue;
         if (_effectiveAtkForAi(piece, room, 1) <= 0) continue;
+        if (aiNonZeroFrac(room, 1, piece) <= 0) continue;   // ★ 숨은 적 누구에게도 0 데미지 → 색적 공격 금지
         // ※ danger 로 제외하지 않는다: 색적은 '단서 0'일 때만 발동하므로 이 시점 dangerMap 은 전부
         //   투기적(균일 믿음 기반). 실제 위협이 있으면 표식/확정명중이 생겨 _hasClue=true 로 색적이 꺼짐.
         //   → 넓은 색적 유닛이 중앙(투기적 danger 높음)이라고 배제하면 색적 취지가 무너짐(사용자 지시).
@@ -12020,7 +12178,7 @@ function aiRunTroopAttack(room, ownerIdx, generalIdx) {
     let stepCells = null, stepHits = null, stepType = p.type;
     if (p.type === 'cavalry') {
       const d = bestCavalryDash(room, ownerIdx, p);
-      if (d) { const r = doCavalryDash(room, ownerIdx, ui, d.col, d.row); if (r && r.ok) { stepCells = (r.dash?.pathCells || []).slice(); stepHits = (r.hits || []).slice(); } }
+      if (d) { const r = doCavalryDash(room, ownerIdx, ui, d.col, d.row); if (r && r.ok) { stepCells = (r.dash?.pathCells || []).slice(); stepHits = (r.hits || []).slice(); try { aiProcessAttackResult(brain, stepCells, stepHits, p); } catch (e) {} } }
     } else {
       let extra = { toggleState: p.toggleState, growth: p._rangeGrowth || 0, growthArms: p._growthArms };
       if (p.type === 'catapult') { const bc = _believedBest(); if (!bc) continue; extra = { tCol: bc.col, tRow: bc.row }; }
@@ -15350,6 +15508,8 @@ module.exports = {
   doCavalryDash, processRemainsHits, tickActorPoison, getAllyIndices, addStatus,
   // ★ 지속 피해 페이즈(중독·저주) 검증용
   runDotPhase, runDotPhaseSync, estimateDotPhaseMs,
+  // ★ AI 0 데미지 회피 검증용
+  aiPredictDamage, aiNonZeroFrac, AI_ZERO_STATS, bestCavalryDash,
   // ★ 게임 시작 안내 페이즈 검증용
   initPatronBonus, initUndeadState, buildSetupAnnouncements,
   // ★ 스킬 실행 검증용
